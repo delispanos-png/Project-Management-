@@ -60,7 +60,7 @@
     {include file="$template/includes/head.tpl"}
 	{$headoutput}
     </head>
-    <body id="layout01" data-phone-cc-input="{$phoneNumberInputStyle}">
+    <body id="layout01"{if $loggedin && $templatefile != 'homepage' && $templatefile != 'products' && $templatefile != 'viewcart'} class="hz-portal"{/if} data-phone-cc-input="{$phoneNumberInputStyle}">
     <a class="hz-skip-link" href="#main-content">{$LANG.hzSkipToContent}</a>
     <img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/img/bgbody.svg" id="bgbody" alt="">
     {$headeroutput}

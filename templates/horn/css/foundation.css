@@ -409,3 +409,80 @@ select.form-control { border-radius: 70px; }
 
 /* Domain status badge — expired. */
 .hz-badge--expired{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}.hz-badge--expired .hz-dot{background:var(--bad)}
+
+/* ==========================================================================
+   R8 — Consistent polish across ALL logged-in portal pages
+   Scope: body.hz-portal (client area / support / account — dark theme).
+   One global layer so every secondary page matches Dashboard 2.0 without
+   editing ~46 templates. Contrast kept AA (light text on dark surfaces).
+   ========================================================================== */
+
+/* -- Page-title bar: bright-blue block → modern navy card -------------- */
+.hz-portal .header-lined{
+  background:linear-gradient(135deg,#0e2c49,#0b2740)!important;
+  border:1px solid rgba(127,208,255,.12)!important;
+  border-left:4px solid #0097e4!important;
+  border-radius:14px!important;
+  padding:18px 24px!important;
+  box-shadow:0 4px 18px rgba(3,16,30,.30)!important;
+  margin-bottom:22px!important;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+}
+.hz-portal .header-lined h1{
+  color:#eaf3fb!important;font-weight:700!important;font-size:23px!important;
+  letter-spacing:-.01em;margin:0!important;line-height:1.25;
+}
+.hz-portal .header-lined h1 small{color:#9fb6c9!important;font-size:14px!important;font-weight:400;}
+
+/* -- Form controls: pill → modern rounded, visible border, brand focus - */
+.hz-portal .form-control,
+.hz-portal select.form-control,
+.hz-portal textarea,
+.hz-portal input[type=text],
+.hz-portal input[type=email],
+.hz-portal input[type=password],
+.hz-portal input[type=number],
+.hz-portal input[type=tel]{
+  border-radius:10px!important;
+  background:#18293a!important;
+  border:1px solid rgba(146,180,209,.22)!important;
+  color:#eef5fb!important;
+  box-shadow:none!important;
+}
+.hz-portal .form-control::placeholder{color:#8aa0b4!important;}
+.hz-portal .form-control:focus,
+.hz-portal select.form-control:focus,
+.hz-portal textarea:focus,
+.hz-portal input:focus{
+  border-color:#0097e4!important;
+  box-shadow:0 0 0 3px rgba(0,151,228,.22)!important;
+  background:#1d2f40!important;color:#fff!important;outline:none!important;
+}
+.hz-portal label,.hz-portal .control-label{color:#c3d3e2!important;font-weight:600!important;}
+
+/* -- Panels / wells → cards ------------------------------------------- */
+.hz-portal .panel,.hz-portal .well{
+  background:#122130!important;
+  border:1px solid rgba(146,180,209,.14)!important;
+  border-radius:14px!important;
+  box-shadow:0 2px 12px rgba(3,16,30,.22)!important;
+}
+.hz-portal .panel-heading{
+  background:transparent!important;
+  border-bottom:1px solid rgba(146,180,209,.14)!important;
+  color:#eaf3fb!important;font-weight:700!important;
+  border-radius:14px 14px 0 0!important;
+}
+.hz-portal .panel-title{color:#eaf3fb!important;}
+
+/* -- Buttons: readable success/danger actions ------------------------- */
+.hz-portal .btn-success{background:#1f9d57!important;border-color:#1f9d57!important;color:#fff!important;}
+.hz-portal .btn-success:hover{background:#1a8a4c!important;border-color:#1a8a4c!important;}
+.hz-portal .btn-danger{background:#cf4a3e!important;border-color:#cf4a3e!important;color:#fff!important;}
+.hz-portal .btn-danger:hover{background:#b93f34!important;border-color:#b93f34!important;}
+
+/* -- Tables: cleaner rows on dark ------------------------------------- */
+.hz-portal .table{color:#dbe6f0!important;}
+.hz-portal .table>thead>tr>th{border-bottom:1px solid rgba(146,180,209,.20)!important;color:#9fb6c9!important;}
+.hz-portal .table>tbody>tr>td,
+.hz-portal .table>tbody>tr>th{border-top:1px solid rgba(146,180,209,.10)!important;vertical-align:middle;}
