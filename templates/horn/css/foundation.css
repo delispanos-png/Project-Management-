@@ -486,3 +486,28 @@ select.form-control { border-radius: 70px; }
 .hz-portal .table>thead>tr>th{border-bottom:1px solid rgba(146,180,209,.20)!important;color:#9fb6c9!important;}
 .hz-portal .table>tbody>tr>td,
 .hz-portal .table>tbody>tr>th{border-top:1px solid rgba(146,180,209,.10)!important;vertical-align:middle;}
+
+/* -- R8.1 — product-details overview: green date-pills → clean rows ---- */
+.hz-portal .overview-box.products-details{
+  background:#122130!important;border:1px solid rgba(146,180,209,.14)!important;
+  border-radius:14px!important;padding:6px 20px!important;text-align:left!important;
+  box-shadow:0 2px 12px rgba(3,16,30,.22)!important;
+}
+.hz-portal .overview-box.products-details span{
+  display:flex!important;align-items:center;justify-content:space-between;gap:14px;
+  padding:13px 2px!important;border-bottom:1px solid rgba(146,180,209,.10)!important;
+  color:#9fb6c9!important;font-size:14px!important;text-align:left!important;
+}
+.hz-portal .overview-box.products-details span:last-child{border-bottom:none!important;}
+.hz-portal .overview-box.products-details strong{
+  background:none!important;color:#eef5fb!important;font-weight:600!important;
+  padding:0!important;border-radius:0!important;font-size:14px!important;display:inline!important;
+  box-shadow:none!important;
+}
+/* Service hero card + status badge polish */
+.hz-portal .product-overbox{border-radius:16px!important;overflow:hidden;}
+.hz-portal .product-status-text{letter-spacing:.04em;font-weight:700!important;}
+/* Ticket list: readable subject/number on dark */
+.hz-portal .table-list .ticket-subject{color:#eef5fb!important;font-weight:600!important;}
+.hz-portal .table-list .ticket-number{color:#8aa0b4!important;}
+.hz-portal .table-list .ticket-subject.unread{color:#fff!important;}
