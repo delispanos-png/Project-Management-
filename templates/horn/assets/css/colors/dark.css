@@ -1,0 +1,242 @@
+/*------------------------------------------------------------------
+ * Pink Color Skin
+ -------------------------------------------------------------------*/
+
+/* Pure Dark */
+svg #svg-concept {
+    stroke:#212529;
+}
+svg .bgbody1 {
+    fill: #212529;
+}
+.bg-tuscanytheme {
+    background-color: #212529;
+}
+.bg-puretheme {
+    background-color: #212529;
+}
+.c-puretheme {
+    color: #212529 !important;
+}
+.btn-puretheme {
+    background-color: #212529 !important;
+}
+.btn-puretheme:hover {
+    background-color: #f2bbbf !important;
+}
+.popover {
+    border: solid 1px #212529;
+}
+.popover.left .arrow {
+    border-left-color: #212529;
+}
+.popover.right .arrow {
+    border-right-color: #212529;
+}
+.popover .arrow::before {
+    border-top-color: #212529;
+}
+.popover .popover-header{
+    background-color: #212529;
+}
+.domains-search .ds-content .btn-search{
+    background-color: #212529;
+}
+.domain-previw-box .overview-box span i {
+    background-color: #212529;
+}
+.kb-rate-article h6 span i {
+  color: #212529;
+}
+.landing-page .emergency h2.text-danger {
+    color: #212529 !important;
+}
+.login-wrapper .login-form-container {
+  background-color: rgba(108,117,125,0.1);
+}
+::selection {
+    background: #212529;
+}
+.golink {
+    color: #212529 !important;
+    border-bottom: solid 1px #212529;
+}
+.golink:hover {
+    color: #212529 !important;
+}
+body#layout01 .navbar.header {
+    background-color: #212529;
+}
+nav.navbar.default {
+    background-color: #212529;
+}
+.product .plan-content.feature-plan .product-desc {
+    background-color: #212529;
+}
+
+/* Tuscany Dark */
+svg #svg-ico {
+    fill:#343A40;
+}
+.bg-lighttheme {
+    background-color: #343A40 !important;
+}
+svg #svg-tuscanyico {
+    fill:#343A40;
+}
+svg #svg-tuscanyconcept {
+    stroke:#343A40;
+}
+.c-tuscanytheme {
+    color: #343A40 !important;
+}
+.special-note .badge{
+    background-color: #343A40;
+}
+div.header-lined{
+    background-color: #343A40;
+}
+.box-domainnameservers:before {
+    background-color: #343A40;
+}
+.invoice-summary {
+    border: 2px dashed #343A40;
+}
+.landing-page .emergency .fas,
+.landing-page .emergency .far {
+    color: #343A40 !important;
+}
+.product .product-desc {
+  background-color: #343A40;
+}
+body#layout01 .navbar .inner-navbar li > a.active {
+    background: #343A40;
+}
+#order-standard_cart .promo-code-cart-container .form-control,
+#order-standard_cart .promo-code-cart-container .field {
+    background-color: #343A40;
+}
+.landing-page .content-block.plans .plan ul {
+    background-color: #343A40 !important;
+}
+.landing-page .content-block.plans .plan .footer {
+    background-color: #343A40 !important;
+}
+
+/* Light Dark */
+svg #svg-lightico {
+    fill:#6C757D;
+}
+svg #svg-lightconcept {
+    stroke:#6C757D;
+}
+.c-lighttheme {
+    color: #6C757D !important;
+}
+.custom-checkbox .custom-control-input:checked~.custom-control-label::before {
+    background-color: #6C757D;
+}
+.custom-control-input:checked~.custom-control-label::before {
+    background-color: #6C757D;
+}
+.user-quicklinks li a i{
+    background-color: white;
+}
+body#layout01 .navbar-brand {
+    background: #6C757D;
+}
+.box-domainnameservers {
+    background-color: #6C757D;
+}
+#creditCardInputFields {
+    background-color: #6C757D;
+}
+.client-home-panels {
+    background-color: #6C757D;
+}
+.panel-body .input-group .input-group-addon {
+    background-color: #6C757D;
+}
+.domains-dotoday {
+    background-color: #6C757D;
+}
+.table .masspay-total td{
+    background-color: #6C757D;
+}
+.invoice-summary {
+    background-color: #6C757D;
+}
+.loginpage {
+    background-color: rgba(108,117,125,0.1);
+}
+nav.navbar .inner-navbar li.active > a, .navbar .inner-navbar li:focus > a, .navbar .inner-navbar li:hover > a, .navbar .inner-navbar li:hover > a > .icony{
+    color: #6C757D;
+}
+.labelinfo.custom {
+    background: #6C757D !important;
+}
+
+/* Special Dark */
+ svg .bgbody0 {
+    fill: #121416;
+}
+div.header-lined h1 {
+    color: #ADB5BD;
+}
+body#layout01 .logo-content .b-title {
+    color: #212122;
+}
+body#layout01 .navbar .inner-navbar>li .submenu li a.active {
+    background: #e9ecef;
+}
+.news-content:before{
+    background: #e9ecef;
+}
+.domain-pricing .tld-row.highlighted {
+    background: #e9ecef;
+}
+#DomainSearchResults {
+    background-color: #e9ecef;
+}
+a.list-group-item.active:hover {
+    background-color: #e9ecef;
+}
+a.list-group-item.active {
+    background-color: #e9ecef;
+}
+body#layout01 .dropnav-header-lined .dropdown-menu:before {
+  background-color: #e9ecef;
+}
+#order-standard_cart .product-info:after {
+    background-color: #e9ecef;
+}
+.login-content form .form-group .form-control {
+    background-color: #e9ecef;
+}
+.login-content form .form-group .form-control {
+    border-color: #dee2e6 !important;
+}
+.login-content form .form-group i {
+    border-right-color: #dee2e6;
+}
+.table-list>tbody>tr:nth-child(even)>td {
+    background-color: #e9ecef;
+}
+#order-standard_cart .product.addons .form-group select {
+    background-color: #e9ecef;
+}
+.marketing-email-optin {
+    background-color: #e9ecef;
+}
+#order-standard_cart .cc-input-container {
+    background-color: #e9ecef;
+}
+
+button#btnCompleteOrder {
+    background: #005287;
+    border: 1px solid #ffffff66;
+}
+
+label.checkbox-inline a {
+    color: #2e94d1 !important;
+}

@@ -1,0 +1,1 @@
+<p align="center"><b>WS Services Fee for WHMCS</b></p>

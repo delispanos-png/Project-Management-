@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/Page-BCm0Z3wT.js","assets/index-D1YhjK-J.js","assets/index-d4r0KXMF.css","assets/UText.vue_vue_type_script_setup_true_lang-PmSBfa5a.js","assets/CartTotals.vue_vue_type_script_setup_true_lang-B57jWg4M.js"])))=>i.map(i=>d[i]);
+import{_ as e}from"./index-D1YhjK-J.js";const t=[{path:"domains/register",name:"DomainRegister",component:()=>e(()=>import("./Page-BCm0Z3wT.js"),__vite__mapDeps([0,1,2,3,4]))}];export{t as default};

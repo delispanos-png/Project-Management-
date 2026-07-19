@@ -1,0 +1,20 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-gateways",
+  "name": "modirum",
+  "license": "proprietary",
+  "category": "payments",
+  "description": {
+    "name": "Alpha Bank - Nexi",
+    "tagline": "Alpha Bank Nexi credit-debit card payments processing gateway by Webit.bz."
+  },
+  "support": {
+    "docs_url": "https:\/\/www.webit.bz\/whmcs-alpha-bank-commerce-p-324.html"
+  },
+  "authors": [
+    {
+      "name": "Webit.bz",
+      "homepage": "https:\/\/www.webit.bz\/"
+    }
+  ]
+}

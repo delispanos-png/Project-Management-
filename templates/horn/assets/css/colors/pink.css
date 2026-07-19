@@ -1,0 +1,207 @@
+/*------------------------------------------------------------------
+ * Pink Color Skin
+ -------------------------------------------------------------------*/
+
+/* Pure Pink */
+svg #svg-ico {
+    fill:#F7B2B4;
+}
+svg #svg-concept {
+    stroke:#F7B2B4;
+}
+.bg-puretheme {
+    background-color: #F7B2B4 !important;
+}
+.c-puretheme {
+    color: #F7B2B4 !important;
+}
+.btn-puretheme {
+    background-color: #F7B2B4 !important;
+}
+.btn-puretheme:hover {
+    background-color: #f2bbbf !important;
+}
+.popover {
+    border: solid 1px #F7B2B4;
+}
+.popover.left .arrow {
+    border-left-color: #F7B2B4;
+}
+.popover.right .arrow {
+    border-right-color: #F7B2B4;
+}
+.popover .arrow::before {
+    border-top-color: #F7B2B4;
+}
+.popover .popover-header{
+    background-color: #F7B2B4;
+}
+.labelinfo.custom {
+    background: #F7B2B4 !important;
+}
+.domains-search .ds-content .btn-search{
+    background-color: #F7B2B4;
+}
+.domain-previw-box .overview-box span i {
+    background-color: #F7B2B4;
+}
+.kb-rate-article h6 span i {
+    color: #F7B2B4;
+}
+.landing-page .emergency h2.text-danger {
+    color: #F7B2B4 !important;
+}
+.login-wrapper .login-form-container {
+    background-color: rgba(247,178,180,0.1);
+}
+::selection {
+    background: #F7B2B4;
+}
+.golink {
+    color: #F7B2B4 !important;
+    border-bottom: solid 1px #F7B2B4;
+}
+.golink:hover {
+    color: #F7B2B4 !important;
+}
+
+/* Tuscany Pink */
+svg #svg-tuscanyico {
+    fill:#f4e3eb;
+}
+svg #svg-tuscanyconcept {
+    stroke:#f4e3eb;
+}
+.bg-tuscanytheme {
+    background-color: #f4e3eb !important;
+}
+.c-tuscanytheme {
+    color: #f4e3eb !important;
+}
+.special-note .badge{
+    background-color: #f4e3eb !important;
+}
+.login-content form .form-group .form-control {
+    border-color: #f4e3eb !important;
+}
+.login-content form .form-group i {
+    border-right-color: #f4e3eb;
+}
+div.header-lined{
+    background-color: #f4e3eb;
+}
+.product .plan-content.feature-plan .product-desc {
+    background-color: #f4e3eb;
+}
+.box-domainnameservers:before {
+    background-color: #f4e3eb;
+}
+.invoice-summary {
+    border: 2px dashed #f4e3eb;
+}
+.landing-page .emergency .fas,
+.landing-page .emergency .far {
+    color: #f4e3eb !important;
+}
+
+/* Light Pink */
+svg #svg-lightico {
+    fill:#fff2f8;
+}
+svg #svg-lightconcept {
+    stroke:#fff2f8;
+}
+.bg-lighttheme {
+    background-color: #fff2f8 !important;
+}
+.c-lighttheme {
+    color: #fff2f8 !important;
+}
+body#layout01 .navbar .inner-navbar>li .submenu li a.active {
+    background: #fff2f8 !important;
+}
+.news-content:before{
+    background: #fff2f8;
+}
+.login-content form .form-group .form-control {
+    background-color: #fff2f8;
+}
+.custom-checkbox .custom-control-input:checked~.custom-control-label::before {
+    background-color: #fff2f8;
+}
+.custom-control-input:checked~.custom-control-label::before {
+    background-color: #fff2f8;
+}
+.user-quicklinks li a i{
+    background-color: #fff2f8;
+}
+body#layout01 .navbar-brand {
+    background: #fff2f8;
+}
+.domain-pricing .tld-row.highlighted {
+    background: #fff2f8;
+}
+#DomainSearchResults {
+    background-color: #fff2f8;
+}
+a.list-group-item.active {
+    background-color: #fff2f8 !important;
+}
+a.list-group-item.active:hover {
+    background-color: #fff2f8 !important;
+}
+body#layout01 .dropnav-header-lined .dropdown-menu:before {
+  background-color: #fff2f8;
+}
+.product .product-desc {
+  background-color: #fff2f8;
+}
+.table-list>tbody>tr:nth-child(even)>td {
+    background-color: #fff2f8;
+}
+.box-domainnameservers {
+    background-color: #fff2f8;
+}
+#order-standard_cart .product-info:after {
+    background-color: #fff2f8;
+}
+#order-standard_cart .product.addons .form-group select {
+    background-color: #fff2f8;
+}
+#order-standard_cart .promo-code-cart-container .form-control,
+#order-standard_cart .promo-code-cart-container .field {
+    background-color: #fff2f8;
+}
+#order-standard_cart .cc-input-container {
+    background-color: #fff2f8 !important;
+}
+#creditCardInputFields {
+    background-color: #fff2f8;
+}
+.marketing-email-optin {
+    background-color: #fff2f8;
+}
+.client-home-panels {
+    background-color: #fff2f8;
+}
+.panel-body .input-group .input-group-addon {
+    background-color: #fff2f8;
+}
+.domains-dotoday {
+    background-color: #fff2f8;
+}
+.table .masspay-total td{
+    background-color: #fff2f8;
+}
+.invoice-summary {
+    background-color: #fff2f8;
+}
+.loginpage {
+    background-color: rgba(248,178,180,0.1);
+}
+.landing-page .content-block.plans .plan ul {
+    background-color: #fff2f8 !important;
+}
+.landing-page .content-block.plans .plan .footer {
+    background-color: #fff2f8 !important;
+}

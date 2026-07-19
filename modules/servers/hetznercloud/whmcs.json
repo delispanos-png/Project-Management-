@@ -1,0 +1,15 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-servers",
+  "name": "hetznercloud",
+  "license": "proprietary",
+  "category": "vpscloud",
+  "description": {
+    "name": "Cloud Servers",
+    "tagline": "White-label cloud server provisioning & full lifecycle management.",
+    "long": "Provisions and fully manages cloud servers via the Hetzner Cloud API while presenting only your own brand to clients. Pairs with the Hetzner Cloud addon for automatic price/availability sync and import of already-sold services."
+  },
+  "authors": [
+    { "name": "Cloudon" }
+  ]
+}

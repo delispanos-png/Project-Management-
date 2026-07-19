@@ -1,0 +1,96 @@
+// Global
+$primary-bg: #163753;
+
+// Navigation
+$navbar-collapse-min: 1275px;
+
+// Sidebar
+$sidebar-collapse-min: 950px;
+$sidebar-collapse-max: 949px;
+
+//colours
+$black: #000;
+
+// invoice text colours
+$invoice-text-blue: #248;
+$invoice-text-green: #779500;
+$invoice-text-grey: #888;
+$invoice-text-gold: #fb5;
+$invoice-text-orange: #f60;
+$invoice-text-red: #c00;
+
+// scheduled actions colors
+$scheduled-actions-light-blue-900: #005EFF;
+$scheduled-actions-light-blue-300: #99BFFF;
+$scheduled-actions-light-blue-100: #DCE9FF;
+$scheduled-actions-light-blue-50: #F3F7FF;
+$scheduled-actions-mid-blue-900: #0048C4;
+$scheduled-actions-dark-blue-900: #163753;
+
+// AI Suggestions colors
+$ai-primary: #667eea;
+$ai-primary-dark: #5a6fd8;
+$ai-secondary: #764ba2;
+$ai-secondary-dark: #6a4190;
+$ai-purple: #8b5cf6;
+$ai-purple-light: #a855f7;
+$ai-purple-dark: #7c3aed;
+
+$ai-blue: #2196f3;
+$ai-blue-dark: #1976d2;
+$ai-blue-light: #e3f2fd;
+$ai-blue-border: #90caf9;
+
+$ai-success: #28a745;
+$ai-success-light: #d4edda;
+$ai-danger: #dc3545;
+$ai-danger-light: #f8d7da;
+$ai-warning: #f0ad4e;
+$ai-warning-light: #fff3cd;
+
+$ai-gray-light: #f8f9fa;
+$ai-gray-border: #ddd;
+$ai-gray-text: #6c757d;
+$ai-gray-disabled: #a1a1aa;
+
+$ai-white: #ffffff;
+$ai-black: rgba(0, 0, 0, 0.87);
+$ai-text-secondary: rgba(0, 0, 0, 0.6);
+
+$ai-star-color: #ffc107;
+
+// AI Suggestions spacing
+$ai-spacing-xs: 4px;
+$ai-spacing-sm: 8px;
+$ai-spacing-md: 12px;
+$ai-spacing-lg: 16px;
+$ai-spacing-xl: 20px;
+$ai-spacing-xxl: 25px;
+
+// AI Suggestions borders and radius
+$ai-border-radius: 4px;
+$ai-border-radius-lg: 6px;
+$ai-border-radius-xl: 16px;
+$ai-border-width: 1px;
+$ai-border-width-lg: 2px;
+
+// AI Suggestions typography
+$ai-font-size-xs: 11px;
+$ai-font-size-sm: 12px;
+$ai-font-size-base: 13px;
+$ai-font-size-md: 14px;
+$ai-font-size-lg: 16px;
+$ai-font-size-xl: 20px;
+
+$ai-font-weight-normal: 400;
+$ai-font-weight-medium: 500;
+$ai-font-weight-semibold: 600;
+$ai-font-weight-bold: 700;
+
+// AI Suggestions transitions
+$ai-transition-fast: 0.2s ease;
+$ai-transition-base: 0.3s ease;
+$ai-transition-slow: 0.5s ease;
+
+// AI Suggestions z-index
+$ai-z-overlay: 1000;

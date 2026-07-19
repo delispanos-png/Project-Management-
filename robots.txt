@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+Disallow: /cart.php
+Disallow: /clientarea.php
+Disallow: /login
+Disallow: /dologin.php
+Disallow: /register.php
+Disallow: /pwreset.php
+Disallow: /viewinvoice.php
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /vendor/
+Disallow: /modules/
+Disallow: /*?language=
+
+Sitemap: https://my.cloudon.gr/sitemap.xml

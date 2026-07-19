@@ -1,0 +1,13 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-servers",
+  "name": "hetznerstorage",
+  "license": "proprietary",
+  "category": "storage",
+  "description": {
+    "name": "Storage Box",
+    "tagline": "White-label managed storage boxes.",
+    "long": "Provisions and manages storage boxes via the Hetzner Cloud API, fully white-label. Shares the API token and branding of the Hetzner Cloud addon."
+  },
+  "authors": [ { "name": "Cloudon" } ]
+}

@@ -1,0 +1,101 @@
+/*
+ * Custom CSS for Nexus Cart Orderform
+ *
+ * This file allows you to customize the theme colors and styles for the Nexus Cart orderform.
+ *
+ * To customize colors:
+ * - Replace the var() references with your own hex colors or other CSS values.
+ * - For example, instead of --vl-primary: var(--zinc-900); use --vl-primary: #your-color;
+ * - You can also override any CSS properties here.
+ *
+ * Note: Changes here will apply to the orderform's Shadow DOM.
+ */
+
+/* Add you custom styles here */
+:host, :root {
+    /* Primary colors */
+    --vl-primary: var(--primary);
+    --vl-primary-lifted: var(--primary-lifted);
+    --vl-primary-accented: var(--primary-accented);
+
+    /* Secondary colors */
+    --vl-secondary: var(--secondary);
+    --vl-secondary-lifted: var(--secondary-lifted);
+    --vl-secondary-accented: var(--secondary-accented);
+
+    /* Success colors */
+    --vl-success: var(--success);
+    --vl-success-lifted: var(--success-lifted);
+    --vl-success-accented: var(--success-accented);
+
+    /* Info colors */
+    --vl-info: var(--info);
+    --vl-info-lifted: var(--info-lifted);
+    --vl-info-accented: var(--info-accented);
+
+    /* Notice colors */
+    --vl-notice: var(--notice);
+    --vl-notice-lifted: var(--notice-lifted);
+    --vl-notice-accented: var(--notice-accented);
+
+    /* Warning colors */
+    --vl-warning: var(--warning);
+    --vl-warning-lifted: var(--warning-lifted);
+    --vl-warning-accented: var(--warning-accented);
+
+    /* Error colors */
+    --vl-error: var(--error);
+    --vl-error-lifted: var(--error-lifted);
+    --vl-error-accented: var(--error-accented);
+
+    /* Grayscale colors */
+    --vl-grayscale: var(--grayscale);
+    --vl-grayscale-lifted: var(--grayscale-lifted);
+    --vl-grayscale-accented: var(--grayscale-accented);
+
+    /* Neutral colors */
+    --vl-neutral: var(--neutral);
+    --vl-neutral-lifted: var(--neutral-lifted);
+    --vl-neutral-accented: var(--neutral-accented);
+
+    /* Text neutral colors */
+    --vl-text-inverted: var(--text-inverted);
+    --vl-text-muted: var(--text-muted);
+    --vl-text-lifted: var(--text-lifted);
+    --vl-text-accented: var(--text-accented);
+    --vl-text: var(--text);
+
+    /* Border neutral colors */
+    --vl-border-muted: var(--border-muted);
+    --vl-border: var(--border);
+    --vl-border-lifted: var(--border-lifted);
+    --vl-border-accented: var(--border-accented);
+
+    /* Background neutral colors */
+    --vl-bg: var(--bg);
+    --vl-bg-muted: var(--bg-muted);
+    --vl-bg-lifted: var(--bg-lifted);
+    --vl-bg-accented: var(--bg-accented);
+    --vl-bg-inverted: var(--bg-inverted);
+
+    /* Additional custom properties */
+    /* Font Sizes */
+    --vl-text-xs: var(--text-xs);
+    --vl-text-sm: var(--text-sm);
+    --vl-text-md: var(--text-md);
+    --vl-text-lg: var(--text-lg);
+
+    /* Spacing */
+    --vl-outline-sm: var(--outline-sm);
+    --vl-outline-md: var(--outline-md);
+    --vl-outline-lg: var(--outline-lg);
+
+    /* Rounding */
+    --vl-rounding-sm: var(--rounding-sm);
+    --vl-rounding-md: var(--rounding-md);
+    --vl-rounding-lg: var(--rounding-lg);
+
+    /* Other */
+    --vl-letter-spacing: var(--letter-spacing);
+    --vl-disabled-opacity: var(--disabled-opacity);
+}

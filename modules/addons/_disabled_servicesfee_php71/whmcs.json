@@ -1,0 +1,33 @@
+{
+  "schema": "1.0",
+  "type": "ws-gateways",
+  "name": "servicesfee",
+  "version": "3.3.4",
+  "license": "proprietary",
+  "category": "payments",
+  "description": {
+    "name": "Services Fee",
+    "tagline": "Transfer the fees to your customer.",
+    "long": "With this module, is a must-have module which will allow you to charge additional fees you can translate the fees for your customers. It will be a one-time setup fee/service charge. You don't need to pay the fee anymore because your customers will pay the fee. You have the option to charge an additional fee for each customer's country because difference gateway company doesn't charge the same amount in all countries.",
+    "features": [
+      "Fees are added automatically to your customer WHMCS invoice",
+	  "It works as hook when the customer selects the gateways that have the fees",
+	  "You have the option to add the fees you want based on your payment method",
+	  "Billing Type: Standard - Exclusive Charger or PayPal- Inclusive Charger",
+	  "And More"
+    ]
+  },
+  "logo": {
+    "filename": "logo.jpg"
+  },
+  "support": {
+    "docs_url": "https:\/\/whmcsservices.community\/forumdisplay.php?fid=48",
+	"learn_more": "https:\/\/www.whmcsservices.com\/servicesfee.php"
+  },
+  "authors": [
+    {
+      "name": "WHMCS Services",
+      "homepage": "https:\/\/www.whmcsservices.com\/"
+    }
+  ]
+}

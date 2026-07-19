@@ -1,0 +1,113 @@
+{if !$loggedin}
+<div class="nav-menu-title"><span>{$LANG.clientareanavservices}</span></div>
+<li data-username="Home" class="nav-item">
+	<a href="{$WEB_ROOT}/"><span class="icony"> <img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/home.svg" alt=""></span><span class="sideinfo">{$LANG.clientareanavhome}</span></a>
+</li>
+{/if}
+{if $loggedin}
+<div class="nav-menu-title"><span>{$LANG.clientareanavservices}</span></div>
+<li data-username="Home" class="nav-item">
+	<a href="{$WEB_ROOT}/clientarea.php"><span class="icony"> <img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/home.svg" alt=""></span><span class="sideinfo">{$LANG.clientareanavhome}</span></a>
+</li>
+<li data-username="Services" class="nav-item hasmenu">
+	<a><span class="icony"> <img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/user.svg" alt=""></span><span class="sideinfo">{$LANG.navservices}</span></a>
+	<ul class="submenu">
+		<li><a href="{$WEB_ROOT}/clientarea.php?action=services">{$LANG.clientareanavservices}</a></li>
+		<li><a class="svg" href="{$WEB_ROOT}/cart.php">{$LANG.navservicesorder}</a></li>
+		<li><a href="{$WEB_ROOT}/cart.php?gid=addons">{$LANG.clientareaviewaddons}</a></li>
+	</ul>
+</li>
+{/if}
+{if $loggedin}
+<li data-username="store" class="nav-item hasmenu">
+	<a><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/credit-card.svg" ></span><span class="sideinfo">{$LANG.navbilling}</span></a>
+	<ul class="submenu">
+		<li><a href="{$WEB_ROOT}/clientarea.php?action=invoices">{$LANG.invoices}</a></li>
+		<li><a href="{$WEB_ROOT}/clientarea.php?action=quotes">{$LANG.quotestitle}</a></li>
+		<li><a href="{$WEB_ROOT}/clientarea.php?action=masspay&all=true">{$LANG.masspaytitle}</a></li>
+	</ul>
+</li>
+{/if}
+{if !$loggedin}
+<li data-username="store" class="nav-item hasmenu">
+	<a><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/cloud.svg" ></span><span class="sideinfo">Servers</span> </span><span class="labelinfo">{$LANG.top}</span></a>
+	
+	<ul class="submenu">
+		<li><a href="{$WEB_ROOT}/store/vmware-virtual-servers">Virtual Servers GR</a></li>
+		<li><a href="{$WEB_ROOT}/store/kvm-virtual-servers">Virtual Servers DE</a></li>
+		<li><a href="{$WEB_ROOT}/store/virtual-servers-location-in-germany">Virtual Servers DE <br>Container Resources</a></li>
+		<li><a href="{$WEB_ROOT}/store/cloudon-storage">Cloud On Storage</a></li>
+		<li><a href="{$WEB_ROOT}/store/web-hosting">Web Hosting</a></li>
+		<li><a href="{$WEB_ROOT}/store/collocation">Collocation</a></li>
+		{*<li><a href="{$WEB_ROOT}/cart.php">{$LANG.navBrowseProductsServices}</a></li>
+		{foreach from=$productgroups item=productgroup}
+		<li><a href="{$WEB_ROOT}/cart.php?gid={$productgroup.gid}">{$productgroup.name}</a></li>
+		{/foreach}*}
+		{*{if $loggedin}
+		<li><a href="{$WEB_ROOT}/cart.php?gid=addons">{$LANG.cartproductaddons}</a></li>
+		{/if}*}
+		{*{if $loggedin && $renewalsenabled}
+		<li><a href="{$WEB_ROOT}/cart.php?gid=renewals">{$LANG.domainrenewals}</a></li>
+		{/if}*}
+		{if $registerdomainenabled}
+		<li><a href="{$WEB_ROOT}/cart.php?a=add&domain=register">{$LANG.navregisterdomain}</a></li>
+		{/if}
+		{if $transferdomainenabled}
+		<li><a href="{$WEB_ROOT}/cart.php?a=add&domain=transfer">{$LANG.transferinadomain}</a></li>
+		{/if}
+	</ul>
+</li>
+<li data-username="store" class="nav-item">
+	<a href="{$WEB_ROOT}/store/voip-services"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/message-content.svg" ></span><span class="sideinfo">Voip Services</span></a>
+</li>
+<li data-username="store" class="nav-item">
+	<a href="{$WEB_ROOT}/store/3cx-ip-pbx-standard-edition"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/globel.svg" ></span><span class="sideinfo">3CX IP PBX</span></a>
+</li>
+{/if}
+{*
+<li data-username="domains" class="nav-item hasmenu">
+	<a><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/globel.svg" ></span><span class="sideinfo">{$LANG.cartproductdomain}</span> </a>
+	<ul class="submenu">
+		<li><a href="{$WEB_ROOT}/clientarea.php?action=domains">{$LANG.clientareanavdomains}</a></li>
+		{if $renewalsenabled}
+		<li><a href="{$WEB_ROOT}/cart.php?gid=renewals">{$LANG.domainrenewals}</a></li>
+		{/if}
+		{if $registerdomainenabled}
+		<li><a href="{$WEB_ROOT}/cart.php?a=add&domain=register">{$LANG.navregisterdomain}</a></li>
+		{/if}
+		{if $transferdomainenabled}
+		<li><a href="{$WEB_ROOT}/cart.php?a=add&domain=transfer">{$LANG.transferinadomain}</a></li>
+		{/if}
+		<li><a href="{$WEB_ROOT}/cart.php?a=add&domain=register">{$LANG.navdomainsearch}</a></li>
+	</ul>
+</li>
+*}
+<li data-username="Home" class="nav-item">
+	<a href="{$WEB_ROOT}/affiliates.php"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/users.svg" ></span><span class="sideinfo">{$LANG.affiliatestitle}</span> <span class="labelinfo custom">{$LANG.domainCheckerSalesGroup.new}</span></a>
+</li>
+<div class="nav-menu-title"><span>{$LANG.navsupport}</span></div>
+<li data-username="support" class="nav-item hasmenu">
+	<a><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/helpdesk.svg" ></span><span class="sideinfo">{$LANG.navsupport}</span></a>
+	<ul class="submenu">
+		<li><a href="{$WEB_ROOT}/supporttickets.php">{$LANG.navtickets}</a></li>
+		<li><a href="{$WEB_ROOT}/submitticket.php">{$LANG.navopenticket}</a></li>
+	</ul>
+</li>
+<li data-username="announcements" class="nav-item">
+	<a href="{$WEB_ROOT}/announcements.php"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/announcements.svg" ></span><span class="sideinfo">{$LANG.announcementstitle}</span></a>
+</li>
+<li data-username="knowledgebase" class="nav-item">
+	<a href="{$WEB_ROOT}/knowledgebase.php"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/file-text.svg" ></span><span class="sideinfo">{$LANG.knowledgebasetitle}</span></a>
+</li>
+<li data-username="Network" class="nav-item">
+	<a href="{$WEB_ROOT}/serverstatus.php"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/pie-chart.svg" ></span><span class="sideinfo">{$LANG.networkstatustitle}</span></a>
+</li>
+<div class="nav-menu-title"><span>{$LANG.contactus}</span></div>
+<li data-username="contact" class="nav-item">
+	<a href="{$WEB_ROOT}/contact.php"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/mail.svg" ></span><span class="sideinfo">{$LANG.contactus}</span></a>
+</li>
+{if !$loggedin}
+<li data-username="register" class="nav-item">
+	<a href="{$WEB_ROOT}/register.php"><span class="icony"><img class="svg" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/unlock.svg" ></span><span class="sideinfo">{$LANG.register}</span></a>
+</li>
+{/if}

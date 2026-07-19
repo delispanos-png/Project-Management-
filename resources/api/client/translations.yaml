@@ -1,0 +1,60 @@
+openapi: 3.0.0
+info:
+  title: WHMCS Client Area Translations API
+  description: API endpoints for retrieving client area translation strings for the buyflow SPA.
+  version: 1.0.0
+servers:
+  - url: /
+    description: Public API
+paths:
+  /translations/{language}:
+    get:
+      summary: Get buyflow translations for a specific language
+      description: |
+        Returns a restricted subset of client area translation strings for the NEXUS Buyflow Single Page Application.
+        This endpoint provides translations for cart, order form, and domain-related functionality.
+        Translation parameters are converted from Laravel format (:param) to frontend-friendly format ({param}).
+      operationId: getBuyflowTranslations
+      tags:
+        - Translations
+      parameters:
+        - name: language
+          in: path
+          required: true
+          description: Language code to fetch translations for (e.g., english, spanish, french)
+          schema:
+            type: string
+          example: english
+      responses:
+        '200':
+          description: Buyflow translations for the specified language
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Nested translation keys and values for buyflow components
+                additionalProperties: true
+                example:
+                  addtocart: "Add to Cart"
+                  cart:
+                    applyCreditAmount: "Apply {amount} credit"
+                    availableCreditBalance: "Available Credit Balance: {amount}"
+                  orderForm:
+                    accountSecurity: "Account Security"
+                    billingAddress: "Billing Address"
+                    checkout: "Checkout"
+                    firstName: "First Name"
+                    lastName: "Last Name"
+                  cartchooseproduct: "Choose Product"
+                  emptycart: "Empty Cart"
+                  updatecart: "Update Cart"
+        '404':
+          description: Language not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Language not found"

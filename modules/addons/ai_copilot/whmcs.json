@@ -1,0 +1,33 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-addons",
+  "name": "ai_copilot",
+  "license": "proprietary",
+  "category": "utilities",
+  "description": {
+    "name": "AI Support Copilot",
+    "tagline": "AI-powered assistant for WHMCS Support Agents.",
+    "long": "AI Support Copilot assists WHMCS support agents with AI-generated reply suggestions for support tickets. It leverages the existing knowledge base and past communications to help agents respond faster and more effectively, while tracking activation and configuration events for diagnostics.",
+    "features": [
+      "AI-generated response suggestions for support tickets",
+      "Uses WHMCS Knowledge Base for contextual answers",
+      "Integrated Mixpanel tracking for module lifecycle events"
+    ]
+  },
+  "logo": {
+    "filename": "logo.png"
+  },
+  "authors": [
+    {
+      "name": "WHMCS",
+      "homepage": "https://www.whmcs.com/"
+    }
+  ],
+  "keywords": [
+    "ai",
+    "support",
+    "copilot",
+    "assistant",
+    "tickets"
+  ]
+}

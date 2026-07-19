@@ -1,0 +1,31 @@
+# ── Secrets (NEVER commit) ─────────────────────────────
+/configuration.php
+/.htpasswd
+*.key
+*.pem
+
+# ── Ephemeral: sessions, caches, compiled templates ────
+/phpsessions/
+/templates_c/
+**/templates_c/
+/tpl_cache_k7m2/
+/sys_cron_k7m2/
+*.log
+/logs/
+/attachments/index.php.cache
+
+# ── Third-party / vendor (ionCube-encrypted, not our code)
+/vendor/
+/whmcs/
+
+# ── Customer data / uploads (privacy + size) ───────────
+/attachments/
+/attachmentsnew/
+/downloads/
+/logiscoopFiles/
+
+# ── Build / OS ─────────────────────────────────────────
+node_modules/
+.DS_Store
+Thumbs.db
+*.swp

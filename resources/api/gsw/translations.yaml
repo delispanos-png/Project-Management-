@@ -1,0 +1,147 @@
+openapi: 3.0.0
+info:
+  title: WHMCS Getting Started Wizard API
+  description: API endpoints for the WHMCS Getting Started module
+  version: 1.0.0
+servers:
+  - url: /admin/getting-started
+    description: Admin Getting Started API
+paths:
+  /languages:
+    get:
+      summary: Get all available admin and client languages
+      description: Returns a complete list of all available admin and client interface languages
+      operationId: getAvailableLanguages
+      responses:
+        '200':
+          description: List of available languages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  languages:
+                    type: object
+                    properties:
+                      admin:
+                        type: array
+                        items:
+                          type: string
+                        example: ["arabic", "czech", "dutch", "english", "farsi", "french", "hebrew", "hungarian", "italian", "portuguese-br", "portuguese", "russian", "spanish", "turkish"]
+                      client:
+                        type: array
+                        items:
+                          type: string
+                        example: ["arabic", "czech", "dutch", "english", "farsi", "french", "hebrew", "hungarian", "italian", "portuguese-br", "portuguese", "russian", "spanish", "turkish"]
+  /languages/defaults:
+    get:
+      summary: Get Default admin and client languages
+      description: Returns the currently saved admin and client language preferences
+      operationId: getDefaultLanguages
+      responses:
+        '200':
+          description: Default language preferences
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admin_language:
+                    type: string
+                    description: Default admin language code
+                    example: 'french'
+                  client_language:
+                    type: string
+                    description: Default client language code
+                    example: 'french'
+    put:
+      summary: Save default admin and client languages
+      description: Updates the authenticated admin user's language and the default client language
+      operationId: saveDefaultLanguages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - admin_language
+                - client_language
+              properties:
+                admin_language:
+                  type: string
+                  description: Language code to set as admin preference
+                  example: 'french'
+                client_language:
+                  type: string
+                  description: Language code to set as client default
+                  example: 'french'
+      responses:
+        '200':
+          description: Language preferences successfully saved
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        '422':
+          description: Validation error (invalid language)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+                    example:
+                      admin_language: [ 'The selected Admin Area language is invalid.' ]
+                      client_language: [ 'The selected default language is invalid.' ]
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Failed to save language preferences'
+  /translations/{language}:
+    get:
+      summary: Get translations for a specific language
+      description: Returns all translations for the specified language
+      operationId: getTranslations
+      parameters:
+        - name: language
+          in: path
+          required: true
+          description: Language code to fetch translations for
+          schema:
+            type: string
+          example: english
+      responses:
+        '200':
+          description: Language translations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  translations:
+                    type: object
+                    description: Nested translation keys and values
+                    additionalProperties: true
+        '404':
+          description: Language not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Language is not found"
