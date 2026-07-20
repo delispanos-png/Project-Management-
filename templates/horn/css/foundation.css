@@ -554,12 +554,12 @@ select.form-control { border-radius: 70px; }
   border:1px solid rgba(146,180,209,.30);background:rgba(146,180,209,.10);color:#c3d3e2!important;
   white-space:nowrap;line-height:1.5;letter-spacing:.01em;
 }
-.hz-portal .label.status.status-Open{background:rgba(31,157,87,.16);border-color:rgba(31,157,87,.55);color:#63d69d!important;}
-.hz-portal .label.status.status-Answered{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
-.hz-portal .label.status.status-Customer-Reply{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
-.hz-portal .label.status.status-In-Progress{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
-.hz-portal .label.status.status-On-Hold{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
-.hz-portal .label.status.status-Closed{background:rgba(146,180,209,.10);border-color:rgba(146,180,209,.28);color:#9fb6c9!important;}
+.hz-portal .label.status.status-open{background:rgba(31,157,87,.16);border-color:rgba(31,157,87,.55);color:#63d69d!important;}
+.hz-portal .label.status.status-answered{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
+.hz-portal .label.status.status-customer-reply{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
+.hz-portal .label.status.status-in-progress{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
+.hz-portal .label.status.status-on-hold{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
+.hz-portal .label.status.status-closed{background:rgba(146,180,209,.10);border-color:rgba(146,180,209,.28);color:#9fb6c9!important;}
 
 /* -- R8.4 — ticket list as MESSAGE cards (rounded, separated, inbox-style) */
 .hz-portal #tableTicketsList{border-collapse:separate!important;border-spacing:0 12px!important;width:100%;}
@@ -599,3 +599,31 @@ select.form-control { border-radius: 70px; }
 .hz-portal #tableTicketsList tbody .ticket-subject{font-size:15px!important;}
 /* time cell muted */
 .hz-portal #tableTicketsList tbody td:last-child{color:#8aa0b4!important;font-size:13px;}
+
+/* -- R8.5 — status-aware avatar icon+color per ticket row -------------- */
+/* (id + status class → higher specificity than the base ::before) */
+.hz-portal #tableTicketsList tbody tr.status-open td:first-child::before{
+  content:"\f2b6";color:#63d69d!important;border-color:rgba(31,157,87,.55)!important;
+  background:linear-gradient(135deg,rgba(31,157,87,.24),rgba(31,157,87,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-answered td:first-child::before{
+  content:"\f3e5";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
+  background:linear-gradient(135deg,rgba(0,151,228,.24),rgba(0,151,228,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-customer-reply td:first-child::before{
+  content:"\f4ad";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
+  background:linear-gradient(135deg,rgba(235,163,52,.24),rgba(235,163,52,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-in-progress td:first-child::before{
+  content:"\f017";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
+  background:linear-gradient(135deg,rgba(0,151,228,.24),rgba(0,151,228,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-on-hold td:first-child::before{
+  content:"\f28b";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
+  background:linear-gradient(135deg,rgba(235,163,52,.24),rgba(235,163,52,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-closed td:first-child::before{
+  content:"\f058";color:#9fb6c9!important;border-color:rgba(146,180,209,.28)!important;
+  background:rgba(146,180,209,.10)!important;}
+/* subtle status-colored left edge on the card (respects the rounded corner) */
+.hz-portal #tableTicketsList tbody tr.status-open td:first-child{box-shadow:inset 4px 0 0 rgba(31,157,87,.85);}
+.hz-portal #tableTicketsList tbody tr.status-answered td:first-child{box-shadow:inset 4px 0 0 rgba(0,151,228,.85);}
+.hz-portal #tableTicketsList tbody tr.status-customer-reply td:first-child{box-shadow:inset 4px 0 0 rgba(235,163,52,.85);}
+.hz-portal #tableTicketsList tbody tr.status-in-progress td:first-child{box-shadow:inset 4px 0 0 rgba(0,151,228,.85);}
+.hz-portal #tableTicketsList tbody tr.status-on-hold td:first-child{box-shadow:inset 4px 0 0 rgba(235,163,52,.85);}
+.hz-portal #tableTicketsList tbody tr.status-closed td:first-child{box-shadow:inset 4px 0 0 rgba(146,180,209,.45);}

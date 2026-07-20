@@ -28,7 +28,7 @@
         </thead>
         <tbody>
             {foreach from=$tickets item=ticket}
-                <tr onclick="window.location='viewticket.php?tid={$ticket.tid}&amp;c={$ticket.c}'">
+                <tr class="hz-ticket-row {if is_null($ticket.statusColor)}status-{$ticket.statusClass}{else}status-custom{/if}" onclick="window.location='viewticket.php?tid={$ticket.tid}&amp;c={$ticket.c}'">
                     <td>
                         {$ticket.department}
                     </td>
