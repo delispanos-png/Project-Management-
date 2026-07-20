@@ -560,3 +560,42 @@ select.form-control { border-radius: 70px; }
 .hz-portal .label.status.status-In-Progress{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
 .hz-portal .label.status.status-On-Hold{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
 .hz-portal .label.status.status-Closed{background:rgba(146,180,209,.10);border-color:rgba(146,180,209,.28);color:#9fb6c9!important;}
+
+/* -- R8.4 — ticket list as MESSAGE cards (rounded, separated, inbox-style) */
+.hz-portal #tableTicketsList{border-collapse:separate!important;border-spacing:0 12px!important;width:100%;}
+/* header → minimal labels, no card */
+.hz-portal #tableTicketsList thead th{
+  background:transparent!important;border:none!important;
+  padding:4px 22px!important;color:#a8b8c7!important;font-size:12px!important;
+  font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+}
+/* each row = a rounded message card */
+.hz-portal #tableTicketsList tbody tr{
+  background:#12212f!important;
+  box-shadow:0 2px 10px rgba(3,16,30,.22);
+  transition:transform .14s ease,box-shadow .14s ease,background .14s ease;
+}
+.hz-portal #tableTicketsList tbody tr:hover{
+  transform:translateY(-2px);background:#16283a!important;
+  box-shadow:0 12px 30px rgba(0,151,228,.16);
+}
+.hz-portal #tableTicketsList tbody td{
+  border:none!important;background:transparent!important;
+  padding:20px 22px!important;vertical-align:middle;
+}
+.hz-portal #tableTicketsList tbody td:first-child{border-radius:18px 0 0 18px;}
+.hz-portal #tableTicketsList tbody td:last-child{border-radius:0 18px 18px 0;}
+/* department cell → small avatar-ish icon + label (message feel) */
+.hz-portal #tableTicketsList tbody td:first-child{color:#9fb6c9!important;font-size:13.5px;font-weight:600;position:relative;padding-left:64px!important;}
+.hz-portal #tableTicketsList tbody td:first-child::before{
+  content:"\f4ad";font-family:"Font Awesome 5 Free";font-weight:900;
+  position:absolute;left:22px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#0e2c49,#0b2740);color:#3fb9ff;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  border:1px solid rgba(0,151,228,.30);
+}
+/* subject block */
+.hz-portal #tableTicketsList tbody .ticket-subject{font-size:15px!important;}
+/* time cell muted */
+.hz-portal #tableTicketsList tbody td:last-child{color:#8aa0b4!important;font-size:13px;}
