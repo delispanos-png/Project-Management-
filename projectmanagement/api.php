@@ -4377,6 +4377,57 @@ case 'lead_task_del':
     Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
+case 'lead_products':                    // γραμμές προϊόντων ενός deal
+    $lid = (int) ($_GET['lead'] ?? $in['lead'] ?? 0);
+    $rows = Capsule::table('mod_cpm_lead_products')->where('lead_id', $lid)->orderBy('id')->get();
+    $items = []; $total = 0.0;
+    foreach ($rows as $r) {
+        $lt = round((float) $r->qty * (float) $r->unit_price, 2);
+        $total += $lt;
+        $items[] = ['id' => (int) $r->id, 'product_id' => $r->product_id ? (int) $r->product_id : null,
+            'name' => $r->name, 'qty' => (float) $r->qty, 'price' => (float) $r->unit_price, 'total' => $lt];
+    }
+    // κατάλογος προϊόντων για επιλογή (name → default τιμή)
+    $catalog = [];
+    foreach (Capsule::table('tblproducts')->where('hidden', 0)->orderBy('name')->get(['id', 'name']) as $p) {
+        $catalog[] = ['id' => (int) $p->id, 'name' => $p->name];
+    }
+    out(['items' => $items, 'total' => round($total, 2), 'catalog' => $catalog]);
+
+case 'lead_product_save':
+    $lid = (int) ($in['lead'] ?? 0);
+    $name = mb_substr(trim($in['name'] ?? ''), 0, 150);
+    if (!$lid || $name === '') { fail('input'); }
+    $data = ['name' => $name, 'product_id' => (int) ($in['product_id'] ?? 0) ?: null,
+        'qty' => max(0, round((float) ($in['qty'] ?? 1), 2)), 'unit_price' => round((float) ($in['price'] ?? 0), 2)];
+    $iid = (int) ($in['id'] ?? 0);
+    if ($iid) {
+        Capsule::table('mod_cpm_lead_products')->where('id', $iid)->update($data);
+    } else {
+        $data['lead_id'] = $lid; $data['created_at'] = date('Y-m-d H:i:s');
+        Capsule::table('mod_cpm_lead_products')->insert($data);
+    }
+    // αυτόματη ενημέρωση αξίας deal = σύνολο γραμμών
+    $sum = 0.0;
+    foreach (Capsule::table('mod_cpm_lead_products')->where('lead_id', $lid)->get(['qty', 'unit_price']) as $r) {
+        $sum += (float) $r->qty * (float) $r->unit_price;
+    }
+    Capsule::table('mod_cpm_leads')->where('id', $lid)->update(['value' => round($sum, 2)]);
+    out(['ok' => true, 'total' => round($sum, 2)]);
+
+case 'lead_product_del':
+    $iid = (int) ($in['id'] ?? 0);
+    $lid = (int) Capsule::table('mod_cpm_lead_products')->where('id', $iid)->value('lead_id');
+    Capsule::table('mod_cpm_lead_products')->where('id', $iid)->delete();
+    if ($lid) {
+        $sum = 0.0;
+        foreach (Capsule::table('mod_cpm_lead_products')->where('lead_id', $lid)->get(['qty', 'unit_price']) as $r) {
+            $sum += (float) $r->qty * (float) $r->unit_price;
+        }
+        Capsule::table('mod_cpm_leads')->where('id', $lid)->update(['value' => round($sum, 2)]);
+    }
+    out(['ok' => true]);
+
 case 'lead_timeline':                    // ενιαίο ιστορικό lead (επικοινωνίες + tasks)
     $lid = (int) ($_GET['lead'] ?? 0);
     $ev = [];

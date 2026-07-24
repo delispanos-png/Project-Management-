@@ -502,6 +502,17 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        if (!$s->hasTable('mod_cpm_lead_products')) {
+            $s->create('mod_cpm_lead_products', function ($t) {
+                $t->increments('id');
+                $t->integer('lead_id')->unsigned()->index();     // CRM γραμμές προϊόντων deal → αυτόματη αξία
+                $t->integer('product_id')->unsigned()->nullable();
+                $t->string('name', 150);
+                $t->decimal('qty', 10, 2)->default(1);
+                $t->decimal('unit_price', 12, 2)->default(0);
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         if (!$s->hasTable('mod_cpm_prefs')) {
             $s->create('mod_cpm_prefs', function ($t) {
                 $t->increments('id');

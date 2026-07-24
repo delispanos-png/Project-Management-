@@ -909,7 +909,9 @@ function openLead(l, d) {
       <textarea class="inp" id="lDescr" rows="4">${esc(l.descr || '')}</textarea>
       <div style="margin-top:13px"><button class="btn btn-p" id="lSave">Αποθήκευση</button></div>
     </div></div>
-    ${!isNew ? `<div class="card"><div class="card-h">${I.puzzle} Επιπλέον στοιχεία</div><div class="card-b" id="lFieldsBox">
+    ${!isNew ? `<div class="card"><div class="card-h">${I.box} Προϊόντα deal <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η αξία ενημερώνεται αυτόματα</span></div>
+      <div class="card-b" id="lProdBox"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
+    <div class="card"><div class="card-h">${I.puzzle} Επιπλέον στοιχεία</div><div class="card-b" id="lFieldsBox">
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
     <div class="card"><div class="card-h">${I.users} Πρόσωπα επαφής</div><div class="card-b" id="lPeopleBox">
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
@@ -970,6 +972,39 @@ async function loadLeadExtras(leadId, dr) {
       toast('Αποθηκεύτηκε');
     });
   }
+  // προϊόντα deal (auto-sum → αξία)
+  const setDealVal = t => { const v = $('#lValue', dr); if (v) v.value = t; };
+  const renderProducts = async () => {
+    const pr = await api('lead_products&lead=' + leadId);
+    const box = $('#lProdBox', dr); if (!box) return;
+    box.innerHTML = (pr.items.length ? pr.items.map(it => `
+      <div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
+        <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(it.name)}</b></div>
+        <span class="mut" style="font-size:11.5px;white-space:nowrap">${it.qty} × ${fmtEur(it.price)}</span>
+        <b style="width:82px;text-align:right">${fmtEur(it.total)}</b>
+        <button class="btn btn-sm btn-o" data-lpdel="${it.id}" style="color:var(--bad)">✕</button></div>`).join('') : '') + `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
+        <input class="inp" id="lpN" list="lpCat" placeholder="προϊόν / υπηρεσία" style="flex:1;min-width:140px">
+        <datalist id="lpCat">${pr.catalog.map(p => `<option data-pid="${p.id}">${esc(p.name)}</option>`).join('')}</datalist>
+        <input class="inp" type="number" id="lpQ" value="1" step="0.5" style="width:66px" title="ποσότητα">
+        <input class="inp" type="number" id="lpP" placeholder="€/τεμ" step="0.01" style="width:96px">
+        <button class="btn btn-p btn-sm" id="lpAdd">+</button></div>
+      ${pr.items.length ? `<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:10px;padding-top:9px;border-top:2px solid var(--line)">
+        <span class="mut" style="font-size:12px">Σύνολο deal:</span><b style="color:var(--ok);font-size:16px">${fmtEur(pr.total)}</b></div>` : ''}`;
+    $('#lpAdd', box).onclick = async () => {
+      const n = $('#lpN', box).value.trim(); if (!n) return;
+      const opt = [...$('#lpCat', box).options].find(o => o.value === n);
+      const r = await api('lead_product_save', {lead: leadId, name: n, product_id: opt ? +opt.dataset.pid : 0,
+        qty: +$('#lpQ', box).value || 1, price: +$('#lpP', box).value || 0});
+      setDealVal(r.total); toast('Προστέθηκε'); renderProducts();
+    };
+    $$('[data-lpdel]', box).forEach(b => b.onclick = async () => {
+      const r = await api('lead_product_del', {id: +b.dataset.lpdel});
+      await renderProducts();
+      const pr2 = await api('lead_products&lead=' + leadId); setDealVal(pr2.total);
+    });
+  };
+  renderProducts();
   // πρόσωπα
   const renderPeople = async () => {
     const pp = await api('people&lead=' + leadId);
