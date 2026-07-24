@@ -437,3 +437,17 @@ table.tbl{width:100%;border-collapse:collapse}
 .shell.collapsed .sitem:hover::after{content:attr(data-lb);position:absolute;left:58px;top:50%;transform:translateY(-50%);
   background:#0e1626;color:#fff;padding:6px 11px;border-radius:9px;font-size:12px;font-weight:600;white-space:nowrap;
   z-index:60;box-shadow:0 6px 18px rgba(0,0,0,.45);pointer-events:none}
+
+/* ═══ Accordion nav groups ═══ */
+button.sgroup{display:flex;align-items:center;width:100%;background:none;border:0;cursor:pointer;
+  color:#586c8f;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  padding:13px 10px 6px;font-family:inherit;transition:color .12s}
+button.sgroup:hover{color:#8ba0c4}
+button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;flex:none}
+.snav-grp.open button.sgroup .chev{transform:rotate(180deg)}
+.snav-items{overflow:hidden;transition:max-height .2s ease}
+.snav-grp:not(.open) .snav-items{max-height:0}
+.snav-grp.open .snav-items{max-height:600px}
+/* όταν το sidebar είναι κλειστό (icons-only): δείξε ΟΛΑ τα εικονίδια, αγνόησε το accordion */
+.shell.collapsed .snav-items{max-height:none!important}
+.shell.collapsed button.sgroup .chev{display:none}

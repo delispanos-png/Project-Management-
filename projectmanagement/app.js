@@ -140,8 +140,19 @@ function renderShell() {
     <aside class="side">
       <div class="brand"><div class="brand-ico">P</div>
         <div class="brand-t">Cloudon<b>Projects</b><small>Project Manager</small></div></div>
-      ${nav.map(([g, items]) => `<div class="sgroup">${g}</div>` +
-        items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}">${ic}<span>${lb}</span></button>`).join('')).join('')}
+      ${(() => {
+        let openSet = null;
+        if (localStorage.cnpNavOpen) { try { openSet = new Set(JSON.parse(localStorage.cnpNavOpen)); } catch (e) {} }
+        return nav.map(([g, items]) => {
+          const hasActive = items.some(([k]) => k === S.view);
+          const open = openSet ? openSet.has(g) : hasActive;   // default: ανοιχτή η ενότητα του τρέχοντος view
+          return `<div class="snav-grp ${open ? 'open' : ''}">
+            <button class="sgroup" data-grptoggle="${esc(g)}">${esc(g)}
+              <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
+            <div class="snav-items">${items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}">${ic}<span>${lb}</span></button>`).join('')}</div>
+          </div>`;
+        }).join('');
+      })()}
       <div class="side-foot">
         <span class="ava" data-profile style="cursor:pointer" title="Το προφίλ μου">${esc(me.ini)}</span>
         <div data-profile style="cursor:pointer" title="Το προφίλ μου"><div class="side-foot-name">${esc(me.name)}</div>
@@ -164,6 +175,10 @@ function renderShell() {
     </div>
   </div>`;
   $$('.sitem').forEach(b => b.onclick = () => go(b.dataset.nav));
+  $$('[data-grptoggle]').forEach(b => b.onclick = () => {
+    b.closest('.snav-grp').classList.toggle('open');
+    localStorage.cnpNavOpen = JSON.stringify($$('.snav-grp.open').map(x => x.querySelector('.sgroup').dataset.grptoggle));
+  });
   $('#sideTgl').onclick = () => {
     const sh = $('.shell'); const col = sh.classList.toggle('collapsed');
     localStorage.cnpSideCollapsed = col ? '1' : '0';
