@@ -1130,6 +1130,8 @@ R.crmov = async function () {
   c.innerHTML = crmTabs('crmov') + skel(4);
   const d = await api('crm_overview');
   const mt = await api('my_crm_tasks').catch(() => ({tasks: []}));
+  const hl = await api('hot_leads').catch(() => ({leads: [], hot: 0, warm: 0, cold: 0}));
+  const tempCol = {hot: '#e0552b', warm: '#e0a020', cold: '#0097e4'};
   const maxC = Math.max(1, ...d.pipe.map(p => p.count));
   const leadRow = l => `<div class="set-row" data-lgo="${l.id}" style="cursor:pointer">
     <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(l.name)}</b>
@@ -1153,6 +1155,16 @@ R.crmov = async function () {
         <div class="mut" style="font-size:11px">${esc(t.leadName)}${t.due ? ` · <span style="${t.overdue ? 'color:var(--bad);font-weight:700' : ''}">έως ${dShort(t.due)}</span>` : ''}${t.who ? ' · ' + esc(t.who) : ''}</div></div>
       ${t.overdue ? `<span class="pill pill-bad" style="font-size:9px">εκπρόθεσμο</span>` : ''}</div>`).join('')
       : '<div class="empty" style="padding:18px">Καμία ανοιχτή εργασία 🎉</div>'}
+    </div></div>
+  <div class="card" style="margin-bottom:16px"><div class="card-h">${I.fire} Θερμότερα leads
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${hl.hot} θερμά · ${hl.warm} χλιαρά · ${hl.cold} ψυχρά</span></div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:2px">
+    ${hl.leads.length ? hl.leads.slice(0, 12).map(l => `<div class="set-row" data-lgo="${l.id}" style="cursor:pointer">
+      <span style="width:34px;height:24px;flex:none;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#fff;background:${tempCol[l.temp]}">${l.score}</span>
+      <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(l.company || l.contact || 'Lead #' + l.id)}</b>
+        <span class="mut" style="font-size:11px">· ${esc(l.stageLbl)}${l.assignee ? ' · ' + esc(adminName(l.assignee)) : ''}</span></div>
+      ${l.value ? `<span class="pill pill-ok">${fmtEur(l.value)}</span>` : ''}</div>`).join('')
+      : '<div class="empty" style="padding:18px">Κανένα ανοιχτό lead</div>'}
     </div></div>
   <div class="card"><div class="card-h">${I.target} Pipeline ανά στάδιο</div><div class="card-b">
     ${d.pipe.map(p => `<div style="display:flex;gap:10px;align-items:center;margin:7px 0">

@@ -909,7 +909,8 @@ function openLead(l, d) {
       <textarea class="inp" id="lDescr" rows="4">${esc(l.descr || '')}</textarea>
       <div style="margin-top:13px"><button class="btn btn-p" id="lSave">Αποθήκευση</button></div>
     </div></div>
-    ${!isNew ? `<div class="card"><div class="card-h">${I.box} Προϊόντα deal <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η αξία ενημερώνεται αυτόματα</span></div>
+    ${!isNew ? `<div class="card" id="lScoreCard"><div class="card-b" id="lScoreBox"><div class="mut" style="font-size:12px">Υπολογισμός βαθμολογίας…</div></div></div>
+    <div class="card"><div class="card-h">${I.box} Προϊόντα deal <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η αξία ενημερώνεται αυτόματα</span></div>
       <div class="card-b" id="lProdBox"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
     <div class="card"><div class="card-h">${I.puzzle} Επιπλέον στοιχεία</div><div class="card-b" id="lFieldsBox">
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
@@ -972,6 +973,35 @@ async function loadLeadExtras(leadId, dr) {
       toast('Αποθηκεύτηκε');
     });
   }
+  // lead score (θερμότητα + ανάλυση παραγόντων)
+  const renderScore = async () => {
+    const box = $('#lScoreBox', dr); if (!box) return;
+    const s = await api('lead_score&lead=' + leadId).catch(() => null);
+    if (!s) { box.innerHTML = ''; return; }
+    const tmap = {hot: ['Θερμό', '#e0552b', I.fire], warm: ['Χλιαρό', '#e0a020', I.snow], cold: ['Ψυχρό', '#0097e4', I.snow]};
+    const [tl, tc, ti] = tmap[s.temp] || tmap.cold;
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:14px">
+      <div style="position:relative;width:64px;height:64px;flex:none">
+        <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="27" fill="none" stroke="var(--line)" stroke-width="7"/>
+          <circle cx="32" cy="32" r="27" fill="none" stroke="${tc}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${2 * Math.PI * 27}" stroke-dashoffset="${2 * Math.PI * 27 * (1 - s.score / 100)}" transform="rotate(-90 32 32)"/></svg>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;color:var(--ink)">${s.score}</div></div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px;font-weight:800;color:${tc};font-size:15px">${ti} ${tl} lead</div>
+        <div class="mut" style="font-size:11.5px;margin-top:2px">Βαθμολογία 0–100 βάσει σταδίου, επαφών & δραστηριότητας</div>
+      </div>
+      <button class="btn btn-o btn-sm" id="lScoreToggle">Ανάλυση</button></div>
+      <div id="lScoreFactors" style="display:none;margin-top:11px;border-top:1px solid var(--line);padding-top:10px">
+        ${s.factors.map(f => `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;opacity:${f.on ? 1 : 0.4}">
+          <span style="width:16px;text-align:center;color:${f.on ? 'var(--ok)' : 'var(--mut)'}">${f.on ? '✓' : '○'}</span>
+          <span style="flex:1">${esc(f.label)}</span>
+          <b style="color:${f.on ? 'var(--ink)' : 'var(--mut)'}">${f.on ? '+' + f.pts : '0'}</b></div>`).join('')}
+      </div>`;
+    const tg = $('#lScoreToggle', box); if (tg) tg.onclick = () => {
+      const fx = $('#lScoreFactors', box); fx.style.display = fx.style.display === 'none' ? 'block' : 'none';
+      tg.textContent = fx.style.display === 'none' ? 'Ανάλυση' : 'Απόκρυψη';
+    };
+  };
+  renderScore();
   // προϊόντα deal (auto-sum → αξία)
   const setDealVal = t => { const v = $('#lValue', dr); if (v) v.value = t; };
   const renderProducts = async () => {

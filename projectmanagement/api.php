@@ -168,6 +168,57 @@ function cnp_admin_areas($adminId, $isFull)
     return $a ?: ['sales', 'support', 'projects'];
 }
 
+/**
+ * Βαθμολογία lead (0-100) με ανάλυση παραγόντων.
+ * $l = record lead, $intCount = πλήθος επικοινωνιών, $lastInt = τελευταία επικοινωνία (datetime|null).
+ * Επιστρέφει ['score'=>int, 'temp'=>'hot|warm|cold', 'factors'=>[['label','pts','on']...]].
+ */
+function cnp_lead_score($l, $intCount, $lastInt)
+{
+    $stageW = ['target' => 5, 'contacted' => 20, 'interested' => 42, 'offer' => 68, 'won' => 100, 'lost' => 0];
+    $factors = [];
+    $add = function ($label, $pts, $on) use (&$factors) { $factors[] = ['label' => $label, 'pts' => $pts, 'on' => (bool) $on]; };
+
+    $sw = $stageW[$l->stage] ?? 5;
+    $add('Στάδιο funnel', $sw, true);
+    $score = $sw;
+
+    $hasEmail = trim($l->email ?? '') !== '';
+    $hasPhone = trim($l->phone ?? '') !== '';
+    $add('Email επαφής', 8, $hasEmail); if ($hasEmail) { $score += 8; }
+    $add('Τηλέφωνο επαφής', 8, $hasPhone); if ($hasPhone) { $score += 8; }
+
+    $hasVal = (float) ($l->value ?? 0) > 0;
+    $add('Εκτιμώμενη αξία', 10, $hasVal); if ($hasVal) { $score += 10; }
+
+    // πρόσφατη δραστηριότητα
+    $recPts = 0; $recLbl = 'Καμία πρόσφατη επαφή';
+    if ($lastInt) {
+        $days = (time() - strtotime($lastInt)) / 86400;
+        if ($days <= 7) { $recPts = 16; $recLbl = 'Επαφή < 7 ημερών'; }
+        elseif ($days <= 30) { $recPts = 9; $recLbl = 'Επαφή < 30 ημερών'; }
+        else { $recPts = 0; $recLbl = 'Χωρίς πρόσφατη επαφή (>30ημ)'; }
+    }
+    $add($recLbl, 16, $recPts > 0); $score += $recPts;
+
+    // όγκος επικοινωνίας
+    $engPts = min(14, (int) $intCount * 3);
+    $add('Εμπλοκή (' . (int) $intCount . ' επικοινωνίες)', 14, $engPts > 0); $score += $engPts;
+
+    // προγραμματισμένη επόμενη ενέργεια
+    $hasNext = !empty($l->next_action);
+    $add('Προγραμματισμένη ενέργεια', 8, $hasNext); if ($hasNext) { $score += 8; }
+
+    // ποιότητα πηγής
+    $src = mb_strtolower(trim($l->source ?? ''));
+    $goodSrc = $src !== '' && (strpos($src, 'referr') !== false || strpos($src, 'σύστασ') !== false || strpos($src, 'πελάτ') !== false || strpos($src, 'existing') !== false);
+    $add('Ποιοτική πηγή (σύσταση)', 6, $goodSrc); if ($goodSrc) { $score += 6; }
+
+    $score = max(0, min(100, (int) round($score)));
+    $temp = $score >= 70 ? 'hot' : ($score >= 40 ? 'warm' : 'cold');
+    return ['score' => $score, 'temp' => $temp, 'factors' => $factors];
+}
+
 /** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
 function cnp_chat_access($ch, $adminId)
 {
@@ -4558,6 +4609,37 @@ case 'crm_reports':                      // αναλυτικά reports πωλή�
         'avgCloseDays' => count($closeDays) ? round(array_sum($closeDays) / count($closeDays), 1) : null,
         'bySource' => array_values($srcAgg), 'bySeller' => $selAgg, 'byMonth' => array_values($months),
     ]);
+
+case 'lead_score':                       // βαθμολογία ενός lead + ανάλυση παραγόντων
+    $lid = (int) ($_GET['lead'] ?? $in['lead'] ?? 0);
+    $l = Capsule::table('mod_cpm_leads')->where('id', $lid)->first();
+    if (!$l) { fail('notfound'); }
+    $intCount = (int) Capsule::table('mod_cpm_interactions')->where('lead_id', $lid)->count();
+    $lastInt = Capsule::table('mod_cpm_interactions')->where('lead_id', $lid)->max('happened_at');
+    out(cnp_lead_score($l, $intCount, $lastInt));
+
+case 'hot_leads':                        // κατάταξη ανοιχτών leads κατά score (θερμά πρώτα)
+    $open = Capsule::table('mod_cpm_leads')->whereNotIn('stage', ['won', 'lost'])->get();
+    // aggregate επικοινωνιών ανά lead (μία query)
+    $cntBy = []; $lastBy = [];
+    foreach (Capsule::table('mod_cpm_interactions')->whereNotNull('lead_id')->where('lead_id', '>', 0)
+        ->groupBy('lead_id')->get([Capsule::raw('lead_id'), Capsule::raw('COUNT(*) as c'), Capsule::raw('MAX(happened_at) as last')]) as $r) {
+        $cntBy[(int) $r->lead_id] = (int) $r->c; $lastBy[(int) $r->lead_id] = $r->last;
+    }
+    $sMeta = Db::leadStages();
+    $rows = [];
+    foreach ($open as $l) {
+        $sc = cnp_lead_score($l, $cntBy[$l->id] ?? 0, $lastBy[$l->id] ?? null);
+        $rows[] = ['id' => (int) $l->id, 'company' => $l->company, 'contact' => $l->contact,
+            'stage' => $l->stage, 'stageLbl' => $sMeta[$l->stage][0] ?? $l->stage,
+            'value' => (float) $l->value, 'assignee' => $l->assignee ? (int) $l->assignee : null,
+            'score' => $sc['score'], 'temp' => $sc['temp']];
+    }
+    usort($rows, fn($a, $b) => $b['score'] <=> $a['score']);
+    out(['leads' => array_slice($rows, 0, 20), 'total' => count($rows),
+        'hot' => count(array_filter($rows, fn($r) => $r['temp'] === 'hot')),
+        'warm' => count(array_filter($rows, fn($r) => $r['temp'] === 'warm')),
+        'cold' => count(array_filter($rows, fn($r) => $r['temp'] === 'cold'))]);
 
 case 'lead_timeline':                    // ενιαίο ιστορικό lead (επικοινωνίες + tasks)
     $lid = (int) ($_GET['lead'] ?? 0);
