@@ -797,7 +797,9 @@ function closeDrawer() {
 
 /* ═════════ Η ΜΕΡΑ ΜΟΥ ═════════ */
 async function vMyDay() {
-  setTop('Η μέρα μου', 'Καλημέρα, ' + S.boot.me.name.split(' ')[0] + ' ☀️');
+  const _h = new Date().getHours();
+  const [_g, _e] = _h < 5 ? ['Καληνύχτα', '🌙'] : _h < 12 ? ['Καλημέρα', '☀️'] : _h < 18 ? ['Καλησπέρα', '🌤️'] : _h < 22 ? ['Καλησπέρα', '🌆'] : ['Καληνύχτα', '🌙'];
+  setTop('Η μέρα μου', _g + ', ' + S.boot.me.name.split(' ')[0] + ' ' + _e);
   const c = $('#content');
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
   const d = await api('myday');
