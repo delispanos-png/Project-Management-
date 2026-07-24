@@ -603,7 +603,8 @@ function openTargetDrawer(card, d) {
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
         <div><label class="lbl">Τεμάχια/μήνα</label><input class="inp" type="number" id="ovU" value="${card ? (card.tUnits || '') : ''}" style="width:120px"></div>
         <div><label class="lbl">€/μήνα</label><input class="inp" type="number" step="0.01" id="ovV" value="${card ? (card.tValue || '') : ''}" style="width:130px"></div>
-        <button class="btn btn-p" id="ovSave">Αποθήκευση</button></div>
+        <button class="btn btn-p" id="ovSave">Αποθήκευση</button>
+        ${card && (card.tUnits || card.tValue) ? `<button class="btn btn-o" id="ovDel" style="color:var(--bad)">${I.trash} Διαγραφή</button>` : ''}</div>
     </div></div>
 
     ${!isNew ? `<div class="card"><div class="card-h">${I.users} Στόχος ανά πωλητή <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">απόδοση από το lead που έκλεισε</span></div>
@@ -618,7 +619,8 @@ function openTargetDrawer(card, d) {
           <input class="inp" type="number" data-su="${s.id}" value="${tg.tUnits || ''}" placeholder="στόχος τεμ." style="width:90px;font-size:12px" title="στόχος τεμαχίων">
           <span class="mut" style="font-size:11.5px;white-space:nowrap">έκανε <b style="color:var(--ink)">${a.units}</b> · ${fmtEur(a.value)}</span>
           <div style="flex:1;min-width:80px;display:flex;align-items:center;gap:6px">${bar(pct, cl)}<span style="font-size:11px;font-weight:700;color:${cl};width:38px;text-align:right">${pct === null ? '' : pct + '%'}</span></div>
-          <button class="btn btn-sm btn-o" data-susave="${s.id}">${I.save}</button></div>`;
+          <button class="btn btn-sm btn-o" data-susave="${s.id}" title="Αποθήκευση">${I.save}</button>
+          ${tg.tUnits || tg.tValue ? `<button class="btn btn-sm btn-o" data-sudel="${s.id}" style="color:var(--bad)" title="Διαγραφή στόχου">✕</button>` : ''}</div>`;
       }).join('')}
       ${card.unattrUnits ? `<div class="mut" style="font-size:11.5px;margin-top:8px">${I.alert} <b>${card.unattrUnits}</b> πωλήσεις (${fmtEur(card.unattrValue)}) χωρίς πωλητή — δεν υπάρχει lead που να τις αποδίδει.</div>` : ''}
     </div></div>` : ''}
@@ -631,10 +633,20 @@ function openTargetDrawer(card, d) {
     await api('save_ptarget', {product: prodId(), admin: 0, units: +$('#ovU', dr).value || 0, value: +$('#ovV', dr).value || 0});
     toast('Στόχος αποθηκεύτηκε'); closeDrawer(); R.targets(d.ym);
   };
+  const ovd = $('#ovDel', dr);
+  if (ovd) ovd.onclick = async () => {
+    if (!(await cnpConfirm('Διαγραφή εταιρικού στόχου για αυτό το προϊόν;', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
+    await api('save_ptarget', {product: prodId(), admin: 0, units: 0, value: 0});
+    toast('Διαγράφηκε'); closeDrawer(); R.targets(d.ym);
+  };
   $$('[data-susave]', dr).forEach(b => b.onclick = async () => {
     const u = +$(`[data-su="${b.dataset.susave}"]`, dr).value || 0;
     await api('save_ptarget', {product: prodId(), admin: +b.dataset.susave, units: u, value: 0});
     toast('Στόχος πωλητή αποθηκεύτηκε'); closeDrawer(); R.targets(d.ym);
+  });
+  $$('[data-sudel]', dr).forEach(b => b.onclick = async () => {
+    await api('save_ptarget', {product: prodId(), admin: +b.dataset.sudel, units: 0, value: 0});
+    toast('Στόχος πωλητή διαγράφηκε'); closeDrawer(); R.targets(d.ym);
   });
 }
 
