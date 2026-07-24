@@ -4333,6 +4333,67 @@ case 'wh_tstatus_del':
     Capsule::table('tblticketstatuses')->where('id', $sid)->delete();
     out(['ok' => true]);
 
+/* ═══════ CRM Tasks / Δραστηριότητες ανά lead ═══════ */
+case 'lead_tasks':
+    $lid = (int) ($_GET['lead'] ?? $in['lead'] ?? 0);
+    $rows = Capsule::table('mod_cpm_lead_tasks')->where('lead_id', $lid)
+        ->orderBy('done')->orderByRaw('due_date IS NULL, due_date ASC')->orderByDesc('id')->get();
+    $out = [];
+    foreach ($rows as $t) {
+        $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'kind' => $t->kind,
+            'due' => $t->due_date, 'assignee' => $t->assignee ? (int) $t->assignee : null,
+            'who' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
+            'done' => (bool) $t->done];
+    }
+    out(['tasks' => $out]);
+
+case 'lead_task_save':
+    $lid = (int) ($in['lead'] ?? 0);
+    $title = mb_substr(trim($in['title'] ?? ''), 0, 200);
+    if (!$lid || $title === '') { fail('input'); }
+    $data = ['title' => $title,
+        'kind' => in_array($in['kind'] ?? '', ['call', 'email', 'meeting', 'todo'], true) ? $in['kind'] : 'todo',
+        'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null,
+        'assignee' => (int) ($in['assignee'] ?? 0) ?: null];
+    $tid = (int) ($in['id'] ?? 0);
+    if ($tid) {
+        Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)->update($data);
+    } else {
+        $data['lead_id'] = $lid; $data['created_by'] = $adminId; $data['created_at'] = date('Y-m-d H:i:s');
+        Capsule::table('mod_cpm_lead_tasks')->insert($data);
+    }
+    out(['ok' => true]);
+
+case 'lead_task_toggle':
+    $tid = (int) ($in['id'] ?? 0);
+    $t = Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)->first();
+    if (!$t) { fail('task'); }
+    $nd = $t->done ? 0 : 1;
+    Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)
+        ->update(['done' => $nd, 'done_at' => $nd ? date('Y-m-d H:i:s') : null]);
+    out(['ok' => true, 'done' => (bool) $nd]);
+
+case 'lead_task_del':
+    Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+case 'my_crm_tasks':                     // ανοιχτές CRM εργασίες μου (ή όλων αν full)
+    $today = date('Y-m-d');
+    $q = Capsule::table('mod_cpm_lead_tasks as t')->join('mod_cpm_leads as l', 'l.id', '=', 't.lead_id')
+        ->where('t.done', 0);
+    if (!$FULL) { $q->where('t.assignee', $adminId); }
+    $rows = $q->orderByRaw('t.due_date IS NULL, t.due_date ASC')->limit(50)
+        ->get(['t.id', 't.title', 't.kind', 't.due_date', 't.assignee', 't.lead_id',
+               'l.company', 'l.contact']);
+    $out = [];
+    foreach ($rows as $t) {
+        $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'kind' => $t->kind, 'due' => $t->due_date,
+            'overdue' => $t->due_date && $t->due_date < $today,
+            'lead' => (int) $t->lead_id, 'leadName' => $t->company ?: $t->contact ?: ('lead #' . $t->lead_id),
+            'who' => $t->assignee ? Db::adminName((int) $t->assignee) : null];
+    }
+    out(['tasks' => $out]);
+
 case 'version':
     $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
     $b6 = (string) Capsule::table('mod_cpm_tasks')->count();

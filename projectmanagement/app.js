@@ -913,6 +913,8 @@ function openLead(l, d) {
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
     <div class="card"><div class="card-h">${I.users} Πρόσωπα επαφής</div><div class="card-b" id="lPeopleBox">
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
+    <div class="card"><div class="card-h">${I.checkSquare} Εργασίες / Δραστηριότητες</div><div class="card-b" id="lTasksBox">
+      <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
     <div class="card"><div class="card-h">${I.phone} Γρήγορη καταγραφή επικοινωνίας</div><div class="card-b">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <select class="inp" id="iKind" style="width:140px">
@@ -994,6 +996,33 @@ async function loadLeadExtras(leadId, dr) {
     });
   };
   renderPeople();
+  // εργασίες / δραστηριότητες
+  const kindLbl = {call: 'Κλήση', email: 'Email', meeting: 'Συνάντηση', todo: 'To-do'};
+  const renderTasks = async () => {
+    const tt = await api('lead_tasks&lead=' + leadId);
+    const tb = $('#lTasksBox', dr); if (!tb) return;
+    tb.innerHTML = (tt.tasks.length ? tt.tasks.map(t => `
+      <div style="display:flex;gap:9px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line);${t.done ? 'opacity:.55' : ''}">
+        <input type="checkbox" data-ttog="${t.id}" ${t.done ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">
+        <div style="flex:1;min-width:0"><b style="font-size:13px;${t.done ? 'text-decoration:line-through' : ''}">${esc(t.title)}</b>
+          <div class="mut" style="font-size:11px">${kindLbl[t.kind] || 'To-do'}${t.due ? ` · <span style="${!t.done && t.due < today() ? 'color:var(--bad);font-weight:700' : ''}">έως ${dShort(t.due)}</span>` : ''}${t.who ? ' · ' + esc(t.who) : ''}</div></div>
+        <button class="btn btn-sm btn-o" data-tdel="${t.id}" style="color:var(--bad)">✕</button></div>`).join('')
+      : '<div class="mut" style="font-size:12px">Καμία εργασία ακόμη</div>') + `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
+        <input class="inp" id="ntT" placeholder="π.χ. Κάλεσε για demo" style="flex:1;min-width:150px">
+        <select class="inp" id="ntK" style="width:100px"><option value="todo">To-do</option><option value="call">Κλήση</option><option value="email">Email</option><option value="meeting">Συνάντηση</option></select>
+        <input type="date" class="inp" id="ntD" style="width:150px" title="προθεσμία">
+        <select class="inp" id="ntA" style="width:130px"><option value="">— ανάθεση —</option>${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+        <button class="btn btn-p btn-sm" id="ntAdd">+</button></div>`;
+    $$('[data-ttog]', tb).forEach(ch => ch.onchange = async () => { await api('lead_task_toggle', {id: +ch.dataset.ttog}); renderTasks(); });
+    $$('[data-tdel]', tb).forEach(b => b.onclick = async () => { await api('lead_task_del', {id: +b.dataset.tdel}); renderTasks(); });
+    $('#ntAdd', tb).onclick = async () => {
+      const v = $('#ntT', tb).value.trim(); if (!v) return;
+      await api('lead_task_save', {lead: leadId, title: v, kind: $('#ntK', tb).value, due: $('#ntD', tb).value || null, assignee: +$('#ntA', tb).value || 0});
+      toast('Προστέθηκε'); renderTasks();
+    };
+  };
+  renderTasks();
 }
 /* ═════════ KPI ═════════ */
 async function vKpi() {

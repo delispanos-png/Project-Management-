@@ -1129,6 +1129,7 @@ R.crmov = async function () {
   const c = $('#content');
   c.innerHTML = crmTabs('crmov') + skel(4);
   const d = await api('crm_overview');
+  const mt = await api('my_crm_tasks').catch(() => ({tasks: []}));
   const maxC = Math.max(1, ...d.pipe.map(p => p.count));
   const leadRow = l => `<div class="set-row" data-lgo="${l.id}" style="cursor:pointer">
     <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(l.name)}</b>
@@ -1144,6 +1145,15 @@ R.crmov = async function () {
     <div class="stat ${pctT >= 100 ? 'ok' : 'info'}"><b>${fmtEur(d.wonValueMonth)}</b>
       <small>Πωλήσεις μήνα${d.target > 0 ? ' · ' + pctT + '% στόχου' : ''}</small></div>
   </div>
+  <div class="card" style="margin-bottom:16px"><div class="card-h">${I.checkSquare} Οι εργασίες μου <span class="kb-n" style="margin-left:auto">${mt.tasks.length}</span></div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:2px">
+    ${mt.tasks.length ? mt.tasks.map(t => `<div style="display:flex;gap:9px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line)">
+      <input type="checkbox" data-mtog="${t.id}" style="width:17px;height:17px;cursor:pointer">
+      <div style="flex:1;min-width:0;cursor:pointer" data-mgo="${t.lead}"><b style="font-size:13px">${esc(t.title)}</b>
+        <div class="mut" style="font-size:11px">${esc(t.leadName)}${t.due ? ` · <span style="${t.overdue ? 'color:var(--bad);font-weight:700' : ''}">έως ${dShort(t.due)}</span>` : ''}${t.who ? ' · ' + esc(t.who) : ''}</div></div>
+      ${t.overdue ? `<span class="pill pill-bad" style="font-size:9px">εκπρόθεσμο</span>` : ''}</div>`).join('')
+      : '<div class="empty" style="padding:18px">Καμία ανοιχτή εργασία 🎉</div>'}
+    </div></div>
   <div class="card"><div class="card-h">${I.target} Pipeline ανά στάδιο</div><div class="card-b">
     ${d.pipe.map(p => `<div style="display:flex;gap:10px;align-items:center;margin:7px 0">
       <span style="width:120px;font-size:12.5px;font-weight:700;color:var(--ink)">${esc(p.title)}</span>
@@ -1172,6 +1182,10 @@ R.crmov = async function () {
     const dd = await api('crm');
     const l = dd.leads.find(x => x.id === +r.dataset.lgo);
     if (l) openLead(l, dd);
+  });
+  $$('[data-mtog]').forEach(ch => ch.onclick = async () => { await api('lead_task_toggle', {id: +ch.dataset.mtog}); R.crmov(); });
+  $$('[data-mgo]').forEach(x => x.onclick = async () => {
+    const dd = await api('crm'); const l = dd.leads.find(y => y.id === +x.dataset.mgo); if (l) openLead(l, dd);
   });
 };
 

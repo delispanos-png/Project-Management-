@@ -488,6 +488,20 @@ class Db
                 $t->timestamp('updated_at')->nullable();
             });
         }
+        if (!$s->hasTable('mod_cpm_lead_tasks')) {
+            $s->create('mod_cpm_lead_tasks', function ($t) {
+                $t->increments('id');
+                $t->integer('lead_id')->unsigned()->index();     // CRM εργασίες/δραστηριότητες ανά lead
+                $t->string('title', 200);
+                $t->string('kind', 12)->default('todo');
+                $t->date('due_date')->nullable()->index();
+                $t->integer('assignee')->unsigned()->nullable()->index();
+                $t->boolean('done')->default(0);
+                $t->timestamp('done_at')->nullable();
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         if (!$s->hasTable('mod_cpm_prefs')) {
             $s->create('mod_cpm_prefs', function ($t) {
                 $t->increments('id');
