@@ -4428,6 +4428,89 @@ case 'lead_product_del':
     }
     out(['ok' => true]);
 
+case 'campaigns':                        // λίστα καμπανιών + στατιστικά απόδοσης
+    $chLbl = ['email' => 'Email', 'phone' => 'Τηλεφωνική', 'event' => 'Εκδήλωση', 'social' => 'Social', 'ads' => 'Διαφήμιση', 'other' => 'Άλλο'];
+    $cps = Capsule::table('mod_cpm_campaigns')->orderByRaw("FIELD(status,'active','draft','done')")->orderBy('id', 'desc')->get();
+    $list = [];
+    foreach ($cps as $c) {
+        $mids = Capsule::table('mod_cpm_campaign_leads')->where('campaign_id', $c->id)->pluck('lead_id')->all();
+        $members = count($mids); $won = 0; $wonVal = 0.0; $openN = 0;
+        if ($members) {
+            foreach (Capsule::table('mod_cpm_leads')->whereIn('id', $mids)->get(['stage', 'value']) as $l) {
+                if ($l->stage === 'won') { $won++; $wonVal += (float) $l->value; }
+                elseif ($l->stage !== 'lost') { $openN++; }
+            }
+        }
+        $list[] = ['id' => (int) $c->id, 'name' => $c->name, 'channel' => $c->channel,
+            'channelLbl' => $chLbl[$c->channel] ?? $c->channel, 'status' => $c->status,
+            'budget' => (float) $c->budget, 'goal' => $c->goal, 'start' => $c->start_date, 'end' => $c->end_date,
+            'members' => $members, 'won' => $won, 'open' => $openN, 'wonValue' => round($wonVal, 2),
+            'conv' => $members > 0 ? round($won / $members * 100) : null,
+            'roi' => ($c->budget > 0) ? round(($wonVal - (float) $c->budget) / (float) $c->budget * 100) : null];
+    }
+    out(['campaigns' => $list, 'channels' => $chLbl]);
+
+case 'campaign_save':
+    $name = mb_substr(trim($in['name'] ?? ''), 0, 150);
+    if ($name === '') { fail('input'); }
+    $data = ['name' => $name, 'channel' => $in['channel'] ?? 'email', 'status' => $in['status'] ?? 'draft',
+        'budget' => round((float) ($in['budget'] ?? 0), 2), 'goal' => mb_substr(trim($in['goal'] ?? ''), 0, 190),
+        'start_date' => ($in['start'] ?? '') ?: null, 'end_date' => ($in['end'] ?? '') ?: null,
+        'notes' => cnp_clean_html($in['notes'] ?? '')];
+    $cid = (int) ($in['id'] ?? 0);
+    if ($cid) {
+        Capsule::table('mod_cpm_campaigns')->where('id', $cid)->update($data);
+    } else {
+        $data['created_by'] = $adminId; $data['created_at'] = date('Y-m-d H:i:s');
+        $cid = Capsule::table('mod_cpm_campaigns')->insertGetId($data);
+    }
+    out(['ok' => true, 'id' => $cid]);
+
+case 'campaign_del':
+    $cid = (int) ($in['id'] ?? 0);
+    Capsule::table('mod_cpm_campaign_leads')->where('campaign_id', $cid)->delete();
+    Capsule::table('mod_cpm_campaigns')->where('id', $cid)->delete();
+    out(['ok' => true]);
+
+case 'campaign_detail':                  // πεδία + μέλη + υποψήφια leads προς προσθήκη
+    $cid = (int) ($_GET['id'] ?? $in['id'] ?? 0);
+    $c = Capsule::table('mod_cpm_campaigns')->where('id', $cid)->first();
+    if (!$c) { fail('notfound'); }
+    $sMeta = Db::leadStages();
+    $mids = Capsule::table('mod_cpm_campaign_leads')->where('campaign_id', $cid)->pluck('lead_id')->all();
+    $members = [];
+    if ($mids) {
+        foreach (Capsule::table('mod_cpm_leads')->whereIn('id', $mids)->orderBy('company')->get() as $l) {
+            $members[] = ['id' => (int) $l->id, 'company' => $l->company, 'contact' => $l->contact,
+                'stage' => $l->stage, 'stageLbl' => $sMeta[$l->stage][0] ?? $l->stage,
+                'stageCol' => $sMeta[$l->stage][1] ?? '#8291a9', 'value' => (float) $l->value];
+        }
+    }
+    // υποψήφια: leads που δεν είναι ήδη μέλη (max 200 πιο πρόσφατα)
+    $cand = [];
+    $cq = Capsule::table('mod_cpm_leads')->orderBy('id', 'desc');
+    if ($mids) { $cq->whereNotIn('id', $mids); }
+    foreach ($cq->limit(200)->get(['id', 'company', 'contact', 'stage']) as $l) {
+        $cand[] = ['id' => (int) $l->id, 'company' => $l->company, 'contact' => $l->contact,
+            'stageLbl' => $sMeta[$l->stage][0] ?? $l->stage];
+    }
+    out(['id' => (int) $c->id, 'name' => $c->name, 'channel' => $c->channel, 'status' => $c->status,
+        'budget' => (float) $c->budget, 'goal' => $c->goal, 'start' => $c->start_date, 'end' => $c->end_date,
+        'notes' => $c->notes, 'members' => $members, 'candidates' => $cand]);
+
+case 'campaign_add_lead':
+    $cid = (int) ($in['campaign'] ?? 0); $lid = (int) ($in['lead'] ?? 0);
+    if (!$cid || !$lid) { fail('input'); }
+    $exists = Capsule::table('mod_cpm_campaign_leads')->where('campaign_id', $cid)->where('lead_id', $lid)->exists();
+    if (!$exists) {
+        Capsule::table('mod_cpm_campaign_leads')->insert(['campaign_id' => $cid, 'lead_id' => $lid, 'added_at' => date('Y-m-d H:i:s')]);
+    }
+    out(['ok' => true]);
+
+case 'campaign_remove_lead':
+    Capsule::table('mod_cpm_campaign_leads')->where('campaign_id', (int) ($in['campaign'] ?? 0))->where('lead_id', (int) ($in['lead'] ?? 0))->delete();
+    out(['ok' => true]);
+
 case 'lead_timeline':                    // ενιαίο ιστορικό lead (επικοινωνίες + tasks)
     $lid = (int) ($_GET['lead'] ?? 0);
     $ev = [];

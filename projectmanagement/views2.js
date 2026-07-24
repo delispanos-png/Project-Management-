@@ -1189,6 +1189,112 @@ R.crmov = async function () {
   });
 };
 
+/* ═════════ ΚΑΜΠΑΝΙΕΣ (Phase 6) ═════════ */
+R.campaigns = async function () {
+  setTop('CRM', 'Καμπάνιες — μέλη & απόδοση');
+  const c = $('#content');
+  c.innerHTML = crmTabs('campaigns') + skel(1, 200);
+  const d = await api('campaigns').catch(() => null);
+  if (!d) { c.innerHTML = crmTabs('campaigns') + `<div class="empty"><div class="big">${I.megaphone}</div>Σφάλμα φόρτωσης</div>`; return; }
+  const chIco = {email: I.mail, phone: I.phone, event: I.pin, social: I.megaphone, ads: I.megaphone, other: I.tag};
+  const stBadge = {draft: ['Πρόχειρη', 'var(--mut)'], active: ['Ενεργή', 'var(--ok)'], done: ['Ολοκληρωμένη', 'var(--brand)']};
+  const col = pct => pct === null ? 'var(--mut)' : pct >= 50 ? 'var(--ok)' : pct >= 20 ? 'var(--brand)' : 'var(--warn)';
+  const ring = (pct, cl) => {
+    const r = 22, circ = 2 * Math.PI * r, off = circ * (1 - (pct || 0) / 100);
+    return `<div class="su-ring"><svg width="54" height="54" viewBox="0 0 54 54">
+      <circle cx="27" cy="27" r="${r}" fill="none" stroke="var(--line)" stroke-width="6"/>
+      <circle cx="27" cy="27" r="${r}" fill="none" stroke="${cl}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"/>
+    </svg><div class="v" style="font-size:11px">${pct === null ? '—' : pct + '%'}</div></div>`;
+  };
+  c.innerHTML = crmTabs('campaigns') + `
+  <div style="display:flex;align-items:center;margin-bottom:14px">
+    <b style="font-size:15px;color:var(--ink)">${d.campaigns.length} καμπάνιες</b>
+    <button class="btn btn-p btn-sm" id="cpAdd" style="margin-left:auto">${I.plus} Νέα καμπάνια</button></div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px">
+  ${d.campaigns.length ? d.campaigns.map(x => {
+    const [sl, scol] = stBadge[x.status] || stBadge.draft;
+    const cl = col(x.conv);
+    return `<div class="su-proj" data-cpo="${x.id}" style="align-items:center">
+      <div class="stripe" style="background:${scol}"></div>
+      ${ring(x.conv, cl)}
+      <div class="body">
+        <div class="title" style="display:flex;align-items:center;gap:6px">${chIco[x.channel] || I.tag} ${esc(x.name)}</div>
+        <div class="meta"><span class="pill" style="background:${scol}1a;color:${scol};font-size:9.5px">${sl}</span> · ${esc(x.channelLbl)}</div>
+        <div style="margin-top:6px;font-size:12px"><b>${x.members}</b> μέλη · <b style="color:var(--ok)">${x.won}</b> έκλεισαν · ${x.open} ανοιχτά</div>
+        <div class="mut" style="font-size:11.5px;margin-top:4px">Έσοδα: <b style="color:var(--ink)">${fmtEur(x.wonValue)}</b>${x.roi !== null ? ' · ROI ' + '<b style="color:' + (x.roi >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + x.roi + '%</b>' : ''}</div>
+      </div></div>`;
+  }).join('') : `<div class="empty" style="grid-column:1/-1;padding:34px">Καμία καμπάνια — πάτα «Νέα καμπάνια»</div>`}
+  </div>`;
+  $('#cpAdd').onclick = () => openCampaign(null, d);
+  $$('[data-cpo]').forEach(x => x.onclick = () => openCampaign(+x.dataset.cpo, d));
+};
+
+async function openCampaign(id, listD) {
+  closeDrawer();
+  const isNew = !id;
+  const chOpts = Object.entries(listD.channels);
+  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const dr = document.createElement('div'); dr.className = 'drawer';
+  let d = {name: '', channel: 'email', status: 'draft', budget: '', goal: '', start: '', end: '', notes: '', members: [], candidates: []};
+  if (!isNew) { d = await api('campaign_detail&id=' + id); }
+  dr.innerHTML = `
+  <div class="drawer-h"><h2>${isNew ? 'Νέα καμπάνια' : esc(d.name)}</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-b">
+    <div class="card"><div class="card-b">
+      <label class="lbl">Όνομα</label><input class="inp" id="cpN" value="${esc(d.name)}">
+      <div class="frow" style="margin-top:10px">
+        <div><label class="lbl">Κανάλι</label><select class="inp" id="cpCh">${chOpts.map(([k, v]) => `<option value="${k}" ${d.channel === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Κατάσταση</label><select class="inp" id="cpSt">${[['draft', 'Πρόχειρη'], ['active', 'Ενεργή'], ['done', 'Ολοκληρωμένη']].map(([k, v]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      </div>
+      <div class="frow" style="margin-top:10px">
+        <div><label class="lbl">Προϋπολογισμός (€)</label><input class="inp" type="number" step="0.01" id="cpB" value="${d.budget || ''}"></div>
+        <div><label class="lbl">Στόχος</label><input class="inp" id="cpG" value="${esc(d.goal || '')}" placeholder="π.χ. 20 νέοι πελάτες"></div>
+      </div>
+      <div class="frow" style="margin-top:10px">
+        <div><label class="lbl">Έναρξη</label><input class="inp" type="date" id="cpStart" value="${d.start || ''}"></div>
+        <div><label class="lbl">Λήξη</label><input class="inp" type="date" id="cpEnd" value="${d.end || ''}"></div>
+      </div>
+      <label class="lbl" style="margin-top:10px">Σημειώσεις</label><textarea class="inp" id="cpNotes" rows="2">${esc(d.notes || '')}</textarea>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-p" id="cpSave">Αποθήκευση</button>
+        ${!isNew ? `<button class="btn btn-o" id="cpDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή</button>` : ''}
+      </div>
+    </div></div>
+    ${!isNew ? `<div class="card"><div class="card-h">${I.users} Μέλη (${d.members.length})</div><div class="card-b" id="cpMembers">
+      ${d.members.length ? d.members.map(m => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
+          <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(m.company || m.contact || 'Lead #' + m.id)}</b>
+            <span class="pill" style="background:${m.stageCol}1a;color:${m.stageCol};font-size:9px;margin-left:5px">${esc(m.stageLbl)}</span></div>
+          ${m.value > 0 ? `<span class="mut" style="font-size:11.5px">${fmtEur(m.value)}</span>` : ''}
+          <button class="btn btn-sm btn-o" data-cprm="${m.id}" style="color:var(--bad)">✕</button></div>`).join('') : '<div class="mut" style="font-size:12px">Κανένα μέλος ακόμη</div>'}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <select class="inp" id="cpCand" style="flex:1"><option value="">— πρόσθεσε lead —</option>${d.candidates.map(l => `<option value="${l.id}">${esc(l.company || l.contact || 'Lead #' + l.id)} (${esc(l.stageLbl)})</option>`).join('')}</select>
+        <button class="btn btn-p btn-sm" id="cpAddLead">+</button></div>
+    </div></div>` : '<div class="mut" style="font-size:12px;padding:2px 4px">Αποθήκευσε πρώτα την καμπάνια για να προσθέσεις μέλη.</div>'}
+  </div>`;
+  document.body.append(ovl, dr);
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  $('#dX', dr).onclick = closeDrawer;
+  $('#cpSave', dr).onclick = async () => {
+    const name = $('#cpN', dr).value.trim(); if (!name) { toast('Δώσε όνομα'); return; }
+    const r = await api('campaign_save', {id: id || 0, name, channel: $('#cpCh', dr).value, status: $('#cpSt', dr).value,
+      budget: +$('#cpB', dr).value || 0, goal: $('#cpG', dr).value, start: $('#cpStart', dr).value, end: $('#cpEnd', dr).value, notes: $('#cpNotes', dr).value});
+    toast('Αποθηκεύτηκε');
+    if (isNew && r.id) { openCampaign(r.id, listD); } else { closeDrawer(); R.campaigns(); }
+  };
+  const dbtn = $('#cpDel', dr); if (dbtn) { dbtn.onclick = async () => {
+    if (!await cnpConfirm('Διαγραφή καμπάνιας;')) return;
+    await api('campaign_del', {id}); toast('Διαγράφηκε'); closeDrawer(); R.campaigns();
+  }; }
+  const al = $('#cpAddLead', dr); if (al) { al.onclick = async () => {
+    const lid = +$('#cpCand', dr).value; if (!lid) return;
+    await api('campaign_add_lead', {campaign: id, lead: lid}); toast('Προστέθηκε'); openCampaign(id, listD);
+  }; }
+  $$('[data-cprm]', dr).forEach(b => b.onclick = async () => {
+    await api('campaign_remove_lead', {campaign: id, lead: +b.dataset.cprm}); openCampaign(id, listD);
+  });
+}
+
 /* ═════════ ΤΟ ΠΡΟΦΙΛ ΜΟΥ (κάθε χρήστης) ═════════ */
 R.profile = async function () {
   setTop('Το προφίλ μου', 'Στοιχεία, κωδικός, ειδοποιήσεις & δικαιώματα');

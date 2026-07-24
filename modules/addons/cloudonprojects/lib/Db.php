@@ -513,6 +513,30 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        if (!$s->hasTable('mod_cpm_campaigns')) {
+            $s->create('mod_cpm_campaigns', function ($t) {
+                $t->increments('id');
+                $t->string('name', 150);                         // CRM καμπάνιες
+                $t->string('channel', 16)->default('email');     // email/phone/event/social/ads/other
+                $t->string('status', 12)->default('draft');      // draft/active/done
+                $t->decimal('budget', 12, 2)->default(0);
+                $t->string('goal', 190)->default('');
+                $t->date('start_date')->nullable();
+                $t->date('end_date')->nullable();
+                $t->text('notes')->nullable();
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_campaign_leads')) {
+            $s->create('mod_cpm_campaign_leads', function ($t) {
+                $t->increments('id');
+                $t->integer('campaign_id')->unsigned()->index(); // σύνδεση leads ↔ καμπάνιας
+                $t->integer('lead_id')->unsigned()->index();
+                $t->timestamp('added_at')->nullable();
+                $t->unique(['campaign_id', 'lead_id']);
+            });
+        }
         if (!$s->hasTable('mod_cpm_prefs')) {
             $s->create('mod_cpm_prefs', function ($t) {
                 $t->increments('id');
