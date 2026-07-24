@@ -11,6 +11,18 @@ header('Cache-Control: no-cache, no-store, must-revalidate');
 header('Pragma: no-cache');
 header('Expires: 0');
 
+// Αποσύνδεση: καθάρισε το app session και γύρνα στην οθόνη εισόδου
+if (isset($_GET['logout'])) {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $p = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $p['path'] ?: '/', $p['domain'] ?? '', !empty($p['secure']), !empty($p['httponly']));
+    }
+    @session_destroy();
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
+    exit;
+}
+
 $adminId = pm_admin_id();
 if ($adminId <= 0) {
     // δεν υπάρχει έγκυρο app session → οδηγίες εισόδου μέσω WHMCS admin

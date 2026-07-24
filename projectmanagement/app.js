@@ -158,6 +158,7 @@ function renderShell() {
         <div data-profile style="cursor:pointer" title="Το προφίλ μου"><div class="side-foot-name">${esc(me.name)}</div>
         <div class="side-foot-role">${me.full ? 'Διαχειριστής' : 'Agent'}</div></div>
         <button class="theme-btn" id="themeBtn" title="Θέμα">${S.theme === 'dark' ? '☀️' : '🌙'}</button>
+        <button class="theme-btn" id="logoutBtn" title="Αποσύνδεση"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
       </div>
     </aside>
     <div class="main">
@@ -187,6 +188,10 @@ function renderShell() {
     S.theme = S.theme === 'dark' ? 'light' : 'dark';
     localStorage.cnpTheme = S.theme; document.documentElement.dataset.theme = S.theme;
     $('#themeBtn').textContent = S.theme === 'dark' ? '☀️' : '🌙';
+  };
+  $('#logoutBtn').onclick = async () => {
+    if (!await cnpConfirm('Αποσύνδεση από την εφαρμογή;', {ok: 'Αποσύνδεση'})) { return; }
+    location.href = '?logout=1';
   };
   $('#bellBtn').onclick = toggleBell;
   const pb = $('#palBtn'); if (pb) pb.onclick = () => window.CNP.palette && window.CNP.palette();
