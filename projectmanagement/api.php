@@ -4641,6 +4641,139 @@ case 'hot_leads':                        // κατάταξη ανοιχτών le
         'warm' => count(array_filter($rows, fn($r) => $r['temp'] === 'warm')),
         'cold' => count(array_filter($rows, fn($r) => $r['temp'] === 'cold'))]);
 
+case 'leads_export':                     // εξαγωγή όλων των leads σε CSV
+    if (!$FULL) { fail('forbidden', 403); }
+    $cols = ['id', 'company', 'contact', 'email', 'phone', 'source', 'stage', 'value', 'next_action', 'descr'];
+    $cell = fn($v) => '"' . str_replace('"', '""', (string) $v) . '"';
+    $lines = [implode(',', array_map($cell, $cols))];
+    foreach (Capsule::table('mod_cpm_leads')->orderBy('id')->get() as $l) {
+        $row = [];
+        foreach ($cols as $c) { $row[] = $cell($l->$c ?? ''); }
+        $lines[] = implode(',', $row);
+    }
+    out(['csv' => implode("\r\n", $lines), 'count' => count($lines) - 1, 'filename' => 'leads-' . date('Ymd') . '.csv']);
+
+case 'leads_import_preview':             // ανάλυση CSV + εντοπισμός διπλότυπων (χωρίς αποθήκευση)
+    if (!$FULL) { fail('forbidden', 403); }
+    $txt = trim((string) ($in['csv'] ?? ''));
+    if ($txt === '') { fail('empty'); }
+    // δείκτες υπαρχόντων leads
+    $byEmail = []; $byPhone = []; $byComp = [];
+    $ph = fn($p) => preg_replace('/\D+/', '', (string) $p);
+    foreach (Capsule::table('mod_cpm_leads')->get(['id', 'company', 'email', 'phone']) as $x) {
+        if (trim($x->email ?? '') !== '') { $byEmail[mb_strtolower(trim($x->email))] = ['id' => (int) $x->id, 'company' => $x->company]; }
+        $p = $ph($x->phone); if (strlen($p) >= 8) { $byPhone[$p] = ['id' => (int) $x->id, 'company' => $x->company]; }
+        if (trim($x->company ?? '') !== '') { $byComp[mb_strtolower(trim($x->company))] = ['id' => (int) $x->id, 'company' => $x->company]; }
+    }
+    $stageKeys = array_keys(Db::leadStages());
+    $rawLines = preg_split('/\r\n|\r|\n/', $txt);
+    $fields = ['company', 'contact', 'email', 'phone', 'source', 'stage', 'value', 'next_action', 'descr'];
+    $aliases = ['εταιρεία' => 'company', 'εταιρια' => 'company', 'επωνυμία' => 'company', 'επαφή' => 'contact', 'όνομα' => 'contact', 'name' => 'contact',
+        'τηλέφωνο' => 'phone', 'τηλ' => 'phone', 'πηγή' => 'source', 'στάδιο' => 'stage', 'αξία' => 'value', 'σημειώσεις' => 'descr', 'notes' => 'descr'];
+    // κεφαλίδα;
+    $first = str_getcsv($rawLines[0]);
+    $map = null; $start = 0;
+    $lc = array_map(fn($h) => mb_strtolower(trim($h)), $first);
+    if (count(array_intersect($lc, array_merge($fields, array_keys($aliases), ['id']))) >= 2) {
+        $map = [];
+        foreach ($lc as $i => $h) { $key = in_array($h, $fields) ? $h : ($aliases[$h] ?? null); if ($key) { $map[$key] = $i; } }
+        $start = 1;
+    }
+    $preview = []; $newN = 0; $dupN = 0;
+    for ($i = $start; $i < count($rawLines); $i++) {
+        if (trim($rawLines[$i]) === '') { continue; }
+        $c = str_getcsv($rawLines[$i]);
+        $get = function ($key, $ord) use ($c, $map) { $idx = $map ? ($map[$key] ?? null) : $ord; return $idx !== null && isset($c[$idx]) ? trim($c[$idx]) : ''; };
+        $rec = ['company' => $get('company', 1), 'contact' => $get('contact', 2), 'email' => $get('email', 3),
+            'phone' => $get('phone', 4), 'source' => $get('source', 5), 'stage' => $get('stage', 6),
+            'value' => $get('value', 7), 'next_action' => $get('next_action', 8), 'descr' => $get('descr', 9)];
+        if ($rec['company'] === '' && $rec['contact'] === '' && $rec['email'] === '') { continue; }
+        if (!in_array($rec['stage'], $stageKeys)) { $rec['stage'] = 'target'; }
+        $rec['value'] = (float) preg_replace('/[^\d.]/', '', $rec['value']);
+        // dup;
+        $dup = null; $by = '';
+        $em = mb_strtolower($rec['email']); $pp = $ph($rec['phone']); $cm = mb_strtolower($rec['company']);
+        if ($em !== '' && isset($byEmail[$em])) { $dup = $byEmail[$em]; $by = 'email'; }
+        elseif (strlen($pp) >= 8 && isset($byPhone[$pp])) { $dup = $byPhone[$pp]; $by = 'τηλέφωνο'; }
+        elseif ($cm !== '' && isset($byComp[$cm])) { $dup = $byComp[$cm]; $by = 'εταιρεία'; }
+        if ($dup) { $dupN++; } else { $newN++; }
+        $preview[] = ['rec' => $rec, 'dup' => $dup ? ['id' => $dup['id'], 'company' => $dup['company'], 'by' => $by] : null];
+    }
+    out(['rows' => $preview, 'newN' => $newN, 'dupN' => $dupN, 'total' => count($preview)]);
+
+case 'leads_import_commit':              // εκτέλεση εισαγωγής με αποφάσεις ανά γραμμή
+    if (!$FULL) { fail('forbidden', 403); }
+    $rows = $in['rows'] ?? [];
+    $stageKeys = array_keys(Db::leadStages());
+    $ins = 0; $upd = 0; $skip = 0;
+    foreach ($rows as $r) {
+        $act = $r['action'] ?? 'new';
+        if ($act === 'skip') { $skip++; continue; }
+        $rec = $r['rec'] ?? [];
+        $stage = in_array($rec['stage'] ?? '', $stageKeys) ? $rec['stage'] : 'target';
+        $data = [
+            'company' => mb_substr(trim($rec['company'] ?? ''), 0, 120), 'contact' => mb_substr(trim($rec['contact'] ?? ''), 0, 120),
+            'email' => mb_substr(trim($rec['email'] ?? ''), 0, 120), 'phone' => mb_substr(trim($rec['phone'] ?? ''), 0, 40),
+            'source' => mb_substr(trim($rec['source'] ?? ''), 0, 60), 'stage' => $stage, 'value' => (float) ($rec['value'] ?? 0),
+            'next_action' => ($rec['next_action'] ?? '') ?: null, 'descr' => mb_substr(trim($rec['descr'] ?? ''), 0, 2000),
+        ];
+        if ($act === 'update' && !empty($r['dup']['id'])) {
+            Capsule::table('mod_cpm_leads')->where('id', (int) $r['dup']['id'])->update($data); $upd++;
+        } else {
+            $data['created_by'] = $adminId; $data['created_at'] = date('Y-m-d H:i:s');
+            Capsule::table('mod_cpm_leads')->insert($data); $ins++;
+        }
+    }
+    out(['ok' => true, 'inserted' => $ins, 'updated' => $upd, 'skipped' => $skip]);
+
+case 'leads_dupes':                      // εντοπισμός διπλότυπων μεταξύ υπαρχόντων leads
+    if (!$FULL) { fail('forbidden', 403); }
+    $ph = fn($p) => preg_replace('/\D+/', '', (string) $p);
+    $sMeta = Db::leadStages();
+    $groups = [];  // sig => [lead ids]
+    $info = [];
+    foreach (Capsule::table('mod_cpm_leads')->orderBy('id')->get() as $l) {
+        $info[$l->id] = $l;
+        $sigs = [];
+        if (trim($l->email ?? '') !== '') { $sigs[] = 'e:' . mb_strtolower(trim($l->email)); }
+        $p = $ph($l->phone); if (strlen($p) >= 8) { $sigs[] = 'p:' . $p; }
+        if (trim($l->company ?? '') !== '') { $sigs[] = 'c:' . mb_strtolower(trim($l->company)); }
+        foreach ($sigs as $s) { $groups[$s][] = (int) $l->id; }
+    }
+    $clusters = []; $seen = [];
+    foreach ($groups as $sig => $ids) {
+        $ids = array_values(array_unique($ids));
+        if (count($ids) < 2) { continue; }
+        sort($ids); $ckey = implode(',', $ids);
+        if (isset($seen[$ckey])) { continue; } $seen[$ckey] = 1;
+        $byLbl = ['e' => 'email', 'p' => 'τηλέφωνο', 'c' => 'εταιρεία'][$sig[0]] ?? '';
+        $ls = [];
+        foreach ($ids as $id) { $x = $info[$id];
+            $ls[] = ['id' => (int) $id, 'company' => $x->company, 'contact' => $x->contact, 'email' => $x->email,
+                'phone' => $x->phone, 'stage' => $x->stage, 'stageLbl' => $sMeta[$x->stage][0] ?? $x->stage, 'value' => (float) $x->value];
+        }
+        $clusters[] = ['by' => $byLbl, 'leads' => $ls];
+    }
+    out(['clusters' => $clusters, 'count' => count($clusters)]);
+
+case 'lead_merge':                       // συγχώνευση: μετακίνηση σχέσεων drop→keep, διαγραφή drop
+    if (!$FULL) { fail('forbidden', 403); }
+    $keep = (int) ($in['keep'] ?? 0); $drop = (int) ($in['drop'] ?? 0);
+    if (!$keep || !$drop || $keep === $drop) { fail('input'); }
+    Capsule::table('mod_cpm_interactions')->where('lead_id', $drop)->update(['lead_id' => $keep]);
+    Capsule::table('mod_cpm_lead_tasks')->where('lead_id', $drop)->update(['lead_id' => $keep]);
+    Capsule::table('mod_cpm_lead_products')->where('lead_id', $drop)->update(['lead_id' => $keep]);
+    // campaign_leads: απόφυγε διπλότυπο (campaign,lead)
+    $keepCamps = Capsule::table('mod_cpm_campaign_leads')->where('lead_id', $keep)->pluck('campaign_id')->all();
+    Capsule::table('mod_cpm_campaign_leads')->where('lead_id', $drop)->whereIn('campaign_id', $keepCamps ?: [0])->delete();
+    Capsule::table('mod_cpm_campaign_leads')->where('lead_id', $drop)->update(['lead_id' => $keep]);
+    // αν το keep δεν έχει αξία αλλά το drop έχει → κράτα τη μεγαλύτερη
+    $kv = (float) Capsule::table('mod_cpm_leads')->where('id', $keep)->value('value');
+    $dv = (float) Capsule::table('mod_cpm_leads')->where('id', $drop)->value('value');
+    if ($dv > $kv) { Capsule::table('mod_cpm_leads')->where('id', $keep)->update(['value' => $dv]); }
+    Capsule::table('mod_cpm_leads')->where('id', $drop)->delete();
+    out(['ok' => true]);
+
 case 'lead_timeline':                    // ενιαίο ιστορικό lead (επικοινωνίες + tasks)
     $lid = (int) ($_GET['lead'] ?? 0);
     $ev = [];

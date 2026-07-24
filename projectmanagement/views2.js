@@ -1353,6 +1353,91 @@ R.reports = async function () {
   </div>`;
 };
 
+/* ═════════ IMPORT / EXPORT & ΔΙΠΛΟΤΥΠΑ (Phase 9) ═════════ */
+R.crmdata = async function () {
+  setTop('CRM', 'Import / Export leads & διπλότυπα');
+  const c = $('#content');
+  if (!S.boot.me.full) { c.innerHTML = crmTabs('crmdata') + `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  let preview = [];
+  c.innerHTML = crmTabs('crmdata') + `
+  <div class="grid g2" style="gap:14px">
+    <div class="card"><div class="card-h">${I.download} Εξαγωγή leads (CSV)</div><div class="card-b">
+      <p class="mut" style="font-size:12.5px;margin:0 0 11px">Κατέβασε όλα τα leads σε αρχείο CSV (ανοίγει σε Excel / Google Sheets).</p>
+      <button class="btn btn-p" id="cdExport">${I.download} Κατέβασμα CSV</button>
+    </div></div>
+    <div class="card"><div class="card-h">${I.alert} Έλεγχος διπλότυπων</div><div class="card-b">
+      <p class="mut" style="font-size:12.5px;margin:0 0 11px">Βρες leads που μοιάζουν (ίδιο email / τηλέφωνο / εταιρεία) και συγχώνευσέ τα σε ένα.</p>
+      <button class="btn btn-o" id="cdDupes">${I.search} Σάρωση για διπλότυπα</button>
+      <div id="cdDupesBox" style="margin-top:12px"></div>
+    </div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><div class="card-h">${I.save} Εισαγωγή leads (CSV)</div><div class="card-b">
+    <p class="mut" style="font-size:12.5px;margin:0 0 9px">Επικόλλησε CSV με στήλες <b>company, contact, email, phone, source, stage, value, next_action, descr</b> (η 1η γραμμή μπορεί να είναι κεφαλίδα). Θα εντοπίσουμε διπλότυπα πριν αποθηκεύσεις.</p>
+    <textarea class="inp" id="cdCsv" rows="6" style="font-family:monospace;font-size:12px" placeholder="company,contact,email,phone,source,stage,value,next_action,descr
+Acme,Γιάννης,info@acme.gr,2101234567,Referral,contacted,500,,"></textarea>
+    <div style="margin-top:10px"><button class="btn btn-o" id="cdPrev">${I.search} Προεπισκόπηση</button></div>
+    <div id="cdPrevBox" style="margin-top:14px"></div>
+  </div></div>`;
+  $('#cdExport').onclick = async () => {
+    const r = await api('leads_export');
+    const b = new Blob(['﻿' + r.csv], {type: 'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(b);
+    const a = document.createElement('a'); a.href = url; a.download = r.filename; document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast(r.count + ' leads εξήχθησαν');
+  };
+  $('#cdPrev').onclick = async () => {
+    const csv = $('#cdCsv').value.trim(); if (!csv) { toast('Επικόλλησε CSV'); return; }
+    const r = await api('leads_import_preview', {csv}).catch(() => null);
+    if (!r) { toast('Σφάλμα ανάλυσης CSV'); return; }
+    preview = r.rows;
+    const box = $('#cdPrevBox');
+    if (!r.total) { box.innerHTML = '<div class="mut" style="font-size:12px">Καμία έγκυρη γραμμή.</div>'; return; }
+    box.innerHTML = `<div style="margin-bottom:9px;font-size:13px"><b>${r.total}</b> γραμμές · <b style="color:var(--ok)">${r.newN}</b> νέες · <b style="color:var(--warn)">${r.dupN}</b> πιθανά διπλότυπα</div>
+    <div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:12px"><thead><tr><th style="text-align:left">Εταιρεία</th><th style="text-align:left">Επαφή</th><th style="text-align:left">Email</th><th>Στάδιο</th><th>Ενέργεια</th></tr></thead><tbody>
+    ${preview.map((p, i) => `<tr>
+      <td style="text-align:left">${esc(p.rec.company || '—')}${p.dup ? `<div class="mut" style="font-size:10.5px;color:var(--warn)">${I.alert} ίδιο ${esc(p.dup.by)} με #${p.dup.id} ${esc(p.dup.company || '')}</div>` : ''}</td>
+      <td style="text-align:left">${esc(p.rec.contact || '')}</td>
+      <td style="text-align:left">${esc(p.rec.email || '')}</td>
+      <td style="text-align:center">${esc(p.rec.stage)}</td>
+      <td style="text-align:center"><select class="inp" data-cdact="${i}" style="font-size:11px;padding:3px 5px;width:auto">
+        <option value="new">Νέο</option>
+        ${p.dup ? `<option value="update" selected>Ενημέρωση #${p.dup.id}</option>` : ''}
+        <option value="skip">Παράλειψη</option>
+      </select></td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="margin-top:12px"><button class="btn btn-p" id="cdCommit">${I.save} Εισαγωγή</button></div>`;
+    $('#cdCommit').onclick = async () => {
+      preview.forEach((p, i) => { const sel = $(`[data-cdact="${i}"]`); p.action = sel ? sel.value : 'new'; });
+      const rr = await api('leads_import_commit', {rows: preview});
+      toast(`${rr.inserted} νέα · ${rr.updated} ενημερώθηκαν · ${rr.skipped} παραλείφθηκαν`);
+      $('#cdCsv').value = ''; box.innerHTML = '';
+    };
+  };
+  $('#cdDupes').onclick = async () => {
+    const box = $('#cdDupesBox'); box.innerHTML = '<div class="mut" style="font-size:12px">Σάρωση…</div>';
+    const r = await api('leads_dupes');
+    if (!r.count) { box.innerHTML = '<div class="mut" style="font-size:12px">Δεν βρέθηκαν διπλότυπα 👏</div>'; return; }
+    box.innerHTML = `<div style="font-size:12.5px;margin-bottom:8px"><b>${r.count}</b> ομάδες διπλότυπων</div>` + r.clusters.map((cl, ci) => `<div style="border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:9px;padding:10px 12px;margin-bottom:9px">
+      <div class="mut" style="font-size:11px;margin-bottom:6px">Ίδιο ${esc(cl.by)} — επίλεξε ποιο θα κρατηθεί:</div>
+      ${cl.leads.map((l, li) => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+        <input type="radio" name="keep${ci}" value="${l.id}" ${li === 0 ? 'checked' : ''}>
+        <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(l.company || l.contact || 'Lead #' + l.id)}</b>
+          <span class="mut" style="font-size:11px">· #${l.id} · ${esc(l.stageLbl)}${l.value ? ' · ' + fmtEur(l.value) : ''}${l.email ? ' · ' + esc(l.email) : ''}</span></div></label>`).join('')}
+      <div style="margin-top:7px"><button class="btn btn-sm btn-o" data-cdmerge="${ci}">${I.repeat} Συγχώνευση</button></div>
+    </div>`).join('');
+    $$('[data-cdmerge]').forEach(b => b.onclick = async () => {
+      const ci = +b.dataset.cdmerge; const cl = r.clusters[ci];
+      const sel = $(`input[name="keep${ci}"]:checked`);
+      const keep = +(sel ? sel.value : cl.leads[0].id);
+      const drops = cl.leads.map(l => l.id).filter(id => id !== keep);
+      if (!drops.length) { toast('Επίλεξε ποιο να κρατήσεις'); return; }
+      if (!await cnpConfirm(`Συγχώνευση ${drops.length + 1} leads σε ένα (#${keep}); Οι επικοινωνίες/tasks/προϊόντα μεταφέρονται.`)) { return; }
+      for (const dId of drops) { await api('lead_merge', {keep, drop: dId}); }
+      toast('Συγχωνεύτηκαν'); $('#cdDupes').click();
+    });
+  };
+};
+
 /* ═════════ ΤΟ ΠΡΟΦΙΛ ΜΟΥ (κάθε χρήστης) ═════════ */
 R.profile = async function () {
   setTop('Το προφίλ μου', 'Στοιχεία, κωδικός, ειδοποιήσεις & δικαιώματα');
