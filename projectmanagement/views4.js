@@ -587,88 +587,94 @@ R.standup = async function () {
   const c = $('#content');
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:120px"></div>'.repeat(2) + '</div>';
   const d = await api('agenda').catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Δεν φορτώθηκε</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Δεν φορτώθηκε</div>`; return; }
   const hc = { green: 'var(--ok)', yellow: 'var(--warn)', red: 'var(--bad)' };
   const hLabel = { green: 'Καλά', yellow: 'Προσοχή', red: 'Πρόβλημα' };
-  const chip = (txt, col) => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:${col}18;color:${col};border:1px solid ${col}33">${txt}</span>`;
-  // «τι πρέπει να ξέρεις» ανά project
+  const chip = (txt, col) => `<span class="su-chip" style="background:${col}18;color:${col};border:1px solid ${col}33">${txt}</span>`;
+  // κυκλικό progress ring
+  const ring = (pct, col) => {
+    const r = 24, circ = 2 * Math.PI * r, off = circ * (1 - (pct || 0) / 100);
+    return `<div class="su-ring"><svg width="58" height="58" viewBox="0 0 58 58">
+      <circle cx="29" cy="29" r="${r}" fill="none" stroke="var(--line)" stroke-width="6"/>
+      <circle cx="29" cy="29" r="${r}" fill="none" stroke="${col}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"/>
+    </svg><div class="v">${pct}%</div></div>`;
+  };
   const projNotes = p => {
     const n = [];
     if (p.daysLeft !== null && p.daysLeft < 0) { n.push(chip(I.alert + ' Καθυστερεί ' + Math.abs(p.daysLeft) + 'μ', 'var(--bad)')); }
-    else if (p.daysLeft !== null && p.daysLeft <= 3) { n.push(chip('⏰ Λήγει σε ' + (p.daysLeft === 0 ? 'σήμερα' : p.daysLeft + 'μ'), 'var(--warn)')); }
-    if (p.staleDays !== null && p.staleDays >= 7) { n.push(chip('🐌 Χωρίς κίνηση ' + p.staleDays + 'μ', 'var(--warn)')); }
-    if (p.health === 'red') { n.push(chip('🔴 Health: πρόβλημα', 'var(--bad)')); }
-    if (p.total === 0 && !p.todoTotal) { n.push(chip('📭 Καμία εργασία ακόμη', 'var(--mut)')); }
-    if (!n.length) { n.push(chip('✅ Σε καλό δρόμο', 'var(--ok)')); }
-    return n.join(' ');
+    else if (p.daysLeft !== null && p.daysLeft <= 3) { n.push(chip(I.clock + ' Λήγει ' + (p.daysLeft === 0 ? 'σήμερα' : 'σε ' + p.daysLeft + 'μ'), 'var(--warn)')); }
+    if (p.staleDays !== null && p.staleDays >= 7) { n.push(chip('🐌 Στάσιμο ' + p.staleDays + 'μ', 'var(--warn)')); }
+    if (p.health === 'red') { n.push(chip(I.alert + ' Πρόβλημα', 'var(--bad)')); }
+    if (p.total === 0 && !p.todoTotal) { n.push(chip(I.box + ' Καμία εργασία', 'var(--mut)')); }
+    if (!n.length) { n.push(chip('✓ Σε καλό δρόμο', 'var(--ok)')); }
+    return n.join('');
   };
-  const dueTxt = p => p.due
-    ? `<span style="color:${p.daysLeft < 0 ? 'var(--bad)' : p.daysLeft <= 3 ? 'var(--warn)' : 'var(--mut)'};font-weight:700">${
-        p.daysLeft < 0 ? Math.abs(p.daysLeft) + 'μ καθυστ.' : p.daysLeft === 0 ? 'λήγει σήμερα' : 'σε ' + p.daysLeft + 'μ'}</span>`
-    : '<span class="mut">χωρίς προθεσμία</span>';
+  const dueBlock = p => p.due
+    ? `<div style="font-size:13px;font-weight:800;color:${p.daysLeft < 0 ? 'var(--bad)' : p.daysLeft <= 3 ? 'var(--warn)' : 'var(--ok)'}">${
+        p.daysLeft < 0 ? Math.abs(p.daysLeft) + 'μ πίσω' : p.daysLeft === 0 ? 'σήμερα' : p.daysLeft + ' μέρες'}</div>
+       <div class="mut" style="font-size:10px">${p.daysLeft < 0 ? 'καθυστέρηση' : 'ως προθεσμία'}</div>`
+    : '<div class="mut" style="font-size:11px">χωρίς<br>προθεσμία</div>';
+  const stat = (ic, n, l, col) => `<div class="su-stat"><div class="ic" style="background:${col}1a;color:${col}">${ic}</div>
+    <div><div class="n">${n}</div><div class="l">${l}</div></div></div>`;
 
   c.innerHTML = `
-  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-    ${chip(I.rocket + ' ' + d.counts.projects + ' ανοιχτά projects', 'var(--brand)')}
-    ${chip(I.ticket + ' ' + d.counts.tickets + ' ανοιχτά tickets', 'var(--brand)')}
-    ${d.counts.waitUs ? chip('🔴 ' + d.counts.waitUs + ' περιμένουν εμάς', 'var(--bad)') : ''}
+  <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:18px">
+    ${stat(I.rocket, d.counts.projects, 'ανοιχτά projects', 'var(--brand)')}
+    ${stat(I.ticket, d.counts.tickets, 'ανοιχτά tickets', 'var(--violet)')}
+    ${stat(I.alert, d.counts.waitUs, 'περιμένουν εμάς', d.counts.waitUs ? 'var(--bad)' : 'var(--ok)')}
     <button class="btn btn-o btn-sm" id="agRef" style="margin-left:auto">↻ Ανανέωση</button>
   </div>
 
   <div class="card" style="margin-bottom:18px"><div class="card-h">${I.rocket} Ανοιχτά Projects <span class="mut" style="font-weight:600">(${d.projects.length})</span>
     <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">νωρίτερη προθεσμία πρώτη · κλικ → Board</span></div>
-    <div class="card-b" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card-b" style="display:flex;flex-direction:column;gap:11px">
     ${d.projects.length ? d.projects.map(p => `
-      <div data-pgo="${p.id}" style="cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:13px 15px;transition:border-color .15s"
-        onmouseover="this.style.borderColor='var(--brand)'" onmouseout="this.style.borderColor='var(--line)'">
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <span class="dot" style="background:${hc[p.health] || 'var(--mut)'};width:10px;height:10px;margin-top:5px" title="Health: ${hLabel[p.health] || '—'}"></span>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:800;font-size:14.5px;color:var(--ink)">${esc(p.name)}</div>
-            <div class="mut" style="font-size:11.5px;margin-top:1px">
-              ${p.kind === 'client' ? '🚀 Έργο πελάτη' : '🏢 Λειτουργικό'}${p.client ? ' · ' + esc(p.client) : ''}
-              ${p.owners.length ? ' · ' + I.user + ' ' + p.owners.map(esc).join(', ') : ''}
+      <div class="su-proj" data-pgo="${p.id}">
+        <div class="stripe" style="background:${hc[p.health] || 'var(--mut)'}"></div>
+        ${ring(p.pct, p.health === 'red' ? 'var(--bad)' : p.health === 'yellow' ? 'var(--warn)' : 'var(--brand)')}
+        <div class="body">
+          <div class="title">${esc(p.name)}</div>
+          <div class="meta">
+            <span>${p.kind === 'client' ? I.rocket + ' Έργο πελάτη' : I.building + ' Λειτουργικό'}</span>
+            ${p.client ? '<span style="opacity:.5">·</span><span>' + esc(p.client) + '</span>' : ''}
+            ${p.owners.length ? '<span style="opacity:.5">·</span><span>' + I.user + ' ' + p.owners.map(esc).join(', ') + '</span>' : ''}
+            <span style="opacity:.5">·</span><span>${p.done}/${p.total} tasks${p.spentMins ? ' · ' + fmtMin(p.spentMins) : ''}</span>
+            ${p.lastUpdate ? '<span style="opacity:.5">·</span><span>ενημ. ' + p.lastUpdate + '</span>' : ''}
           </div>
-          <div style="text-align:right;font-size:11.5px;flex:none">${dueTxt(p)}
-            ${p.lastUpdate ? `<div class="mut" style="font-size:10.5px;margin-top:2px">ενημ. ${p.lastUpdate}</div>` : ''}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${projNotes(p)}</div>
+          ${p.next ? `<div class="next"><b style="color:var(--ink)">▶ Επόμενο:</b> ${esc(p.next.title)}${p.next.who ? ` <span class="mut">— ${esc(p.next.who)}</span>` : '<span class="mut"> — αχρέωτο</span>'}${p.next.due ? ` <span class="mut">(έως ${p.next.due})</span>` : ''}</div>` : ''}
+          ${p.pendingTodos.length ? `<div style="font-size:11px;margin-top:7px;color:var(--mut)">${I.box} Εκκρεμή (${p.todoTotal - p.todoDone}/${p.todoTotal}):
+            ${p.pendingTodos.map(t => `<span style="display:inline-block;background:var(--line);border-radius:6px;padding:1px 8px;margin:2px 3px 0 0;color:var(--txt)">${esc(t)}</span>`).join('')}</div>` : ''}
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin:10px 0 8px">
-          <div style="flex:1;background:var(--line);border-radius:6px;height:9px;overflow:hidden">
-            <div style="width:${p.pct}%;height:100%;background:${p.health === 'red' ? 'var(--bad)' : 'var(--brand)'};border-radius:6px"></div></div>
-          <span style="font-size:11.5px;font-weight:700;white-space:nowrap">${p.pct}%</span>
-          <span class="mut" style="font-size:11px;white-space:nowrap">${p.done}/${p.total} tasks${p.spentMins ? ' · ' + fmtMin(p.spentMins) : ''}</span>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${p.next || p.pendingTodos.length ? '9px' : '0'}">${projNotes(p)}</div>
-        ${p.next ? `<div style="font-size:12px;background:var(--line);border-radius:8px;padding:7px 11px">
-          <b style="color:var(--ink)">▶ Επόμενο:</b> ${esc(p.next.title)}${p.next.who ? ` <span class="mut">— ${esc(p.next.who)}</span>` : '<span class="mut"> — αχρέωτο</span>'}${p.next.due ? ` <span class="mut">(έως ${p.next.due})</span>` : ''}</div>` : ''}
-        ${p.pendingTodos.length ? `<div style="font-size:11.5px;margin-top:7px"><span class="mut">${I.box} Εκκρεμή παραδοτέα (${p.todoTotal - p.todoDone}/${p.todoTotal}):</span>
-          ${p.pendingTodos.map(t => `<span style="display:inline-block;background:var(--line);border-radius:6px;padding:1px 8px;margin:2px 3px 0 0">${esc(t)}</span>`).join('')}</div>` : ''}
-      </div>`).join('') : '<div class="empty" style="padding:24px">Κανένα ανοιχτό project 🎉</div>'}
+        <div class="due">${dueBlock(p)}</div>
+      </div>`).join('') : `<div class="empty" style="padding:28px"><div class="big">${I.rocket}</div>Κανένα ανοιχτό project 🎉</div>`}
     </div></div>
 
   <div class="card"><div class="card-h">${I.ticket} Ανοιχτά Tickets <span class="mut" style="font-weight:600">(${d.tickets.length})</span>
     <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">επείγοντα & αναπάντητα πρώτα · κλικ → ticket</span></div>
     <div class="card-b" style="display:flex;flex-direction:column;gap:10px">
-    ${d.tickets.length ? d.tickets.map(t => `
-      <div data-ibgo="${t.id}" style="cursor:pointer;border:1px solid var(--line);border-left:3px solid ${t.waitUs ? 'var(--bad)' : 'var(--ok)'};border-radius:10px;padding:11px 14px">
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:13.5px;color:var(--ink)">#${esc(t.tid)} — ${esc(t.title)}</div>
-            <div class="mut" style="font-size:11.5px;margin-top:2px">${I.user} ${esc(t.client)} · ${I.folder} ${esc(t.dept)}${t.assignee ? ' · χειριστής: ' + esc(t.assignee) : ' · <b style="color:var(--warn)">χωρίς χειριστή</b>'}</div>
-          </div>
-          <div style="text-align:right;flex:none">
-            ${t.waitUs ? chip('🔴 Περιμένει εμάς', 'var(--bad)') : chip('⏳ Περιμένει πελάτη', 'var(--ok)')}
-            <div class="mut" style="font-size:10.5px;margin-top:3px">${t.idle === 0 ? 'σήμερα' : t.idle + 'μ αναπάντητο'} · ${t.age}μ ζωή</div>
+    ${d.tickets.length ? d.tickets.map(t => {
+      const wc = t.waitUs ? 'var(--bad)' : 'var(--ok)';
+      return `<div class="su-tk" data-ibgo="${t.id}">
+        <div class="stripe" style="background:${wc}"></div>
+        <div class="wait" style="background:${wc};color:${wc}"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13.5px;color:var(--ink)">#${esc(t.tid)} — ${esc(t.title)}</div>
+          <div class="mut" style="font-size:11.5px;margin-top:2px">${I.user} ${esc(t.client)} <span style="opacity:.5">·</span> ${I.folder} ${esc(t.dept)} <span style="opacity:.5">·</span> ${t.assignee ? 'χειριστής: ' + esc(t.assignee) : '<b style="color:var(--warn)">χωρίς χειριστή</b>'}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+            ${t.urgency === 'High' ? chip(I.fire + ' Υψηλή', 'var(--bad)') : t.urgency === 'Low' ? chip('Χαμηλή', 'var(--mut)') : chip('Μεσαία', 'var(--warn)')}
+            <span class="su-kbadge" style="background:var(--brand)1a;color:var(--brand)">${esc(t.status)}</span>
+            ${t.area ? chip(I.box + ' ' + esc(t.area.name), t.area.color) : ''}
+            ${t.cause ? chip(I.lab + ' ' + esc(t.cause.name), t.cause.color) : ''}
+            ${!t.area && !t.cause ? chip(I.tag + ' αταξινόμητο', 'var(--mut)') : ''}
           </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-          ${t.urgency === 'High' ? chip(I.fire + ' Υψηλή', 'var(--bad)') : t.urgency === 'Low' ? chip('Χαμηλή', 'var(--mut)') : chip('Μεσαία', 'var(--warn)')}
-          ${chip(esc(t.status), 'var(--brand)')}
-          ${t.area ? chip(I.box + ' ' + esc(t.area.name), t.area.color) : ''}
-          ${t.cause ? chip(I.lab + ' ' + esc(t.cause.name), t.cause.color) : ''}
-          ${!t.area && !t.cause ? chip(I.tag + ' αταξινόμητο', 'var(--mut)') : ''}
+        <div style="text-align:right;flex:none">
+          <div style="font-size:12px;font-weight:800;color:${wc}">${t.waitUs ? 'Περιμένει εμάς' : 'Περιμένει πελάτη'}</div>
+          <div class="mut" style="font-size:10.5px;margin-top:3px">${t.idle === 0 ? 'σήμερα' : t.idle + 'μ αναπάντητο'}<br>${t.age}μ ζωή</div>
         </div>
-      </div>`).join('') : '<div class="empty" style="padding:24px">Κανένα ανοιχτό ticket 🎉</div>'}
+      </div>`;
+    }).join('') : `<div class="empty" style="padding:28px"><div class="big">${I.ticket}</div>Κανένα ανοιχτό ticket 🎉</div>`}
     </div></div>`;
   $('#agRef').onclick = () => R.standup();
   $$('[data-pgo]').forEach(x => x.onclick = () => go('board', +x.dataset.pgo));
