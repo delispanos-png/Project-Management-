@@ -441,7 +441,7 @@ table.tbl{width:100%;border-collapse:collapse}
 
 /* ═══ Accordion nav groups ═══ */
 button.sgroup{display:flex;align-items:center;width:100%;background:none;border:0;cursor:pointer;
-  color:#586c8f;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:#586c8f;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
   padding:13px 10px 6px;font-family:inherit;transition:color .12s}
 button.sgroup:hover{color:#8ba0c4}
 button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;flex:none}
