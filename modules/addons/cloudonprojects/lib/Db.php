@@ -477,6 +477,15 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        if (!$s->hasTable('mod_cpm_client_remote')) {
+            $s->create('mod_cpm_client_remote', function ($t) {
+                $t->integer('clientid')->unsigned()->primary();  // 📇 αποθηκευμένο RustDesk ID ανά πελάτη
+                $t->string('rustdesk_id', 20);
+                $t->string('label', 120)->default('');
+                $t->integer('updated_by')->unsigned()->nullable();
+                $t->timestamp('updated_at')->nullable();
+            });
+        }
         if (!$s->hasTable('mod_cpm_prefs')) {
             $s->create('mod_cpm_prefs', function ($t) {
                 $t->increments('id');

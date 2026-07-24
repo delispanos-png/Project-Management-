@@ -2473,9 +2473,45 @@ case 'remote_start':
         'clientid' => $cid8, 'ticketid' => (int) ($in['ticket'] ?? 0) ?: null,
         'tool' => 'rustdesk', 'note' => mb_substr(trim(($in['note'] ?? '') . ' [ID ' . $peer8 . ']'), 0, 255),
         'meet_url' => null, 'started_at' => date('Y-m-d H:i:s')]);
+    // 📇 ΘΥΜΗΣΟΥ το RustDesk ID του πελάτη (address book) — ώστε να μη ξαναρωτάμε
+    Capsule::table('mod_cpm_client_remote')->updateOrInsert(['clientid' => $cid8],
+        ['rustdesk_id' => $peer8, 'updated_by' => $adminId, 'updated_at' => date('Y-m-d H:i:s')]);
     // deep link για το RustDesk του χειριστή
     $gatewayUrl = 'rustdesk://connection/new/' . $peer8;
     out(['ok' => true, 'id' => $rid8, 'gatewayUrl' => $gatewayUrl]);
+
+case 'remote_peer':                     // αποθηκευμένο RustDesk ID ενός πελάτη
+    $cid8 = (int) ($_GET['client'] ?? $in['client'] ?? 0);
+    $rp = Capsule::table('mod_cpm_client_remote')->where('clientid', $cid8)->first();
+    out(['rustdesk_id' => $rp->rustdesk_id ?? '', 'label' => $rp->label ?? '',
+        'updated' => $rp->updated_at ?? null]);
+
+case 'remote_save_peer':                // αποθήκευση/επεξεργασία ID χωρίς σύνδεση
+    $cid8 = (int) ($in['client'] ?? 0);
+    if (!$cid8 || !Capsule::table('tblclients')->where('id', $cid8)->exists()) { fail('Διάλεξε πελάτη'); }
+    $peer8 = preg_replace('/[^0-9]/', '', $in['peer'] ?? '');
+    if ($peer8 === '') {
+        Capsule::table('mod_cpm_client_remote')->where('clientid', $cid8)->delete();  // κενό = διαγραφή
+        out(['ok' => true, 'deleted' => true]);
+    }
+    Capsule::table('mod_cpm_client_remote')->updateOrInsert(['clientid' => $cid8],
+        ['rustdesk_id' => $peer8, 'label' => mb_substr(trim($in['label'] ?? ''), 0, 120),
+         'updated_by' => $adminId, 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'rustdesk_id' => $peer8]);
+
+case 'remote_book':                     // 📇 όλες οι αποθηκευμένες συνδέσεις (address book)
+    $rows = Capsule::table('mod_cpm_client_remote as r')
+        ->join('tblclients as c', 'c.id', '=', 'r.clientid')
+        ->orderBy('r.updated_at', 'desc')
+        ->get(['r.clientid', 'r.rustdesk_id', 'r.label', 'r.updated_at',
+               'c.firstname', 'c.lastname', 'c.companyname']);
+    $book = [];
+    foreach ($rows as $r) {
+        $book[] = ['clientid' => (int) $r->clientid, 'rustdesk_id' => $r->rustdesk_id,
+            'label' => $r->label, 'updated' => $r->updated_at,
+            'name' => $r->companyname ?: trim($r->firstname . ' ' . $r->lastname)];
+    }
+    out(['book' => $book]);
 
 case 'remote_send_client':              // στείλε το πρόγραμμα υποστήριξης στον πελάτη
     $cid8 = (int) ($in['client'] ?? 0);

@@ -115,7 +115,8 @@ function renderShell() {
   const me = S.boot.me;
   const nav = [
     ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['standup', I.clipboard, 'Standup'], ['inbox', I.ticket, 'Tickets'], ['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'],
-      ['list', I.list, 'Λίστα tasks'], ['calendar', I.cal, 'Ημερολόγιο'], ['time', I.clock, 'Χρόνος'], ['knowledge', I.book, 'Γνώση'], ['chat', I.chat || I.ticket, 'Chat']]],
+      ['list', I.list, 'Λίστα tasks'], ['calendar', I.cal, 'Ημερολόγιο'], ['time', I.clock, 'Χρόνος'], ['knowledge', I.book, 'Γνώση'], ['chat', I.chat || I.ticket, 'Chat'],
+      ['remotebook', I.monitor, 'Απομακρυσμένες']]],
     ['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]],
   ];
   if (me.full) {
@@ -233,9 +234,10 @@ function startRemote(clientId, clientName, ticketId, opts) {
 
       <div style="margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:11px">
         <b style="font-size:12.5px;color:var(--ink)">② Σύνδεση</b>
-        <div class="mut" style="font-size:11px;margin-top:3px">Ο πελάτης ανοίγει το πρόγραμμα και σου διαβάζει το <b>ID (9 ψηφία)</b>.</div>
+        <div class="mut" style="font-size:11px;margin-top:3px" id="rmPeerHint">Ο πελάτης ανοίγει το πρόγραμμα και σου διαβάζει το <b>ID (9 ψηφία)</b>.</div>
         <input class="inp" id="rmPeer" placeholder="RustDesk ID πελάτη — π.χ. 123 456 789" style="margin-top:8px;font-size:16px;letter-spacing:1px">
         <input class="inp" id="rmNote" placeholder="Τι θα κάνεις (για τη χρέωση)…" style="margin-top:8px">
+        <div class="mut" style="font-size:10.5px;margin-top:6px">Το ID αποθηκεύεται αυτόματα για αυτόν τον πελάτη — την επόμενη φορά θα είναι έτοιμο.</div>
       </div>
 
       <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
@@ -244,6 +246,19 @@ function startRemote(clientId, clientName, ticketId, opts) {
     </div></div>`;
   document.body.appendChild(ovl);
   $('#rmDl', ovl).href = dl;
+  // 📇 φέρε το αποθηκευμένο RustDesk ID αυτού του πελάτη (αν υπάρχει) → prefill
+  if (opts.savedPeer) {
+    ovl.querySelector('#rmPeer').value = opts.savedPeer.replace(/(\d{3})(?=\d)/g, '$1 ');
+  } else if (clientId) {
+    api('remote_peer&client=' + clientId).then(r => {
+      const inp = ovl.querySelector('#rmPeer');
+      if (r && r.rustdesk_id && inp && !inp.value) {
+        inp.value = r.rustdesk_id.replace(/(\d{3})(?=\d)/g, '$1 ');
+        const h = ovl.querySelector('#rmPeerHint');
+        if (h) { h.innerHTML = '💾 <b>Αποθηκευμένο ID</b> — έτοιμο για σύνδεση (μπορείς να το αλλάξεις).'; }
+      }
+    }).catch(() => {});
+  }
   setTimeout(() => ovl.querySelector('#rmPeer').focus(), 30);
   ovl.querySelector('#rmNo').onclick = () => ovl.remove();
   ovl.querySelector('#rmCopy').onclick = () => navigator.clipboard.writeText(dl).then(() => toast('Ο σύνδεσμος αντιγράφηκε 📋'));
@@ -266,6 +281,39 @@ function startRemote(clientId, clientName, ticketId, opts) {
   ovl.querySelector('#rmGo').onclick = go;
   ovl.querySelector('#rmPeer').onkeydown = e => { if (e.key === 'Enter') go(); };
 }
+
+// 📇 Address book: αποθηκευμένες RustDesk συνδέσεις πελατών — ένα κλικ, χωρίς να ξαναρωτάς
+window.R = window.R || {};
+window.R.remotebook = async function () {
+  setTop('Απομακρυσμένες', 'Αποθηκευμένες συνδέσεις πελατών — ένα κλικ για σύνδεση');
+  const c = $('#content');
+  c.innerHTML = '<div class="skel" style="height:300px"></div>';
+  const d = await api('remote_book').catch(() => null);
+  if (!d) { c.innerHTML = '<div class="empty"><div class="big">' + I.monitor + '</div>Δεν φορτώθηκε</div>'; return; }
+  const rows = d.book || [];
+  c.innerHTML = `
+  <div class="card"><div class="card-h">${I.monitor} Οι συνδέσεις μου <span class="mut" style="font-weight:600">(${rows.length})</span>
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ «Σύνδεση» → ανοίγει το RustDesk έτοιμο</span></div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
+    ${rows.length ? rows.map(r => `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 13px;border:1px solid var(--line);border-radius:11px">
+        <span style="font-size:18px">${I.monitor}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</div>
+          <div class="mut" style="font-size:11.5px">ID: <b style="letter-spacing:1px">${esc((r.rustdesk_id || '').replace(/(\d{3})(?=\d)/g, '$1 '))}</b>${r.label ? ' · ' + esc(r.label) : ''}</div></div>
+        <button class="btn btn-sm" data-rbgo="${r.clientid}" data-name="${esc(r.name)}" data-peer="${esc(r.rustdesk_id)}" style="background:var(--ok);color:#fff">${I.monitor} Σύνδεση</button>
+        <button class="btn btn-sm btn-o" data-rbdel="${r.clientid}" title="Αφαίρεση" style="color:var(--bad)">${I.trash}</button>
+      </div>`).join('')
+      : `<div class="empty" style="padding:30px"><div class="big">${I.monitor}</div>Καμία αποθηκευμένη σύνδεση ακόμη.<br>
+         <span class="mut" style="font-size:12px">Μόλις συνδεθείς σε έναν πελάτη (από ticket ή Πελάτη 360°), το ID του αποθηκεύεται εδώ αυτόματα.</span></div>`}
+    </div></div>`;
+  $$('[data-rbgo]').forEach(b => b.onclick = () => startRemote(+b.dataset.rbgo, b.dataset.name, 0, {savedPeer: b.dataset.peer}));
+  $$('[data-rbdel]').forEach(b => b.onclick = async () => {
+    if (!(await cnpConfirm('Αφαίρεση αυτής της σύνδεσης από τη λίστα;', {danger: true, ok: 'Αφαίρεση'}))) return;
+    await api('remote_save_peer', {client: +b.dataset.rbdel, peer: ''});
+    toast('Αφαιρέθηκε'); R.remotebook();
+  });
+};
 
 async function stopRemote() {
   if (!_remote) return;
