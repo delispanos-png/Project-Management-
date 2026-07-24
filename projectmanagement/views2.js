@@ -716,13 +716,13 @@ R.teams = async function () {
           '<div class="mut" style="font-size:12.5px">Χωρίς μέλη</div>'}
         ${t.projects.length ? `<div class="mut" style="font-size:11px;margin-top:8px">${I.folder} ${esc(t.projects.slice(0, 4).join(' · '))}${t.projects.length > 4 ? ' +' + (t.projects.length - 4) : ''}</div>` : ''}
         ${d.canManage ? `<div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--line);padding-top:9px;flex-wrap:wrap">
-          <select class="inp" data-mAdm="${t.id}" style="flex:1;min-width:110px;padding:6px 9px;font-size:12px">
+          <select class="inp" data-madm="${t.id}" style="flex:1;min-width:110px;padding:6px 9px;font-size:12px">
             ${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
-          <select class="inp" data-mRole="${t.id}" style="width:120px;padding:6px 9px;font-size:12px">
+          <select class="inp" data-mrole="${t.id}" style="width:120px;padding:6px 9px;font-size:12px">
             <option value="">— ρόλος —</option>${d.roles.map(r => `<option>${esc(r)}</option>`).join('')}</select>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-mLead="${t.id}">${I.crown} </label>
-          <button class="btn btn-sm btn-o" data-mGo="${t.id}">+</button>
-          <button class="btn btn-sm btn-o" data-tDel="${t.id}" style="margin-left:auto;color:var(--bad)">Διαγραφή</button></div>` : ''}
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-mlead="${t.id}">${I.crown} </label>
+          <button class="btn btn-sm btn-o" data-mgo="${t.id}">+</button>
+          <button class="btn btn-sm btn-o" data-tdel="${t.id}" style="margin-left:auto;color:var(--bad)">Διαγραφή</button></div>` : ''}
       </div></div>`).join('')}
     ${d.solo.length ? `<div class="card" style="margin:0;border:1.5px dashed var(--line);box-shadow:none">
       <div class="card-h mut">Χωρίς ομάδα</div><div class="card-b">
@@ -734,19 +734,19 @@ R.teams = async function () {
       await api('save_team', {id: 0, name: $('#tmName').value.trim(), color: $('#tmColor').value});
       toast('Δημιουργήθηκε'); R.teams();
     };
-    $$('[data-mGo]').forEach(b => b.onclick = async () => {
-      const t = b.dataset.mGo;
-      await api('team_member_add', {team: +t, admin: +$(`[data-mAdm="${t}"]`).value,
-        role: $(`[data-mRole="${t}"]`).value, leader: $(`[data-mLead="${t}"]`).checked});
+    $$('[data-mgo]').forEach(b => b.onclick = async () => {
+      const t = b.dataset.mgo;
+      await api('team_member_add', {team: +t, admin: +$(`[data-madm="${t}"]`).value,
+        role: $(`[data-mrole="${t}"]`).value, leader: $(`[data-mlead="${t}"]`).checked});
       toast('Προστέθηκε'); R.teams();
     });
     $$('[data-rm]').forEach(b => b.onclick = async () => {
       const [t, a] = b.dataset.rm.split(':');
       await api('team_member_del', {team: +t, admin: +a}); R.teams();
     });
-    $$('[data-tDel]').forEach(b => b.onclick = async () => {
+    $$('[data-tdel]').forEach(b => b.onclick = async () => {
       if (!(await cnpConfirm('Διαγραφή ομάδας; (τα μέλη δεν διαγράφονται)', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
-      await api('del_team', {id: +b.dataset.tDel}); toast('Διαγράφηκε'); R.teams();
+      await api('del_team', {id: +b.dataset.tdel}); toast('Διαγράφηκε'); R.teams();
     });
   }
 };
