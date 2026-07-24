@@ -136,12 +136,12 @@ function renderShell() {
       ['profit', I.coin, 'Κερδοφορία'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
   }
   $('#app').innerHTML = `
-  <div class="shell">
+  <div class="shell${localStorage.cnpSideCollapsed === '1' ? ' collapsed' : ''}">
     <aside class="side">
       <div class="brand"><div class="brand-ico">P</div>
         <div class="brand-t">Cloudon<b>Projects</b><small>Project Manager</small></div></div>
       ${nav.map(([g, items]) => `<div class="sgroup">${g}</div>` +
-        items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}">${ic}<span>${lb}</span></button>`).join('')).join('')}
+        items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}">${ic}<span>${lb}</span></button>`).join('')).join('')}
       <div class="side-foot">
         <span class="ava" data-profile style="cursor:pointer" title="Το προφίλ μου">${esc(me.ini)}</span>
         <div data-profile style="cursor:pointer" title="Το προφίλ μου"><div class="side-foot-name">${esc(me.name)}</div>
@@ -153,6 +153,7 @@ function renderShell() {
       <div class="top">
         <div><h1 id="topTitle"></h1><small id="topSub"></small></div>
         <div class="top-acts">
+          <button class="btn btn-o btn-ico" id="sideTgl" title="Μεγέθυνση/σμίκρυνση μενού"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
           <button id="remoteChip" style="display:none;border:0;border-radius:99px;background:var(--bad);color:#fff;font-weight:800;padding:7px 14px;cursor:pointer;font-size:12.5px" title="Κλικ για τερματισμό & χρέωση"></button>
           <button class="btn btn-o btn-sm" id="palBtn" title="Ctrl+K">${I.search} <span class="mut" style="font-size:10px">Ctrl K</span></button>
           <div class="bell-wrap"><button class="btn btn-o btn-ico" id="bellBtn" style="position:relative">${I.bell}
@@ -163,6 +164,10 @@ function renderShell() {
     </div>
   </div>`;
   $$('.sitem').forEach(b => b.onclick = () => go(b.dataset.nav));
+  $('#sideTgl').onclick = () => {
+    const sh = $('.shell'); const col = sh.classList.toggle('collapsed');
+    localStorage.cnpSideCollapsed = col ? '1' : '0';
+  };
   $('#themeBtn').onclick = () => {
     S.theme = S.theme === 'dark' ? 'light' : 'dark';
     localStorage.cnpTheme = S.theme; document.documentElement.dataset.theme = S.theme;
