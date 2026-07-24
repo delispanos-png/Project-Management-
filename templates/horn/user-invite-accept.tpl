@@ -10,6 +10,17 @@
     });
 </script>
 
+<style>{literal}
+    /* Accept-invite cards render over a light section; the theme's text is white,
+       so give the boxes a solid dark card surface to make labels/headings legible. */
+    .invite-box{background:#1f232b!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:14px;
+        padding:26px 24px;margin-bottom:18px;}
+    .invite-box h2{color:#fff;margin-top:0;}
+    .invite-box label{color:#e8eef4;}
+    .invite-box .text-muted,.invite-box .checkbox-inline{color:#b8c2cc!important;}
+    .invite-box a{color:#5db0ff;text-decoration:underline;}
+{/literal}</style>
+
 <div class="row">
     <div class="col-md-10 col-md-offset-1 text-center">
         {if $invite}

@@ -1,3 +1,21 @@
+<style>{literal}
+    /* Article on the dark theme: light, readable title/body; dark code blocks. */
+    .article-content .kb-article-title h2{color:#ffffff!important;}
+    .article-content .kb-article-content{color:#dfe6ee!important;}
+    .article-content .kb-article-content p,.article-content .kb-article-content li,
+    .article-content .kb-article-content td,.article-content .kb-article-content ul,
+    .article-content .kb-article-content ol,.article-content .kb-article-content span{color:#dfe6ee!important;}
+    .article-content .kb-article-content h1,.article-content .kb-article-content h2,
+    .article-content .kb-article-content h3,.article-content .kb-article-content h4,
+    .article-content .kb-article-content h5,.article-content .kb-article-content h6,
+    .article-content .kb-article-content strong,.article-content .kb-article-content b{color:#ffffff!important;}
+    .article-content .kb-article-content a{color:#5db0ff!important;}
+    .article-content .kb-article-content pre,.article-content .kb-article-content code{
+        background:#0d1522!important;color:#e6edf3!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:8px;}
+    .article-content .kb-article-content pre{padding:12px 14px!important;overflow:auto;}
+    .article-content .kb-article-content code{padding:2px 6px!important;}
+{/literal}</style>
+
 <div class="article-content">
 <div class="kb-article-title">
     <h2>{$kbarticle.title}</h2>

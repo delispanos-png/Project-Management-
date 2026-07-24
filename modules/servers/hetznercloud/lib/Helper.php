@@ -47,7 +47,102 @@ class Helper
         if (!empty($params['serverpassword'])) {
             return trim($params['serverpassword']);
         }
+        // Multi-project: use the token of the project THIS service's VM lives in.
+        $serviceId = (int) ($params['serviceid'] ?? 0);
+        if ($serviceId > 0) {
+            $t = self::projectTokenForService($serviceId);
+            if ($t !== '') {
+                return $t;
+            }
+        }
         return self::globalToken();
+    }
+
+    /**
+     * Resolve the API token for a service from its Hetzner project mapping
+     * (mod_hetzner_instances → mod_hetzner_projects). Falls back to the primary
+     * project. Returns '' if the projects layer isn't available, so the caller
+     * drops back to the legacy global token — existing single-project services
+     * keep working unchanged.
+     */
+    public static function projectTokenForService($serviceId)
+    {
+        try {
+            require_once __DIR__ . '/../../../addons/hetznercloud/lib/Db.php';
+            $proj = \WHMCS\Module\Addon\HetznerCloud\Db::projectForService((int) $serviceId);
+            if ($proj && !empty($proj->api_token)) {
+                return Api::normalizeToken($proj->api_token);
+            }
+        } catch (\Throwable $e) {
+            // fall through to global token
+        }
+        return '';
+    }
+
+    /** Token for a specific project id (used when provisioning into a target project). */
+    public static function projectToken($projectId)
+    {
+        try {
+            require_once __DIR__ . '/../../../addons/hetznercloud/lib/Db.php';
+            $proj = \WHMCS\Module\Addon\HetznerCloud\Db::project((int) $projectId);
+            if ($proj && !empty($proj->api_token)) {
+                return Api::normalizeToken($proj->api_token);
+            }
+        } catch (\Throwable $e) {
+        }
+        return '';
+    }
+
+    /**
+     * Which project a NEW order should provision into: the product's per-product
+     * override (mod_hetzner_map.project_id) if set & enabled, else the primary
+     * project. Returns 0 if the projects layer isn't available.
+     */
+    public static function targetProjectForCreate(array $params)
+    {
+        try {
+            require_once __DIR__ . '/../../../addons/hetznercloud/lib/Db.php';
+            $db = 'WHMCS\\Module\\Addon\\HetznerCloud\\Db';
+            $pid = (int) ($params['pid'] ?? 0); // WHMCS product id
+            if ($pid) {
+                $map = $db::mappingForProduct($pid);
+                if ($map && !empty($map->project_id)) {
+                    $proj = $db::project((int) $map->project_id);
+                    if ($proj && $proj->enabled) {
+                        return (int) $proj->id;
+                    }
+                }
+            }
+            $prim = $db::primaryProject();
+            return $prim ? (int) $prim->id : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /** The project id a service is currently pinned to (0 if none). */
+    public static function instanceProjectId($serviceId)
+    {
+        try {
+            require_once __DIR__ . '/../../../addons/hetznercloud/lib/Db.php';
+            $inst = \WHMCS\Module\Addon\HetznerCloud\Db::instanceForService((int) $serviceId);
+            return $inst ? (int) $inst->project_id : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /** Persist / update the service → project → Hetzner-server-id mapping. */
+    public static function recordInstance($serviceId, $projectId, $serverId = null)
+    {
+        if ((int) $projectId <= 0) {
+            return;
+        }
+        try {
+            require_once __DIR__ . '/../../../addons/hetznercloud/lib/Db.php';
+            \WHMCS\Module\Addon\HetznerCloud\Db::saveInstance((int) $serviceId, (int) $projectId, $serverId);
+        } catch (\Throwable $e) {
+        }
     }
 
     /**

@@ -59,6 +59,12 @@
             </select>
         </div>
     </div>
+    {* Department custom fields (e.g. "PharmacyOne Version") — shown right after the
+       department selection so they're near the top, not buried under attachments. *}
+    <div id="customFieldsContainer">
+        {include file="$template/supportticketsubmit-customfields.tpl"}
+    </div>
+
     <div class="form-group">
         <label for="inputMessage">{$LANG.contactmessage}</label>
         <textarea name="message" id="inputMessage" rows="12" class="form-control markdown-editor" data-auto-save-name="client_ticket_open">{$message}</textarea>
@@ -80,10 +86,6 @@
         <div class="col-xs-12 ticket-attachments-message text-muted">
             {$LANG.supportticketsallowedextensions}: {$allowedfiletypes} ({lang key="maxFileSize" fileSize="$uploadMaxFileSize"})
         </div>
-    </div>
-
-    <div id="customFieldsContainer">
-        {include file="$template/supportticketsubmit-customfields.tpl"}
     </div>
 
     <div id="autoAnswerSuggestions" class="well hidden"></div>

@@ -53,7 +53,7 @@
                             {else}
                                 <h3>{lang key="store.siteBuilder.upgrade.noPlans"}</h3>
                                 <p>{lang key="store.siteBuilder.upgrade.loggedInAs" email=$loggedinuser.email}</p>
-                                <p><a href="logout.php?redirect=cart-site-builder-upgrade">{lang key="store.siteBuilder.upgrade.switchUser"}</a></p>
+                                <p><a href="{$WEB_ROOT}/logout.php?redirect=cart-site-builder-upgrade">{lang key="store.siteBuilder.upgrade.switchUser"}</a></p>
                             {/if}
                         </div>
 

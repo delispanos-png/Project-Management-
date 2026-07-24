@@ -1451,3 +1451,7 @@ li:nth-child(3) {
 	width:300px !important;
 	}
 }
+
+/* 💚 CloudOn — πράσινα LED μέσα στο εικονίδιο server (SVG) */
+@keyframes cnpLedSvg{0%,100%{opacity:1}50%{opacity:.18}}
+.cnp-led{fill:#2ddc6e;filter:drop-shadow(0 0 .6px #2ddc6e);animation:cnpLedSvg 1.4s infinite ease-in-out}

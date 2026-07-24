@@ -29,3 +29,12 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.swp
+
+# ── Runtime symlinks / ACME / verification ─────────────
+/project
+/.well-known/acme-challenge/
+/*.txt
+b4e0f6955f975064a74c1b16cd06a9a9.txt
+
+# ── Debug (προσωρινό — αφαιρείται όταν λυθεί το Save products) ──
+/includes/hooks/zz_debug_productsave.php

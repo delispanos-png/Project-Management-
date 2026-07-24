@@ -53,7 +53,7 @@
                             {else}
                                 <h3>{lang key="store.websiteBuilder.upgrade.noPlans"}</h3>
                                 <p>{lang key="store.websiteBuilder.upgrade.loggedInAs" email=$loggedinuser.email}</p>
-                                <p><a href="logout.php?redirect=cart-weebly-upgrade">{lang key="store.websiteBuilder.upgrade.switchUser"}</a></p>
+                                <p><a href="{$WEB_ROOT}/logout.php?redirect=cart-weebly-upgrade">{lang key="store.websiteBuilder.upgrade.switchUser"}</a></p>
                             {/if}
                         </div>
 

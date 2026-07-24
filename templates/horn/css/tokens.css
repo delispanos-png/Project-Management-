@@ -69,6 +69,12 @@
   --danger:  #d92d3a;
   --info:    #0097e4;
 
+  /* Back-compat aliases — foundation.css / dashboard use --ok/--warn/--bad
+     (kept in sync with the semantic status tokens above). */
+  --ok:   var(--success);
+  --warn: var(--warning);
+  --bad:  var(--danger);
+
   /* --- Semantic · Surfaces / Text / Borders (LIGHT) ---------------------- */
   --bg:        #f4f7fc;   /* page background            */
   --surface:   #ffffff;   /* cards, panels              */

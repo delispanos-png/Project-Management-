@@ -84,6 +84,84 @@ add_hook('ClientAreaPage', 1, function ($vars) {
         }
     } catch (\Throwable $e) {}
 
+    // Total amount across all unpaid invoices (for the invoices KPI detail).
+    $unpaidTotal = 0.0;
+    try {
+        $unpaidTotal = (float) Capsule::table('tblinvoices')
+            ->where('userid', $uid)->where('status', 'Unpaid')->sum('total');
+    } catch (\Throwable $e) {}
+
+    // Recent published announcements (last 14 days) — powers the "new" badge.
+    $newAnnounce = 0;
+    try {
+        $newAnnounce = (int) Capsule::table('tblannouncements')
+            ->where('published', 1)
+            ->where('date', '>=', date('Y-m-d H:i:s', strtotime('-14 days')))
+            ->count();
+    } catch (\Throwable $e) {}
+
+    // Payment reliability (on-time %) — how punctually the client pays.
+    $payRel = null;
+    try {
+        $paid = Capsule::table('tblinvoices')
+            ->where('userid', $uid)->where('status', 'Paid')
+            ->get(['duedate', 'datepaid']);
+        $paidCount = count($paid);
+        if ($paidCount > 0) {
+            $onTime = 0;
+            foreach ($paid as $inv) {
+                $dp = ($inv->datepaid && $inv->datepaid !== '0000-00-00 00:00:00') ? strtotime($inv->datepaid) : 0;
+                $du = ($inv->duedate  && $inv->duedate  !== '0000-00-00')          ? strtotime($inv->duedate)  : 0;
+                if ($dp && $du && ($dp - $du) <= 86400) { // paid on/before due (1-day grace) = on time
+                    $onTime++;
+                }
+            }
+            $rate  = (int) round($onTime / $paidCount * 100);
+            $level = $rate >= 90 ? 'ok' : ($rate >= 70 ? 'warn' : 'bad');
+            $payRel = ['rate' => $rate, 'level' => $level, 'onTime' => $onTime, 'total' => $paidCount];
+        }
+    } catch (\Throwable $e) {}
+
+    // Last actual payment received (transaction date + amount).
+    $lastPayment = null;
+    try {
+        $acc = Capsule::table('tblaccounts')->where('userid', $uid)
+            ->where('amountin', '>', 0)->orderBy('date', 'desc')->first(['date', 'amountin']);
+        if ($acc) {
+            $lastPayment = ['date' => substr((string) $acc->date, 0, 10), 'amount' => number_format((float) $acc->amountin, 2)];
+        }
+    } catch (\Throwable $e) {}
+
+    // Open-balance aging — unpaid invoices grouped by due month, so the client
+    // sees FROM WHICH month debt is open and HOW it escalates over time.
+    $openByMonth = [];
+    try {
+        $u = Capsule::table('tblinvoices')->where('userid', $uid)->where('status', 'Unpaid')
+            ->get(['duedate', 'total']);
+        $byM = [];
+        $curYm = date('Y-m');
+        foreach ($u as $inv) {
+            $ym = ($inv->duedate && $inv->duedate !== '0000-00-00') ? substr((string) $inv->duedate, 0, 7) : $curYm;
+            $byM[$ym] = ($byM[$ym] ?? 0) + (float) $inv->total;
+        }
+        if ($byM) {
+            ksort($byM);
+            if (count($byM) > 12) {
+                $byM = array_slice($byM, -12, 12, true); // keep the 12 most recent months readable
+            }
+            $max = max($byM);
+            foreach ($byM as $ym => $amt) {
+                $openByMonth[] = [
+                    'ym'      => $ym,
+                    'short'   => substr($ym, 5, 2) . '/' . substr($ym, 2, 2), // MM/YY (language-neutral)
+                    'amount'  => number_format($amt, 2),
+                    'pct'     => $max > 0 ? (int) round($amt / $max * 100) : 0,
+                    'overdue' => ($ym < $curYm),
+                ];
+            }
+        }
+    } catch (\Throwable $e) {}
+
     return [
         'hzUnpaidInvoice' => $unpaid,
         'hzHasServices'  => count($services) > 0,
@@ -92,5 +170,10 @@ add_hook('ClientAreaPage', 1, function ($vars) {
         'hzNextRenewal'  => $nextRenewal,
         'hzHealth'       => $health,
         'hzActiveCount'  => $counts['Active'],
+        'hzUnpaidTotal'      => number_format($unpaidTotal, 2),
+        'hzNewAnnouncements' => $newAnnounce,
+        'hzPayReliability'   => $payRel,
+        'hzLastPayment'      => $lastPayment,
+        'hzOpenByMonth'      => $openByMonth,
     ];
 });

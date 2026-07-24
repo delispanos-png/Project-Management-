@@ -1,0 +1,18 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-gateways",
+  "name": "alphaecommerce",
+  "license": "owned",
+  "category": "payments",
+  "description": {
+    "name": "Alpha Bank / Nexi (Alpha e-Commerce)",
+    "tagline": "Alpha Bank / Nexi hosted card payments (Alpha e-Commerce / Modirum redirect) — native Cloud On module."
+  },
+  "logo": {
+    "filename": "logo.png",
+    "24px": "logo.png"
+  },
+  "authors": [
+    { "name": "Cloud On", "homepage": "https://cloudon.gr/" }
+  ]
+}

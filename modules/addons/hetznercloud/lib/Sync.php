@@ -248,6 +248,7 @@ class Sync
         $m->markup = $override ? $override->markup : null;
         $m->last_cost = $override ? $override->last_cost : 0;
         $m->last_price = $override ? $override->last_price : 0;
+        $m->project_id = ($override && isset($override->project_id)) ? $override->project_id : null;
         return $m;
     }
 
@@ -688,45 +689,76 @@ class Sync
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->get(['id', 'userid', 'packageid', 'domain', 'dedicatedip', 'username']);
 
-        // Live Hetzner servers keyed by IP and by name.
+        // Live Hetzner servers from EVERY enabled project, keyed by IP and name,
+        // each tagged with the owning project so we link with the right token.
         $byIp = [];
         $byName = [];
         $allServers = [];
-        try {
-            $page = 1;
-            do {
-                $res = $this->api->request('GET', '/servers', ['per_page' => 50, 'page' => $page]);
-                foreach (($res['servers'] ?? []) as $s) {
-                    $allServers[] = $s;
-                    $ip = $s['public_net']['ipv4']['ip'] ?? '';
-                    if ($ip) { $byIp[$ip] = $s['id']; }
-                    $byName[$s['name']] = $s['id'];
-                }
-                $page = $res['meta']['pagination']['next_page'] ?? null;
-            } while ($page);
-        } catch (ApiException $e) {
-            Db::log('import: server list failed ' . $e->getMessage(), 'error');
+        $projects = Db::enabledProjects()->all();
+        if (empty($projects)) {
+            // Legacy fallback: the addon's own token as an unnamed project.
+            $projects = [(object) ['id' => 0, 'name' => '(default)', 'api_token' => $this->cfg['api_token'] ?? '']];
+        }
+        foreach ($projects as $proj) {
+            try {
+                $tok = Api::normalizeToken($proj->api_token);
+                $api = ($proj->id && $tok !== '') ? new Api($tok) : $this->api;
+                $page = 1;
+                do {
+                    $res = $api->request('GET', '/servers', ['per_page' => 50, 'page' => $page]);
+                    foreach (($res['servers'] ?? []) as $s) {
+                        $s['_project_id'] = (int) $proj->id;
+                        $s['_project_name'] = $proj->name;
+                        $allServers[] = $s;
+                        $ip = $s['public_net']['ipv4']['ip'] ?? '';
+                        if ($ip) { $byIp[$ip] = ['pid' => (int) $proj->id, 'sid' => $s['id']]; }
+                        $byName[$s['name']] = ['pid' => (int) $proj->id, 'sid' => $s['id']];
+                    }
+                    $page = $res['meta']['pagination']['next_page'] ?? null;
+                } while ($page);
+            } catch (ApiException $e) {
+                Db::log("import: project #{$proj->id} ({$proj->name}) list failed: " . $e->getMessage(), 'error');
+            }
+        }
+
+        // project id → name, for the Project column
+        $pidToName = [];
+        foreach ($projects as $pp) {
+            $pidToName[(int) $pp->id] = $pp->name;
         }
 
         $rows = [];
         foreach ($services as $svc) {
             // Already linked?
             $linked = (!empty($svc->username) && strpos($svc->username, 'hz-') === 0);
-            $guessId = 0;
+            $guess = null;
             $guessBy = '';
             if (!empty($svc->dedicatedip) && isset($byIp[$svc->dedicatedip])) {
-                $guessId = $byIp[$svc->dedicatedip];
+                $guess = $byIp[$svc->dedicatedip];
                 $guessBy = 'IP';
             } elseif (isset($byName['whmcs-' . $svc->id])) {
-                $guessId = $byName['whmcs-' . $svc->id];
+                $guess = $byName['whmcs-' . $svc->id];
                 $guessBy = 'name';
+            }
+            // Which project this VM lives in: for linked services the recorded
+            // instance, otherwise the guessed server's project.
+            $projName = '';
+            if ($linked) {
+                $inst = Capsule::table('mod_hetzner_instances')->where('service_id', $svc->id)->first();
+                if ($inst) {
+                    $projName = $pidToName[(int) $inst->project_id] ?? ('#' . $inst->project_id);
+                }
+            } elseif (!empty($guess['pid'])) {
+                $projName = $pidToName[(int) $guess['pid']] ?? '';
             }
             $rows[] = [
                 'serviceid' => $svc->id,
                 'domain'    => $svc->domain,
                 'ip'        => $svc->dedicatedip,
                 'linked'    => $linked,
-                'guess_id'  => $guessId,
+                'project'   => $projName,
+                'guess_pid' => $guess['pid'] ?? 0,
+                'guess_id'  => $guess['sid'] ?? 0,
                 'guess_by'  => $guessBy,
             ];
         }
@@ -735,16 +767,25 @@ class Sync
     }
 
     /**
-     * Link a WHMCS service to an existing Hetzner server id (adopt).
+     * Link a WHMCS service to an existing Hetzner server id (adopt), recording
+     * which project it lives in so lifecycle ops use the right token.
      */
-    public function linkService($serviceId, $serverId)
+    public function linkService($serviceId, $serverId, $projectId = 0)
     {
         $serviceId = (int) $serviceId;
         $serverId = (int) $serverId;
+        $projectId = (int) $projectId;
+
+        $project = $projectId ? Db::project($projectId) : Db::primaryProject();
         try {
-            $srv = $this->api->getServer($serverId);
+            if ($project && !empty($project->api_token)) {
+                $api = new Api(Api::normalizeToken($project->api_token));
+            } else {
+                $api = $this->api;
+            }
+            $srv = $api->getServer($serverId);
             if (!$srv) {
-                return 'Server not found on Hetzner.';
+                return 'Server not found on Hetzner (wrong project?).';
             }
             $ip = $srv['public_net']['ipv4']['ip'] ?? null;
             $update = ['username' => 'hz-' . $serverId];
@@ -752,10 +793,193 @@ class Sync
                 $update['dedicatedip'] = $ip;
             }
             Capsule::table('tblhosting')->where('id', $serviceId)->update($update);
-            Db::log("Linked WHMCS service #$serviceId to Hetzner server #$serverId", 'info');
+            Db::saveInstance($serviceId, $project ? (int) $project->id : 0, $serverId);
+            Db::log("Linked WHMCS service #$serviceId to Hetzner server #$serverId (project #"
+                . ($project ? $project->id : 0) . ')', 'info');
             return true;
         } catch (ApiException $e) {
             return $e->getMessage();
         }
+    }
+
+    /**
+     * Reconcile EVERY live Hetzner VM (all enabled projects) against WHMCS
+     * services and auto-link the ones that can be linked. This is what makes
+     * "add a project → its VMs just work" true without per-VM manual adoption.
+     *
+     * Matching: by service dedicatedip, else the `whmcs_service` VM label.
+     * Buckets:
+     *   linked        — service on a hetznercloud product, matched, now linked
+     *   alreadyLinked — already had an instance row
+     *   moduleGap     — matched a service, but its product has NO hetznercloud module
+     *   unmatched     — no WHMCS service found (likely infrastructure VMs)
+     *
+     * @param bool $write  false = dry-run report; true = actually link.
+     */
+    public function reconcileAll($write = false, $autoMigrate = false)
+    {
+        $report = ['linked' => [], 'migrated' => [], 'alreadyLinked' => 0, 'moduleGap' => [], 'unmatched' => [], 'projects' => []];
+
+        // Active services with an IP → matchable by IP.
+        $svcByIp = [];
+        $svcRows = Capsule::table('tblhosting as h')
+            ->join('tblproducts as pr', 'pr.id', '=', 'h.packageid')
+            ->whereNotIn('h.domainstatus', ['Cancelled', 'Terminated', 'Fraud'])
+            ->get(['h.id', 'h.packageid', 'h.username', 'h.dedicatedip', 'pr.servertype', 'pr.name as pname']);
+        foreach ($svcRows as $s) {
+            if (!$s->dedicatedip) {
+                continue;
+            }
+            // On an IP collision (e.g. a VPS + a co-located Plesk licence share
+            // the server IP) prefer the service on our hetznercloud product.
+            $ex = $svcByIp[$s->dedicatedip] ?? null;
+            if ($ex === null
+                || ($ex->servertype !== 'hetznercloud' && $s->servertype === 'hetznercloud')) {
+                $svcByIp[$s->dedicatedip] = $s;
+            }
+        }
+
+        $projects = Db::enabledProjects()->all();
+        foreach ($projects as $proj) {
+            try {
+                $tok = Api::normalizeToken($proj->api_token);
+                $api = ($proj->id && $tok !== '') ? new Api($tok) : $this->api;
+            } catch (\Throwable $e) {
+                Db::log("reconcile: project #{$proj->id} token error: " . $e->getMessage(), 'error');
+                continue;
+            }
+            $count = 0;
+            $page = 1;
+            do {
+                try {
+                    $res = $api->request('GET', '/servers', ['per_page' => 50, 'page' => $page]);
+                } catch (ApiException $e) {
+                    Db::log("reconcile: project #{$proj->id} list failed: " . $e->getMessage(), 'error');
+                    break;
+                }
+                foreach (($res['servers'] ?? []) as $s) {
+                    $count++;
+                    $ip  = $s['public_net']['ipv4']['ip'] ?? '';
+                    $svc = ($ip && isset($svcByIp[$ip])) ? $svcByIp[$ip] : null;
+                    if (!$svc && !empty($s['labels']['whmcs_service'])) {
+                        $svc = Capsule::table('tblhosting as h')
+                            ->join('tblproducts as pr', 'pr.id', '=', 'h.packageid')
+                            ->where('h.id', (int) $s['labels']['whmcs_service'])
+                            ->first(['h.id', 'h.packageid', 'h.username', 'h.dedicatedip', 'pr.servertype', 'pr.name as pname']);
+                    }
+                    if (!$svc) {
+                        $report['unmatched'][] = ['server' => $s['id'], 'ip' => $ip, 'name' => $s['name'], 'project' => $proj->name];
+                        continue;
+                    }
+                    if (Capsule::table('mod_hetzner_instances')->where('server_id', $s['id'])->exists()) {
+                        $report['alreadyLinked']++;
+                        continue;
+                    }
+                    if ($svc->servertype !== 'hetznercloud') {
+                        // Self-service auto-adopt: migrate a GENUINE VPS service onto
+                        // a hetznercloud product (auto-creating one for its server_type
+                        // if missing), then link — so future projects work with zero
+                        // manual work. License/managed products (Plesk, 3CX, SoftOne…)
+                        // are deliberately skipped and left in moduleGap.
+                        $stype = $s['server_type']['name'] ?? '';
+                        if ($write && $autoMigrate && $stype && $this->isVpsTypeProduct($svc->pname)) {
+                            $target = $this->ensureProductForType($stype);
+                            if ($target) {
+                                Capsule::table('tblhosting')->where('id', (int) $svc->id)
+                                    ->update(['packageid' => $target]); // amount/cycle/nextdue preserved
+                                if ($this->linkService((int) $svc->id, (int) $s['id'], (int) $proj->id) === true) {
+                                    $report['migrated'][] = ['service' => (int) $svc->id, 'server' => $s['id'],
+                                        'type' => $stype, 'product' => $target, 'project' => $proj->name];
+                                    continue;
+                                }
+                            }
+                        }
+                        $report['moduleGap'][] = ['server' => $s['id'], 'ip' => $ip, 'service' => (int) $svc->id,
+                            'product' => (int) $svc->packageid, 'pname' => $svc->pname];
+                        continue;
+                    }
+                    if ($write) {
+                        $r = $this->linkService((int) $svc->id, (int) $s['id'], (int) $proj->id);
+                        if ($r === true) {
+                            $report['linked'][] = ['service' => (int) $svc->id, 'server' => $s['id'], 'project' => $proj->name];
+                        }
+                    } else {
+                        $report['linked'][] = ['service' => (int) $svc->id, 'server' => $s['id'], 'project' => $proj->name];
+                    }
+                }
+                $page = $res['meta']['pagination']['next_page'] ?? null;
+            } while ($page);
+            $report['projects'][$proj->name] = $count;
+        }
+
+        if ($write) {
+            Db::log('reconcileAll: linked ' . count($report['linked'])
+                . ', migrated ' . count($report['migrated'])
+                . ', moduleGap ' . count($report['moduleGap'])
+                . ', unmatched ' . count($report['unmatched']), 'info');
+        }
+        return $report;
+    }
+
+    /**
+     * Is this WHMCS product a genuine self-service VPS (safe to auto-migrate to
+     * the hetznercloud module), as opposed to a licence/managed product whose VM
+     * is backend (Plesk, 3CX, SoftOne, support, SSL, domain, VoIP, storage…)?
+     */
+    private function isVpsTypeProduct($name)
+    {
+        $n = function_exists('mb_strtolower') ? mb_strtolower($name) : strtolower($name);
+        if (preg_match('/plesk|3cx|softone|soft1|licen[cs]e|support|backup|storage|ssl|domain|voip|trunk|\bdid\b|comodo|geotrust|secure site|marketconnect|power|bandwidth|number|channel|setup|abuse|\bip\b|pharmacy|boxvisio|caron|shopster|owncloud|replication/', $n)) {
+            return false;
+        }
+        return (bool) preg_match('/vps|cloud|server|\bvm\b/', $n);
+    }
+
+    /**
+     * Return a hetznercloud product id whose server_type matches $serverType,
+     * creating one (cloned from a same-family template) if none exists. New
+     * products are hidden from ordering until priced. Idempotent.
+     */
+    public function ensureProductForType($serverType)
+    {
+        $existing = Capsule::table('tblproducts')
+            ->where('servertype', 'hetznercloud')->where('configoption1', $serverType)->value('id');
+        if ($existing) {
+            return (int) $existing;
+        }
+        // choose a template of the same family (check ccx/cpx BEFORE cx)
+        $fam = strpos($serverType, 'ccx') === 0 ? 'ccx%'
+            : (strpos($serverType, 'cpx') === 0 ? 'cpx%'
+            : (strpos($serverType, 'cax') === 0 ? 'cax%' : 'cx%'));
+        $tpl = Capsule::table('tblproducts')->where('servertype', 'hetznercloud')
+            ->where('configoption1', 'like', $fam)->first();
+        if (!$tpl) {
+            $tpl = Capsule::table('tblproducts')->where('servertype', 'hetznercloud')->first();
+        }
+        if (!$tpl) {
+            return 0;
+        }
+        $row = (array) $tpl;
+        $tplId = $row['id'];
+        unset($row['id']);
+        $row['name'] = 'CloudOn VPS ' . strtoupper($serverType) . ' (auto)';
+        $row['configoption1'] = $serverType;
+        $row['hidden'] = 1;
+        $newId = Capsule::table('tblproducts')->insertGetId($row);
+        foreach (Capsule::table('tblpricing')->where('type', 'product')->where('relid', $tplId)->get() as $pr) {
+            $p = (array) $pr;
+            unset($p['id']);
+            $p['relid'] = $newId;
+            Capsule::table('tblpricing')->insert($p);
+        }
+        foreach (Capsule::table('tblproductconfiglinks')->where('pid', $tplId)->get() as $l) {
+            Capsule::table('tblproductconfiglinks')->insert(['pid' => $newId, 'gid' => $l->gid]);
+        }
+        $markup = strpos($serverType, 'ccx') === 0 ? 40 : (strpos($serverType, 'cpx') === 0 ? 60 : 80);
+        Capsule::table('mod_hetzner_map')->insert(['whmcs_pid' => $newId, 'project_id' => null,
+            'server_type' => $serverType, 'kind' => 'server', 'markup' => $markup,
+            'include_ipv4' => 1, 'include_backup' => 0, 'updated_at' => date('Y-m-d H:i:s')]);
+        Db::log("auto-created hetznercloud product #$newId for server_type $serverType", 'info');
+        return (int) $newId;
     }
 }

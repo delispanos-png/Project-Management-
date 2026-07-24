@@ -406,3 +406,34 @@ $('.hasmenu').each(function() {
 
 /* AOS Scroll Effect */
 AOS.init();
+/* 💚 CloudOn — LED μέσα στο εικονίδιο VPS */
+(function(){
+  var SVGNS='http://www.w3.org/2000/svg';
+  // θέσεις (viewBox 0 0 32 32): δεξιά σε κάθε μονάδα + ένα δεύτερο λαμπάκι δίπλα
+  var SPOTS=[[24.7,6.15,'.15s','1.4s'],[22.4,6.15,'.5s','.9s'],[24.7,19.24,'.3s','1.9s'],[22.4,19.24,'0s','1.1s']];
+  function isVps(svg){
+    if(svg.dataset.cnpLed)return false;
+    var vb=svg.getAttribute('viewBox')||'';
+    var t=svg.querySelector('title');
+    return vb==='0 0 32 32' || (t&&/vps/i.test(t.textContent));
+  }
+  function inject(svg){
+    svg.dataset.cnpLed='1';
+    SPOTS.forEach(function(s){
+      var c=document.createElementNS(SVGNS,'circle');
+      c.setAttribute('cx',s[0]); c.setAttribute('cy',s[1]); c.setAttribute('r','0.95');
+      c.setAttribute('class','cnp-led');
+      c.style.animationDelay=s[2]; c.style.animationDuration=s[3];
+      svg.appendChild(c);
+    });
+  }
+  function scan(){
+    document.querySelectorAll('.plan-content .prod-desc-div svg, .plan-content .prod-desc svg').forEach(function(svg){
+      if(isVps(svg))inject(svg);
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',scan);else scan();
+  try{var mo=new MutationObserver(function(){clearTimeout(window._cnpLedT);window._cnpLedT=setTimeout(scan,120);});
+    mo.observe(document.body||document.documentElement,{childList:true,subtree:true});}catch(e){}
+  setTimeout(scan,800);setTimeout(scan,2000);
+})();

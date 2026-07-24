@@ -1,0 +1,4207 @@
+<?php
+/**
+ * CloudOn Project Manager — standalone SPA JSON API.
+ * Auth: ενεργή WHMCS admin session (ίδιο cookie/origin) — κανένα δεύτερο login.
+ * Επαναχρησιμοποιεί ΟΛΗ τη λογική του module (lib/Db.php, Time, Notify, δικαιώματα).
+ */
+
+require_once __DIR__ . '/boot.php';
+
+use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudonProjects\Db;
+use WHMCS\Module\Addon\CloudonProjects\Time;
+use WHMCS\Module\Addon\CloudonProjects\Notify;
+
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+
+function out($data)
+{
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+function fail($msg, $code = 400)
+{
+    http_response_code($code);
+    out(['error' => $msg]);
+}
+
+$action = $_GET['a'] ?? '';
+$adminId = pm_admin_id();
+$MEET_ROOM = null;   // guests του CloudOn Meet: έγκυρο room token αντί για login
+if ($adminId <= 0) {
+    if (strpos($action, 'rtc_') === 0 && ($MEET_ROOM = pm_verify_meet($_REQUEST['mt'] ?? ''))) {
+        // ok — signaling ως guest, περιορισμένος στο δωμάτιο του token
+    } elseif ($action === 'event_rsvp_public') {
+        // ok — δημόσιο RSVP πελάτη με δικό του signed token
+    } else {
+        fail('auth', 401);
+    }
+}
+$FULL = $adminId > 0 ? Db::isFullAccess($adminId) : false;
+$in = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $testIn = getenv("CNP_TEST_INPUT");
+    $in = json_decode($testIn && PHP_SAPI === "cli" ? file_get_contents($testIn) : file_get_contents("php://input"), true) ?: [];
+}
+
+/* ---------- helpers ---------- */
+function initials($name)
+{
+    $p = preg_split('/\s+/', trim((string) $name));
+    return mb_strtoupper(mb_substr($p[0] ?? '', 0, 1) . mb_substr($p[1] ?? '', 0, 1));
+}
+/** Κανονικοποίηση ελληνικού κειμένου για ταίριασμα: πεζά, χωρίς τόνους, λέξεις ≥3. */
+function cnp_words($text, $max = 40)
+{
+    $t = mb_strtolower((string) $text, 'UTF-8');
+    $t = strtr($t, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ό' => 'ο', 'ύ' => 'υ', 'ώ' => 'ω',
+        'ϊ' => 'ι', 'ϋ' => 'υ', 'ΐ' => 'ι', 'ΰ' => 'υ', 'ς' => 'σ']);
+    preg_match_all('/[a-zα-ω0-9]{3,}/u', $t, $m);
+    $stop = ['και', 'για', 'την', 'τον', 'της', 'του', 'των', 'στο', 'στη', 'στον', 'στην', 'που', 'απο', 'από',
+        'δεν', 'εχω', 'εχει', 'ενα', 'μια', 'εναν', 'ειναι', 'οτι', 'αλλα', 'μου', 'σας', 'μας', 'the', 'and',
+        'for', 'with', 'have', 'has', 'this', 'that', 'not', 'you', 'προβλημα', 'θεμα', 'παρακαλω', 'καλημερα',
+        'καλησπερα', 'ευχαριστω', 'ευχαριστουμε'];
+    $out = [];
+    foreach ($m[0] as $w) {
+        if (!in_array($w, $stop, true)) {
+            $out[$w] = true;
+        }
+        if (count($out) >= $max) {
+            break;
+        }
+    }
+    return array_keys($out);
+}
+
+/** Καθαρισμός rich-text HTML (ασφαλή tags μόνο· χωρίς 4-byte για utf8mb3 DB). */
+function cnp_clean_html($html)
+{
+    $html = (string) $html;
+    $html = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $html);          // 4-byte emoji → out
+    $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre>');
+    $html = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);   // on* handlers
+    $html = preg_replace('/(href|src)\s*=\s*(["\'])\s*javascript:[^"\']*\2/i', '$1="#"', $html);
+    return mb_substr(trim($html), 0, 12000);
+}
+
+/** Κατηγορίες tickets (area/cause) — cached ανά request. */
+function cnp_ticket_cats()
+{
+    static $c = null;
+    if ($c !== null) {
+        return $c;
+    }
+    $c = ['area' => [], 'cause' => []];
+    foreach (Capsule::table('mod_cpm_ticket_cats')->orderBy('sort')->orderBy('id')->get() as $r) {
+        $c[$r->kind === 'cause' ? 'cause' : 'area'][] = ['id' => (int) $r->id, 'name' => $r->name, 'color' => $r->color];
+    }
+    return $c;
+}
+
+/** 🖥 Guacamole SSO: φτιάχνει token+URL που μπαίνει ΚΑΤΕΥΘΕΙΑΝ στη σύνδεση (json-auth). */
+function cnp_guac_launch($protocol, $host, $port, $user, $pass, $extra = [])
+{
+    $secret = (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'guac_secret')->value('value');
+    $base = rtrim((string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'guac_url')->value('value'), '/');
+    if ($secret === '' || $base === '') {
+        return null;
+    }
+    $key = hex2bin($secret);
+    $conn = 'remote';
+    $params = array_merge(['hostname' => $host, 'port' => (string) $port,
+        'username' => $user, 'password' => $pass], $extra);
+    $payload = ['username' => 'tech-' . (int) ($_SESSION['pm_admin'] ?? 0) . '-' . substr(md5(microtime()), 0, 6),
+        'expires' => (string) ((time() + 3600) * 1000),
+        'connections' => [$conn => ['protocol' => $protocol, 'parameters' => $params]]];
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $sig = hash_hmac('sha256', $json, $key, true);
+    $blob = base64_encode(openssl_encrypt($sig . $json, 'AES-128-CBC', $key, OPENSSL_RAW_DATA, str_repeat("\0", 16)));
+    $ch = curl_init($base . '/api/tokens');
+    $opts = [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_TIMEOUT => 15,
+        CURLOPT_POSTFIELDS => http_build_query(['data' => $blob])];
+    $gip = (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'guac_ip')->value('value');
+    if ($gip !== '' && preg_match('#^https?://([^/:]+)#', $base, $mh)) {
+        $opts[CURLOPT_RESOLVE] = [$mh[1] . ':443:' . $gip, $mh[1] . ':80:' . $gip];
+    }
+    curl_setopt_array($ch, $opts);
+    $resp = json_decode((string) curl_exec($ch), true);
+    curl_close($ch);
+    if (empty($resp['authToken'])) {
+        return null;
+    }
+    // client identifier: base64( conn + NUL + 'c' + NUL + 'json' )
+    $clientId = base64_encode($conn . "\0c\0json");
+    return $base . '/#/client/' . $clientId . '?token=' . rawurlencode($resp['authToken']);
+}
+
+/** Ποιος επιτρέπεται να απαντά σε ΠΕΛΑΤΕΣ: διαχειριστές + επικεφαλής ομάδων. */
+function cnp_can_reply_clients($adminId, $isFull)
+{
+    if ($isFull) {
+        return true;
+    }
+    try {
+        return Capsule::table('mod_cpm_team_members')->where('admin_id', (int) $adminId)
+            ->where('is_leader', 1)->exists();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
+function cnp_chat_access($ch, $adminId)
+{
+    if ($ch === 'team') {
+        return true;
+    }
+    if (preg_match('/^d(\d+)-(\d+)$/', $ch, $m)) {
+        return (int) $m[1] === $adminId || (int) $m[2] === $adminId;
+    }
+    if (preg_match('/^g(\d+)$/', $ch, $m)) {
+        return Capsule::table('mod_cpm_chat_groups')->where('id', (int) $m[1])
+            ->where('members', 'like', '%,' . $adminId . ',%')->exists();
+    }
+    return false;
+}
+
+/** Σκορ ομοιότητας δύο συνόλων λέξεων. */
+function cnp_overlap(array $a, array $b)
+{
+    if (!$a || !$b) {
+        return 0;
+    }
+    $n = count(array_intersect($a, $b));
+    return $n >= 2 ? $n : ($n === 1 && count($a) <= 4 ? 1 : 0);
+}
+
+function taskDto($t, $minsMap = null, $checkMap = null)
+{
+    return [
+        'id' => (int) $t->id, 'title' => $t->title, 'status' => (int) $t->status_id,
+        'prio' => (int) $t->priority, 'assignee' => $t->assignee ? (int) $t->assignee : null,
+        'ball' => $t->action_user ? (int) $t->action_user : null,
+        'due' => $t->due_date, 'sched' => $t->schedule_date, 'start' => $t->start_date ?? null,
+        'type' => $t->type_id ? (int) $t->type_id : null,
+        'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
+        'ticket' => $t->ticketid ? (int) $t->ticketid : null,
+        'done' => (bool) $t->completed_at,
+        'mins' => $minsMap !== null ? (int) ($minsMap[(int) $t->id] ?? 0) : null,
+        'check' => $checkMap !== null ? ($checkMap[(int) $t->id] ?? null) : null,
+    ];
+}
+function clientLabel($cid)
+{
+    if (!$cid) {
+        return null;
+    }
+    $c = Capsule::table('tblclients')->where('id', (int) $cid)->first(['firstname', 'lastname', 'companyname']);
+    return $c ? ($c->companyname ?: trim($c->firstname . ' ' . $c->lastname)) : ('#' . $cid);
+}
+
+switch ($action) {
+
+/* ================= BOOT ================= */
+case 'boot':
+    $admins = [];
+    foreach (Db::admins() as $a) {
+        $nm = trim($a->firstname . ' ' . $a->lastname);
+        $admins[] = ['id' => (int) $a->id, 'name' => $nm, 'ini' => initials($nm), 'full' => Db::isFullAccess($a->id)];
+    }
+    $projects = [];
+    foreach (Db::projectsFor($adminId) as $p) {
+        $projects[] = ['id' => (int) $p->id, 'name' => $p->name, 'color' => $p->color,
+            'client' => $p->clientid ? (int) $p->clientid : null, 'clientName' => clientLabel($p->clientid),
+            'parent' => $p->parent_id ? (int) $p->parent_id : null,
+            'health' => $p->health, 'pstatus' => $p->pstatus];
+    }
+    $statuses = [];
+    foreach (Db::statuses() as $s) {
+        $statuses[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color, 'done' => (bool) $s->is_done];
+    }
+    $types = [];
+    foreach (Db::taskTypes() as $ty) {
+        $types[] = ['id' => (int) $ty->id, 'name' => $ty->name, 'icon' => $ty->icon, 'color' => $ty->color,
+            'req' => ['assignee' => (bool) $ty->req_assignee, 'due' => (bool) $ty->req_due, 'est' => (bool) $ty->req_estimate]];
+    }
+    out(['me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
+            'canReply' => cnp_can_reply_clients($adminId, $FULL)],
+        'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
+        'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0)) : 0,
+        'meetLink' => Db::pref($adminId, 'meet_link', ''),
+        'rustdeskDl' => (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'rustdesk_dl')->value('value') ?: ''),
+        'unread' => Db::unreadCount($adminId)]);
+
+/* ================= BOARD ================= */
+case 'board':
+    $pid = (int) ($_GET['project'] ?? 0);
+    if (!$pid || !Db::canSeeProject($adminId, $pid)) {
+        fail('project', 403);
+    }
+    $mins = Db::minutesByTask($pid);
+    $check = Db::checklistProgress($pid);
+    $allIds = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->pluck('id')->all();
+    $blockedM = Db::blockedMap($allIds);
+    $cols = [];
+    $board = Db::board($pid);
+    foreach (Db::statuses() as $s) {
+        $cards = [];
+        foreach ($board[(int) $s->id] ?? [] as $t) {
+            $dto = taskDto($t, $mins, $check);
+            $dto['blocked'] = isset($blockedM[(int) $t->id]) ? count($blockedM[(int) $t->id]) : 0;
+            $cards[] = $dto;
+        }
+        $cols[] = ['status' => (int) $s->id, 'tasks' => $cards];
+    }
+    out(['columns' => $cols]);
+
+/* ================= TASK (drawer) ================= */
+case 'task':
+    $t = Db::task((int) ($_GET['id'] ?? 0));
+    if (!$t || !Db::canSeeTask($adminId, $t)) {
+        fail('task', 404);
+    }
+    $comments = [];
+    foreach (Db::comments($t->id) as $c) {
+        $comments[] = ['id' => (int) $c->id, 'by' => Db::adminName($c->admin_id), 'byId' => (int) $c->admin_id,
+            'to' => $c->to_admin !== null ? (int) $c->to_admin : null, 'body' => $c->comment, 'at' => $c->created_at];
+    }
+    $logs = [];
+    foreach (Db::timelogsForTask($t->id) as $l) {
+        $logs[] = ['id' => (int) $l->id, 'by' => Db::adminName($l->admin_id), 'mins' => (int) $l->minutes,
+            'billable' => (bool) $l->billable, 'charged' => (int) $l->charged_minutes,
+            'note' => $l->note, 'running' => (bool) $l->running, 'at' => $l->running ? $l->started_at : $l->created_at];
+    }
+    $check = [];
+    foreach (Db::checklist($t->id) as $it) {
+        $check[] = ['id' => (int) $it->id, 'title' => $it->title, 'done' => (bool) $it->done];
+    }
+    $acts = [];
+    foreach (Db::activity($t->id, 30) as $a) {
+        $acts[] = ['action' => $a->action, 'detail' => $a->detail, 'by' => Db::adminName($a->admin_id), 'at' => $a->created_at];
+    }
+    $ticket = null;
+    if ($t->ticketid) {
+        $tk = Capsule::table('tbltickets')->where('id', $t->ticketid)->first(['tid', 'title', 'status']);
+        if ($tk) {
+            $ticket = ['id' => (int) $t->ticketid, 'tid' => $tk->tid, 'title' => $tk->title, 'status' => $tk->status];
+        }
+    }
+    $proj = Db::project($t->project_id);
+    $running = Db::runningTimer($adminId);
+    $deps = [];
+    foreach (Db::depsOf($t->id) as $dp) {
+        $deps[] = ['depId' => (int) $dp->dep_id, 'id' => (int) $dp->id, 'title' => $dp->title,
+            'done' => (bool) $dp->completed_at];
+    }
+    out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
+        'project' => ['id' => (int) $proj->id, 'name' => $proj->name, 'color' => $proj->color],
+        'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
+        'check' => $check, 'activity' => $acts, 'ticket' => $ticket,
+        'watching' => in_array($adminId, Db::watcherIds($t->id), true),
+        'watchers' => count(Db::watcherIds($t->id)),
+        'timerHere' => $running && (int) $running->task_id === (int) $t->id
+            ? ['id' => (int) $running->id, 'since' => $running->started_at] : null,
+        'timerElsewhere' => $running && (int) $running->task_id !== (int) $t->id ? (int) $running->task_id : null,
+        'scClient' => Time::scReady() ? clientLabel(Time::clientForTask($t)) : null]);
+
+/* ================= MY DAY ================= */
+case 'myday':
+    $today = date('Y-m-d');
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    // tickets μου + SLA
+    $myTickets = [];
+    $slaMap = [];
+    $rows = Capsule::table('tbltickets')->where('flag', $adminId)
+        ->whereNotIn('status', ['Closed', 'Cancelled'])->get(['id', 'tid', 'title', 'status', 'urgency', 'date', 'lastreply']);
+    try {
+        if (count($rows) && Capsule::schema()->hasTable('mod_supportcontracts_tickets')) {
+            foreach (Capsule::table('mod_supportcontracts_tickets')->whereIn('ticketid', $rows->pluck('id')->all())
+                ->get(['ticketid', 'sla_due', 'first_response_at']) as $s) {
+                $slaMap[(int) $s->ticketid] = $s;
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    foreach ($rows as $tk) {
+        $s = $slaMap[(int) $tk->id] ?? null;
+        $due = ($s && $s->sla_due && !$s->first_response_at) ? $s->sla_due : null;
+        $myTickets[] = ['id' => (int) $tk->id, 'tid' => $tk->tid, 'title' => $tk->title, 'status' => $tk->status,
+            'urgency' => $tk->urgency, 'slaDue' => $due, 'over' => $due && strtotime($due) < time(),
+            'age' => (int) floor((time() - strtotime($tk->date)) / 86400)];
+    }
+    usort($myTickets, function ($a, $b) {
+        if ($a['slaDue'] && $b['slaDue']) { return strcmp($a['slaDue'], $b['slaDue']); }
+        return ($a['slaDue'] ? -1 : ($b['slaDue'] ? 1 : 0));
+    });
+    // πλάνο + μπάλες + tasks μου
+    $plan = [];
+    foreach (Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->select('t.*', 'p.name as pname', 'p.color as pcolor')
+        ->whereNotIn('t.status_id', $doneIds)->whereNotNull('t.schedule_date')->where('t.schedule_date', '<=', $today)
+        ->where(function ($w) use ($adminId) { $w->where('t.assignee', $adminId)->orWhere('t.action_user', $adminId); })
+        ->orderByRaw('t.priority DESC')->get() as $t) {
+        $plan[] = taskDto($t) + ['pname' => $t->pname, 'pcolor' => $t->pcolor];
+    }
+    $balls = [];
+    foreach (Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->select('t.*', 'p.name as pname', 'p.color as pcolor')
+        ->where('t.action_user', $adminId)->whereNotIn('t.status_id', $doneIds)->get() as $t) {
+        $balls[] = taskDto($t) + ['pname' => $t->pname, 'pcolor' => $t->pcolor];
+    }
+    $myOpen = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)->count();
+    $dueToday = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+        ->whereNotNull('due_date')->where('due_date', '<=', $today)->count();
+    $minsToday = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $adminId)->where('running', 0)
+        ->where('created_at', '>=', $today . ' 00:00:00')->sum('minutes');
+    // follow-ups
+    $follows = [];
+    foreach (Capsule::table('mod_cpm_leads')->where('assignee', $adminId)->whereNotIn('stage', ['won', 'lost'])
+        ->whereNotNull('next_action')->where('next_action', '<=', $today)->get() as $ld) {
+        $follows[] = ['lead' => (int) $ld->id, 'who' => $ld->company ?: $ld->contact, 'phone' => $ld->phone, 'note' => $ld->next_note];
+    }
+    // notifications
+    $notifs = [];
+    foreach (Db::notificationsFor($adminId, 15) as $n) {
+        $notifs[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => $n->title, 'url' => $n->url,
+            'read' => (bool) $n->is_read, 'at' => $n->created_at];
+    }
+    /* ── 🧭 Προσωπικός coach: συμβουλές/προειδοποιήσεις ανά χειριστή ── */
+    $coach = [];
+    $overdue = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+        ->whereNotNull('due_date')->where('due_date', '<', $today)->count();
+    $dueTod = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+        ->where('due_date', $today)->count();
+    $wip = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->where('status_id', 2)->count();
+    $stale = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereIn('status_id', [2, 3])
+        ->where('updated_at', '<', date('Y-m-d', strtotime('-7 days')) . ' 23:59:59')->count();
+    $noDue = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+        ->whereNull('due_date')->count();
+    $run = Capsule::table('mod_cpm_timelogs')->where('admin_id', $adminId)->where('running', 1)
+        ->orderBy('started_at')->first(['started_at']);
+    $slaOver = count(array_filter($myTickets, function ($t) { return $t['over']; }));
+    $awaiting = count(array_filter($myTickets, function ($t) {
+        return in_array($t['status'], ['Open', 'Customer-Reply', 'In Progress'], true);
+    }));
+    $oldTk = count(array_filter($myTickets, function ($t) { return $t['age'] >= 5; }));
+    // κανόνες (κρισιμότητα: bad → warn → tip → ok)
+    if ($slaOver) {
+        $coach[] = ['lvl' => 'bad', 'icon' => '⏰', 'text' => "$slaOver ticket" . ($slaOver > 1 ? 's' : '') . " έχ" . ($slaOver > 1 ? 'ουν' : 'ει') . " ξεπεράσει το SLA — απάντησε άμεσα, προηγούνται όλων."];
+    }
+    if ($overdue) {
+        $coach[] = ['lvl' => 'bad', 'icon' => '🔴', 'text' => "Έχεις $overdue εκπρόθεσμ" . ($overdue > 1 ? 'ες εργασίες' : 'η εργασία') . '. Ξεκίνα από ' . ($overdue > 1 ? 'αυτές ή επαναπρογραμμάτισέ τες' : 'αυτήν ή επαναπρογραμμάτισέ την') . ' ρεαλιστικά.'];
+    }
+    if ($run && $run->started_at) {
+        $h = floor((time() - strtotime($run->started_at)) / 3600);
+        if ($h >= 3) {
+            $coach[] = ['lvl' => 'warn', 'icon' => '⏱', 'text' => "Χρονόμετρο τρέχει εδώ και ~{$h}ω — αν τελείωσες, σταμάτησέ το για σωστή χρέωση."];
+        }
+    }
+    if ($awaiting) {
+        $coach[] = ['lvl' => 'warn', 'icon' => '💬', 'text' => "$awaiting ticket" . ($awaiting > 1 ? 's περιμένουν' : ' περιμένει') . " απάντησή σου. Μια σύντομη ενημέρωση τώρα κρατά τον πελάτη ήσυχο."];
+    }
+    if ($stale) {
+        $coach[] = ['lvl' => 'warn', 'icon' => '🐌', 'text' => "$stale εργασί" . ($stale > 1 ? 'ες' : 'α') . " σε εξέλιξη χωρίς κίνηση >7 ημέρες. Δώσ' τους ώθηση ή γύρνα την μπάλα σε κάποιον."];
+    }
+    if ($dueTod) {
+        $coach[] = ['lvl' => 'tip', 'icon' => '📌', 'text' => "$dueTod εργασί" . ($dueTod > 1 ? 'ες λήγουν' : 'α λήγει') . " σήμερα — κλείσ' " . ($dueTod > 1 ? 'τες' : 'την') . ' πριν το τέλος της ημέρας.'];
+    }
+    if ($wip > 5) {
+        $coach[] = ['lvl' => 'tip', 'icon' => '🎯', 'text' => "$wip εργασίες ταυτόχρονα «σε εξέλιξη». Ολοκλήρωσε 1-2 πριν ξεκινήσεις νέες — λιγότερα ανοιχτά = ταχύτερη ροή."];
+    }
+    if ($noDue >= 3) {
+        $coach[] = ['lvl' => 'tip', 'icon' => '🗓', 'text' => "$noDue εργασίες σου χωρίς προθεσμία. Βάλε ημερομηνία-στόχο για να μη χαθούν."];
+    }
+    if ($oldTk && !$slaOver) {
+        $coach[] = ['lvl' => 'tip', 'icon' => '📨', 'text' => "$oldTk ticket" . ($oldTk > 1 ? 's ανοιχτά' : ' ανοιχτό') . " πάνω από 5 ημέρες. Δώσε ένα update ή κλείσ' το αν λύθηκε."];
+    }
+    if (!$coach) {
+        $coach[] = ['lvl' => 'ok', 'icon' => '👏', 'text' => 'Όλα υπό έλεγχο — καμία εκκρεμότητα εκτός χρονοδιαγράμματος. Συνέχισε έτσι!'];
+    } elseif (!$overdue && !$slaOver) {
+        $coach[] = ['lvl' => 'ok', 'icon' => '✅', 'text' => 'Κανένα εκπρόθεσμο ούτε παραβίαση SLA — καλή εικόνα, μείνε συνεπής.'];
+    }
+    $coach = array_slice($coach, 0, 6);
+    out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
+        'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
+            'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
+            'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday]]);
+
+/* ================= CRM ================= */
+case 'crm':
+    $stages = [];
+    foreach (Db::leadStages() as $k => $m) {
+        $stages[] = ['key' => $k, 'title' => $m[0], 'color' => $m[1], 'closed' => (bool) $m[2], 'won' => (bool) $m[3]];
+    }
+    $leads = [];
+    foreach (Db::leads() as $l) {
+        if (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId) {
+            continue;
+        }
+        $leads[] = ['id' => (int) $l->id, 'company' => $l->company, 'contact' => $l->contact,
+            'email' => $l->email, 'phone' => $l->phone, 'source' => $l->source, 'stage' => $l->stage,
+            'value' => $l->value !== null ? (float) $l->value : null, 'lostReason' => $l->lost_reason,
+            'assignee' => $l->assignee ? (int) $l->assignee : null, 'client' => $l->clientid ? (int) $l->clientid : null,
+            'next' => $l->next_action, 'nextNote' => $l->next_note, 'descr' => $l->descr,
+            'created' => substr((string) $l->created_at, 0, 10)];
+    }
+    $target = (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudonprojects')->where('setting', 'sales_target')->value('value') ?: 0));
+    out(['stages' => $stages, 'leads' => $leads,
+        'won' => Db::wonValueForMonth(date('Y-m')), 'target' => $target]);
+
+case 'crm_overview':
+    $stagesMeta = Db::leadStages();
+    $all = [];
+    foreach (Db::leads() as $l) {
+        if (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId) {
+            continue;
+        }
+        $all[] = $l;
+    }
+    $today0 = date('Y-m-d');
+    $mStart = date('Y-m-01 00:00:00');
+    $pipe = [];
+    foreach ($stagesMeta as $k => $m) {
+        $pipe[$k] = ['key' => $k, 'title' => $m[0], 'color' => $m[1], 'closed' => (bool) $m[2],
+            'won' => (bool) $m[3], 'count' => 0, 'value' => 0.0];
+    }
+    $overdue = [];
+    $rotting = [];
+    $wonAll = 0;
+    $lostAll = 0;
+    $wonMonth = 0;
+    $lostMonth = 0;
+    $bySource = [];
+    $byAssignee = [];
+    $lostReasons = [];
+    foreach ($all as $l) {
+        $st7 = $l->stage;
+        if (isset($pipe[$st7])) {
+            $pipe[$st7]['count']++;
+            $pipe[$st7]['value'] += (float) ($l->value ?? 0);
+        }
+        $isClosed = !empty($stagesMeta[$st7][2]);
+        $lead7 = ['id' => (int) $l->id, 'name' => $l->company ?: $l->contact ?: ('#' . $l->id),
+            'stage' => $st7, 'next' => $l->next_action, 'assignee' => $l->assignee ? (int) $l->assignee : null,
+            'value' => $l->value !== null ? (float) $l->value : null];
+        if (!$isClosed) {
+            $bySource[$l->source ?: '—'] = ($bySource[$l->source ?: '—'] ?? 0) + 1;
+            $key7 = $l->assignee ?: 0;
+            $byAssignee[$key7] = ($byAssignee[$key7] ?? 0) + 1;
+            if ($l->next_action && $l->next_action < $today0) {
+                $overdue[] = $lead7;
+            } elseif (!$l->next_action) {
+                $rotting[] = $lead7;
+            }
+        }
+        if ($st7 === 'won') {
+            $wonAll++;
+            if (($l->closed_at ?? '') >= $mStart) {
+                $wonMonth++;
+            }
+        }
+        if ($st7 === 'lost') {
+            $lostAll++;
+            if (($l->closed_at ?? '') >= $mStart) {
+                $lostMonth++;
+            }
+            if ($l->lost_reason) {
+                $lostReasons[] = ['name' => $lead7['name'], 'reason' => $l->lost_reason,
+                    'at' => substr((string) $l->closed_at, 0, 10)];
+            }
+        }
+    }
+    arsort($bySource);
+    arsort($byAssignee);
+    $target9 = (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudonprojects')->where('setting', 'sales_target')->value('value') ?: 0));
+    out(['pipe' => array_values($pipe),
+        'openCount' => array_sum(array_map(function ($p) { return $p['closed'] ? 0 : $p['count']; }, $pipe)),
+        'openValue' => array_sum(array_map(function ($p) { return $p['closed'] ? 0 : $p['value']; }, $pipe)),
+        'wonMonth' => $wonMonth, 'lostMonth' => $lostMonth,
+        'winRate' => ($wonAll + $lostAll) > 0 ? round($wonAll / ($wonAll + $lostAll) * 100) : null,
+        'wonValueMonth' => Db::wonValueForMonth(date('Y-m')), 'target' => $target9,
+        'overdue' => array_slice($overdue, 0, 25), 'rotting' => array_slice($rotting, 0, 25),
+        'bySource' => $bySource, 'byAssignee' => $byAssignee,
+        'lostReasons' => array_slice(array_reverse($lostReasons), 0, 10)]);
+
+/* ================= KPI (διοίκηση) ================= */
+case 'kpi':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $today = date('Y-m-d 00:00:00');
+    $open = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])->count();
+    $closedToday = Capsule::table('tbltickets')->where('status', 'Closed')->where('lastreply', '>=', $today)->count();
+    $stale = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->where('date', '<', date('Y-m-d H:i:s', strtotime('-7 days')))->count();
+    $slaOver = 0;
+    try {
+        $slaOver = Capsule::table('mod_supportcontracts_tickets as st')->join('tbltickets as t', 't.id', '=', 'st.ticketid')
+            ->whereNotIn('t.status', ['Closed', 'Cancelled'])->whereNotNull('st.sla_due')
+            ->where('st.sla_due', '<', date('Y-m-d H:i:s'))->whereNull('st.first_response_at')->count();
+    } catch (\Throwable $e) {
+    }
+    $waiting = 0;
+    foreach (Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])->get(['id']) as $tk) {
+        $la = Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderBy('id', 'desc')->value('admin');
+        if ($la === null || $la === '') {
+            $waiting++;
+        }
+    }
+    // ανά agent
+    $agents = [];
+    foreach (Db::admins() as $a) {
+        $agents[(int) $a->id] = ['id' => (int) $a->id, 'name' => trim($a->firstname . ' ' . $a->lastname),
+            'ini' => initials($a->firstname . ' ' . $a->lastname), 'open' => 0, 'replies' => 0, 'done' => 0, 'mins' => 0];
+    }
+    foreach (Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->selectRaw('flag, COUNT(*) n')->groupBy('flag')->get() as $r) {
+        if (isset($agents[(int) $r->flag])) {
+            $agents[(int) $r->flag]['open'] = (int) $r->n;
+        }
+    }
+    $nameToId = [];
+    foreach ($agents as $id => $a) {
+        $nameToId[$a['name']] = $id;
+    }
+    foreach (Capsule::table('tblticketreplies')->where('date', '>=', $today)->where('admin', '!=', '')
+        ->selectRaw('admin, COUNT(*) n')->groupBy('admin')->get() as $r) {
+        if (isset($nameToId[$r->admin])) {
+            $agents[$nameToId[$r->admin]]['replies'] = (int) $r->n;
+        }
+    }
+    foreach (Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $today)->whereNotNull('assignee')
+        ->selectRaw('assignee, COUNT(*) n')->groupBy('assignee')->get() as $r) {
+        if (isset($agents[(int) $r->assignee])) {
+            $agents[(int) $r->assignee]['done'] = (int) $r->n;
+        }
+    }
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 0)->where('created_at', '>=', $today)
+        ->selectRaw('admin_id, SUM(minutes) m')->groupBy('admin_id')->get() as $r) {
+        if (isset($agents[(int) $r->admin_id])) {
+            $agents[(int) $r->admin_id]['mins'] = (int) $r->m;
+        }
+    }
+    $teamMap = Db::adminTeamMap();
+    $list = [];
+    foreach ($agents as $id => $a) {
+        $a['score'] = $a['replies'] + $a['done'] * 2 + (int) floor($a['mins'] / 30);
+        $a['team'] = $teamMap[$id] ?? null;
+        if ($a['open'] || $a['replies'] || $a['done'] || $a['mins']) {
+            $list[] = $a;
+        }
+    }
+    usort($list, function ($x, $y) { return $y['score'] <=> $x['score']; });
+    $unassigned = (int) Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->where(function ($w) { $w->where('flag', 0)->orWhereNull('flag'); })->count();
+    // workload
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $wl = [];
+    foreach (Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds)->whereNotNull('assignee')
+        ->get(['assignee', 'estimate_minutes', 'schedule_date', 'due_date']) as $r) {
+        $k = (int) $r->assignee;
+        if (!isset($wl[$k])) {
+            $wl[$k] = ['id' => $k, 'name' => Db::adminName($k), 'open' => 0, 'est' => 0, 'today' => 0, 'over' => 0];
+        }
+        $wl[$k]['open']++;
+        $wl[$k]['est'] += (int) $r->estimate_minutes;
+        if ($r->schedule_date && $r->schedule_date <= date('Y-m-d')) {
+            $wl[$k]['today']++;
+        }
+        if ($r->due_date && $r->due_date < date('Y-m-d')) {
+            $wl[$k]['over']++;
+        }
+    }
+    // κερδοφορία μήνα (σύνοψη)
+    $costH = (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0));
+    $mFrom = date('Y-m-01');
+    $mins = (int) Capsule::table('mod_cpm_timelogs')->where('running', 0)
+        ->where('created_at', '>=', $mFrom . ' 00:00:00')->sum('minutes');
+    $exp = (float) Capsule::table('mod_cpm_expenses')->where('spent_at', '>=', $mFrom)->sum('amount');
+    out(['cards' => ['open' => $open, 'slaOver' => $slaOver, 'closedToday' => $closedToday,
+            'waiting' => $waiting, 'stale' => $stale, 'unassigned' => $unassigned],
+        'agents' => $list, 'workload' => array_values($wl),
+        'month' => ['won' => Db::wonValueForMonth(date('Y-m')), 'laborCost' => round($mins / 60 * $costH, 2),
+            'expenses' => $exp, 'minutes' => $mins]]);
+
+/* ================= NOTIFICATIONS ================= */
+case 'notifs':
+    $ns = [];
+    foreach (Db::notificationsFor($adminId, 15) as $n) {
+        $ns[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => $n->title, 'url' => $n->url,
+            'read' => (bool) $n->is_read, 'at' => $n->created_at];
+    }
+    out(['unread' => Db::unreadCount($adminId), 'items' => $ns]);
+
+case 'notif_read':
+    Db::markNotifRead($adminId, (int) ($in['id'] ?? 0));
+    out(['ok' => true, 'unread' => Db::unreadCount($adminId)]);
+
+/* ================= ACTIONS ================= */
+case 'move_task':
+    $t = Db::task((int) ($in['task'] ?? 0));
+    if (!$t || !Db::canSeeTask($adminId, $t)) {
+        fail('task', 403);
+    }
+    $stChk = Db::status((int) ($in['status'] ?? 0));
+    if ($stChk && $stChk->is_done) {
+        $bm = Db::blockedMap([$t->id]);
+        if (!empty($bm[(int) $t->id])) {
+            fail('Μπλοκάρεται από: ' . implode(', ', array_slice($bm[(int) $t->id], 0, 3)));
+        }
+    }
+    $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId);
+    if ($ok && !$FULL) {
+        $st = Db::status((int) $in['status']);
+        if ($st && $st->is_done) {
+            Notify::workDone($adminId, $t->title, 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $t->id);
+        }
+    }
+    if ($ok) {
+        $stN = Db::status((int) $in['status']);
+        Notify::watchers($t->id, $adminId, $t->title . ' → ' . ($stN->title ?? '?'), null);
+    }
+    out(['ok' => (bool) $ok]);
+
+case 'quick_task':
+    $pid = (int) ($in['project'] ?? 0);
+    $title = mb_substr(trim($in['title'] ?? ''), 0, 200);
+    if (!$pid || $title === '' || !Db::canSeeProject($adminId, $pid)) {
+        fail('input');
+    }
+    $sid = (int) ($in['status'] ?? 0);
+    $tid = Db::saveTask(0, ['project_id' => $pid, 'title' => $title,
+        'status_id' => Db::status($sid) ? $sid : Db::firstStatusId()], $adminId);
+    Db::logActivity($tid, $adminId, 'create', 'Γρήγορη δημιουργία (web app)');
+    out(['ok' => true, 'id' => $tid]);
+
+case 'save_task':
+    $tid = (int) ($in['task'] ?? 0);
+    $t = Db::task($tid);
+    if (!$t || !Db::canSeeTask($adminId, $t)) {
+        fail('task', 403);
+    }
+    $data = [];
+    foreach (['title' => 200, 'descr' => 60000] as $f => $max) {
+        if (array_key_exists($f, $in)) {
+            $data[$f] = mb_substr(trim((string) $in[$f]), 0, $max);
+        }
+    }
+    foreach (['due_date' => 'due', 'schedule_date' => 'sched'] as $col => $k) {
+        if (array_key_exists($k, $in)) {
+            $data[$col] = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in[$k]) ? $in[$k] : null;
+        }
+    }
+    if (array_key_exists('type', $in)) {
+        $data['type_id'] = (int) $in['type'] ?: null;
+    }
+    if (array_key_exists('est', $in)) {
+        $data['estimate_minutes'] = (int) $in['est'] ?: null;
+    }
+    if (array_key_exists('ball', $in)) {
+        $newBall = (int) $in['ball'] ?: null;
+        $data['action_user'] = $newBall;
+        if ($newBall && $newBall !== (int) $t->action_user && $newBall !== $adminId) {
+            Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title,
+                'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid);
+        }
+    }
+    // χαρακτηρισμός: assignee/priority μόνο από διαχειριστές
+    if ($FULL) {
+        if (array_key_exists('assignee', $in)) {
+            $newA = (int) $in['assignee'] ?: null;
+            if ($newA && $newA !== (int) $t->assignee) {
+                Notify::assigned($tid, $newA, $adminId);
+            }
+            $data['assignee'] = $newA;
+        }
+        if (array_key_exists('prio', $in)) {
+            $data['priority'] = min(2, max(0, (int) $in['prio']));
+        }
+    }
+    Db::saveTask($tid, $data, $adminId);
+    Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
+    out(['ok' => true]);
+
+case 'comment':
+    $tid = (int) ($in['task'] ?? 0);
+    $t = Db::task($tid);
+    $body = trim($in['body'] ?? '');
+    if (!$t || !Db::canSeeTask($adminId, $t) || $body === '') {
+        fail('input');
+    }
+    $to = ($in['to'] ?? '') !== '' && $in['to'] !== null ? (int) $in['to'] : null;
+    Db::addComment($tid, $adminId, mb_substr($body, 0, 60000), $to);
+    Notify::commented($tid, $adminId, $body);
+    if ($to !== null) {
+        Notify::commentTo($tid, $adminId, $body, $to);
+    }
+    Notify::watchers($tid, $adminId, 'Σχόλιο στο: ' . $t->title, null);
+    out(['ok' => true]);
+
+case 'timer_start':
+    $tid = (int) ($in['task'] ?? 0);
+    $t = Db::task($tid);
+    if (!$t || !Db::canSeeTask($adminId, $t)) {
+        fail('task', 403);
+    }
+    $r = Db::startTimer($tid, $adminId);
+    foreach ($r['stopped'] as $sid) {
+        Time::push($sid);
+    }
+    out(['ok' => true, 'id' => $r['id']]);
+
+case 'timer_stop':
+    $running = Db::runningTimer($adminId);
+    if (!$running) {
+        fail('no timer');
+    }
+    $e = Db::stopTimer($running->id);
+    if ($e) {
+        Db::updateTimelog($running->id, ['billable' => !empty($in['billable']) ? 1 : 0,
+            'note' => mb_substr(trim($in['note'] ?? ''), 0, 255)]);
+        Time::push($running->id);
+    }
+    out(['ok' => true, 'mins' => $e ? (int) Db::timelog($running->id)->minutes : 0]);
+
+case 'time_add':
+    $tid = (int) ($in['task'] ?? 0);
+    $mins = (int) ($in['mins'] ?? 0);
+    $t = Db::task($tid);
+    if (!$t || !Db::canSeeTask($adminId, $t) || $mins <= 0) {
+        fail('input');
+    }
+    $eid = Db::addTime($tid, $adminId, $mins, !empty($in['billable']), trim($in['note'] ?? ''));
+    Time::push($eid);
+    out(['ok' => true]);
+
+case 'check_add':
+    $tid = (int) ($in['task'] ?? 0);
+    $t = Db::task($tid);
+    $title = trim($in['title'] ?? '');
+    if (!$t || !Db::canSeeTask($adminId, $t) || $title === '') {
+        fail('input');
+    }
+    $id = Db::addCheckItem($tid, $title);
+    out(['ok' => true, 'id' => $id]);
+
+case 'check_toggle':
+    $it = Db::toggleCheckItem((int) ($in['id'] ?? 0));
+    out(['ok' => (bool) $it]);
+
+case 'watch':
+    $tid = (int) ($in['task'] ?? 0);
+    if (!Db::task($tid)) {
+        fail('task');
+    }
+    $on = Db::toggleWatcher($tid, $adminId);
+    out(['ok' => true, 'watching' => $on]);
+
+case 'remind':
+    $at = preg_match('/^\d{4}-\d{2}-\d{2}(T| )\d{2}:\d{2}/', $in['at'] ?? '')
+        ? str_replace('T', ' ', substr($in['at'], 0, 16)) . ':00' : null;
+    if (!$at) {
+        fail('input');
+    }
+    Db::addReminder($adminId, $at, trim($in['note'] ?? ''), (int) ($in['task'] ?? 0) ?: null);
+    out(['ok' => true]);
+
+case 'request_update':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    out(['ok' => Notify::requestUpdate((int) ($in['task'] ?? 0), $adminId)]);
+
+/* ---- CRM actions ---- */
+case 'move_lead':
+    $l = Db::lead((int) ($in['lead'] ?? 0));
+    if (!$l || (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId)) {
+        fail('lead', 403);
+    }
+    $okMv = Db::moveLead($l->id, (string) ($in['stage'] ?? ''), $adminId);
+    if ($okMv && ($in['stage'] ?? '') === 'lost' && trim($in['reason'] ?? '') !== '') {
+        Capsule::table('mod_cpm_leads')->where('id', $l->id)
+            ->update(['lost_reason' => mb_substr(trim($in['reason']), 0, 190)]);
+    }
+    out(['ok' => $okMv]);
+
+case 'save_lead':
+    $lid = (int) ($in['lead'] ?? 0);
+    if ($lid) {
+        $l = Db::lead($lid);
+        if (!$l || (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId)) {
+            fail('lead', 403);
+        }
+    }
+    $stage = array_key_exists($in['stage'] ?? '', Db::leadStages()) ? $in['stage'] : 'target';
+    $data = [
+        'company' => mb_substr(trim($in['company'] ?? ''), 0, 120) ?: null,
+        'contact' => mb_substr(trim($in['contact'] ?? ''), 0, 120) ?: null,
+        'email' => mb_substr(trim($in['email'] ?? ''), 0, 120) ?: null,
+        'phone' => mb_substr(trim($in['phone'] ?? ''), 0, 40) ?: null,
+        'source' => mb_substr(trim($in['source'] ?? ''), 0, 60) ?: null,
+        'stage' => $stage,
+        'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
+        'next_action' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['next'] ?? '') ? $in['next'] : null,
+        'next_note' => mb_substr(trim($in['nextNote'] ?? ''), 0, 200) ?: null,
+        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'value' => ($in['value'] ?? '') !== '' && ($in['value'] ?? '') !== null
+            ? round((float) str_replace(',', '.', (string) $in['value']), 2) : null,
+        'lost_reason' => mb_substr(trim($in['lostReason'] ?? ''), 0, 190) ?: null,
+        'closed_at' => Db::leadStages()[$stage][2] ? date('Y-m-d H:i:s') : null,
+    ];
+    if (!$lid) {
+        $data['created_by'] = $adminId;
+    }
+    if (empty($data['company']) && empty($data['contact'])) {
+        $data['company'] = 'Χωρίς όνομα';
+    }
+    out(['ok' => true, 'id' => Db::saveLead($lid, $data)]);
+
+case 'interaction':
+    $leadId = (int) ($in['lead'] ?? 0) ?: null;
+    $clientId = (int) ($in['client'] ?? 0) ?: null;
+    $summary = mb_substr(trim($in['summary'] ?? ''), 0, 255);
+    if ((!$leadId && !$clientId) || $summary === '') {
+        fail('input');
+    }
+    if ($leadId && !$clientId) {
+        $clientId = (int) (Db::lead($leadId)->clientid ?? 0) ?: null;
+    }
+    Db::addInteraction(['lead_id' => $leadId, 'clientid' => $clientId,
+        'kind' => array_key_exists($in['kind'] ?? '', Db::interactionKinds()) ? $in['kind'] : 'note',
+        'summary' => $summary, 'detail' => null, 'admin_id' => $adminId,
+        'happened_at' => date('Y-m-d H:i:s'),
+        'followup_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['followup'] ?? '') ? $in['followup'] : null,
+        'followup_note' => mb_substr(trim($in['followupNote'] ?? ''), 0, 200) ?: null]);
+    out(['ok' => true]);
+
+/* ================= ΛΙΣΤΑ / ΗΜΕΡΟΛΟΓΙΟ / ΧΡΟΝΟΣ ================= */
+case 'list':
+    $f = ['project_id' => (int) ($_GET['fp'] ?? 0), 'status_id' => (int) ($_GET['fs'] ?? 0),
+          'assignee' => (int) ($_GET['fa'] ?? 0),
+          'priority' => ($_GET['fr'] ?? '') !== '' ? (int) $_GET['fr'] : '',
+          'q' => trim($_GET['q'] ?? ''), 'open_only' => (int) ($_GET['open'] ?? 1)];
+    if (!$FULL) {
+        $f['restrict_admin'] = $adminId;
+    }
+    $rows = Db::tasksFiltered($f);
+    $mins = Db::minutesForTasks(array_map(function ($r) { return (int) $r->id; }, $rows->all()));
+    $list = [];
+    foreach ($rows as $t) {
+        $d = taskDto($t);
+        $d['pname'] = $t->project_name;
+        $d['pcolor'] = $t->project_color;
+        $d['mins'] = (int) ($mins[(int) $t->id] ?? 0);
+        $list[] = $d;
+    }
+    out(['tasks' => $list]);
+
+case 'calendar':
+    $ym = preg_match('/^\d{4}-\d{2}$/', $_GET['ym'] ?? '') ? $_GET['ym'] : date('Y-m');
+    $items = [];
+    foreach (Db::tasksForMonth($ym) as $t) {
+        if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
+            continue;
+        }
+        $items[] = ['id' => (int) $t->id, 'title' => $t->title, 'due' => $t->due_date,
+            'prio' => (int) $t->priority, 'done' => (bool) $t->completed_at,
+            'color' => $t->project_color, 'pname' => $t->project_name];
+    }
+    $evs = [];
+    $mStart = $ym . '-01 00:00:00';
+    $mEnd = date('Y-m-t 23:59:59', strtotime($ym . '-01'));
+    foreach (Capsule::table('mod_cpm_events')
+        ->where('start_dt', '<=', $mEnd)->where('end_dt', '>=', $mStart)
+        ->orderBy('start_dt')->get() as $e) {
+        $att = array_filter(array_map('intval', explode(',', $e->attendees)));
+        $rs9 = [];
+        foreach (Capsule::table('mod_cpm_event_rsvp')->where('event_id', $e->id)->get() as $r9) {
+            $rs9[$r9->kind . $r9->ref] = $r9->status;
+        }
+        $evs[] = ['id' => (int) $e->id, 'kind' => $e->kind, 'title' => $e->title, 'rsvp' => $rs9,
+            'start' => $e->start_dt, 'end' => $e->end_dt, 'allDay' => (bool) $e->all_day,
+            'attendees' => array_values($att),
+            'client' => $e->clientid ? (int) $e->clientid : null,
+            'clientName' => $e->clientid ? clientLabel($e->clientid) : null,
+            'location' => $e->location, 'notes' => $e->notes,
+            'by' => (int) $e->created_by, 'canEdit' => $FULL || (int) $e->created_by === $adminId];
+    }
+    out(['ym' => $ym, 'items' => $items, 'events' => $evs]);
+
+case 'event_save':                      // ομαδικό ημερολόγιο: meeting/ραντεβού/άδεια
+    $eid = (int) ($in['id'] ?? 0);
+    $kind = in_array($in['kind'] ?? '', ['meeting', 'appointment', 'leave', 'other'], true) ? $in['kind'] : 'meeting';
+    $title = mb_substr(trim($in['title'] ?? ''), 0, 255);
+    $startD = $in['start'] ?? '';
+    $endD = $in['end'] ?? '';
+    if ($title === '' || !strtotime($startD) || !strtotime($endD)) {
+        fail('Τίτλος και ημερομηνίες είναι υποχρεωτικά');
+    }
+    if (strtotime($endD) < strtotime($startD)) {
+        fail('Η λήξη είναι πριν την έναρξη');
+    }
+    $att = array_filter(array_map('intval', (array) ($in['attendees'] ?? [])));
+    if (!$att) {
+        $att = [$adminId];
+    }
+    $data = ['kind' => $kind, 'title' => $title,
+        'start_dt' => date('Y-m-d H:i:s', strtotime($startD)),
+        'end_dt' => date('Y-m-d H:i:s', strtotime($endD)),
+        'all_day' => !empty($in['allDay']) ? 1 : 0,
+        'attendees' => ',' . implode(',', $att) . ',',
+        'clientid' => (int) ($in['client'] ?? 0) ?: null,
+        'location' => mb_substr(trim($in['location'] ?? ''), 0, 190) ?: null,
+        'notes' => mb_substr(trim($in['notes'] ?? ''), 0, 5000) ?: null];
+    if ($eid) {
+        $ev = Capsule::table('mod_cpm_events')->where('id', $eid)->first();
+        if (!$ev || (!$FULL && (int) $ev->created_by !== $adminId)) {
+            fail('event', 403);
+        }
+        Capsule::table('mod_cpm_events')->where('id', $eid)->update($data);
+    } else {
+        $eid = Capsule::table('mod_cpm_events')->insertGetId($data
+            + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+        // ειδοποίησε τους συμμετέχοντες: καμπανάκι + EMAIL πρόσκλησης (τα email από το προφίλ τους)
+        $kindL = ['meeting' => 'Meeting', 'appointment' => 'Ραντεβού', 'leave' => 'Άδεια', 'other' => 'Συμβάν'][$kind];
+        $ts0 = strtotime($startD);
+        $ts1 = strtotime($endD);
+        $whenT = !empty($in['allDay'])
+            ? date('d/m/Y', $ts0) . ($ts1 - $ts0 > 86400 ? ' – ' . date('d/m/Y', $ts1) : '')
+            : date('d/m/Y H:i', $ts0) . ' – ' . date('H:i', $ts1);
+        $gcalT = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+            . '&text=' . rawurlencode($title)
+            . '&dates=' . gmdate('Ymd\THis\Z', $ts0) . '/' . gmdate('Ymd\THis\Z', $ts1)
+            . ($data['location'] ? '&location=' . rawurlencode($data['location']) : '');
+        $isLinkT = $data['location'] && preg_match('#^https?://#', $data['location']);
+        $bodyT = '<p><strong>' . htmlspecialchars($title) . '</strong> — σε προσκάλεσε ο/η ' . htmlspecialchars(Db::adminName($adminId)) . '</p>'
+            . '<p style="background:#eef7fd;border-left:4px solid #0090dd;padding:10px 14px;">🗓 <strong>' . $whenT . '</strong>'
+            . ($data['location'] ? '<br />' . ($isLinkT
+                ? '🎥 Σύνδεσμος συμμετοχής: <a href="' . htmlspecialchars($data['location']) . '">' . htmlspecialchars($data['location']) . '</a>'
+                : '📍 ' . htmlspecialchars($data['location'])) : '') . '</p>'
+            . ($data['notes'] ? '<p>' . nl2br(htmlspecialchars($data['notes'])) . '</p>' : '')
+            . '<p><a href="' . htmlspecialchars($gcalT) . '">➕ Προσθήκη στο ημερολόγιο</a> · '
+            . '<a href="https://my.cloudon.gr/projectmanagement/#/calendar">Άνοιγμα στο πάνελ (RSVP)</a></p>';
+        foreach ($att as $a) {
+            if ($a !== $adminId) {
+                Db::pushNotification($a, 'info', "📅 $kindL: $title — " . date('d/m H:i', $ts0), '/projectmanagement/#/calendar');
+                if ($kind !== 'leave') {
+                    \WHMCS\Module\Addon\CloudonProjects\Notify::send($a, "📅 $kindL: $title — " . date('d/m/Y H:i', $ts0), $bodyT);
+                }
+            }
+        }
+        // επιπλέον εξωτερικοί προσκεκλημένοι (σκέτα emails)
+        foreach (array_filter(array_map('trim', explode(',', (string) ($in['extraEmails'] ?? '')))) as $xm) {
+            if (filter_var($xm, FILTER_VALIDATE_EMAIL)) {
+                \WHMCS\Module\Addon\CloudonProjects\Notify::sendTo($xm, "📅 Πρόσκληση: $title — " . date('d/m/Y H:i', $ts0), $bodyT);
+            }
+        }
+        // 📧 πρόσκληση στον πελάτη (email με link + Add to Calendar)
+        if (!empty($in['inviteClient']) && $data['clientid'] && in_array($kind, ['meeting', 'appointment'], true)) {
+            $ts0 = strtotime($startD);
+            $ts1 = strtotime($endD);
+            $gcal = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+                . '&text=' . rawurlencode($title)
+                . '&dates=' . gmdate('Ymd\THis\Z', $ts0) . '/' . gmdate('Ymd\THis\Z', $ts1)
+                . ($data['location'] ? '&location=' . rawurlencode($data['location']) : '')
+                . '&details=' . rawurlencode('Πρόσκληση από CloudOn' . ($data['notes'] ? ' — ' . mb_substr($data['notes'], 0, 300) : ''));
+            $when = !empty($in['allDay'])
+                ? date('d/m/Y', $ts0) . ($ts1 - $ts0 > 86400 ? ' – ' . date('d/m/Y', $ts1) : '')
+                : date('d/m/Y H:i', $ts0) . ' – ' . date('H:i', $ts1);
+            $isLink = $data['location'] && preg_match('#^https?://#', $data['location']);
+            $msg = '<p>Αγαπητέ/ή πελάτη,</p>'
+                . '<p>Σας προσκαλούμε σε <strong>' . ($kind === 'meeting' ? 'συνάντηση' : 'ραντεβού') . '</strong>: '
+                . '<strong>' . htmlspecialchars($title) . '</strong></p>'
+                . '<p style="background:#eef7fd;border-left:4px solid #0090dd;padding:10px 14px;">'
+                . '🗓 <strong>' . $when . '</strong>'
+                . ($data['location'] ? '<br />' . ($isLink
+                    ? '🎥 Σύνδεσμος συμμετοχής: <a href="' . htmlspecialchars($data['location']) . '">' . htmlspecialchars($data['location']) . '</a>'
+                    : '📍 Τοποθεσία: ' . htmlspecialchars($data['location'])) : '') . '</p>'
+                . '<p><a href="' . htmlspecialchars($gcal) . '">➕ Προσθήκη στο ημερολόγιό σας (Google Calendar)</a></p>'
+                . (function () use ($eid, $data) {
+                    $base9 = 'https://my.cloudon.gr/projectmanagement/api.php?a=event_rsvp_public&t='
+                        . pm_mint_rsvp($eid, $data['clientid']);
+                    return '<table cellpadding="0" cellspacing="0" style="margin:14px 0"><tr>'
+                        . '<td style="background:#2dbd6e;border-radius:10px;"><a href="' . $base9 . '&r=accept" '
+                        . 'style="display:inline-block;padding:11px 22px;color:#ffffff;text-decoration:none;font-weight:bold;">✔ Επιβεβαιώνω τη συμμετοχή μου</a></td>'
+                        . '<td style="width:12px;"></td>'
+                        . '<td style="background:#e2515f;border-radius:10px;"><a href="' . $base9 . '&r=decline" '
+                        . 'style="display:inline-block;padding:11px 22px;color:#ffffff;text-decoration:none;font-weight:bold;">✖ Δεν με εξυπηρετεί</a></td>'
+                        . '</tr></table>';
+                })()
+                . '<p>Αν η ώρα δεν σας εξυπηρετεί, απαντήστε σε αυτό το email για εναλλακτική.</p>'
+                . '<p>Με εκτίμηση,<br />Η ομάδα της CloudOn</p>';
+            $er = localAPI('SendEmail', ['customtype' => 'general', 'id' => $data['clientid'],
+                'customsubject' => '🗓 Πρόσκληση: ' . $title . ' — ' . date('d/m/Y', $ts0),
+                'custommessage' => $msg]);
+            if (($er['result'] ?? '') === 'success' && function_exists('logActivity')) {
+                logActivity('CPM: πρόσκληση meeting «' . $title . '» στον πελάτη #' . $data['clientid'] . " (event #$eid)");
+            }
+        }
+    }
+    out(['ok' => true, 'id' => $eid]);
+
+case 'event_del':
+    $ev = Capsule::table('mod_cpm_events')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ev || (!$FULL && (int) $ev->created_by !== $adminId)) {
+        fail('event', 403);
+    }
+    Capsule::table('mod_cpm_events')->where('id', $ev->id)->delete();
+    out(['ok' => true]);
+
+case 'time':
+    $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-01');
+    $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d');
+    $fa = $FULL ? (int) ($_GET['fa'] ?? 0) : $adminId;
+    $rows = Db::timeReport($from, $to, ['project_id' => (int) ($_GET['fp'] ?? 0), 'admin_id' => $fa]);
+    $entries = [];
+    $tot = ['w' => 0, 'b' => 0, 'nb' => 0, 'c' => 0];
+    $agg = ['project' => [], 'client' => [], 'admin' => []];
+    foreach ($rows as $r) {
+        $m = (int) $r->minutes;
+        $tot['w'] += $m;
+        $tot[(int) $r->billable ? 'b' : 'nb'] += $m;
+        $tot['c'] += (int) $r->charged_minutes;
+        foreach ([['project', $r->project_name], ['client', $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —'],
+                  ['admin', Db::adminName($r->admin_id)]] as $g) {
+            [$grp, $key] = $g;
+            if (!isset($agg[$grp][$key])) {
+                $agg[$grp][$key] = ['w' => 0, 'b' => 0, 'c' => 0];
+            }
+            $agg[$grp][$key]['w'] += $m;
+            if ((int) $r->billable) {
+                $agg[$grp][$key]['b'] += $m;
+            }
+            $agg[$grp][$key]['c'] += (int) $r->charged_minutes;
+        }
+        $entries[] = ['at' => $r->created_at, 'task' => (int) $r->task_id, 'title' => $r->task_title,
+            'pname' => $r->project_name, 'pcolor' => $r->project_color,
+            'client' => $r->clientid ? clientLabel($r->clientid) : null,
+            'by' => Db::adminName($r->admin_id), 'mins' => $m,
+            'billable' => (bool) $r->billable, 'charged' => (int) $r->charged_minutes, 'note' => $r->note];
+    }
+    foreach ($agg as &$grp) {
+        uasort($grp, function ($a, $b) { return $b['w'] <=> $a['w']; });
+    }
+    unset($grp);
+    out(['from' => $from, 'to' => $to, 'entries' => $entries, 'totals' => $tot, 'agg' => $agg]);
+
+/* ================= ΠΡΟΣΦΟΡΕΣ ================= */
+case 'offers':
+    $stages = [];
+    foreach (Db::offerStages() as $k => $m) {
+        $stages[] = ['key' => $k, 'title' => $m[0], 'color' => $m[1], 'closed' => (bool) $m[2], 'won' => (bool) $m[3]];
+    }
+    $offers = [];
+    foreach (Db::offers((int) ($_GET['client'] ?? 0)) as $o) {
+        if (!$FULL && (int) $o->assignee !== $adminId && (int) $o->created_by !== $adminId) {
+            continue;
+        }
+        $offers[] = ['id' => (int) $o->id, 'title' => $o->title, 'stage' => $o->stage,
+            'client' => $o->clientid ? (int) $o->clientid : null, 'clientName' => clientLabel($o->clientid),
+            'value' => $o->quoteid && $o->quote_total !== null ? (float) $o->quote_total : (float) ($o->amount ?? 0),
+            'amount' => $o->amount !== null ? (float) $o->amount : null,
+            'quote' => $o->quoteid ? (int) $o->quoteid : null, 'quoteStage' => $o->quote_stage,
+            'assignee' => $o->assignee ? (int) $o->assignee : null,
+            'expected' => $o->expected_close, 'descr' => $o->descr, 'lead' => $o->lead_id ? (int) $o->lead_id : null];
+    }
+    out(['stages' => $stages, 'offers' => $offers]);
+
+case 'move_offer':
+    $o = Db::offer((int) ($in['offer'] ?? 0));
+    if (!$o || (!$FULL && (int) $o->assignee !== $adminId && (int) $o->created_by !== $adminId)) {
+        fail('offer', 403);
+    }
+    $stage = (string) ($in['stage'] ?? '');
+    $ok = Db::moveOffer($o->id, $stage, $adminId);
+    if ($ok && $o->quoteid) {
+        $qs = ['draft' => 'Draft', 'sent' => 'Delivered', 'accepted' => 'Accepted', 'lost' => 'Lost'][$stage] ?? null;
+        if ($qs) {
+            Capsule::table('tblquotes')->where('id', (int) $o->quoteid)->update(['stage' => $qs]);
+        }
+    }
+    out(['ok' => (bool) $ok]);
+
+case 'save_offer':
+    $oid = (int) ($in['offer'] ?? 0);
+    if ($oid) {
+        $o = Db::offer($oid);
+        if (!$o || (!$FULL && (int) $o->assignee !== $adminId && (int) $o->created_by !== $adminId)) {
+            fail('offer', 403);
+        }
+    }
+    $stage = array_key_exists($in['stage'] ?? '', Db::offerStages()) ? $in['stage'] : 'new';
+    $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
+        'clientid' => (int) ($in['client'] ?? 0) ?: null,
+        'amount' => ($in['amount'] ?? '') !== '' && $in['amount'] !== null ? round((float) $in['amount'], 2) : null,
+        'stage' => $stage, 'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
+        'expected_close' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['expected'] ?? '') ? $in['expected'] : null,
+        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'closed_at' => Db::offerStages()[$stage][2] ? date('Y-m-d H:i:s') : null];
+    if (!$oid) {
+        $data['created_by'] = $adminId;
+    }
+    out(['ok' => true, 'id' => Db::saveOffer($oid, $data)]);
+
+case 'create_quote':
+    $o = Db::offer((int) ($in['offer'] ?? 0));
+    if (!$o || $o->quoteid || !$o->clientid) {
+        fail('offer');
+    }
+    $r = localAPI('CreateQuote', ['subject' => $o->title, 'stage' => 'Draft',
+        'validuntil' => $o->expected_close ?: date('Y-m-d', strtotime('+30 days')),
+        'userid' => (int) $o->clientid,
+        'lineitems' => base64_encode(serialize([['desc' => $o->title, 'qty' => 1,
+            'up' => (float) ($o->amount ?? 0), 'discount' => 0, 'taxable' => true]]))], 'pdelis');
+    if (($r['result'] ?? '') === 'success' && !empty($r['quoteid'])) {
+        Db::saveOffer($o->id, ['quoteid' => (int) $r['quoteid'], 'stage' => 'draft']);
+        out(['ok' => true, 'quote' => (int) $r['quoteid']]);
+    }
+    fail($r['message'] ?? 'CreateQuote failed');
+
+/* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */
+case 'contacts':
+    $q = trim($_GET['q'] ?? '');
+    $last = Db::lastContactMap();
+    $stages = Db::leadStages();
+    $rows = [];
+    foreach (Db::leads() as $l) {
+        if (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId) {
+            continue;
+        }
+        $name = $l->company ?: $l->contact ?: '—';
+        if ($q !== '' && mb_stripos($name . ' ' . $l->contact . ' ' . $l->email . ' ' . $l->phone, $q) === false) {
+            continue;
+        }
+        $m = $stages[$l->stage] ?? $stages['target'];
+        $rows[] = ['kind' => 'lead', 'id' => (int) $l->id, 'name' => $name,
+            'sub' => $l->contact && $l->company ? $l->contact : null,
+            'badge' => $m[0], 'color' => $m[1], 'phone' => $l->phone, 'email' => $l->email,
+            'last' => $last['lead:' . $l->id] ?? null,
+            'next' => !$m[2] ? $l->next_action : null, 'who' => $l->assignee ? Db::adminName($l->assignee) : null];
+    }
+    if ($FULL) {
+        $cids = [];
+        foreach (array_keys($last) as $k) {
+            if (strpos($k, 'client:') === 0) {
+                $cids[] = (int) substr($k, 7);
+            }
+        }
+        $cq = Capsule::table('tblclients');
+        if ($q !== '') {
+            $like = '%' . $q . '%';
+            $cq->where(function ($w) use ($like) {
+                $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+                  ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
+            })->limit(30);
+        } elseif ($cids) {
+            $cq->whereIn('id', $cids);
+        } else {
+            $cq->whereRaw('1=0');
+        }
+        foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'phonenumber']) as $c) {
+            $rows[] = ['kind' => 'client', 'id' => (int) $c->id,
+                'name' => $c->companyname ?: trim($c->firstname . ' ' . $c->lastname), 'sub' => null,
+                'badge' => 'Πελάτης', 'color' => '#16a26a', 'phone' => $c->phonenumber, 'email' => $c->email,
+                'last' => $last['client:' . $c->id] ?? null, 'next' => null, 'who' => null];
+        }
+    }
+    usort($rows, function ($a, $b) { return strcmp((string) $b['last'], (string) $a['last']); });
+    out(['rows' => $rows]);
+
+case 'comms':
+    $recent = [];
+    foreach (Db::recentInteractions(60) as $i) {
+        if (!$FULL && (int) $i->admin_id !== $adminId) {
+            continue;
+        }
+        $recent[] = ['id' => (int) $i->id, 'kind' => $i->kind, 'summary' => $i->summary,
+            'by' => Db::adminName($i->admin_id), 'at' => $i->happened_at,
+            'lead' => $i->lead_id ? (int) $i->lead_id : null,
+            'who' => $i->lead_id ? ($i->lead_company ?: $i->lead_contact) : clientLabel($i->clientid),
+            'followup' => $i->followup_date, 'followupNote' => $i->followup_note,
+            'followupDone' => (bool) $i->followup_done];
+    }
+    out(['recent' => $recent]);
+
+case 'followup_done':
+    $i = Db::interaction((int) ($in['id'] ?? 0));
+    if (!$i || (!$FULL && (int) $i->admin_id !== $adminId)) {
+        fail('interaction', 403);
+    }
+    Capsule::table('mod_cpm_interactions')->where('id', $i->id)->update(['followup_done' => 1]);
+    out(['ok' => true]);
+
+/* ================= ΣΤΟΧΟΙ ΠΡΟΪΟΝΤΩΝ ================= */
+case 'targets':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $ym = preg_match('/^\d{4}-\d{2}$/', $_GET['ym'] ?? '') ? $_GET['ym'] : date('Y-m');
+    $sales = Db::productSalesForMonth($ym);
+    $targets = [];
+    $targeted = [];
+    foreach (Db::productTargets() as $t) {
+        [$u, $v] = $sales[(int) $t->product_id] ?? [0, 0.0];
+        $targets[] = ['id' => (int) $t->id, 'product' => (int) $t->product_id, 'name' => $t->product_name,
+            'tUnits' => (int) $t->target_units, 'tValue' => (float) $t->target_value,
+            'units' => $u, 'value' => $v];
+        $targeted[(int) $t->product_id] = 1;
+    }
+    $other = [];
+    if (count($sales)) {
+        $names = Capsule::table('tblproducts')->whereIn('id', array_keys($sales))->pluck('name', 'id')->all();
+        foreach ($sales as $pid => $sv) {
+            if (!isset($targeted[$pid])) {
+                $other[] = ['name' => $names[$pid] ?? ('#' . $pid), 'units' => $sv[0], 'value' => $sv[1]];
+            }
+        }
+    }
+    $products = [];
+    $gNames = Capsule::table('tblproductgroups')->pluck('name', 'id')->all();
+    foreach (Capsule::table('tblproducts')->where('hidden', 0)->orderBy('name')->get(['id', 'name', 'gid']) as $p) {
+        $products[] = ['id' => (int) $p->id, 'name' => $p->name, 'group' => $gNames[(int) $p->gid] ?? ''];
+    }
+    out(['ym' => $ym, 'targets' => $targets, 'other' => $other, 'products' => $products]);
+
+case 'save_ptarget':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $pid = (int) ($in['product'] ?? 0);
+    if (!$pid || !Capsule::table('tblproducts')->where('id', $pid)->exists()) {
+        fail('product');
+    }
+    Db::saveProductTarget($pid, (int) ($in['units'] ?? 0), (float) ($in['value'] ?? 0));
+    out(['ok' => true]);
+
+case 'del_ptarget':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Db::deleteProductTarget((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+/* ================= ΠΕΛΑΤΗΣ 360 ================= */
+case 'client360':
+    // Ανοιχτό και στους χειριστές — αλλά τα οικονομικά (ποσά) μόνο σε διαχειριστές
+    $q = trim($_GET['q'] ?? '');
+    $cid = (int) ($_GET['id'] ?? 0);
+    if (!$cid && $q !== '') {
+        if (ctype_digit($q)) {
+            $cid = (int) $q;
+        } else {
+            $like = '%' . $q . '%';
+            $matches = [];
+            foreach (Capsule::table('tblclients')->where(function ($w) use ($like) {
+                $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+                  ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
+            })->limit(12)->get(['id', 'firstname', 'lastname', 'companyname', 'email']) as $m) {
+                $matches[] = ['id' => (int) $m->id, 'name' => $m->companyname ?: trim($m->firstname . ' ' . $m->lastname), 'email' => $m->email];
+            }
+            if (count($matches) === 1) {
+                $cid = $matches[0]['id'];
+            } else {
+                out(['matches' => $matches]);
+            }
+        }
+    }
+    if (!$cid) {
+        out(['matches' => []]);
+    }
+    $cl = Capsule::table('tblclients')->where('id', $cid)->first(['id', 'firstname', 'lastname', 'companyname', 'email']);
+    if (!$cl) {
+        fail('client', 404);
+    }
+    $months = in_array((int) ($_GET['months'] ?? 6), [3, 6, 12, 120], true) ? (int) $_GET['months'] : 6;
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $scBal = null;
+    try {
+        if (Capsule::schema()->hasTable('mod_supportcontracts_clients')) {
+            $scBal = Capsule::table('mod_supportcontracts_clients')->where('userid', $cid)->value('balance_minutes');
+        }
+    } catch (\Throwable $e) {
+    }
+    // 📦 Υπηρεσίες/προγράμματα από εμάς (ενεργά + σε αναστολή)
+    $svcs = [];
+    foreach (Capsule::table('tblhosting as h')
+        ->join('tblproducts as p', 'p.id', '=', 'h.packageid')
+        ->where('h.userid', $cid)->whereIn('h.domainstatus', ['Active', 'Suspended'])
+        ->orderBy('h.nextduedate')
+        ->get(['h.id', 'h.domain', 'h.domainstatus', 'h.nextduedate', 'h.billingcycle',
+            'h.amount', 'h.dedicatedip', 'p.name as pname']) as $sv) {
+        $svcs[] = ['id' => (int) $sv->id, 'product' => $sv->pname, 'domain' => $sv->domain,
+            'ip' => $sv->dedicatedip, 'status' => $sv->domainstatus,
+            'due' => $sv->nextduedate > '0000-00-00' ? $sv->nextduedate : null,
+            'cycle' => $sv->billingcycle,
+            'amount' => $FULL ? (float) $sv->amount : null];
+    }
+    // 🛡️ SLA / συμβόλαιο υποστήριξης
+    $slaInfo = null;
+    try {
+        if (Capsule::schema()->hasTable('mod_supportcontracts_clients')) {
+            $sc = Capsule::table('mod_supportcontracts_clients')->where('userid', $cid)->first();
+            if ($sc) {
+                $met = null;
+                $tot9 = Capsule::table('mod_supportcontracts_tickets as st')
+                    ->join('tbltickets as t', 't.id', '=', 'st.ticketid')
+                    ->where('t.userid', $cid)->whereNotNull('st.first_response_at')
+                    ->where('t.date', '>=', date('Y-m-d', strtotime('-90 days')));
+                $cnt9 = (clone $tot9)->count();
+                if ($cnt9 > 0) {
+                    $met = round((clone $tot9)->where('st.sla_met', 1)->count() / $cnt9 * 100);
+                }
+                $slaInfo = ['enabled' => (bool) $sc->enabled, 'priority' => $sc->priority,
+                    'label' => $sc->label,
+                    'response' => trim($sc->sla_response_value . ' ' . $sc->sla_response_unit),
+                    'bizHours' => trim(($sc->biz_start ?? '') . '–' . ($sc->biz_end ?? '')),
+                    'balance' => (int) $sc->balance_minutes, 'met90' => $met];
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    // 💶 Ανοιχτό υπόλοιπο: διαχειριστές=ποσό, χειριστές=ΝΑΙ/ΟΧΙ
+    $owedAmt = (float) Capsule::table('tblinvoices')->where('userid', $cid)->where('status', 'Unpaid')->sum('total');
+    $owedCnt = (int) Capsule::table('tblinvoices')->where('userid', $cid)->where('status', 'Unpaid')->count();
+    // 👥 πρόσωπα επαφής + τηλέφωνο
+    $phone9 = Capsule::table('tblclients')->where('id', $cid)->value('phonenumber');
+    $people9 = [];
+    try {
+        foreach (Capsule::table('mod_cpm_people')->where('clientid', $cid)->get() as $pp) {
+            $people9[] = ['name' => $pp->name, 'title' => $pp->title, 'phone' => $pp->phone, 'email' => $pp->email];
+        }
+    } catch (\Throwable $e) {
+    }
+    $myPk = (int) Capsule::table('mod_cpm_client_package')->where('clientid', $cid)->value('package_id');
+    $allPk = [];
+    foreach (Capsule::table('mod_cpm_support_packages')->orderBy('sort')->get(['id', 'name']) as $pk) {
+        $allPk[] = ['id' => (int) $pk->id, 'name' => $pk->name];
+    }
+    out(['client' => ['id' => $cid, 'name' => $cl->companyname ?: trim($cl->firstname . ' ' . $cl->lastname),
+            'email' => $cl->email, 'phone' => $phone9],
+        'package' => $myPk ?: null, 'packages' => $FULL ? $allPk : [],
+        'remote' => (function () use ($cid) {
+            try {
+                $q = Capsule::table('mod_cpm_remote_sessions')->where('clientid', $cid)->whereNotNull('ended_at');
+                return ['sessions90' => (clone $q)->where('started_at', '>=', date('Y-m-d', strtotime('-90 days')))->count(),
+                    'mins90' => (int) (clone $q)->where('started_at', '>=', date('Y-m-d', strtotime('-90 days')))->sum('minutes'),
+                    'monthMins' => (int) (clone $q)->where('started_at', '>=', date('Y-m-01'))->sum('minutes')];
+            } catch (\Throwable $e) {
+                return null;
+            }
+        })(),
+        'services' => $svcs,
+        'sla' => $slaInfo,
+        'owed' => ['flag' => $owedCnt > 0,
+            'amount' => $FULL ? round($owedAmt, 2) : null,
+            'count' => $FULL ? $owedCnt : null],
+        'people' => $people9,
+        'full' => $FULL,
+        'summary' => [
+            'services' => Capsule::table('tblhosting')->where('userid', $cid)->where('domainstatus', 'Active')->count(),
+            'openTasks' => Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+                ->where('p.clientid', $cid)->whereNotIn('t.status_id', $doneIds)->count(),
+            'openTickets' => Capsule::table('tbltickets')->where('userid', $cid)->whereNotIn('status', ['Closed', 'Cancelled'])->count(),
+            'scBalance' => $scBal !== null ? (int) $scBal : null,
+        ],
+        'months' => $months,
+        'timeline' => Db::clientTimeline($cid, date('Y-m-d', strtotime('-' . $months . ' months')))]);
+
+/* ================= ΚΕΡΔΟΦΟΡΙΑ ================= */
+case 'profit':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-01-01');
+    $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d');
+    $costH = (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0));
+    $mins = [];
+    foreach (Capsule::table('mod_cpm_timelogs as l')
+        ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
+        ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->where('l.running', 0)->whereBetween('l.created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+        ->selectRaw('COALESCE(p.clientid, l.sc_userid, 0) as cid, SUM(l.minutes) m')->groupBy('cid')->get() as $r) {
+        $mins[(int) $r->cid] = (int) $r->m;
+    }
+    $exp = [];
+    $expList = [];
+    foreach (Db::expenses($from, $to) as $e) {
+        $exp[(int) ($e->clientid ?: 0)] = ($exp[(int) ($e->clientid ?: 0)] ?? 0) + (float) $e->amount;
+        $expList[] = ['id' => (int) $e->id, 'at' => $e->spent_at, 'project' => $e->project_name,
+            'client' => $e->clientid ? clientLabel($e->clientid) : null,
+            'descr' => $e->descr, 'amount' => (float) $e->amount];
+    }
+    $cids = array_values(array_filter(array_unique(array_merge(array_keys($mins), array_keys($exp)))));
+    $rev = [];
+    if ($cids) {
+        foreach (Capsule::table('tblaccounts')->whereIn('userid', $cids)
+            ->whereBetween('date', [$from . ' 00:00:00', $to . ' 23:59:59'])
+            ->selectRaw('userid, SUM(amountin) - SUM(amountout) as v')->groupBy('userid')->get() as $r) {
+            $rev[(int) $r->userid] = (float) $r->v;
+        }
+    }
+    $clients = [];
+    foreach ($cids as $cid2) {
+        $labor = round(($mins[$cid2] ?? 0) / 60 * $costH, 2);
+        $e2 = round($exp[$cid2] ?? 0, 2);
+        $r2 = round($rev[$cid2] ?? 0, 2);
+        $clients[] = ['id' => $cid2, 'name' => clientLabel($cid2) ?: '—', 'mins' => $mins[$cid2] ?? 0,
+            'labor' => $labor, 'exp' => $e2, 'rev' => $r2, 'profit' => round($r2 - $labor - $e2, 2)];
+    }
+    usort($clients, function ($a, $b) { return $a['profit'] <=> $b['profit']; });
+    $projList = [];
+    foreach (Db::projects(true) as $p) {
+        $projList[] = ['id' => (int) $p->id, 'name' => $p->name];
+    }
+    out(['from' => $from, 'to' => $to, 'costH' => $costH, 'clients' => $clients,
+        'expenses' => $expList, 'projects' => $projList]);
+
+case 'add_expense':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $pid = (int) ($in['project'] ?? 0);
+    $amt = (float) ($in['amount'] ?? 0);
+    if (!$pid || $amt <= 0 || !Db::project($pid)) {
+        fail('input');
+    }
+    Db::addExpense($pid, trim($in['descr'] ?? '') ?: 'Έξοδο', $amt,
+        preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['at'] ?? '') ? $in['at'] : date('Y-m-d'), $adminId);
+    out(['ok' => true]);
+
+case 'del_expense':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Db::deleteExpense((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+/* ================= ΟΜΑΔΕΣ ================= */
+case 'teams':
+    $teams = [];
+    $assigned = [];
+    foreach (Db::teams() as $tm) {
+        $members = [];
+        foreach (Db::teamMembers($tm->id) as $m) {
+            $assigned[(int) $m->admin_id] = 1;
+            $members[] = ['id' => (int) $m->admin_id, 'name' => Db::adminName($m->admin_id),
+                'ini' => initials(Db::adminName($m->admin_id)),
+                'role' => $m->role_title, 'leader' => (bool) $m->is_leader];
+        }
+        $projNames = Capsule::table('mod_cpm_project_teams as pt')
+            ->join('mod_cpm_projects as p', 'p.id', '=', 'pt.project_id')
+            ->where('pt.team_id', $tm->id)->pluck('p.name')->all();
+        $teams[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color,
+            'descr' => $tm->descr, 'members' => $members, 'projects' => $projNames];
+    }
+    $solo = [];
+    foreach (Db::admins() as $a) {
+        if (!isset($assigned[(int) $a->id])) {
+            $solo[] = ['name' => trim($a->firstname . ' ' . $a->lastname), 'full' => Db::isFullAccess($a->id)];
+        }
+    }
+    $rolesCfg = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'team_roles')->value('value')
+        ?: 'Διαχειριστής έργου,Senior Τεχνικός,Τεχνικός,Υποστήριξη,Πωλήσεις,Λογιστήριο,Developer');
+    out(['teams' => $teams, 'solo' => $solo,
+        'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))), 'canManage' => $FULL]);
+
+case 'save_team':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $tid = Db::saveTeam((int) ($in['id'] ?? 0), [
+        'name' => mb_substr(trim($in['name'] ?? ''), 0, 80) ?: 'Χωρίς όνομα',
+        'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
+        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 500)]);
+    out(['ok' => true, 'id' => $tid]);
+
+case 'del_team':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Db::deleteTeam((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+case 'team_member_add':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $tid = (int) ($in['team'] ?? 0);
+    $aid2 = (int) ($in['admin'] ?? 0);
+    if (!$tid || !$aid2 || !Db::team($tid)) {
+        fail('input');
+    }
+    Db::addTeamMember($tid, $aid2, mb_substr(trim($in['role'] ?? ''), 0, 60) ?: null, !empty($in['leader']) ? 1 : 0);
+    out(['ok' => true]);
+
+case 'team_member_del':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Db::removeTeamMember((int) ($in['team'] ?? 0), (int) ($in['admin'] ?? 0));
+    out(['ok' => true]);
+
+/* ================= PROJECTS PORTFOLIO ================= */
+case 'portfolio':
+    $projs = [];
+    $depts = [];
+    foreach (Capsule::table('tblticketdepartments')->orderBy('order')->get(['id', 'name']) as $dp) {
+        $depts[] = ['id' => (int) $dp->id, 'name' => $dp->name];
+    }
+    $src = $FULL ? Db::projects(true) : Db::projectsFor($adminId, true);
+    $todoBy = [];
+    try {
+        foreach (Capsule::table('mod_cpm_project_todos')->groupBy('project_id')
+            ->get(['project_id', Capsule::raw('COUNT(*) t'), Capsule::raw('SUM(done_at IS NOT NULL) d')]) as $r8) {
+            $todoBy[(int) $r8->project_id] = [(int) $r8->d, (int) $r8->t];
+        }
+    } catch (\Throwable $e) {
+    }
+    $spentBy = [];
+    try {
+        foreach (Capsule::table('mod_cpm_timelogs as tl')
+            ->join('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
+            ->where('tl.running', 0)
+            ->groupBy('t.project_id')
+            ->get([Capsule::raw('t.project_id as pid'), Capsule::raw('SUM(tl.minutes) as m')]) as $r9) {
+            $spentBy[(int) $r9->pid] = (int) $r9->m;
+        }
+    } catch (\Throwable $e) {
+    }
+    foreach ($src as $p) {
+        [$done, $total, $pct] = Db::projectProgress($p->id);
+        $delta = Db::snapshotDelta($p->id, 7);
+        $projs[] = ['id' => (int) $p->id, 'name' => $p->name, 'color' => $p->color,
+            'kind' => $p->kind ?? 'dept',
+            'budget' => $p->budget !== null ? (float) $p->budget : null,
+            'estHours' => $p->est_hours !== null ? (float) $p->est_hours : null,
+            'start' => $p->start_date, 'due' => $p->due_date,
+            'offerId' => $p->offer_id ? (int) $p->offer_id : null,
+            'spentMins' => $spentBy[(int) $p->id] ?? 0,
+            'todos' => $todoBy[(int) $p->id] ?? null,
+            'client' => $p->clientid ? (int) $p->clientid : null, 'clientName' => clientLabel($p->clientid),
+            'dept' => $p->deptid ? (int) $p->deptid : null, 'parent' => $p->parent_id ? (int) $p->parent_id : null,
+            'pstatus' => $p->pstatus, 'health' => $p->health, 'archived' => $p->status === 'archived',
+            'visible' => (bool) $p->client_visible, 'done' => $done, 'total' => $total, 'pct' => $pct,
+            'trend' => $delta ? $delta[1] - $delta[0] : null,
+            'members' => $FULL ? Db::projectMembers($p->id) : [],
+            'teams' => $FULL ? Db::projectTeams($p->id) : []];
+    }
+    $teamsL = [];
+    foreach (Db::teams() as $tm) {
+        $teamsL[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color];
+    }
+    out(['projects' => $projs, 'depts' => $depts, 'teams' => $teamsL, 'canManage' => $FULL]);
+
+case 'save_project':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $pid = (int) ($in['id'] ?? 0);
+    $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Χωρίς όνομα',
+        'clientid' => (int) ($in['client'] ?? 0) ?: null,
+        'deptid' => (int) ($in['dept'] ?? 0) ?: null,
+        'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
+        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'client_visible' => !empty($in['visible']) ? 1 : 0,
+        'parent_id' => ((int) ($in['parent'] ?? 0) && (int) $in['parent'] !== $pid) ? (int) $in['parent'] : null,
+        'pstatus' => array_key_exists($in['pstatus'] ?? '', Db::projectStatuses()) ? $in['pstatus'] : null,
+        'health' => array_key_exists($in['health'] ?? '', Db::healthColors()) ? $in['health'] : null,
+        'kind' => in_array($in['kind'] ?? '', ['dept', 'client'], true) ? $in['kind'] : 'dept',
+        'budget' => ($in['budget'] ?? '') !== '' && $in['budget'] !== null
+            ? round((float) str_replace(',', '.', (string) $in['budget']), 2) : null,
+        'est_hours' => ($in['estHours'] ?? '') !== '' && $in['estHours'] !== null
+            ? round((float) str_replace(',', '.', (string) $in['estHours']), 1) : null,
+        'start_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['start'] ?? '') ? $in['start'] : null,
+        'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null];
+    $pid = Db::saveProject($pid, $data);
+    if (array_key_exists('members', $in)) {
+        Db::saveProjectMembers($pid, (array) $in['members']);
+    }
+    if (array_key_exists('teams', $in)) {
+        Db::saveProjectTeams($pid, (array) $in['teams']);
+    }
+    out(['ok' => true, 'id' => $pid]);
+
+case 'project_from_offer':             // κερδισμένη προσφορά → έργο πελάτη
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $of9 = Capsule::table('mod_cpm_offers')->where('id', (int) ($in['offer'] ?? 0))->first();
+    if (!$of9) {
+        fail('offer', 404);
+    }
+    $ex9 = Capsule::table('mod_cpm_projects')->where('offer_id', $of9->id)->first(['id', 'name']);
+    if ($ex9) {
+        out(['ok' => true, 'id' => (int) $ex9->id, 'existing' => true]);
+    }
+    $amount9 = $of9->quoteid
+        ? (float) (Capsule::table('tblquotes')->where('id', $of9->quoteid)->value('total') ?: 0)
+        : (float) ($of9->amount ?: 0);
+    $pid9 = Db::saveProject(0, [
+        'name' => mb_substr('Έργο: ' . $of9->title, 0, 120),
+        'kind' => 'client',
+        'clientid' => $of9->clientid ?: null,
+        'budget' => $amount9 ?: null,
+        'offer_id' => (int) $of9->id,
+        'pstatus' => 'new', 'health' => 'green',
+        'color' => '#7b5cd6', 'client_visible' => 0,
+        'descr' => "Δημιουργήθηκε από προσφορά #{$of9->id}" . ($of9->quoteid ? " / Quote #{$of9->quoteid}" : ''),
+    ]);
+    Db::saveTask(0, ['project_id' => $pid9, 'title' => 'Kick-off: πλάνο & ανάλυση έργου',
+        'status_id' => Db::firstStatusId()], $adminId);
+    if (function_exists('logActivity')) {
+        logActivity('CPM: έργο #' . $pid9 . ' από προσφορά #' . $of9->id . ' (admin #' . $adminId . ')');
+    }
+    out(['ok' => true, 'id' => $pid9]);
+
+case 'ptodos':                         // 📋 παραδοτέα/TODO έργου
+    $pid7 = (int) ($_GET['project'] ?? 0);
+    if (!$pid7 || !Db::canSeeProject($adminId, $pid7)) {
+        fail('project', 403);
+    }
+    out(['todos' => array_map(function ($t) {
+        return ['id' => (int) $t->id, 'title' => $t->title,
+            'done' => (bool) $t->done_at,
+            'doneBy' => $t->done_by ? Db::adminName($t->done_by) : null,
+            'doneAt' => $t->done_at ? substr($t->done_at, 0, 10) : null];
+    }, Capsule::table('mod_cpm_project_todos')->where('project_id', $pid7)
+        ->orderBy('sort')->orderBy('id')->get()->all())]);
+
+case 'ptodo_add':
+    $pid7 = (int) ($in['project'] ?? 0);
+    $t7 = mb_substr(trim($in['title'] ?? ''), 0, 255);
+    if (!$pid7 || $t7 === '' || !Db::canSeeProject($adminId, $pid7)) {
+        fail('input', 403);
+    }
+    $id7 = Capsule::table('mod_cpm_project_todos')->insertGetId(['project_id' => $pid7,
+        'title' => $t7, 'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s'),
+        'sort' => (int) Capsule::table('mod_cpm_project_todos')->where('project_id', $pid7)->max('sort') + 1]);
+    out(['ok' => true, 'id' => $id7]);
+
+case 'ptodo_toggle':
+    $td = Capsule::table('mod_cpm_project_todos')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$td || !Db::canSeeProject($adminId, $td->project_id)) {
+        fail('todo', 403);
+    }
+    Capsule::table('mod_cpm_project_todos')->where('id', $td->id)->update($td->done_at
+        ? ['done_at' => null, 'done_by' => null]
+        : ['done_at' => date('Y-m-d H:i:s'), 'done_by' => $adminId]);
+    out(['ok' => true, 'done' => !$td->done_at]);
+
+case 'ptodo_del':
+    $td = Capsule::table('mod_cpm_project_todos')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$td || !Db::canSeeProject($adminId, $td->project_id)) {
+        fail('todo', 403);
+    }
+    Capsule::table('mod_cpm_project_todos')->where('id', $td->id)->delete();
+    out(['ok' => true]);
+
+case 'archive_project':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $p = Db::project((int) ($in['id'] ?? 0));
+    if ($p) {
+        Db::saveProject($p->id, ['status' => $p->status === 'archived' ? 'active' : 'archived']);
+    }
+    out(['ok' => (bool) $p]);
+
+case 'recurring':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $recs = [];
+    foreach (Db::recurringAll() as $r) {
+        $recs[] = ['id' => (int) $r->id, 'title' => $r->title, 'project' => (int) $r->project_id,
+            'pname' => $r->project_name, 'pcolor' => $r->project_color,
+            'freq' => $r->freq, 'every' => (int) $r->every, 'next' => $r->next_run,
+            'dueDays' => (int) $r->due_days, 'assignee' => $r->assignee ? (int) $r->assignee : null,
+            'prio' => (int) $r->priority, 'active' => (bool) $r->active, 'last' => $r->last_run];
+    }
+    out(['recurring' => $recs]);
+
+case 'save_recurring':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $freq = in_array($in['freq'] ?? '', ['daily', 'weekly', 'monthly', 'yearly'], true) ? $in['freq'] : 'monthly';
+    Db::saveRecurring((int) ($in['id'] ?? 0), [
+        'project_id' => (int) ($in['project'] ?? 0),
+        'title' => mb_substr(trim($in['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
+        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'priority' => min(2, max(0, (int) ($in['prio'] ?? 0))),
+        'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
+        'freq' => $freq, 'every' => max(1, (int) ($in['every'] ?? 1)),
+        'next_run' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['next'] ?? '') ? $in['next'] : date('Y-m-d'),
+        'due_days' => max(0, (int) ($in['dueDays'] ?? 0)),
+        'active' => !empty($in['active']) ? 1 : 0]);
+    out(['ok' => true]);
+
+case 'del_recurring':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Db::deleteRecurring((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+/* ================= TICKET INBOX ================= */
+case 'tickets':
+    $view = $_GET['view'] ?? 'open';
+    $q = trim($_GET['q'] ?? '');
+    $fArea = (int) ($_GET['area'] ?? 0);
+    $fCause = (int) ($_GET['cause'] ?? 0);
+    $tq = Capsule::table('tbltickets');
+    if (($fArea || $fCause) && $view !== 'mine' && $view !== 'unassigned') {
+        $tq->orderBy('lastreply', 'desc');   // φίλτρο κατηγορίας: όλα τα statuses
+    } elseif ($view === 'closed') {
+        $tq->where('status', 'Closed')->orderBy('lastreply', 'desc');
+    } else {
+        $tq->whereNotIn('status', ['Closed', 'Cancelled'])->orderBy('lastreply', 'desc');
+        if ($view === 'mine') {
+            $tq->where('flag', $adminId);
+        } elseif ($view === 'unassigned') {
+            $tq->where(function ($w) { $w->where('flag', 0)->orWhereNull('flag'); });
+        }
+    }
+    if (!$FULL && $view !== 'unassigned') {
+        $tq->where('flag', $adminId); // agents: δικά τους (+ αδέσποτα στο unassigned)
+    }
+    if ($q !== '') {
+        $like = '%' . $q . '%';
+        $tq->where(function ($w) use ($like) {
+            $w->where('title', 'like', $like)->orWhere('tid', 'like', $like)->orWhere('name', 'like', $like);
+        });
+    }
+    if ($fArea || $fCause) {
+        $tq->whereIn('tbltickets.id', function ($sub) use ($fArea, $fCause) {
+            $sub->select('ticketid')->from('mod_cpm_ticket_class');
+            if ($fArea) { $sub->where('area_id', $fArea); }
+            if ($fCause) { $sub->where('cause_id', $fCause); }
+        });
+    }
+    $rows = $tq->limit(100)->get(['id', 'tid', 'did', 'userid', 'name', 'title', 'status', 'urgency',
+        'date', 'lastreply', 'flag', 'adminunread', 'clientunread']);
+    $classMap = [];
+    if (count($rows)) {
+        foreach (Capsule::table('mod_cpm_ticket_class')->whereIn('ticketid', $rows->pluck('id')->all())->get() as $cl) {
+            $classMap[(int) $cl->ticketid] = $cl;
+        }
+    }
+    // SLA map
+    $slaMap = [];
+    try {
+        if (count($rows) && Capsule::schema()->hasTable('mod_supportcontracts_tickets')) {
+            foreach (Capsule::table('mod_supportcontracts_tickets')->whereIn('ticketid', $rows->pluck('id')->all())
+                ->get(['ticketid', 'sla_due', 'first_response_at']) as $s) {
+                $slaMap[(int) $s->ticketid] = $s;
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    // «περιμένει απάντηση»: τελευταίο reply όχι από admin
+    $list = [];
+    foreach ($rows as $tk) {
+        $lastAdmin = Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderBy('id', 'desc')->value('admin');
+        $waiting = ($lastAdmin === null || $lastAdmin === '');
+        if ($view === 'waiting' && !$waiting) {
+            continue;
+        }
+        $s = $slaMap[(int) $tk->id] ?? null;
+        $list[] = ['id' => (int) $tk->id, 'tid' => $tk->tid, 'title' => $tk->title,
+            'client' => $tk->userid ? clientLabel($tk->userid) : $tk->name,
+            'status' => $tk->status, 'urgency' => $tk->urgency,
+            'last' => $tk->lastreply, 'age' => (int) floor((time() - strtotime($tk->date)) / 86400),
+            'flag' => (int) $tk->flag ?: null, 'unread' => (bool) $tk->adminunread,
+            'waiting' => $waiting,
+            'slaDue' => ($s && $s->sla_due && !$s->first_response_at) ? $s->sla_due : null,
+            'area' => isset($classMap[(int) $tk->id]) ? (int) $classMap[(int) $tk->id]->area_id ?: null : null,
+            'cause' => isset($classMap[(int) $tk->id]) ? (int) $classMap[(int) $tk->id]->cause_id ?: null : null];
+    }
+    out(['tickets' => $list, 'cats' => cnp_ticket_cats()]);
+
+case 'ticket':
+    $tid = (int) ($_GET['id'] ?? 0);
+    $tk = Capsule::table('tbltickets')->where('id', $tid)->first();
+    if (!$tk) {
+        fail('ticket', 404);
+    }
+    if (!$FULL && (int) $tk->flag !== $adminId && (int) $tk->flag !== 0) {
+        fail('ticket', 403);
+    }
+    $attList = function ($str, $rid) {
+        $out = [];
+        foreach (array_values(array_filter(explode('|', (string) $str))) as $i => $f) {
+            $out[] = ['i' => $i, 'rid' => $rid,
+                'name' => preg_replace('/^\\d+_/', '', $f)];
+        }
+        return $out;
+    };
+    $conv = [[
+        'by' => $tk->name ?: clientLabel($tk->userid), 'admin' => false,
+        'at' => $tk->date, 'body' => $tk->message, 'att' => $attList($tk->attachment ?? '', 0),
+    ]];
+    foreach (Capsule::table('tblticketreplies')->where('tid', $tid)->orderBy('id')->get() as $r) {
+        $conv[] = ['by' => $r->admin ?: ($r->name ?: clientLabel($r->userid)),
+            'admin' => $r->admin !== '' && $r->admin !== null, 'at' => $r->date, 'body' => $r->message,
+            'att' => $attList($r->attachment ?? '', (int) $r->id)];
+    }
+    // εσωτερική συνομιλία (linked task comments)
+    $task = Db::taskForTicket($tid);
+    $notes = [];
+    if ($task) {
+        foreach (Db::comments($task->id) as $c) {
+            $notes[] = ['by' => Db::adminName($c->admin_id), 'byId' => (int) $c->admin_id,
+                'to' => $c->to_admin !== null ? (int) $c->to_admin : null,
+                'at' => $c->created_at, 'body' => $c->comment];
+        }
+    }
+    $sla = null;
+    try {
+        if (Capsule::schema()->hasTable('mod_supportcontracts_tickets')) {
+            $s = Capsule::table('mod_supportcontracts_tickets')->where('ticketid', $tid)->first(['sla_due', 'first_response_at']);
+            if ($s && $s->sla_due && !$s->first_response_at) {
+                $sla = $s->sla_due;
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    // 💡 αυτόματες προτάσεις: KB λύσεις + παρόμοια tickets που λύθηκαν
+    $suggest = ['kb' => [], 'similar' => []];
+    try {
+        $tw0 = cnp_words($tk->title . ' ' . mb_substr($tk->message, 0, 600));
+        if ($tw0) {
+            foreach (Capsule::table('mod_cpm_kb')->get() as $k9) {
+                $sc = cnp_overlap($tw0, cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags));
+                if ($sc > 0) {
+                    $suggest['kb'][] = ['id' => (int) $k9->id, 'title' => $k9->title,
+                        'solution' => $k9->solution, 'score' => $sc];
+                }
+            }
+            usort($suggest['kb'], function ($a, $b) { return $b['score'] <=> $a['score']; });
+            $suggest['kb'] = array_slice($suggest['kb'], 0, 3);
+            foreach (Capsule::table('tbltickets')->where('id', '!=', $tid)
+                ->where('status', 'Closed')->orderBy('lastreply', 'desc')
+                ->limit(300)->get(['id', 'tid', 'title', 'userid', 'name', 'lastreply']) as $t9) {
+                $sc = cnp_overlap($tw0, cnp_words($t9->title));
+                if ($sc > 0) {
+                    $suggest['similar'][] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
+                        'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
+                        'last' => substr($t9->lastreply, 0, 10), 'score' => $sc];
+                }
+            }
+            usort($suggest['similar'], function ($a, $b) { return $b['score'] <=> $a['score']; });
+            $suggest['similar'] = array_slice($suggest['similar'], 0, 3);
+        }
+    } catch (\Throwable $e) {
+    }
+    // 🎟 χρήση/όριο tickets της ομάδας του πελάτη (τρέχων μήνας)
+    $tq9 = null;
+    if ($tk->userid) {
+        try {
+            $pk9 = (int) Capsule::table('mod_cpm_client_package')->where('clientid', $tk->userid)->value('package_id');
+            $qr9 = $pk9 ? Capsule::table('mod_cpm_support_packages')->where('id', $pk9)->first() : null;
+            if ($qr9 && (int) $qr9->t_month > 0) {
+                $m0 = date('Y-m-01 00:00:00');
+                $used9 = Capsule::table('tbltickets')->where('userid', $tk->userid)->where('date', '>=', $m0)->count();
+                $ph9 = Capsule::table('mod_cpm_ticket_usage')->where('userid', $tk->userid)
+                    ->where('channel', 'phone')->where('created_at', '>=', $m0)->count();
+                $em9 = Capsule::table('mod_cpm_ticket_usage')->where('userid', $tk->userid)
+                    ->where('channel', 'email')->where('created_at', '>=', $m0)->count();
+                $tq9 = ['used' => $used9, 'quota' => (int) $qr9->t_month, 'package' => $qr9->name,
+                    'email' => ['u' => $em9, 'q' => (int) $qr9->email_month],
+                    'phone' => ['u' => $ph9, 'q' => (int) $qr9->phone_month],
+                    'over' => $used9 > (int) $qr9->t_month];
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+    $statuses = Capsule::table('tblticketstatuses')->orderBy('sortorder')->pluck('title')->all();
+    out(['ticket' => ['id' => $tid, 'tid' => $tk->tid, 'title' => $tk->title,
+            'client' => $tk->userid ? clientLabel($tk->userid) : $tk->name, 'clientId' => (int) $tk->userid ?: null,
+            'email' => $tk->email, 'status' => $tk->status, 'urgency' => $tk->urgency,
+            'flag' => (int) $tk->flag ?: null, 'dept' => (int) $tk->did, 'slaDue' => $sla],
+        'suggest' => $suggest, 'quota' => $tq9,
+        'class' => (function () use ($tid) {
+            $cl = Capsule::table('mod_cpm_ticket_class')->where('ticketid', $tid)->first();
+            return ['area' => $cl && $cl->area_id ? (int) $cl->area_id : null,
+                'cause' => $cl && $cl->cause_id ? (int) $cl->cause_id : null,
+                'note' => $cl->note ?? null,
+                'by' => $cl && $cl->classified_by ? Db::adminName($cl->classified_by) : null];
+        })(),
+        'cats' => cnp_ticket_cats(),
+        'conv' => $conv, 'notes' => $notes,
+        'task' => $task ? (int) $task->id : null,
+        'statuses' => $statuses]);
+
+case 'ticket_reply':
+    if (!empty($_FILES)) {          // multipart (με συνημμένα) → πεδία από $_POST
+        $in = $_POST;
+    }
+    $tid = (int) ($in['ticket'] ?? 0);
+    $msg = trim($in['body'] ?? '');
+    $tk = Capsule::table('tbltickets')->where('id', $tid)->first(['flag', 'tid']);
+    if (!$tk || $msg === '') {
+        fail('input');
+    }
+    if (!$FULL && (int) $tk->flag !== $adminId && (int) $tk->flag !== 0) {
+        fail('ticket', 403);
+    }
+    if (!cnp_can_reply_clients($adminId, $FULL)) {
+        fail('Μόνο ο επικεφαλής ομάδας ή διαχειριστής απαντά στον πελάτη — χρησιμοποίησε εσωτερική σημείωση', 403);
+    }
+    // συνημμένα: έλεγχος ΠΡΙΝ σταλεί η απάντηση, αποθήκευση WHMCS-style στο attachmentsnew
+    $attNames = [];
+    $attDir = __DIR__ . '/../attachmentsnew';
+    if (!empty($_FILES['files'])) {
+        $ff = $_FILES['files'];
+        $names = is_array($ff['name']) ? $ff['name'] : [$ff['name']];
+        foreach ($names as $k => $nm) {
+            $err = is_array($ff['error']) ? $ff['error'][$k] : $ff['error'];
+            $sz = is_array($ff['size']) ? $ff['size'][$k] : $ff['size'];
+            if ($err !== UPLOAD_ERR_OK) {
+                fail('upload');
+            }
+            if ($sz > 20 * 1024 * 1024) {
+                fail('Μέγιστο 20MB ανά αρχείο');
+            }
+            $ext = strtolower(pathinfo($nm, PATHINFO_EXTENSION));
+            if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) {
+                fail('Μη επιτρεπτός τύπος αρχείου');
+            }
+        }
+        foreach ($names as $k => $nm) {
+            $tmp = is_array($ff['tmp_name']) ? $ff['tmp_name'][$k] : $ff['tmp_name'];
+            $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $nm) ?: 'file';
+            $stored = random_int(100000, 999999) . '_' . mb_substr($safe, 0, 160);
+            if (!move_uploaded_file($tmp, $attDir . '/' . $stored)) {
+                fail('write');
+            }
+            $attNames[] = $stored;
+        }
+    }
+    $uname = Capsule::table('tbladmins')->where('id', $adminId)->value('username');
+    $r = localAPI('AddTicketReply', ['ticketid' => $tid, 'message' => $msg, 'adminusername' => $uname]
+        + (!empty($in['status']) ? ['status' => $in['status']] : []), $uname);
+    if (($r['result'] ?? '') !== 'success') {
+        foreach ($attNames as $s) {     // μην αφήσεις ορφανά στο δίσκο
+            @unlink($attDir . '/' . $s);
+        }
+        fail($r['message'] ?? 'reply failed');
+    }
+    if ($attNames) {
+        $rid = (int) Capsule::table('tblticketreplies')->where('tid', $tid)->max('id');
+        if ($rid) {
+            Capsule::table('tblticketreplies')->where('id', $rid)->update(['attachment' => implode('|', $attNames)]);
+        }
+    }
+    out(['ok' => true]);
+
+case 'profile':                        // το προφίλ ΜΟΥ (κάθε χρήστης)
+    $me8 = Capsule::table('tbladmins')->where('id', $adminId)
+        ->first(['username', 'firstname', 'lastname', 'email', 'roleid', 'created_at']);
+    $role8 = Capsule::table('tbladminroles')->where('id', (int) $me8->roleid)->value('name');
+    $teams8 = Capsule::table('mod_cpm_team_members as tm')
+        ->join('mod_cpm_teams as t', 't.id', '=', 'tm.team_id')
+        ->where('tm.admin_id', $adminId)
+        ->get(['t.name', 't.color', 'tm.role_title', 'tm.is_leader'])->all();
+    $projs8 = Db::visibleProjectIds($adminId);
+    $projList8 = Capsule::table('mod_cpm_projects')->where('status', 'active')
+        ->when($projs8 !== null, function ($q) use ($projs8) { $q->whereIn('id', $projs8 ?: [0]); })
+        ->orderBy('name')->get(['id', 'name', 'color'])->all();
+    out(['profile' => [
+        'username' => $me8->username, 'first' => $me8->firstname, 'last' => $me8->lastname,
+        'email' => $me8->email, 'role' => $role8 ?: ('#' . $me8->roleid), 'full' => $FULL,
+        'since' => substr((string) $me8->created_at, 0, 10)],
+        'teams' => array_map(function ($t) { return ['name' => $t->name, 'color' => $t->color,
+            'role' => $t->role_title, 'leader' => (bool) $t->is_leader]; }, $teams8),
+        'projects' => array_map(function ($p) { return ['id' => (int) $p->id, 'name' => $p->name,
+            'color' => $p->color]; }, $projList8),
+        'allProjects' => $projs8 === null,
+        'prefs' => ['notify_email' => Db::pref($adminId, 'notify_email', 'on'),
+            'digest' => Db::pref($adminId, 'digest', 'on'),
+            'meet_link' => Db::pref($adminId, 'meet_link', '')]]);
+
+case 'profile_save':                   // στοιχεία μου (self μόνο)
+    $email8 = trim($in['email'] ?? '');
+    if ($email8 !== '' && !filter_var($email8, FILTER_VALIDATE_EMAIL)) {
+        fail('Άκυρο email');
+    }
+    Capsule::table('tbladmins')->where('id', $adminId)->update([
+        'firstname' => mb_substr(trim($in['first'] ?? ''), 0, 60),
+        'lastname' => mb_substr(trim($in['last'] ?? ''), 0, 60),
+        'email' => $email8, 'updated_at' => date('Y-m-d H:i:s')]);
+    if (array_key_exists('meetLink', $in)) {
+        Db::setPref($adminId, 'meet_link', mb_substr(trim((string) $in['meetLink']), 0, 190));
+    }
+    out(['ok' => true]);
+
+case 'profile_pass':                   // αλλαγή δικού μου κωδικού με επιβεβαίωση τρέχοντος
+    $curHash = Capsule::table('tbladmins')->where('id', $adminId)->value('password');
+    if (!password_verify((string) ($in['current'] ?? ''), (string) $curHash)) {
+        fail('Λάθος τρέχων κωδικός');
+    }
+    $np = (string) ($in['new'] ?? '');
+    if (strlen($np) < 8) {
+        fail('Ο νέος κωδικός θέλει τουλάχιστον 8 χαρακτήρες');
+    }
+    if ($np !== ($in['confirm'] ?? '')) {
+        fail('Οι δύο κωδικοί δεν ταιριάζουν');
+    }
+    Capsule::table('tbladmins')->where('id', $adminId)
+        ->update(['password' => password_hash($np, PASSWORD_DEFAULT),
+            'passwordhash' => password_hash($np, PASSWORD_DEFAULT), 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'profile_pref':                   // προσωπικές προτιμήσεις ειδοποιήσεων
+    $key8 = (string) ($in['key'] ?? '');
+    if (!in_array($key8, ['notify_email', 'digest'], true)) {
+        fail('pref');
+    }
+    Db::setPref($adminId, $key8, ($in['value'] ?? '') === 'on' ? 'on' : 'off');
+    out(['ok' => true]);
+
+case 'triage':                          // 🎯 Πλάνο ημέρας — πρόταση tickets (managers)
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $now = time();
+    $slaBy = [];
+    try {
+        foreach (Capsule::table('mod_supportcontracts_tickets')->whereNotNull('sla_due')->get() as $st9) {
+            $slaBy[(int) $st9->ticketid] = $st9;
+        }
+    } catch (\Throwable $e) {
+    }
+    $prioBy = [];
+    try {
+        foreach (Capsule::table('mod_supportcontracts_clients')->where('enabled', 1)->get(['userid', 'priority']) as $pc) {
+            $prioBy[(int) $pc->userid] = $pc->priority;
+        }
+    } catch (\Throwable $e) {
+    }
+    $rows9 = Capsule::table('tbltickets')
+        ->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->get(['id', 'tid', 'title', 'userid', 'name', 'urgency', 'status', 'date', 'lastreply', 'flag']);
+    $ids9 = array_map(function ($r) { return (int) $r->id; }, $rows9->all());
+    // ποιος μίλησε τελευταίος; (admin κενό = πελάτης)
+    $lastAdmin = [];
+    if ($ids9) {
+        foreach (Capsule::table('tblticketreplies')->whereIn('tid', $ids9)
+            ->orderBy('id')->get(['tid', 'admin']) as $r9) {
+            $lastAdmin[(int) $r9->tid] = trim((string) $r9->admin) !== '';
+        }
+    }
+    $list9 = [];
+    foreach ($rows9 as $t9) {
+        $why = [];
+        // 1) κρισιμότητα ticket
+        $u = ['High' => 30, 'Medium' => 15, 'Low' => 5][$t9->urgency] ?? 10;
+        $why['urgency'] = $u;
+        // 2) περιμένει απάντησή μας + πόσο
+        $waiting = !array_key_exists((int) $t9->id, $lastAdmin) ? true : !$lastAdmin[(int) $t9->id];
+        $wh = max(0, ($now - strtotime($t9->lastreply)) / 3600);
+        $w = $waiting ? min(30, round($wh * 1.5, 1)) : 0;
+        $why['wait'] = $w;
+        // 3) SLA πελάτη
+        $sv = 0;
+        $slaDue = null;
+        if (isset($slaBy[(int) $t9->id])) {
+            $st9 = $slaBy[(int) $t9->id];
+            $slaDue = $st9->sla_due;
+            if (!$st9->first_response_at) {
+                $left = (strtotime($st9->sla_due) - $now) / 3600;
+                $sv = $left < 0 ? 40 : ($left < 2 ? 30 : ($left < 8 ? 15 : 5));
+            }
+        }
+        $why['sla'] = $sv;
+        // 4) προτεραιότητα συμβολαίου πελάτη
+        $cp = ['High' => 15, 'Medium' => 7][$prioBy[(int) $t9->userid] ?? ''] ?? 0;
+        $why['contract'] = $cp;
+        // 5) παλαιότητα
+        $ageD = max(0, ($now - strtotime($t9->date)) / 86400);
+        $why['age'] = min(10, round($ageD / 2, 1));
+        $score = array_sum($why);
+        $list9[] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
+            'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
+            'urgency' => $t9->urgency, 'status' => $t9->status,
+            'flag' => $t9->flag ? (int) $t9->flag : null,
+            'waiting' => $waiting, 'waitH' => round($wh, 1),
+            'slaDue' => $slaDue, 'contractPrio' => $prioBy[(int) $t9->userid] ?? null,
+            'ageDays' => round($ageD, 1),
+            'score' => round($score, 1), 'why' => $why];
+    }
+    usort($list9, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    // 💡 πρόταση ανάθεσης: ποιος έχει λύσει παρόμοια (top 20, μόνο ανανάθετα)
+    $nameToId = [];
+    foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'firstname', 'lastname']) as $a9) {
+        $nameToId[trim($a9->firstname . ' ' . $a9->lastname)] = (int) $a9->id;
+    }
+    $closed9 = Capsule::table('tbltickets')->where('status', 'Closed')
+        ->orderBy('lastreply', 'desc')->limit(300)->get(['id', 'title'])->all();
+    foreach (array_slice($list9, 0, 20) as $k9 => $t9) {
+        if ($t9['flag']) {
+            continue;
+        }
+        $tw9 = cnp_words($t9['title']);
+        $solvers = [];
+        foreach ($closed9 as $c9) {
+            if (cnp_overlap($tw9, cnp_words($c9->title)) > 0) {
+                $adm = Capsule::table('tblticketreplies')->where('tid', $c9->id)
+                    ->where('admin', '!=', '')->orderBy('id', 'desc')->value('admin');
+                if ($adm && isset($nameToId[trim($adm)])) {
+                    $solvers[trim($adm)] = ($solvers[trim($adm)] ?? 0) + 1;
+                }
+            }
+        }
+        if ($solvers) {
+            arsort($solvers);
+            $top9 = array_key_first($solvers);
+            $list9[$k9]['suggestAssignee'] = ['id' => $nameToId[$top9], 'name' => $top9, 'solved' => $solvers[$top9]];
+        }
+    }
+    $sum9 = ['open' => count($list9),
+        'waiting' => count(array_filter($list9, function ($x) { return $x['waiting']; })),
+        'slaRisk' => count(array_filter($list9, function ($x) { return $x['why']['sla'] >= 15; })),
+        'high' => count(array_filter($list9, function ($x) { return $x['urgency'] === 'High'; })),
+        'unassigned' => count(array_filter($list9, function ($x) { return !$x['flag']; }))];
+    out(['plan' => array_slice($list9, 0, 20), 'summary' => $sum9]);
+
+/* ============ 📚 ΒΑΣΗ ΓΝΩΣΗΣ ============ */
+case 'ksearch':                         // «το έχω ξαναλύσει;» — ψάξιμο σε KB + ιστορικό tickets
+    $q9 = trim($_GET['q'] ?? '');
+    if (mb_strlen($q9) < 3) {
+        fail('q');
+    }
+    $qw = cnp_words($q9);
+    if (!$qw) {
+        fail('q');
+    }
+    // KB
+    $kbHits = [];
+    foreach (Capsule::table('mod_cpm_kb')->get() as $k9) {
+        $kw = cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags . ' ' . mb_substr($k9->solution, 0, 400));
+        $sc = cnp_overlap($qw, $kw);
+        if ($sc > 0) {
+            $kbHits[] = ['id' => (int) $k9->id, 'title' => $k9->title, 'tags' => $k9->tags,
+                'solution' => $k9->solution, 'uses' => (int) $k9->uses, 'score' => $sc];
+        }
+    }
+    usort($kbHits, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    // ιστορικό tickets: πρόφιλτρο SQL με LIKE στις 2 πιο σπάνιες λέξεις, μετά scoring
+    $tHits = [];
+    $cand = Capsule::table('tbltickets');
+    $cand->where(function ($qq) use ($qw) {
+        foreach (array_slice($qw, 0, 6) as $w) {
+            $qq->orWhere('title', 'like', '%' . $w . '%')
+               ->orWhere('message', 'like', '%' . $w . '%')
+               ->orWhereExists(function ($sub) use ($w) {
+                   $sub->selectRaw('1')->from('tblticketreplies')
+                       ->whereColumn('tblticketreplies.tid', 'tbltickets.id')
+                       ->where('tblticketreplies.message', 'like', '%' . $w . '%');
+               });
+        }
+    });
+    foreach ($cand->orderBy('lastreply', 'desc')->limit(200)->get(['id', 'tid', 'title', 'userid', 'name', 'status', 'lastreply', 'message']) as $t9) {
+        $tw = cnp_words($t9->title . ' ' . mb_substr($t9->message, 0, 600));
+        $sc = cnp_overlap($qw, $tw);
+        // bonus: λύθηκε (Closed) → πιο χρήσιμο ως προηγούμενο
+        if ($sc > 0) {
+            $tHits[] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
+                'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
+                'status' => $t9->status, 'last' => substr($t9->lastreply, 0, 10),
+                'score' => $sc + ($t9->status === 'Closed' ? 1 : 0)];
+        }
+    }
+    usort($tHits, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    out(['kb' => array_slice($kbHits, 0, 10), 'tickets' => array_slice($tHits, 0, 15)]);
+
+case 'kb_draft':                        // AI προσχέδιο KB από κλεισμένο ticket
+    $tid3 = (int) ($in['ticket'] ?? 0);
+    $tk3 = Capsule::table('tbltickets')->where('id', $tid3)->first();
+    if (!$tk3) {
+        fail('ticket', 404);
+    }
+    $key = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') {   // χωρίς AI: βασικό προσχέδιο
+        out(['ok' => true, 'draft' => ['title' => $tk3->title, 'keywords' => implode(' ', array_slice(cnp_words($tk3->title), 0, 8)), 'solution' => '']]);
+    }
+    $convTxt = "ΠΕΛΑΤΗΣ: " . mb_substr($tk3->message, 0, 2500) . "\n";
+    foreach (Capsule::table('tblticketreplies')->where('tid', $tid3)->orderBy('id')->limit(20)->get() as $r) {
+        $who = ($r->admin !== '' && $r->admin !== null) ? 'ΟΜΑΔΑ' : 'ΠΕΛΑΤΗΣ';
+        $convTxt .= $who . ': ' . mb_substr($r->message, 0, 1500) . "\n";
+    }
+    $prompt = "Από την παρακάτω συνομιλία ticket υποστήριξης, φτιάξε εγγραφή για βάση γνώσης στα ελληνικά. Απάντησε ΜΟΝΟ με JSON χωρίς markdown: {\"title\": \"σύντομος τίτλος προβλήματος\", \"keywords\": \"λέξεις-κλειδιά χωρισμένες με κόμμα\", \"solution\": \"η λύση βήμα-βήμα όπως εφαρμόστηκε\"}. Αν η συνομιλία δεν περιέχει σαφή λύση, βάλε στο solution ό,τι έγινε.\n\nΘΕΜΑ: {$tk3->title}\n\nΣΥΝΟΜΙΛΙΑ:\n$convTxt";
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode(['model' => 'claude-haiku-4-5-20251001', 'max_tokens' => 1200,
+            'messages' => [['role' => 'user', 'content' => $prompt]]]),
+    ]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+    $j = json_decode((string) $resp, true);
+    $txt = $j['content'][0]['text'] ?? '';
+    $draft = json_decode(trim(preg_replace('/^```json|```$/m', '', trim($txt))), true);
+    if (!is_array($draft) || empty($draft['title'])) {
+        $draft = ['title' => $tk3->title, 'keywords' => implode(' ', array_slice(cnp_words($tk3->title), 0, 8)), 'solution' => $txt];
+    }
+    out(['ok' => true, 'draft' => ['title' => mb_substr($draft['title'], 0, 255),
+        'keywords' => mb_substr($draft['keywords'] ?? '', 0, 500),
+        'solution' => mb_substr($draft['solution'] ?? '', 0, 60000)]]);
+
+case 'mynext':                          // ▶ «Τι δουλεύω τώρα» — προσωπικό top-3 (όλοι)
+    $now = time();
+    $slaBy = [];
+    try {
+        foreach (Capsule::table('mod_supportcontracts_tickets')->whereNotNull('sla_due')->get() as $st9) {
+            $slaBy[(int) $st9->ticketid] = $st9;
+        }
+    } catch (\Throwable $e) {
+    }
+    $rows9 = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->where(function ($q9) use ($adminId) { $q9->where('flag', $adminId)->orWhere('flag', 0); })
+        ->get(['id', 'tid', 'title', 'userid', 'name', 'urgency', 'date', 'lastreply', 'flag']);
+    $ids9 = array_map(function ($r) { return (int) $r->id; }, $rows9->all());
+    $lastAdmin = [];
+    if ($ids9) {
+        foreach (Capsule::table('tblticketreplies')->whereIn('tid', $ids9)->orderBy('id')->get(['tid', 'admin']) as $r9) {
+            $lastAdmin[(int) $r9->tid] = trim((string) $r9->admin) !== '';
+        }
+    }
+    $list9 = [];
+    foreach ($rows9 as $t9) {
+        $u = ['High' => 30, 'Medium' => 15, 'Low' => 5][$t9->urgency] ?? 10;
+        $waiting = !($lastAdmin[(int) $t9->id] ?? false);
+        $w = $waiting ? min(30, round(max(0, ($now - strtotime($t9->lastreply)) / 3600) * 1.5, 1)) : 0;
+        $sv = 0;
+        if (isset($slaBy[(int) $t9->id]) && !$slaBy[(int) $t9->id]->first_response_at) {
+            $left = (strtotime($slaBy[(int) $t9->id]->sla_due) - $now) / 3600;
+            $sv = $left < 0 ? 40 : ($left < 2 ? 30 : ($left < 8 ? 15 : 5));
+        }
+        $score = $u + $w + $sv + ((int) $t9->flag === $adminId ? 5 : 0);   // δικά μου ελαφρώς μπροστά
+        $list9[] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
+            'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
+            'mine' => (int) $t9->flag === $adminId, 'waiting' => $waiting,
+            'score' => round($score, 1)];
+    }
+    usort($list9, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    out(['next' => array_slice($list9, 0, 3)]);
+
+case 'recurrent':                       // 🔁 επαναλαμβανόμενα προβλήματα 90 ημερών (full)
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $since = date('Y-m-d', strtotime('-90 days'));
+    $sigs = [];
+    foreach (Capsule::table('tbltickets')->where('date', '>=', $since)
+        ->get(['id', 'tid', 'title', 'userid', 'name', 'status', 'date']) as $t9) {
+        $sigs[] = ['t' => $t9, 'w' => cnp_words($t9->title, 12)];
+    }
+    $used = [];
+    $clusters = [];
+    foreach ($sigs as $i => $a) {
+        if (isset($used[$i]) || !$a['w']) {
+            continue;
+        }
+        $grp = [$a];
+        $used[$i] = true;
+        foreach ($sigs as $j => $b) {
+            if ($j <= $i || isset($used[$j])) {
+                continue;
+            }
+            if (cnp_overlap($a['w'], $b['w']) >= 2) {
+                $grp[] = $b;
+                $used[$j] = true;
+            }
+        }
+        if (count($grp) >= 3) {   // «επαναλαμβανόμενο» = 3+ φορές στο τρίμηνο
+            $cl = [];
+            foreach ($grp as $g) {
+                $cl[] = ['id' => (int) $g['t']->id, 'tid' => $g['t']->tid, 'title' => $g['t']->title,
+                    'client' => $g['t']->userid ? clientLabel($g['t']->userid) : $g['t']->name,
+                    'date' => substr($g['t']->date, 0, 10), 'status' => $g['t']->status];
+            }
+            $clusters[] = ['label' => $grp[0]['t']->title, 'count' => count($grp),
+                'clients' => array_values(array_unique(array_map(function ($x) { return $x['client']; }, $cl))),
+                'tickets' => $cl];
+        }
+    }
+    usort($clusters, function ($a, $b) { return $b['count'] <=> $a['count']; });
+    out(['clusters' => array_slice($clusters, 0, 10)]);
+
+case 'client_health':                   // ❤️ υγεία πελατών — ποιοι «καίγονται» (full)
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $since = date('Y-m-d', strtotime('-90 days'));
+    $stats = [];
+    foreach (Capsule::table('tbltickets')->where('date', '>=', $since)->where('userid', '>', 0)
+        ->get(['userid', 'status']) as $t9) {
+        $stats[(int) $t9->userid]['tickets'] = ($stats[(int) $t9->userid]['tickets'] ?? 0) + 1;
+        if (!in_array($t9->status, ['Closed', 'Cancelled'], true)) {
+            $stats[(int) $t9->userid]['open'] = ($stats[(int) $t9->userid]['open'] ?? 0) + 1;
+        }
+    }
+    try {
+        foreach (Capsule::table('mod_supportcontracts_tickets as st')
+            ->join('tbltickets as t', 't.id', '=', 'st.ticketid')
+            ->where('t.date', '>=', $since)->where('st.sla_met', 0)->whereNotNull('st.first_response_at')
+            ->get(['t.userid']) as $b9) {
+            $stats[(int) $b9->userid]['breach'] = ($stats[(int) $b9->userid]['breach'] ?? 0) + 1;
+        }
+    } catch (\Throwable $e) {
+    }
+    foreach (Capsule::table('tblinvoices')->where('status', 'Unpaid')
+        ->groupBy('userid')->get(['userid', Capsule::raw('SUM(total) s'), Capsule::raw('COUNT(*) c')]) as $u9) {
+        $stats[(int) $u9->userid]['owed'] = (float) $u9->s;
+        $stats[(int) $u9->userid]['owedCnt'] = (int) $u9->c;
+    }
+    $outH = [];
+    foreach ($stats as $cid9 => $x) {
+        $score = 100
+            - min(30, ($x['tickets'] ?? 0) * 2)          // πολλά tickets = τριβή
+            - min(25, ($x['breach'] ?? 0) * 8)           // σπασμένα SLA
+            - min(25, ($x['owed'] ?? 0) > 0 ? 10 + min(15, ($x['owedCnt'] ?? 0) * 5) : 0)
+            - min(20, ($x['open'] ?? 0) * 5);            // ανοιχτές εκκρεμότητες τώρα
+        $outH[] = ['client' => $cid9, 'name' => clientLabel($cid9), 'score' => max(0, (int) $score),
+            'tickets90' => $x['tickets'] ?? 0, 'open' => $x['open'] ?? 0,
+            'slaBreaches' => $x['breach'] ?? 0, 'owed' => round($x['owed'] ?? 0, 2)];
+    }
+    usort($outH, function ($a, $b) { return $a['score'] <=> $b['score']; });
+    out(['clients' => array_slice($outH, 0, 15)]);
+
+case 'kb_list':
+    out(['items' => array_map(function ($k9) {
+        return ['id' => (int) $k9->id, 'title' => $k9->title, 'keywords' => $k9->keywords,
+            'tags' => $k9->tags, 'solution' => $k9->solution, 'uses' => (int) $k9->uses,
+            'by' => $k9->created_by ? Db::adminName($k9->created_by) : null,
+            'at' => substr((string) $k9->created_at, 0, 10)];
+    }, Capsule::table('mod_cpm_kb')->orderBy('uses', 'desc')->orderBy('id', 'desc')->get()->all())]);
+
+case 'kb_save':
+    $kid = (int) ($in['id'] ?? 0);
+    $data9 = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 255),
+        'keywords' => mb_substr(trim($in['keywords'] ?? ''), 0, 500),
+        'tags' => mb_substr(trim($in['tags'] ?? ''), 0, 190),
+        'solution' => mb_substr(trim($in['solution'] ?? ''), 0, 60000),
+        'updated_at' => date('Y-m-d H:i:s')];
+    if ($data9['title'] === '' || $data9['solution'] === '') {
+        fail('Τίτλος και λύση είναι υποχρεωτικά');
+    }
+    if ($kid) {
+        Capsule::table('mod_cpm_kb')->where('id', $kid)->update($data9);
+    } else {
+        $kid = Capsule::table('mod_cpm_kb')->insertGetId($data9
+            + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    }
+    out(['ok' => true, 'id' => $kid]);
+
+case 'kb_del':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    Capsule::table('mod_cpm_kb')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+case 'kb_use':                          // μέτρηση χρησιμότητας (κλικ σε πρόταση)
+    Capsule::table('mod_cpm_kb')->where('id', (int) ($in['id'] ?? 0))->increment('uses');
+    out(['ok' => true]);
+
+/* ============ 🖥 REMOTE ΣΥΝΕΔΡΙΕΣ (χρονομέτρηση + χρέωση) ============ */
+case 'rdp_file':                        // ⬇ έτοιμο .rdp αρχείο (ανοίγει το mstsc)
+    $ip9 = trim($_GET['ip'] ?? '');
+    if (!filter_var($ip9, FILTER_VALIDATE_IP) && !preg_match('/^[a-zA-Z0-9.\-]{3,190}$/', $ip9)) {
+        fail('ip');
+    }
+    $label9 = preg_replace('/[^a-zA-Z0-9.\-]/', '_', $_GET['label'] ?? $ip9);
+    $rdp = "full address:s:$ip9\r\n"
+        . "prompt for credentials:i:1\r\n"
+        . "screen mode id:i:2\r\n"
+        . "desktopwidth:i:1920\r\ndesktopheight:i:1080\r\n"
+        . "session bpp:i:32\r\n"
+        . "compression:i:1\r\n"
+        . "audiomode:i:0\r\n"
+        . "redirectclipboard:i:1\r\n"
+        . "redirectprinters:i:0\r\n"
+        . "autoreconnection enabled:i:1\r\n"
+        . "authentication level:i:2\r\n"
+        . "negotiate security layer:i:1\r\n";
+    header('Content-Type: application/x-rdp');
+    header('Content-Disposition: attachment; filename="CloudOn-' . $label9 . '.rdp"');
+    header('Content-Length: ' . strlen($rdp));
+    echo $rdp;
+    exit;
+
+case 'remote_active':                   // η τρέχουσα ανοιχτή συνεδρία μου
+    $rs = Capsule::table('mod_cpm_remote_sessions')->where('admin_id', $adminId)
+        ->whereNull('ended_at')->orderBy('id', 'desc')->first();
+    out(['session' => $rs ? ['id' => (int) $rs->id, 'client' => (int) $rs->clientid,
+        'clientName' => clientLabel($rs->clientid), 'tool' => $rs->tool,
+        'note' => $rs->note, 'meetUrl' => $rs->meet_url,
+        'started' => $rs->started_at,
+        'secs' => time() - strtotime($rs->started_at)] : null]);
+
+case 'remote_start':
+    $cid8 = (int) ($in['client'] ?? 0);
+    if (!$cid8 || !Capsule::table('tblclients')->where('id', $cid8)->exists()) {
+        fail('Διάλεξε πελάτη');
+    }
+    if (Capsule::table('mod_cpm_remote_sessions')->where('admin_id', $adminId)->whereNull('ended_at')->exists()) {
+        fail('Έχεις ήδη ανοιχτή remote συνεδρία — κλείσε την πρώτα');
+    }
+    $peer8 = preg_replace('/[^0-9]/', '', $in['peer'] ?? '');   // RustDesk ID (9ψήφιο)
+    if ($peer8 === '') {
+        fail('Δώσε το RustDesk ID που διαβάζει ο πελάτης');
+    }
+    $rid8 = Capsule::table('mod_cpm_remote_sessions')->insertGetId(['admin_id' => $adminId,
+        'clientid' => $cid8, 'ticketid' => (int) ($in['ticket'] ?? 0) ?: null,
+        'tool' => 'rustdesk', 'note' => mb_substr(trim(($in['note'] ?? '') . ' [ID ' . $peer8 . ']'), 0, 255),
+        'meet_url' => null, 'started_at' => date('Y-m-d H:i:s')]);
+    // deep link για το RustDesk του χειριστή
+    $gatewayUrl = 'rustdesk://connection/new/' . $peer8;
+    out(['ok' => true, 'id' => $rid8, 'gatewayUrl' => $gatewayUrl]);
+
+case 'remote_send_client':              // στείλε το πρόγραμμα υποστήριξης στον πελάτη
+    $cid8 = (int) ($in['client'] ?? 0);
+    $to8 = filter_var(trim($in['email'] ?? ''), FILTER_VALIDATE_EMAIL)
+        ? trim($in['email'])
+        : (string) Capsule::table('tblclients')->where('id', $cid8)->value('email');
+    if (!filter_var($to8, FILTER_VALIDATE_EMAIL)) {
+        fail('Άκυρο email');
+    }
+    $dl = (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'rustdesk_dl')->value('value');
+    $html = '<p>Γεια σας,</p><p>Για να σας βοηθήσουμε απομακρυσμένα, κατεβάστε και τρέξτε το μικρό μας πρόγραμμα:</p>'
+        . '<p style="text-align:center;margin:18px 0"><a href="' . htmlspecialchars($dl)
+        . '" style="background:#0090dd;color:#fff;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:bold;">⬇ Κατέβασμα CloudOn Remote</a></p>'
+        . '<p style="background:#eef7fd;border-left:4px solid #0090dd;padding:10px 14px;">'
+        . '<b>Οδηγίες (30 δευτερόλεπτα):</b><br>1. Κατεβάστε και ανοίξτε το αρχείο (δεν χρειάζεται εγκατάσταση).<br>'
+        . '2. Θα δείτε ένα <b>ID (9 ψηφία)</b> και έναν <b>κωδικό</b>.<br>'
+        . '3. Διαβάστε μας το ID και τον κωδικό στο τηλέφωνο — και είμαστε μαζί σας!</p>'
+        . '<p>Το πρόγραμμα είναι ασφαλές και συνδέεται μόνο στους δικούς μας servers.</p>'
+        . '<p>Με εκτίμηση,<br>Η ομάδα υποστήριξης της CloudOn</p>';
+    \WHMCS\Module\Addon\CloudonProjects\Notify::sendTo($to8, 'CloudOn — Πρόγραμμα απομακρυσμένης υποστήριξης', $html);
+    if (function_exists('logActivity')) {
+        logActivity('CPM: RustDesk client στάλθηκε στον πελάτη #' . $cid8 . ' (' . $to8 . ')');
+    }
+    out(['ok' => true, 'sent' => $to8]);
+
+case 'remote_stop':
+    $rs = Capsule::table('mod_cpm_remote_sessions')->where('id', (int) ($in['id'] ?? 0))
+        ->where('admin_id', $adminId)->whereNull('ended_at')->first();
+    if (!$rs) {
+        fail('session', 404);
+    }
+    $mins8 = max(1, (int) round((time() - strtotime($rs->started_at)) / 60));
+    $bill8 = !empty($in['billable']);
+    $note8 = mb_substr(trim($in['note'] ?? ($rs->note ?: '')), 0, 200);
+    $charged8 = 0;
+    $wl8 = null;
+    try {
+        require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
+        $charged8 = \WHMCS\Module\Addon\CloudonProjects\Time::chargeFor($mins8, $bill8);
+        $scDb = '\\WHMCS\\Module\\Addon\\SupportContracts\\Db';
+        if (!class_exists($scDb)) {
+            require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
+        }
+        $wl8 = $scDb::addWork($rs->clientid, $rs->ticketid, $mins8, $charged8, $bill8,
+            '🖥 Remote συνεδρία (RustDesk)' . ($note8 ? ': ' . $note8 : ''),
+            $adminId);
+        if ($bill8 && $charged8 > 0) {
+            $scDb::applyMovement($rs->clientid, -$charged8, 'work',
+                'Remote συνεδρία' . ($note8 ? ': ' . $note8 : ''), $rs->ticketid, $adminId, 'cpm-remote-' . $rs->id);
+        }
+    } catch (\Throwable $e) {
+        // χωρίς supportcontracts: μόνο καταγραφή διάρκειας
+    }
+    Capsule::table('mod_cpm_remote_sessions')->where('id', $rs->id)->update([
+        'ended_at' => date('Y-m-d H:i:s'), 'minutes' => $mins8, 'billable' => $bill8 ? 1 : 0,
+        'note' => $note8 ?: null, 'sc_worklog_id' => $wl8 ?: null]);
+    if (function_exists('logActivity')) {
+        logActivity("CPM: remote συνεδρία #{$rs->id} πελάτη #{$rs->clientid} — {$mins8}' "
+            . ($bill8 ? "(χρέωση {$charged8}')" : '(χωρίς χρέωση)') . " από admin #$adminId");
+    }
+    out(['ok' => true, 'minutes' => $mins8, 'charged' => $charged8]);
+
+case 'tquotas':                         // 🎟 πακέτα υποστήριξης με όρια tickets (full)
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $rows7 = [];
+    foreach (Capsule::table('mod_cpm_support_packages')->orderBy('sort')->orderBy('id')->get() as $pk) {
+        $rows7[] = ['id' => (int) $pk->id, 'name' => $pk->name,
+            'clients' => (int) Capsule::table('mod_cpm_client_package')->where('package_id', $pk->id)->count(),
+            't' => (int) $pk->t_month, 'email' => (int) $pk->email_month, 'phone' => (int) $pk->phone_month];
+    }
+    out(['packages' => $rows7]);
+
+case 'tquota_save':                     // δημιουργία/μετονομασία/όρια πακέτου
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $pid7 = (int) ($in['id'] ?? 0);
+    $nm7 = mb_substr(trim($in['name'] ?? ''), 0, 80);
+    if ($nm7 === '') {
+        fail('Δώσε όνομα πακέτου');
+    }
+    $data7 = ['name' => $nm7, 't_month' => max(0, (int) ($in['t'] ?? 0)),
+        'email_month' => max(0, (int) ($in['email'] ?? 0)), 'phone_month' => max(0, (int) ($in['phone'] ?? 0))];
+    if ($pid7) {
+        Capsule::table('mod_cpm_support_packages')->where('id', $pid7)->update($data7);
+    } else {
+        $pid7 = Capsule::table('mod_cpm_support_packages')->insertGetId($data7
+            + ['sort' => (int) Capsule::table('mod_cpm_support_packages')->max('sort') + 1]);
+    }
+    out(['ok' => true, 'id' => $pid7]);
+
+case 'tquota_del':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    Capsule::table('mod_cpm_support_packages')->where('id', (int) ($in['id'] ?? 0))->delete();
+    Capsule::table('mod_cpm_client_package')->where('package_id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+case 'client_package_set':              // ανάθεση πελάτη σε πακέτο (full)
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $cid7 = (int) ($in['client'] ?? 0);
+    $pk7 = (int) ($in['package'] ?? 0);
+    if (!$cid7) {
+        fail('client');
+    }
+    if ($pk7) {
+        Capsule::table('mod_cpm_client_package')->updateOrInsert(['clientid' => $cid7], ['package_id' => $pk7]);
+    } else {
+        Capsule::table('mod_cpm_client_package')->where('clientid', $cid7)->delete();
+    }
+    out(['ok' => true]);
+
+case 'users':                          // διαχείριση χρηστών (μόνο διαχειριστές)
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $fullRoles = array_filter(array_map('intval', explode(',',
+        (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'full_access_roles')->value('value') ?: '1'))));
+    out(['users' => array_map(function ($a) use ($fullRoles) {
+            return ['id' => (int) $a->id, 'username' => $a->username,
+                'name' => trim($a->firstname . ' ' . $a->lastname), 'email' => $a->email,
+                'roleid' => (int) $a->roleid, 'disabled' => (bool) $a->disabled,
+                'full' => in_array((int) $a->roleid, $fullRoles, true)];
+        }, Capsule::table('tbladmins')->orderBy('disabled')->orderBy('username')->get()->all()),
+        'roles' => array_map(function ($r) use ($fullRoles) {
+            return ['id' => (int) $r->id, 'name' => $r->name,
+                'full' => in_array((int) $r->id, $fullRoles, true)];
+        }, Capsule::table('tbladminroles')->orderBy('id')->get()->all())]);
+
+case 'user_save':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $uid = (int) ($in['id'] ?? 0);
+    $roleid = (int) ($in['roleid'] ?? 0);
+    if (!Capsule::table('tbladminroles')->where('id', $roleid)->exists()) {
+        fail('Άκυρος ρόλος');
+    }
+    $email = trim($in['email'] ?? '');
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        fail('Άκυρο email');
+    }
+    $row = ['firstname' => mb_substr(trim($in['first'] ?? ''), 0, 60),
+        'lastname' => mb_substr(trim($in['last'] ?? ''), 0, 60),
+        'email' => $email, 'roleid' => $roleid];
+    if ($uid) {
+        if (!Capsule::table('tbladmins')->where('id', $uid)->exists()) {
+            fail('user', 404);
+        }
+        Capsule::table('tbladmins')->where('id', $uid)->update($row + ['updated_at' => date('Y-m-d H:i:s')]);
+        out(['ok' => true, 'id' => $uid]);
+    }
+    $uname = preg_replace('/[^A-Za-z0-9._-]/', '', trim($in['username'] ?? ''));
+    if (strlen($uname) < 3) {
+        fail('Username τουλάχιστον 3 χαρακτήρες (λατινικά/αριθμοί)');
+    }
+    if (Capsule::table('tbladmins')->whereRaw('LOWER(username) = ?', [strtolower($uname)])->exists()) {
+        fail('Το username υπάρχει ήδη');
+    }
+    $plain = substr(strtr(base64_encode(random_bytes(24)), '+/', 'Kx'), 0, 14);
+    $depts = ',' . implode(',', Capsule::table('tblticketdepartments')->pluck('id')->all()) . ',';
+    $uuid = sprintf('%08x-%04x-4%03x-%04x-%012x', random_int(0, 0xffffffff), random_int(0, 0xffff),
+        random_int(0, 0xfff), random_int(0x8000, 0xbfff), random_int(0, 0xffffffffffff));
+    $uid = Capsule::table('tbladmins')->insertGetId($row + ['username' => $uname,
+        'password' => password_hash($plain, PASSWORD_DEFAULT),
+        'passwordhash' => password_hash($plain, PASSWORD_DEFAULT),   // WHMCS 9 ελέγχει ΑΥΤΟ στο login
+        'uuid' => $uuid, 'authmodule' => '', 'authdata' => '', 'signature' => '', 'notes' => 'Δημιουργήθηκε από CloudOn Projects',
+        'template' => 'blend', 'language' => '', 'disabled' => 0, 'loginattempts' => 0,
+        'supportdepts' => $depts, 'ticketnotifications' => '', 'homewidgets' => '',
+        'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'id' => $uid, 'password' => $plain]);
+
+case 'user_pass':                      // reset κωδικού → νέος, εμφανίζεται μία φορά
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $uid = (int) ($in['id'] ?? 0);
+    if (!Capsule::table('tbladmins')->where('id', $uid)->exists()) {
+        fail('user', 404);
+    }
+    $plain = substr(strtr(base64_encode(random_bytes(24)), '+/', 'Kx'), 0, 14);
+    Capsule::table('tbladmins')->where('id', $uid)
+        ->update(['password' => password_hash($plain, PASSWORD_DEFAULT),
+            'passwordhash' => password_hash($plain, PASSWORD_DEFAULT), 'loginattempts' => 0,
+            'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'password' => $plain]);
+
+case 'user_toggle':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $uid = (int) ($in['id'] ?? 0);
+    if ($uid === $adminId) {
+        fail('Δεν μπορείς να απενεργοποιήσεις τον εαυτό σου');
+    }
+    $u = Capsule::table('tbladmins')->where('id', $uid)->first(['disabled']);
+    if (!$u) {
+        fail('user', 404);
+    }
+    Capsule::table('tbladmins')->where('id', $uid)->update(['disabled' => $u->disabled ? 0 : 1,
+        'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'disabled' => !$u->disabled]);
+
+case 'user_del':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $uid = (int) ($in['id'] ?? 0);
+    if ($uid === $adminId) {
+        fail('Δεν μπορείς να διαγράψεις τον εαυτό σου');
+    }
+    $u = Capsule::table('tbladmins')->where('id', $uid)->first(['roleid', 'username']);
+    if (!$u) {
+        fail('user', 404);
+    }
+    // μην μείνει το σύστημα χωρίς κανέναν ενεργό διαχειριστή
+    $fullRoles = array_filter(array_map('intval', explode(',',
+        (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'full_access_roles')->value('value') ?: '1'))));
+    if (in_array((int) $u->roleid, $fullRoles, true)
+        && Capsule::table('tbladmins')->whereIn('roleid', $fullRoles)->where('disabled', 0)->where('id', '!=', $uid)->count() === 0) {
+        fail('Είναι ο τελευταίος ενεργός διαχειριστής');
+    }
+    Capsule::table('tbladmins')->where('id', $uid)->delete();
+    // καθάρισμα συμμετοχών στο app (ιστορικό tasks/χρόνου μένει άθικτο)
+    Capsule::table('mod_cpm_project_members')->where('admin_id', $uid)->delete();
+    Capsule::table('mod_cpm_team_members')->where('admin_id', $uid)->delete();
+    Capsule::table('mod_cpm_watchers')->where('admin_id', $uid)->delete();
+    Capsule::table('mod_cpm_notifications')->where('admin_id', $uid)->delete();
+    out(['ok' => true]);
+
+case 'ticket_att':                     // ασφαλές κατέβασμα συνημμένου ticket
+    $tid = (int) ($_GET['ticket'] ?? 0);
+    $rid = (int) ($_GET['rid'] ?? 0);
+    $idx = (int) ($_GET['i'] ?? 0);
+    $tk = Capsule::table('tbltickets')->where('id', $tid)->first(['flag', 'attachment']);
+    if (!$tk) {
+        fail('ticket', 404);
+    }
+    if (!$FULL && (int) $tk->flag !== $adminId && (int) $tk->flag !== 0) {
+        fail('ticket', 403);
+    }
+    if ($rid) {
+        $row = Capsule::table('tblticketreplies')->where('id', $rid)->where('tid', $tid)->first(['attachment']);
+        $attStr = $row->attachment ?? '';
+    } else {
+        $attStr = $tk->attachment ?? '';
+    }
+    $parts = array_values(array_filter(explode('|', (string) $attStr)));
+    $stored = $parts[$idx] ?? null;
+    $path = $stored ? realpath(__DIR__ . '/../attachmentsnew/' . $stored) : false;
+    if (!$stored || !$path || strpos($path, realpath(__DIR__ . '/../attachmentsnew') . DIRECTORY_SEPARATOR) !== 0 || !is_file($path)) {
+        fail('file', 404);
+    }
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="' . preg_replace('/^\\d+_/', '', $stored) . '"');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
+
+case 'ticket_update':
+    $tid = (int) ($in['ticket'] ?? 0);
+    $tk = Capsule::table('tbltickets')->where('id', $tid)->first(['flag']);
+    if (!$tk) {
+        fail('ticket', 404);
+    }
+    if (!$FULL && (int) $tk->flag !== $adminId && (int) $tk->flag !== 0) {
+        fail('ticket', 403);
+    }
+    $upd = ['ticketid' => $tid];
+    if (array_key_exists('status', $in) && $in['status'] !== '') {
+        $upd['status'] = $in['status'];
+    }
+    if ($FULL && array_key_exists('flag', $in)) {
+        $upd['flag'] = (int) $in['flag']; // ανάθεση: μόνο διαχειριστές
+    }
+    if ($FULL && array_key_exists('urgency', $in) && in_array($in['urgency'], ['Low', 'Medium', 'High'], true)) {
+        $upd['priority'] = $in['urgency'];
+    }
+    $uname = Capsule::table('tbladmins')->where('id', $adminId)->value('username');
+    $r = localAPI('UpdateTicket', $upd, $uname);
+    out(['ok' => ($r['result'] ?? '') === 'success', 'msg' => $r['message'] ?? null]);
+
+case 'ticket_note':
+    $tid = (int) ($in['ticket'] ?? 0);
+    $msg = trim($in['body'] ?? '');
+    $tk = Capsule::table('tbltickets')->where('id', $tid)->first(['tid', 'title', 'did']);
+    if (!$tk || $msg === '') {
+        fail('input');
+    }
+    $task = Db::taskForTicket($tid);
+    if (!$task) {
+        $proj = Db::projectForDept($tk->did) ?: (Db::projects()[0] ?? null);
+        if ($proj) {
+            $ntid = Db::saveTask(0, ['project_id' => (int) $proj->id,
+                'title' => '[#' . $tk->tid . '] ' . mb_substr($tk->title, 0, 180),
+                'status_id' => Db::firstStatusId(), 'ticketid' => $tid], $adminId);
+            $task = Db::task($ntid);
+        }
+    }
+    if (!$task) {
+        fail('no project');
+    }
+    $to = ($in['to'] ?? '') !== '' && $in['to'] !== null ? (int) $in['to'] : null;
+    Db::addComment($task->id, $adminId, mb_substr($msg, 0, 60000), $to);
+    Notify::commented($task->id, $adminId, $msg);
+    if ($to !== null) {
+        Notify::commentTo($task->id, $adminId, $msg, $to);
+    }
+    Notify::watchers($task->id, $adminId, 'Σχόλιο στο: ' . $task->title, null);
+    out(['ok' => true]);
+
+/* ================= UNIFIED SEARCH (⌘K) ================= */
+case 'search':
+    $q = trim($_GET['q'] ?? '');
+    if (mb_strlen($q) < 2) {
+        out(['tasks' => [], 'tickets' => [], 'leads' => [], 'clients' => []]);
+    }
+    $like = '%' . $q . '%';
+    $tasks = [];
+    $tqq = Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->where('t.title', 'like', $like)->orderBy('t.id', 'desc')->limit(6)
+        ->select('t.id', 't.title', 't.assignee', 't.project_id', 'p.name as pname', 'p.color as pcolor');
+    foreach ($tqq->get() as $t) {
+        if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
+            continue;
+        }
+        $tasks[] = ['id' => (int) $t->id, 'title' => $t->title, 'pname' => $t->pname, 'pcolor' => $t->pcolor];
+    }
+    $tickets = [];
+    $tkq = Capsule::table('tbltickets')->where(function ($w) use ($like) {
+        $w->where('title', 'like', $like)->orWhere('tid', 'like', $like)->orWhere('name', 'like', $like);
+    })->orderBy('lastreply', 'desc')->limit(6);
+    if (!$FULL) {
+        $tkq->where('flag', $adminId);
+    }
+    foreach ($tkq->get(['id', 'tid', 'title', 'status']) as $t) {
+        $tickets[] = ['id' => (int) $t->id, 'tid' => $t->tid, 'title' => $t->title, 'status' => $t->status];
+    }
+    $leads = [];
+    foreach (Capsule::table('mod_cpm_leads')->where(function ($w) use ($like) {
+        $w->where('company', 'like', $like)->orWhere('contact', 'like', $like)->orWhere('email', 'like', $like);
+    })->limit(5)->get() as $l) {
+        if (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId) {
+            continue;
+        }
+        $leads[] = ['id' => (int) $l->id, 'name' => $l->company ?: $l->contact, 'stage' => $l->stage];
+    }
+    $clients = [];
+    if ($FULL) {
+        foreach (Capsule::table('tblclients')->where(function ($w) use ($like) {
+            $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+              ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
+        })->limit(5)->get(['id', 'firstname', 'lastname', 'companyname']) as $c) {
+            $clients[] = ['id' => (int) $c->id, 'name' => $c->companyname ?: trim($c->firstname . ' ' . $c->lastname)];
+        }
+    }
+    out(['tasks' => $tasks, 'tickets' => $tickets, 'leads' => $leads, 'clients' => $clients]);
+
+/* ================= ΡΥΘΜΙΣΕΙΣ (in-app) ================= */
+case 'settings_get':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key'];
+    $vals = [];
+    foreach ($keys as $k) {
+        $vals[$k] = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', $k)->value('value') ?? '');
+    }
+    $sts = [];
+    foreach (Db::statuses() as $s) {
+        $cnt = Capsule::table('mod_cpm_tasks')->where('status_id', $s->id)->count();
+        $sts[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color,
+            'done' => (bool) $s->is_done, 'sort' => (int) $s->sort, 'tasks' => $cnt];
+    }
+    $types = [];
+    foreach (Db::taskTypes() as $ty) {
+        $types[] = ['id' => (int) $ty->id, 'name' => $ty->name, 'icon' => $ty->icon, 'color' => $ty->color,
+            'reqA' => (bool) $ty->req_assignee, 'reqD' => (bool) $ty->req_due, 'reqE' => (bool) $ty->req_estimate];
+    }
+    out(['settings' => $vals, 'statuses' => $sts, 'types' => $types]);
+
+case 'settings_save':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key'];
+    foreach ((array) ($in['settings'] ?? []) as $k => $v) {
+        if (!in_array($k, $allowed, true)) {
+            continue;
+        }
+        $v = mb_substr(trim((string) $v), 0, 500);
+        $ex = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', $k);
+        if ($ex->exists()) {
+            $ex->update(['value' => $v]);
+        } else {
+            Capsule::table('tbladdonmodules')->insert(['module' => 'cloudonprojects', 'setting' => $k, 'value' => $v]);
+        }
+    }
+    out(['ok' => true]);
+
+case 'status_save':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $sid = (int) ($in['id'] ?? 0);
+    $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 60) ?: 'Στήλη',
+        'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#8595ac',
+        'is_done' => !empty($in['done']) ? 1 : 0];
+    if ($sid) {
+        Capsule::table('mod_cpm_statuses')->where('id', $sid)->update($data);
+    } else {
+        $data['sort'] = 1 + (int) Capsule::table('mod_cpm_statuses')->max('sort');
+        $sid = Capsule::table('mod_cpm_statuses')->insertGetId($data);
+    }
+    out(['ok' => true, 'id' => $sid]);
+
+case 'status_del':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $sid = (int) ($in['id'] ?? 0);
+    if (Capsule::table('mod_cpm_tasks')->where('status_id', $sid)->exists()) {
+        fail('Η στήλη έχει tasks — μετακίνησέ τα πρώτα');
+    }
+    if (Capsule::table('mod_cpm_statuses')->count() <= 2) {
+        fail('Χρειάζονται τουλάχιστον 2 στήλες');
+    }
+    Capsule::table('mod_cpm_statuses')->where('id', $sid)->delete();
+    out(['ok' => true]);
+
+case 'type_save':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $tid2 = (int) ($in['id'] ?? 0);
+    $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 60) ?: 'Τύπος',
+        'icon' => preg_match('/^fa-[a-z0-9-]+$/', $in['icon'] ?? '') ? $in['icon'] : 'fa-tasks',
+        'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#8595ac',
+        'req_assignee' => !empty($in['reqA']) ? 1 : 0, 'req_due' => !empty($in['reqD']) ? 1 : 0,
+        'req_estimate' => !empty($in['reqE']) ? 1 : 0];
+    if ($tid2) {
+        Capsule::table('mod_cpm_task_types')->where('id', $tid2)->update($data);
+    } else {
+        $data['sort'] = 1 + (int) Capsule::table('mod_cpm_task_types')->max('sort');
+        $tid2 = Capsule::table('mod_cpm_task_types')->insertGetId($data);
+    }
+    out(['ok' => true, 'id' => $tid2]);
+
+case 'type_del':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $tid2 = (int) ($in['id'] ?? 0);
+    Capsule::table('mod_cpm_tasks')->where('type_id', $tid2)->update(['type_id' => null]);
+    Capsule::table('mod_cpm_task_types')->where('id', $tid2)->delete();
+    out(['ok' => true]);
+
+/* ================= CANNED RESPONSES ================= */
+case 'canned':
+    $rows = [];
+    foreach (Capsule::table('mod_cpm_canned')->orderBy('sort')->orderBy('id')->get() as $cn) {
+        $rows[] = ['id' => (int) $cn->id, 'title' => $cn->title, 'body' => $cn->body];
+    }
+    out(['canned' => $rows]);
+
+case 'canned_save':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $cid2 = (int) ($in['id'] ?? 0);
+    $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 80) ?: 'Απάντηση',
+        'body' => mb_substr(trim($in['body'] ?? ''), 0, 20000)];
+    if ($cid2) {
+        Capsule::table('mod_cpm_canned')->where('id', $cid2)->update($data);
+    } else {
+        $cid2 = Capsule::table('mod_cpm_canned')->insertGetId($data + ['sort' => 0]);
+    }
+    out(['ok' => true, 'id' => $cid2]);
+
+case 'canned_del':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Capsule::table('mod_cpm_canned')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+/* ================= AUTOMATIONS ================= */
+case 'autos':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $rows = [];
+    foreach (Capsule::table('mod_cpm_automations')->orderBy('id')->get() as $a) {
+        $rows[] = ['id' => (int) $a->id, 'name' => $a->name, 'trigger' => $a->trigger,
+            'tvalue' => $a->tvalue, 'action' => $a->action, 'avalue' => $a->avalue,
+            'active' => (bool) $a->active];
+    }
+    // λίστες για τα dropdowns
+    $stagesL = [];
+    foreach (Db::leadStages() as $k => $m) {
+        $stagesL[] = ['key' => $k, 'title' => $m[0]];
+    }
+    out(['autos' => $rows,
+        'ticketStatuses' => Capsule::table('tblticketstatuses')->orderBy('sortorder')->pluck('title')->all(),
+        'leadStages' => $stagesL]);
+
+case 'auto_save':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $aid3 = (int) ($in['id'] ?? 0);
+    $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Κανόνας',
+        'trigger' => in_array($in['trigger'] ?? '', ['task_status', 'ticket_status', 'lead_stage', 'sla_breach'], true) ? $in['trigger'] : 'task_status',
+        'tvalue' => mb_substr(trim((string) ($in['tvalue'] ?? '')), 0, 60) ?: null,
+        'action' => in_array($in['action'] ?? '', ['assign_task', 'ball', 'set_prio', 'notify', 'assign_ticket', 'escalate'], true) ? $in['action'] : 'notify',
+        'avalue' => mb_substr(trim((string) ($in['avalue'] ?? '')), 0, 60) ?: null,
+        'active' => !empty($in['active']) ? 1 : 0];
+    if ($aid3) {
+        Capsule::table('mod_cpm_automations')->where('id', $aid3)->update($data);
+    } else {
+        $data['created_at'] = date('Y-m-d H:i:s');
+        $aid3 = Capsule::table('mod_cpm_automations')->insertGetId($data);
+    }
+    out(['ok' => true, 'id' => $aid3]);
+
+case 'auto_del':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Capsule::table('mod_cpm_auto_log')->where('auto_id', (int) ($in['id'] ?? 0))->delete();
+    Capsule::table('mod_cpm_automations')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+/* ================= AI (Claude) ================= */
+case 'ai_suggest':
+case 'ai_summary':
+    $tid3 = (int) ($in['ticket'] ?? 0);
+    $tk3 = Capsule::table('tbltickets')->where('id', $tid3)->first();
+    if (!$tk3) {
+        fail('ticket', 404);
+    }
+    $key = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') {
+        fail('Δεν έχει οριστεί AI API key — βάλ\' το στις Ρυθμίσεις');
+    }
+    // στήσε τη συνομιλία
+    $convTxt = "ΠΕΛΑΤΗΣ (" . ($tk3->name ?: 'πελάτης') . "): " . mb_substr($tk3->message, 0, 3000) . "\n";
+    foreach (Capsule::table('tblticketreplies')->where('tid', $tid3)->orderBy('id')->limit(20)->get() as $r) {
+        $who = ($r->admin !== '' && $r->admin !== null) ? 'ΟΜΑΔΑ (' . $r->admin . ')' : 'ΠΕΛΑΤΗΣ';
+        $convTxt .= $who . ': ' . mb_substr($r->message, 0, 2000) . "\n";
+    }
+    // 🧠 RAG: τροφοδότησε το AI με τη δική μας γνώση (τράπεζα λύσεων + παρόμοια λυμένα tickets)
+    $ragTxt = '';
+    if ($action === 'ai_suggest') {
+        try {
+            $tw3 = cnp_words($tk3->title . ' ' . mb_substr($tk3->message, 0, 600));
+            $kbCtx = [];
+            foreach (Capsule::table('mod_cpm_kb')->get() as $k9) {
+                $sc = cnp_overlap($tw3, cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags));
+                if ($sc > 0) {
+                    $kbCtx[] = [$sc, "ΛΥΣΗ ΑΠΟ ΤΗ ΒΑΣΗ ΓΝΩΣΗΣ «{$k9->title}»:\n" . mb_substr($k9->solution, 0, 800)];
+                }
+            }
+            usort($kbCtx, function ($a, $b) { return $b[0] <=> $a[0]; });
+            foreach (array_slice($kbCtx, 0, 2) as $x) {
+                $ragTxt .= $x[1] . "\n\n";
+            }
+            foreach (Capsule::table('tbltickets')->where('id', '!=', $tid3)->where('status', 'Closed')
+                ->orderBy('lastreply', 'desc')->limit(300)->get(['id', 'title']) as $t9) {
+                if (cnp_overlap($tw3, cnp_words($t9->title)) > 0) {
+                    $fix = Capsule::table('tblticketreplies')->where('tid', $t9->id)
+                        ->where('admin', '!=', '')->orderBy('id', 'desc')->value('message');
+                    if ($fix) {
+                        $ragTxt .= "ΕΤΣΙ ΛΥΣΑΜΕ ΠΑΡΟΜΟΙΟ ΠΕΡΙΣΤΑΤΙΚΟ («{$t9->title}»):\n" . mb_substr($fix, 0, 700) . "\n\n";
+                    }
+                    if (mb_strlen($ragTxt) > 3500) {
+                        break;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+    $prompt = $action === 'ai_suggest'
+        ? "Είσαι ο βοηθός υποστήριξης της CloudOn (ελληνική εταιρεία IT/hosting). Με βάση τη συνομιλία του ticket"
+            . ($ragTxt !== '' ? " ΚΑΙ τις παρακάτω λύσεις από το ιστορικό μας (χρησιμοποίησέ τες αν ταιριάζουν — έτσι δουλεύουμε εμείς)" : '')
+            . ", γράψε ΜΙΑ επαγγελματική, φιλική απάντηση στα ελληνικά προς τον πελάτη, έτοιμη για αποστολή. Χωρίς placeholders, χωρίς υπογραφή. Συνοπτική και επί της ουσίας.\n\n"
+            . ($ragTxt !== '' ? "ΓΝΩΣΗ ΑΠΟ ΤΟ ΙΣΤΟΡΙΚΟ ΜΑΣ:\n$ragTxt\n" : '')
+            . "ΘΕΜΑ: {$tk3->title}\n\nΣΥΝΟΜΙΛΙΑ:\n$convTxt\n\nΑΠΑΝΤΗΣΗ:"
+        : "Σύνοψε το παρακάτω ticket υποστήριξης στα ελληνικά σε 3-4 bullet points: τι ζητά ο πελάτης, τι έχει γίνει, τι εκκρεμεί.\n\nΘΕΜΑ: {$tk3->title}\n\nΣΥΝΟΜΙΛΙΑ:\n$convTxt";
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode([
+            'model' => 'claude-haiku-4-5-20251001', 'max_tokens' => 1024,
+            'messages' => [['role' => 'user', 'content' => $prompt]],
+        ]),
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $j = json_decode((string) $resp, true);
+    if ($code !== 200 || empty($j['content'][0]['text'])) {
+        fail('AI: ' . ($j['error']['message'] ?? ('HTTP ' . $code)));
+    }
+    out(['ok' => true, 'text' => $j['content'][0]['text']]);
+
+/* ================= ΠΡΟΣΩΠΑ & CRM ΠΕΔΙΑ (Κ5) ================= */
+case 'people':
+    $rows = [];
+    foreach (Db::peopleFor((int) ($_GET['lead'] ?? 0), (int) ($_GET['client'] ?? 0)) as $p) {
+        $rows[] = ['id' => (int) $p->id, 'name' => $p->name, 'email' => $p->email,
+            'phone' => $p->phone, 'title' => $p->title, 'notes' => $p->notes];
+    }
+    out(['people' => $rows]);
+
+case 'person_save':
+    $pid5 = (int) ($in['id'] ?? 0);
+    $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Χωρίς όνομα',
+        'email' => mb_substr(trim($in['email'] ?? ''), 0, 120) ?: null,
+        'phone' => mb_substr(trim($in['phone'] ?? ''), 0, 40) ?: null,
+        'title' => mb_substr(trim($in['title'] ?? ''), 0, 80) ?: null,
+        'notes' => mb_substr(trim($in['notes'] ?? ''), 0, 5000) ?: null];
+    if (!$pid5) {
+        $data['lead_id'] = (int) ($in['lead'] ?? 0) ?: null;
+        $data['clientid'] = (int) ($in['client'] ?? 0) ?: null;
+        if (!$data['lead_id'] && !$data['clientid']) {
+            fail('χρειάζεται lead ή client');
+        }
+    }
+    out(['ok' => true, 'id' => Db::savePerson($pid5, $data)]);
+
+case 'person_del':
+    Db::delPerson((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+case 'lead_fields':
+    $flds = [];
+    foreach (Db::leadFields() as $f5) {
+        $flds[] = ['id' => (int) $f5->id, 'label' => $f5->label, 'type' => $f5->type,
+            'options' => $f5->options ? array_values(array_filter(array_map('trim', explode("\n", $f5->options)))) : []];
+    }
+    $vals = ($_GET['lead'] ?? 0) ? Db::leadValues((int) $_GET['lead']) : [];
+    out(['fields' => $flds, 'values' => $vals]);
+
+case 'lead_field_save':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    $fid5 = (int) ($in['id'] ?? 0);
+    $type = in_array($in['type'] ?? '', ['text', 'select', 'date'], true) ? $in['type'] : 'text';
+    $data = ['label' => mb_substr(trim($in['label'] ?? ''), 0, 60) ?: 'Πεδίο', 'type' => $type,
+        'options' => $type === 'select' ? implode("\n", array_filter(array_map('trim', explode('|', $in['options'] ?? '')))) : null];
+    if ($fid5) {
+        Capsule::table('mod_cpm_lead_fields')->where('id', $fid5)->update($data);
+    } else {
+        $data['sort'] = 0;
+        $fid5 = Capsule::table('mod_cpm_lead_fields')->insertGetId($data);
+    }
+    out(['ok' => true, 'id' => $fid5]);
+
+case 'lead_field_del':
+    if (!$FULL) {
+        fail('forbidden', 403);
+    }
+    Capsule::table('mod_cpm_lead_values')->where('field_id', (int) ($in['id'] ?? 0))->delete();
+    Capsule::table('mod_cpm_lead_fields')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+case 'lead_value_save':
+    $lid5 = (int) ($in['lead'] ?? 0);
+    $l5 = Db::lead($lid5);
+    if (!$l5 || (!$FULL && (int) $l5->assignee !== $adminId && (int) $l5->created_by !== $adminId)) {
+        fail('lead', 403);
+    }
+    Db::saveLeadValue($lid5, (int) ($in['field'] ?? 0), mb_substr((string) ($in['value'] ?? ''), 0, 2000));
+    out(['ok' => true]);
+
+/* ================= GANTT / ΔΙΑΘΕΣΙΜΟΤΗΤΑ ΟΜΑΔΑΣ ================= */
+case 'gantt':
+    $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-d', strtotime('-7 days'));
+    $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d', strtotime('+35 days'));
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $rows = Capsule::table('mod_cpm_tasks as t')
+        ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->select('t.*', 'p.name as pname', 'p.color as pcolor')
+        ->whereNotIn('t.status_id', $doneIds)
+        ->where(function ($w) {
+            $w->whereNotNull('t.start_date')->orWhereNotNull('t.due_date')->orWhereNotNull('t.schedule_date');
+        })->get();
+    $tasks = [];
+    $load = [];      // ανά χειριστή ανά ημέρα (λεπτά)
+    $projIds = [];
+    foreach ($rows as $t) {
+        if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
+            continue;
+        }
+        $start = $t->start_date ?: ($t->schedule_date ?: $t->due_date);
+        $end = $t->due_date ?: $start;
+        if ($end < $start) {
+            $end = $start;
+        }
+        if ($end < $from || $start > $to) {
+            continue;
+        }
+        $est = (int) $t->estimate_minutes;
+        $days = [];
+        for ($d = $start; $d <= $end; $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
+            if ((int) date('N', strtotime($d)) <= 5) {
+                $days[] = $d;
+            }
+        }
+        $perDay = $est > 0 && count($days) ? $est / count($days) : ($est === 0 ? 60 : 0);
+        $aKey = (int) $t->assignee;
+        foreach ($days as $d) {
+            if ($d >= $from && $d <= $to && $aKey) {
+                $load[$aKey][$d] = ($load[$aKey][$d] ?? 0) + $perDay;
+            }
+        }
+        $projIds[(int) $t->project_id] = 1;
+        $tasks[] = ['id' => (int) $t->id, 'title' => $t->title, 'project' => (int) $t->project_id, '_bid' => (int) $t->id,
+            'assignee' => $aKey ?: null, 'start' => $start, 'end' => $end,
+            'color' => $t->pcolor, 'pname' => $t->pname, 'prio' => (int) $t->priority,
+            'est' => $est ?: null, 'ticket' => $t->ticketid ? (int) $t->ticketid : null];
+    }
+    // projects δέντρο (όσα έχουν tasks + οι γονείς τους)
+    $projects = [];
+    $all = $FULL ? Db::projects(true) : Db::projectsFor($adminId, true);
+    $byId = [];
+    foreach ($all as $p) {
+        $byId[(int) $p->id] = $p;
+    }
+    foreach (array_keys($projIds) as $pidG) {
+        if (isset($byId[$pidG]) && $byId[$pidG]->parent_id) {
+            $projIds[(int) $byId[$pidG]->parent_id] = 1; // φέρε και τον γονιό
+        }
+    }
+    foreach ($all as $p) {
+        if (!isset($projIds[(int) $p->id])) {
+            continue;
+        }
+        $projects[] = ['id' => (int) $p->id, 'name' => $p->name, 'color' => $p->color,
+            'parent' => $p->parent_id ? (int) $p->parent_id : null,
+            'client' => clientLabel($p->clientid)];
+    }
+    $gBlocked = Db::blockedMap(array_column($tasks, '_bid'));
+    foreach ($tasks as &$gt) {
+        $gt['blocked'] = isset($gBlocked[$gt['_bid']]) ? count($gBlocked[$gt['_bid']]) : 0;
+        unset($gt['_bid']);
+    }
+    unset($gt);
+    // 🌴 άδειες: ανά admin ποιες μέρες λείπει (για τη ζώνη διαθεσιμότητας)
+    $leaves = [];
+    try {
+        foreach (Capsule::table('mod_cpm_events')->where('kind', 'leave')
+            ->where('start_dt', '<=', $to . ' 23:59:59')->where('end_dt', '>=', $from . ' 00:00:00')->get() as $lv) {
+            foreach (array_filter(array_map('intval', explode(',', $lv->attendees))) as $a) {
+                $d0 = max(strtotime(substr($lv->start_dt, 0, 10)), strtotime($from));
+                $d1 = min(strtotime(substr($lv->end_dt, 0, 10)), strtotime($to));
+                for ($d = $d0; $d <= $d1; $d += 86400) {
+                    $leaves[$a][date('Y-m-d', $d)] = true;
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    out(['from' => $from, 'to' => $to, 'projects' => $projects, 'tasks' => $tasks, 'load' => $load, 'leaves' => $leaves]);
+
+case 'gantt_move':
+    $t6 = Db::task((int) ($in['task'] ?? 0));
+    if (!$t6 || !Db::canSeeTask($adminId, $t6)) {
+        fail('task', 403);
+    }
+    $st6 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['start'] ?? '') ? $in['start'] : null;
+    $en6 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['end'] ?? '') ? $in['end'] : null;
+    if (!$st6 || !$en6 || $en6 < $st6) {
+        fail('dates');
+    }
+    Db::saveTask($t6->id, ['start_date' => $st6, 'due_date' => $en6], $adminId);
+    Db::logActivity($t6->id, $adminId, 'edit', 'Gantt: ' . $st6 . ' → ' . $en6);
+    out(['ok' => true]);
+
+/* ================= ΕΞΑΡΤΗΣΕΙΣ + ΑΡΧΕΙΑ ================= */
+case 'dep_add':
+    $t7 = Db::task((int) ($in['task'] ?? 0));
+    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
+        fail('task', 403);
+    }
+    $ok7 = Db::addDep($t7->id, (int) ($in['on'] ?? 0));
+    out(['ok' => (bool) $ok7]);
+
+case 'dep_del':
+    Db::delDep((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+case 'files':
+    $t7 = Db::task((int) ($_GET['task'] ?? 0));
+    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
+        fail('task', 403);
+    }
+    $fl = [];
+    foreach (Db::filesOf($t7->id) as $f7) {
+        $fl[] = ['id' => (int) $f7->id, 'name' => $f7->filename, 'size' => (int) $f7->size,
+            'by' => Db::adminName($f7->admin_id), 'at' => $f7->created_at];
+    }
+    out(['files' => $fl]);
+
+case 'file_upload':
+    $t7 = Db::task((int) ($_POST['task'] ?? 0));
+    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
+        fail('task', 403);
+    }
+    $f7 = $_FILES['file'] ?? null;
+    if (!$f7 || $f7['error'] !== UPLOAD_ERR_OK) {
+        fail('upload');
+    }
+    if ($f7['size'] > 20 * 1024 * 1024) {
+        fail('Μέγιστο 20MB');
+    }
+    $ext = strtolower(pathinfo($f7['name'], PATHINFO_EXTENSION));
+    if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) {
+        fail('Μη επιτρεπτός τύπος αρχείου');
+    }
+    $dir = __DIR__ . '/../attachments/cloudonprojects';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0750, true);
+    }
+    $stored = uniqid('f', true) . '.dat';
+    if (!move_uploaded_file($f7['tmp_name'], $dir . '/' . $stored)) {
+        fail('write');
+    }
+    Capsule::table('mod_cpm_files')->insert(['task_id' => $t7->id,
+        'filename' => mb_substr($f7['name'], 0, 190), 'stored' => $stored,
+        'size' => (int) $f7['size'], 'admin_id' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    Db::logActivity($t7->id, $adminId, 'edit', 'Συνημμένο: ' . $f7['name']);
+    out(['ok' => true]);
+
+case 'file_get':
+    $fr = Capsule::table('mod_cpm_files')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$fr) {
+        fail('file', 404);
+    }
+    $t7 = Db::task($fr->task_id);
+    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
+        fail('file', 403);
+    }
+    $path = __DIR__ . '/../attachments/cloudonprojects/' . basename($fr->stored);
+    if (!is_file($path)) {
+        fail('file', 404);
+    }
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="' . rawurlencode($fr->filename) . '"');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
+
+case 'file_del':
+    $fr = Capsule::table('mod_cpm_files')->where('id', (int) ($in['id'] ?? 0))->first();
+    if ($fr) {
+        $t7 = Db::task($fr->task_id);
+        if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
+            fail('file', 403);
+        }
+        @unlink(__DIR__ . '/../attachments/cloudonprojects/' . basename($fr->stored));
+        Capsule::table('mod_cpm_files')->where('id', $fr->id)->delete();
+    }
+    out(['ok' => true]);
+
+/* ---- realtime version (ελαφρύ polling — Κ6) ---- */
+/* ============ 🎥 CLOUDON MEET (WebRTC signaling) ============ */
+case 'rtc_join':
+    $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
+        fail('room', 403);
+    }
+    $peer = substr(bin2hex(random_bytes(8)), 0, 12);
+    $name = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim($in['name'] ?? ''), 0, 60) ?: 'Επισκέπτης');
+    // καθάρισμα: πεθαμένοι peers + παλιά μηνύματα
+    Capsule::table('mod_cpm_rtc_peers')->where('last_seen', '<', date('Y-m-d H:i:s', time() - 40))->delete();
+    Capsule::table('mod_cpm_rtc_msgs')->where('created_at', '<', date('Y-m-d H:i:s', time() - 600))->delete();
+    Capsule::table('mod_cpm_rtc_peers')->insert(['room' => $room, 'peer' => $peer, 'name' => $name,
+        'admin_id' => $adminId > 0 ? $adminId : null, 'last_seen' => date('Y-m-d H:i:s')]);
+    $roster = [];
+    foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', '!=', $peer)->get() as $p9) {
+        $roster[] = ['peer' => $p9->peer, 'name' => $p9->name];
+    }
+    out(['peer' => $peer, 'name' => $name, 'roster' => $roster]);
+
+case 'rtc_signal':
+    $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
+        fail('room', 403);
+    }
+    $kind = in_array($in['kind'] ?? '', ['offer', 'answer', 'ice', 'bye'], true) ? $in['kind'] : null;
+    if (!$kind || empty($in['peer']) || empty($in['to'])) {
+        fail('input');
+    }
+    Capsule::table('mod_cpm_rtc_msgs')->insert(['room' => $room,
+        'to_peer' => preg_replace('/[^a-f0-9]/', '', $in['to']),
+        'from_peer' => preg_replace('/[^a-f0-9]/', '', $in['peer']),
+        'kind' => $kind, 'payload' => mb_substr((string) ($in['payload'] ?? ''), 0, 200000),
+        'created_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'rtc_poll':
+    $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $_GET['room'] ?? '');
+    if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
+        fail('room', 403);
+    }
+    $peer = preg_replace('/[^a-f0-9]/', '', $_GET['peer'] ?? '');
+    Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)
+        ->update(['last_seen' => date('Y-m-d H:i:s')]);
+    $after = (int) ($_GET['after'] ?? 0);
+    $msgs = [];
+    foreach (Capsule::table('mod_cpm_rtc_msgs')->where('room', $room)->where('to_peer', $peer)
+        ->where('id', '>', $after)->orderBy('id')->limit(100)->get() as $m9) {
+        $msgs[] = ['id' => (int) $m9->id, 'from' => $m9->from_peer, 'kind' => $m9->kind, 'payload' => $m9->payload];
+    }
+    $roster = [];
+    foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $room)
+        ->where('last_seen', '>', date('Y-m-d H:i:s', time() - 30))->get() as $p9) {
+        $roster[] = ['peer' => $p9->peer, 'name' => $p9->name];
+    }
+    out(['messages' => $msgs, 'roster' => $roster]);
+
+case 'rtc_leave':
+    $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    $peer = preg_replace('/[^a-f0-9]/', '', $in['peer'] ?? '');
+    Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->delete();
+    out(['ok' => true]);
+
+case 'rtc_invite':                      // πρόσκληση ΚΑΤΑ ΤΗ ΔΙΑΡΚΕΙΑ του meeting (μόνο ομάδα)
+    if ($adminId <= 0) {
+        fail('perm', 403);
+    }
+    $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    if ($room === '') {
+        fail('room');
+    }
+    $url9 = 'https://my.cloudon.gr/projectmanagement/meet.php?room=' . $room . '&t=' . pm_mint_meet($room);
+    $byName = Db::adminName($adminId);
+    $body9 = '<p><strong>' . htmlspecialchars($byName) . '</strong> σας προσκαλεί σε meeting <strong>που είναι σε εξέλιξη τώρα</strong>.</p>'
+        . '<p style="background:#eef7fd;border-left:4px solid #0090dd;padding:10px 14px;">'
+        . '🎥 <a href="' . htmlspecialchars($url9) . '"><strong>Συμμετοχή στο meeting</strong></a></p>'
+        . '<p>Ανοίγει απευθείας στον browser — χωρίς εγκατάσταση ή λογαριασμό.</p>';
+    if (!empty($in['admin'])) {
+        $to9 = (int) $in['admin'];
+        Db::pushNotification($to9, 'action', '🎥 ' . $byName . ' σε καλεί ΤΩΡΑ σε meeting!', $url9);
+        \WHMCS\Module\Addon\CloudonProjects\Notify::send($to9, '🎥 Σε καλούν σε meeting ΤΩΡΑ', $body9);
+        out(['ok' => true, 'sent' => Db::adminName($to9)]);
+    }
+    if (!empty($in['email']) && filter_var($in['email'], FILTER_VALIDATE_EMAIL)) {
+        \WHMCS\Module\Addon\CloudonProjects\Notify::sendTo(trim($in['email']), '🎥 Πρόσκληση σε meeting σε εξέλιξη — CloudOn', $body9);
+        out(['ok' => true, 'sent' => trim($in['email'])]);
+    }
+    out(['ok' => true, 'url' => $url9]);
+
+case 'meet_room':                       // δημιουργία δωματίου + guest URL
+    $room = 'm' . substr(bin2hex(random_bytes(6)), 0, 10);
+    $base = 'https://my.cloudon.gr/projectmanagement/meet.php';
+    out(['room' => $room,
+        'url' => $base . '?room=' . $room . '&t=' . pm_mint_meet($room)]);
+
+/* ============ ✔ RSVP MEETINGS ============ */
+case 'event_rsvp':                      // απάντηση μέλους ομάδας
+    $ev = Capsule::table('mod_cpm_events')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ev) {
+        fail('event', 404);
+    }
+    $att9 = array_filter(array_map('intval', explode(',', $ev->attendees)));
+    if (!in_array($adminId, $att9, true)) {
+        fail('Δεν είσαι στους συμμετέχοντες', 403);
+    }
+    $st9 = ($in['status'] ?? '') === 'declined' ? 'declined' : 'accepted';
+    Capsule::table('mod_cpm_event_rsvp')->updateOrInsert(
+        ['event_id' => $ev->id, 'kind' => 'admin', 'ref' => $adminId],
+        ['status' => $st9, 'responded_at' => date('Y-m-d H:i:s')]);
+    if ((int) $ev->created_by !== $adminId) {
+        Db::pushNotification($ev->created_by, 'info',
+            ($st9 === 'accepted' ? '✅ ' : '❌ ') . Db::adminName($adminId)
+            . ($st9 === 'accepted' ? ' αποδέχθηκε' : ' δεν μπορεί') . ': ' . $ev->title,
+            '/projectmanagement/#/calendar');
+    }
+    out(['ok' => true, 'status' => $st9]);
+
+case 'event_rsvp_public':               // απάντηση πελάτη από το email (χωρίς login)
+    $v9 = pm_verify_rsvp($_GET['t'] ?? '');
+    if (!$v9) {
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2>⏰ Ο σύνδεσμος έληξε</h2><p>Επικοινωνήστε μαζί μας για νέο.</p></body>';
+        exit;
+    }
+    [$evId9, $cid9] = $v9;
+    $ev = Capsule::table('mod_cpm_events')->where('id', $evId9)->first();
+    $st9 = ($_GET['r'] ?? '') === 'decline' ? 'declined' : 'accepted';
+    if ($ev && (int) $ev->clientid === $cid9) {
+        Capsule::table('mod_cpm_event_rsvp')->updateOrInsert(
+            ['event_id' => $evId9, 'kind' => 'client', 'ref' => $cid9],
+            ['status' => $st9, 'responded_at' => date('Y-m-d H:i:s')]);
+        Db::pushNotification($ev->created_by, 'info',
+            ($st9 === 'accepted' ? '✅ Ο πελάτης αποδέχθηκε' : '❌ Ο πελάτης ΔΕΝ μπορεί') . ': ' . $ev->title,
+            '/projectmanagement/#/calendar');
+        if (function_exists('logActivity')) {
+            logActivity('CPM: RSVP πελάτη #' . $cid9 . ' → ' . $st9 . ' (event #' . $evId9 . ')');
+        }
+    }
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:sans-serif;text-align:center;padding:60px 20px;background:#f4f6fa">'
+        . '<div style="max-width:440px;margin:0 auto;background:#fff;border-radius:16px;padding:36px 28px;box-shadow:0 8px 30px rgba(16,42,67,.12)">'
+        . ($st9 === 'accepted'
+            ? '<div style="font-size:52px">✅</div><h2 style="color:#152238">Ευχαριστούμε!</h2><p style="color:#44566c">Η συμμετοχή σας επιβεβαιώθηκε' . ($ev ? ' για <b>' . htmlspecialchars($ev->title) . '</b><br>🗓 ' . date('d/m/Y H:i', strtotime($ev->start_dt)) : '') . '.</p>'
+            : '<div style="font-size:52px">📅</div><h2 style="color:#152238">Καταγράφηκε</h2><p style="color:#44566c">Λάβαμε ότι δεν σας εξυπηρετεί η ώρα — θα επικοινωνήσουμε για εναλλακτική.</p>')
+        . '<p style="color:#8291a9;font-size:13px">CloudOn — Innovative e-business solutions</p></div></body>';
+    exit;
+
+/* ============ 💬 ΕΣΩΤΕΡΙΚΟ CHAT ============ */
+case 'chat_group_save':                 // δημιουργία ομάδας συνομιλίας
+    $gname = mb_substr(trim($in['name'] ?? ''), 0, 80);
+    $gmem = array_values(array_unique(array_merge([$adminId],
+        array_filter(array_map('intval', (array) ($in['members'] ?? []))))));
+    if ($gname === '' || count($gmem) < 2) {
+        fail('Όνομα και τουλάχιστον ένα ακόμη μέλος');
+    }
+    $gid = Capsule::table('mod_cpm_chat_groups')->insertGetId(['name' => $gname,
+        'members' => ',' . implode(',', $gmem) . ',',
+        'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    foreach ($gmem as $gm) {
+        if ($gm !== $adminId) {
+            Db::pushNotification($gm, 'info', '💬 Προστέθηκες στην ομάδα «' . $gname . '»', '/projectmanagement/#/chat');
+        }
+    }
+    out(['ok' => true, 'id' => $gid]);
+
+case 'chat_group_del':                  // διαγραφή/αποχώρηση
+    $gr = Capsule::table('mod_cpm_chat_groups')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$gr) {
+        fail('group', 404);
+    }
+    if ($FULL || (int) $gr->created_by === $adminId) {
+        Capsule::table('mod_cpm_chat_groups')->where('id', $gr->id)->delete();
+        Capsule::table('mod_cpm_chat')->where('channel', 'g' . $gr->id)->delete();
+        out(['ok' => true, 'deleted' => true]);
+    }
+    // απλό μέλος: αποχωρεί
+    $mem = array_values(array_diff(array_filter(array_map('intval', explode(',', $gr->members))), [$adminId]));
+    Capsule::table('mod_cpm_chat_groups')->where('id', $gr->id)
+        ->update(['members' => ',' . implode(',', $mem) . ',']);
+    out(['ok' => true, 'left' => true]);
+
+case 'chat_channels':
+    Db::setPref($adminId, 'last_seen', (string) time());
+    $now6 = time();
+    $reads = [];
+    foreach (Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->get() as $r6) {
+        $reads[$r6->channel] = (int) $r6->last_id;
+    }
+    $chans = [['id' => 'team', 'name' => '# Ομάδα', 'kind' => 'team',
+        'unread' => Capsule::table('mod_cpm_chat')->where('channel', 'team')
+            ->where('id', '>', $reads['team'] ?? 0)->where('admin_id', '!=', $adminId)->count()]];
+    foreach (Capsule::table('mod_cpm_chat_groups')
+        ->where('members', 'like', '%,' . $adminId . ',%')->orderBy('name')->get() as $g6) {
+        $ch = 'g' . $g6->id;
+        $chans[] = ['id' => $ch, 'name' => $g6->name, 'kind' => 'group',
+            'groupId' => (int) $g6->id, 'mine' => (int) $g6->created_by === $adminId,
+            'members' => count(array_filter(explode(',', $g6->members))),
+            'unread' => Capsule::table('mod_cpm_chat')->where('channel', $ch)
+                ->where('id', '>', $reads[$ch] ?? 0)->where('admin_id', '!=', $adminId)->count()];
+    }
+    foreach (Db::admins() as $a6) {
+        if ((int) $a6->id === $adminId) {
+            continue;
+        }
+        $ch = 'd' . min($adminId, (int) $a6->id) . '-' . max($adminId, (int) $a6->id);
+        $seen = (int) Db::pref($a6->id, 'last_seen', '0');
+        $manual = Db::pref($a6->id, 'chat_status', 'online');
+        $status = $manual === 'offline' ? 'offline' : (($now6 - $seen) < 90 ? 'online' : 'away');
+        $chans[] = ['id' => $ch, 'name' => trim($a6->firstname . ' ' . $a6->lastname),
+            'kind' => 'dm', 'admin' => (int) $a6->id, 'status' => $status,
+            'reason' => $manual === 'offline' ? Db::pref($a6->id, 'chat_reason', '') : '',
+            'unread' => Capsule::table('mod_cpm_chat')->where('channel', $ch)
+                ->where('id', '>', $reads[$ch] ?? 0)->where('admin_id', '!=', $adminId)->count()];
+    }
+    out(['channels' => $chans, 'myStatus' => Db::pref($adminId, 'chat_status', 'online'),
+        'myReason' => Db::pref($adminId, 'chat_reason', '')]);
+
+case 'chat_msgs':
+    $ch = preg_replace('/[^a-z0-9\-]/', '', $_GET['channel'] ?? 'team');
+    if (!cnp_chat_access($ch, $adminId)) {
+        fail('channel', 403);
+    }
+    Db::setPref($adminId, 'last_seen', (string) time());
+    $after = (int) ($_GET['after'] ?? 0);
+    $q6 = Capsule::table('mod_cpm_chat')->where('channel', $ch);
+    $msgs = $after > 0
+        ? $q6->where('id', '>', $after)->orderBy('id')->limit(200)->get()
+        : $q6->orderBy('id', 'desc')->limit(60)->get()->reverse()->values();
+    $outM = [];
+    $maxId = $after;
+    foreach ($msgs as $m9) {
+        $maxId = max($maxId, (int) $m9->id);
+        $outM[] = ['id' => (int) $m9->id, 'by' => (int) $m9->admin_id,
+            'body' => $m9->body, 'at' => $m9->created_at,
+            'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id] : null];
+    }
+    // mark read
+    if ($maxId > 0) {
+        if (Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->where('channel', $ch)->exists()) {
+            Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->where('channel', $ch)
+                ->where('last_id', '<', $maxId)->update(['last_id' => $maxId]);
+        } else {
+            Capsule::table('mod_cpm_chat_reads')->insert(['admin_id' => $adminId, 'channel' => $ch, 'last_id' => $maxId]);
+        }
+    }
+    out(['messages' => $outM]);
+
+case 'chat_send':
+    if (!empty($_FILES)) {
+        $in = $_POST;   // multipart με αρχείο
+    }
+    $ch = preg_replace('/[^a-z0-9\-]/', '', $in['channel'] ?? 'team');
+    if (!cnp_chat_access($ch, $adminId)) {
+        fail('channel', 403);
+    }
+    $body = mb_substr(trim($in['body'] ?? ''), 0, 4000);
+    $fn = null;
+    $stored = null;
+    $sz = null;
+    if (!empty($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
+        if ($_FILES['file']['size'] > 20 * 1024 * 1024) {
+            fail('Μέγιστο 20MB');
+        }
+        $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) {
+            fail('Μη επιτρεπτός τύπος αρχείου');
+        }
+        $dir = __DIR__ . '/../attachments/cloudonprojects';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0750, true);
+        }
+        $stored = uniqid('c', true) . '.dat';
+        if (!move_uploaded_file($_FILES['file']['tmp_name'], $dir . '/' . $stored)) {
+            fail('write');
+        }
+        $fn = mb_substr($_FILES['file']['name'], 0, 190);
+        $sz = (int) $_FILES['file']['size'];
+    }
+    if ($body === '' && !$fn) {
+        fail('empty');
+    }
+    $mid = Capsule::table('mod_cpm_chat')->insertGetId(['channel' => $ch, 'admin_id' => $adminId,
+        'body' => $body ?: null, 'filename' => $fn, 'stored' => $stored, 'size' => $sz,
+        'created_at' => date('Y-m-d H:i:s')]);
+    Db::setPref($adminId, 'last_seen', (string) time());
+    // καμπανάκι στους παραλήπτες (DM: ο άλλος, ομάδα: όλα τα μέλη) — εκτός offline
+    $recips = [];
+    if (preg_match('/^d(\d+)-(\d+)$/', $ch, $m6)) {
+        $recips = [(int) $m6[1] === $adminId ? (int) $m6[2] : (int) $m6[1]];
+    } elseif (preg_match('/^g(\d+)$/', $ch, $m6)) {
+        $gr = Capsule::table('mod_cpm_chat_groups')->where('id', (int) $m6[1])->first();
+        $recips = array_diff(array_filter(array_map('intval', explode(',', $gr->members ?? ''))), [$adminId]);
+        $gname = $gr->name ?? '';
+    }
+    foreach ($recips as $other) {
+        if (Db::pref($other, 'chat_status', 'online') !== 'offline') {
+            Db::pushNotification($other, 'comment', '💬 ' . (isset($gname) ? "[$gname] " : '') . Db::adminName($adminId) . ': '
+                . mb_substr($body ?: ('📎 ' . $fn), 0, 80), '/projectmanagement/#/chat');
+        }
+    }
+    out(['ok' => true, 'id' => $mid]);
+
+case 'chat_file':                       // κατέβασμα συνημμένου chat (auth: μέλος καναλιού)
+    $m9 = Capsule::table('mod_cpm_chat')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$m9 || !$m9->stored) {
+        fail('file', 404);
+    }
+    if (!cnp_chat_access($m9->channel, $adminId)) {
+        fail('file', 403);
+    }
+    $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . $m9->stored);
+    if (!$path || strpos($path, realpath(__DIR__ . '/../attachments/cloudonprojects') . DIRECTORY_SEPARATOR) !== 0 || !is_file($path)) {
+        fail('file', 404);
+    }
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="' . $m9->filename . '"');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
+
+case 'chat_status':                     // Εμφάνιση online/offline (χειροκίνητο) + λόγος
+    $off = ($in['status'] ?? '') === 'offline';
+    // η σύνδεση DB είναι utf8mb3 — αφαίρεσε 4-byte chars (emoji) για να μη γίνουν «????»
+    $reason = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', trim($in['reason'] ?? ''));
+    Db::setPref($adminId, 'chat_status', $off ? 'offline' : 'online');
+    Db::setPref($adminId, 'chat_reason', $off ? mb_substr(trim($reason), 0, 80) : '');
+    out(['ok' => true]);
+
+/* ============ 🏷 ΚΑΤΗΓΟΡΙΟΠΟΙΗΣΗ TICKETS (root-cause) ============ */
+case 'ticket_classify':                 // ο διαχειριστής/επικεφαλής ταξινομεί
+    if (!cnp_can_reply_clients($adminId, $FULL)) {
+        fail('Μόνο διαχειριστής ή επικεφαλής ταξινομεί tickets', 403);
+    }
+    $tid7 = (int) ($in['ticket'] ?? 0);
+    if (!$tid7 || !Capsule::table('tbltickets')->where('id', $tid7)->exists()) {
+        fail('ticket', 404);
+    }
+    $area7 = (int) ($in['area'] ?? 0) ?: null;
+    $cause7 = (int) ($in['cause'] ?? 0) ?: null;
+    $note7 = cnp_clean_html($in['note'] ?? '');
+    Capsule::table('mod_cpm_ticket_class')->updateOrInsert(['ticketid' => $tid7],
+        ['area_id' => $area7, 'cause_id' => $cause7,
+         'note' => $note7 !== '' ? $note7 : null,
+         'classified_by' => $adminId, 'classified_at' => date('Y-m-d H:i:s')]);
+    if (function_exists('logActivity')) {
+        logActivity('CPM: ticket #' . $tid7 . ' ταξινομήθηκε (area=' . ($area7 ?: '-') . ' cause=' . ($cause7 ?: '-') . ') admin #' . $adminId);
+    }
+    out(['ok' => true]);
+
+case 'classify_suggest':               // ✨ AI προτείνει area+cause από το περιεχόμενο
+    if (!cnp_can_reply_clients($adminId, $FULL)) {
+        fail('perm', 403);
+    }
+    $tid7 = (int) ($in['ticket'] ?? 0);
+    $tk7 = Capsule::table('tbltickets')->where('id', $tid7)->first();
+    if (!$tk7) {
+        fail('ticket', 404);
+    }
+    $key7 = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key7 === '') {
+        fail('Δεν έχει οριστεί AI API key στις Ρυθμίσεις');
+    }
+    $cats7 = cnp_ticket_cats();
+    $areaList = implode(', ', array_map(function ($a) { return $a['id'] . '=' . $a['name']; }, $cats7['area']));
+    $causeList = implode(', ', array_map(function ($c) { return $c['id'] . '=' . $c['name']; }, $cats7['cause']));
+    $conv7 = mb_substr($tk7->title . "\n" . $tk7->message, 0, 2500);
+    foreach (Capsule::table('tblticketreplies')->where('tid', $tid7)->orderBy('id')->limit(8)->get() as $r) {
+        $conv7 .= "\n" . mb_substr($r->message, 0, 800);
+    }
+    $prompt7 = "Είσαι ταξινομητής tickets IT εταιρείας. Διάλεξε την ΚΑΛΥΤΕΡΗ Περιοχή/Προϊόν και Ρίζα-προβλήματος από τις λίστες. "
+        . "Απάντησε ΜΟΝΟ με JSON χωρίς markdown: {\"area_id\": <id ή 0>, \"cause_id\": <id ή 0>}.\n\n"
+        . "ΠΕΡΙΟΧΕΣ: $areaList\nΡΙΖΕΣ: $causeList\n\nTICKET:\n$conv7";
+    $ch7 = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch7, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 45, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key7, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode(['model' => 'claude-haiku-4-5-20251001', 'max_tokens' => 100,
+            'messages' => [['role' => 'user', 'content' => $prompt7]]])]);
+    $j7 = json_decode((string) curl_exec($ch7), true);
+    curl_close($ch7);
+    $txt7 = $j7['content'][0]['text'] ?? '';
+    $sug7 = json_decode(trim(preg_replace('/^```json|```$/m', '', trim($txt7))), true);
+    out(['ok' => true, 'area' => (int) ($sug7['area_id'] ?? 0) ?: null, 'cause' => (int) ($sug7['cause_id'] ?? 0) ?: null]);
+
+case 'kb_match':                        // 📚 άρθρα γνώσης που ταιριάζουν σε area/cause
+    $terms = trim($_GET['q'] ?? '');
+    if ($terms === '') {
+        out(['items' => []]);
+    }
+    $qw = cnp_words($terms);
+    $hits = [];
+    foreach (Capsule::table('mod_cpm_kb')->get() as $k) {
+        $sc = cnp_overlap($qw, cnp_words($k->title . ' ' . $k->keywords . ' ' . $k->tags));
+        if ($sc > 0) {
+            $hits[] = ['id' => (int) $k->id, 'title' => $k->title, 'solution' => $k->solution, 'score' => $sc];
+        }
+    }
+    usort($hits, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    out(['items' => array_slice($hits, 0, 4)]);
+
+case 'tcats':                           // λίστα κατηγοριών (+ πλήθος για διαχείριση)
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $counts = [];
+    foreach (Capsule::table('mod_cpm_ticket_class')
+        ->select(Capsule::raw('area_id, cause_id'))->get() as $cl) {
+        if ($cl->area_id) { $counts['a' . $cl->area_id] = ($counts['a' . $cl->area_id] ?? 0) + 1; }
+        if ($cl->cause_id) { $counts['c' . $cl->cause_id] = ($counts['c' . $cl->cause_id] ?? 0) + 1; }
+    }
+    $out7 = ['area' => [], 'cause' => []];
+    foreach (Capsule::table('mod_cpm_ticket_cats')->orderBy('sort')->orderBy('id')->get() as $r) {
+        $k = $r->kind === 'cause' ? 'cause' : 'area';
+        $out7[$k][] = ['id' => (int) $r->id, 'name' => $r->name, 'color' => $r->color,
+            'used' => (int) ($counts[($k === 'cause' ? 'c' : 'a') . $r->id] ?? 0)];
+    }
+    out($out7);
+
+case 'tcat_save':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $kind7 = ($in['kind'] ?? '') === 'cause' ? 'cause' : 'area';
+    $nm7 = mb_substr(trim($in['name'] ?? ''), 0, 80);
+    if ($nm7 === '') {
+        fail('Δώσε όνομα');
+    }
+    $col7 = preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd';
+    $cid7 = (int) ($in['id'] ?? 0);
+    if ($cid7) {
+        Capsule::table('mod_cpm_ticket_cats')->where('id', $cid7)->update(['name' => $nm7, 'color' => $col7]);
+    } else {
+        $cid7 = Capsule::table('mod_cpm_ticket_cats')->insertGetId(['kind' => $kind7, 'name' => $nm7,
+            'color' => $col7, 'sort' => (int) Capsule::table('mod_cpm_ticket_cats')->where('kind', $kind7)->max('sort') + 1]);
+    }
+    out(['ok' => true, 'id' => $cid7]);
+
+case 'tcat_del':
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $cid7 = (int) ($in['id'] ?? 0);
+    Capsule::table('mod_cpm_ticket_cats')->where('id', $cid7)->delete();
+    Capsule::table('mod_cpm_ticket_class')->where('area_id', $cid7)->update(['area_id' => null]);
+    Capsule::table('mod_cpm_ticket_class')->where('cause_id', $cid7)->update(['cause_id' => null]);
+    out(['ok' => true]);
+
+case 'rootcause':                       // 🔬 ανάλυση ριζών (full)
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $since7 = date('Y-m-d', strtotime('-' . (in_array((int) ($_GET['days'] ?? 90), [30, 90, 180, 365], true) ? (int) $_GET['days'] : 90) . ' days'));
+    $cats7 = cnp_ticket_cats();
+    $areaN = []; foreach ($cats7['area'] as $a) { $areaN[$a['id']] = $a; }
+    $causeN = []; foreach ($cats7['cause'] as $c) { $causeN[$c['id']] = $c; }
+    // ταξινομημένα tickets στο διάστημα
+    $daysN = in_array((int) ($_GET['days'] ?? 90), [30, 90, 180, 365], true) ? (int) $_GET['days'] : 90;
+    $prevSince = date('Y-m-d', strtotime('-' . ($daysN * 2) . ' days'));
+    $rows7 = Capsule::table('mod_cpm_ticket_class as cl')
+        ->join('tbltickets as t', 't.id', '=', 'cl.ticketid')
+        ->where('t.date', '>=', $prevSince)
+        ->get(['cl.ticketid', 'cl.area_id', 'cl.cause_id', 't.userid', 't.status', 't.date']);
+    // διαχώρισε τρέχουσα vs προηγούμενη περίοδο + μηνιαία buckets
+    $prevCause = []; $monthly = [];
+    foreach ($rows7 as $r) {
+        $inCur = $r->date >= $since7;
+        if (!$inCur && $r->cause_id) { $prevCause[$r->cause_id] = ($prevCause[$r->cause_id] ?? 0) + 1; }
+        if ($inCur && $r->cause_id) {
+            $ym = substr($r->date, 0, 7);
+            $monthly[$ym][$r->cause_id] = ($monthly[$ym][$r->cause_id] ?? 0) + 1;
+        }
+    }
+    $rows7 = $rows7->filter(function ($r) use ($since7) { return $r->date >= $since7; });
+    // χρόνος ανά ticket (μέσω linked task timelogs)
+    $timeByTicket = [];
+    try {
+        foreach (Capsule::table('mod_cpm_timelogs as tl')
+            ->join('mod_cpm_tasks as tk', 'tk.id', '=', 'tl.task_id')
+            ->whereNotNull('tk.ticketid')->where('tl.running', 0)
+            ->groupBy('tk.ticketid')->get([Capsule::raw('tk.ticketid as tid'), Capsule::raw('SUM(tl.minutes) m')]) as $r) {
+            $timeByTicket[(int) $r->tid] = (int) $r->m;
+        }
+    } catch (\Throwable $e) {
+    }
+    $byCause = []; $byArea = []; $matrix = []; $total7 = 0; $classified7 = 0;
+    foreach ($rows7 as $r) {
+        $total7++;
+        if ($r->cause_id) {
+            $classified7++;
+            $byCause[$r->cause_id]['n'] = ($byCause[$r->cause_id]['n'] ?? 0) + 1;
+            $byCause[$r->cause_id]['min'] = ($byCause[$r->cause_id]['min'] ?? 0) + ($timeByTicket[(int) $r->ticketid] ?? 0);
+        }
+        if ($r->area_id) {
+            $byArea[$r->area_id]['n'] = ($byArea[$r->area_id]['n'] ?? 0) + 1;
+        }
+        if ($r->area_id && $r->cause_id) {
+            $matrix[$r->area_id][$r->cause_id] = ($matrix[$r->area_id][$r->cause_id] ?? 0) + 1;
+        }
+    }
+    $topCauses = [];
+    foreach ($byCause as $cid => $d) {
+        $topCauses[] = ['id' => $cid, 'name' => $causeN[$cid]['name'] ?? '?', 'color' => $causeN[$cid]['color'] ?? '#888',
+            'count' => $d['n'], 'minutes' => $d['min'] ?? 0,
+            'delta' => $d['n'] - ($prevCause[$cid] ?? 0)];
+    }
+    usort($topCauses, function ($a, $b) { return $b['count'] <=> $a['count']; });
+    $topAreas = [];
+    foreach ($byArea as $aid => $d) {
+        $topAreas[] = ['id' => $aid, 'name' => $areaN[$aid]['name'] ?? '?', 'color' => $areaN[$aid]['color'] ?? '#888', 'count' => $d['n']];
+    }
+    usort($topAreas, function ($a, $b) { return $b['count'] <=> $a['count']; });
+    // total tickets στο διάστημα (για ποσοστό ταξινόμησης)
+    $allTk = (int) Capsule::table('tbltickets')->where('date', '>=', $since7)->count();
+    // μηνιαία σειρά (τελευταίοι μήνες) για τις top-5 ρίζες
+    ksort($monthly);
+    $months = array_keys($monthly);
+    $top5 = array_slice(array_map(function ($x) { return $x['id']; }, $topCauses), 0, 5);
+    $series = [];
+    foreach ($months as $ym) {
+        $row = ['ym' => $ym];
+        foreach ($top5 as $cid) { $row[$cid] = $monthly[$ym][$cid] ?? 0; }
+        $series[] = $row;
+    }
+    out(['topCauses' => $topCauses, 'topAreas' => $topAreas,
+        'matrix' => $matrix, 'areas' => $cats7['area'], 'causes' => $cats7['cause'],
+        'classified' => $classified7, 'totalClassified' => $total7, 'allTickets' => $allTk,
+        'series' => $series, 'top5' => $top5]);
+
+case 'standup':                         // 🏃 Standup dashboard — απασχόληση περιόδου + on-time
+    $period = in_array($_GET['p'] ?? 'week', ['week', 'month'], true) ? $_GET['p'] : 'week';
+    if ($period === 'month') {
+        $ps = date('Y-m-01'); $pe = date('Y-m-t');
+    } else {
+        $ps = date('Y-m-d', strtotime('monday this week')); $pe = date('Y-m-d', strtotime('sunday this week'));
+    }
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $bugType = (int) Capsule::table('mod_cpm_task_types')->where('name', 'like', '%Bug%')->value('id');
+    $vis = $FULL ? null : Db::visibleProjectIds($adminId);
+    $tScope = function ($q) use ($FULL, $adminId, $vis) {
+        if (!$FULL) {
+            $q->where(function ($w) use ($adminId, $vis) {
+                $w->where('t.assignee', $adminId);
+                if ($vis) { $w->orWhereIn('t.project_id', $vis ?: [0]); }
+            });
+        }
+        return $q;
+    };
+    // στατιστικά περιόδου + λίστες drill-down (κλικ στην κάρτα → τα στοιχεία)
+    $drill = [];
+    $newProjRows = Capsule::table('mod_cpm_projects')->where('created_at', '>=', $ps . ' 00:00:00')
+        ->when($vis !== null, function ($q) use ($vis) { $q->whereIn('id', $vis ?: [0]); })
+        ->orderByDesc('created_at')->get(['id', 'name', 'clientid', 'kind']);
+    $newProj = count($newProjRows);
+    $drill['newProjects'] = $newProjRows->map(function ($p) {
+        return ['type' => 'project', 'id' => (int) $p->id, 'title' => $p->name,
+            'sub' => $p->kind === 'client' ? clientLabel($p->clientid) : 'Τμήμα'];
+    })->all();
+    $bugRows = $tScope(Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
+        ->where('t.type_id', $bugType)->whereNotIn('t.status_id', $doneIds)
+        ->get(['t.id', 't.title', 'p.name as pname']);
+    $bugsOpen = count($bugRows);
+    $drill['bugs'] = $bugRows->map(function ($t) {
+        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => $t->pname];
+    })->all();
+    $dueRows = $tScope(Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
+        ->whereBetween('t.due_date', [$ps, $pe])->whereNotIn('t.status_id', $doneIds)
+        ->orderBy('t.due_date')->get(['t.id', 't.title', 't.due_date', 'p.name as pname']);
+    $dueThis = count($dueRows);
+    $drill['deadlines'] = $dueRows->map(function ($t) {
+        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => $t->pname . ' · λήγει ' . $t->due_date];
+    })->all();
+    $doneRows = $tScope(Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
+        ->whereBetween('t.completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
+        ->orderByDesc('t.completed_at')->get(['t.id', 't.title', 't.completed_at', 'p.name as pname']);
+    $doneThis = count($doneRows);
+    $drill['completed'] = $doneRows->map(function ($t) {
+        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => $t->pname . ' · ' . substr($t->completed_at, 0, 10)];
+    })->all();
+    // roster ανά μέλος
+    $admins = $FULL ? Db::admins() : Capsule::table('tbladmins')->where('id', $adminId)->get();
+    $teamIds = [];
+    try {
+        $teamIds = array_map('intval', Capsule::table('mod_cpm_team_members')->pluck('admin_id')->all());
+    } catch (\Throwable $e) {
+    }
+    $roster = [];
+    $minsBy = [];
+    try {
+        foreach (Capsule::table('mod_cpm_timelogs')->where('running', 0)
+            ->whereBetween('created_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
+            ->groupBy('admin_id')->get(['admin_id', Capsule::raw('SUM(minutes) m')]) as $r) {
+            $minsBy[(int) $r->admin_id] = (int) $r->m;
+        }
+    } catch (\Throwable $e) {
+    }
+    foreach ($admins as $a) {
+        $aid = (int) $a->id;
+        $nm = Db::adminName($aid);
+        // αγνόησε bots/test/system accounts
+        if (preg_match('/\b(bot|test|debug|cnptest|system)\b/i', $nm)) { continue; }
+        $open = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)->count();
+        $overdue = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)
+            ->whereNotNull('due_date')->where('due_date', '<', date('Y-m-d'))->count();
+        $dueP = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)
+            ->whereBetween('due_date', [$ps, $pe])->count();
+        // on-time: ολοκληρωμένα με deadline μέσα στην περίοδο
+        $cl = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotNull('due_date')
+            ->whereBetween('completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
+            ->get(['due_date', 'completed_at']);
+        $onT = 0; $late = 0;
+        foreach ($cl as $t) { if (substr($t->completed_at, 0, 10) <= $t->due_date) { $onT++; } else { $late++; } }
+        $tkOpen = Capsule::table('tbltickets')->where('flag', $aid)->whereNotIn('status', ['Closed', 'Cancelled'])->count();
+        $mins = $minsBy[$aid] ?? 0;
+        $activity = $open + $overdue + $dueP + $onT + $late + $tkOpen + $mins;
+        // κράτα: ο ίδιος πάντα, μέλη ομάδας (για να φαίνεται και το «τίποτα») ή όποιον έχει δραστηριότητα
+        if ($aid !== $adminId && !in_array($aid, $teamIds, true) && $activity === 0) { continue; }
+        $roster[] = ['id' => $aid, 'name' => $nm,
+            'open' => $open, 'overdue' => $overdue, 'dueP' => $dueP,
+            'onTime' => $onT, 'late' => $late,
+            'score' => ($onT + $late) ? round($onT / ($onT + $late) * 100) : null,
+            'tickets' => $tkOpen, 'mins' => $mins];
+    }
+    // ταξινόμηση: εκπρόθεσμα ↓, μετά ανοιχτά ↓ (πιεσμένοι πρώτοι)
+    usort($roster, function ($a, $b) {
+        return ($b['overdue'] <=> $a['overdue']) ?: ($b['open'] <=> $a['open']) ?: ($b['mins'] <=> $a['mins']);
+    });
+    // εξέλιξη projects (ανοιχτά)
+    $projs = [];
+    foreach (($FULL ? Db::projects(false) : Db::projectsFor($adminId, false)) as $p) {
+        if (in_array($p->pstatus, ['done'], true)) { continue; }
+        [$pd, $pt, $ppct] = Db::projectProgress($p->id);
+        $days = $p->due_date ? (int) floor((strtotime($p->due_date) - time()) / 86400) : null;
+        $projs[] = ['id' => (int) $p->id, 'name' => $p->name, 'kind' => $p->kind ?? 'dept',
+            'client' => clientLabel($p->clientid), 'health' => $p->health, 'pstatus' => $p->pstatus,
+            'done' => $pd, 'total' => $pt, 'pct' => $ppct,
+            'due' => $p->due_date ?: null, 'daysLeft' => $days];
+    }
+    usort($projs, function ($a, $b) {
+        $ad = $a['daysLeft'] === null ? 9999 : $a['daysLeft']; $bd = $b['daysLeft'] === null ? 9999 : $b['daysLeft'];
+        return $ad <=> $bd;
+    });
+    // tickets εξέλιξη
+    $tkOpenRows = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->when(!$FULL, function ($q) use ($adminId) { $q->where('flag', $adminId); })
+        ->orderByDesc('lastreply')->get(['id', 'tid', 'title', 'status']);
+    $tkOpen = count($tkOpenRows);
+    $drill['ticketsOpen'] = $tkOpenRows->map(function ($t) {
+        return ['type' => 'ticket', 'id' => (int) $t->id, 'title' => '#' . $t->tid . ' ' . $t->title, 'sub' => $t->status];
+    })->all();
+    $tkClosedRows = Capsule::table('tbltickets')->where('status', 'Closed')
+        ->whereBetween('lastreply', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
+        ->when(!$FULL, function ($q) use ($adminId) { $q->where('flag', $adminId); })
+        ->orderByDesc('lastreply')->get(['id', 'tid', 'title', 'lastreply']);
+    $tkClosedP = count($tkClosedRows);
+    $drill['ticketsClosed'] = $tkClosedRows->map(function ($t) {
+        return ['type' => 'ticket', 'id' => (int) $t->id, 'title' => '#' . $t->tid . ' ' . $t->title, 'sub' => 'έκλεισε ' . substr($t->lastreply, 0, 10)];
+    })->all();
+    out(['period' => $period, 'from' => $ps, 'to' => $pe, 'full' => $FULL,
+        'stats' => ['newProjects' => $newProj, 'bugs' => $bugsOpen, 'deadlines' => $dueThis, 'completed' => $doneThis,
+            'ticketsOpen' => $tkOpen, 'ticketsClosed' => $tkClosedP],
+        'drill' => $drill, 'roster' => $roster, 'projects' => array_slice($projs, 0, 20)]);
+
+/* ═══════════ 🔗 Δημόσιο link project για πελάτη (χωρίς credentials) ═══════════ */
+case 'share_info':
+case 'share_save':
+case 'share_revoke':
+case 'share_reply':
+    $pid = (int) ($_GET['project'] ?? $_POST['project'] ?? ($in['project'] ?? 0));
+    $proj = $pid ? Capsule::table('mod_cpm_projects')->where('id', $pid)->first() : null;
+    if (!$proj) { fail('project', 404); }
+    // δικαίωμα: full ή ορατότητα έργου
+    $canShare = $FULL || in_array($pid, Db::visibleProjectIds($adminId), true);
+    if (!$canShare) { fail('forbidden', 403); }
+    $mkUrl = function ($tok) use ($pid) {
+        $host = $_SERVER['HTTP_HOST'] ?? 'my.cloudon.gr';
+        return 'https://' . $host . '/project/share.php?p=' . $pid . '&t=' . $tok;
+    };
+    $row = Capsule::table('mod_cpm_project_shares')->where('project_id', $pid)->first();
+
+    if ($action === 'share_save') {
+        $exp = trim($in['expires_at'] ?? '');
+        $exp = preg_match('/^\d{4}-\d{2}-\d{2}$/', $exp) ? $exp . ' 23:59:59' : null;
+        $canC = !empty($in['can_comment']) ? 1 : 0;
+        $rotate = !empty($in['rotate']);
+        if ($row && !$rotate) {
+            Capsule::table('mod_cpm_project_shares')->where('id', $row->id)
+                ->update(['expires_at' => $exp, 'can_comment' => $canC, 'revoked' => 0]);
+            $tok = $row->token;
+        } else {
+            $tok = bin2hex(random_bytes(20));
+            if ($row) {
+                Capsule::table('mod_cpm_project_shares')->where('id', $row->id)
+                    ->update(['token' => $tok, 'expires_at' => $exp, 'can_comment' => $canC, 'revoked' => 0]);
+            } else {
+                Capsule::table('mod_cpm_project_shares')->insert(['project_id' => $pid, 'token' => $tok,
+                    'expires_at' => $exp, 'can_comment' => $canC, 'revoked' => 0, 'views' => 0,
+                    'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+            }
+        }
+        logActivity("CNP: project share link " . ($rotate ? 'rotated' : 'saved') . " #$pid by admin $adminId");
+        out(['url' => $mkUrl($tok), 'token' => $tok, 'expires_at' => $exp, 'can_comment' => $canC, 'revoked' => 0]);
+    }
+
+    if ($action === 'share_revoke') {
+        if ($row) { Capsule::table('mod_cpm_project_shares')->where('id', $row->id)->update(['revoked' => 1]); }
+        out(['ok' => true]);
+    }
+
+    if ($action === 'share_reply') {                 // απάντηση ομάδας στο thread του πελάτη
+        $body = trim($in['body'] ?? '');
+        if ($body === '') { fail('empty', 422); }
+        Capsule::table('mod_cpm_share_comments')->insert(['project_id' => $pid, 'author' => Db::adminName($adminId),
+            'body' => mb_substr($body, 0, 2000), 'from_team' => 1, 'admin_id' => $adminId,
+            'created_at' => date('Y-m-d H:i:s')]);
+        out(['ok' => true]);
+    }
+
+    // share_info
+    $comments = Capsule::table('mod_cpm_share_comments')->where('project_id', $pid)
+        ->orderBy('created_at')->get()->map(function ($c) {
+            return ['author' => $c->author, 'body' => $c->body, 'team' => (int) $c->from_team, 'at' => $c->created_at];
+        })->all();
+    out(['exists' => (bool) $row,
+        'url' => $row ? $mkUrl($row->token) : null,
+        'expires_at' => $row && $row->expires_at ? substr($row->expires_at, 0, 10) : null,
+        'can_comment' => $row ? (int) $row->can_comment : 0,
+        'revoked' => $row ? (int) $row->revoked : 0,
+        'views' => $row ? (int) $row->views : 0,
+        'last_view' => $row ? $row->last_view : null,
+        'comments' => $comments]);
+
+case 'agenda':                          // 🗒 Ανοιχτά projects & tickets — αναλυτικά για meeting
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $today0 = date('Y-m-d');
+    // ---- Ανοιχτά projects (αναλυτικά) ----
+    $projects = [];
+    foreach (($FULL ? Db::projects(false) : Db::projectsFor($adminId, false)) as $p) {
+        if (in_array($p->pstatus, ['done'], true)) { continue; }
+        [$pd, $pt, $ppct] = Db::projectProgress($p->id);
+        $lastUpd = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->max('updated_at');
+        $nextT = Capsule::table('mod_cpm_tasks as t')->where('t.project_id', $p->id)
+            ->whereNotIn('t.status_id', $doneIds)
+            ->orderByRaw('t.priority DESC')->orderByRaw('t.due_date IS NULL, t.due_date ASC')
+            ->first(['t.title', 't.assignee', 't.due_date']);
+        $todos = Capsule::table('mod_cpm_project_todos')->where('project_id', $p->id)
+            ->whereNull('done_at')->orderBy('sort')->orderBy('id')->limit(5)->pluck('title')->all();
+        $todoTotal = Capsule::table('mod_cpm_project_todos')->where('project_id', $p->id)->count();
+        $todoDone = Capsule::table('mod_cpm_project_todos')->where('project_id', $p->id)->whereNotNull('done_at')->count();
+        $openTasks = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->whereNotIn('status_id', $doneIds)->count();
+        $ownerIds = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->whereNotIn('status_id', $doneIds)
+            ->whereNotNull('assignee')->distinct()->pluck('assignee')->all();
+        $owners = array_values(array_filter(array_map(function ($id) { return $id ? Db::adminName((int) $id) : null; }, $ownerIds)));
+        $spentMins = (int) Capsule::table('mod_cpm_timelogs as tl')->join('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
+            ->where('t.project_id', $p->id)->where('tl.running', 0)->sum('tl.minutes');
+        $days = $p->due_date ? (int) floor((strtotime($p->due_date) - time()) / 86400) : null;
+        $staleD = $lastUpd ? (int) floor((time() - strtotime($lastUpd)) / 86400) : null;
+        $projects[] = ['id' => (int) $p->id, 'name' => $p->name, 'kind' => $p->kind ?? 'dept',
+            'client' => $p->clientid ? clientLabel($p->clientid) : null, 'clientid' => (int) $p->clientid,
+            'health' => $p->health, 'pstatus' => $p->pstatus,
+            'done' => $pd, 'total' => $pt, 'pct' => $ppct, 'openTasks' => $openTasks,
+            'todoDone' => $todoDone, 'todoTotal' => $todoTotal, 'pendingTodos' => $todos,
+            'due' => $p->due_date ?: null, 'daysLeft' => $days,
+            'lastUpdate' => $lastUpd ? substr($lastUpd, 0, 10) : null, 'staleDays' => $staleD,
+            'owners' => $owners, 'spentMins' => $spentMins, 'budget' => $p->budget ? (float) $p->budget : null,
+            'next' => $nextT ? ['title' => $nextT->title, 'who' => $nextT->assignee ? Db::adminName((int) $nextT->assignee) : null,
+                'due' => $nextT->due_date ?: null] : null];
+    }
+    usort($projects, function ($a, $b) {
+        $ad = $a['daysLeft'] === null ? 9999 : $a['daysLeft']; $bd = $b['daysLeft'] === null ? 9999 : $b['daysLeft'];
+        return $ad <=> $bd;
+    });
+    // ---- Ανοιχτά tickets (αναλυτικά) ----
+    $cats = cnp_ticket_cats();
+    $areaN = []; foreach ($cats['area'] as $a) { $areaN[$a['id']] = $a; }
+    $causeN = []; foreach ($cats['cause'] as $c) { $causeN[$c['id']] = $c; }
+    $depN = [];
+    foreach (Capsule::table('tblticketdepartments')->get(['id', 'name']) as $dp) { $depN[(int) $dp->id] = $dp->name; }
+    $tickets = [];
+    $tq = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled']);
+    if (!$FULL) { $tq->where('flag', $adminId); }
+    foreach ($tq->orderByRaw("FIELD(urgency,'High','Medium','Low')")->orderBy('lastreply')->get() as $tk) {
+        $lastRep = Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderByDesc('id')->first(['admin', 'date']);
+        $waitUs = !$lastRep ? true : (trim((string) $lastRep->admin) === '');   // πελάτης απάντησε τελευταίος → περιμένει εμάς
+        $cl = Capsule::table('mod_cpm_ticket_class')->where('ticketid', $tk->id)->first(['area_id', 'cause_id', 'note']);
+        $cid = $tk->userid ? clientLabel($tk->userid) : ($tk->name ?: 'Guest');
+        $tickets[] = ['id' => (int) $tk->id, 'tid' => $tk->tid, 'title' => $tk->title,
+            'client' => $cid, 'dept' => $depN[(int) $tk->did] ?? '—', 'status' => $tk->status,
+            'urgency' => $tk->urgency, 'assignee' => $tk->flag ? Db::adminName((int) $tk->flag) : null,
+            'age' => (int) floor((time() - strtotime($tk->date)) / 86400),
+            'idle' => (int) floor((time() - strtotime($tk->lastreply ?: $tk->date)) / 86400),
+            'waitUs' => $waitUs,
+            'area' => $cl && $cl->area_id && isset($areaN[$cl->area_id]) ? $areaN[$cl->area_id] : null,
+            'cause' => $cl && $cl->cause_id && isset($causeN[$cl->cause_id]) ? $causeN[$cl->cause_id] : null,
+            'note' => $cl->note ?? null];
+    }
+    out(['projects' => $projects, 'tickets' => $tickets,
+        'counts' => ['projects' => count($projects), 'tickets' => count($tickets),
+            'waitUs' => count(array_filter($tickets, function ($t) { return $t['waitUs']; }))]]);
+
+case 'version':
+    $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
+    $b6 = (string) Capsule::table('mod_cpm_tasks')->count();
+    $c6 = (string) Capsule::table('tbltickets')->max('lastreply');
+    $d6 = (string) Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)->max('id');
+    $e6 = (string) Capsule::table('mod_cpm_comments')->max('id');
+    $f6 = (string) Capsule::table('mod_cpm_leads')->max('updated_at');
+    Db::setPref($adminId, 'last_seen', (string) time());
+    $reads6 = [];
+    foreach (Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->get() as $r6) {
+        $reads6[$r6->channel] = (int) $r6->last_id;
+    }
+    $chatUnread = 0;
+    foreach (Capsule::table('mod_cpm_chat')->where('admin_id', '!=', $adminId)
+        ->groupBy('channel')->get(['channel', Capsule::raw('MAX(id) m')]) as $g6) {
+        if (!cnp_chat_access($g6->channel, $adminId)) {
+            continue;
+        }
+        if ((int) $g6->m > ($reads6[$g6->channel] ?? 0)) {
+            $chatUnread += Capsule::table('mod_cpm_chat')->where('channel', $g6->channel)
+                ->where('admin_id', '!=', $adminId)->where('id', '>', $reads6[$g6->channel] ?? 0)->count();
+        }
+    }
+    $g6chat = (string) Capsule::table('mod_cpm_chat')->max('id');
+    out(['v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
+        'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread]);
+
+/* ---- αναζήτηση πελάτη (autocomplete) ---- */
+case 'client_search':
+    $q = trim($_GET['q'] ?? '');
+    $res = [];
+    if (mb_strlen($q) >= 2) {
+        $cq = Capsule::table('tblclients')->limit(12);
+        if (ctype_digit($q)) {
+            $cq->where('id', (int) $q);
+        } else {
+            $like = '%' . $q . '%';
+            $cq->where(function ($w) use ($like) {
+                $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+                  ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
+            });
+        }
+        foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname']) as $c) {
+            $res[] = ['id' => (int) $c->id, 'label' => ($c->companyname ?: trim($c->firstname . ' ' . $c->lastname)) . ' (#' . $c->id . ')'];
+        }
+    }
+    out(['results' => $res]);
+
+default:
+    fail('unknown action', 404);
+}

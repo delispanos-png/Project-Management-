@@ -181,6 +181,17 @@ function hetznercloud_TestConnection(array $params)
 function hetznercloud_CreateAccount(array $params)
 {
     try {
+        // Multi-project: pin this service to its target project BEFORE any API
+        // call, so Helper::api() uses the right token. Don't clobber an existing
+        // pin (retry / already-imported service).
+        $serviceId = (int) ($params['serviceid'] ?? 0);
+        $targetPid = Helper::targetProjectForCreate($params);
+        $pinnedPid = Helper::instanceProjectId($serviceId);
+        if (!$pinnedPid && $targetPid) {
+            Helper::recordInstance($serviceId, $targetPid, null);
+            $pinnedPid = $targetPid;
+        }
+
         $api = Helper::api($params);
         $name = Helper::remoteServerName($params);
 
@@ -202,6 +213,7 @@ function hetznercloud_CreateAccount(array $params)
         $byName = $api->findServerByName($name);
         if ($byName) {
             Helper::saveServerId($params, $byName['id']);
+            Helper::recordInstance($serviceId, $pinnedPid ?: $targetPid, $byName['id']);
             hetznercloud_persistFromServer($params, $byName);
             Helper::resetStock($params);
             return 'success';
@@ -294,6 +306,7 @@ function hetznercloud_CreateAccount(array $params)
         }
         $serverId = $server['id'];
         Helper::saveServerId($params, $serverId);
+        Helper::recordInstance($serviceId, $pinnedPid ?: $targetPid, $serverId);
         $rootPassword = $res['root_password'] ?? null;
 
         // Assign the pre-created Extra IPs to the new server.

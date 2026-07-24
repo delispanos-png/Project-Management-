@@ -359,6 +359,64 @@ select.form-control { border-radius: 70px; }
 .hz-tile-v{font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15}
 .hz-tile-l{font-size:11px;color:var(--slate-300);margin-top:4px;text-transform:uppercase;letter-spacing:.03em}
 .hz-tile--alert .hz-tile-v{color:var(--warn)}
+/* Payment reliability (συνέπεια πληρωμών) — face + donut gauge + last payment */
+.hz-payrel{padding:20px 24px;border-radius:var(--radius-lg);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700)}
+.hz-payrel-top{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.hz-payrel--ok{--rc:var(--ok)}
+.hz-payrel--warn{--rc:var(--warn)}
+.hz-payrel--bad{--rc:var(--bad)}
+.hz-payrel-face{font-size:46px;line-height:1;color:var(--rc);flex:0 0 auto}
+.hz-payrel-gauge{--pct:0;width:96px;height:96px;flex:0 0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;background:conic-gradient(var(--rc) calc(var(--pct)*1%),color-mix(in srgb,var(--text) 12%,transparent) 0)}
+.hz-payrel-gauge-in{width:72px;height:72px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center}
+.hz-payrel-pct{font-size:21px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+.hz-payrel-body{flex:1;min-width:150px;display:flex;flex-direction:column;gap:3px}
+.hz-payrel-label{font-size:17px;font-weight:700;color:var(--rc)}
+.hz-payrel-sub{font-size:13px;color:var(--slate-300)}
+.hz-payrel-last{flex:0 0 auto;text-align:right;display:flex;flex-direction:column;gap:2px;padding-left:22px;border-left:1px solid var(--slate-700)}
+.hz-payrel-last-l{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--slate-300)}
+.hz-payrel-last-v{font-size:18px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+.hz-payrel-last-amt{font-size:13px;font-weight:700;color:var(--ok)}
+@media (max-width:640px){.hz-payrel-last{text-align:left;border-left:none;padding-left:0;border-top:1px solid var(--slate-700);padding-top:12px;width:100%}}
+/* open-balance aging chart (from which month, how it escalates) */
+.hz-open{margin-top:18px;padding-top:16px;border-top:1px solid var(--slate-700)}
+.hz-open-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
+.hz-open-l{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--slate-300)}
+.hz-open-total{font-size:22px;font-weight:800;color:var(--warn);font-variant-numeric:tabular-nums}
+.hz-open-chart{display:flex;align-items:flex-end;gap:6px;border-bottom:1px solid var(--slate-700);padding-bottom:6px}
+.hz-open-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:7px}
+.hz-open-track{height:90px;width:100%;display:flex;align-items:flex-end;justify-content:center}
+.hz-open-bar{width:100%;max-width:32px;height:calc(var(--h) * 0.9px);min-height:3px;border-radius:5px 5px 0 0;background:color-mix(in srgb,var(--warn) 42%,transparent);transition:filter .14s ease}
+.hz-open-bar--over{background:var(--warn)}
+.hz-open-bar:hover{filter:brightness(1.15)}
+.hz-open-x{font-size:10px;color:var(--slate-300);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* attention + health folded INTO the payments card (reclaims standalone space) */
+.hz-payrel-alert{display:flex;align-items:center;gap:14px;margin-top:16px;padding-top:16px;border-top:1px solid var(--slate-700)}
+.hz-payrel-foot{display:flex;align-items:center;gap:8px;margin:16px 0 0;padding-top:14px;border-top:1px solid var(--slate-700);font-size:13px;font-weight:600}
+.hz-payrel>.hz-payrel-alert:first-child,.hz-payrel>.hz-open:first-child,.hz-payrel>.hz-payrel-foot:first-child{margin-top:0;padding-top:0;border-top:none}
+/* support contract — prepaid time + SLA home card */
+.hz-portal a.sc-home{display:flex;flex-wrap:wrap;align-items:center;gap:24px;padding:20px 24px;border-radius:var(--radius-lg);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);text-decoration:none;color:inherit;transition:border-color .14s ease,transform .14s ease}
+.hz-portal a.sc-home:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--brand) 50%,transparent)}
+.hz-portal a.sc-home.sc-home--low{border-color:color-mix(in srgb,var(--warn) 55%,transparent)}
+.hz-portal a.sc-home.sc-home--empty{border-color:color-mix(in srgb,var(--bad) 60%,transparent)}
+.sc-home-main{display:flex;align-items:center;gap:16px;flex:0 0 auto}
+.sc-home-ic{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-size:22px;background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--blue-300)}
+.sc-home--low .sc-home-ic{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.sc-home--empty .sc-home-ic{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.sc-home-v{display:block;font-size:26px;font-weight:800;line-height:1.1}
+.sc-home--low .sc-home-v{color:var(--warn)}
+.sc-home--empty .sc-home-v{color:var(--bad)}
+.sc-home-l{display:block;font-size:12px;color:var(--slate-300);margin-top:2px}
+.sc-home-sla{flex:1;min-width:220px;display:flex;flex-direction:column;gap:5px}
+.sc-home-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;border-bottom:1px dashed var(--slate-700);padding-bottom:5px}
+.sc-home-row:last-child{border-bottom:none;padding-bottom:0}
+.sc-home-k{color:var(--slate-300)}
+.sc-home-val{font-weight:700}
+.sc-pill{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+.sc-pill--p1{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.sc-pill--p2{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.sc-home-go{flex:0 0 auto;font-size:13px;font-weight:600;color:var(--blue-300)}
+.sc-home-go .fas{font-size:11px;margin-left:4px}
+@media(max-width:640px){.sc-home-go{width:100%}}
 /* P4 quick */
 .hz-quick{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:26px;padding-top:18px;border-top:1px solid var(--slate-700)}
 .hz-quick a{font-size:13px;color:var(--slate-300)}
@@ -392,6 +450,14 @@ select.form-control { border-radius: 70px; }
 .hz-svc-price{font-size:13px;font-weight:600;white-space:nowrap;text-align:right}
 .hz-svc-price small{display:block;font-weight:400;color:var(--slate-300);font-size:11px}
 .hz-services--full{margin-top:8px}
+/* services status filter (default: Active) */
+.hz-svc-filter{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.hz-flt{border:1px solid var(--slate-700);background:transparent;color:var(--slate-300);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:border-color .14s ease,color .14s ease,background .14s ease}
+.hz-flt:hover{border-color:var(--brand);color:var(--text)}
+.hz-flt.is-active{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
+.hz-flt-n{opacity:.7;font-weight:700;margin-left:2px}
+.hz-flt.is-active .hz-flt-n{opacity:.95}
+.hz-svc-empty{text-align:center;color:var(--slate-300);padding:34px 0;font-size:14px}
 
 /* Invoice status badges (Dashboard 2.0). */
 .hz-badge--paid{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}.hz-badge--paid .hz-dot{background:var(--ok)}
@@ -588,7 +654,7 @@ select.form-control { border-radius: 70px; }
 /* department cell → small avatar-ish icon + label (message feel) */
 .hz-portal #tableTicketsList tbody td:first-child{color:#9fb6c9!important;font-size:13.5px;font-weight:600;position:relative;padding-left:64px!important;}
 .hz-portal #tableTicketsList tbody td:first-child::before{
-  content:"\f4ad";font-family:"Font Awesome 5 Free";font-weight:900;
+  content:"\f3ff";font-family:"Font Awesome 5 Pro","Font Awesome 5 Free";font-weight:900;
   position:absolute;left:22px;top:50%;transform:translateY(-50%);
   width:34px;height:34px;border-radius:50%;
   background:linear-gradient(135deg,#0e2c49,#0b2740);color:#3fb9ff;
@@ -603,22 +669,22 @@ select.form-control { border-radius: 70px; }
 /* -- R8.5 — status-aware avatar icon+color per ticket row -------------- */
 /* (id + status class → higher specificity than the base ::before) */
 .hz-portal #tableTicketsList tbody tr.status-open td:first-child::before{
-  content:"\f2b6";color:#63d69d!important;border-color:rgba(31,157,87,.55)!important;
+  content:"\f3ff";color:#63d69d!important;border-color:rgba(31,157,87,.55)!important;
   background:linear-gradient(135deg,rgba(31,157,87,.24),rgba(31,157,87,.10))!important;}
 .hz-portal #tableTicketsList tbody tr.status-answered td:first-child::before{
-  content:"\f3e5";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
+  content:"\f3ff";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
   background:linear-gradient(135deg,rgba(0,151,228,.24),rgba(0,151,228,.10))!important;}
 .hz-portal #tableTicketsList tbody tr.status-customer-reply td:first-child::before{
-  content:"\f4ad";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
+  content:"\f3ff";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
   background:linear-gradient(135deg,rgba(235,163,52,.24),rgba(235,163,52,.10))!important;}
 .hz-portal #tableTicketsList tbody tr.status-in-progress td:first-child::before{
-  content:"\f017";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
+  content:"\f3ff";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
   background:linear-gradient(135deg,rgba(0,151,228,.24),rgba(0,151,228,.10))!important;}
 .hz-portal #tableTicketsList tbody tr.status-on-hold td:first-child::before{
-  content:"\f28b";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
+  content:"\f3ff";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
   background:linear-gradient(135deg,rgba(235,163,52,.24),rgba(235,163,52,.10))!important;}
 .hz-portal #tableTicketsList tbody tr.status-closed td:first-child::before{
-  content:"\f058";color:#9fb6c9!important;border-color:rgba(146,180,209,.28)!important;
+  content:"\f3ff";color:#9fb6c9!important;border-color:rgba(146,180,209,.28)!important;
   background:rgba(146,180,209,.10)!important;}
 /* subtle status-colored left edge on the card (respects the rounded corner) */
 .hz-portal #tableTicketsList tbody tr.status-open td:first-child{box-shadow:inset 4px 0 0 rgba(31,157,87,.85);}
@@ -627,6 +693,43 @@ select.form-control { border-radius: 70px; }
 .hz-portal #tableTicketsList tbody tr.status-in-progress td:first-child{box-shadow:inset 4px 0 0 rgba(0,151,228,.85);}
 .hz-portal #tableTicketsList tbody tr.status-on-hold td:first-child{box-shadow:inset 4px 0 0 rgba(235,163,52,.85);}
 .hz-portal #tableTicketsList tbody tr.status-closed td:first-child{box-shadow:inset 4px 0 0 rgba(146,180,209,.45);}
+
+/* -- R8.7 — triage chips (κρισιμότητα / αναμονή / SLA / VIP) ----------- */
+.hz-portal #tableTicketsList tbody .hz-tk-flags{
+  display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:9px;}
+.hz-portal #tableTicketsList tbody .hz-fl{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+  padding:3px 10px;border-radius:999px;line-height:1.5;
+  border:1px solid transparent;white-space:nowrap;}
+.hz-portal #tableTicketsList tbody .hz-fl i{font-size:10px;opacity:.95;}
+/* priority */
+.hz-portal #tableTicketsList tbody .hz-prio--high{
+  color:#ff9e90!important;background:rgba(224,67,54,.16);border-color:rgba(224,67,54,.48);}
+.hz-portal #tableTicketsList tbody .hz-prio--medium{
+  color:#f2bd68!important;background:rgba(235,163,52,.14);border-color:rgba(235,163,52,.42);}
+.hz-portal #tableTicketsList tbody .hz-prio--low{
+  color:#8fd6b0!important;background:rgba(31,157,87,.14);border-color:rgba(31,157,87,.40);}
+/* needs-reply (ball is in our court) */
+.hz-portal #tableTicketsList tbody .hz-fl--need{
+  color:#6ec8ff!important;background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.48);}
+/* overdue (SLA breach) — strongest cue, gentle pulse */
+.hz-portal #tableTicketsList tbody .hz-fl--overdue{
+  color:#ff8a7a!important;background:rgba(224,67,54,.22);border-color:rgba(224,67,54,.65);
+  animation:hzOverduePulse 2.4s ease-in-out infinite;}
+@keyframes hzOverduePulse{0%,100%{box-shadow:0 0 0 0 rgba(224,67,54,.30);}50%{box-shadow:0 0 0 5px rgba(224,67,54,0);}}
+/* waiting time (muted) */
+.hz-portal #tableTicketsList tbody .hz-fl--wait{
+  color:#9fb6c9!important;background:rgba(146,180,209,.10);border-color:rgba(146,180,209,.28);
+  text-transform:none;letter-spacing:0;}
+/* VIP (gold) */
+.hz-portal #tableTicketsList tbody .hz-fl--vip{
+  color:#ffd479!important;background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);}
+/* priority customer (support contract) */
+.hz-portal #tableTicketsList tbody .hz-fl--contract{
+  color:#c9a6ff!important;background:rgba(126,87,194,.18);border-color:rgba(126,87,194,.55);}
+@media (prefers-reduced-motion:reduce){
+  .hz-portal #tableTicketsList tbody .hz-fl--overdue{animation:none;}}
 
 /* -- R8.6 — viewticket conversation → chat bubbles --------------------- */
 .hz-portal .ticket-reply{max-width:80%;margin:0 0 20px!important;padding:0!important;border:none!important;
@@ -656,3 +759,63 @@ select.form-control { border-radius: 70px; }
 .hz-portal .ticket-reply .attachments a{color:#5cc0f5!important;}
 /* R8.6 fix — staff .type pill had low-contrast purple bg → plain muted text */
 .hz-portal .ticket-reply .type{background:transparent!important;padding:0!important;border:none!important;color:#9db2c3!important;}
+
+/* ===== Dashboard KPI cards (clickable, per-section) ===== */
+.hz-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.hz-kpi{display:flex;align-items:center;gap:14px;padding:15px 16px;border-radius:var(--radius-lg);
+  background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);
+  color:inherit;text-decoration:none;transition:transform .16s ease,border-color .16s ease,background .16s ease}
+.hz-kpi:hover,.hz-kpi:focus-visible{transform:translateY(-2px);text-decoration:none;
+  border-color:color-mix(in srgb,var(--brand) 55%,transparent);background:color-mix(in srgb,var(--slate-0) 7%,transparent)}
+.hz-kpi:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.hz-kpi-ic{flex:0 0 auto;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-size:19px;color:#fff}
+.hz-kpi-ic--svc{background:#00609a}
+.hz-kpi-ic--dom{background:#1f6d8f}
+.hz-kpi-ic--tik{background:#a06a12}
+.hz-kpi-ic--inv{background:#a83226}
+.hz-kpi-ic--acc{background:#4d5699}
+.hz-kpi-ic--ann{background:#2a7d5e}
+.hz-kpi-meta{display:flex;flex-direction:column;min-width:0;gap:2px}
+.hz-kpi-v{font-size:26px;font-weight:800;line-height:1;letter-spacing:-.02em}
+.hz-kpi-l{font-size:12px;color:var(--slate-300)}
+.hz-kpi-l--strong{font-size:15px;font-weight:700;color:var(--slate-100);line-height:1.15}
+.hz-kpi-sub{font-size:11px;color:var(--slate-300)}
+.hz-kpi-go{margin-left:auto;color:var(--slate-300);font-size:13px;opacity:.6;transition:transform .16s ease,opacity .16s ease}
+.hz-kpi:hover .hz-kpi-go{opacity:1;transform:translateX(3px)}
+.hz-kpi--warn{border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.hz-kpi--warn .hz-kpi-v{color:var(--warn)}
+.hz-kpi--alert{border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
+.hz-kpi--alert .hz-kpi-v{color:var(--bad)}
+@media(max-width:900px){.hz-kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.hz-kpis{grid-template-columns:1fr}}
+
+/* Health indicator as a link (→ services) */
+a.hz-health{text-decoration:none;cursor:pointer}
+a.hz-health:hover,a.hz-health:focus-visible{text-decoration:none;opacity:.85}
+a.hz-health:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
+.hz-health-go{font-size:10px;opacity:.55;transition:transform .16s ease,opacity .16s ease}
+a.hz-health:hover .hz-health-go{opacity:1;transform:translateX(3px)}
+
+/* ===== KPI enhancements: amount+pay, announcements badge, attention pulse, quick buttons ===== */
+.hz-kpi-amt{color:var(--bad);font-weight:800}
+.hz-kpi--warn .hz-kpi-amt{color:var(--warn)}
+.hz-kpi-pay{margin-left:auto;flex:0 0 auto;background:#b23325;color:#fff;font-size:11px;font-weight:800;
+  padding:6px 13px;border-radius:var(--radius-pill);white-space:nowrap;letter-spacing:.02em}
+.hz-kpi:hover .hz-kpi-pay{filter:brightness(1.1)}
+.hz-kpi-ic{position:relative}
+.hz-kpi-badge{position:absolute;top:-6px;right:-6px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;
+  background:#c0392b;color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;
+  border:2px solid var(--surface);line-height:1}
+@keyframes hzPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--bad) 15%,transparent)}}
+@keyframes hzPulseWarn{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--warn) 15%,transparent)}}
+.hz-kpi--alert{animation:hzPulse 2.6s ease-in-out infinite}
+.hz-kpi--warn{animation:hzPulseWarn 2.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.hz-kpi--alert,.hz-kpi--warn{animation:none}}
+.hz-quick{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;padding-top:0;border-top:0}
+.hz-quick-btn{display:inline-flex;align-items:center;gap:9px;padding:11px 16px;border-radius:var(--radius-lg);
+  background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);
+  color:var(--slate-100);font-size:13px;font-weight:600;text-decoration:none;transition:transform .16s ease,border-color .16s ease,background .16s ease,color .16s ease}
+.hz-quick-btn i{color:var(--brand);font-size:15px}
+.hz-quick-btn:hover,.hz-quick-btn:focus-visible{text-decoration:none;transform:translateY(-2px);color:#fff;
+  border-color:color-mix(in srgb,var(--brand) 55%,transparent);background:color-mix(in srgb,var(--slate-0) 7%,transparent)}
+.hz-quick-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}

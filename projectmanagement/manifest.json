@@ -1,0 +1,13 @@
+{
+  "name": "CloudOn Projects",
+  "short_name": "Projects",
+  "description": "Project management, CRM & tickets — CloudOn",
+  "start_url": "/projectmanagement/",
+  "scope": "/projectmanagement/",
+  "display": "standalone",
+  "background_color": "#0e1626",
+  "theme_color": "#131e33",
+  "icons": [
+    {"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

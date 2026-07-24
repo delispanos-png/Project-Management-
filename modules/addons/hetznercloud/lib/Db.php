@@ -17,9 +17,33 @@ class Db
 {
     const T_MAP = 'mod_hetzner_map';
     const T_LOG = 'mod_hetzner_log';
+    const T_PROJECTS = 'mod_hetzner_projects';    // one row per Hetzner project (token)
+    const T_INSTANCES = 'mod_hetzner_instances';  // which project a provisioned VM lives in
 
     public static function install()
     {
+        if (!Capsule::schema()->hasTable(self::T_PROJECTS)) {
+            Capsule::schema()->create(self::T_PROJECTS, function ($t) {
+                $t->increments('id');
+                $t->string('name', 100);
+                $t->text('api_token');                 // WHMCS-encrypted (encrypt()/decrypt())
+                $t->boolean('is_primary')->default(false);
+                $t->boolean('enabled')->default(true);
+                $t->integer('sort')->default(0);
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
+        if (!Capsule::schema()->hasTable(self::T_INSTANCES)) {
+            Capsule::schema()->create(self::T_INSTANCES, function ($t) {
+                $t->increments('id');
+                $t->integer('service_id')->unique();   // tblhosting.id
+                $t->integer('project_id')->index();    // mod_hetzner_projects.id
+                $t->unsignedBigInteger('server_id')->nullable(); // Hetzner server id
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
         if (!Capsule::schema()->hasTable(self::T_MAP)) {
             Capsule::schema()->create(self::T_MAP, function ($t) {
                 $t->increments('id');
@@ -45,6 +69,156 @@ class Db
                 $t->text('message');
             });
         }
+
+        // Per-product project override (empty = use primary).
+        if (Capsule::schema()->hasTable(self::T_MAP)
+            && !Capsule::schema()->hasColumn(self::T_MAP, 'project_id')) {
+            Capsule::schema()->table(self::T_MAP, function ($t) {
+                $t->integer('project_id')->nullable()->after('whmcs_pid');
+            });
+        }
+
+        self::migrateSeedPrimary();
+    }
+
+    /**
+     * One-time seed: if no projects exist yet but the legacy single addon
+     * api_token is set, adopt it as the "Primary" project so the existing
+     * single-project setup keeps working unchanged.
+     */
+    public static function migrateSeedPrimary()
+    {
+        try {
+            if (!Capsule::schema()->hasTable(self::T_PROJECTS)) {
+                return;
+            }
+            if (Capsule::table(self::T_PROJECTS)->count() > 0) {
+                return;
+            }
+            $row = Capsule::table('tbladdonmodules')
+                ->where('module', 'hetznercloud')->where('setting', 'api_token')->first();
+            $tok = $row ? trim((string) $row->value) : '';
+            if ($tok === '') {
+                return;
+            }
+            Capsule::table(self::T_PROJECTS)->insert([
+                'name'       => 'Primary',
+                'api_token'  => $tok,          // stored exactly as the addon kept it (encrypted or plain)
+                'is_primary' => 1,
+                'enabled'    => 1,
+                'sort'       => 0,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            // never break activation/output
+        }
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Projects                                                         */
+    /* ---------------------------------------------------------------- */
+
+    public static function projects()
+    {
+        return Capsule::table(self::T_PROJECTS)
+            ->orderBy('is_primary', 'desc')->orderBy('sort')->orderBy('id')->get();
+    }
+
+    public static function enabledProjects()
+    {
+        return Capsule::table(self::T_PROJECTS)->where('enabled', 1)
+            ->orderBy('is_primary', 'desc')->orderBy('sort')->orderBy('id')->get();
+    }
+
+    public static function project($id)
+    {
+        return Capsule::table(self::T_PROJECTS)->where('id', (int) $id)->first();
+    }
+
+    /** The project new orders default to (primary, else first enabled). */
+    public static function primaryProject()
+    {
+        $p = Capsule::table(self::T_PROJECTS)->where('is_primary', 1)->where('enabled', 1)->first();
+        if ($p) {
+            return $p;
+        }
+        return Capsule::table(self::T_PROJECTS)->where('enabled', 1)
+            ->orderBy('sort')->orderBy('id')->first();
+    }
+
+    public static function addProject($name, $encToken)
+    {
+        $first = Capsule::table(self::T_PROJECTS)->count() === 0;
+        return Capsule::table(self::T_PROJECTS)->insertGetId([
+            'name'       => mb_substr(trim($name), 0, 100),
+            'api_token'  => $encToken,
+            'is_primary' => $first ? 1 : 0,   // first project added becomes primary
+            'enabled'    => 1,
+            'sort'       => (int) Capsule::table(self::T_PROJECTS)->max('sort') + 1,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    public static function updateProject($id, array $data)
+    {
+        Capsule::table(self::T_PROJECTS)->where('id', (int) $id)->update($data);
+    }
+
+    public static function deleteProject($id)
+    {
+        Capsule::table(self::T_PROJECTS)->where('id', (int) $id)->delete();
+    }
+
+    /** Make one project the primary (exactly one primary at a time). */
+    public static function setPrimary($id)
+    {
+        Capsule::table(self::T_PROJECTS)->update(['is_primary' => 0]);
+        Capsule::table(self::T_PROJECTS)->where('id', (int) $id)->update(['is_primary' => 1, 'enabled' => 1]);
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Instances (service ↔ project ↔ Hetzner server)                   */
+    /* ---------------------------------------------------------------- */
+
+    public static function instanceForService($serviceId)
+    {
+        return Capsule::table(self::T_INSTANCES)->where('service_id', (int) $serviceId)->first();
+    }
+
+    public static function saveInstance($serviceId, $projectId, $serverId = null)
+    {
+        $serviceId = (int) $serviceId;
+        $data = ['project_id' => (int) $projectId, 'server_id' => $serverId ? (int) $serverId : null];
+        if (Capsule::table(self::T_INSTANCES)->where('service_id', $serviceId)->exists()) {
+            Capsule::table(self::T_INSTANCES)->where('service_id', $serviceId)->update($data);
+        } else {
+            Capsule::table(self::T_INSTANCES)->insert(array_merge($data, [
+                'service_id' => $serviceId, 'created_at' => date('Y-m-d H:i:s'),
+            ]));
+        }
+    }
+
+    /** Resolve the project row a service belongs to (its instance, else primary). */
+    public static function projectForService($serviceId)
+    {
+        $inst = self::instanceForService($serviceId);
+        if ($inst && $inst->project_id) {
+            $p = self::project($inst->project_id);
+            if ($p) {
+                return $p;
+            }
+        }
+        return self::primaryProject();
+    }
+
+    public static function instanceCountByProject()
+    {
+        $out = [];
+        foreach (Capsule::table(self::T_INSTANCES)->select('project_id')
+                     ->selectRaw('COUNT(*) c')->groupBy('project_id')->get() as $r) {
+            $out[(int) $r->project_id] = (int) $r->c;
+        }
+        return $out;
     }
 
     public static function uninstall()
