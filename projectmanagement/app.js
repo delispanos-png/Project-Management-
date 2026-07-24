@@ -453,7 +453,7 @@ async function vBoard(arg) {
   if (!S.project && S.boot.projects[0]) S.project = S.boot.projects[0].id;
   setTop('Board');
   const c = $('#content');
-  if (!S.boot.projects.length) { c.innerHTML = '<div class="empty"><div class="big">${I.folder}</div>Δεν έχεις πρόσβαση σε κανένα project.</div>'; return; }
+  if (!S.boot.projects.length) { c.innerHTML = `<div class="empty"><div class="big">${I.folder}</div>Δεν έχεις πρόσβαση σε κανένα project.</div>`; return; }
   c.innerHTML = `<div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
     <select class="inp" id="projSel" style="max-width:340px">
       ${S.boot.projects.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`).join('')}
@@ -824,7 +824,7 @@ async function vCrm() {
               ${l.value ? `<span class="pill pill-ok" style="font-weight:700">${fmtEur(l.value)}</span>` : ''}
               ${l.source ? `<span class="pill pill-mut">${esc(l.source)}</span>` : ''}
               ${l.next && !sg.closed ? `<span class="${l.next <= today() ? 'pill pill-bad' : ''}">${I.bell} ${dShort(l.next)}</span>` : ''}
-              ${!l.next && !sg.closed ? '<span class="pill pill-warn" title="Χωρίς επόμενη ενέργεια">${I.snow} </span>' : ''}
+              ${!l.next && !sg.closed ? `<span class="pill pill-warn" title="Χωρίς επόμενη ενέργεια">${I.snow} </span>` : ''}
               ${l.client ? '<span class="pill pill-ok">✓ πελάτης</span>' : ''}
               ${sg.key === 'lost' && l.lostReason ? `<span class="pill pill-bad" title="${esc(l.lostReason)}">${I.chat} </span>` : ''}
             </div></div>`).join('')}</div>
@@ -975,7 +975,7 @@ async function vKpi() {
   const c = $('#content');
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(6) + '</div>';
   const d = await api('kpi').catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές.</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές.</div>`; return; }
   const k = d.cards;
   const net = d.month.won - d.month.laborCost - d.month.expenses;
   c.innerHTML = `

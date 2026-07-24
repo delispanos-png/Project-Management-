@@ -123,7 +123,7 @@ function openEvent(ev, ymRefresh) {
     <div style="display:flex;gap:9px;margin-top:13px;flex-wrap:wrap">
       ${!isNew && ev.location && /^https?:\/\//.test(ev.location) ? `<button class="btn" id="evJoin" style="background:var(--ok);color:#fff">${I.video} Συμμετοχή στο meeting</button>` : ''}
       <button class="btn btn-p" id="evSave">Αποθήκευση</button>
-      ${!isNew && ev.canEdit ? '<button class="btn btn-o" id="evDel" style="color:var(--bad)">${I.trash} Διαγραφή</button>' : ''}
+      ${!isNew && ev.canEdit ? `<button class="btn btn-o" id="evDel" style="color:var(--bad)">${I.trash} Διαγραφή</button>` : ''}
     </div>
     ${!isNew && !ev.canEdit ? '<div class="mut" style="font-size:11.5px;margin-top:8px">Μόνο ο δημιουργός ή διαχειριστής μπορεί να το αλλάξει.</div>' : ''}
   </div></div></div>`;
@@ -445,25 +445,30 @@ function clientAuto(inpId, listId, hidId) {
 R.contacts = async function () {
   setTop('CRM', 'Επαφές — leads & πελάτες με CRM δραστηριότητα');
   const c = $('#content');
-  c.innerHTML = crmTabs('contacts') + `<div class="card" style="padding:13px 16px;display:flex;gap:9px">
-    <input class="inp" id="ctQ" placeholder="Αναζήτηση σε leads & πελάτες… (Enter)" style="max-width:340px"></div>
+  c.innerHTML = crmTabs('contacts') + `<div class="card" style="padding:13px 16px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+    <input class="inp" id="ctQ" placeholder="Αναζήτηση σε leads & πελάτες… (Enter)" style="max-width:340px;flex:1">
+    <button class="btn btn-p" id="ctNew">${I.plus} Νέα επαφή</button></div>
     <div id="ctRes">${skel(1, 300)}</div>`;
+  const crm = await api('crm');   // stages για το lead drawer
+  $('#ctNew').onclick = () => openLead(null, crm);
   const load = async q => {
     const d = await api('contacts' + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#ctRes').innerHTML = `<div class="card"><table class="tbl"><thead><tr>
+    $('#ctRes').innerHTML = `<div class="card"><div class="tw" style="overflow-x:auto"><table class="tbl"><thead><tr>
       <th>Επαφή</th><th>Κατάσταση</th><th>Τηλέφωνο</th><th>Email</th><th>Τελ. επαφή</th><th>Follow-up</th><th>Χειριστής</th></tr></thead><tbody>
-      ${d.rows.length ? d.rows.map(r => `<tr ${r.kind === 'lead' ? `data-lead="${r.id}" style="cursor:pointer"` : ''}>
-        <td><b>${esc(r.name)}</b>${r.sub ? ` <span class="mut">${esc(r.sub)}</span>` : ''}</td>
+      ${d.rows.length ? d.rows.map(r => `<tr data-${r.kind}="${r.id}" style="cursor:pointer">
+        <td><b>${esc(r.name)}</b>${r.sub ? ` <span class="mut">${esc(r.sub)}</span>` : ''}
+          <span class="pill pill-mut" style="font-size:9px;margin-left:4px">${r.kind === 'lead' ? 'lead' : 'πελάτης'}</span></td>
         <td><span class="pill" style="background:${r.color}22;color:${r.color}">${esc(r.badge)}</span></td>
         <td>${esc(r.phone || '—')}</td><td>${esc(r.email || '—')}</td>
         <td>${r.last ? dShort(r.last) : '<span class="mut">ποτέ</span>'}</td>
         <td>${r.next ? `<span class="${r.next <= today() ? 'pill pill-bad' : ''}">${I.bell} ${dShort(r.next)}</span>` : '—'}</td>
         <td>${esc(r.who || '—')}</td></tr>`).join('')
-        : '<tr><td colspan="7" class="empty">Τίποτα ακόμη</td></tr>'}</tbody></table></div>`;
-    $$('#ctRes tr[data-lead]').forEach(row => row.onclick = async () => {
-      const dd = await api('crm'); const l = dd.leads.find(x => x.id === +row.dataset.lead);
-      if (l && window.CNP) { window.CNP.go('crm'); setTimeout(() => {}, 0); }
+        : '<tr><td colspan="7" class="empty">Καμία επαφή ακόμη — πάτα «+ Νέα επαφή»</td></tr>'}</tbody></table></div></div>`;
+    $$('#ctRes tr[data-lead]').forEach(row => row.onclick = () => {
+      const l = crm.leads.find(x => x.id === +row.dataset.lead);
+      if (l) openLead(l, crm); else R.contacts();
     });
+    $$('#ctRes tr[data-client]').forEach(row => row.onclick = () => go('client360', +row.dataset.client));
   };
   $('#ctQ').onkeydown = e => { if (e.key === 'Enter') load(e.target.value.trim()); };
   load('');
@@ -478,6 +483,18 @@ R.comms = async function () {
   const kindIco = {call: '📞', email: '✉️', meeting: '🤝', note: '📝'};
   const pending = d.recent.filter(r => r.followup && !r.followupDone && r.followup <= today());
   c.innerHTML = crmTabs('comms') + `
+  <div class="card"><div class="card-h">${I.phone} Καταγραφή επικοινωνίας</div>
+    <div class="card-b" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:180px"><label class="lbl">Πελάτης</label>
+        <input class="inp" id="coCli" list="coCliL" autocomplete="off" placeholder="ψάξε πελάτη…"><datalist id="coCliL"></datalist>
+        <input type="hidden" id="coCliId"></div>
+      <div><label class="lbl">Τύπος</label><select class="inp" id="coKind" style="width:140px">
+        <option value="call">Τηλεφώνημα</option><option value="email">Email</option>
+        <option value="meeting">Συνάντηση</option><option value="note">Σημείωση</option></select></div>
+      <div style="flex:2;min-width:200px"><label class="lbl">Τι ειπώθηκε</label><input class="inp" id="coSum" placeholder="σύνοψη…"></div>
+      <div><label class="lbl">Follow-up</label><input type="date" class="inp" id="coFup" style="width:150px"></div>
+      <button class="btn btn-p" id="coSave">Καταγραφή</button>
+    </div></div>
   ${pending.length ? `<div class="card"><div class="card-h">${I.bell} Εκκρεμή follow-ups (${pending.length})</div>
     ${pending.map(r => `<div class="trow"><span>${kindIco[r.kind] || '📝'}</span>
       <div style="flex:1"><b>${esc(r.who || '—')}</b> — ${esc(r.followupNote || r.summary)}</div>
@@ -493,6 +510,14 @@ R.comms = async function () {
   $$('[data-done]').forEach(b => b.onclick = async () => {
     await api('followup_done', {id: +b.dataset.done}); toast('Ολοκληρώθηκε'); R.comms();
   });
+  clientAuto('coCli', 'coCliL', 'coCliId');
+  $('#coSave').onclick = async () => {
+    const cid = +$('#coCliId').value || 0, sum = $('#coSum').value.trim();
+    if (!cid) { toast('Διάλεξε πελάτη', true); return; }
+    if (!sum) { toast('Γράψε τι ειπώθηκε', true); return; }
+    await api('interaction', {client: cid, kind: $('#coKind').value, summary: sum, followup: $('#coFup').value || null});
+    toast('Καταγράφηκε'); R.comms();
+  };
 };
 
 /* ═════════ ΣΤΟΧΟΙ ΠΡΟΪΟΝΤΩΝ ═════════ */
@@ -501,7 +526,7 @@ R.targets = async function (ym) {
   const c = $('#content');
   c.innerHTML = crmTabs('targets') + skel(1, 300);
   const d = await api('targets' + (ym ? '&ym=' + ym : '')).catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
   const [Y, M] = d.ym.split('-').map(Number);
   const mn = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'][M - 1];
   const fmtYm = (y, m) => y + '-' + String(m).padStart(2, '0');
@@ -650,7 +675,7 @@ R.profit = async function () {
   c.innerHTML = skel(4);
   const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
   const d = await api('profit' + (qs ? '&' + qs : '')).catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
   const tot = d.clients.reduce((a, x) => ({rev: a.rev + x.rev, labor: a.labor + x.labor, exp: a.exp + x.exp}), {rev: 0, labor: 0, exp: 0});
   const net = tot.rev - tot.labor - tot.exp;
   c.innerHTML = `
@@ -771,7 +796,7 @@ R.projects = async function () {
   const cRow = p => `<tr class="${p.archived ? 'mut' : ''}">
     <td><span class="dot" style="background:${p.health ? hC[p.health] : p.color};width:11px;height:11px;margin-right:8px"></span>
       <a href="#/board/${p.id}" style="font-weight:700">${esc(p.name)}</a>
-      ${p.offerId ? '<span class="pill pill-mut" title="Από προσφορά">${I.briefcase} </span>' : ''}</td>
+      ${p.offerId ? `<span class="pill pill-mut" title="Από προσφορά">${I.briefcase} </span>` : ''}</td>
     <td>${esc(p.clientName || '—')}</td>
     <td>${p.pstatus ? `<span class="pill pill-info">${psL[p.pstatus]}</span>` : '—'}</td>
     <td class="${p.due && p.due < today() && p.pstatus !== 'done' ? 'pill pill-bad' : ''}">${p.due ? dShort(p.due) : '—'}</td>
@@ -1025,7 +1050,7 @@ R.crmov = async function () {
     <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(l.name)}</b>
       <span class="mut" style="font-size:11px">${l.assignee ? '· ' + esc(adminName(l.assignee)) : ''}</span></div>
     ${l.value ? `<span class="pill pill-ok">${fmtEur(l.value)}</span>` : ''}
-    ${l.next ? `<span class="pill pill-bad">${I.bell} ${dShort(l.next)}</span>` : '<span class="pill pill-warn">${I.snow} χωρίς ενέργεια</span>'}</div>`;
+    ${l.next ? `<span class="pill pill-bad">${I.bell} ${dShort(l.next)}</span>` : `<span class="pill pill-warn">${I.snow} χωρίς ενέργεια</span>`}</div>`;
   const pctT = d.target > 0 ? Math.min(100, Math.round(d.wonValueMonth / d.target * 100)) : 0;
   c.innerHTML = crmTabs('crmov') + `
   <div class="grid g4" style="margin-bottom:16px">

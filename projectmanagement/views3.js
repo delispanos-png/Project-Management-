@@ -405,7 +405,7 @@ R.settings = async function (sub) {
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:300px"></div>';
   const d = await api('settings_get').catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
   const s = d.settings;
   const onoff = (k, label, descr) => `
     <div class="set-row"><div><b>${label}</b><div class="mut" style="font-size:12px">${descr}</div></div>

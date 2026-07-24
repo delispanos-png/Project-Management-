@@ -166,7 +166,7 @@ R.triage = async function () {
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:340px"></div>';
   const d = await api('triage').catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
   const sm = d.summary;
   const whyChip = (label, v, cls) => v > 0 ? `<span class="pill ${cls}" title="${label}">${label} +${v}</span>` : '';
   c.innerHTML = `
@@ -359,7 +359,7 @@ R.chat = async function () {
       </div>
       ${d.channels.map(ch => `
         <div class="ch-row ${st.ch === ch.id ? 'on' : ''}" data-ch="${ch.id}">
-          ${ch.kind === 'team' ? '<span style="font-size:15px">${I.users} </span>'
+          ${ch.kind === 'team' ? `<span style="font-size:15px">${I.users} </span>`
             : ch.kind === 'group' ? '<span style="font-size:14px">#</span>'
             : `<span class="ch-dot ${ch.status}" title="${ch.status === 'offline' ? 'Offline' : ch.status === 'away' ? 'Away' : 'Online'}${ch.reason ? ' — ' + esc(ch.reason) : ''}"></span>`}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ch.name)}
@@ -528,7 +528,7 @@ R.rootcause = async function (days) {
   const st = R.rootcause._d = days || R.rootcause._d || 90;
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
   const d = await api('rootcause&days=' + st).catch(() => null);
-  if (!d) { c.innerHTML = '<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>'; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
   const pct = d.allTickets ? Math.round(d.totalClassified / d.allTickets * 100) : 0;
   const maxC = Math.max(1, ...d.topCauses.map(x => x.count));
   const aById = {}; d.areas.forEach(a => aById[a.id] = a);
