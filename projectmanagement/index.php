@@ -40,6 +40,7 @@ if ($adminId <= 0) {
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
       color:var(--ink);-webkit-font-smoothing:antialiased;position:relative}
     /* ── aurora orbs ── */
+    .orbs{position:fixed;inset:0;z-index:0;pointer-events:none;will-change:transform;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
     .orb{position:fixed;border-radius:50%;filter:blur(70px);opacity:.5;z-index:0;pointer-events:none;will-change:transform}
     .orb.a{width:520px;height:520px;background:radial-gradient(circle,#0090dd,transparent 70%);top:-160px;left:-120px;animation:drift1 22s ease-in-out infinite}
     .orb.b{width:460px;height:460px;background:radial-gradient(circle,#00d4ff,transparent 70%);bottom:-180px;right:-120px;animation:drift2 26s ease-in-out infinite}
@@ -52,8 +53,9 @@ if ($adminId <= 0) {
       background-image:linear-gradient(#7fb8ff 1px,transparent 1px),linear-gradient(90deg,#7fb8ff 1px,transparent 1px);
       background-size:46px 46px;mask-image:radial-gradient(circle at 50% 45%,#000 0%,transparent 70%)}
     /* ── content ── */
-    .wrap{position:relative;z-index:2;width:100%;max-width:620px;padding:32px 26px;text-align:center}
-    .logo{width:88px;height:88px;border-radius:26px;margin:0 auto 26px;display:flex;align-items:center;justify-content:center;
+    .wrap{position:relative;z-index:2;width:100%;max-width:620px;padding:32px 26px;text-align:center;perspective:800px}
+    .logo-wrap{width:88px;margin:0 auto 26px;transition:transform .18s ease-out;transform-style:preserve-3d}
+    .logo{width:88px;height:88px;border-radius:26px;display:flex;align-items:center;justify-content:center;
       background:linear-gradient(135deg,#28c0ff,#0072ad);color:#fff;font-size:46px;font-weight:800;
       box-shadow:0 20px 50px rgba(0,144,221,.55),inset 0 2px 6px rgba(255,255,255,.35);
       animation:pop .7s cubic-bezier(.2,.8,.2,1) both,float 5s ease-in-out 1s infinite}
@@ -64,6 +66,8 @@ if ($adminId <= 0) {
       -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
       animation:shine 6s linear infinite}
     .tag{color:#a9bad6;font-size:clamp(15px,2.4vw,18px);line-height:1.55;margin:0 auto 30px;max-width:460px}
+    .rot{display:inline-block;min-width:104px;text-align:left;color:var(--cyan);font-weight:800;
+      transition:opacity .25s ease,transform .25s ease}
     .feats{display:flex;flex-wrap:wrap;gap:11px;justify-content:center;margin:0 auto 34px;max-width:540px}
     .feat{display:flex;align-items:center;gap:9px;padding:11px 15px;border-radius:13px;font-size:13.5px;font-weight:600;
       color:#d3e2f7;background:rgba(255,255,255,.045);border:1px solid rgba(140,180,255,.14);backdrop-filter:blur(6px)}
@@ -89,12 +93,12 @@ if ($adminId <= 0) {
     @media (prefers-reduced-motion:reduce){*{animation:none!important}.rv{opacity:1;transform:none}}
     </style></head>
     <body>
-    <div class="orb a"></div><div class="orb b"></div><div class="orb c"></div>
+    <div class="orbs"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
     <div class="wrap">
-      <div class="logo">P</div>
+      <div class="logo-wrap rv"><div class="logo">P</div></div>
       <div class="eyebrow rv d1">Έξυπνη διαχείριση έργων</div>
       <h1 class="rv d2">CloudOn Projects</h1>
-      <p class="tag rv d3">Έργα, tickets, πωλήσεις και χρόνος — όλα σε μία έξυπνη πλατφόρμα που κρατά την ομάδα σου συντονισμένη.</p>
+      <p class="tag rv d3">Ένα έξυπνο εργαλείο για <span class="rot" id="rotW">έργα</span></p>
       <div class="feats rv d4">
         <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg> Projects & Kanban</div>
         <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 8.4V6a2 2 0 0 0-2-2H5.4a2 2 0 0 0-2 2v2.4a2 2 0 0 1 0 7.2V18a2 2 0 0 0 2 2h13.2a2 2 0 0 0 2-2v-2.4a2 2 0 0 1 0-7.2Z"/><path d="M9 4v16"/></svg> Tickets & SLA</div>
@@ -105,6 +109,28 @@ if ($adminId <= 0) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
       <div class="note rv d6"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg> Ασφαλής σύνδεση μέσω WHMCS admin (SSO)</div>
     </div>
+    <script>
+    (function(){
+      var reduce = matchMedia('(prefers-reduced-motion:reduce)').matches;
+      // ✨ rotating λέξη
+      var words = ['έργα','tickets','πωλήσεις','χρόνο','SLA','ραντεβού','ομάδες'], i = 0, el = document.getElementById('rotW');
+      if (el && !reduce) setInterval(function(){
+        i = (i + 1) % words.length;
+        el.style.opacity = 0; el.style.transform = 'translateY(9px)';
+        setTimeout(function(){ el.textContent = words[i]; el.style.opacity = 1; el.style.transform = 'none'; }, 250);
+      }, 2100);
+      // 🖱 parallax orbs + 3D tilt λογότυπου
+      if (!reduce && matchMedia('(pointer:fine)').matches) {
+        var orbs = document.querySelector('.orbs'), lw = document.querySelector('.logo-wrap');
+        addEventListener('pointermove', function(e){
+          var x = e.clientX / innerWidth - .5, y = e.clientY / innerHeight - .5;
+          if (orbs) orbs.style.transform = 'translate(' + (x * 32) + 'px,' + (y * 32) + 'px)';
+          if (lw) lw.style.transform = 'rotateY(' + (x * 20) + 'deg) rotateX(' + (-y * 20) + 'deg)';
+        });
+        addEventListener('pointerleave', function(){ if (orbs) orbs.style.transform = 'none'; if (lw) lw.style.transform = 'none'; });
+      }
+    })();
+    </script>
     </body></html><?php
     exit;
 }
