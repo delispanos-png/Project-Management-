@@ -4190,6 +4190,83 @@ case 'agenda':                          // 🗒 Ανοιχτά projects & ticket
         'counts' => ['projects' => count($projects), 'tickets' => count($tickets),
             'waitUs' => count(array_filter($tickets, function ($t) { return $t['waitUs']; }))]]);
 
+/* ═══════ WHMCS: διαχείριση Τμημάτων & Ticket Statuses (full μόνο) ═══════ */
+case 'wh_ticket_manage':
+    if (!$FULL) { fail('forbidden', 403); }
+    $depsW = [];
+    foreach (Capsule::table('tblticketdepartments')->orderBy('order')->get() as $dp) {
+        $depsW[] = ['id' => (int) $dp->id, 'name' => $dp->name, 'email' => $dp->email,
+            'hidden' => (int) $dp->hidden,
+            'tickets' => (int) Capsule::table('tbltickets')->where('did', $dp->id)->count()];
+    }
+    $statW = [];
+    $coreW = ['Open', 'Answered', 'Customer-Reply', 'Closed'];
+    foreach (Capsule::table('tblticketstatuses')->orderBy('sortorder')->get() as $s) {
+        $statW[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color ?: '#888888',
+            'core' => in_array($s->title, $coreW, true) ? 1 : 0,
+            'used' => (int) Capsule::table('tbltickets')->where('status', $s->title)->count()];
+    }
+    out(['depts' => $depsW, 'statuses' => $statW]);
+
+case 'wh_dept_save':
+    if (!$FULL) { fail('forbidden', 403); }
+    $nm = mb_substr(trim($in['name'] ?? ''), 0, 100);
+    if ($nm === '') { fail('Δώσε όνομα τμήματος'); }
+    $em = filter_var(trim($in['email'] ?? ''), FILTER_VALIDATE_EMAIL) ? trim($in['email']) : '';
+    $did = (int) ($in['id'] ?? 0);
+    if ($did) {
+        Capsule::table('tblticketdepartments')->where('id', $did)->update(['name' => $nm, 'email' => $em]);
+    } else {
+        $ord = (int) Capsule::table('tblticketdepartments')->max('order') + 1;
+        Capsule::table('tblticketdepartments')->insert(['name' => $nm, 'email' => $em, 'order' => $ord,
+            'clientsonly' => '', 'piperepliesonly' => '', 'noautoresponder' => '', 'hidden' => '',
+            'host' => '', 'port' => '', 'login' => '', 'password' => '']);
+    }
+    out(['ok' => true]);
+
+case 'wh_dept_del':
+    if (!$FULL) { fail('forbidden', 403); }
+    $did = (int) ($in['id'] ?? 0);
+    if (Capsule::table('tbltickets')->where('did', $did)->exists()) {
+        fail('Το τμήμα έχει tickets — μετακίνησέ τα πρώτα ή κρύψ\' το', 409);
+    }
+    Capsule::table('tblticketdepartments')->where('id', $did)->delete();
+    out(['ok' => true]);
+
+case 'wh_tstatus_save':
+    if (!$FULL) { fail('forbidden', 403); }
+    $ti = mb_substr(trim($in['title'] ?? ''), 0, 60);
+    if ($ti === '') { fail('Δώσε τίτλο status'); }
+    $col = preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#888888';
+    $sid = (int) ($in['id'] ?? 0);
+    if ($sid) {
+        $old = Capsule::table('tblticketstatuses')->where('id', $sid)->value('title');
+        // αν αλλάζει ο τίτλος, μετονόμασε και στα tickets ώστε να μη «χαθούν»
+        if ($old && $old !== $ti) {
+            Capsule::table('tbltickets')->where('status', $old)->update(['status' => $ti]);
+        }
+        Capsule::table('tblticketstatuses')->where('id', $sid)->update(['title' => $ti, 'color' => $col]);
+    } else {
+        $ord = (int) Capsule::table('tblticketstatuses')->max('sortorder') + 1;
+        Capsule::table('tblticketstatuses')->insert(['title' => $ti, 'color' => $col, 'sortorder' => $ord,
+            'showactive' => 1, 'showawaiting' => 0, 'autoclose' => 0]);
+    }
+    out(['ok' => true]);
+
+case 'wh_tstatus_del':
+    if (!$FULL) { fail('forbidden', 403); }
+    $sid = (int) ($in['id'] ?? 0);
+    $st = Capsule::table('tblticketstatuses')->where('id', $sid)->first();
+    if (!$st) { fail('status'); }
+    if (in_array($st->title, ['Open', 'Answered', 'Customer-Reply', 'Closed'], true)) {
+        fail('Βασικό status του WHMCS — δεν διαγράφεται', 409);
+    }
+    if (Capsule::table('tbltickets')->where('status', $st->title)->exists()) {
+        fail('Υπάρχουν tickets με αυτό το status — άλλαξέ τα πρώτα', 409);
+    }
+    Capsule::table('tblticketstatuses')->where('id', $sid)->delete();
+    out(['ok' => true]);
+
 case 'version':
     $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
     $b6 = (string) Capsule::table('mod_cpm_tasks')->count();

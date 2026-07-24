@@ -397,6 +397,7 @@ R.settings = async function (sub) {
     ['users', I.users, 'Χρήστες & πρόσβαση'],
     ['tquotas', I.ticket, 'Πακέτα υποστήριξης'],
     ['tcats', I.tag, 'Κατηγορίες tickets'],
+    ['whticket', I.folder, 'Τμήματα & Status'],
   ];
   const cur = SUBS.find(x => x[0] === st.sub) || SUBS[0];
   st.sub = cur[0];
@@ -477,6 +478,11 @@ R.settings = async function (sub) {
     body = `<div class="grid g2">
       <div class="card"><div class="card-h">${I.box} Περιοχές / Προϊόντα</div><div class="card-b" id="setCatA"><div class="skel" style="height:60px"></div></div></div>
       <div class="card"><div class="card-h">${I.lab} Ρίζες προβλήματος / Επίλυσης</div><div class="card-b" id="setCatC"><div class="skel" style="height:60px"></div></div></div>
+    </div>`;
+  } else if (st.sub === 'whticket') {
+    body = `<div class="grid g2">
+      <div class="card"><div class="card-h">${I.folder} Τμήματα (departments)</div><div class="card-b" id="setDepts"><div class="skel" style="height:60px"></div></div></div>
+      <div class="card"><div class="card-h">${I.ticket} Status tickets <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">σύρε χρώμα · τα βασικά κλειδωμένα</span></div><div class="card-b" id="setStatuses" style="max-height:65vh;overflow:auto"><div class="skel" style="height:60px"></div></div></div>
     </div>`;
   } else if (st.sub === 'users') {
     body = `<div class="grid g2"><div>
@@ -791,6 +797,62 @@ R.settings = async function (sub) {
     };
     render('#setCatA', 'area', tc.area);
     render('#setCatC', 'cause', tc.cause);
+  }
+
+  if (st.sub === 'whticket') {
+    const w = await api('wh_ticket_manage').catch(() => null);
+    if (!w) { $('#setDepts').innerHTML = '<div class="mut">Μόνο για διαχειριστές</div>'; return; }
+    // ── Τμήματα ──
+    $('#setDepts').innerHTML = w.depts.map(dp => `<div class="set-row" data-dp="${dp.id}" style="gap:6px">
+        <input class="inp" data-f="name" value="${esc(dp.name)}" style="flex:1;min-width:90px">
+        <input class="inp" data-f="email" value="${esc(dp.email || '')}" placeholder="email" style="flex:1;min-width:90px;font-size:11.5px">
+        <span class="mut" style="font-size:10.5px;white-space:nowrap" title="tickets">${dp.tickets}${I.ticket}</span>
+        <button class="btn btn-sm btn-o" data-dpsave="${dp.id}">${I.save}</button>
+        <button class="btn btn-sm btn-o" data-dpdel="${dp.id}" style="color:var(--bad)"${dp.tickets ? ' disabled title="έχει tickets"' : ''}>✕</button></div>`).join('') + `
+      <div class="set-row" style="gap:6px"><input class="inp" id="dpNewN" placeholder="Νέο τμήμα…" style="flex:1">
+        <input class="inp" id="dpNewE" placeholder="email (προαιρετικό)" style="flex:1;font-size:11.5px">
+        <button class="btn btn-sm btn-p" id="dpAdd">+</button></div>`;
+    $$('[data-dpsave]', $('#setDepts')).forEach(b => b.onclick = async () => {
+      const r = $(`[data-dp="${b.dataset.dpsave}"]`);
+      await api('wh_dept_save', {id: +b.dataset.dpsave, name: $('[data-f=name]', r).value, email: $('[data-f=email]', r).value});
+      toast('Αποθηκεύτηκε');
+    });
+    $$('[data-dpdel]', $('#setDepts')).forEach(b => b.onclick = async () => {
+      if (b.disabled) return;
+      if (!(await cnpConfirm('Διαγραφή τμήματος;', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
+      await api('wh_dept_del', {id: +b.dataset.dpdel}).then(() => { toast('Διαγράφηκε'); R.settings(); }).catch(e => toast(e.message, true));
+    });
+    $('#dpAdd').onclick = async () => {
+      const n = $('#dpNewN').value.trim(); if (!n) return;
+      await api('wh_dept_save', {id: 0, name: n, email: $('#dpNewE').value.trim()});
+      toast('Προστέθηκε'); R.settings();
+    };
+    // ── Status tickets ──
+    $('#setStatuses').innerHTML = w.statuses.map(s => `<div class="set-row" data-ws="${s.id}" style="gap:6px">
+        <input class="inp" type="color" data-f="color" value="${s.color}" style="width:40px;padding:3px">
+        <input class="inp" data-f="title" value="${esc(s.title)}" ${s.core ? 'readonly title="βασικό WHMCS"' : ''} style="flex:1;${s.core ? 'opacity:.7' : ''}">
+        <span class="mut" style="font-size:10px;white-space:nowrap">${s.used}×</span>
+        ${s.core ? `<span class="pill pill-mut" style="font-size:9px">${I.lock}</span>` : ''}
+        <button class="btn btn-sm btn-o" data-wssave="${s.id}">${I.save}</button>
+        <button class="btn btn-sm btn-o" data-wsdel="${s.id}" style="color:var(--bad)"${s.core || s.used ? ' disabled' : ''}>✕</button></div>`).join('') + `
+      <div class="set-row" style="gap:6px"><input class="inp" type="color" id="wsNewC" value="#0090dd" style="width:40px;padding:3px">
+        <input class="inp" id="wsNewT" placeholder="Νέο status…" style="flex:1">
+        <button class="btn btn-sm btn-p" id="wsAdd">+</button></div>`;
+    $$('[data-wssave]', $('#setStatuses')).forEach(b => b.onclick = async () => {
+      const r = $(`[data-ws="${b.dataset.wssave}"]`);
+      await api('wh_tstatus_save', {id: +b.dataset.wssave, title: $('[data-f=title]', r).value, color: $('[data-f=color]', r).value});
+      toast('Αποθηκεύτηκε');
+    });
+    $$('[data-wsdel]', $('#setStatuses')).forEach(b => b.onclick = async () => {
+      if (b.disabled) return;
+      if (!(await cnpConfirm('Διαγραφή status;', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
+      await api('wh_tstatus_del', {id: +b.dataset.wsdel}).then(() => { toast('Διαγράφηκε'); R.settings(); }).catch(e => toast(e.message, true));
+    });
+    $('#wsAdd').onclick = async () => {
+      const t = $('#wsNewT').value.trim(); if (!t) return;
+      await api('wh_tstatus_save', {id: 0, title: t, color: $('#wsNewC').value});
+      toast('Προστέθηκε'); R.settings();
+    };
   }
 };
 
