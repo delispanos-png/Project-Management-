@@ -522,49 +522,121 @@ R.comms = async function () {
 
 /* ═════════ ΣΤΟΧΟΙ ΠΡΟΪΟΝΤΩΝ ═════════ */
 R.targets = async function (ym) {
-  setTop('CRM', 'Στόχοι προϊόντων — μηνιαίοι στόχοι vs πραγματικές πωλήσεις');
+  setTop('CRM', 'Στόχοι προϊόντων — ανά πωλητή, με πρόοδο');
   const c = $('#content');
   c.innerHTML = crmTabs('targets') + skel(1, 300);
   const d = await api('targets' + (ym ? '&ym=' + ym : '')).catch(() => null);
-  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  if (!d) { c.innerHTML = crmTabs('targets') + `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
   const [Y, M] = d.ym.split('-').map(Number);
   const mn = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'][M - 1];
   const fmtYm = (y, m) => y + '-' + String(m).padStart(2, '0');
+  const col4 = pct => pct === null ? 'var(--mut)' : pct >= 100 ? 'var(--ok)' : pct >= 60 ? 'var(--brand)' : 'var(--warn)';
+  const ring = (pct, cl) => {
+    const r = 24, circ = 2 * Math.PI * r, off = circ * (1 - (pct || 0) / 100);
+    return `<div class="su-ring"><svg width="58" height="58" viewBox="0 0 58 58">
+      <circle cx="29" cy="29" r="${r}" fill="none" stroke="var(--line)" stroke-width="6"/>
+      <circle cx="29" cy="29" r="${r}" fill="none" stroke="${cl}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"/>
+    </svg><div class="v" style="font-size:12px">${pct === null ? '—' : pct + '%'}</div></div>`;
+  };
+  const bar = (pct, cl) => `<div class="bar" style="height:8px"><span style="width:${Math.min(100, pct || 0)}%;background:${cl};display:block;height:100%;border-radius:6px"></span></div>`;
+
   c.innerHTML = crmTabs('targets') + `
-  <div style="display:flex;gap:11px;align-items:center;margin-bottom:14px">
+  <div style="display:flex;gap:11px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
     <button class="btn btn-o btn-sm" id="tgP">←</button><b style="font-size:16px;color:var(--ink)">${mn} ${Y}</b>
     ${d.ym < today().slice(0, 7) ? '<button class="btn btn-o btn-sm" id="tgN">→</button>' : ''}
+    <button class="btn btn-p btn-sm" id="tgAdd" style="margin-left:auto">${I.plus} Νέος στόχος</button>
   </div>
-  <div class="card"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    <select class="inp" id="tgProd" style="max-width:320px">
-      ${d.products.map(p => `<option value="${p.id}">${esc(p.group ? p.group + ' › ' : '')}${esc(p.name)}</option>`).join('')}</select>
-    <input class="inp" type="number" id="tgU" placeholder="τεμ./μήνα" style="width:110px">
-    <input class="inp" type="number" step="0.01" id="tgV" placeholder="€/μήνα" style="width:120px">
-    <button class="btn btn-p btn-sm" id="tgSave">Ορισμός στόχου</button></div></div>
-  <div class="card"><div class="card-h">Πρόοδος</div>
-    <table class="tbl"><thead><tr><th>Προϊόν</th><th>Στόχος</th><th>Πωλήσεις</th><th style="min-width:160px">Πρόοδος</th><th>Αξία</th><th></th></tr></thead><tbody>
-    ${d.targets.length ? d.targets.map(t => {
-      const pct = t.tUnits > 0 ? Math.round(t.units / t.tUnits * 100) : null;
-      return `<tr><td><b>${esc(t.name)}</b></td><td>${t.tUnits}${t.tValue > 0 ? ` <span class="mut">/ ${fmtEur(t.tValue)}</span>` : ''}</td>
-        <td><b>${t.units}</b></td>
-        <td><div class="bar"><span class="${pct >= 100 ? 'ok' : pct >= 60 ? '' : 'warn'}" style="width:${Math.min(100, pct || 0)}%"></span></div>
-          <small class="${pct >= 100 ? 'pill pill-ok' : 'mut'}">${pct === null ? '—' : pct + '%' + (pct >= 100 ? ' 🎉' : '')}</small></td>
-        <td>${fmtEur(t.value)}</td>
-        <td><button class="btn btn-sm btn-o" data-del="${t.id}">✕</button></td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="empty">Δεν έχεις ορίσει στόχους — διάλεξε προϊόν από πάνω</td></tr>'}</tbody></table></div>
-  ${d.other.length ? `<div class="card"><div class="card-h">Πωλήσεις μήνα χωρίς στόχο</div>
-    ${d.other.map(o => `<div class="trow" style="cursor:default"><span style="flex:1">${esc(o.name)}</span>
-      <b>${o.units} τεμ.</b><span class="mut">${fmtEur(o.value)}</span></div>`).join('')}</div>` : ''}`;
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px">
+  ${d.cards.length ? d.cards.map(t => {
+    const pct = t.tUnits > 0 ? Math.round(t.units / t.tUnits * 100) : null;
+    const cl = col4(pct);
+    return `<div class="su-proj" data-tgo="${t.product}" style="align-items:center">
+      <div class="stripe" style="background:${cl}"></div>
+      ${ring(pct === null ? 0 : Math.min(100, pct), cl)}
+      <div class="body">
+        <div class="title">${esc(t.name)}</div>
+        <div class="meta">${t.units} πωλήσεις · <b style="color:var(--ink)">${fmtEur(t.value)}</b></div>
+        <div style="margin-top:6px;font-size:12px">${t.tUnits > 0
+          ? `Στόχος: <b>${t.tUnits}</b> τεμ.${t.tValue > 0 ? ' / ' + fmtEur(t.tValue) : ''} <span style="color:${cl};font-weight:800">${pct}%${pct >= 100 ? ' 🎉' : ''}</span>`
+          : '<span class="mut">χωρίς στόχο — κλικ για ορισμό</span>'}</div>
+        ${t.people.length ? `<div class="mut" style="font-size:11px;margin-top:5px;display:inline-flex;align-items:center;gap:4px">${I.users} ${t.people.length} πωλητ${t.people.length > 1 ? 'ές' : 'ής'}</div>` : ''}
+      </div></div>`;
+  }).join('') : '<div class="empty" style="grid-column:1/-1;padding:34px">Καμία πώληση/στόχος αυτόν τον μήνα — πάτα «Νέος στόχος»</div>'}
+  </div>`;
+
   $('#tgP').onclick = () => R.targets(M === 1 ? fmtYm(Y - 1, 12) : fmtYm(Y, M - 1));
-  const n = $('#tgN'); if (n) n.onclick = () => R.targets(M === 12 ? fmtYm(Y + 1, 1) : fmtYm(Y, M + 1));
-  $('#tgSave').onclick = async () => {
-    await api('save_ptarget', {product: +$('#tgProd').value, units: +$('#tgU').value || 0, value: +$('#tgV').value || 0});
-    toast('Ο στόχος ορίστηκε'); R.targets(d.ym);
-  };
-  $$('[data-del]').forEach(b => b.onclick = async () => {
-    await api('del_ptarget', {id: +b.dataset.del}); toast('Διαγράφηκε'); R.targets(d.ym);
+  const nb = $('#tgN'); if (nb) nb.onclick = () => R.targets(M === 12 ? fmtYm(Y + 1, 1) : fmtYm(Y, M + 1));
+  $('#tgAdd').onclick = () => openTargetDrawer(null, d);
+  $$('[data-tgo]').forEach(x => x.onclick = () => {
+    const card = d.cards.find(t => t.product === +x.dataset.tgo);
+    openTargetDrawer(card, d);
   });
 };
+
+// drill-in: στόχος προϊόντος + ανάλυση/ορισμός ανά πωλητή
+function openTargetDrawer(card, d) {
+  closeDrawer();
+  const isNew = !card;
+  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const dr = document.createElement('div'); dr.className = 'drawer';
+  const col4 = pct => pct === null ? 'var(--mut)' : pct >= 100 ? 'var(--ok)' : pct >= 60 ? 'var(--brand)' : 'var(--warn)';
+  const bar = (pct, cl) => `<div class="bar" style="height:8px;flex:1"><span style="width:${Math.min(100, pct || 0)}%;background:${cl};display:block;height:100%;border-radius:6px"></span></div>`;
+  const pid = card ? card.product : 0;
+  const ovPct = card && card.tUnits > 0 ? Math.round(card.units / card.tUnits * 100) : null;
+  // map πωλητών: actual ανά admin
+  const actBy = {}; if (card) { card.people.forEach(p => actBy[p.admin] = p); }
+  const tgtBy = {}; if (card) { card.people.forEach(p => { if (p.tUnits || p.tValue) tgtBy[p.admin] = p; }); }
+  dr.innerHTML = `
+  <div class="drawer-h"><h2>${isNew ? 'Νέος στόχος προϊόντος' : esc(card.name)}</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-b">
+    ${isNew ? `<div class="card"><div class="card-b">
+      <label class="lbl">Προϊόν</label>
+      <select class="inp" id="tgProd">${d.products.map(p => `<option value="${p.id}">${esc(p.group ? p.group + ' › ' : '')}${esc(p.name)}</option>`).join('')}</select>
+    </div></div>` : `<div class="card"><div class="card-b" style="display:flex;align-items:center;gap:16px">
+      <div style="flex:1"><div class="mut" style="font-size:12px">Σύνολο μήνα</div>
+        <div style="font-size:22px;font-weight:800;color:var(--ink)">${card.units} πωλήσεις · ${fmtEur(card.value)}</div>
+        ${card.tUnits > 0 ? `<div style="display:flex;align-items:center;gap:9px;margin-top:8px">${bar(ovPct, col4(ovPct))}<b style="color:${col4(ovPct)}">${ovPct}%</b></div>
+          <div class="mut" style="font-size:11px;margin-top:3px">Στόχος: ${card.tUnits} τεμ.${card.tValue > 0 ? ' / ' + fmtEur(card.tValue) : ''}</div>` : ''}</div>
+    </div></div>`}
+
+    <div class="card"><div class="card-h">${I.target} Εταιρικός στόχος (σύνολο)</div><div class="card-b">
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div><label class="lbl">Τεμάχια/μήνα</label><input class="inp" type="number" id="ovU" value="${card ? (card.tUnits || '') : ''}" style="width:120px"></div>
+        <div><label class="lbl">€/μήνα</label><input class="inp" type="number" step="0.01" id="ovV" value="${card ? (card.tValue || '') : ''}" style="width:130px"></div>
+        <button class="btn btn-p" id="ovSave">Αποθήκευση</button></div>
+    </div></div>
+
+    ${!isNew ? `<div class="card"><div class="card-h">${I.users} Στόχος ανά πωλητή <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">απόδοση από το lead που έκλεισε</span></div>
+      <div class="card-b" id="tgSellers">
+      ${d.sellers.map(s => {
+        const a = actBy[s.id] || {units: 0, value: 0};
+        const tg = tgtBy[s.id] || {tUnits: 0, tValue: 0};
+        const pct = tg.tUnits > 0 ? Math.round(a.units / tg.tUnits * 100) : null;
+        const cl = col4(pct);
+        return `<div style="display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap">
+          <b style="width:130px;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name)}</b>
+          <input class="inp" type="number" data-su="${s.id}" value="${tg.tUnits || ''}" placeholder="στόχος τεμ." style="width:90px;font-size:12px" title="στόχος τεμαχίων">
+          <span class="mut" style="font-size:11.5px;white-space:nowrap">έκανε <b style="color:var(--ink)">${a.units}</b> · ${fmtEur(a.value)}</span>
+          <div style="flex:1;min-width:80px;display:flex;align-items:center;gap:6px">${bar(pct, cl)}<span style="font-size:11px;font-weight:700;color:${cl};width:38px;text-align:right">${pct === null ? '' : pct + '%'}</span></div>
+          <button class="btn btn-sm btn-o" data-susave="${s.id}">${I.save}</button></div>`;
+      }).join('')}
+      ${card.unattrUnits ? `<div class="mut" style="font-size:11.5px;margin-top:8px">${I.alert} <b>${card.unattrUnits}</b> πωλήσεις (${fmtEur(card.unattrValue)}) χωρίς πωλητή — δεν υπάρχει lead που να τις αποδίδει.</div>` : ''}
+    </div></div>` : ''}
+  </div>`;
+  document.body.append(ovl, dr);
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  $('#dX').onclick = closeDrawer;
+  const prodId = () => pid || +$('#tgProd', dr).value;
+  $('#ovSave', dr).onclick = async () => {
+    await api('save_ptarget', {product: prodId(), admin: 0, units: +$('#ovU', dr).value || 0, value: +$('#ovV', dr).value || 0});
+    toast('Στόχος αποθηκεύτηκε'); closeDrawer(); R.targets(d.ym);
+  };
+  $$('[data-susave]', dr).forEach(b => b.onclick = async () => {
+    const u = +$(`[data-su="${b.dataset.susave}"]`, dr).value || 0;
+    await api('save_ptarget', {product: prodId(), admin: +b.dataset.susave, units: u, value: 0});
+    toast('Στόχος πωλητή αποθηκεύτηκε'); closeDrawer(); R.targets(d.ym);
+  });
+}
 
 /* ═════════ ΠΕΛΑΤΗΣ 360° ═════════ */
 R.client360 = async function (cid) {

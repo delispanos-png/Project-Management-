@@ -1249,31 +1249,64 @@ case 'targets':
         fail('forbidden', 403);
     }
     $ym = preg_match('/^\d{4}-\d{2}$/', $_GET['ym'] ?? '') ? $_GET['ym'] : date('Y-m');
-    $sales = Db::productSalesForMonth($ym);
-    $targets = [];
-    $targeted = [];
-    foreach (Db::productTargets() as $t) {
-        [$u, $v] = $sales[(int) $t->product_id] ?? [0, 0.0];
-        $targets[] = ['id' => (int) $t->id, 'product' => (int) $t->product_id, 'name' => $t->product_name,
-            'tUnits' => (int) $t->target_units, 'tValue' => (float) $t->target_value,
-            'units' => $u, 'value' => $v];
-        $targeted[(int) $t->product_id] = 1;
+    $from = $ym . '-01';
+    $to = date('Y-m-t', strtotime($from));
+    // client → πωλητής (από το lead που έκλεισε: assignee)
+    $lead2seller = [];
+    foreach (Capsule::table('mod_cpm_leads')->where('clientid', '>', 0)->where('assignee', '>', 0)
+        ->orderBy('id')->get(['clientid', 'assignee']) as $l) {
+        $lead2seller[(int) $l->clientid] = (int) $l->assignee;   // τελευταίο lead κερδίζει
     }
-    $other = [];
-    if (count($sales)) {
-        $names = Capsule::table('tblproducts')->whereIn('id', array_keys($sales))->pluck('name', 'id')->all();
-        foreach ($sales as $pid => $sv) {
-            if (!isset($targeted[$pid])) {
-                $other[] = ['name' => $names[$pid] ?? ('#' . $pid), 'units' => $sv[0], 'value' => $sv[1]];
-            }
+    // πωλήσεις μήνα ανά προϊόν + πωλητή
+    $agg = [];   // pid => sellerId(0=χωρίς) => [units, value]
+    foreach (Capsule::table('tblhosting')->whereBetween('regdate', [$from, $to])
+        ->whereNotIn('domainstatus', ['Cancelled', 'Fraud'])->get(['packageid', 'userid', 'amount']) as $r) {
+        $pid = (int) $r->packageid;
+        $seller = $lead2seller[(int) $r->userid] ?? 0;
+        $agg[$pid][$seller] = $agg[$pid][$seller] ?? [0, 0.0];
+        $agg[$pid][$seller][0]++;
+        $agg[$pid][$seller][1] += (float) $r->amount;
+    }
+    // στόχοι ανά προϊόν + πωλητή
+    $tg = [];   // pid => adminId => [tUnits, tValue, id]
+    foreach (Capsule::table('mod_cpm_product_targets')->get() as $t) {
+        $tg[(int) $t->product_id][(int) $t->admin_id] = [(int) $t->target_units, (float) $t->target_value, (int) $t->id];
+    }
+    $pids = array_values(array_unique(array_merge(array_keys($agg), array_keys($tg))));
+    $pnames = $pids ? Capsule::table('tblproducts')->whereIn('id', $pids)->pluck('name', 'id')->all() : [];
+    $cards = [];
+    foreach ($pids as $pid) {
+        $ovT = $tg[$pid][0] ?? [0, 0.0, 0];               // εταιρικός στόχος (admin 0)
+        $ou = 0; $ov = 0.0;
+        foreach (($agg[$pid] ?? []) as $uv) { $ou += $uv[0]; $ov += $uv[1]; }
+        $people = [];
+        $set = array_unique(array_merge(array_keys($tg[$pid] ?? []), array_keys($agg[$pid] ?? [])));
+        foreach ($set as $a) {
+            if ($a === 0) { continue; }
+            $t = $tg[$pid][$a] ?? [0, 0.0, 0];
+            $s = $agg[$pid][$a] ?? [0, 0.0];
+            $people[] = ['admin' => $a, 'name' => Db::adminName($a),
+                'tUnits' => $t[0], 'tValue' => $t[1], 'tid' => $t[2], 'units' => $s[0], 'value' => $s[1]];
         }
+        usort($people, function ($x, $y) { return $y['value'] <=> $x['value']; });
+        $un = $agg[$pid][0] ?? [0, 0.0];
+        $cards[] = ['product' => $pid, 'name' => $pnames[$pid] ?? ('#' . $pid),
+            'tUnits' => $ovT[0], 'tValue' => $ovT[1], 'tid' => $ovT[2], 'units' => $ou, 'value' => $ov,
+            'people' => $people, 'unattrUnits' => $un[0], 'unattrValue' => $un[1]];
+    }
+    usort($cards, function ($x, $y) { return $y['value'] <=> $x['value']; });
+    $sellers = [];
+    foreach (Db::admins() as $a) {
+        $nm = trim($a->firstname . ' ' . $a->lastname);
+        if (preg_match('/\b(bot|test|debug|cnptest|system)\b/i', $nm)) { continue; }
+        $sellers[] = ['id' => (int) $a->id, 'name' => $nm];
     }
     $products = [];
     $gNames = Capsule::table('tblproductgroups')->pluck('name', 'id')->all();
     foreach (Capsule::table('tblproducts')->where('hidden', 0)->orderBy('name')->get(['id', 'name', 'gid']) as $p) {
         $products[] = ['id' => (int) $p->id, 'name' => $p->name, 'group' => $gNames[(int) $p->gid] ?? ''];
     }
-    out(['ym' => $ym, 'targets' => $targets, 'other' => $other, 'products' => $products]);
+    out(['ym' => $ym, 'cards' => $cards, 'sellers' => $sellers, 'products' => $products]);
 
 case 'save_ptarget':
     if (!$FULL) {
@@ -1283,7 +1316,16 @@ case 'save_ptarget':
     if (!$pid || !Capsule::table('tblproducts')->where('id', $pid)->exists()) {
         fail('product');
     }
-    Db::saveProductTarget($pid, (int) ($in['units'] ?? 0), (float) ($in['value'] ?? 0));
+    $adm = (int) ($in['admin'] ?? 0);   // 0 = εταιρικός στόχος, >0 = ανά πωλητή
+    $u = max(0, (int) ($in['units'] ?? 0));
+    $v = round((float) ($in['value'] ?? 0), 2);
+    if ($u === 0 && $v == 0.0) {   // κενό = διαγραφή αυτού του στόχου
+        Capsule::table('mod_cpm_product_targets')->where('product_id', $pid)->where('admin_id', $adm)->delete();
+        out(['ok' => true, 'deleted' => true]);
+    }
+    Capsule::table('mod_cpm_product_targets')->updateOrInsert(
+        ['product_id' => $pid, 'admin_id' => $adm],
+        ['target_units' => $u, 'target_value' => $v, 'created_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true]);
 
 case 'del_ptarget':

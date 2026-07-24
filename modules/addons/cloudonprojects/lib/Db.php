@@ -332,10 +332,12 @@ class Db
         if (!$s->hasTable('mod_cpm_product_targets')) {
             $s->create('mod_cpm_product_targets', function ($t) {
                 $t->increments('id');
-                $t->integer('product_id')->unsigned()->unique(); // tblproducts.id
+                $t->integer('product_id')->unsigned(); // tblproducts.id
+                $t->integer('admin_id')->unsigned()->default(0);
                 $t->integer('target_units')->default(0);         // στόχος τεμαχίων / μήνα
                 $t->decimal('target_value', 12, 2)->default(0);  // στόχος € / μήνα (0 = χωρίς)
                 $t->timestamp('created_at')->nullable();
+                            $t->unique(['product_id', 'admin_id']);
             });
         }
 
