@@ -6,6 +6,11 @@
 
 require_once __DIR__ . '/boot.php';
 
+// Ποτέ cache του HTML shell → ο browser παίρνει πάντα το τρέχον ?v= των scripts (τέλος τα «δεν βλέπω αλλαγές»)
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+
 $adminId = pm_admin_id();
 if ($adminId <= 0) {
     // δεν υπάρχει έγκυρο app session → οδηγίες εισόδου μέσω WHMCS admin
