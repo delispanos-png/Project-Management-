@@ -666,13 +666,21 @@ R.settings = async function (sub) {
         ${uu.roles.map(r => `<option value="${r.id}" ${r.id === rid ? 'selected' : ''}>${esc(r.name)}${r.full ? ' ★' : ''}</option>`).join('')}</select>`;
     $('#setUsers').innerHTML = `
       <div class="mut" style="font-size:11.5px;margin-bottom:9px">★ = ρόλος πλήρους πρόσβασης (διαχειριστής). Οι υπόλοιποι βλέπουν μόνο ό,τι τους έχει ανατεθεί.</div>` +
-      uu.users.map(u => `<div class="set-row" data-ur="${u.id}" style="${u.disabled ? 'opacity:.45' : ''}">
+      uu.users.map(u => `<div style="border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:5px;${u.disabled ? 'opacity:.45' : ''}">
+       <div class="set-row" data-ur="${u.id}" style="border:0">
         <div style="flex:1;min-width:0"><b>${esc(u.username)}</b> <span class="pill ${u.full ? 'pill-info' : ''}" style="font-size:9.5px">${u.full ? 'Διαχειριστής' : 'Χειριστής'}</span>
           <div class="mut" style="font-size:11px">${esc(u.name || '—')} · ${esc(u.email || '—')}</div></div>
         ${roleSel(u.roleid, `data-urole="${u.id}"`)}
         <button class="btn btn-sm btn-o" data-upass="${u.id}" title="Νέος κωδικός">${I.key} </button>
         <button class="btn btn-sm btn-o" data-utog="${u.id}" title="${u.disabled ? 'Ενεργοποίηση' : 'Απενεργοποίηση'}">${u.disabled ? '▶' : '⏸'}</button>
         <button class="btn btn-sm btn-o" data-udel="${u.id}" title="Διαγραφή" style="color:var(--bad)">${I.trash}</button>
+       </div>
+       ${u.full ? '<div class="mut" style="font-size:10.5px;padding:0 0 3px 4px">Διαχειριστής — βλέπει όλα τα κυκλώματα</div>'
+         : `<div style="display:flex;gap:5px;padding:0 0 3px 4px;flex-wrap:wrap;align-items:center">
+           <span class="mut" style="font-size:10.5px">Ειδικότητες:</span>
+           ${[['sales', 'Πωλήσεις'], ['support', 'Υποστήριξη'], ['projects', 'Έργα']].map(([k, l]) =>
+             `<label class="pill ${u.areas.includes(k) ? 'pill-info' : 'pill-mut'}" style="font-size:10px;cursor:pointer;display:inline-flex;gap:3px;align-items:center">
+               <input type="checkbox" data-uarea="${u.id}:${k}" ${u.areas.includes(k) ? 'checked' : ''} style="width:12px;height:12px">${l}</label>`).join('')}</div>`}
       </div>`).join('') + `
       <div class="set-row" style="flex-wrap:wrap;gap:7px;border-top:2px solid var(--line);padding-top:12px">
         <input class="inp" id="unUser" placeholder="username" style="width:110px">
@@ -692,6 +700,12 @@ R.settings = async function (sub) {
       const u = uu.users.find(x => x.id === +sel.dataset.urole);
       await api('user_save', {id: u.id, roleid: +sel.value, email: u.email, first: (u.name || '').split(' ')[0] || '', last: (u.name || '').split(' ').slice(1).join(' ')});
       toast('Ο ρόλος άλλαξε'); R.settings();
+    });
+    $$('[data-uarea]').forEach(chk => chk.onchange = async () => {
+      const uid = +chk.dataset.uarea.split(':')[0];
+      const areas = $$(`[data-uarea^="${uid}:"]`).filter(x => x.checked).map(x => x.dataset.uarea.split(':')[1]);
+      await api('user_areas_save', {id: uid, areas});
+      toast('Οι ειδικότητες ενημερώθηκαν — ο χρήστης θα τις δει στην επόμενη είσοδο/refresh');
     });
     $$('[data-upass]').forEach(b => b.onclick = async () => {
       const u = uu.users.find(x => x.id === +b.dataset.upass);

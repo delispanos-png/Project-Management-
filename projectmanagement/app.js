@@ -116,18 +116,24 @@ const typeOf = id => S.boot.types.find(t => t.id === +id);
 /* ───────── shell ───────── */
 function renderShell() {
   const me = S.boot.me;
+  const has = a => me.full || (me.areas || []).includes(a);   // ειδικότητες/πρόσβαση
   const nav = [
-    ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['standup', I.clipboard, 'Standup'], ['inbox', I.ticket, 'Tickets'], ['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'],
-      ['list', I.list, 'Λίστα tasks'], ['calendar', I.cal, 'Ημερολόγιο'], ['time', I.clock, 'Χρόνος'], ['knowledge', I.book, 'Γνώση'], ['chat', I.chat || I.ticket, 'Chat'],
-      ['remotebook', I.monitor, 'Απομακρυσμένες']]],
-    ['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]],
+    ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['standup', I.clipboard, 'Standup'],
+      ['calendar', I.cal, 'Ημερολόγιο'], ['chat', I.chat || I.ticket, 'Chat'], ['remotebook', I.monitor, 'Απομακρυσμένες']]],
   ];
+  if (has('support')) {
+    nav.push(['Υποστήριξη', [['inbox', I.ticket, 'Tickets'], ['knowledge', I.book, 'Γνώση'], ['client360', I.user, 'Πελάτης 360°']]]);
+  }
+  if (has('projects')) {
+    nav.push(['Έργα', [['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'], ['list', I.list, 'Λίστα tasks'],
+      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects']]]);
+  }
+  if (has('sales')) {
+    nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
+  }
   if (me.full) {
-    nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'], ['client360', I.user, 'Πελάτης 360°'],
-      ['profit', I.coin, 'Κερδοφορία'], ['teams', I.tree, 'Ομάδες'], ['projects', I.folder, 'Projects'],
-      ['settings', I.gear, 'Ρυθμίσεις']]]);
-  } else {
-    nav.push(['Οργάνωση', [['client360', I.user, 'Πελάτης 360°'], ['teams', I.tree, 'Ομάδες'], ['projects', I.folder, 'Projects']]]);
+    nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
+      ['profit', I.coin, 'Κερδοφορία'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
   }
   $('#app').innerHTML = `
   <div class="shell">

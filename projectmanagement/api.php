@@ -156,6 +156,18 @@ function cnp_can_reply_clients($adminId, $isFull)
     }
 }
 
+/** Ειδικότητες/πρόσβαση χειριστή: full → όλα· αλλιώς pref 'areas' (comma) ή default. */
+function cnp_admin_areas($adminId, $isFull)
+{
+    if ($isFull) {
+        return ['sales', 'support', 'projects', 'admin'];
+    }
+    $raw = Db::pref($adminId, 'areas', '');
+    $a = array_values(array_filter(array_map('trim', explode(',', $raw))));
+    // χωρίς ανάθεση → default (backward-compat): όλα εκτός Διοίκησης
+    return $a ?: ['sales', 'support', 'projects'];
+}
+
 /** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
 function cnp_chat_access($ch, $adminId)
 {
@@ -232,7 +244,7 @@ case 'boot':
             'req' => ['assignee' => (bool) $ty->req_assignee, 'due' => (bool) $ty->req_due, 'est' => (bool) $ty->req_estimate]];
     }
     out(['me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
-            'canReply' => cnp_can_reply_clients($adminId, $FULL)],
+            'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL)],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
             ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0)) : 0,
@@ -2680,15 +2692,27 @@ case 'users':                          // διαχείριση χρηστών (�
         (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', 'full_access_roles')->value('value') ?: '1'))));
     out(['users' => array_map(function ($a) use ($fullRoles) {
+            $isFullU = in_array((int) $a->roleid, $fullRoles, true);
             return ['id' => (int) $a->id, 'username' => $a->username,
                 'name' => trim($a->firstname . ' ' . $a->lastname), 'email' => $a->email,
                 'roleid' => (int) $a->roleid, 'disabled' => (bool) $a->disabled,
-                'full' => in_array((int) $a->roleid, $fullRoles, true)];
+                'full' => $isFullU, 'areas' => cnp_admin_areas((int) $a->id, $isFullU)];
         }, Capsule::table('tbladmins')->orderBy('disabled')->orderBy('username')->get()->all()),
         'roles' => array_map(function ($r) use ($fullRoles) {
             return ['id' => (int) $r->id, 'name' => $r->name,
                 'full' => in_array((int) $r->id, $fullRoles, true)];
         }, Capsule::table('tbladminroles')->orderBy('id')->get()->all())]);
+
+case 'user_areas_save':                 // ειδικότητες/πρόσβαση χειριστή (full μόνο)
+    if (!$FULL) {
+        fail('perm', 403);
+    }
+    $uid7 = (int) ($in['id'] ?? 0);
+    if (!$uid7 || !Capsule::table('tbladmins')->where('id', $uid7)->exists()) { fail('user'); }
+    $valid = ['sales', 'support', 'projects', 'admin'];
+    $areas7 = array_values(array_intersect($valid, (array) ($in['areas'] ?? [])));
+    Db::setPref($uid7, 'areas', implode(',', $areas7));
+    out(['ok' => true, 'areas' => $areas7]);
 
 case 'user_save':
     if (!$FULL) {
