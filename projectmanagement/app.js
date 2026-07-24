@@ -88,6 +88,9 @@ Object.assign(I, {
   alert: _mkI('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
 });
 
+// stat tile (icon + αριθμός + label) — ενιαίο στυλ dashboards
+const suStat = (ic, n, l, col, extra) => `<div class="su-stat" ${extra || ''}><div class="ic" style="background:${col}1a;color:${col}">${ic}</div>
+  <div><div class="n">${n}</div><div class="l">${l}</div></div></div>`;
 const S = {boot: null, view: 'myday', project: 0, theme: localStorage.cnpTheme || 'light'};
 document.documentElement.dataset.theme = S.theme;
 
@@ -722,10 +725,10 @@ async function vMyDay() {
     </div></div>` : ''}
   <div class="card" id="myNext" style="display:none;margin-bottom:14px;border-left:4px solid var(--brand)"></div>
   <div class="grid g4" style="margin-bottom:16px">
-    <div class="stat ${st.tickets ? 'info' : 'ok'}"><b>${st.tickets}</b><small>Tickets μου</small></div>
-    <div class="stat ${st.nearSla ? 'bad' : 'ok'}"><b>${st.nearSla}</b><small>Κοντά σε SLA deadline</small></div>
-    <div class="stat ${d.balls.length ? 'warn' : 'ok'}"><b>${d.balls.length}</b><small>⚡ Απαιτούν ενέργειά μου</small></div>
-    <div class="stat info"><b>${fmtMin(st.minsToday)}</b><small>Χρόνος σήμερα</small></div>
+    ${suStat(I.ticket, st.tickets, 'Tickets μου', st.tickets ? 'var(--brand)' : 'var(--ok)')}
+    ${suStat(I.clock, st.nearSla, 'Κοντά σε SLA', st.nearSla ? 'var(--bad)' : 'var(--ok)')}
+    ${suStat(I.alert, d.balls.length, 'Απαιτούν ενέργειά μου', d.balls.length ? 'var(--warn)' : 'var(--ok)')}
+    ${suStat(I.clock, fmtMin(st.minsToday), 'Χρόνος σήμερα', 'var(--violet)')}
   </div>
   <div class="grid g2">
     <div>
@@ -977,12 +980,12 @@ async function vKpi() {
   const net = d.month.won - d.month.laborCost - d.month.expenses;
   c.innerHTML = `
   <div class="grid g4" style="margin-bottom:6px">
-    <div class="stat ${k.open ? 'info' : 'ok'}"><b>${k.open}</b><small>Ανοιχτά tickets</small></div>
-    <div class="stat ${k.slaOver ? 'bad' : 'ok'}"><b>${k.slaOver}</b><small>Εκτός SLA</small></div>
-    <div class="stat ${k.waiting ? 'warn' : 'ok'}"><b>${k.waiting}</b><small>Περιμένουν απάντηση</small></div>
-    <div class="stat ${k.stale ? 'bad' : 'ok'}"><b>${k.stale}</b><small>Ανοιχτά >7 ημερών</small></div>
-    <div class="stat ok"><b>${k.closedToday}</b><small>Έκλεισαν σήμερα</small></div>
-    <div class="stat ${k.unassigned ? 'warn' : 'ok'}"><b>${k.unassigned}</b><small>Χωρίς ανάθεση</small></div>
+    ${suStat(I.ticket, k.open, 'Ανοιχτά tickets', k.open ? 'var(--brand)' : 'var(--ok)')}
+    ${suStat(I.alert, k.slaOver, 'Εκτός SLA', k.slaOver ? 'var(--bad)' : 'var(--ok)')}
+    ${suStat(I.chat, k.waiting, 'Περιμένουν απάντηση', k.waiting ? 'var(--warn)' : 'var(--ok)')}
+    ${suStat(I.clock, k.stale, 'Ανοιχτά >7 ημερών', k.stale ? 'var(--bad)' : 'var(--ok)')}
+    ${suStat(I.checkSquare, k.closedToday, 'Έκλεισαν σήμερα', 'var(--ok)')}
+    ${suStat(I.user, k.unassigned, 'Χωρίς ανάθεση', k.unassigned ? 'var(--warn)' : 'var(--ok)')}
   </div>
   <div class="grid g2">
     <div class="card"><div class="card-h">${I.trophy} Παραγωγικότητα σήμερα</div>
@@ -1011,7 +1014,7 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-window.CNP = {S, api, esc, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, suStat, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */

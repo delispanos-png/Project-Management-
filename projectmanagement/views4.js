@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, dShort, tShort, today, toast, setTop, go,
+const {S, api, esc, suStat, fmtMin, dShort, tShort, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, I, $, $$} = window.CNP;
 const R = window.R;
 
@@ -171,10 +171,10 @@ R.triage = async function () {
   const whyChip = (label, v, cls) => v > 0 ? `<span class="pill ${cls}" title="${label}">${label} +${v}</span>` : '';
   c.innerHTML = `
   <div class="grid g4" style="margin-bottom:16px">
-    <div class="stat info"><b>${sm.open}</b><small>Ανοιχτά tickets</small></div>
-    <div class="stat ${sm.waiting ? 'warn' : 'ok'}"><b>${sm.waiting}</b><small>Περιμένουν απάντησή μας</small></div>
-    <div class="stat ${sm.slaRisk ? 'bad' : 'ok'}"><b>${sm.slaRisk}</b><small>SLA σε κίνδυνο / εκτός</small></div>
-    <div class="stat ${sm.unassigned ? 'warn' : 'ok'}"><b>${sm.unassigned}</b><small>Χωρίς ανάθεση</small></div>
+    ${suStat(I.ticket, sm.open, 'Ανοιχτά tickets', sm.open ? 'var(--brand)' : 'var(--ok)')}
+    ${suStat(I.chat, sm.waiting, 'Περιμένουν απάντησή μας', sm.waiting ? 'var(--warn)' : 'var(--ok)')}
+    ${suStat(I.alert, sm.slaRisk, 'SLA σε κίνδυνο / εκτός', sm.slaRisk ? 'var(--bad)' : 'var(--ok)')}
+    ${suStat(I.user, sm.unassigned, 'Χωρίς ανάθεση', sm.unassigned ? 'var(--warn)' : 'var(--ok)')}
   </div>
   <div class="card"><div class="card-h">${I.target} Πρόταση ημέρας — με σειρά προτεραιότητας
     <span class="mut" style="margin-left:auto;font-size:11px;font-weight:400">σκορ = κρισιμότητα + αναμονή + SLA + συμβόλαιο + παλαιότητα</span></div>
