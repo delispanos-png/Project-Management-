@@ -1295,6 +1295,52 @@ async function openCampaign(id, listD) {
   });
 }
 
+/* ═════════ REPORTS ΠΩΛΗΣΕΩΝ (Phase 7) ═════════ */
+R.reports = async function () {
+  setTop('CRM', 'Reports — αναλυτικά πωλήσεων');
+  const c = $('#content');
+  c.innerHTML = crmTabs('reports') + skel(4);
+  const d = await api('crm_reports').catch(() => null);
+  if (!d) { c.innerHTML = crmTabs('reports') + `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  const suStat = window.CNP.suStat;
+  const maxF = Math.max(1, ...d.funnel.map(f => f.count));
+  const maxM = Math.max(1, ...d.byMonth.map(m => m.value));
+  const mn = ['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαϊ', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
+  const monLbl = ym => mn[+ym.split('-')[1] - 1];
+  const tblHead = '<tr><th style="text-align:left">.</th><th>Leads</th><th>Won</th><th>Conv</th><th style="text-align:right">Αξία</th></tr>';
+  const row = (label, s) => `<tr><td style="text-align:left">${esc(label)}</td><td style="text-align:center">${s.leads}</td><td style="text-align:center">${s.won}</td><td style="text-align:center"><b style="color:${s.conv >= 30 ? 'var(--ok)' : 'var(--mut)'}">${s.conv}%</b></td><td style="text-align:right">${fmtEur(s.value)}</td></tr>`;
+  c.innerHTML = crmTabs('reports') + `
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:11px;margin-bottom:16px">
+    ${suStat(I.trophy, (d.winRate === null ? '—' : d.winRate + '%'), 'Win rate', '#1f9d57')}
+    ${suStat(I.funnel, fmtEur(d.pipeline), 'Pipeline (ανοιχτά)', '#0097e4')}
+    ${suStat(I.receipt, fmtEur(d.wonValue), 'Έσοδα (won)', '#7b5cd6')}
+    ${suStat(I.clock, (d.avgCloseDays === null ? '—' : d.avgCloseDays + ' ημ.'), 'Μ.Ο. κλεισίματος', '#e0a020')}
+    ${suStat(I.users, d.open, 'Ανοιχτά leads', '#8291a9')}
+  </div>
+  <div class="grid g2" style="gap:14px">
+    <div class="card"><div class="card-h">${I.funnel} Funnel ανά στάδιο</div><div class="card-b">
+      ${d.funnel.map(f => `<div style="margin-bottom:9px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${esc(f.label)}</span><b>${f.count}${f.value > 0 ? ' · ' + fmtEur(f.value) : ''}</b></div>
+        <div class="bar" style="height:9px"><span style="width:${Math.round(f.count / maxF * 100)}%;background:${f.color};display:block;height:100%;border-radius:6px"></span></div></div>`).join('')}
+    </div></div>
+    <div class="card"><div class="card-h">${I.trendUp} Τάση 6 μηνών (έσοδα won)</div><div class="card-b">
+      <div style="display:flex;align-items:flex-end;gap:8px;height:140px;padding-top:8px">
+        ${d.byMonth.map(m => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end">
+          <div style="font-size:10px;font-weight:700;color:var(--ink)">${m.won || ''}</div>
+          <div style="width:70%;background:var(--brand);border-radius:5px 5px 0 0;height:${Math.round(m.value / maxM * 100)}%;min-height:${m.value > 0 ? '4px' : '0'}" title="${fmtEur(m.value)}"></div>
+          <div class="mut" style="font-size:10px">${monLbl(m.ym)}</div></div>`).join('')}
+      </div></div></div>
+  </div>
+  <div class="grid g2" style="gap:14px;margin-top:14px">
+    <div class="card"><div class="card-h">${I.megaphone} Ανά πηγή</div><div class="card-b" style="overflow-x:auto">
+      ${d.bySource.length ? `<table class="tbl" style="width:100%;font-size:12px"><thead>${tblHead.replace('>.<', '>Πηγή<')}</thead><tbody>${d.bySource.map(s => row(s.source, s)).join('')}</tbody></table>` : '<div class="mut" style="font-size:12px">Χωρίς δεδομένα</div>'}
+    </div></div>
+    <div class="card"><div class="card-h">${I.trophy} Ανά πωλητή</div><div class="card-b" style="overflow-x:auto">
+      ${d.bySeller.length ? `<table class="tbl" style="width:100%;font-size:12px"><thead>${tblHead.replace('>.<', '>Πωλητής<')}</thead><tbody>${d.bySeller.map(s => row(s.name, s)).join('')}</tbody></table>` : '<div class="mut" style="font-size:12px">Χωρίς δεδομένα</div>'}
+    </div></div>
+  </div>`;
+};
+
 /* ═════════ ΤΟ ΠΡΟΦΙΛ ΜΟΥ (κάθε χρήστης) ═════════ */
 R.profile = async function () {
   setTop('Το προφίλ μου', 'Στοιχεία, κωδικός, ειδοποιήσεις & δικαιώματα');

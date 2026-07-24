@@ -408,7 +408,7 @@ const cnpPrompt = (body, opts) => cnpDialog(Object.assign({title: '', body, inpu
 
 function crmTabs(act) {
   const tabs = [['crm', I.funnel, 'Funnel'], ['crmov', I.chart, 'Επισκόπηση'], ['contacts', I.users, 'Επαφές'], ['comms', I.phone, 'Επικοινωνίες'], ['campaigns', I.megaphone, 'Καμπάνιες']];
-  if (S.boot.me.full) tabs.push(['targets', I.target, 'Στόχοι προϊόντων']);
+  if (S.boot.me.full) { tabs.push(['targets', I.target, 'Στόχοι προϊόντων'], ['reports', I.chart, 'Reports']); }
   return `<div class="ib-tabs" style="margin-bottom:16px;flex-wrap:wrap;border:0;background:0">
     ${tabs.map(([k, ic, l]) => `<button class="ib-tab ${act === k ? 'on' : ''}" data-crmtab="${k}"><span class="tico">${ic}</span>${l}</button>`).join('')}</div>`;
 }

@@ -4511,6 +4511,54 @@ case 'campaign_remove_lead':
     Capsule::table('mod_cpm_campaign_leads')->where('campaign_id', (int) ($in['campaign'] ?? 0))->where('lead_id', (int) ($in['lead'] ?? 0))->delete();
     out(['ok' => true]);
 
+case 'crm_reports':                      // αναλυτικά reports πωλήσεων (διοίκηση)
+    if (!$FULL) { fail('forbidden', 403); }
+    $sMeta = Db::leadStages();
+    $all = Capsule::table('mod_cpm_leads')->get(['stage', 'value', 'source', 'assignee', 'created_at', 'closed_at']);
+    // funnel ανά στάδιο
+    $funnel = [];
+    foreach ($sMeta as $k => $m) { $funnel[$k] = ['key' => $k, 'label' => $m[0], 'color' => $m[1], 'count' => 0, 'value' => 0.0]; }
+    $wonN = 0; $lostN = 0; $wonVal = 0.0; $pipeline = 0.0; $openN = 0;
+    $closeDays = []; $srcAgg = []; $selAgg = [];
+    foreach ($all as $l) {
+        $st = $l->stage; $v = (float) $l->value;
+        if (isset($funnel[$st])) { $funnel[$st]['count']++; $funnel[$st]['value'] += $v; }
+        $isWon = ($st === 'won'); $isLost = ($st === 'lost');
+        if ($isWon) { $wonN++; $wonVal += $v;
+            if ($l->closed_at && $l->created_at) { $d = (strtotime($l->closed_at) - strtotime($l->created_at)) / 86400; if ($d >= 0) { $closeDays[] = $d; } }
+        } elseif ($isLost) { $lostN++; }
+        else { $openN++; $pipeline += $v; }
+        // ανά πηγή
+        $src = trim($l->source ?? '') ?: '—';
+        if (!isset($srcAgg[$src])) { $srcAgg[$src] = ['source' => $src, 'leads' => 0, 'won' => 0, 'value' => 0.0]; }
+        $srcAgg[$src]['leads']++; if ($isWon) { $srcAgg[$src]['won']++; $srcAgg[$src]['value'] += $v; }
+        // ανά πωλητή
+        $aid = (int) ($l->assignee ?? 0);
+        if ($aid) {
+            if (!isset($selAgg[$aid])) { $selAgg[$aid] = ['admin' => $aid, 'leads' => 0, 'won' => 0, 'value' => 0.0]; }
+            $selAgg[$aid]['leads']++; if ($isWon) { $selAgg[$aid]['won']++; $selAgg[$aid]['value'] += $v; }
+        }
+    }
+    foreach ($srcAgg as &$s) { $s['conv'] = $s['leads'] > 0 ? round($s['won'] / $s['leads'] * 100) : 0; $s['value'] = round($s['value'], 2); } unset($s);
+    foreach ($selAgg as &$s) { $s['name'] = Db::adminName($s['admin']); $s['conv'] = $s['leads'] > 0 ? round($s['won'] / $s['leads'] * 100) : 0; $s['value'] = round($s['value'], 2); } unset($s);
+    usort($srcAgg, fn($a, $b) => $b['value'] <=> $a['value']);
+    $selAgg = array_values($selAgg); usort($selAgg, fn($a, $b) => $b['value'] <=> $a['value']);
+    // τάση 6 μηνών (won ανά μήνα κλεισίματος)
+    $months = [];
+    for ($i = 5; $i >= 0; $i--) { $ym = date('Y-m', strtotime("first day of -$i month")); $months[$ym] = ['ym' => $ym, 'won' => 0, 'value' => 0.0]; }
+    foreach ($all as $l) {
+        if ($l->stage === 'won' && $l->closed_at) { $ym = substr($l->closed_at, 0, 7); if (isset($months[$ym])) { $months[$ym]['won']++; $months[$ym]['value'] += (float) $l->value; } }
+    }
+    foreach ($months as &$m) { $m['value'] = round($m['value'], 2); } unset($m);
+    out([
+        'funnel' => array_values($funnel),
+        'winRate' => ($wonN + $lostN) > 0 ? round($wonN / ($wonN + $lostN) * 100) : null,
+        'won' => $wonN, 'lost' => $lostN, 'open' => $openN,
+        'wonValue' => round($wonVal, 2), 'pipeline' => round($pipeline, 2),
+        'avgCloseDays' => count($closeDays) ? round(array_sum($closeDays) / count($closeDays), 1) : null,
+        'bySource' => array_values($srcAgg), 'bySeller' => $selAgg, 'byMonth' => array_values($months),
+    ]);
+
 case 'lead_timeline':                    // ενιαίο ιστορικό lead (επικοινωνίες + tasks)
     $lid = (int) ($_GET['lead'] ?? 0);
     $ev = [];
