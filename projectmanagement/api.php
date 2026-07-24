@@ -4428,6 +4428,25 @@ case 'lead_task_del':
     Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
+case 'topstats':                         // πάνω μενού: live σφυγμός + κατάσταση διαθεσιμότητας
+    $today = date('Y-m-d');
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $tkIds = Capsule::table('tbltickets')->where('flag', $adminId)->whereNotIn('status', ['Closed', 'Cancelled'])->pluck('id')->all();
+    $tickets = count($tkIds);
+    $sla = 0;
+    try {
+        if ($tickets && Capsule::schema()->hasTable('mod_supportcontracts_tickets')) {
+            $sla = (int) Capsule::table('mod_supportcontracts_tickets')->whereIn('ticketid', $tkIds)
+                ->whereNotNull('sla_due')->whereNull('first_response_at')->where('sla_due', '<', date('Y-m-d H:i:s'))->count();
+        }
+    } catch (\Throwable $e) {
+    }
+    $todayN = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+        ->whereNotNull('due_date')->where('due_date', '<=', $today)->count();
+    $ball = (int) Capsule::table('mod_cpm_tasks')->where('action_user', $adminId)->whereNotIn('status_id', $doneIds)->count();
+    out(['tickets' => $tickets, 'sla' => $sla, 'today' => $todayN, 'ball' => $ball,
+        'status' => Db::pref($adminId, 'chat_status', 'online'), 'reason' => Db::pref($adminId, 'chat_reason', '')]);
+
 case 'lead_products':                    // γραμμές προϊόντων ενός deal
     $lid = (int) ($_GET['lead'] ?? $in['lead'] ?? 0);
     $rows = Capsule::table('mod_cpm_lead_products')->where('lead_id', $lid)->orderBy('id')->get();

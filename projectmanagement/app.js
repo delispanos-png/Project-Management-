@@ -163,13 +163,16 @@ function renderShell() {
     </aside>
     <div class="main">
       <div class="top">
-        <div><h1 id="topTitle"></h1><small id="topSub"></small></div>
+        <div class="top-l"><h1 id="topTitle"></h1><small id="topSub"></small></div>
+        <button class="top-search" id="palBtn" title="Αναζήτηση (Ctrl+K)">${I.search}<span>Αναζήτηση…</span><kbd>Ctrl K</kbd></button>
+        <div class="top-pulse" id="topPulse"></div>
         <div class="top-acts">
-          <button class="btn btn-o btn-ico" id="sideTgl" title="Μεγέθυνση/σμίκρυνση μενού"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
           <button id="remoteChip" style="display:none;border:0;border-radius:99px;background:var(--bad);color:#fff;font-weight:800;padding:7px 14px;cursor:pointer;font-size:12.5px" title="Κλικ για τερματισμό & χρέωση"></button>
-          <button class="btn btn-o btn-sm" id="palBtn" title="Ctrl+K">${I.search} <span class="mut" style="font-size:10px">Ctrl K</span></button>
+          <button class="status-btn" id="statusBtn" title="Κατάσταση διαθεσιμότητας"><span class="dot" id="statusDot"></span><span id="statusLbl">Online</span></button>
+          <button class="btn btn-p btn-sm" id="newBtn" title="Δημιουργία">${I.plus} Νέο</button>
           <div class="bell-wrap"><button class="btn btn-o btn-ico" id="bellBtn" style="position:relative">${I.bell}
             <span class="bell-n" id="bellN" style="display:none"></span></button></div>
+          <button class="btn btn-o btn-ico" id="sideTgl" title="Μεγέθυνση/σμίκρυνση μενού"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         </div>
       </div>
       <div class="content" id="content"></div>
@@ -195,7 +198,62 @@ function renderShell() {
   };
   $('#bellBtn').onclick = toggleBell;
   const pb = $('#palBtn'); if (pb) pb.onclick = () => window.CNP.palette && window.CNP.palette();
+  // ── Πάνω μενού: «+ Νέο» quick-create ──
+  $('#newBtn').onclick = e => {
+    e.stopPropagation();
+    miniMenu($('#newBtn'), [
+      {icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()},
+      {icon: I.target, label: 'Νέο lead', on: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
+      {icon: I.phone, label: 'Νέα επικοινωνία', on: () => go('comms')},
+      {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => go('time')},
+    ]);
+  };
+  // ── Κατάσταση διαθεσιμότητας ──
+  $('#statusBtn').onclick = e => {
+    e.stopPropagation();
+    const opts = [['online', 'Online', 'var(--ok)', ''], ['meeting', 'Σε meeting', '#e0a020', 'Σε meeting'],
+      ['busy', 'Απασχολημένος', '#e0552b', 'Απασχολημένος'], ['offline', 'Offline', '#8291a9', 'Μη διαθέσιμος']];
+    miniMenu($('#statusBtn'), opts.map(([k, lbl, col, reason]) => ({dot: col, label: lbl, on: async () => {
+      await api('chat_status', {status: k === 'online' ? 'online' : 'offline', reason});
+      setStatusUI(k === 'online' ? 'online' : 'offline', lbl, col);
+    }})));
+  };
+  loadTopStats();
+  if (!window._cnpTopTimer) { window._cnpTopTimer = setInterval(loadTopStats, 60000); }
   updateBell(S.boot.unread);
+}
+function setStatusUI(status, lbl, col) {
+  const dot = $('#statusDot'), l = $('#statusLbl'); if (!dot) return;
+  dot.style.background = status === 'online' ? 'var(--ok)' : (col || '#8291a9');
+  l.textContent = status === 'online' ? 'Online' : (lbl || 'Offline');
+}
+async function loadTopStats() {
+  const box = $('#topPulse'); if (!box) return;
+  const d = await api('topstats').catch(() => null); if (!d) return;
+  const rmap = {'Σε meeting': ['Σε meeting', '#e0a020'], 'Απασχολημένος': ['Απασχολημένος', '#e0552b']};
+  if (d.status === 'online') { setStatusUI('online'); }
+  else { const r = rmap[d.reason] || [d.reason || 'Offline', '#8291a9']; setStatusUI('offline', r[0], r[1]); }
+  const chips = [
+    {k: 'inbox', ic: I.ticket, n: d.tickets, lbl: 'tickets', col: '#0097e4'},
+    {k: 'inbox', ic: I.alert, n: d.sla, lbl: 'SLA', col: '#e0552b', warn: 1},
+    {k: 'myday', ic: I.checkSquare, n: d.today, lbl: 'σήμερα', col: '#e0a020'},
+    {k: 'myday', ic: I.zap, n: d.ball, lbl: 'εμένα', col: '#7b5cd6'},
+  ];
+  box.innerHTML = chips.map(c => `<button class="pulse-chip${c.n && c.warn ? ' hot' : ''}${c.n ? '' : ' zero'}" data-pgo="${c.k}" title="${c.lbl}">
+    <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join('');
+  $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => go(b.dataset.pgo));
+}
+function miniMenu(anchor, items) {
+  const ex = $('#miniMenu'); if (ex) { ex.remove(); }
+  const r = anchor.getBoundingClientRect();
+  const m = document.createElement('div'); m.id = 'miniMenu'; m.className = 'mini-menu';
+  m.style.top = (r.bottom + 6) + 'px'; m.style.right = (window.innerWidth - r.right) + 'px';
+  m.innerHTML = items.map((it, i) => `<button class="mini-row" data-i="${i}">${it.dot ? `<span class="dot" style="background:${it.dot}"></span>` : (it.icon || '')}<span>${esc(it.label)}</span></button>`).join('');
+  document.body.appendChild(m);
+  requestAnimationFrame(() => m.classList.add('show'));
+  items.forEach((it, i) => { const b = m.querySelector(`[data-i="${i}"]`); if (b) { b.onclick = () => { m.remove(); if (it.on) { it.on(); } }; } });
+  const closer = e => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', closer); } };
+  setTimeout(() => document.addEventListener('click', closer), 0);
 }
 function updateBell(n) { const b = $('#bellN'); if (!b) return; b.style.display = n ? '' : 'none'; b.textContent = n > 99 ? '99+' : n; }
 async function toggleBell() {
@@ -438,6 +496,7 @@ function go(view, arg) {
   $$('.sitem').forEach(b => b.classList.toggle('on', b.dataset.nav === view));
   const c = $('#content'); c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
   ((window.R && window.R[view]) || vMyDay)(arg);
+  if (typeof loadTopStats === 'function') { loadTopStats(); }
 }
 window.R = window.R || {};
 Object.assign(window.R, {get board() { return vBoard; }, get myday() { return vMyDay; },
