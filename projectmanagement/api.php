@@ -4377,6 +4377,24 @@ case 'lead_task_del':
     Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
+case 'lead_timeline':                    // ενιαίο ιστορικό lead (επικοινωνίες + tasks)
+    $lid = (int) ($_GET['lead'] ?? 0);
+    $ev = [];
+    foreach (Capsule::table('mod_cpm_interactions')->where('lead_id', $lid)->get() as $i) {
+        $ev[] = ['type' => 'interaction', 'kind' => $i->kind, 'text' => $i->summary,
+            'by' => $i->admin_id ? Db::adminName((int) $i->admin_id) : null,
+            'at' => $i->happened_at ?: $i->created_at,
+            'fup' => $i->followup_date && !$i->followup_done ? $i->followup_date : null];
+    }
+    foreach (Capsule::table('mod_cpm_lead_tasks')->where('lead_id', $lid)->get() as $t) {
+        $ev[] = ['type' => 'task', 'kind' => $t->kind, 'text' => $t->title,
+            'by' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
+            'at' => $t->done ? ($t->done_at ?: $t->created_at) : $t->created_at,
+            'done' => (bool) $t->done, 'due' => $t->due_date];
+    }
+    usort($ev, function ($a, $b) { return strcmp($b['at'] ?? '', $a['at'] ?? ''); });
+    out(['events' => array_slice($ev, 0, 60)]);
+
 case 'my_crm_tasks':                     // ανοιχτές CRM εργασίες μου (ή όλων αν full)
     $today = date('Y-m-d');
     $q = Capsule::table('mod_cpm_lead_tasks as t')->join('mod_cpm_leads as l', 'l.id', '=', 't.lead_id')

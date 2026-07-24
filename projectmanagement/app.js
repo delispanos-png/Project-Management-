@@ -923,7 +923,9 @@ function openLead(l, d) {
         <input class="inp" id="iSum" placeholder="τι ειπώθηκε…" style="flex:1;min-width:160px">
         <input type="date" class="inp" id="iFup" style="width:150px" title="follow-up">
         <button class="btn btn-o" id="iSave">Καταγραφή</button>
-      </div></div></div>` : ''}
+      </div></div></div>
+    <div class="card"><div class="card-h">${I.clock} Ιστορικό (timeline)</div><div class="card-b" id="lTimeBox">
+      <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>` : ''}
   </div>`;
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
@@ -1023,6 +1025,19 @@ async function loadLeadExtras(leadId, dr) {
     };
   };
   renderTasks();
+  // timeline (ενιαίο ιστορικό)
+  const kindIcoT = {call: '📞', email: '✉️', meeting: '🤝', note: '📝', todo: '✓'};
+  const loadTimeline = async () => {
+    const tl = await api('lead_timeline&lead=' + leadId);
+    const tb = $('#lTimeBox', dr); if (!tb) return;
+    tb.innerHTML = tl.events.length ? tl.events.map(e => `
+      <div style="display:flex;gap:9px;padding:5px 0;border-bottom:1px dashed var(--line)">
+        <span style="font-size:14px;flex:none">${kindIcoT[e.kind] || (e.type === 'task' ? '✓' : '•')}</span>
+        <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(e.text)}</b>
+          <div class="mut" style="font-size:11px">${e.type === 'task' ? 'εργασία' + (e.done ? ' ✓' : '') : (kindLbl[e.kind] || '')}${e.at ? ' · ' + dShort(e.at) : ''}${e.by ? ' · ' + esc(e.by) : ''}${e.fup ? ' · ⏰ ' + dShort(e.fup) : ''}</div></div></div>`).join('')
+      : '<div class="mut" style="font-size:12px">Καμία δραστηριότητα ακόμη</div>';
+  };
+  loadTimeline();
 }
 /* ═════════ KPI ═════════ */
 async function vKpi() {
