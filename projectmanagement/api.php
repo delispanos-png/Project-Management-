@@ -4727,6 +4727,7 @@ case 'manual_img':                       // εικόνες οδηγού (μόν�
     $path = __DIR__ . '/manual-src/manual_' . $f . '.png';
     if ($f === '' || !is_file($path)) { fail('img', 404); }
     header('Content-Type: image/png');
+    header('X-Content-Type-Options: nosniff');
     header('Cache-Control: private, max-age=86400');
     header('Content-Length: ' . filesize($path));
     readfile($path);
@@ -4738,6 +4739,7 @@ case 'lib_get':
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->stored));
     if (!$path || !is_file($path)) { fail('file', 404); }
     header('Content-Type: application/octet-stream');
+    header('X-Content-Type-Options: nosniff');
     header('Content-Disposition: attachment; filename="' . rawurlencode($r->filename) . '"');
     header('Content-Length: ' . filesize($path));
     readfile($path);
@@ -4959,6 +4961,7 @@ case 'cv_photo':                         // headshot thumbnail (auth + hr)
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->photo));
     if (!$path || !is_file($path)) { fail('img', 404); }
     header('Content-Type: image/jpeg');
+    header('X-Content-Type-Options: nosniff');
     header('Cache-Control: private, max-age=86400');
     header('Content-Length: ' . filesize($path));
     readfile($path);
@@ -4970,8 +4973,11 @@ case 'cv_file':                          // προβολή/λήψη CV (auth + h
     if (!$r || !$r->cv_stored) { fail('file', 404); }
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored));
     if (!$path || !is_file($path)) { fail('file', 404); }
-    header('Content-Type: ' . ($r->cv_mime ?: 'application/octet-stream'));
-    header('Content-Disposition: ' . (!empty($_GET['dl']) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($r->cv_name ?: 'cv.pdf') . '"');
+    $mime = $r->cv_mime ?: 'application/octet-stream';
+    $previewable = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0);   // μόνο PDF/εικόνα inline
+    header('Content-Type: ' . $mime);
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: ' . ((!empty($_GET['dl']) || !$previewable) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($r->cv_name ?: 'cv.pdf') . '"');
     header('Content-Length: ' . filesize($path));
     readfile($path);
     exit;
