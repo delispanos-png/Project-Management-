@@ -335,20 +335,24 @@ add_hook('TicketStatusChange', 1, function ($vars) {
     $subject = $mail['subject'];
     $html = $mail['html'];
 
-    // Αποστολή: εγγεγραμμένος πελάτης → WHMCS mailer· αλλιώς → mail()
-    $sent = false;
-    if ((int) $tk->userid > 0 && function_exists('localAPI')) {
-        try {
-            $r = localAPI('SendEmail', ['customtype' => 'general', 'customsubject' => $subject, 'custommessage' => $html, 'id' => (int) $tk->userid]);
-            $sent = (($r['result'] ?? '') === 'success');
-        } catch (\Throwable $e) {
-        }
+    // Παραλήπτης: email λογαριασμού (εγγεγραμμένος) ή του ticket (guest)
+    $to = '';
+    if ((int) $tk->userid > 0) {
+        $to = (string) Capsule::table('tblclients')->where('id', (int) $tk->userid)->value('email');
     }
-    if (!$sent) {
-        $to = filter_var((string) $tk->email, FILTER_VALIDATE_EMAIL);
-        if ($to) {
-            $headers = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\nFrom: CloudOn Support <noreply@cloudon.gr>\r\n";
-            @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $html, $headers);
-        }
+    if ($to === '') {
+        $to = (string) $tk->email;
     }
+    $to = filter_var($to, FILTER_VALIDATE_EMAIL);
+    if (!$to) {
+        return;
+    }
+    // MailType=mail → σωστό base64 MIME (όπως το WHMCS εσωτερικά) ώστε τα UTF-8 & το layout να ΜΗΝ «σπάνε»
+    $from = (string) (Capsule::table('tblconfiguration')->where('setting', 'Email')->value('value') ?: 'noreply@cloudon.gr');
+    $headers = "MIME-Version: 1.0\r\n"
+        . "Content-Type: text/html; charset=UTF-8\r\n"
+        . "Content-Transfer-Encoding: base64\r\n"
+        . "From: CloudOn Support <" . $from . ">\r\n"
+        . "Reply-To: " . $from . "\r\n";
+    @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', chunk_split(base64_encode($html)), $headers);
 });
