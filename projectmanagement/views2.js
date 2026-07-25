@@ -1599,30 +1599,30 @@ async function loadVault() {
     const isNew = !item;
     const kinds = window._vaultKinds || {other: 'Άλλο'};
     const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
-    ovl.innerHTML = `<div class="pal-box" style="margin:6vh auto 0;max-width:600px;text-align:left" onclick="event.stopPropagation()">
-      <div style="padding:20px 22px">
-        <h2 style="margin:0 0 16px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία'}</h2>
-        <div class="frow">
+    ovl.innerHTML = `<div class="pal-box" style="margin:5vh auto 0;max-width:760px;text-align:left" onclick="event.stopPropagation()">
+      <div style="padding:28px 34px">
+        <h2 style="margin:0 0 22px;font-size:19px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία'}</h2>
+        <div class="frow" style="gap:16px">
           <div style="flex:2"><label class="lbl">Περιγραφή *</label><input class="inp" id="vDescr" value="${isNew ? '' : esc(item.descr)}" placeholder="π.χ. Firewall γραφείου"></div>
           <div style="flex:1"><label class="lbl">Τύπος εξοπλισμού</label><select class="inp" id="vKind">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${!isNew && item.kind === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
         </div>
-        <div class="frow" style="margin-top:11px">
+        <div class="frow" style="margin-top:16px;gap:16px">
           <div><label class="lbl">User</label><input class="inp" id="vUser" value="${isNew ? '' : esc(item.username)}" autocomplete="off"></div>
           <div><label class="lbl">Κωδικός ${isNew ? '' : '<span class="mut" style="font-weight:400">(κενό = ίδιος)</span>'}</label>
-            <div style="display:flex;gap:6px"><input class="inp" id="vPass" type="text" autocomplete="off" placeholder="${isNew ? 'γράψε ή πάτα 🎲' : '••••••'}" style="font-family:monospace;flex:1">
+            <div style="display:flex;gap:7px"><input class="inp" id="vPass" type="text" autocomplete="off" placeholder="${isNew ? 'γράψε ή πάτα 🎲' : '••••••'}" style="font-family:monospace;flex:1">
               <button class="btn btn-o" id="vGen" title="Παραγωγή ισχυρού" type="button">🎲</button></div></div>
         </div>
-        <label class="lbl" style="margin-top:11px">IP <span class="mut" style="font-weight:400">(μία ή περισσότερες — κόμμα ή νέα γραμμή)</span></label>
-        <textarea class="inp" id="vIps" rows="2" placeholder="192.168.1.1, 10.0.0.5">${isNew ? '' : esc(item.ips)}</textarea>
-        <div class="frow" style="margin-top:11px">
+        <label class="lbl" style="margin-top:16px">IP <span class="mut" style="font-weight:400">(μία ή περισσότερες — κόμμα ή νέα γραμμή)</span></label>
+        <textarea class="inp" id="vIps" rows="3" placeholder="192.168.1.1, 10.0.0.5">${isNew ? '' : esc(item.ips)}</textarea>
+        <div class="frow" style="margin-top:16px;gap:16px">
           <div><label class="lbl">URL</label><input class="inp" id="vUrl" value="${isNew ? '' : esc(item.url)}" placeholder="https://…"></div>
           <div><label class="lbl">${I.pin} Τοποθεσία</label><input class="inp" id="vLoc" value="${isNew ? '' : esc(item.location)}" placeholder="π.χ. Rack A2 / γραφείο"></div>
         </div>
-        <div class="frow" style="margin-top:11px">
+        <div class="frow" style="margin-top:16px;gap:16px">
           <div><label class="lbl">Για ποιον πελάτη</label><input class="inp" id="vCli" list="vCliL" placeholder="αναζήτηση πελάτη…" value="${isNew || !item.clientId ? '' : esc(item.clientName + ' (#' + item.clientId + ')')}"><datalist id="vCliL"></datalist><input type="hidden" id="vCliId" value="${isNew ? '' : (item.clientId || '')}"></div>
           <div><label class="lbl">…ή για ποια χρήση</label><input class="inp" id="vPurp" value="${isNew ? '' : esc(item.purpose)}" placeholder="π.χ. εσωτερικό backup"></div>
         </div>
-        <div style="margin-top:17px;display:flex;gap:8px">
+        <div style="margin-top:24px;display:flex;gap:8px">
           <button class="btn btn-p" id="vSave">Αποθήκευση</button>
           <button class="btn btn-o" id="vCancel">Άκυρο</button></div>
       </div></div>`;
