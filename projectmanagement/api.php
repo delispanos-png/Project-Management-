@@ -335,7 +335,11 @@ function cnp_cv_evaluate($cvId, $model, $notify)
     $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
     if ($key === '') { return ['ok' => false, 'error' => 'Δεν έχει οριστεί κλειδί AI (Ρυθμίσεις → AI)']; }
     if (!array_key_exists($model, cnp_cv_models())) { $model = cnp_cv_default_model(); }
-    $jobDesc = $r->job_id ? (string) Capsule::table('mod_cpm_cv_jobs')->where('id', $r->job_id)->value('descr') : '';
+    $jobDesc = '';
+    if ($r->job_id) {
+        $jb = Capsule::table('mod_cpm_cv_jobs')->where('id', $r->job_id)->first();
+        if ($jb) { $jobDesc = trim((string) $jb->descr . ($jb->skills ? "\nΑΠΑΙΤΟΥΜΕΝΕΣ ΔΕΞΙΟΤΗΤΕΣ: " . $jb->skills : '')); }
+    }
     $content = [];
     $path = $r->cv_stored ? realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored)) : false;
     $isPdf = $path && $r->cv_mime === 'application/pdf' && is_file($path) && filesize($path) < 8 * 1024 * 1024;
@@ -4889,9 +4893,34 @@ case 'cv_jobs':
     $jobs = [];
     foreach (Capsule::table('mod_cpm_cv_jobs')->orderByDesc('active')->orderBy('title')->get() as $jb) {
         $jobs[] = ['id' => (int) $jb->id, 'title' => $jb->title, 'active' => (bool) $jb->active,
+            'descr' => $jb->descr, 'skills' => $jb->skills, 'location' => $jb->location, 'emptype' => $jb->emptype,
             'count' => (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)->count()];
     }
-    out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses(), 'models' => cnp_cv_models(), 'defaultModel' => cnp_cv_default_model()]);
+    out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses(), 'models' => cnp_cv_models(), 'defaultModel' => cnp_cv_default_model(),
+        'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
+
+case 'cv_job_save':                      // δημιουργία/επεξεργασία αγγελίας
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
+    if ($title === '') { fail('Δώσε τίτλο θέσης'); }
+    $data = ['title' => $title, 'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 6000),
+        'skills' => mb_substr(trim($in['skills'] ?? ''), 0, 3000), 'location' => mb_substr(trim($in['location'] ?? ''), 0, 120),
+        'emptype' => mb_substr(trim($in['emptype'] ?? ''), 0, 40), 'active' => !empty($in['active']) ? 1 : 0];
+    $id = (int) ($in['id'] ?? 0);
+    if ($id) { Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->update($data); }
+    else { $data['created_at'] = date('Y-m-d H:i:s'); $id = Capsule::table('mod_cpm_cv_jobs')->insertGetId($data); }
+    out(['ok' => true, 'id' => $id]);
+
+case 'cv_job_del':                       // διαγραφή (ή αρχειοθέτηση αν έχει υποψηφίους)
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $id = (int) ($in['id'] ?? 0);
+    $cnt = (int) Capsule::table('mod_cpm_cv')->where('job_id', $id)->count();
+    if ($cnt > 0) {
+        Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->update(['active' => 0]);
+        out(['ok' => true, 'archived' => true, 'msg' => 'Έχει ' . $cnt . ' υποψηφίους — απενεργοποιήθηκε αντί διαγραφής']);
+    }
+    Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->delete();
+    out(['ok' => true, 'deleted' => true]);
 
 case 'cv_list':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }

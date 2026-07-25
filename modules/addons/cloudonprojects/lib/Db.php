@@ -561,6 +561,9 @@ class Db
                 $t->integer('wp_id')->unsigned()->nullable()->index();  // αγγελία (wp-job-openings)
                 $t->string('title', 190);
                 $t->text('descr')->nullable();
+                $t->text('skills')->nullable();                  // απαιτούμενες δεξιότητες
+                $t->string('location', 120)->default('');
+                $t->string('emptype', 40)->default('');          // τύπος απασχόλησης
                 $t->boolean('active')->default(1);
                 $t->timestamp('created_at')->nullable();
             });

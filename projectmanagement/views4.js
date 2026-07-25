@@ -906,6 +906,7 @@ R.recruit = async function () {
       ${jd.jobs.filter(j => j.count).map(j => `<option value="${j.id}" ${st.job == j.id ? 'selected' : ''}>${esc(j.title)} (${j.count})</option>`).join('')}</select>
     <input class="inp" id="cvQ" placeholder="Αναζήτηση ονόματος / email / τηλεφώνου…" style="flex:1;min-width:180px" value="${esc(st.q)}">
     <button class="btn btn-sm ${st.dups ? 'btn-p' : 'btn-o'}" id="cvDups" title="Δείξε μόνο όσους υπέβαλαν πολλές φορές (ίδιο email)">⧉ Διπλότυπα</button>
+    <button class="btn btn-o btn-sm" id="cvJobs" title="Διαχείριση αγγελιών & δημόσια σελίδα">${I.briefcase || I.folder} Θέσεις</button>
     <button class="btn btn-p btn-sm" id="cvAdd">${I.plus} Νέος υποψήφιος</button>
   </div>
   <div id="cvTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
@@ -957,7 +958,63 @@ R.recruit = async function () {
   let qt; $('#cvQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#cvQ').value.trim(); st.page = 1; load(); }, 300); };
   $('#cvAdd').onclick = () => openCvAdd(jd.jobs, load);
   $('#cvDups').onclick = () => { st.dups = !st.dups; st.page = 1; load(); };
+  $('#cvJobs').onclick = () => openJobsManager(load);
 };
+
+function openJobsManager(reload) {
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); if (reload) { reload(); } } };
+  ovl.innerHTML = `<div class="pal-box" style="margin:5vh auto 0;max-width:840px;text-align:left" onclick="event.stopPropagation()"><div style="padding:22px 26px" id="jmBody"><div class="skel" style="height:220px"></div></div></div>`;
+  document.body.appendChild(ovl);
+  const render = async () => {
+    const d = await api('cv_jobs');
+    const body = ovl.querySelector('#jmBody');
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><h2 style="margin:0;font-size:18px;color:var(--ink)">${I.briefcase || I.folder} Θέσεις / Αγγελίες</h2>
+        <button class="btn btn-o btn-sm" id="jmClose" style="margin-left:auto">Κλείσιμο</button></div>
+      <div style="background:var(--canvas);border:1px solid var(--line);border-radius:10px;padding:11px 14px;margin-bottom:15px;font-size:12.5px">
+        🔗 <b>Δημόσια σελίδα υποβολής βιογραφικών:</b><br><a href="${esc(d.applyUrl)}" target="_blank" style="color:var(--brand);word-break:break-all">${esc(d.applyUrl)}</a>
+        <button class="btn btn-o btn-sm" id="jmCopy" style="margin-left:8px">⧉ Αντιγραφή link</button>
+        <div class="mut" style="font-size:11px;margin-top:4px">Στείλε αυτό το link στους ενδιαφερόμενους (site, social, email) — βλέπουν και κάνουν αίτηση μόνο στις <b>ενεργές</b> θέσεις.</div></div>
+      <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:15px">
+        ${d.jobs.length ? d.jobs.map(j => `<div style="display:flex;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
+          <span style="width:9px;height:9px;border-radius:50%;background:${j.active ? 'var(--ok)' : 'var(--mut)'};flex:none" title="${j.active ? 'ενεργή' : 'ανενεργή'}"></span>
+          <div style="flex:1;min-width:0"><b style="font-size:13px">${esc(j.title)}</b>
+            <div class="mut" style="font-size:11px">${j.count} υποψήφιοι${j.location ? ' · ' + esc(j.location) : ''}${j.emptype ? ' · ' + esc(j.emptype) : ''}${j.active ? '' : ' · <span style="color:var(--warn)">ανενεργή</span>'}</div></div>
+          <button class="btn btn-sm btn-o" data-jmedit="${j.id}">${I.edit}</button>
+          <button class="btn btn-sm btn-o" data-jmdel="${j.id}" style="color:var(--bad)">${I.trash}</button></div>`).join('') : '<div class="mut" style="font-size:12.5px">Καμία θέση ακόμη — πάτα «Νέα θέση».</div>'}
+      </div>
+      <button class="btn btn-p" id="jmNew">${I.plus} Νέα θέση</button>
+      <div id="jmForm"></div>`;
+    body.querySelector('#jmClose').onclick = () => { ovl.remove(); if (reload) { reload(); } };
+    body.querySelector('#jmCopy').onclick = async () => { await navigator.clipboard.writeText(d.applyUrl); toast('Αντιγράφηκε ✓'); };
+    body.querySelector('#jmNew').onclick = () => jobForm(null);
+    body.querySelectorAll('[data-jmedit]').forEach(b => b.onclick = () => jobForm(d.jobs.find(x => x.id === +b.dataset.jmedit)));
+    body.querySelectorAll('[data-jmdel]').forEach(b => b.onclick = async () => { const j = d.jobs.find(x => x.id === +b.dataset.jmdel); if (!await cnpConfirm('Διαγραφή θέσης «' + j.title + '»;')) { return; } const r = await api('cv_job_del', {id: j.id}); toast(r.archived ? r.msg : 'Διαγράφηκε'); render(); });
+    function jobForm(j) {
+      const isNew = !j; const f = body.querySelector('#jmForm');
+      f.innerHTML = `<div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+        <h3 style="margin:0 0 12px;font-size:15px">${isNew ? 'Νέα θέση' : 'Επεξεργασία: ' + esc(j.title)}</h3>
+        <div class="frow" style="gap:14px"><div style="flex:2"><label class="lbl">Τίτλος θέσης *</label><input class="inp" id="jfT" value="${isNew ? '' : esc(j.title)}" placeholder="π.χ. IT Help Desk Technician"></div>
+          <div><label class="lbl">Τοποθεσία</label><input class="inp" id="jfLoc" value="${isNew ? '' : esc(j.location || '')}" placeholder="π.χ. Αθήνα / Remote"></div></div>
+        <div class="frow" style="gap:14px;margin-top:11px"><div><label class="lbl">Τύπος απασχόλησης</label><input class="inp" id="jfType" list="jfTypeL" value="${isNew ? '' : esc(j.emptype || '')}" placeholder="Πλήρης / Μερική / Remote"><datalist id="jfTypeL"><option value="Πλήρης απασχόληση"></option><option value="Μερική απασχόληση"></option><option value="Remote"></option><option value="Σύμβαση έργου"></option><option value="Πρακτική"></option></datalist></div>
+          <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-size:13px;padding-bottom:9px;cursor:pointer"><input type="checkbox" id="jfActive" ${isNew || j.active ? 'checked' : ''} style="width:17px;height:17px">Ενεργή (ορατή δημόσια)</label></div></div>
+        <label class="lbl" style="margin-top:11px">🎯 Δεξιότητες που χρειάζονται (skills)</label>
+        <textarea class="inp" id="jfSkills" rows="3" placeholder="π.χ. Windows/Linux, δίκτυα TCP/IP, ticketing systems, Αγγλικά, επικοινωνιακές δεξιότητες…">${isNew ? '' : esc(j.skills || '')}</textarea>
+        <label class="lbl" style="margin-top:11px">Περιγραφή θέσης</label>
+        <textarea class="inp" id="jfDescr" rows="5" placeholder="Καθήκοντα, απαιτήσεις, τι προσφέρουμε…">${isNew ? '' : esc(j.descr || '')}</textarea>
+        <div style="margin-top:14px;display:flex;gap:8px"><button class="btn btn-p" id="jfSave">${I.save} Αποθήκευση</button><button class="btn btn-o" id="jfCancel">Άκυρο</button></div></div>`;
+      f.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      f.querySelector('#jfCancel').onclick = () => { f.innerHTML = ''; };
+      f.querySelector('#jfSave').onclick = async () => {
+        const title = f.querySelector('#jfT').value.trim(); if (!title) { toast('Δώσε τίτλο', true); return; }
+        await api('cv_job_save', {id: isNew ? 0 : j.id, title, location: f.querySelector('#jfLoc').value, emptype: f.querySelector('#jfType').value,
+          skills: f.querySelector('#jfSkills').value, descr: f.querySelector('#jfDescr').value, active: f.querySelector('#jfActive').checked ? 1 : 0});
+        toast('Αποθηκεύτηκε ✓'); render();
+      };
+    }
+  };
+  render();
+}
 
 function openCvAdd(jobs, reload) {
   const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
