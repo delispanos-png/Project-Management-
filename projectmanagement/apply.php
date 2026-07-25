@@ -17,6 +17,7 @@ if (session_status() === PHP_SESSION_ACTIVE) { @session_write_close(); }
 $_COOKIE = $__cookies;
 
 use WHMCS\Database\Capsule;
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 use WHMCS\Module\Addon\CloudonProjects\CvPhoto;
 
@@ -121,24 +122,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
             if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess', 'html', 'htm', 'svg'], true)) {
                 $err = $t('e_type');
+            } elseif (!is_uploaded_file($f['tmp_name'])) {
+                $err = $t('e_save');
             } else {
-                if (!is_dir($CVDIR)) { @mkdir($CVDIR, 0750, true); }
-                $stored = uniqid('cv', true) . '.' . (preg_replace('/[^a-z0-9]/', '', $ext) ?: 'pdf');
-                if (!move_uploaded_file($f['tmp_name'], $CVDIR . '/' . $stored)) {
-                    $err = $t('e_save');
-                } else {
-                    $mime = $ext === 'pdf' ? 'application/pdf' : (($ext === 'doc' || $ext === 'docx') ? 'application/msword' : ($f['type'] ?: 'application/octet-stream'));
-                    $id = Capsule::table('mod_cpm_cv')->insertGetId([
-                        'source' => 'form', 'name' => $name, 'email' => $email, 'phone' => $phone,
-                        'job_id' => $job ? (int) $job->id : 0, 'job_title' => $job ? mb_substr($job->title, 0, 190) : 'Γενική αίτηση', 'letter' => $letter,
-                        'cv_stored' => $stored, 'cv_name' => mb_substr($f['name'], 0, 190), 'cv_mime' => $mime, 'status' => 'new',
-                        'applied_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
-                    ]);
-                    if ($mime === 'application/pdf') {
-                        try { $ph = CvPhoto::extract($CVDIR . '/' . $stored, $CVDIR, $id); if ($ph !== '') { Capsule::table('mod_cpm_cv')->where('id', $id)->update(['photo' => $ph]); } } catch (\Throwable $e) {}
-                    }
-                    $done = true; $doneJob = $job ? $job->title : '';
-                }
+                $mime = $ext === 'pdf' ? 'application/pdf' : (($ext === 'doc' || $ext === 'docx') ? 'application/msword' : ($f['type'] ?: 'application/octet-stream'));
+                $id = Capsule::table('mod_cpm_cv')->insertGetId([
+                    'source' => 'form', 'name' => $name, 'email' => $email, 'phone' => $phone,
+                    'job_id' => $job ? (int) $job->id : 0, 'job_title' => $job ? mb_substr($job->title, 0, 190) : 'Γενική αίτηση', 'letter' => $letter,
+                    'cv_stored' => '', 'cv_name' => mb_substr($f['name'], 0, 190), 'cv_mime' => $mime, 'status' => 'new',
+                    'applied_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                // CV + φωτο κατευθείαν στο Storage (S3/local) — χωρίς μόνιμο τοπικό αρχείο
+                try {
+                    $ing = CvPhoto::ingest($f['tmp_name'], mb_substr($f['name'], 0, 190), $mime, $id);
+                    $upd = array_filter(['cv_storage_id' => $ing['cv_storage_id'], 'photo_storage_id' => $ing['photo_storage_id'], 'photo' => $ing['photo'] ?: null, 'cv_stored' => $ing['cv_stored'] ?: null], fn($v) => $v !== null);
+                    if ($upd) { Capsule::table('mod_cpm_cv')->where('id', $id)->update($upd); }
+                } catch (\Throwable $e) {}
+                $done = true; $doneJob = $job ? $job->title : '';
             }
         }
     }

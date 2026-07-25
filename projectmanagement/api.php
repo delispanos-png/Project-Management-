@@ -5110,7 +5110,7 @@ case 'cv_list':
             'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null,
             'fit' => $ai['fit'] ?? null, 'category' => $ai['category'] ?? null, 'seniority' => $ai['seniority'] ?? null,
             'decision' => $ai['decision'] ?? null, 'aiGen' => isset($ai['aiGenerated']['verdict']) ? $ai['aiGenerated']['verdict'] : null,
-            'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '',
+            'hasCv' => ($r->cv_stored !== '' || !empty($r->cv_storage_id)), 'photo' => ($r->photo !== '' || !empty($r->photo_storage_id)),
             'dup' => (trim($r->email) !== '' && isset($dupEmails[mb_strtolower(trim($r->email))])) ? $dupEmails[mb_strtolower(trim($r->email))] : 0,
             'assignee' => $r->assignee ? (int) $r->assignee : null, 'source' => $r->source, 'appliedAt' => $r->applied_at];
     }
@@ -5146,7 +5146,7 @@ case 'cv_get':
             }
             return $out;
         })((int) $r->id),
-        'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '', 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
+        'hasCv' => ($r->cv_stored !== '' || !empty($r->cv_storage_id)), 'photo' => ($r->photo !== '' || !empty($r->photo_storage_id)), 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
 
 case 'cv_photo':                         // headshot thumbnail (auth + hr)
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('img', 403); }
@@ -5208,16 +5208,14 @@ case 'cv_add':                           // χειροκίνητη προσθή�
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $name = mb_substr(trim($_POST['name'] ?? ''), 0, 150);
     if ($name === '') { fail('Δώσε ονοματεπώνυμο'); }
-    $stored = ''; $cvName = ''; $cvMime = '';
+    $cvName = ''; $cvMime = ''; $tmpUpload = null;
     $f = $_FILES['file'] ?? null;
     if ($f && $f['error'] === UPLOAD_ERR_OK) {
         if ($f['size'] > 15 * 1024 * 1024) { fail('Μέγιστο 15MB'); }
+        if (!is_uploaded_file($f['tmp_name'])) { fail('upload'); }
         $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) { fail('Μη επιτρεπτός τύπος'); }
-        $dir = __DIR__ . '/../attachments/cloudonprojects';
-        if (!is_dir($dir)) { @mkdir($dir, 0750, true); }
-        $stored = uniqid('cv', true) . '.' . (preg_replace('/[^a-z0-9]/', '', $ext) ?: 'pdf');
-        if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $stored)) { fail('write'); }
+        if (!cnp_file_ext_ok($f['name'])) { fail('Μη επιτρεπτός τύπος'); }
+        $tmpUpload = $f['tmp_name'];
         $cvName = mb_substr($f['name'], 0, 190);
         $cvMime = $ext === 'pdf' ? 'application/pdf' : (($ext === 'doc' || $ext === 'docx') ? 'application/msword' : ($f['type'] ?: 'application/octet-stream'));
     }
@@ -5228,13 +5226,16 @@ case 'cv_add':                           // χειροκίνητη προσθή�
         'source' => 'manual', 'name' => $name,
         'email' => mb_substr(trim($_POST['email'] ?? ''), 0, 150), 'phone' => mb_substr(trim($_POST['phone'] ?? ''), 0, 50),
         'job_id' => $jobId, 'job_title' => $jobTitle, 'letter' => mb_substr(trim($_POST['letter'] ?? ''), 0, 8000),
-        'cv_stored' => $stored, 'cv_name' => $cvName, 'cv_mime' => $cvMime, 'status' => 'new',
+        'cv_stored' => '', 'cv_name' => $cvName, 'cv_mime' => $cvMime, 'status' => 'new',
         'applied_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
     ]);
-    // φωτογραφία + αυτόματη αξιολόγηση (οικονομικό μοντέλο) στην εισαγωγή
-    if ($stored !== '' && $cvMime === 'application/pdf') {
-        $ph = CvPhoto::extract(__DIR__ . '/../attachments/cloudonprojects/' . $stored, __DIR__ . '/../attachments/cloudonprojects', $id);
-        if ($ph !== '') { Capsule::table('mod_cpm_cv')->where('id', $id)->update(['photo' => $ph]); }
+    // CV + φωτο κατευθείαν στο Storage (S3/local)
+    if ($tmpUpload) {
+        $ing = CvPhoto::ingest($tmpUpload, $cvName, $cvMime, $id);
+        Capsule::table('mod_cpm_cv')->where('id', $id)->update(array_filter([
+            'cv_storage_id' => $ing['cv_storage_id'], 'photo_storage_id' => $ing['photo_storage_id'],
+            'photo' => $ing['photo'] ?: null, 'cv_stored' => $ing['cv_stored'] ?: null,
+        ], fn($v) => $v !== null));
     }
     $ev = cnp_cv_evaluate($id, cnp_cv_default_model(), true);
     out(['ok' => true, 'id' => $id, 'evaluated' => !empty($ev['ok'])]);
