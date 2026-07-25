@@ -4872,7 +4872,7 @@ case 'cv_list':
             $w->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like)->orWhere('job_title', 'like', $like);
         });
     }
-    $rows = $q->orderByRaw('ai_score IS NULL, ai_score DESC')->orderByDesc('applied_at')->limit(400)->get();
+    $rows = $q->orderByDesc('applied_at')->orderByDesc('id')->limit(400)->get();
     $items = [];
     foreach ($rows as $r) {
         $ai = $r->ai_json ? json_decode($r->ai_json, true) : null;
