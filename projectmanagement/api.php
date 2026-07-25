@@ -11,11 +11,13 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Time;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
+use WHMCS\Module\Addon\CloudonProjects\Storage;
 
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -3186,12 +3188,15 @@ case 'settings_get':
     if (!$FULL) {
         fail('forbidden', 403);
     }
-    $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model'];
+    $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
+        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     $vals = [];
     foreach ($keys as $k) {
         $vals[$k] = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', $k)->value('value') ?? '');
     }
+    $vals['s3_secret_set'] = $vals['s3_secret'] !== '' ? '1' : '';   // δεν εκθέτουμε το secret
+    $vals['s3_secret'] = '';
     $sts = [];
     foreach (Db::statuses() as $s) {
         $cnt = Capsule::table('mod_cpm_tasks')->where('status_id', $s->id)->count();
@@ -3209,11 +3214,13 @@ case 'settings_save':
     if (!$FULL) {
         fail('forbidden', 403);
     }
-    $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model'];
+    $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
+        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {
             continue;
         }
+        if ($k === 's3_secret' && trim((string) $v) === '') { continue; }   // κενό = κράτα το υπάρχον
         $v = mb_substr(trim((string) $v), 0, 500);
         $ex = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', $k);
         if ($ex->exists()) {
@@ -3223,6 +3230,10 @@ case 'settings_save':
         }
     }
     out(['ok' => true]);
+
+case 'storage_test':                      // health check σύνδεσης S3
+    if (!$FULL) { fail('forbidden', 403); }
+    out(Storage::s3Test());
 
 case 'status_save':
     if (!$FULL) {

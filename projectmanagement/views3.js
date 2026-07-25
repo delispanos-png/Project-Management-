@@ -398,6 +398,7 @@ R.settings = async function (sub) {
     ['tquotas', I.ticket, 'Πακέτα υποστήριξης'],
     ['tcats', I.tag, 'Κατηγορίες tickets'],
     ['whticket', I.folder, 'Τμήματα & Status'],
+    ['storage', I.box || I.folder, 'Αρχεία & Storage'],
   ];
   const cur = SUBS.find(x => x[0] === st.sub) || SUBS[0];
   st.sub = cur[0];
@@ -499,6 +500,33 @@ R.settings = async function (sub) {
         ${txt('team_roles', 'Ρόλοι μελών ομάδων', 'Χωρισμένοι με κόμμα — εμφανίζονται στις Ομάδες', '100%')}
       </div></div>
       <button class="btn btn-p" id="setSave">Αποθήκευση ρυθμίσεων</button></div></div>`;
+  } else if (st.sub === 'storage') {
+    const drv = s.storage_driver === 's3' ? 's3' : 'local';
+    body = `<div class="grid g2"><div>
+      <div class="card"><div class="card-h">${I.box || I.folder} Αποθήκευση αρχείων</div><div class="card-b">
+        <div class="set-row"><div><b>Driver</b><div class="mut" style="font-size:12px">Πού αποθηκεύονται νέα αρχεία & βίντεο</div></div>
+          <select class="inp" data-set="storage_driver" style="width:auto">
+            <option value="local" ${drv !== 's3' ? 'selected' : ''}>Τοπικός δίσκος</option>
+            <option value="s3" ${drv === 's3' ? 'selected' : ''}>S3 / Hetzner Object Storage</option>
+          </select></div>
+        ${txt('s3_endpoint', 'S3 Endpoint', 'π.χ. https://nbg1.your-objectstorage.com', '100%')}
+        ${txt('s3_region', 'Region', 'π.χ. nbg1 (τοποθεσία bucket)', '160px')}
+        ${txt('s3_bucket', 'Bucket', 'π.χ. cloudonstorag', '220px')}
+        ${txt('s3_key', 'Access Key', 'S3 credential (Hetzner → Security)', '100%')}
+        <div class="set-row"><div><b>Secret Key</b><div class="mut" style="font-size:12px">${s.s3_secret_set ? '✓ Αποθηκευμένο — άφησέ το κενό για να μην αλλάξει' : 'Δεν έχει οριστεί'}</div></div>
+          <input class="inp" type="password" data-set="s3_secret" autocomplete="new-password" placeholder="${s.s3_secret_set ? '••••••••' : ''}" style="width:220px"></div>
+        ${txt('s3_prefix', 'Prefix (προαιρετικό)', 'Υποφάκελος-πρόθεμα μέσα στο bucket', '160px')}
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-p" id="setSave">Αποθήκευση</button>
+          <button class="btn btn-o" id="s3Test">🔌 Test σύνδεσης S3</button>
+          <span id="s3TestMsg" class="mut" style="font-size:12.5px"></span>
+        </div>
+      </div></div></div>
+      <div><div class="card"><div class="card-h">ℹ️ Πώς λειτουργεί</div><div class="card-b" style="font-size:13px;line-height:1.6">
+        <p>Τα αρχεία σερβίρονται πάντα <b>ελεγχόμενα</b> (presigned URLs ή authenticated proxy) — το bucket μένει <b>private</b>. Ποτέ δημόσια πρόσβαση σε βιογραφικά.</p>
+        <p style="margin-top:10px">Με driver <b>S3</b>, τα νέα αρχεία & <b>βίντεο</b> πάνε στο Object Storage (μεγάλα ανεβαίνουν κατευθείαν, χωρίς να περνούν από τον server). Τα υπάρχοντα τοπικά συνεχίζουν να δουλεύουν — η μεταφορά τους γίνεται ξεχωριστά.</p>
+        <p style="margin-top:10px" class="mut">Μετά το «Αποθήκευση», πάτα <b>Test σύνδεσης</b> για επιβεβαίωση put/get/delete.</p>
+      </div></div></div></div>`;
   }
   c.innerHTML = tabsHtml + body;
   $$('[data-sub]').forEach(b => b.onclick = () => R.settings(b.dataset.sub));
@@ -510,6 +538,18 @@ R.settings = async function (sub) {
     await api('settings_save', {settings});
     toast('Οι ρυθμίσεις αποθηκεύτηκαν');
   };
+
+  if (st.sub === 'storage' && $('#s3Test')) {
+    $('#s3Test').onclick = async () => {
+      const msg = $('#s3TestMsg'); msg.textContent = 'Έλεγχος…'; msg.style.color = '';
+      const settings = {};
+      $$('[data-set]').forEach(el => settings[el.dataset.set] = el.type === 'checkbox' ? (el.checked ? 'on' : '') : el.value);
+      await api('settings_save', {settings});   // σώσε πρώτα ώστε το test να δει τα τρέχοντα
+      const r = await api('storage_test').catch(e => ({ok: false, msg: (e && e.message) || 'σφάλμα'}));
+      msg.textContent = (r.ok ? '✅ ' : '⚠️ ') + (r.msg || '');
+      msg.style.color = r.ok ? 'var(--ok)' : 'var(--bad)';
+    };
+  }
 
   if (st.sub === 'board') {
     const stRow = id => $(`[data-st="${id}"]`);
