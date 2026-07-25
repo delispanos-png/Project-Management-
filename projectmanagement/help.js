@@ -302,6 +302,40 @@ const HELP = [
   <div class="man-tip"><span>${I.compass}</span><div><b>Χρειάζεσαι κάτι που δεν υπάρχει εδώ;</b>Πες το στον διαχειριστή — η εφαρμογή εξελίσσεται συνέχεια με βάση τις ανάγκες της ομάδας.</div></div>` },
 ];
 
+/* Αντιστοίχιση κυκλώματος (view) → ενότητα οδηγού, για contextual help. */
+const VIEW_TO_HELP = {
+  myday: 'myday', todos: 'todos', library: 'library', vault: 'vault',
+  board: 'board', gantt: 'gantt', list: 'list', time: 'list', projects: 'projects',
+  inbox: 'inbox', knowledge: 'knowledge', client360: 'client360',
+  crm: 'crm', crmov: 'crm', contacts: 'crm', comms: 'crm', campaigns: 'crm', targets: 'crm', reports: 'crm', crmdata: 'crm',
+  offers: 'offers', chat: 'chat', remotebook: 'chat',
+  standup: 'standup', calendar: 'standup',
+  triage: 'admin', rootcause: 'admin', kpi: 'admin', profit: 'admin', teams: 'admin', settings: 'admin',
+  profile: 'access', help: 'intro',
+};
+function closeHelp() {
+  document.querySelectorAll('.help-drawer, .help-ovl').forEach(e => { e.classList.remove('show'); setTimeout(() => e.remove(), 200); });
+}
+/* Ανοίγει slide-over με τη βοήθεια του τρέχοντος κυκλώματος. */
+function openHelpFor(view) {
+  closeHelp();
+  const id = VIEW_TO_HELP[view] || 'intro';
+  const s = HELP.find(x => x.id === id) || HELP[0];
+  const ovl = document.createElement('div'); ovl.className = 'ovl help-ovl'; ovl.onclick = closeHelp;
+  const dr = document.createElement('div'); dr.className = 'drawer help-drawer';
+  dr.innerHTML = `<div class="drawer-h"><h2 style="display:flex;align-items:center;gap:9px;font-size:17px">${s.icon} ${esc(s.title)}</h2><button class="drawer-x" id="hdX">✕</button></div>
+    <div class="drawer-b"><div class="man-sec help-inline">${s.html}</div>
+      <div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-p btn-sm" id="hdFull">${I.book} Πλήρης οδηγός</button>
+      <button class="btn btn-o btn-sm" id="hdClose">Κλείσιμο</button></div></div>`;
+  document.body.append(ovl, dr);
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  $('#hdX', dr).onclick = closeHelp;
+  $('#hdClose', dr).onclick = closeHelp;
+  $('#hdFull', dr).onclick = () => { closeHelp(); if (window.CNP.go) { window.CNP.go('help'); } };
+}
+window.CNP.openHelp = openHelpFor;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeHelp(); } });
+
 R.help = function () {
   setTop('Οδηγός χρήσης', 'Πλήρες εγχειρίδιο — CloudOn Project Management');
   const c = $('#content');

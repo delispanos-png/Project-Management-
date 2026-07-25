@@ -524,3 +524,8 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 .man-print{margin-left:auto}
 @media(max-width:820px){.man-wrap{grid-template-columns:1fr}.man-toc{position:static;max-height:none;margin-bottom:14px}}
 @media print{.side,.top,.man-toc,.man-top{display:none!important}.man-sec{break-inside:avoid;border:0;box-shadow:none}}
+
+/* contextual help drawer (ανά κύκλωμα) */
+.help-drawer{width:min(580px,94vw)!important}
+.help-drawer .man-sec.help-inline{border:0;padding:0;margin:0;background:none}
+.help-drawer .man-sec.help-inline>h2{display:none}

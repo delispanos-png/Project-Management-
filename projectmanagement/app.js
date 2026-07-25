@@ -171,6 +171,7 @@ function renderShell() {
           <button id="remoteChip" style="display:none;border:0;border-radius:99px;background:var(--bad);color:#fff;font-weight:800;padding:7px 14px;cursor:pointer;font-size:12.5px" title="Κλικ για τερματισμό & χρέωση"></button>
           <button class="status-btn" id="statusBtn" title="Κατάσταση διαθεσιμότητας"><span class="dot" id="statusDot"></span><span id="statusLbl">Online</span></button>
           <button class="btn btn-p btn-sm" id="newBtn" title="Δημιουργία">${I.plus} Νέο</button>
+          <button class="btn btn-o btn-ico" id="helpBtn" title="Βοήθεια για αυτή την οθόνη">${I.bulb}</button>
           <div class="bell-wrap"><button class="btn btn-o btn-ico" id="bellBtn" style="position:relative">${I.bell}
             <span class="bell-n" id="bellN" style="display:none"></span></button></div>
           <button class="btn btn-o btn-ico" id="sideTgl" title="Μεγέθυνση/σμίκρυνση μενού"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
@@ -198,6 +199,7 @@ function renderShell() {
     location.href = '?logout=1';
   };
   $('#bellBtn').onclick = toggleBell;
+  const hb = $('#helpBtn'); if (hb) hb.onclick = () => window.CNP.openHelp && window.CNP.openHelp(S.view);
   const pb = $('#palBtn'); if (pb) pb.onclick = () => window.CNP.palette && window.CNP.palette();
   // ── Πάνω μενού: «+ Νέο» quick-create ──
   $('#newBtn').onclick = e => {
