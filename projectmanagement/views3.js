@@ -118,6 +118,7 @@ R.inbox = async function (openId) {
             <span class="mut">${tShort(n.at)}</span></div>
           <div class="ib-msg-b">${esc(n.body).replace(/\n/g, '<br>')}</div></div>`).join('') : ''}
     </div>
+    <div class="card" style="margin:10px 13px 0"><div class="card-h" style="font-size:12px">${I.clip || I.download} Εσωτερικά αρχεία & βίντεο <span class="mut" style="font-weight:400;font-size:10.5px">— αόρατα στον πελάτη</span></div><div class="card-b" id="ibFilesBox"></div></div>
     <div class="ib-compose">
       <div class="ib-mode">
         ${S.boot.me.canReply ? `<button class="ib-mbtn on" data-m="reply">${I.send} Απάντηση στον πελάτη</button>` : ''}
@@ -157,6 +158,7 @@ R.inbox = async function (openId) {
       $('#ibBody').placeholder = 'Σημείωση προς την ομάδα…';
     }
     $$('[data-simgo]', conv).forEach(x => x.onclick = () => { st.sel = +x.dataset.simgo; loadConv(st.sel); });
+    if ($('#ibFilesBox', conv) && window.cnpAttachments) { window.cnpAttachments($('#ibFilesBox', conv), {module: 'ticket', refType: 'ticket', refId: id}); }
     $$('details [data-kbuse]', conv).forEach(x => {
       const det = x.closest('details');
       det.addEventListener('toggle', () => { if (det.open) api('kb_use', {id: +x.dataset.kbuse}); }, {once: true});

@@ -756,32 +756,9 @@ async function openTask(id) {
   });
   $$('[data-dgo]', dr).forEach(a => a.onclick = () => openTask(+a.dataset.dgo));
   /* αρχεία */
-  const renderFiles = async () => {
-    const ff = await api('files&task=' + id);
-    const fb = $('#dFiles', dr);
-    if (!fb) return;
-    const fmtSize = s => s > 1048576 ? (s / 1048576).toFixed(1) + 'MB' : Math.round(s / 1024) + 'KB';
-    fb.innerHTML = ff.files.map(f => `<div style="display:flex;gap:8px;align-items:center;padding:4px 0">
-        <span>${I.fileText} </span><a href="api.php?a=file_get&id=${f.id}" style="flex:1">${esc(f.name)}</a>
-        <span class="mut" style="font-size:11px">${fmtSize(f.size)} · ${esc(f.by)}</span>
-        <button class="btn btn-sm btn-o" data-fdel="${f.id}">✕</button></div>`).join('') +
-      `<label class="btn btn-o btn-sm" style="margin-top:8px;cursor:pointer">${I.clip} Ανέβασμα αρχείου
-        <input type="file" id="fUp" style="display:none"></label>
-       <span class="mut" style="font-size:11px;margin-left:7px">έως 20MB</span>`;
-    $('#fUp', fb).onchange = async e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('task', id); fd.append('file', file);
-      toast('Ανεβαίνει…');
-      const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json());
-      if (r.ok) { toast('Ανέβηκε'); renderFiles(); } else toast(r.error || 'Σφάλμα', true);
-    };
-    $$('[data-fdel]', fb).forEach(b => b.onclick = async () => {
-      await api('file_del', {id: +b.dataset.fdel}); renderFiles();
-    });
-  };
-  renderFiles();
+  if ($('#dFiles', dr) && window.cnpAttachments) {
+    window.cnpAttachments($('#dFiles', dr), {module: 'task', refType: 'task', refId: id});
+  }
   $('#chkNew', dr).onkeydown = async e => {
     if (e.key !== 'Enter' || !e.target.value.trim()) return;
     await api('check_add', {task: id, title: e.target.value.trim()}); openTask(id);

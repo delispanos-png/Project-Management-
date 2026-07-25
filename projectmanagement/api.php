@@ -3745,78 +3745,8 @@ case 'dep_del':
     Db::delDep((int) ($in['id'] ?? 0));
     out(['ok' => true]);
 
-case 'files':
-    $t7 = Db::task((int) ($_GET['task'] ?? 0));
-    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
-        fail('task', 403);
-    }
-    $fl = [];
-    foreach (Db::filesOf($t7->id) as $f7) {
-        $fl[] = ['id' => (int) $f7->id, 'name' => $f7->filename, 'size' => (int) $f7->size,
-            'by' => Db::adminName($f7->admin_id), 'at' => $f7->created_at];
-    }
-    out(['files' => $fl]);
-
-case 'file_upload':
-    $t7 = Db::task((int) ($_POST['task'] ?? 0));
-    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
-        fail('task', 403);
-    }
-    $f7 = $_FILES['file'] ?? null;
-    if (!$f7 || $f7['error'] !== UPLOAD_ERR_OK) {
-        fail('upload');
-    }
-    if ($f7['size'] > 20 * 1024 * 1024) {
-        fail('Μέγιστο 20MB');
-    }
-    $ext = strtolower(pathinfo($f7['name'], PATHINFO_EXTENSION));
-    if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) {
-        fail('Μη επιτρεπτός τύπος αρχείου');
-    }
-    $dir = __DIR__ . '/../attachments/cloudonprojects';
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0750, true);
-    }
-    $stored = uniqid('f', true) . '.dat';
-    if (!move_uploaded_file($f7['tmp_name'], $dir . '/' . $stored)) {
-        fail('write');
-    }
-    Capsule::table('mod_cpm_files')->insert(['task_id' => $t7->id,
-        'filename' => mb_substr($f7['name'], 0, 190), 'stored' => $stored,
-        'size' => (int) $f7['size'], 'admin_id' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
-    Db::logActivity($t7->id, $adminId, 'edit', 'Συνημμένο: ' . $f7['name']);
-    out(['ok' => true]);
-
-case 'file_get':
-    $fr = Capsule::table('mod_cpm_files')->where('id', (int) ($_GET['id'] ?? 0))->first();
-    if (!$fr) {
-        fail('file', 404);
-    }
-    $t7 = Db::task($fr->task_id);
-    if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
-        fail('file', 403);
-    }
-    $path = __DIR__ . '/../attachments/cloudonprojects/' . basename($fr->stored);
-    if (!is_file($path)) {
-        fail('file', 404);
-    }
-    header('Content-Type: application/octet-stream');
-    header('Content-Disposition: attachment; filename="' . rawurlencode($fr->filename) . '"');
-    header('Content-Length: ' . filesize($path));
-    readfile($path);
-    exit;
-
-case 'file_del':
-    $fr = Capsule::table('mod_cpm_files')->where('id', (int) ($in['id'] ?? 0))->first();
-    if ($fr) {
-        $t7 = Db::task($fr->task_id);
-        if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
-            fail('file', 403);
-        }
-        @unlink(__DIR__ . '/../attachments/cloudonprojects/' . basename($fr->stored));
-        Capsule::table('mod_cpm_files')->where('id', $fr->id)->delete();
-    }
-    out(['ok' => true]);
+/* Τα task attachments ενοποιήθηκαν στο γενικό Storage layer (file_* endpoints, module=task).
+   Τα παλιά cases files/file_upload/file_get/file_del (mod_cpm_files, local) αφαιρέθηκαν. */
 
 /* ---- realtime version (ελαφρύ polling — Κ6) ---- */
 /* ============ 🎥 CLOUDON MEET (WebRTC signaling) ============ */
@@ -4052,7 +3982,9 @@ case 'chat_msgs':
         $maxId = max($maxId, (int) $m9->id);
         $outM[] = ['id' => (int) $m9->id, 'by' => (int) $m9->admin_id,
             'body' => $m9->body, 'at' => $m9->created_at,
-            'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id] : null];
+            'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id,
+                'mime' => $m9->mime, 'kind' => Storage::kindFromMime($m9->mime),
+                'url' => 'api.php?a=chat_file&id=' . (int) $m9->id] : null];
     }
     // mark read
     if ($maxId > 0) {
@@ -4075,32 +4007,28 @@ case 'chat_send':
     }
     $body = mb_substr(trim($in['body'] ?? ''), 0, 4000);
     $fn = null;
-    $stored = null;
     $sz = null;
+    $storageId = null;
+    $fmime = null;
     if (!empty($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
-        if ($_FILES['file']['size'] > 20 * 1024 * 1024) {
-            fail('Μέγιστο 20MB');
+        if ($_FILES['file']['size'] > 50 * 1024 * 1024) {
+            fail('Μέγιστο 50MB (για μεγαλύτερα βίντεο χρησιμοποίησε τα Συνημμένα σε task/CV)');
         }
-        $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) {
+        if (!cnp_file_ext_ok($_FILES['file']['name'])) {
             fail('Μη επιτρεπτός τύπος αρχείου');
-        }
-        $dir = __DIR__ . '/../attachments/cloudonprojects';
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0750, true);
-        }
-        $stored = uniqid('c', true) . '.dat';
-        if (!move_uploaded_file($_FILES['file']['tmp_name'], $dir . '/' . $stored)) {
-            fail('write');
         }
         $fn = mb_substr($_FILES['file']['name'], 0, 190);
         $sz = (int) $_FILES['file']['size'];
+        $fmime = $_FILES['file']['type'] ?: 'application/octet-stream';
+        $rec = Storage::store(['module' => 'chat', 'ref_type' => $ch, 'ref_id' => 0, 'src' => $_FILES['file']['tmp_name'],
+            'orig_name' => $fn, 'mime' => $fmime, 'uploaded_by' => $adminId]);
+        $storageId = (int) $rec['id'];
     }
     if ($body === '' && !$fn) {
         fail('empty');
     }
     $mid = Capsule::table('mod_cpm_chat')->insertGetId(['channel' => $ch, 'admin_id' => $adminId,
-        'body' => $body ?: null, 'filename' => $fn, 'stored' => $stored, 'size' => $sz,
+        'body' => $body ?: null, 'filename' => $fn, 'storage_id' => $storageId, 'mime' => $fmime, 'size' => $sz,
         'created_at' => date('Y-m-d H:i:s')]);
     Db::setPref($adminId, 'last_seen', (string) time());
     // καμπανάκι στους παραλήπτες (DM: ο άλλος, ομάδα: όλα τα μέλη) — εκτός offline
@@ -4120,13 +4048,28 @@ case 'chat_send':
     }
     out(['ok' => true, 'id' => $mid]);
 
-case 'chat_file':                       // κατέβασμα συνημμένου chat (auth: μέλος καναλιού)
+case 'chat_file':                       // κατέβασμα/προβολή συνημμένου chat (auth: μέλος καναλιού)
     $m9 = Capsule::table('mod_cpm_chat')->where('id', (int) ($_GET['id'] ?? 0))->first();
-    if (!$m9 || !$m9->stored) {
+    if (!$m9 || (!$m9->stored && !$m9->storage_id)) {
         fail('file', 404);
     }
     if (!cnp_chat_access($m9->channel, $adminId)) {
         fail('file', 403);
+    }
+    if ($m9->storage_id) {                                  // νέο: μέσω Storage (S3/local) — κρατά channel auth
+        $srec = Storage::record((int) $m9->storage_id);
+        if (!$srec) { fail('file', 404); }
+        $dl = !empty($_GET['dl']);
+        if ($srec['driver'] === 's3') { header('Location: ' . Storage::presign($srec['id'], 300, $dl), true, 302); exit; }
+        $stream = Storage::openRead($srec['id']);
+        if (!$stream) { fail('file', 404); }
+        $mime = $srec['mime'] ?: 'application/octet-stream';
+        $preview = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0 || strpos($mime, 'video/') === 0 || strpos($mime, 'audio/') === 0);
+        header('Content-Type: ' . $mime);
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Disposition: ' . (($dl || !$preview) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($srec['orig_name'] ?: 'file') . '"');
+        if ($srec['size']) { header('Content-Length: ' . (int) $srec['size']); }
+        fpassthru($stream); fclose($stream); exit;
     }
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . $m9->stored);
     if (!$path || strpos($path, realpath(__DIR__ . '/../attachments/cloudonprojects') . DIRECTORY_SEPARATOR) !== 0 || !is_file($path)) {
