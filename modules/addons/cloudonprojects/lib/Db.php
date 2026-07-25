@@ -574,6 +574,27 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        // Γενικό μητρώο αρχείων (storage abstraction: local | s3) — για όλα τα modules
+        if (!$s->hasTable('mod_cpm_storage')) {
+            $s->create('mod_cpm_storage', function ($t) {
+                $t->increments('id');
+                $t->string('module', 40)->default('');        // cv, project, ticket, chat…
+                $t->string('ref_type', 40)->default('');       // λογική οντότητα (π.χ. cv, task, message)
+                $t->integer('ref_id')->unsigned()->default(0);
+                $t->string('driver', 10)->default('local');    // local | s3
+                $t->string('bucket', 120)->default('');
+                $t->string('storage_key', 400);                // σχετικό key/path στο storage
+                $t->string('orig_name', 255)->default('');
+                $t->string('mime', 120)->default('');
+                $t->unsignedBigInteger('size')->default(0);
+                $t->string('kind', 20)->default('file');       // file | image | video | audio | doc
+                $t->integer('uploaded_by')->unsigned()->default(0);
+                $t->text('meta')->nullable();                  // json (π.χ. duration, dimensions)
+                $t->timestamp('created_at')->nullable();
+                $t->index(['module', 'ref_type', 'ref_id']);
+                $t->index('driver');
+            });
+        }
         if (!$s->hasTable('mod_cpm_cv')) {
             $s->create('mod_cpm_cv', function ($t) {
                 $t->increments('id');
