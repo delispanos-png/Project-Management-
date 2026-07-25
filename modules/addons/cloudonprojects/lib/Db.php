@@ -537,6 +537,23 @@ class Db
                 $t->unique(['campaign_id', 'lead_id']);
             });
         }
+        if (!$s->hasTable('mod_cpm_vault')) {
+            $s->create('mod_cpm_vault', function ($t) {
+                $t->increments('id');
+                $t->integer('admin_id')->unsigned()->index();    // ιδιωτικό ανά χειριστή (admin βλέπει όλα)
+                $t->string('descr', 150);
+                $t->string('kind', 20)->default('other');        // τύπος εξοπλισμού
+                $t->string('username', 150)->default('');
+                $t->text('password_enc');                        // AES-256-GCM (iv+tag+ciphertext, base64)
+                $t->string('ips', 300)->default('');             // μία ή περισσότερες
+                $t->string('url', 300)->default('');
+                $t->string('location', 150)->default('');        // τοποθεσία
+                $t->integer('client_id')->unsigned()->nullable();// WHMCS πελάτης
+                $t->string('purpose', 200)->default('');         // ή χρήση
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+            });
+        }
         if (!$s->hasTable('mod_cpm_prefs')) {
             $s->create('mod_cpm_prefs', function ($t) {
                 $t->increments('id');

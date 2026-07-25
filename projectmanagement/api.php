@@ -219,6 +219,42 @@ function cnp_lead_score($l, $intCount, $lastInt)
     return ['score' => $score, 'temp' => $temp, 'factors' => $factors];
 }
 
+/* ── Θυρίδα κωδικών: κλειδί + AES-256-GCM κρυπτογράφηση ── */
+function cnp_vault_key()
+{
+    static $k = null;
+    if ($k !== null) { return $k; }
+    $v = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'pm_vault_key')->value('value');
+    if (!$v) {
+        $v = base64_encode(random_bytes(32));
+        Capsule::table('tbladdonmodules')->insert(['module' => 'cloudonprojects', 'setting' => 'pm_vault_key', 'value' => $v]);
+    }
+    $k = base64_decode($v);
+    return $k;
+}
+function cnp_vault_enc($plain)
+{
+    $iv = random_bytes(12); $tag = '';
+    $ct = openssl_encrypt((string) $plain, 'aes-256-gcm', cnp_vault_key(), OPENSSL_RAW_DATA, $iv, $tag);
+    return base64_encode($iv . $tag . $ct);
+}
+function cnp_vault_dec($blob)
+{
+    $raw = base64_decode((string) $blob);
+    if (strlen($raw) < 28) { return ''; }
+    $iv = substr($raw, 0, 12); $tag = substr($raw, 12, 16); $ct = substr($raw, 28);
+    $p = openssl_decrypt($ct, 'aes-256-gcm', cnp_vault_key(), OPENSSL_RAW_DATA, $iv, $tag);
+    return $p === false ? '' : $p;
+}
+/** Τύποι εξοπλισμού για τη θυρίδα κωδικών. */
+function cnp_vault_kinds()
+{
+    return ['server' => 'Server', 'vm' => 'VM', 'router' => 'Router', 'switch' => 'Switch',
+        'firewall' => 'Firewall', 'nas' => 'NAS/Storage', 'pbx' => '3CX/PBX', 'pc' => 'PC/Σταθμός',
+        'printer' => 'Εκτυπωτής', 'email' => 'Email', 'website' => 'Website/CMS', 'app' => 'Εφαρμογή',
+        'db' => 'Βάση δεδομένων', 'wifi' => 'WiFi/Δίκτυο', 'other' => 'Άλλο'];
+}
+
 /** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
 function cnp_chat_access($ch, $adminId)
 {
@@ -4426,6 +4462,67 @@ case 'lead_task_toggle':
 
 case 'lead_task_del':
     Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+/* ============ 🔐 ΘΥΡΙΔΑ ΚΩΔΙΚΩΝ (ανά χειριστή· admin βλέπει όλα) ============ */
+case 'vault_list':
+    $kinds = cnp_vault_kinds();
+    $mine = !empty($_GET['mine']) || !$FULL;         // restricted πάντα μόνο δικά του
+    $q = Capsule::table('mod_cpm_vault');
+    if ($mine) { $q->where('admin_id', $adminId); }
+    $rows = $q->orderBy('descr')->get();
+    $cids = array_values(array_filter($rows->pluck('client_id')->all()));
+    $cmap = [];
+    if ($cids) {
+        foreach (Capsule::table('tblclients')->whereIn('id', $cids)->get(['id', 'companyname', 'firstname', 'lastname']) as $c) {
+            $cmap[(int) $c->id] = $c->companyname ?: trim($c->firstname . ' ' . $c->lastname);
+        }
+    }
+    $items = [];
+    foreach ($rows as $r) {
+        $items[] = ['id' => (int) $r->id, 'descr' => $r->descr, 'kind' => $r->kind, 'kindLbl' => $kinds[$r->kind] ?? $r->kind,
+            'username' => $r->username, 'ips' => $r->ips, 'url' => $r->url, 'location' => $r->location,
+            'clientId' => $r->client_id ? (int) $r->client_id : null,
+            'clientName' => $r->client_id ? ($cmap[(int) $r->client_id] ?? ('#' . $r->client_id)) : null,
+            'purpose' => $r->purpose, 'owner' => (int) $r->admin_id, 'ownerName' => Db::adminName($r->admin_id), 'updated' => $r->updated_at];
+    }
+    out(['items' => $items, 'kinds' => $kinds, 'full' => $FULL, 'me' => $adminId, 'mine' => $mine]);
+
+case 'vault_save':
+    $descr = mb_substr(trim($in['descr'] ?? ''), 0, 150);
+    if ($descr === '') { fail('Δώσε περιγραφή'); }
+    $kinds = cnp_vault_kinds();
+    $kind = array_key_exists($in['kind'] ?? '', $kinds) ? $in['kind'] : 'other';
+    $data = ['descr' => $descr, 'kind' => $kind, 'username' => mb_substr(trim($in['username'] ?? ''), 0, 150),
+        'ips' => mb_substr(trim($in['ips'] ?? ''), 0, 300), 'url' => mb_substr(trim($in['url'] ?? ''), 0, 300),
+        'location' => mb_substr(trim($in['location'] ?? ''), 0, 150),
+        'client_id' => (int) ($in['client'] ?? 0) ?: null, 'purpose' => mb_substr(trim($in['purpose'] ?? ''), 0, 200),
+        'updated_at' => date('Y-m-d H:i:s')];
+    $pass = (string) ($in['password'] ?? '');
+    $id = (int) ($in['id'] ?? 0);
+    if ($id) {
+        $own = (int) Capsule::table('mod_cpm_vault')->where('id', $id)->value('admin_id');
+        if (!$own) { fail('notfound', 404); }
+        if ($own !== $adminId && !$FULL) { fail('forbidden', 403); }
+        if ($pass !== '') { $data['password_enc'] = cnp_vault_enc($pass); }  // αλλαγή κωδικού μόνο αν δόθηκε νέος
+        Capsule::table('mod_cpm_vault')->where('id', $id)->update($data);
+    } else {
+        $data['admin_id'] = $adminId; $data['password_enc'] = cnp_vault_enc($pass); $data['created_at'] = date('Y-m-d H:i:s');
+        $id = Capsule::table('mod_cpm_vault')->insertGetId($data);
+    }
+    out(['ok' => true, 'id' => $id]);
+
+case 'vault_reveal':                     // αποκάλυψη κωδικού on-demand (owner ή full)
+    $id = (int) ($in['id'] ?? $_GET['id'] ?? 0);
+    $r = Capsule::table('mod_cpm_vault')->where('id', $id)->first();
+    if (!$r) { fail('notfound', 404); }
+    if ((int) $r->admin_id !== $adminId && !$FULL) { fail('forbidden', 403); }
+    out(['password' => cnp_vault_dec($r->password_enc)]);
+
+case 'vault_del':
+    $id = (int) ($in['id'] ?? 0);
+    $r = Capsule::table('mod_cpm_vault')->where('id', $id)->first();
+    if ($r && ((int) $r->admin_id === $adminId || $FULL)) { Capsule::table('mod_cpm_vault')->where('id', $id)->delete(); }
     out(['ok' => true]);
 
 case 'topstats':                         // πάνω μενού: live σφυγμός + κατάσταση διαθεσιμότητας
