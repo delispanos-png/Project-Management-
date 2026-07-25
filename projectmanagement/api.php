@@ -4896,7 +4896,13 @@ case 'cv_jobs':
 case 'cv_list':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $job = (int) ($_GET['job'] ?? 0); $status = $_GET['status'] ?? ''; $sq = trim($_GET['q'] ?? '');
-    $applyBase = function ($q) use ($job, $sq) {
+    $dupsOnly = !empty($_GET['dups']);
+    // emails που εμφανίζονται >1 φορά (διπλότυπα, χωρίς διαγραφή)
+    $dupEmails = [];
+    foreach (Capsule::table('mod_cpm_cv')->whereRaw("TRIM(email) <> ''")
+        ->groupByRaw('LOWER(TRIM(email))')->havingRaw('COUNT(*) > 1')
+        ->selectRaw('LOWER(TRIM(email)) e, COUNT(*) c')->get() as $de) { $dupEmails[$de->e] = (int) $de->c; }
+    $applyBase = function ($q) use ($job, $sq, $dupsOnly, $dupEmails) {
         if ($job) { $q->where('job_id', $job); }
         if (mb_strlen($sq) >= 2) {
             $like = '%' . $sq . '%';
@@ -4904,6 +4910,7 @@ case 'cv_list':
                 $w->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like)->orWhere('job_title', 'like', $like);
             });
         }
+        if ($dupsOnly) { $q->whereIn(Capsule::raw('LOWER(TRIM(email))'), array_keys($dupEmails) ?: ['']); }
         return $q;
     };
     // πλήθη ανά στάδιο (με φίλτρο θέσης/αναζήτησης)
@@ -4928,10 +4935,11 @@ case 'cv_list':
             'fit' => $ai['fit'] ?? null, 'category' => $ai['category'] ?? null, 'seniority' => $ai['seniority'] ?? null,
             'decision' => $ai['decision'] ?? null, 'aiGen' => isset($ai['aiGenerated']['verdict']) ? $ai['aiGenerated']['verdict'] : null,
             'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '',
+            'dup' => (trim($r->email) !== '' && isset($dupEmails[mb_strtolower(trim($r->email))])) ? $dupEmails[mb_strtolower(trim($r->email))] : 0,
             'assignee' => $r->assignee ? (int) $r->assignee : null, 'source' => $r->source, 'appliedAt' => $r->applied_at];
     }
     out(['items' => $items, 'counts' => $counts, 'totalAll' => $totalAll, 'filtered' => $filtered,
-        'page' => $page, 'per' => $per, 'pages' => $pages, 'statuses' => cnp_cv_statuses()]);
+        'dupTotal' => array_sum($dupEmails), 'page' => $page, 'per' => $per, 'pages' => $pages, 'statuses' => cnp_cv_statuses()]);
 
 case 'cv_get':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
@@ -4945,6 +4953,16 @@ case 'cv_get':
         'interview' => $r->interview_json ? json_decode($r->interview_json, true) : null,
         'interviewEval' => $r->interview_eval ? json_decode($r->interview_eval, true) : null,
         'interviewAt' => $r->interview_at,
+        'others' => (function ($r) {
+            $out = [];
+            if (trim($r->email) === '') { return $out; }
+            foreach (Capsule::table('mod_cpm_cv')->whereRaw('LOWER(TRIM(email)) = ?', [mb_strtolower(trim($r->email))])
+                ->where('id', '<>', $r->id)->orderByDesc('applied_at')->limit(20)->get() as $o) {
+                $out[] = ['id' => (int) $o->id, 'name' => $o->name, 'jobTitle' => $o->job_title, 'status' => $o->status,
+                    'aiScore' => $o->ai_score !== null ? (int) $o->ai_score : null, 'appliedAt' => $o->applied_at];
+            }
+            return $out;
+        })($r),
         'comms' => (function ($cid) {
             $out = [];
             foreach (Capsule::table('mod_cpm_cv_comms')->where('cv_id', $cid)->orderByDesc('id')->limit(30)->get() as $cm) {
