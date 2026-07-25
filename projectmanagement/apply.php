@@ -1,9 +1,10 @@
 <?php
 /**
- * CloudOn Careers — δημόσια σελίδα (premium). Isolated DB load (δεν πειράζει admin sessions).
- * Ροή: landing (hero → γιατί εμάς → ανοιχτές θέσεις με modal ανάλυσης) →
- *      «Εκδήλωση ενδιαφέροντος» → ΞΕΧΩΡΙΣΤΗ σελίδα φόρμας με assigned θέση (apply.php?job=ID).
- * Νέες αιτήσεις (source=form) αξιολογούνται από το cron cv_autoeval.php.
+ * CloudOn Careers — δημόσια σελίδα (premium, δίγλωσση EL/EN). Isolated DB load.
+ * Ροή: landing (hero → values → θέσεις + modal ανάλυσης) → «Εκδήλωση ενδιαφέροντος»
+ *      → ΞΕΧΩΡΙΣΤΗ σελίδα φόρμας με assigned θέση (apply.php?job=ID).
+ * Γλώσσα: ?lang=el|en (default el), διατηρείται σε links/φόρμα. Νέες αιτήσεις (source=form)
+ * αξιολογούνται από το cron cv_autoeval.php.
  */
 
 $__cookies = $_COOKIE;
@@ -19,6 +20,80 @@ use WHMCS\Database\Capsule;
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 use WHMCS\Module\Addon\CloudonProjects\CvPhoto;
 
+// ── Γλώσσα ──
+$lang = (($_REQUEST['lang'] ?? '') === 'en') ? 'en' : 'el';
+$T = [
+  'el' => [
+    'title' => 'Καριέρα & Θέσεις Εργασίας — CloudOn', 'og_title' => 'Καριέρα στην CloudOn',
+    'meta_jobs' => 'Ανοιχτές θέσεις εργασίας στην CloudOn: ', 'meta_tail' => '. Στείλε το βιογραφικό σου online.',
+    'meta_none' => 'Καριέρα στην CloudOn — στείλε μας το βιογραφικό σου για μελλοντικές ευκαιρίες.',
+    'nav_jobs' => 'Ανοιχτές θέσεις', 'eyebrow' => 'Καριέρα στην CloudOn',
+    'h1a' => 'Χτίσε την καριέρα σου ', 'h1b' => 'σε μια ομάδα που εξελίσσεται.',
+    'hero_p' => 'Δουλεύουμε με σύγχρονη τεχνολογία, πραγματικό αντίκτυπο και ανθρώπους που στηρίζουν ο ένας τον άλλον. Έλα να μεγαλώσουμε μαζί.',
+    'see_jobs' => 'Δες τις θέσεις →', 'stat_jobs' => 'ανοιχτές θέσεις', 'stat_tech' => 'cloud & τεχνολογία', 'stat_grow' => 'ευκαιρίες εξέλιξης',
+    'why_h' => 'Γιατί να έρθεις σε εμάς', 'why_sub' => 'Δεν προσλαμβάνουμε απλώς — χτίζουμε μια ομάδα που θέλει να μένει.',
+    'v1t' => 'Ανάπτυξη', 'v1p' => 'Μαθαίνεις συνεχώς νέες τεχνολογίες με πραγματικά έργα και mentoring από έμπειρους συναδέλφους.',
+    'v2t' => 'Ομάδα', 'v2p' => 'Συνεργατικό, ανθρώπινο περιβάλλον όπου η γνώμη σου μετράει και η βοήθεια είναι πάντα δίπλα σου.',
+    'v3t' => 'Τεχνολογία', 'v3p' => 'Cloud, δίκτυα, ανάπτυξη — δουλεύεις με σύγχρονα εργαλεία σε ένα περιβάλλον που καινοτομεί.',
+    'v4t' => 'Σταθερότητα', 'v4p' => 'Μια εταιρεία που μεγαλώνει σταθερά, με πραγματικούς πελάτες και μακροχρόνιες σχέσεις.',
+    'band_h' => 'Ένα περιβάλλον που σε ανεβάζει', 'band_p' => 'Μοντέρνοι χώροι, ευέλικτο κλίμα και συνάδελφοι που γιορτάζουν μαζί κάθε επιτυχία.',
+    'jobs_h' => 'Ανοιχτές θέσεις', 'jobs_sub' => 'Διάβασε ολόκληρη την αγγελία και εκδήλωσε το ενδιαφέρον σου σε λίγα λεπτά.',
+    'view_posting' => 'Δες την αγγελία', 'apply_cta' => 'Εκδήλωση ενδιαφέροντος →', 'close' => 'Κλείσιμο',
+    'no_fit' => 'Δεν βρίσκεις θέση που σου ταιριάζει; ', 'general_link' => 'Στείλε γενική αίτηση →',
+    'no_jobs' => 'Δεν υπάρχουν ανοιχτές θέσεις αυτή τη στιγμή.',
+    'back_all' => '← Όλες οι θέσεις', 'assigned' => '✓ Θέση που επέλεξες', 'general_title' => 'Γενική αίτηση',
+    'general_desc' => 'Δεν βρήκες τη θέση που ταιριάζει; Στείλε μας το βιογραφικό σου και θα σε έχουμε υπόψη για μελλοντικές ευκαιρίες.',
+    'see_full' => 'Δες ολόκληρη την αγγελία', 'form_h' => 'Εκδήλωσε το ενδιαφέρον σου',
+    'form_sub' => 'Συμπλήρωσε τα στοιχεία σου & ανέβασε το βιογραφικό. Λίγα λεπτά μόνο.',
+    'l_name' => 'Ονοματεπώνυμο', 'l_email' => 'Email', 'l_phone' => 'Τηλέφωνο',
+    'l_cv' => 'Βιογραφικό (PDF προτιμότερο)', 'l_letter' => 'Λίγα λόγια για σένα (προαιρετικά)',
+    'letter_ph' => 'Γιατί σε ενδιαφέρει η θέση, τι σε ξεχωρίζει…', 'submit' => 'Αποστολή αίτησης →',
+    'consent' => 'Με την υποβολή, συναινείς στην επεξεργασία των στοιχείων σου για σκοπούς πρόσληψης.',
+    'ty_h' => 'Λάβαμε την αίτησή σου!', 'ty_thanks' => 'Σε ευχαριστούμε για το ενδιαφέρον σου', 'ty_for' => ' για τη θέση «',
+    'ty_tail' => '». Θα εξετάσουμε το βιογραφικό σου και θα επικοινωνήσουμε μαζί σου αν προχωρήσουμε.',
+    'ty_tail2' => '. Θα εξετάσουμε το βιογραφικό σου και θα επικοινωνήσουμε μαζί σου αν προχωρήσουμε.',
+    'ty_more' => 'Δες κι άλλες θέσεις',
+    'e_fail' => 'Η υποβολή απέτυχε. Δοκίμασε ξανά.', 'e_job' => 'Επίλεξε έγκυρη θέση.', 'e_name' => 'Συμπλήρωσε το ονοματεπώνυμό σου.',
+    'e_email' => 'Συμπλήρωσε έγκυρο email.', 'e_cv' => 'Ανέβασε το βιογραφικό σου (PDF).', 'e_size' => 'Το αρχείο ξεπερνά τα 15MB.',
+    'e_type' => 'Μη επιτρεπτός τύπος αρχείου. Ανέβασε PDF ή Word.', 'e_save' => 'Σφάλμα αποθήκευσης. Δοκίμασε ξανά.',
+  ],
+  'en' => [
+    'title' => 'Careers & Job Openings — CloudOn', 'og_title' => 'Careers at CloudOn',
+    'meta_jobs' => 'Open positions at CloudOn: ', 'meta_tail' => '. Send us your CV online.',
+    'meta_none' => 'Careers at CloudOn — send us your CV for future opportunities.',
+    'nav_jobs' => 'Open positions', 'eyebrow' => 'Careers at CloudOn',
+    'h1a' => 'Build your career ', 'h1b' => 'in a team that keeps growing.',
+    'hero_p' => 'We work with modern technology, real impact and people who support one another. Come grow with us.',
+    'see_jobs' => 'See the positions →', 'stat_jobs' => 'open positions', 'stat_tech' => 'cloud & technology', 'stat_grow' => 'growth opportunities',
+    'why_h' => 'Why join us', 'why_sub' => "We don't just hire — we build a team that wants to stay.",
+    'v1t' => 'Growth', 'v1p' => 'You keep learning new technologies through real projects and mentoring from experienced colleagues.',
+    'v2t' => 'Team', 'v2p' => 'A collaborative, human environment where your voice matters and help is always right beside you.',
+    'v3t' => 'Technology', 'v3p' => 'Cloud, networks, development — you work with modern tools in an environment that innovates.',
+    'v4t' => 'Stability', 'v4p' => 'A company that grows steadily, with real clients and long-term relationships.',
+    'band_h' => 'An environment that lifts you up', 'band_p' => 'Modern spaces, a flexible vibe and colleagues who celebrate every win together.',
+    'jobs_h' => 'Open positions', 'jobs_sub' => 'Read the full posting and express your interest in just a few minutes.',
+    'view_posting' => 'View posting', 'apply_cta' => 'Apply now →', 'close' => 'Close',
+    'no_fit' => "Can't find a position that fits? ", 'general_link' => 'Send a general application →',
+    'no_jobs' => 'There are no open positions at the moment.',
+    'back_all' => '← All positions', 'assigned' => '✓ Position you selected', 'general_title' => 'General application',
+    'general_desc' => "Didn't find the right position? Send us your CV and we'll keep you in mind for future opportunities.",
+    'see_full' => 'View the full posting', 'form_h' => 'Express your interest',
+    'form_sub' => 'Fill in your details & upload your CV. Just a few minutes.',
+    'l_name' => 'Full name', 'l_email' => 'Email', 'l_phone' => 'Phone',
+    'l_cv' => 'CV (PDF preferred)', 'l_letter' => 'A few words about you (optional)',
+    'letter_ph' => 'Why the position interests you, what sets you apart…', 'submit' => 'Submit application →',
+    'consent' => 'By submitting, you consent to the processing of your details for recruitment purposes.',
+    'ty_h' => 'We received your application!', 'ty_thanks' => 'Thank you for your interest', 'ty_for' => ' in the «',
+    'ty_tail' => '» position. We will review your CV and get in touch if we move forward.',
+    'ty_tail2' => '. We will review your CV and get in touch if we move forward.',
+    'ty_more' => 'See more positions',
+    'e_fail' => 'Submission failed. Please try again.', 'e_job' => 'Select a valid position.', 'e_name' => 'Enter your full name.',
+    'e_email' => 'Enter a valid email.', 'e_cv' => 'Upload your CV (PDF).', 'e_size' => 'The file exceeds 15MB.',
+    'e_type' => 'File type not allowed. Upload PDF or Word.', 'e_save' => 'Save error. Please try again.',
+  ],
+];
+$t = fn($k) => $T[$lang][$k] ?? $T['el'][$k] ?? $k;
+
 $CVDIR = __DIR__ . '/../attachments/cloudonprojects';
 $err = ''; $done = false; $doneJob = '';
 
@@ -27,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ts = (int) ($_POST['ts'] ?? 0);
     $elapsed = time() - $ts;
     if ($hp !== '' || $ts <= 0 || $elapsed < 3 || $elapsed > 7200) {
-        $err = 'Η υποβολή απέτυχε. Δοκίμασε ξανά.';
+        $err = $t('e_fail');
     } else {
         $general = !empty($_POST['general']);
         $jobId = (int) ($_POST['job'] ?? 0);
@@ -37,20 +112,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone = mb_substr(trim($_POST['phone'] ?? ''), 0, 50);
         $letter = mb_substr(trim($_POST['letter'] ?? ''), 0, 6000);
         $f = $_FILES['cv'] ?? null;
-        if (!$general && !$job) { $err = 'Επίλεξε έγκυρη θέση.'; }
-        elseif ($name === '') { $err = 'Συμπλήρωσε το ονοματεπώνυμό σου.'; }
-        elseif (!$email) { $err = 'Συμπλήρωσε έγκυρο email.'; }
-        elseif (!$f || $f['error'] !== UPLOAD_ERR_OK) { $err = 'Ανέβασε το βιογραφικό σου (PDF).'; }
-        elseif ($f['size'] > 15 * 1024 * 1024) { $err = 'Το αρχείο ξεπερνά τα 15MB.'; }
+        if (!$general && !$job) { $err = $t('e_job'); }
+        elseif ($name === '') { $err = $t('e_name'); }
+        elseif (!$email) { $err = $t('e_email'); }
+        elseif (!$f || $f['error'] !== UPLOAD_ERR_OK) { $err = $t('e_cv'); }
+        elseif ($f['size'] > 15 * 1024 * 1024) { $err = $t('e_size'); }
         else {
             $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
             if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess', 'html', 'htm', 'svg'], true)) {
-                $err = 'Μη επιτρεπτός τύπος αρχείου. Ανέβασε PDF ή Word.';
+                $err = $t('e_type');
             } else {
                 if (!is_dir($CVDIR)) { @mkdir($CVDIR, 0750, true); }
                 $stored = uniqid('cv', true) . '.' . (preg_replace('/[^a-z0-9]/', '', $ext) ?: 'pdf');
                 if (!move_uploaded_file($f['tmp_name'], $CVDIR . '/' . $stored)) {
-                    $err = 'Σφάλμα αποθήκευσης. Δοκίμασε ξανά.';
+                    $err = $t('e_save');
                 } else {
                     $mime = $ext === 'pdf' ? 'application/pdf' : (($ext === 'doc' || $ext === 'docx') ? 'application/msword' : ($f['type'] ?: 'application/octet-stream'));
                     $id = Capsule::table('mod_cpm_cv')->insertGetId([
@@ -73,13 +148,15 @@ $jobs = Capsule::table('mod_cpm_cv_jobs')->where('active', 1)->orderBy('title')-
 $now = time();
 $e = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 $SELF = 'https://my.cloudon.gr/project/apply.php';
+$qlang = '&lang=' . $lang;   // για links με υπάρχον query
+$plang = '?lang=' . $lang;   // για base links
 
 /** Μορφοποίηση περιγραφής αγγελίας (headers/bullets/paragraphs) — ασφαλές HTML. */
-$fmtDesc = function ($t) use ($e) {
-    $t = trim((string) $t);
-    if ($t === '') { return '<p class="mut">—</p>'; }
+$fmtDesc = function ($txt) use ($e) {
+    $txt = trim((string) $txt);
+    if ($txt === '') { return '<p class="mut">—</p>'; }
     $out = ''; $inUl = false;
-    foreach (preg_split('/\r?\n/', $t) as $ln) {
+    foreach (preg_split('/\r?\n/', $txt) as $ln) {
         $s = trim($ln);
         if ($s === '' || preg_match('/^[-–—_=*]{2,}$/u', $s)) { if ($inUl) { $out .= '</ul>'; $inUl = false; } continue; }
         if (preg_match('/^[-•·]\s+(.*)/u', $s, $m)) { if (!$inUl) { $out .= '<ul>'; $inUl = true; } $out .= '<li>' . $e($m[1]) . '</li>'; continue; }
@@ -97,7 +174,7 @@ $skillChips = function ($csv) use ($e) {
     return $out;
 };
 
-// ── Ποια όψη; landing | form (ανά θέση/γενική) | thank-you ──
+// ── Ποια όψη; landing | form | thank-you ──
 $postedJob = ($_SERVER['REQUEST_METHOD'] === 'POST' && !$done) ? (int) ($_POST['job'] ?? 0) : 0;
 $reqJobId = $postedJob ?: (ctype_digit((string) ($_GET['job'] ?? '')) ? (int) $_GET['job'] : 0);
 $formJob = null;
@@ -105,37 +182,43 @@ foreach ($jobs as $jj) { if ((int) $jj->id === $reqJobId) { $formJob = $jj; brea
 $formGeneral = !$done && (($_GET['job'] ?? '') === 'general' || (!empty($_POST['general']) && $_SERVER['REQUEST_METHOD'] === 'POST'));
 $mode = $done ? 'done' : (($formJob || $formGeneral) ? 'form' : 'landing');
 
+// base URL για εναλλαγή γλώσσας (διατηρεί context)
+$curBase = 'apply.php';
+if ($mode === 'form') { $curBase .= '?job=' . ($formJob ? (int) $formJob->id : 'general'); }
+$switch = fn($lg) => $curBase . (strpos($curBase, '?') !== false ? '&' : '?') . 'lang=' . $lg;
+
 // SEO
 $titles = []; foreach ($jobs as $jj) { $titles[] = $jj->title; }
-$metaDesc = count($jobs)
-    ? 'Ανοιχτές θέσεις εργασίας στην CloudOn: ' . mb_substr(implode(', ', $titles), 0, 150) . '. Στείλε το βιογραφικό σου online.'
-    : 'Καριέρα στην CloudOn — στείλε μας το βιογραφικό σου για μελλοντικές ευκαιρίες.';
+$metaDesc = count($jobs) ? $t('meta_jobs') . mb_substr(implode(', ', $titles), 0, 150) . $t('meta_tail') : $t('meta_none');
 $ld = [];
 foreach ($jobs as $jj) {
     $ld[] = ['@context' => 'https://schema.org/', '@type' => 'JobPosting', 'title' => $jj->title,
-        'description' => '<p>' . htmlspecialchars((string) ($jj->descr ?: $jj->title) . ($jj->skills ? ' Δεξιότητες: ' . $jj->skills : '')) . '</p>',
+        'description' => '<p>' . htmlspecialchars((string) ($jj->descr ?: $jj->title) . ($jj->skills ? ' Skills: ' . $jj->skills : '')) . '</p>',
         'datePosted' => date('Y-m-d', strtotime((string) ($jj->created_at ?: 'now'))),
         'employmentType' => stripos((string) $jj->emptype, 'μερικ') !== false ? 'PART_TIME' : 'FULL_TIME',
         'hiringOrganization' => ['@type' => 'Organization', 'name' => 'CloudOn', 'sameAs' => 'https://cloudon.gr'],
         'directApply' => true,
         'jobLocation' => ['@type' => 'Place', 'address' => ['@type' => 'PostalAddress', 'addressLocality' => $jj->location ?: 'Αθήνα', 'addressCountry' => 'GR']]];
 }
-// Δεδομένα θέσεων για το modal ανάλυσης (client-side)
 $jobsData = [];
 foreach ($jobs as $jj) {
     $jobsData[(int) $jj->id] = ['title' => $jj->title, 'location' => $jj->location, 'emptype' => $jj->emptype,
         'skills' => $skillChips($jj->skills), 'html' => $fmtDesc($jj->descr)];
 }
-?><!DOCTYPE html><html lang="el"><head><meta charset="utf-8">
+?><!DOCTYPE html><html lang="<?= $lang ?>"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Καριέρα &amp; Θέσεις Εργασίας — CloudOn</title>
+<title><?= $e($t('title')) ?></title>
 <meta name="description" content="<?= $e($metaDesc) ?>">
-<link rel="canonical" href="<?= $SELF ?>">
+<link rel="canonical" href="<?= $SELF . $plang ?>">
+<link rel="alternate" hreflang="el" href="<?= $SELF ?>?lang=el">
+<link rel="alternate" hreflang="en" href="<?= $SELF ?>?lang=en">
+<link rel="alternate" hreflang="x-default" href="<?= $SELF ?>">
 <meta name="robots" content="index,follow">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Καριέρα στην CloudOn">
+<meta property="og:title" content="<?= $e($t('og_title')) ?>">
 <meta property="og:description" content="<?= $e($metaDesc) ?>">
-<meta property="og:url" content="<?= $SELF ?>">
+<meta property="og:url" content="<?= $SELF . $plang ?>">
+<meta property="og:locale" content="<?= $lang === 'en' ? 'en_US' : 'el_GR' ?>">
 <meta property="og:image" content="https://my.cloudon.gr/project/apply-assets/office.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <?php foreach ($ld as $l): ?>
@@ -158,12 +241,15 @@ img{max-width:100%;display:block}
 .btn.sm{padding:10px 18px;font-size:14px;border-radius:11px}
 .brand{display:inline-flex;background:#fff;border-radius:11px;padding:8px 14px;box-shadow:0 6px 20px -8px rgba(0,0,0,.4)}
 .brand img{height:30px;display:block}
+.langsw{display:inline-flex;gap:2px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:10px;padding:3px;font-size:12.5px;font-weight:800}
+.langsw a{color:#cfe0f0;text-decoration:none;padding:5px 10px;border-radius:7px;line-height:1}
+.langsw a.on{background:#fff;color:var(--brand-d)}
 /* ── HERO ── */
 .hero{position:relative;color:#fff;overflow:hidden;padding:26px 0 96px}
 .hero::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(9,20,38,.78),rgba(9,20,38,.92)),url('apply-assets/office.jpg') center/cover;z-index:-2}
 .hero::after{content:"";position:absolute;top:-140px;right:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,#22b4ff55,transparent 70%);filter:blur(40px);z-index:-1}
-.nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 0}
-.nav .links{display:flex;gap:8px}
+.nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 0;gap:10px}
+.nav .links{display:flex;gap:10px;align-items:center}
 .hero-in{max-width:720px;margin-top:64px}
 .eyebrow{display:inline-block;font-size:12px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#7fe0ff;background:#22b4ff1a;border:1px solid #22b4ff44;border-radius:999px;padding:6px 15px;margin-bottom:18px}
 .hero h1{font-size:clamp(32px,6vw,50px);line-height:1.06;letter-spacing:-1.2px;color:#fff;margin-bottom:16px;font-weight:800}
@@ -200,7 +286,7 @@ img{max-width:100%;display:block}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .chip{font-size:10.5px;font-weight:600;color:var(--txt);background:#f1f5fa;border:1px solid var(--line);border-radius:8px;padding:3px 9px}
 .job .acts{display:flex;gap:8px;flex-wrap:wrap}
-/* job description (modal + form ctx) */
+/* job description */
 .jobdesc h4{font-size:12.5px;letter-spacing:.6px;color:var(--brand-d);margin:18px 0 7px;font-weight:800;text-transform:uppercase}
 .jobdesc h4:first-child{margin-top:0}
 .jobdesc p{font-size:14px;color:var(--txt);margin:0 0 9px}
@@ -219,6 +305,7 @@ img{max-width:100%;display:block}
 /* form page */
 .applyhead{background:var(--navy);color:#fff;padding:15px 0}
 .applyhead .container{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.applyhead .r{display:flex;align-items:center;gap:12px}
 .backlink{color:#bcd3ea;text-decoration:none;font-size:14px;font-weight:700}
 .backlink:hover{color:#fff}
 .applywrap{max-width:720px;margin:0 auto;padding:40px 20px 64px}
@@ -252,16 +339,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 @media(max-width:640px){.hero-in{margin-top:38px}.section{padding:44px 0}.modal-box{padding:26px 22px}}
 </style></head>
 <body>
+<?php
+$langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lang === 'el' ? ' class="on"' : '') . '>EL</a><a href="' . $e($switch('en')) . '"' . ($lang === 'en' ? ' class="on"' : '') . '>EN</a></span>';
+?>
 
-<?php if ($mode === 'form'): // ── ΣΕΛΙΔΑ ΦΟΡΜΑΣ (assigned θέση) ── ?>
+<?php if ($mode === 'form'): // ── ΣΕΛΙΔΑ ΦΟΡΜΑΣ ── ?>
 <header class="applyhead"><div class="container">
   <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span>
-  <a class="backlink" href="apply.php">← Όλες οι θέσεις</a>
+  <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
 </div></header>
 <div class="applywrap">
   <div class="jobctx">
-    <span class="assigned">✓ Θέση που επέλεξες</span>
-    <h1><?= $e($formJob ? $formJob->title : 'Γενική αίτηση') ?></h1>
+    <span class="assigned"><?= $e($t('assigned')) ?></span>
+    <h1><?= $e($formJob ? $formJob->title : $t('general_title')) ?></h1>
     <?php if ($formJob): ?>
       <div class="meta">
         <?php if ($formJob->location): ?><span class="tag">📍 <?= $e($formJob->location) ?></span><?php endif; ?>
@@ -269,30 +359,31 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
       </div>
       <?php if (trim((string) $formJob->skills) !== ''): ?><div class="chips" style="margin-bottom:4px"><?= $skillChips($formJob->skills) ?></div><?php endif; ?>
       <?php if (trim((string) $formJob->descr) !== ''): ?>
-      <details><summary>Δες ολόκληρη την αγγελία</summary><div class="jobdesc"><?= $fmtDesc($formJob->descr) ?></div></details>
+      <details><summary><?= $e($t('see_full')) ?></summary><div class="jobdesc"><?= $fmtDesc($formJob->descr) ?></div></details>
       <?php endif; ?>
     <?php else: ?>
-      <p class="mut" style="font-size:14px">Δεν βρήκες τη θέση που ταιριάζει; Στείλε μας το βιογραφικό σου και θα σε έχουμε υπόψη για μελλοντικές ευκαιρίες.</p>
+      <p class="mut" style="font-size:14px"><?= $e($t('general_desc')) ?></p>
     <?php endif; ?>
   </div>
 
   <div class="card">
-    <h2 style="font-size:19px;color:var(--ink);margin-bottom:4px">Εκδήλωσε το ενδιαφέρον σου</h2>
-    <p class="mut" style="font-size:13px;margin-bottom:6px">Συμπλήρωσε τα στοιχεία σου & ανέβασε το βιογραφικό. Λίγα λεπτά μόνο.</p>
+    <h2 style="font-size:19px;color:var(--ink);margin-bottom:4px"><?= $e($t('form_h')) ?></h2>
+    <p class="mut" style="font-size:13px;margin-bottom:6px"><?= $e($t('form_sub')) ?></p>
     <?php if ($err): ?><div class="alert" style="margin-top:12px"><?= $e($err) ?></div><?php endif; ?>
-    <form method="post" enctype="multipart/form-data" autocomplete="on" action="apply.php?job=<?= $formJob ? (int) $formJob->id : 'general' ?>">
+    <form method="post" enctype="multipart/form-data" autocomplete="on" action="apply.php?job=<?= $formJob ? (int) $formJob->id : 'general' ?><?= $qlang ?>">
       <input type="hidden" name="ts" value="<?= $now ?>">
+      <input type="hidden" name="lang" value="<?= $lang ?>">
       <?php if ($formJob): ?><input type="hidden" name="job" value="<?= (int) $formJob->id ?>"><?php else: ?><input type="hidden" name="general" value="1"><?php endif; ?>
       <div class="hp"><label>Website</label><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
       <div class="row">
-        <div><label>Ονοματεπώνυμο *</label><input type="text" name="name" required maxlength="150" value="<?= $e($_POST['name'] ?? '') ?>"></div>
-        <div><label>Email *</label><input type="email" name="email" required maxlength="150" value="<?= $e($_POST['email'] ?? '') ?>"></div>
+        <div><label><?= $e($t('l_name')) ?> *</label><input type="text" name="name" required maxlength="150" value="<?= $e($_POST['name'] ?? '') ?>"></div>
+        <div><label><?= $e($t('l_email')) ?> *</label><input type="email" name="email" required maxlength="150" value="<?= $e($_POST['email'] ?? '') ?>"></div>
       </div>
-      <label>Τηλέφωνο</label><input type="tel" name="phone" maxlength="50" value="<?= $e($_POST['phone'] ?? '') ?>">
-      <label>Βιογραφικό (PDF προτιμότερο) *</label><input type="file" name="cv" accept=".pdf,.doc,.docx" required>
-      <label>Λίγα λόγια για σένα (προαιρετικά)</label><textarea name="letter" rows="4" maxlength="6000" placeholder="Γιατί σε ενδιαφέρει η θέση, τι σε ξεχωρίζει…"><?= $e($_POST['letter'] ?? '') ?></textarea>
-      <button class="btn" type="submit">Αποστολή αίτησης →</button>
-      <div class="note">Με την υποβολή, συναινείς στην επεξεργασία των στοιχείων σου για σκοπούς πρόσληψης.</div>
+      <label><?= $e($t('l_phone')) ?></label><input type="tel" name="phone" maxlength="50" value="<?= $e($_POST['phone'] ?? '') ?>">
+      <label><?= $e($t('l_cv')) ?> *</label><input type="file" name="cv" accept=".pdf,.doc,.docx" required>
+      <label><?= $e($t('l_letter')) ?></label><textarea name="letter" rows="4" maxlength="6000" placeholder="<?= $e($t('letter_ph')) ?>"><?= $e($_POST['letter'] ?? '') ?></textarea>
+      <button class="btn" type="submit"><?= $e($t('submit')) ?></button>
+      <div class="note"><?= $e($t('consent')) ?></div>
     </form>
   </div>
 </div>
@@ -300,13 +391,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 <?php elseif ($done): // ── THANK YOU ── ?>
 <header class="applyhead"><div class="container">
   <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span>
-  <a class="backlink" href="apply.php">← Όλες οι θέσεις</a>
+  <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
 </div></header>
 <div class="applywrap">
   <div class="card"><div class="done"><div class="ic">✓</div>
-    <h2>Λάβαμε την αίτησή σου!</h2>
-    <p>Σε ευχαριστούμε για το ενδιαφέρον σου<?= $doneJob ? ' για τη θέση «' . $e($doneJob) . '»' : '' ?>. Θα εξετάσουμε το βιογραφικό σου και θα επικοινωνήσουμε μαζί σου αν προχωρήσουμε.</p>
-    <a class="btn sm" style="margin-top:18px" href="apply.php">Δες κι άλλες θέσεις</a></div></div>
+    <h2><?= $e($t('ty_h')) ?></h2>
+    <p><?= $e($t('ty_thanks')) . ($doneJob ? $e($t('ty_for')) . $e($doneJob) . $e($t('ty_tail')) : $e($t('ty_tail2'))) ?></p>
+    <a class="btn sm" style="margin-top:18px" href="apply.php<?= $plang ?>"><?= $e($t('ty_more')) ?></a></div></div>
 </div>
 
 <?php else: // ── LANDING ── ?>
@@ -314,17 +405,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
   <div class="container">
     <nav class="nav">
       <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span>
-      <div class="links"><a class="btn ghost sm" href="#jobs">Ανοιχτές θέσεις</a></div>
+      <div class="links"><?= $langSwitch ?><a class="btn ghost sm" href="#jobs"><?= $e($t('nav_jobs')) ?></a></div>
     </nav>
     <div class="hero-in">
-      <span class="eyebrow">Καριέρα στην CloudOn</span>
-      <h1>Χτίσε την καριέρα σου <span class="g">σε μια ομάδα που εξελίσσεται.</span></h1>
-      <p>Δουλεύουμε με σύγχρονη τεχνολογία, πραγματικό αντίκτυπο και ανθρώπους που στηρίζουν ο ένας τον άλλον. Έλα να μεγαλώσουμε μαζί.</p>
-      <div class="cta"><a class="btn" href="#jobs">Δες τις θέσεις →</a></div>
+      <span class="eyebrow"><?= $e($t('eyebrow')) ?></span>
+      <h1><?= $e($t('h1a')) ?><span class="g"><?= $e($t('h1b')) ?></span></h1>
+      <p><?= $e($t('hero_p')) ?></p>
+      <div class="cta"><a class="btn" href="#jobs"><?= $e($t('see_jobs')) ?></a></div>
       <div class="stats">
-        <div class="s"><b><?= count($jobs) ?></b><span>ανοιχτές θέσεις</span></div>
-        <div class="s"><b>100%</b><span>cloud &amp; τεχνολογία</span></div>
-        <div class="s"><b>∞</b><span>ευκαιρίες εξέλιξης</span></div>
+        <div class="s"><b><?= count($jobs) ?></b><span><?= $e($t('stat_jobs')) ?></span></div>
+        <div class="s"><b>100%</b><span><?= $e($t('stat_tech')) ?></span></div>
+        <div class="s"><b>∞</b><span><?= $e($t('stat_grow')) ?></span></div>
       </div>
     </div>
   </div>
@@ -332,25 +423,25 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 
 <section class="section">
   <div class="container">
-    <h2>Γιατί να έρθεις σε εμάς</h2>
-    <p class="sub">Δεν προσλαμβάνουμε απλώς — χτίζουμε μια ομάδα που θέλει να μένει.</p>
+    <h2><?= $e($t('why_h')) ?></h2>
+    <p class="sub"><?= $e($t('why_sub')) ?></p>
     <div class="values">
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div><h3>Ανάπτυξη</h3><p>Μαθαίνεις συνεχώς νέες τεχνολογίες με πραγματικά έργα και mentoring από έμπειρους συναδέλφους.</p></div>
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Ομάδα</h3><p>Συνεργατικό, ανθρώπινο περιβάλλον όπου η γνώμη σου μετράει και η βοήθεια είναι πάντα δίπλα σου.</p></div>
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><h3>Τεχνολογία</h3><p>Cloud, δίκτυα, ανάπτυξη — δουλεύεις με σύγχρονα εργαλεία σε ένα περιβάλλον που καινοτομεί.</p></div>
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg></div><h3>Σταθερότητα</h3><p>Μια εταιρεία που μεγαλώνει σταθερά, με πραγματικούς πελάτες και μακροχρόνιες σχέσεις.</p></div>
+      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div><h3><?= $e($t('v1t')) ?></h3><p><?= $e($t('v1p')) ?></p></div>
+      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3><?= $e($t('v2t')) ?></h3><p><?= $e($t('v2p')) ?></p></div>
+      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><h3><?= $e($t('v3t')) ?></h3><p><?= $e($t('v3p')) ?></p></div>
+      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg></div><h3><?= $e($t('v4t')) ?></h3><p><?= $e($t('v4p')) ?></p></div>
     </div>
     <div class="band" style="margin-top:24px">
-      <img src="apply-assets/collab.jpg" alt="Η ομάδα μας">
-      <div class="txt"><h3>Ένα περιβάλλον που σε ανεβάζει</h3><p>Μοντέρνοι χώροι, ευέλικτο κλίμα και συνάδελφοι που γιορτάζουν μαζί κάθε επιτυχία.</p></div>
+      <img src="apply-assets/collab.jpg" alt="CloudOn team">
+      <div class="txt"><h3><?= $e($t('band_h')) ?></h3><p><?= $e($t('band_p')) ?></p></div>
     </div>
   </div>
 </section>
 
 <section class="section" id="jobs" style="background:linear-gradient(180deg,#fff,#f4f7fb)">
   <div class="container">
-    <h2>Ανοιχτές θέσεις</h2>
-    <p class="sub">Διάβασε ολόκληρη την αγγελία και εκδήλωσε το ενδιαφέρον σου σε λίγα λεπτά.</p>
+    <h2><?= $e($t('jobs_h')) ?></h2>
+    <p class="sub"><?= $e($t('jobs_sub')) ?></p>
     <?php if (count($jobs)): ?>
       <div class="jobs">
         <?php foreach ($jobs as $j): ?>
@@ -363,42 +454,42 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
             <?php if (trim((string) $j->descr) !== ''): ?><p class="d"><?= $e(mb_substr(strip_tags($j->descr), 0, 170)) ?>…</p><?php endif; ?>
             <?php if (trim((string) $j->skills) !== ''): ?><div class="chips"><?= $skillChips($j->skills) ?></div><?php endif; ?>
             <div class="acts">
-              <button class="btn o sm" onclick="openJob(<?= (int) $j->id ?>)">Δες την αγγελία</button>
-              <a class="btn sm" href="apply.php?job=<?= (int) $j->id ?>">Εκδήλωση ενδιαφέροντος →</a>
+              <button class="btn o sm" onclick="openJob(<?= (int) $j->id ?>)"><?= $e($t('view_posting')) ?></button>
+              <a class="btn sm" href="apply.php?job=<?= (int) $j->id ?><?= $qlang ?>"><?= $e($t('apply_cta')) ?></a>
             </div>
           </div>
         <?php endforeach; ?>
       </div>
-      <p style="text-align:center;margin-top:26px;font-size:14px;color:var(--mut)">Δεν βρίσκεις θέση που σου ταιριάζει; <a href="apply.php?job=general" style="color:var(--brand);font-weight:700">Στείλε γενική αίτηση →</a></p>
+      <p style="text-align:center;margin-top:26px;font-size:14px;color:var(--mut)"><?= $e($t('no_fit')) ?><a href="apply.php?job=general<?= $qlang ?>" style="color:var(--brand);font-weight:700"><?= $e($t('general_link')) ?></a></p>
     <?php else: ?>
-      <div class="empty">Δεν υπάρχουν ανοιχτές θέσεις αυτή τη στιγμή.<br><a class="btn sm" style="margin-top:14px" href="apply.php?job=general">Στείλε γενική αίτηση →</a></div>
+      <div class="empty"><?= $e($t('no_jobs')) ?><br><a class="btn sm" style="margin-top:14px" href="apply.php?job=general<?= $qlang ?>"><?= $e($t('general_link')) ?></a></div>
     <?php endif; ?>
   </div>
 </section>
 
-<!-- MODAL: ανάλυση αγγελίας -->
 <div class="modal" id="jobModal" onclick="if(event.target===this)closeJob()">
   <div class="modal-box">
-    <button class="modal-x" onclick="closeJob()" aria-label="Κλείσιμο">✕</button>
+    <button class="modal-x" onclick="closeJob()" aria-label="<?= $e($t('close')) ?>">✕</button>
     <h2 id="jmTitle"></h2>
     <div id="jmMeta"></div>
     <div id="jmDesc" class="jobdesc"></div>
     <div id="jmSkills"></div>
     <div class="modal-foot">
-      <a id="jmApply" class="btn" href="#">Εκδήλωση ενδιαφέροντος →</a>
-      <button class="btn o" onclick="closeJob()">Κλείσιμο</button>
+      <a id="jmApply" class="btn" href="#"><?= $e($t('apply_cta')) ?></a>
+      <button class="btn o" onclick="closeJob()"><?= $e($t('close')) ?></button>
     </div>
   </div>
 </div>
 <script>
 const JOBS = <?= json_encode($jobsData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+const LANG = '<?= $lang ?>';
 function openJob(id){
   const j = JOBS[id]; if(!j) return;
   document.getElementById('jmTitle').textContent = j.title;
   document.getElementById('jmMeta').innerHTML = (j.location?'<span class="tag">📍 '+esc(j.location)+'</span>':'') + (j.emptype?'<span class="tag">'+esc(j.emptype)+'</span>':'');
   document.getElementById('jmDesc').innerHTML = j.html || '<p class="mut">—</p>';
   document.getElementById('jmSkills').innerHTML = j.skills || '';
-  document.getElementById('jmApply').href = 'apply.php?job=' + id;
+  document.getElementById('jmApply').href = 'apply.php?job=' + id + '&lang=' + LANG;
   document.getElementById('jobModal').classList.add('show');
   document.body.style.overflow = 'hidden';
 }
