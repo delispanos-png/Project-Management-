@@ -345,8 +345,18 @@ function cnp_json_extract($txt)
 /** PDF document block για το CV ενός υποψηφίου (ή null). */
 function cnp_cv_pdf_block($r)
 {
+    if ($r->cv_mime !== 'application/pdf') { return null; }
+    // migrated στο S3 → κατέβασε προσωρινά
+    if (!empty($r->cv_storage_id)) {
+        $tmp = Storage::toTempFile((int) $r->cv_storage_id);
+        if ($tmp && is_file($tmp) && filesize($tmp) < 8 * 1024 * 1024) {
+            $data = base64_encode(file_get_contents($tmp));
+            if ((int) $r->cv_storage_id && Storage::record((int) $r->cv_storage_id)['driver'] === 's3') { @unlink($tmp); }
+            return ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $data]];
+        }
+    }
     $path = $r->cv_stored ? realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored)) : false;
-    if ($path && $r->cv_mime === 'application/pdf' && is_file($path) && filesize($path) < 8 * 1024 * 1024) {
+    if ($path && is_file($path) && filesize($path) < 8 * 1024 * 1024) {
         return ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => base64_encode(file_get_contents($path))]];
     }
     return null;
@@ -5142,6 +5152,11 @@ case 'cv_photo':                         // headshot thumbnail (auth + hr)
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('img', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r || !$r->photo) { fail('img', 404); }
+    if (!empty($r->photo_storage_id)) {                     // migrated → S3/local via Storage
+        $sr = Storage::record((int) $r->photo_storage_id);
+        if ($sr && $sr['driver'] === 's3') { header('Location: ' . Storage::presign($sr['id'], 300), true, 302); exit; }
+        if ($sr) { $st = Storage::openRead($sr['id']); if ($st) { header('Content-Type: image/jpeg'); header('X-Content-Type-Options: nosniff'); header('Cache-Control: private, max-age=86400'); fpassthru($st); fclose($st); exit; } }
+    }
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->photo));
     if (!$path || !is_file($path)) { fail('img', 404); }
     header('Content-Type: image/jpeg');
@@ -5154,14 +5169,25 @@ case 'cv_photo':                         // headshot thumbnail (auth + hr)
 case 'cv_file':                          // προβολή/λήψη CV (auth + hr)
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('file', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
-    if (!$r || !$r->cv_stored) { fail('file', 404); }
-    $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored));
-    if (!$path || !is_file($path)) { fail('file', 404); }
+    if (!$r || (!$r->cv_stored && empty($r->cv_storage_id))) { fail('file', 404); }
     $mime = $r->cv_mime ?: 'application/octet-stream';
     $previewable = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0);   // μόνο PDF/εικόνα inline
+    $disp = (!empty($_GET['dl']) || !$previewable) ? 'attachment' : 'inline';
+    if (!empty($r->cv_storage_id)) {                        // migrated → S3/local via Storage
+        $sr = Storage::record((int) $r->cv_storage_id);
+        if ($sr && $sr['driver'] === 's3') { header('Location: ' . Storage::presign($sr['id'], 300, $disp === 'attachment'), true, 302); exit; }
+        if ($sr) { $stm = Storage::openRead($sr['id']); if ($stm) {
+            header('Content-Type: ' . $mime); header('X-Content-Type-Options: nosniff');
+            header('Content-Disposition: ' . $disp . '; filename="' . rawurlencode($r->cv_name ?: 'cv.pdf') . '"');
+            if ($sr['size']) { header('Content-Length: ' . (int) $sr['size']); }
+            fpassthru($stm); fclose($stm); exit;
+        } }
+    }
+    $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored));
+    if (!$path || !is_file($path)) { fail('file', 404); }
     header('Content-Type: ' . $mime);
     header('X-Content-Type-Options: nosniff');
-    header('Content-Disposition: ' . ((!empty($_GET['dl']) || !$previewable) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($r->cv_name ?: 'cv.pdf') . '"');
+    header('Content-Disposition: ' . $disp . '; filename="' . rawurlencode($r->cv_name ?: 'cv.pdf') . '"');
     header('Content-Length: ' . filesize($path));
     readfile($path);
     exit;

@@ -380,7 +380,9 @@ class Db
                 $t->integer('admin_id')->unsigned();
                 $t->text('body')->nullable();
                 $t->string('filename', 190)->nullable();         // συνημμένο (προαιρετικό)
-                $t->string('stored', 60)->nullable();
+                $t->string('stored', 60)->nullable();             // legacy local (pre-Storage)
+                $t->integer('storage_id')->unsigned()->nullable(); // → mod_cpm_storage (S3/local)
+                $t->string('mime', 120)->nullable();
                 $t->integer('size')->unsigned()->nullable();
                 $t->dateTime('created_at');
             });
@@ -609,7 +611,9 @@ class Db
                 $t->string('cv_stored', 140)->default('');
                 $t->string('cv_name', 190)->default('');
                 $t->string('cv_mime', 90)->default('');
+                $t->integer('cv_storage_id')->unsigned()->nullable();    // → mod_cpm_storage (S3 migration)
                 $t->string('photo', 140)->default('');            // headshot thumbnail (face detection)
+                $t->integer('photo_storage_id')->unsigned()->nullable();
                 $t->string('status', 12)->default('new');         // new/review/shortlist/interview/rejected/hired
                 $t->tinyInteger('rating')->default(0);
                 $t->integer('ai_score')->nullable();              // co-pilot 0-100
