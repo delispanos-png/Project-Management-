@@ -3263,9 +3263,15 @@ case 'settings_save':
     }
     out(['ok' => true]);
 
-case 'storage_test':                      // health check σύνδεσης S3
+case 'storage_test':                      // health check σύνδεσης S3 (+ auto CORS)
     if (!$FULL) { fail('forbidden', 403); }
-    out(Storage::s3Test());
+    $stt = Storage::s3Test();
+    if (!empty($stt['ok'])) {
+        $cors = Storage::applyCors(['https://my.cloudon.gr']);
+        $stt['msg'] .= ' · ' . $cors['msg'];
+        if (empty($cors['ok'])) { $stt['ok'] = false; }
+    }
+    out($stt);
 
 /* ── Γενικό API αρχείων (όλα τα modules, μέσω Storage) ── */
 case 'file_presign_put':                  // direct-to-S3 upload (μεγάλα/βίντεο)

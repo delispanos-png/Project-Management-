@@ -1142,6 +1142,71 @@ function openCvAdd(jobs, reload) {
   };
 }
 
+/* ═══ Reusable widget: Συνημμένα αρχεία & βίντεο (Storage layer, direct-to-S3) ═══
+   cnpAttachments(host, {module, refType, refId, canDelete=true, accept}) */
+function cnpAttachments(host, opts) {
+  const fmtBytes = b => { b = +b || 0; if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB'; return (b / 1073741824).toFixed(2) + ' GB'; };
+  const kindIco = k => ({video: '🎬', image: '🖼️', audio: '🎵', doc: '📄'}[k] || '📎');
+  let files = [];
+  const putToS3 = (url, file, headers, onProg) => new Promise((res, rej) => {
+    const xhr = new XMLHttpRequest(); xhr.open('PUT', url);
+    if (headers) Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProg(Math.round(e.loaded / e.total * 100)); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? res() : rej(new Error('S3 upload HTTP ' + xhr.status));
+    xhr.onerror = () => rej(new Error('S3 upload error')); xhr.send(file);
+  });
+  const setProg = (pct, label) => { const p = host.querySelector('#cnpaProg'); if (!p) return; if (pct == null) { p.style.display = 'none'; return; } p.style.display = 'block'; p.innerHTML = `<div style="font-size:11.5px;color:var(--mut);margin-bottom:4px">${esc(label || '')} — ${pct}%</div><div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--brand);transition:width .2s"></div></div>`; };
+  const renderList = () => {
+    const box = host.querySelector('#cnpaList'); if (!box) return;
+    box.innerHTML = files.length ? files.map(f => {
+      const prev = f.kind === 'video' ? `<video src="${f.url}" controls preload="metadata" style="width:100%;max-height:280px;border-radius:8px;background:#000;margin-top:7px"></video>`
+        : f.kind === 'image' ? `<img src="${f.url}" loading="lazy" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:7px;display:block">` : '';
+      return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px">
+        <div style="display:flex;gap:9px;align-items:center">
+          <span style="font-size:18px">${kindIco(f.kind)}</span>
+          <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</div>
+            <div class="mut" style="font-size:11px">${fmtBytes(f.size)}${f.driver === 's3' ? ' · ☁️ cloud' : ''}</div></div>
+          <a class="btn btn-o btn-sm" href="${f.url}&dl=1" title="Λήψη">${I.download}</a>
+          ${opts.canDelete !== false ? `<button class="btn btn-o btn-sm" data-fdel="${f.id}" style="color:var(--bad)" title="Διαγραφή">${I.trash}</button>` : ''}
+        </div>${prev}</div>`;
+    }).join('') : '<div class="mut" style="font-size:12px">Κανένα συνημμένο ακόμη.</div>';
+    box.querySelectorAll('[data-fdel]').forEach(b => b.onclick = async () => { if (!await cnpConfirm('Διαγραφή αρχείου;', {danger: true})) return; await api('file_delete', {id: +b.dataset.fdel}); files = files.filter(x => x.id != b.dataset.fdel); renderList(); toast('Διαγράφηκε'); });
+  };
+  async function uploadOne(file) {
+    try {
+      setProg(0, file.name);
+      const pre = await api('file_presign_put', {module: opts.module, ref_type: opts.refType, ref_id: opts.refId, filename: file.name, mime: file.type || 'application/octet-stream', size: file.size});
+      let rec;
+      if (pre.mode === 'direct') {
+        await putToS3(pre.uploadUrl, file, pre.headers, p => setProg(p, file.name));
+        const c = await api('file_confirm', {module: opts.module, ref_type: opts.refType, ref_id: opts.refId, key: pre.key, orig_name: file.name, mime: file.type || 'application/octet-stream', size: file.size});
+        rec = c.file;
+      } else {
+        const fd = new FormData(); fd.append('module', opts.module); fd.append('ref_type', opts.refType || ''); fd.append('ref_id', opts.refId || 0); fd.append('file', file);
+        const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json());
+        if (!r.ok) throw new Error(r.error || 'σφάλμα'); rec = r.file;
+      }
+      setProg(null); files.unshift(rec); renderList(); toast('Ανέβηκε ✓');
+    } catch (e) { setProg(null); toast((e && e.message) || 'Σφάλμα ανεβάσματος', true); }
+  }
+  host.innerHTML = `
+    <div id="cnpaList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+    <div id="cnpaDrop" style="border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:.15s">
+      <input type="file" id="cnpaInput" multiple style="display:none" ${opts.accept ? `accept="${opts.accept}"` : ''}>
+      <div style="font-size:13px;color:var(--mut)">📎 Σύρε αρχεία εδώ ή <b style="color:var(--brand)">κάνε κλικ</b> — έγγραφα, εικόνες, <b>βίντεο</b></div>
+      <div class="mut" style="font-size:11px;margin-top:3px">Τα βίντεο/μεγάλα ανεβαίνουν κατευθείαν στο cloud storage</div>
+    </div>
+    <div id="cnpaProg" style="display:none;margin-top:10px"></div>`;
+  renderList();
+  const drop = host.querySelector('#cnpaDrop'), input = host.querySelector('#cnpaInput');
+  drop.onclick = () => input.click();
+  input.onchange = () => { [...input.files].forEach(uploadOne); input.value = ''; };
+  ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor = 'var(--brand)'; drop.style.background = '#0090dd0a'; }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor = 'var(--line)'; drop.style.background = ''; }));
+  drop.addEventListener('drop', e => { [...(e.dataTransfer && e.dataTransfer.files || [])].forEach(uploadOne); });
+  api('file_list&module=' + encodeURIComponent(opts.module) + '&ref_type=' + encodeURIComponent(opts.refType || '') + '&ref_id=' + (opts.refId || 0)).then(d => { files = d.files || []; renderList(); }).catch(() => {});
+}
+
 async function openCv(id) {
   closeDrawer();
   const statuses = window._cvStatuses || {};
@@ -1188,6 +1253,7 @@ async function openCv(id) {
         ${(d.cvMime === 'application/pdf') ? `<iframe src="api.php?a=cv_file&id=${id}" style="width:100%;height:520px;border:1px solid var(--line);border-radius:10px"></iframe>` : `<div class="mut" style="font-size:12px">${esc(d.cvName || 'αρχείο')} — προεπισκόπηση μη διαθέσιμη, κατέβασέ το.</div>`}` : '<div class="mut" style="font-size:12px">Χωρίς συνημμένο CV.</div>'}
       ${d.letter ? `<div style="margin-top:12px"><b style="font-size:12px">Συνοδευτική επιστολή</b><div class="mut" style="font-size:12.5px;white-space:pre-wrap;margin-top:4px">${esc(d.letter)}</div></div>` : ''}
     </div></div>
+    <div class="card"><div class="card-h">${I.download} Συνημμένα <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">αρχεία & βίντεο (π.χ. καταγραφή συνέντευξης, portfolio)</span></div><div class="card-b" id="cvFilesBox"></div></div>
     <div class="card"><div class="card-h">${I.chat || I.users} Συνέντευξη <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">χαρακτήρας + επαλήθευση γνώσεων</span></div><div class="card-b" id="cvIvBox"></div></div>
     <div class="card"><div class="card-h">${I.checkSquare} Αξιολόγηση & κατάσταση</div><div class="card-b">
       <label class="lbl">Στάδιο</label>
@@ -1204,6 +1270,7 @@ async function openCv(id) {
     </div></div>
   </div>`;
   $('#dX', dr).onclick = closeDrawer;
+  cnpAttachments($('#cvFilesBox', dr), {module: 'cv', refType: 'cv', refId: id});
   $$('[data-otherid]', dr).forEach(b => b.onclick = () => openCv(+b.dataset.otherid));
   $('#cvAiBtn', dr).onclick = async () => {
     const btn = $('#cvAiBtn', dr); btn.disabled = true; btn.textContent = '✨ Ανάλυση…';

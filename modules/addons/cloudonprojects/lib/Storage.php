@@ -271,6 +271,22 @@ class Storage
         return true;
     }
 
+    /** Εφαρμόζει CORS policy στο bucket ώστε ο browser να ανεβάζει/κατεβάζει direct (presigned). */
+    public static function applyCors($origins = null)
+    {
+        if (!self::s3Configured()) { return ['ok' => false, 'msg' => 'Λείπουν ρυθμίσεις S3']; }
+        $origins = $origins ?: ['https://my.cloudon.gr'];
+        try {
+            self::s3()->putBucketCors(['Bucket' => self::bucket(), 'CORSConfiguration' => ['CORSRules' => [[
+                'AllowedOrigins' => $origins, 'AllowedMethods' => ['GET', 'PUT', 'HEAD', 'POST'],
+                'AllowedHeaders' => ['*'], 'ExposeHeaders' => ['ETag', 'Content-Length', 'Content-Type'], 'MaxAgeSeconds' => 3600,
+            ]]]]);
+            return ['ok' => true, 'msg' => 'CORS εφαρμόστηκε (' . implode(', ', $origins) . ')'];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'msg' => 'CORS error: ' . $e->getMessage()];
+        }
+    }
+
     /** Health check για το admin: επιστρέφει ['ok'=>bool,'msg'=>...]. */
     public static function s3Test()
     {
