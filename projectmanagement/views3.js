@@ -426,6 +426,12 @@ R.settings = async function (sub) {
       </div></div>
       <div class="card"><div class="card-h">${I.brain} AI βοηθός</div><div class="card-b">
         ${txt('ai_api_key', 'Anthropic API key', 'Για ✨ AI απάντηση & σύνοψη στα tickets (console.anthropic.com)', '100%')}
+        <div class="set-row"><div><b>Μοντέλο αξιολόγησης βιογραφικών</b><div class="mut" style="font-size:12px">Προεπιλογή για μαζική αξιολόγηση CV. Ο υπεύθυνος μπορεί να διαλέξει αυστηρότερο ανά CV.</div></div>
+          <select class="inp" data-set="cv_ai_model" style="width:auto">
+            <option value="claude-haiku-4-5-20251001" ${!s.cv_ai_model || s.cv_ai_model === 'claude-haiku-4-5-20251001' ? 'selected' : ''}>Οικονομικό — Haiku</option>
+            <option value="claude-sonnet-5" ${s.cv_ai_model === 'claude-sonnet-5' ? 'selected' : ''}>Ισορροπημένο — Sonnet</option>
+            <option value="claude-opus-5" ${s.cv_ai_model === 'claude-opus-5' ? 'selected' : ''}>Αυστηρό — Opus</option>
+          </select></div>
       </div></div></div>
       <div><div class="card"><div class="card-h">${I.coin} Οικονομικά</div><div class="card-b">
         ${txt('sales_target', 'Μηνιαίος στόχος πωλήσεων €', 'Πρόοδος από κερδισμένες προσφορές')}
