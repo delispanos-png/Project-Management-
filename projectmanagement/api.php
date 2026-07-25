@@ -15,6 +15,7 @@ use WHMCS\Module\Addon\CloudonProjects\Notify;
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -266,6 +267,81 @@ function cnp_cv_statuses()
 {
     return ['new' => 'Νέες', 'review' => 'Υπό αξιολόγηση', 'shortlist' => 'Shortlist',
         'interview' => 'Συνέντευξη', 'rejected' => 'Απορρίφθηκε', 'hired' => 'Προσλήφθηκε'];
+}
+
+/** Διαθέσιμα μοντέλα AI για αξιολόγηση CV (key => label). Το 1ο = προεπιλογή (οικονομικό). */
+function cnp_cv_models()
+{
+    return [
+        'claude-haiku-4-5-20251001' => 'Οικονομικό — Haiku (γρήγορο, μαζική αξιολόγηση)',
+        'claude-sonnet-5' => 'Ισορροπημένο — Sonnet',
+        'claude-opus-5' => 'Αυστηρό — Opus (πιο ενδελεχές)',
+    ];
+}
+function cnp_cv_default_model()
+{
+    $m = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'cv_ai_model')->value('value') ?: '');
+    return array_key_exists($m, cnp_cv_models()) ? $m : 'claude-haiku-4-5-20251001';
+}
+/** Ids διαχειριστών HR (full ή με ειδικότητα hr) — για ειδοποιήσεις. */
+function cnp_hr_admin_ids()
+{
+    $ids = [];
+    foreach (Db::admins() as $a) {
+        if (Db::isFullAccess($a->id) || in_array('hr', cnp_admin_areas($a->id, false))) { $ids[] = (int) $a->id; }
+    }
+    return array_values(array_unique($ids));
+}
+
+/**
+ * Αξιολόγηση CV με AI co-pilot. Επιστρέφει ['ok'=>bool,'ai'=>...,'score'=>...,'model'=>...,'error'=>...].
+ * $notify=true → ειδοποιεί υπεύθυνους HR όταν high-interest (μία φορά ανά υποψήφιο).
+ */
+function cnp_cv_evaluate($cvId, $model, $notify)
+{
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) $cvId)->first();
+    if (!$r) { return ['ok' => false, 'error' => 'notfound']; }
+    $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') { return ['ok' => false, 'error' => 'Δεν έχει οριστεί κλειδί AI (Ρυθμίσεις → AI)']; }
+    if (!array_key_exists($model, cnp_cv_models())) { $model = cnp_cv_default_model(); }
+    $jobDesc = $r->job_id ? (string) Capsule::table('mod_cpm_cv_jobs')->where('id', $r->job_id)->value('descr') : '';
+    $content = [];
+    $path = $r->cv_stored ? realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored)) : false;
+    $isPdf = $path && $r->cv_mime === 'application/pdf' && is_file($path) && filesize($path) < 8 * 1024 * 1024;
+    if ($isPdf) {
+        $content[] = ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => base64_encode(file_get_contents($path))]];
+    }
+    $instr = "Είσαι έμπειρος recruiter/HR. Αξιολόγησε αντικειμενικά το βιογραφικό του υποψηφίου \"{$r->name}\" για τη θέση \"{$r->job_title}\".\n"
+        . ($jobDesc !== '' ? "ΠΕΡΙΓΡΑΦΗ ΘΕΣΗΣ:\n" . mb_substr(strip_tags($jobDesc), 0, 3000) . "\n\n" : '')
+        . ($r->letter ? "ΣΥΝΟΔΕΥΤΙΚΗ ΕΠΙΣΤΟΛΗ:\n" . mb_substr($r->letter, 0, 1500) . "\n\n" : '')
+        . (!$isPdf ? "(Το αρχείο CV δεν είναι σε αναγνώσιμη μορφή — αξιολόγησε με βάση θέση/όνομα/επιστολή, με χαμηλότερη βεβαιότητα.)\n\n" : '')
+        . "Εκτίμησε ΕΠΙΣΗΣ αν το βιογραφικό φαίνεται γραμμένο από άνθρωπο ή παραχθέν από AI (γενικόλογη/τυποποιημένη διατύπωση, υπερβολική «τελειότητα», μοτίβα AI).\n"
+        . "Απάντησε ΜΟΝΟ με έγκυρο JSON (χωρίς markdown, στα ελληνικά) με ΑΚΡΙΒΩΣ αυτό το σχήμα:\n"
+        . '{"score":0-100,"fit":0-100,"summary":"2-3 προτάσεις","strengths":["..."],"concerns":["..."],"category":"π.χ. Support/Developer/Sales/Marketing/Admin/Άλλο","seniority":"junior|mid|senior","yearsExp":αριθμός,"skills":["..."],"decision":"shortlist|interview|reject|maybe","interviewQuestions":["3 στοχευμένες ερωτήσεις"],"aiGenerated":{"verdict":"human|ai|mixed","confidence":0-100,"reason":"σύντομη αιτιολόγηση"}}';
+    $content[] = ['type' => 'text', 'text' => $instr];
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 120, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode(['model' => $model, 'max_tokens' => 1600, 'messages' => [['role' => 'user', 'content' => $content]]])]);
+    $resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $j = json_decode((string) $resp, true);
+    $txt = '';
+    foreach ($j['content'] ?? [] as $blk) { if (($blk['type'] ?? '') === 'text' && !empty($blk['text'])) { $txt = $blk['text']; break; } }
+    if ($code !== 200 || $txt === '') { return ['ok' => false, 'error' => 'AI: ' . ($j['error']['message'] ?? ('HTTP ' . $code)) . (($code === 200 && $txt === '') ? ' (κενό κείμενο)' : '')]; }
+    if (preg_match('/\{.*\}/s', $txt, $mm)) { $txt = $mm[0]; }
+    $ai = json_decode($txt, true);
+    if (!is_array($ai)) { return ['ok' => false, 'error' => 'AI: μη έγκυρη απάντηση']; }
+    $score = isset($ai['score']) ? max(0, min(100, (int) $ai['score'])) : null;
+    $upd = ['ai_score' => $score, 'ai_json' => json_encode($ai, JSON_UNESCAPED_UNICODE), 'ai_model' => $model, 'updated_at' => date('Y-m-d H:i:s')];
+    $hot = ($score !== null && $score >= 75) || in_array($ai['decision'] ?? '', ['shortlist', 'interview'], true);
+    if ($notify && $hot && !$r->notified) {
+        $upd['notified'] = 1;
+        if ($r->status === 'new') { $upd['status'] = 'review'; }
+        $msg = '⭐ Ενδιαφέρον βιογραφικό: ' . $r->name . ' — ' . $r->job_title . ' (score ' . ($score ?? '?') . ') — κλείσε συνέντευξη';
+        foreach (cnp_hr_admin_ids() as $aid) { Db::pushNotification($aid, 'due', $msg, '/project/#/recruit'); }
+    }
+    Capsule::table('mod_cpm_cv')->where('id', $cvId)->update($upd);
+    return ['ok' => true, 'ai' => $ai, 'score' => $score, 'model' => $model, 'notified' => !empty($upd['notified'])];
 }
 
 /** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
@@ -3049,7 +3125,7 @@ case 'settings_get':
     if (!$FULL) {
         fail('forbidden', 403);
     }
-    $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key'];
+    $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model'];
     $vals = [];
     foreach ($keys as $k) {
         $vals[$k] = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
@@ -3072,7 +3148,7 @@ case 'settings_save':
     if (!$FULL) {
         fail('forbidden', 403);
     }
-    $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key'];
+    $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model'];
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {
             continue;
@@ -4782,7 +4858,7 @@ case 'cv_jobs':
         $jobs[] = ['id' => (int) $jb->id, 'title' => $jb->title, 'active' => (bool) $jb->active,
             'count' => (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)->count()];
     }
-    out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses()]);
+    out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses(), 'models' => cnp_cv_models(), 'defaultModel' => cnp_cv_default_model()]);
 
 case 'cv_list':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
@@ -4804,7 +4880,8 @@ case 'cv_list':
             'jobTitle' => $r->job_title, 'status' => $r->status, 'rating' => (int) $r->rating,
             'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null,
             'fit' => $ai['fit'] ?? null, 'category' => $ai['category'] ?? null, 'seniority' => $ai['seniority'] ?? null,
-            'decision' => $ai['decision'] ?? null, 'hasCv' => $r->cv_stored !== '',
+            'decision' => $ai['decision'] ?? null, 'aiGen' => isset($ai['aiGenerated']['verdict']) ? $ai['aiGenerated']['verdict'] : null,
+            'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '',
             'assignee' => $r->assignee ? (int) $r->assignee : null, 'source' => $r->source, 'appliedAt' => $r->applied_at];
     }
     $counts = [];
@@ -4819,8 +4896,20 @@ case 'cv_get':
     out(['id' => (int) $r->id, 'name' => $r->name, 'email' => $r->email, 'phone' => $r->phone,
         'jobTitle' => $r->job_title, 'jobId' => $r->job_id ? (int) $r->job_id : null, 'letter' => $r->letter,
         'status' => $r->status, 'rating' => (int) $r->rating, 'notes' => $r->notes,
-        'assignee' => $r->assignee ? (int) $r->assignee : null, 'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null, 'ai' => $ai,
-        'hasCv' => $r->cv_stored !== '', 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
+        'assignee' => $r->assignee ? (int) $r->assignee : null, 'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null, 'ai' => $ai, 'aiModel' => $r->ai_model,
+        'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '', 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
+
+case 'cv_photo':                         // headshot thumbnail (auth + hr)
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('img', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$r || !$r->photo) { fail('img', 404); }
+    $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->photo));
+    if (!$path || !is_file($path)) { fail('img', 404); }
+    header('Content-Type: image/jpeg');
+    header('Cache-Control: private, max-age=86400');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
 
 case 'cv_file':                          // προβολή/λήψη CV (auth + hr)
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('file', 403); }
@@ -4873,42 +4962,20 @@ case 'cv_add':                           // χειροκίνητη προσθή�
         'cv_stored' => $stored, 'cv_name' => $cvName, 'cv_mime' => $cvMime, 'status' => 'new',
         'applied_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
     ]);
-    out(['ok' => true, 'id' => $id]);
-
-case 'cv_ai':                            // co-pilot: αξιολόγηση/ταξινόμηση βιογραφικού
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
-    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
-    if (!$r) { fail('notfound', 404); }
-    $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
-    if ($key === '') { fail('Δεν έχει οριστεί κλειδί AI (Ρυθμίσεις → AI)'); }
-    $jobDesc = $r->job_id ? (string) Capsule::table('mod_cpm_cv_jobs')->where('id', $r->job_id)->value('descr') : '';
-    $content = [];
-    $path = $r->cv_stored ? realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored)) : false;
-    $isPdf = $path && $r->cv_mime === 'application/pdf' && is_file($path) && filesize($path) < 8 * 1024 * 1024;
-    if ($isPdf) {
-        $content[] = ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => base64_encode(file_get_contents($path))]];
+    // φωτογραφία + αυτόματη αξιολόγηση (οικονομικό μοντέλο) στην εισαγωγή
+    if ($stored !== '' && $cvMime === 'application/pdf') {
+        $ph = CvPhoto::extract(__DIR__ . '/../attachments/cloudonprojects/' . $stored, __DIR__ . '/../attachments/cloudonprojects', $id);
+        if ($ph !== '') { Capsule::table('mod_cpm_cv')->where('id', $id)->update(['photo' => $ph]); }
     }
-    $instr = "Είσαι έμπειρος recruiter/HR. Αξιολόγησε αντικειμενικά το βιογραφικό του υποψηφίου \"{$r->name}\" για τη θέση \"{$r->job_title}\".\n"
-        . ($jobDesc !== '' ? "ΠΕΡΙΓΡΑΦΗ ΘΕΣΗΣ:\n" . mb_substr(strip_tags($jobDesc), 0, 3000) . "\n\n" : '')
-        . ($r->letter ? "ΣΥΝΟΔΕΥΤΙΚΗ ΕΠΙΣΤΟΛΗ:\n" . mb_substr($r->letter, 0, 1500) . "\n\n" : '')
-        . (!$isPdf ? "(Το αρχείο CV δεν είναι σε αναγνώσιμη μορφή — αξιολόγησε με βάση τη θέση, το όνομα και την επιστολή, με χαμηλότερη βεβαιότητα.)\n\n" : '')
-        . "Απάντησε ΜΟΝΟ με έγκυρο JSON (χωρίς markdown, στα ελληνικά) με ΑΚΡΙΒΩΣ αυτό το σχήμα:\n"
-        . '{"score":0-100,"fit":0-100,"summary":"2-3 προτάσεις","strengths":["..."],"concerns":["..."],"category":"π.χ. Support/Developer/Sales/Marketing/Admin/Άλλο","seniority":"junior|mid|senior","yearsExp":αριθμός,"skills":["..."],"decision":"shortlist|interview|reject|maybe","interviewQuestions":["3 στοχευμένες ερωτήσεις"]}';
-    $content[] = ['type' => 'text', 'text' => $instr];
-    $ch = curl_init('https://api.anthropic.com/v1/messages');
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90, CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
-        CURLOPT_POSTFIELDS => json_encode(['model' => 'claude-haiku-4-5-20251001', 'max_tokens' => 1500, 'messages' => [['role' => 'user', 'content' => $content]]])]);
-    $resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
-    $j = json_decode((string) $resp, true);
-    if ($code !== 200 || empty($j['content'][0]['text'])) { fail('AI: ' . ($j['error']['message'] ?? ('HTTP ' . $code))); }
-    $txt = $j['content'][0]['text'];
-    if (preg_match('/\{.*\}/s', $txt, $mm)) { $txt = $mm[0]; }
-    $ai = json_decode($txt, true);
-    if (!is_array($ai)) { fail('AI: μη έγκυρη απάντηση'); }
-    $score = isset($ai['score']) ? max(0, min(100, (int) $ai['score'])) : null;
-    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update(['ai_score' => $score, 'ai_json' => json_encode($ai, JSON_UNESCAPED_UNICODE), 'updated_at' => date('Y-m-d H:i:s')]);
-    out(['ok' => true, 'ai' => $ai, 'score' => $score]);
+    $ev = cnp_cv_evaluate($id, cnp_cv_default_model(), true);
+    out(['ok' => true, 'id' => $id, 'evaluated' => !empty($ev['ok'])]);
+
+case 'cv_ai':                            // co-pilot: αξιολόγηση/ταξινόμηση (με επιλογή μοντέλου)
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $model = $in['model'] ?? cnp_cv_default_model();
+    $res = cnp_cv_evaluate((int) ($in['id'] ?? 0), $model, true);
+    if (empty($res['ok'])) { fail($res['error'] === 'notfound' ? 'notfound' : $res['error'], $res['error'] === 'notfound' ? 404 : 400); }
+    out(['ok' => true, 'ai' => $res['ai'], 'score' => $res['score'], 'model' => $res['model']]);
 
 case 'topstats':                         // πάνω μενού: live σφυγμός + κατάσταση διαθεσιμότητας
     $today = date('Y-m-d');

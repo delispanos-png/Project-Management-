@@ -899,6 +899,7 @@ R.recruit = async function () {
   const jd = await api('cv_jobs').catch(() => null);
   if (!jd) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Χρειάζεσαι ειδικότητα «HR» για αυτή την ενότητα.</div>`; return; }
   const statuses = jd.statuses; window._cvStatuses = statuses;
+  window._cvModels = jd.models || {}; window._cvDefaultModel = jd.defaultModel || '';
   c.innerHTML = `
   <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
     <select class="inp" id="cvJob" style="width:auto;max-width:280px"><option value="">Όλες οι θέσεις</option>
@@ -908,10 +909,15 @@ R.recruit = async function () {
   </div>
   <div id="cvTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
   <div id="cvList">${'<div class="skel" style="height:56px;margin-bottom:8px"></div>'.repeat(5)}</div>`;
-  const cvRow = x => `<div class="set-row" data-cvo="${x.id}" style="cursor:pointer;gap:12px;align-items:center">
-    <div style="width:40px;text-align:center;flex:none">${x.aiScore !== null ? `<span style="display:inline-block;min-width:34px;padding:3px 0;border-radius:8px;font-weight:800;font-size:13px;color:#fff;background:${_cvScoreCol(x.aiScore)}">${x.aiScore}</span>` : '<span class="mut" style="font-size:16px">·</span>'}</div>
+  const cvAva = x => x.photo
+    ? `<img src="api.php?a=cv_photo&id=${x.id}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex:none;border:1px solid var(--line)" loading="lazy">`
+    : `<span class="ava" style="width:36px;height:36px;font-size:12px;flex:none">${esc((x.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase())}</span>`;
+  const cvRow = x => `<div class="set-row" data-cvo="${x.id}" style="cursor:pointer;gap:11px;align-items:center">
+    <div style="width:38px;text-align:center;flex:none">${x.aiScore !== null ? `<span style="display:inline-block;min-width:34px;padding:3px 0;border-radius:8px;font-weight:800;font-size:13px;color:#fff;background:${_cvScoreCol(x.aiScore)}">${x.aiScore}</span>` : '<span class="mut" style="font-size:16px">·</span>'}</div>
+    ${cvAva(x)}
     <div style="flex:1;min-width:0"><b style="font-size:13.5px">${esc(x.name)}</b>
       <div class="mut" style="font-size:11.5px">${esc(x.jobTitle || '—')}${x.category ? ' · ' + esc(x.category) : ''}${x.seniority ? ' · ' + esc(x.seniority) : ''}</div></div>
+    ${x.aiGen === 'ai' ? `<span class="pill" style="background:#e2515f1a;color:#e2515f;font-size:9px" title="πιθανό AI-generated">🤖 AI</span>` : x.aiGen === 'mixed' ? `<span class="pill" style="background:#e0a0201a;color:#e0a020;font-size:9px" title="μερικώς AI">🤖 ~</span>` : ''}
     ${x.appliedAt ? `<span class="mut" style="font-size:11px;white-space:nowrap" title="ημ. υποβολής">${_cvDate(x.appliedAt)}</span>` : ''}
     ${x.decision && _cvDecision[x.decision] ? `<span class="pill" style="background:${_cvDecision[x.decision][1]}1a;color:${_cvDecision[x.decision][1]};font-size:9px">${_cvDecision[x.decision][0]}</span>` : ''}
     ${x.rating ? `<span style="color:#e0a020;font-size:11px">${'★'.repeat(x.rating)}</span>` : ''}
@@ -975,21 +981,27 @@ async function openCv(id) {
     <div style="display:flex;gap:15px;align-items:center;margin-bottom:11px">${_cvRing(d.aiScore)}
       <div><div class="mut" style="font-size:11.5px">Καταλληλότητα θέσης</div><b style="font-size:17px;color:${_cvScoreCol(ai.fit ?? null)}">${ai.fit ?? '—'}%</b>
         <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">${ai.category ? `<span class="pill" style="font-size:9.5px">${esc(ai.category)}</span>` : ''}${ai.seniority ? `<span class="pill" style="font-size:9.5px">${esc(ai.seniority)}</span>` : ''}${typeof ai.yearsExp !== 'undefined' ? `<span class="pill" style="font-size:9.5px">${esc(String(ai.yearsExp))} έτη</span>` : ''}${ai.decision && _cvDecision[ai.decision] ? `<span class="pill" style="background:${_cvDecision[ai.decision][1]}1a;color:${_cvDecision[ai.decision][1]};font-size:9.5px">${_cvDecision[ai.decision][0]}</span>` : ''}</div></div></div>
+    ${ai.aiGenerated ? (() => { const v = ai.aiGenerated.verdict; const col = v === 'ai' ? '#e2515f' : v === 'mixed' ? '#e0a020' : '#16a26a'; const lbl = v === 'ai' ? 'Πιθανό AI-generated' : v === 'mixed' ? 'Μερικώς AI' : 'Γραμμένο από άνθρωπο'; return `<div style="margin-bottom:9px;padding:8px 11px;border-radius:9px;background:${col}12;border-left:3px solid ${col}"><b style="font-size:12px;color:${col}">🤖 ${lbl}${ai.aiGenerated.confidence ? ' · ' + ai.aiGenerated.confidence + '%' : ''}</b>${ai.aiGenerated.reason ? `<div class="mut" style="font-size:11.5px;margin-top:2px">${esc(ai.aiGenerated.reason)}</div>` : ''}</div>`; })() : ''}
     <p style="font-size:13px;line-height:1.55">${esc(ai.summary || '')}</p>
     ${ai.strengths && ai.strengths.length ? `<div style="margin-top:8px"><b style="font-size:12px;color:var(--ok)">✔ Δυνατά σημεία</b><ul style="margin:4px 0 0;font-size:12.5px;padding-left:20px">${ai.strengths.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
     ${ai.concerns && ai.concerns.length ? `<div style="margin-top:7px"><b style="font-size:12px;color:var(--warn)">⚠ Σημεία προσοχής</b><ul style="margin:4px 0 0;font-size:12.5px;padding-left:20px">${ai.concerns.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
     ${ai.skills && ai.skills.length ? `<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">${ai.skills.map(s => `<span class="pill" style="font-size:9px">${esc(s)}</span>`).join('')}</div>` : ''}
     ${ai.interviewQuestions && ai.interviewQuestions.length ? `<div style="margin-top:9px"><b style="font-size:12px">💬 Ερωτήσεις συνέντευξης</b><ol style="margin:4px 0 0;font-size:12.5px;padding-left:20px">${ai.interviewQuestions.map(s => `<li style="margin-bottom:3px">${esc(s)}</li>`).join('')}</ol></div>` : ''}`;
+  const models = window._cvModels || {}; const defModel = d.aiModel || window._cvDefaultModel || Object.keys(models)[0] || '';
+  const cvAvaBig = d.photo
+    ? `<img src="api.php?a=cv_photo&id=${id}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex:none;border:1px solid var(--line)">`
+    : `<span class="ava" style="width:42px;height:42px;font-size:15px;flex:none">${esc((d.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase())}</span>`;
   dr.innerHTML = `
-  <div class="drawer-h"><h2 style="font-size:17px">${esc(d.name)}</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-h" style="display:flex;align-items:center;gap:11px">${cvAvaBig}<h2 style="font-size:17px;flex:1">${esc(d.name)}</h2><button class="drawer-x" id="dX">✕</button></div>
   <div class="drawer-b">
-    <div class="mut" style="font-size:12.5px;margin-bottom:12px">${esc(d.jobTitle || '—')} · υποβλήθηκε ${d.appliedAt ? dShort(d.appliedAt) : '—'}${d.source === 'form' ? ' · φόρμα CloudOn' : ''}</div>
+    <div class="mut" style="font-size:12.5px;margin-bottom:12px">${esc(d.jobTitle || '—')} · υποβλήθηκε ${d.appliedAt ? _cvDate(d.appliedAt) : '—'}${d.source === 'form' ? ' · φόρμα CloudOn' : d.source === 'manual' ? ' · χειροκίνητα' : ''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       ${d.email ? `<a class="btn btn-o btn-sm" href="mailto:${esc(d.email)}">${I.mail} ${esc(d.email)}</a>` : ''}
       ${d.phone ? `<a class="btn btn-o btn-sm" href="tel:${esc(d.phone)}">${I.phone} ${esc(d.phone)}</a>` : ''}
     </div>
-    <div class="card"><div class="card-h">${I.brain || I.bulb} AI co-pilot
-      <button class="btn btn-p btn-sm" id="cvAiBtn" style="margin-left:auto">✨ ${d.ai ? 'Επαναξιολόγηση' : 'Αξιολόγηση με AI'}</button></div>
+    <div class="card"><div class="card-h" style="flex-wrap:wrap;gap:6px">${I.brain || I.bulb} AI co-pilot
+      <select class="inp" id="cvModel" style="width:auto;font-size:11.5px;padding:4px 8px;margin-left:auto">${Object.entries(models).map(([k, l]) => `<option value="${k}" ${k === defModel ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <button class="btn btn-p btn-sm" id="cvAiBtn">✨ ${d.ai ? 'Επαναξιολόγηση' : 'Αξιολόγηση'}</button></div>
       <div class="card-b" id="cvAiBox">${renderAi(d.ai)}</div></div>
     <div class="card"><div class="card-h">${I.doc} Βιογραφικό</div><div class="card-b">
       ${d.hasCv ? `<div style="display:flex;gap:8px;margin-bottom:10px"><a class="btn btn-o btn-sm" href="api.php?a=cv_file&id=${id}" target="_blank">${I.search} Άνοιγμα</a><a class="btn btn-o btn-sm" href="api.php?a=cv_file&id=${id}&dl=1">${I.download} Λήψη</a></div>
@@ -1013,10 +1025,10 @@ async function openCv(id) {
   $('#dX', dr).onclick = closeDrawer;
   $('#cvAiBtn', dr).onclick = async () => {
     const btn = $('#cvAiBtn', dr); btn.disabled = true; btn.textContent = '✨ Ανάλυση…';
-    const r = await api('cv_ai', {id}).catch(e => ({err: e.message}));
+    const r = await api('cv_ai', {id, model: $('#cvModel', dr).value}).catch(e => ({err: e.message}));
     btn.disabled = false;
-    if (r.err) { toast(r.err, true); btn.textContent = '✨ Αξιολόγηση με AI'; return; }
-    d.ai = r.ai; d.aiScore = r.score;
+    if (r.err) { toast(r.err, true); btn.textContent = '✨ Αξιολόγηση'; return; }
+    d.ai = r.ai; d.aiScore = r.score; d.aiModel = r.model;
     $('#cvAiBox', dr).innerHTML = renderAi(r.ai); btn.textContent = '✨ Επαναξιολόγηση'; toast('Έτοιμη η αξιολόγηση ✓');
   };
   $$('[data-cvst]', dr).forEach(b => b.onclick = async () => {

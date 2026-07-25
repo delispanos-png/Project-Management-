@@ -27,21 +27,28 @@ $wp = @new mysqli($host, $dbu, $dbp, $dbn, (int) $port);
 if ($wp->connect_errno) { fwrite(STDERR, "WP DB connect failed\n"); exit(1); }
 $wp->set_charset('utf8mb4');
 
-/* ── 1. Αγγελίες (job openings) ── */
-$jobMap = Capsule::table('mod_cpm_cv_jobs')->pluck('id', 'wp_id')->all();
+/* ── 1. Αγγελίες (job openings) — ένωση ανά τίτλο (όχι διπλότυπα) ── */
+$titleMap = [];  // lower(title) => cloudon job id
+foreach (Capsule::table('mod_cpm_cv_jobs')->get(['id', 'title']) as $j) { $titleMap[mb_strtolower(trim($j->title))] = (int) $j->id; }
+$jobMap = [];    // wp_id => cloudon job id
 $res = $wp->query("SELECT ID, post_title, post_status, post_content FROM {$pfx}posts WHERE post_type='awsm_job_openings'");
 $nJobs = 0;
 while ($j = $res->fetch_assoc()) {
-    $wid = (int) $j['ID'];
-    if (isset($jobMap[$wid])) { continue; }
-    $id = Capsule::table('mod_cpm_cv_jobs')->insertGetId([
-        'wp_id' => $wid, 'title' => mb_substr($j['post_title'], 0, 190),
-        'descr' => mb_substr(strip_tags($j['post_content']), 0, 6000),
-        'active' => $j['post_status'] === 'publish' ? 1 : 0, 'created_at' => date('Y-m-d H:i:s'),
-    ]);
-    $jobMap[$wid] = $id; $nJobs++;
+    $wid = (int) $j['ID']; $title = trim($j['post_title']); $tk = mb_strtolower($title);
+    if (isset($titleMap[$tk])) {
+        $cid = $titleMap[$tk];
+        if ($j['post_status'] === 'publish') { Capsule::table('mod_cpm_cv_jobs')->where('id', $cid)->update(['active' => 1]); }
+    } else {
+        $cid = Capsule::table('mod_cpm_cv_jobs')->insertGetId([
+            'wp_id' => $wid, 'title' => mb_substr($title, 0, 190),
+            'descr' => mb_substr(strip_tags($j['post_content']), 0, 6000),
+            'active' => $j['post_status'] === 'publish' ? 1 : 0, 'created_at' => date('Y-m-d H:i:s'),
+        ]);
+        $titleMap[$tk] = $cid; $nJobs++;
+    }
+    $jobMap[$wid] = $cid;
 }
-echo "Jobs: +$nJobs (σύνολο " . count($jobMap) . ")\n";
+echo "Jobs: +$nJobs (κατηγορίες: " . count($titleMap) . ")\n";
 
 /* ── 2. Meta όλων των αιτήσεων (σε map) ── */
 $meta = [];

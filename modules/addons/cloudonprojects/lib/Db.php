@@ -579,10 +579,13 @@ class Db
                 $t->string('cv_stored', 140)->default('');
                 $t->string('cv_name', 190)->default('');
                 $t->string('cv_mime', 90)->default('');
+                $t->string('photo', 140)->default('');            // headshot thumbnail (face detection)
                 $t->string('status', 12)->default('new');         // new/review/shortlist/interview/rejected/hired
                 $t->tinyInteger('rating')->default(0);
                 $t->integer('ai_score')->nullable();              // co-pilot 0-100
                 $t->text('ai_json')->nullable();
+                $t->string('ai_model', 40)->default('');          // ποιο μοντέλο αξιολόγησε
+                $t->boolean('notified')->default(0);              // dedupe ειδοποίησης high-interest
                 $t->integer('assignee')->unsigned()->nullable()->index();
                 $t->text('notes')->nullable();
                 $t->timestamp('applied_at')->nullable();
