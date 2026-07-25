@@ -249,10 +249,16 @@ function cnp_vault_dec($blob)
 /** Τύποι εξοπλισμού για τη θυρίδα κωδικών. */
 function cnp_vault_kinds()
 {
-    return ['server' => 'Server', 'vm' => 'VM', 'router' => 'Router', 'switch' => 'Switch',
+    return [
+        // εξοπλισμός
+        'server' => 'Server', 'vm' => 'VM', 'router' => 'Router', 'switch' => 'Switch',
         'firewall' => 'Firewall', 'nas' => 'NAS/Storage', 'pbx' => '3CX/PBX', 'pc' => 'PC/Σταθμός',
-        'printer' => 'Εκτυπωτής', 'email' => 'Email', 'website' => 'Website/CMS', 'app' => 'Εφαρμογή',
-        'db' => 'Βάση δεδομένων', 'wifi' => 'WiFi/Δίκτυο', 'other' => 'Άλλο'];
+        'printer' => 'Εκτυπωτής', 'wifi' => 'WiFi/Δίκτυο',
+        // λογισμικό / εφαρμογές / λογαριασμοί
+        'softone' => 'SoftOne', 'erp' => 'ERP / Λογιστικό', 'email' => 'Email', 'website' => 'Website/CMS',
+        'app' => 'Εφαρμογή', 'saas' => 'Cloud / SaaS', 'microsoft' => 'Microsoft 365', 'db' => 'Βάση δεδομένων',
+        'vpn' => 'VPN', 'portal' => 'Πύλη / Portal', 'hosting' => 'Hosting / cPanel', 'domain' => 'Domain / DNS',
+        'account' => 'Λογαριασμός', 'other' => 'Άλλο'];
 }
 
 /** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
@@ -4496,8 +4502,8 @@ case 'vault_list':
 case 'vault_save':
     $descr = mb_substr(trim($in['descr'] ?? ''), 0, 150);
     if ($descr === '') { fail('Δώσε περιγραφή'); }
-    $kinds = cnp_vault_kinds();
-    $kind = array_key_exists($in['kind'] ?? '', $kinds) ? $in['kind'] : 'other';
+    // ο τύπος είναι ελεύθερο κείμενο (προτάσεις + custom, π.χ. «SoftOne», «Microsoft 365»)
+    $kind = mb_substr(trim($in['kind'] ?? ''), 0, 40) ?: 'Άλλο';
     $data = ['descr' => $descr, 'kind' => $kind, 'username' => mb_substr(trim($in['username'] ?? ''), 0, 150),
         'ips' => mb_substr(trim($in['ips'] ?? ''), 0, 300), 'url' => mb_substr(trim($in['url'] ?? ''), 0, 300),
         'location' => mb_substr(trim($in['location'] ?? ''), 0, 150),

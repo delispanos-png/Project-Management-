@@ -1607,7 +1607,9 @@ async function loadVault() {
       </div>
       <div class="frow" style="gap:18px">
         <div style="flex:2"><label class="lbl">Περιγραφή *</label><input class="inp" id="vDescr" value="${isNew ? '' : esc(item.descr)}" placeholder="π.χ. Firewall γραφείου"></div>
-        <div style="flex:1"><label class="lbl">Τύπος εξοπλισμού</label><select class="inp" id="vKind">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${!isNew && item.kind === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+        <div style="flex:1"><label class="lbl">Τύπος <span class="mut" style="font-weight:400">(εξοπλισμός ή λογισμικό)</span></label>
+          <input class="inp" id="vKind" list="vKindL" value="${isNew ? '' : esc(kinds[item.kind] || item.kind)}" placeholder="π.χ. SoftOne, Server, Microsoft 365…" autocomplete="off">
+          <datalist id="vKindL">${Object.values(kinds).map(l => `<option value="${esc(l)}">`).join('')}</datalist></div>
       </div>
       <div class="frow" style="margin-top:18px;gap:18px">
         <div><label class="lbl">User</label><input class="inp" id="vUser" value="${isNew ? '' : esc(item.username)}" autocomplete="off"></div>
