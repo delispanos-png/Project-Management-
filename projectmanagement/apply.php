@@ -78,9 +78,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $jobs = Capsule::table('mod_cpm_cv_jobs')->where('active', 1)->orderBy('title')->get();
 $now = time();
 $e = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+$SELF = 'https://my.cloudon.gr/project/apply.php';
+$titles = []; foreach ($jobs as $jj) { $titles[] = $jj->title; }
+$metaDesc = count($jobs)
+    ? 'Ανοιχτές θέσεις εργασίας στην CloudOn: ' . mb_substr(implode(', ', $titles), 0, 150) . '. Στείλε το βιογραφικό σου online.'
+    : 'Καριέρα στην CloudOn — στείλε μας το βιογραφικό σου για μελλοντικές ευκαιρίες.';
+$ld = [];
+foreach ($jobs as $jj) {
+    $ld[] = ['@context' => 'https://schema.org/', '@type' => 'JobPosting', 'title' => $jj->title,
+        'description' => '<p>' . htmlspecialchars((string) ($jj->descr ?: $jj->title) . ($jj->skills ? ' Δεξιότητες: ' . $jj->skills : '')) . '</p>',
+        'datePosted' => date('Y-m-d', strtotime((string) ($jj->created_at ?: 'now'))),
+        'employmentType' => stripos((string) $jj->emptype, 'μερικ') !== false ? 'PART_TIME' : 'FULL_TIME',
+        'hiringOrganization' => ['@type' => 'Organization', 'name' => 'CloudOn', 'sameAs' => 'https://cloudon.gr'],
+        'directApply' => true,
+        'jobLocation' => ['@type' => 'Place', 'address' => ['@type' => 'PostalAddress', 'addressLocality' => $jj->location ?: 'Αθήνα', 'addressCountry' => 'GR']]];
+}
 ?><!DOCTYPE html><html lang="el"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Καριέρα — CloudOn</title>
+<title>Καριέρα &amp; Θέσεις Εργασίας — CloudOn</title>
+<meta name="description" content="<?= $e($metaDesc) ?>">
+<link rel="canonical" href="<?= $SELF ?>">
+<meta name="robots" content="index,follow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Καριέρα &amp; Θέσεις Εργασίας — CloudOn">
+<meta property="og:description" content="<?= $e($metaDesc) ?>">
+<meta property="og:url" content="<?= $SELF ?>">
+<meta name="twitter:card" content="summary">
+<?php foreach ($ld as $l): ?>
+<script type="application/ld+json"><?= json_encode($l, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+<?php endforeach; ?>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230090dd'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>C</text></svg>">
 <style>
 *{box-sizing:border-box}
