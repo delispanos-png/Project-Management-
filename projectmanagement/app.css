@@ -544,3 +544,8 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 .vis-opt input{width:17px;height:17px;flex:none;cursor:pointer}
 .vis-opt svg{width:16px;height:16px;flex:none;opacity:.85}
 .vis-opt span{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* vault form: full width & responsive */
+.vault-form{width:100%}
+.vault-form .frow{grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:760px){.vault-form .frow{grid-template-columns:1fr}}

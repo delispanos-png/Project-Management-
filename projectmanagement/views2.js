@@ -1600,7 +1600,7 @@ async function loadVault() {
     const isNew = !item;
     const kinds = window._vaultKinds || {other: 'Άλλο'};
     const isShared = !isNew && item.shared;
-    box.innerHTML = `<div class="vault-form" style="max-width:900px">
+    box.innerHTML = `<div class="vault-form">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
         <h3 style="margin:0;font-size:18px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία καταχώρησης'}</h3>
         <button class="btn btn-o btn-sm" id="vBack" style="margin-left:auto">← Πίσω στη λίστα</button>
