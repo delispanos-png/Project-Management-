@@ -4597,6 +4597,16 @@ case 'lib_upload':                       // multipart
         'shared' => !empty($_POST['shared']) ? 1 : 0, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true]);
 
+case 'manual_img':                       // εικόνες οδηγού (μόνο για συνδεδεμένους — protected)
+    $f = preg_replace('/[^a-z0-9_]/i', '', $_GET['f'] ?? '');
+    $path = __DIR__ . '/manual-src/manual_' . $f . '.png';
+    if ($f === '' || !is_file($path)) { fail('img', 404); }
+    header('Content-Type: image/png');
+    header('Cache-Control: private, max-age=86400');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
+
 case 'lib_get':
     $r = Capsule::table('mod_cpm_library')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r || $r->kind !== 'file' || ((int) $r->admin_id !== $adminId && !$r->shared)) { fail('file', 404); }
