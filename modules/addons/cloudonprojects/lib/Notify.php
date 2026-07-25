@@ -302,4 +302,67 @@ class Notify
         }
         return $sent;
     }
+
+    /**
+     * Επαγγελματικό δίγλωσσο (EL/EN) email ειδοποίησης αλλαγής status ticket.
+     * Επιστρέφει ['subject'=>..,'html'=>..] ή null αν το status δεν είναι στο «έξυπνο σετ».
+     */
+    public static function ticketStatusEmail($name, $tid, $subject, $link, $status)
+    {
+        $INFO = [
+            'In Progress' => ['🛠️', '#f2994a', 'Σε εξέλιξη', 'In Progress',
+                'Θέλαμε να σας ενημερώσουμε ότι το αίτημά σας ανατέθηκε και η ομάδα υποστήριξής μας το επεξεργάζεται ενεργά. Δεσμευόμαστε να το χειριστούμε το συντομότερο δυνατό και θα σας κρατάμε ενήμερους σε κάθε βήμα της πορείας.',
+                'We wanted to let you know that your request has been assigned and our support team is actively working on it. We are committed to handling it as quickly as possible and will keep you informed every step of the way.'],
+            'On Hold' => ['⏸️', '#6b5bd2', 'Σε αναμονή', 'On Hold',
+                'Το αίτημά σας βρίσκεται προσωρινά σε αναμονή. Αυτό συνήθως σημαίνει ότι περιμένουμε κάποια πρόσθετη πληροφορία — από εσάς ή από τρίτο μέρος — για να προχωρήσουμε. Μόλις είμαστε έτοιμοι, θα το επαναφέρουμε άμεσα σε εξέλιξη.',
+                'Your request is temporarily on hold. This usually means we are waiting for some additional information — from you or a third party — in order to proceed. As soon as we are ready, we will move it right back into progress.'],
+            'Escalated' => ['⚡', '#c0392b', 'Κλιμακώθηκε', 'Escalated',
+                'Το αίτημά σας κλιμακώθηκε στην πιο εξειδικευμένη ομάδα μας για κατά προτεραιότητα διαχείριση. Το θέμα σας λαμβάνει τώρα ιδιαίτερη προσοχή και θα εργαστούμε εντατικά για τη γρήγορη επίλυσή του. Σας ευχαριστούμε για την υπομονή σας.',
+                'Your request has been escalated to our more specialized team for priority handling. Your issue is now receiving special attention and we will work diligently toward a swift resolution. Thank you for your patience.'],
+            'Resolved' => ['✅', '#16a085', 'Επιλύθηκε', 'Resolved',
+                'Χαιρόμαστε να σας ενημερώσουμε ότι το αίτημά σας επιλύθηκε! Εάν όλα λειτουργούν όπως αναμένεται, δεν χρειάζεται καμία περαιτέρω ενέργεια από πλευράς σας. Εάν χρειάζεστε οτιδήποτε άλλο ή το θέμα επανεμφανιστεί, απλώς απαντήστε σε αυτό το email και θα επανέλθουμε αμέσως.',
+                'We are glad to let you know that your request has been resolved! If everything is working as expected, no further action is needed on your part. If you need anything else or the issue returns, simply reply to this email and we will get right back to you.'],
+            'Closed' => ['🏁', '#64748b', 'Ολοκληρώθηκε', 'Closed',
+                'Το αίτημά σας ολοκληρώθηκε και το ticket έκλεισε. Σας ευχαριστούμε θερμά που επικοινωνήσατε μαζί μας και μας δώσατε την ευκαιρία να σας εξυπηρετήσουμε. Η ομάδα της CloudOn είναι πάντα στη διάθεσή σας για οτιδήποτε χρειαστείτε στο μέλλον.',
+                'Your request has been completed and the ticket is now closed. Thank you very much for reaching out and giving us the opportunity to assist you. The CloudOn team is always here for anything you may need in the future.'],
+        ];
+        if (!isset($INFO[$status])) {
+            return null;
+        }
+        [$icon, $color, $elLabel, $enLabel, $elMsg, $enMsg] = $INFO[$status];
+        $brand = '#0090dd';
+        $logo = 'https://my.cloudon.gr/project/apply-assets/cloudon-logo-white.png';
+        $e = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+        $nm = $name ? ' ' . $e($name) : '';
+        $tidE = $e($tid); $subjE = $e($subject); $linkE = $e($link); $year = date('Y');
+
+        $btn = fn($label) => '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 2px"><tr><td align="center" bgcolor="' . $brand . '" style="border-radius:10px">'
+            . '<a href="' . $linkE . '" target="_blank" style="display:inline-block;padding:13px 32px;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px">' . $label . '</a></td></tr></table>';
+        $card = fn($l1, $l2, $l3, $lbl) => '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f7fb;border-left:4px solid ' . $color . ';border-radius:8px;margin:16px 0"><tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:14px;color:#243447;line-height:1.75">'
+            . '<b>' . $l1 . ':</b> #' . $tidE . '<br><b>' . $l2 . ':</b> ' . $subjE . '<br><b>' . $l3 . ':</b> ' . $lbl . '</td></tr></table>';
+
+        $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
+            . '<body style="margin:0;padding:0;background:#eef2f7">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f7"><tr><td align="center" style="padding:26px 12px">'
+            . '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden">'
+            . '<tr><td align="center" style="padding:30px 30px 22px"><img src="' . $logo . '" alt="CloudOn" width="150" style="display:block;width:150px;height:auto;border:0"></td></tr>'
+            . '<tr><td align="center" bgcolor="' . $color . '" style="background:' . $color . ';padding:22px 30px">'
+            . '<div style="font-family:Arial,sans-serif;font-size:26px;line-height:1">' . $icon . '</div>'
+            . '<div style="font-family:Arial,sans-serif;font-size:19px;font-weight:bold;color:#ffffff;margin-top:8px;letter-spacing:.3px">' . $elLabel . ' &middot; ' . $enLabel . '</div></td></tr>'
+            . '<tr><td style="padding:28px 34px 6px;font-family:Arial,sans-serif;font-size:15px;color:#243447;line-height:1.65">'
+            . '<p style="margin:0 0 12px">Γεια σας' . $nm . ',</p><p style="margin:0 0 4px">' . $e($elMsg) . '</p>'
+            . $card('Αριθμός αιτήματος', 'Θέμα', 'Κατάσταση', $e($elLabel)) . $btn('Δείτε το αίτημά σας &rarr;') . '</td></tr>'
+            . '<tr><td style="padding:8px 34px"><hr style="border:none;border-top:1px solid #e6ecf3;margin:0"></td></tr>'
+            . '<tr><td style="padding:14px 34px 24px;font-family:Arial,sans-serif;font-size:15px;color:#243447;line-height:1.65">'
+            . '<p style="margin:0 0 12px">Hello' . $nm . ',</p><p style="margin:0 0 4px">' . $e($enMsg) . '</p>'
+            . $card('Request number', 'Subject', 'Status', $e($enLabel)) . $btn('View your request &rarr;') . '</td></tr>'
+            . '<tr><td align="center" bgcolor="#0b1b30" style="background:#0b1b30;padding:26px 30px">'
+            . '<img src="' . $logo . '" alt="CloudOn" width="120" style="display:block;width:120px;height:auto;border:0;margin:0 auto 12px">'
+            . '<div style="font-family:Arial,sans-serif;font-size:13px;color:#bcd3ea;line-height:1.7">'
+            . '<a href="tel:+302107222560" style="color:#bcd3ea;text-decoration:none">210 7222560</a> &nbsp;&middot;&nbsp; <a href="mailto:info@cloudon.gr" style="color:#bcd3ea;text-decoration:none">info@cloudon.gr</a><br>13 Peloponnisou Str., 15341 Agia Paraskevi</div>'
+            . '<div style="font-family:Arial,sans-serif;font-size:11px;color:#5f7799;margin-top:12px">&copy; ' . $year . ' CloudOn &middot; <a href="https://cloudon.gr" style="color:#5f7799">cloudon.gr</a></div>'
+            . '</td></tr></table></td></tr></table></body></html>';
+
+        return ['subject' => '[Ticket #' . $tid . '] ' . $elLabel . ' · ' . $enLabel, 'html' => $html];
+    }
 }
