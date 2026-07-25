@@ -1,13 +1,16 @@
 <div class="loginpage">
     <div class="container">
-        <div class="login-page-header maxw-500 row">
-            <div class="col-md-10 col-xs-10">
-                <a class="navbar-brand" href="{$WEB_ROOT}/index.php">
-                    <img class="w-logo svg logo" src="{$WEB_ROOT}/templates/{$template}/assets/img/logo.svg" alt="{$companyname}" />
-                    <span class="w-text">{$companyname}</span>
+        <div class="login-page-header maxw-500 row" style="align-items:center">
+            <div class="col-xs-6">
+                <a class="navbar-brand" href="{$WEB_ROOT}/index.php" style="display:inline-block">
+                    <img src="{$WEB_ROOT}/templates/{$template}/assets/img/logo-cloudon.png" alt="{$companyname}" style="height:42px;width:auto;display:block" />
                 </a>
             </div>
-            <a href="{$WEB_ROOT}/register.php" aria-label="{$LANG.register}"> <i class="ico-user-plus" data-toggle="tooltip" data-placement="left" title="{$LANG.registerintro}"></i> </a>
+            <div class="col-xs-6" style="display:flex;justify-content:flex-end;align-items:center">
+                <span class="login-lang" style="font-weight:700;font-size:14px;white-space:nowrap">
+                    <a href="{$WEB_ROOT}/login?language=greek" style="text-decoration:none;padding:4px 8px;color:{if $language=='greek'}#ffffff{else}#8aa0b8{/if}">ΕΛ</a><span style="color:#5f7799">|</span><a href="{$WEB_ROOT}/login?language=english" style="text-decoration:none;padding:4px 8px;color:{if $language=='english'}#ffffff{else}#8aa0b8{/if}">EN</a>
+                </span>
+            </div>
         </div>
         <div class="logincontent">
             <div class="login-wrapper">
@@ -55,6 +58,11 @@
                         </div>
                         {/if}
                     </form>
+
+                    <div class="login-register-cta" style="margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);text-align:center">
+                        <div style="opacity:.7;font-size:13px;margin-bottom:10px">{$LANG.registerintro}</div>
+                        <a href="{$WEB_ROOT}/register.php" class="btn btn-medium btn-prussian w-100"><i class="ico-user-plus"></i> {$LANG.newcustomer} — {$LANG.register}</a>
+                    </div>
                 </div>
             </div>
         </div>

@@ -219,3 +219,24 @@ $_LANG['hzFltTerminated'] = "Τερματισμένες";
 $_LANG['hzFltCancelled']  = "Ακυρωμένες";
 $_LANG['hzFltCompleted']  = "Ολοκληρωμένες";
 $_LANG['hzFltNone']       = "Δεν υπάρχουν υπηρεσίες σε αυτή την κατάσταση.";
+
+// --- Ετικέτες custom fields register/checkout (template lookup: cnp_cf_<id>) ---
+$_LANG['cnp_cf_1']   = "ΑΦΜ";
+$_LANG['cnp_cf_82']  = "ΔΟΥ";
+$_LANG['cnp_cf_83']  = "Φαξ";
+$_LANG['cnp_cf_88']  = "Κινητό τηλέφωνο";
+$_LANG['cnp_cf_117'] = "Τύπος πελάτη";
+
+// --- Νομική μορφή + άντληση ΑΑΔΕ (register) ---
+$_LANG['cnp_cf_153']      = "Νομική μορφή";
+$_LANG['cnp_pt_label']    = "Εγγράφεστε ως:";
+$_LANG['cnp_pt_person']   = "Ιδιώτης";
+$_LANG['cnp_pt_company']  = "Επιχείρηση";
+$_LANG['cnp_afm_help']    = "Συμπληρώστε το ΑΦΜ και πατήστε «Άντληση» για αυτόματη συμπλήρωση επωνυμίας, διεύθυνσης και ΔΟΥ από την ΑΑΔΕ.";
+$_LANG['cnp_afm_ph']      = "ΑΦΜ επιχείρησης";
+$_LANG['cnp_afm_fetch']   = "Άντληση από ΑΑΔΕ";
+$_LANG['cnp_afm_fetching']= "Άντληση…";
+$_LANG['cnp_afm_ok']      = "Τα στοιχεία συμπληρώθηκαν από την ΑΑΔΕ.";
+$_LANG['cnp_afm_inactive']= "Προσοχή: το ΑΦΜ εμφανίζεται ανενεργό στο μητρώο.";
+$_LANG['cnp_afm_notcompany']= "Το ΑΦΜ ανήκει σε φυσικό πρόσωπο, όχι σε επιχείρηση.";
+$_LANG['cnp_afm_err']     = "Δεν ήταν δυνατή η άντληση στοιχείων.";

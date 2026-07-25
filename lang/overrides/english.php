@@ -188,3 +188,24 @@ $_LANG['hzFltTerminated'] = "Terminated";
 $_LANG['hzFltCancelled']  = "Cancelled";
 $_LANG['hzFltCompleted']  = "Completed";
 $_LANG['hzFltNone']       = "No services in this status.";
+
+// --- Custom field labels for register/checkout (template lookup: cnp_cf_<id>) ---
+$_LANG['cnp_cf_1']   = "VAT ID";
+$_LANG['cnp_cf_82']  = "Tax Authority";
+$_LANG['cnp_cf_83']  = "Fax";
+$_LANG['cnp_cf_88']  = "Mobile Phone";
+$_LANG['cnp_cf_117'] = "Client Type";
+
+// --- Legal form + AADE lookup (register) ---
+$_LANG['cnp_cf_153']      = "Legal form";
+$_LANG['cnp_pt_label']    = "Registering as:";
+$_LANG['cnp_pt_person']   = "Individual";
+$_LANG['cnp_pt_company']  = "Business";
+$_LANG['cnp_afm_help']    = "Enter the VAT number and click “Fetch” to auto-fill company name, address and tax office from the Greek tax registry (AADE).";
+$_LANG['cnp_afm_ph']      = "Business VAT number (ΑΦΜ)";
+$_LANG['cnp_afm_fetch']   = "Fetch from AADE";
+$_LANG['cnp_afm_fetching']= "Fetching…";
+$_LANG['cnp_afm_ok']      = "Details filled from the tax registry.";
+$_LANG['cnp_afm_inactive']= "Note: this VAT number appears inactive in the registry.";
+$_LANG['cnp_afm_notcompany']= "This VAT number belongs to an individual, not a business.";
+$_LANG['cnp_afm_err']     = "Could not retrieve details.";
