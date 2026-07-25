@@ -1535,19 +1535,34 @@ R.profile = async function () {
     window.CNP.go('board');
   });
 
-  /* ── 🔐 Θυρίδα κωδικών ── */
-  let vaultMine = false;
+  /* ── 🔐 Θυρίδα κωδικών (κοινή λογική με το nav «Κωδικοί») ── */
+  mountVault();
+};
+
+/* ═════════ 🔐 ΘΥΡΙΔΑ ΚΩΔΙΚΩΝ — standalone view + shared functions ═════════ */
+R.vault = async function () {
+  setTop('Κωδικοί', 'Η θυρίδα κωδικών σου — κρυπτογραφημένα (AES-256)');
+  const full = S.boot.me.full;
+  $('#content').innerHTML = `<div class="card"><div class="card-h">${I.key} Θυρίδα κωδικών
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">κρυπτογραφημένα · ${full ? 'ως διαχειριστής βλέπεις όλων των χειριστών' : 'ιδιωτικά — μόνο εσύ'}</span>
+    <button class="btn btn-p btn-sm" id="vAdd" style="margin-left:auto">${I.plus} Νέος κωδικός</button></div>
+    <div class="card-b" id="vaultBox"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>`;
+  mountVault();
+};
+let _vaultMine = false;
+function mountVault() {
   window._vaultKinds = null; window._vaultItems = [];
-  $('#vAdd').onclick = () => openVaultForm(null);
+  const add = $('#vAdd'); if (add) { add.onclick = () => openVaultForm(null); }
   loadVault();
-  async function loadVault() {
+}
+async function loadVault() {
     const box = $('#vaultBox'); if (!box) { return; }
-    const d = await api('vault_list' + (vaultMine ? '&mine=1' : '')).catch(() => null);
+    const d = await api('vault_list' + (_vaultMine ? '&mine=1' : '')).catch(() => null);
     if (!d) { box.innerHTML = '<div class="mut" style="font-size:12px">Σφάλμα φόρτωσης</div>'; return; }
     window._vaultKinds = d.kinds; window._vaultItems = d.items;
     const scope = d.full ? `<div style="display:flex;gap:6px;margin-bottom:11px">
-      <button class="btn btn-sm ${vaultMine ? 'btn-o' : 'btn-p'}" data-vscope="0">Όλων των χειριστών</button>
-      <button class="btn btn-sm ${vaultMine ? 'btn-p' : 'btn-o'}" data-vscope="1">Μόνο δικά μου</button></div>` : '';
+      <button class="btn btn-sm ${_vaultMine ? 'btn-o' : 'btn-p'}" data-vscope="0">Όλων των χειριστών</button>
+      <button class="btn btn-sm ${_vaultMine ? 'btn-p' : 'btn-o'}" data-vscope="1">Μόνο δικά μου</button></div>` : '';
     box.innerHTML = scope + (d.items.length ? `<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:12.5px">
       <thead><tr><th style="text-align:left">Περιγραφή</th><th style="text-align:left">Τύπος</th><th style="text-align:left">User</th><th style="text-align:left">Κωδικός</th><th style="text-align:left">IP / URL</th><th style="text-align:left">Πελάτης / Χρήση</th>${d.full ? '<th style="text-align:left">Χειριστής</th>' : ''}<th></th></tr></thead><tbody>
       ${d.items.map(v => `<tr>
@@ -1563,7 +1578,7 @@ R.profile = async function () {
         <td style="text-align:right;white-space:nowrap"><button class="btn btn-sm btn-o" data-vedit="${v.id}" style="padding:3px 7px">${I.edit}</button>
           <button class="btn btn-sm btn-o" data-vdel="${v.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button></td></tr>`).join('')}
       </tbody></table></div>` : '<div class="empty" style="padding:22px">Καμία καταχώρηση ακόμη — πάτα «Νέος κωδικός»</div>');
-    $$('[data-vscope]', box).forEach(b => b.onclick = () => { vaultMine = b.dataset.vscope === '1'; loadVault(); });
+    $$('[data-vscope]', box).forEach(b => b.onclick = () => { _vaultMine = b.dataset.vscope === '1'; loadVault(); });
     $$('[data-vreveal]', box).forEach(b => b.onclick = async () => {
       const sp = box.querySelector(`.vpw[data-vid="${b.dataset.vreveal}"]`);
       if (sp.dataset.shown) { sp.textContent = '••••••••'; delete sp.dataset.shown; return; }
@@ -1623,4 +1638,3 @@ R.profile = async function () {
       ovl.remove(); toast('Αποθηκεύτηκε ✓'); loadVault();
     };
   }
-};

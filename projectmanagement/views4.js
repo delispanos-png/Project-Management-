@@ -684,10 +684,11 @@ R.standup = async function () {
 /* ═════════ 📚 Η ΒΙΒΛΙΟΘΗΚΗ ΜΟΥ (ιδιωτική) ═════════ */
 const _libSize = s => s > 1048576 ? (s / 1048576).toFixed(1) + 'MB' : Math.round(s / 1024) + 'KB';
 R.library = async function () {
-  setTop('Η βιβλιοθήκη μου', 'Έγγραφα, σημειώσεις & links — ιδιωτικά, μόνο για σένα');
+  setTop('Η βιβλιοθήκη μου', 'Έγγραφα, σημειώσεις & links — ιδιωτικά ή κοινά ομάδας');
   const c = $('#content');
-  const st = R.library._s = R.library._s || {q: '', cat: ''};
+  const st = R.library._s = R.library._s || {q: '', cat: '', scope: 'mine'};
   c.innerHTML = `
+  <div id="lbScope" style="display:flex;gap:7px;margin-bottom:12px"></div>
   <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:13px">
     <input class="inp" id="lbQ" placeholder="Αναζήτηση σε τίτλους, κείμενο, ετικέτες, αρχεία…" style="flex:1;min-width:200px" value="${esc(st.q)}">
     <button class="btn btn-o btn-sm" id="lbNote">${I.edit} Σημείωση</button>
@@ -697,17 +698,29 @@ R.library = async function () {
   <div id="lbCats" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px"></div>
   <div id="lbBox">${'<div class="skel" style="height:70px;margin-bottom:10px"></div>'.repeat(3)}</div>`;
   const kindIco = {note: I.edit, link: I.link, file: I.download};
+  const expBadge = it => {
+    if (!it.expires) { return ''; }
+    const d = it.expDays;
+    const col = d < 0 ? 'var(--bad)' : d <= 7 ? 'var(--warn)' : 'var(--mut)';
+    const lbl = d < 0 ? 'Έληξε' : d === 0 ? 'Λήγει σήμερα' : 'Λήγει σε ' + d + ' ημ.';
+    return `<span class="pill" style="background:${col}1a;color:${col};font-size:9px">${I.clock} ${lbl}</span>`;
+  };
   const load = async () => {
-    const d = await api('lib_list&q=' + encodeURIComponent(st.q) + (st.cat ? '&cat=' + encodeURIComponent(st.cat) : ''));
+    const d = await api(`lib_list&scope=${st.scope}&q=${encodeURIComponent(st.q)}` + (st.cat ? '&cat=' + encodeURIComponent(st.cat) : ''));
+    $('#lbScope').innerHTML = `<button class="btn btn-sm ${st.scope === 'mine' ? 'btn-p' : 'btn-o'}" data-scope="mine">${I.user} Δικά μου</button>
+      <button class="btn btn-sm ${st.scope === 'shared' ? 'btn-p' : 'btn-o'}" data-scope="shared">${I.users} Ομάδας${d.sharedN ? ' (' + d.sharedN + ')' : ''}</button>`;
     $('#lbCats').innerHTML = d.cats.length ? `<button class="btn btn-sm ${st.cat === '' ? 'btn-p' : 'btn-o'}" data-cat="">Όλα</button>` +
       d.cats.map(cat => `<button class="btn btn-sm ${st.cat === cat ? 'btn-p' : 'btn-o'}" data-cat="${esc(cat)}">${esc(cat)}</button>`).join('') : '';
     const box = $('#lbBox');
-    if (!d.items.length) { box.innerHTML = `<div class="empty" style="padding:40px"><div class="big">${I.book}</div>${st.q || st.cat ? 'Κανένα αποτέλεσμα' : 'Κενή βιβλιοθήκη — πρόσθεσε σημείωση, link ή αρχείο'}</div>`; return; }
+    if (!d.items.length) { box.innerHTML = `<div class="empty" style="padding:40px"><div class="big">${I.book}</div>${st.q || st.cat ? 'Κανένα αποτέλεσμα' : (st.scope === 'shared' ? 'Δεν υπάρχουν κοινά έγγραφα ομάδας' : 'Κενή βιβλιοθήκη — πρόσθεσε σημείωση, link ή αρχείο')}</div>`; return; }
     const rowHtml = it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line)">
       <span style="color:var(--brand);flex:none;margin-top:2px">${kindIco[it.kind] || I.book}</span>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:13.5px">${esc(it.title)}</b>
-          ${it.kind === 'file' ? `<span class="mut" style="font-size:10.5px">${esc(it.filename)} · ${_libSize(it.size)}</span>` : ''}</div>
+          ${it.kind === 'file' ? `<span class="mut" style="font-size:10.5px">${esc(it.filename)} · ${_libSize(it.size)}</span>` : ''}
+          ${expBadge(it)}
+          ${it.shared ? `<span class="pill" style="background:var(--ok)1a;color:var(--ok);font-size:9px">${I.users} κοινό</span>` : ''}
+          ${st.scope === 'shared' && !it.canEdit ? `<span class="mut" style="font-size:10px">· ${esc(it.ownerName)}</span>` : ''}</div>
         ${it.kind === 'note' && it.body ? `<div class="mut" style="font-size:12px;margin-top:3px;max-height:66px;overflow:hidden">${it.body}</div>` : ''}
         ${it.kind === 'link' && it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand);word-break:break-all">${esc(it.url)}</a>` : ''}
         ${it.tags ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${it.tags.split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
@@ -716,9 +729,9 @@ R.library = async function () {
         ${it.kind === 'file' ? `<button class="btn btn-sm btn-o" data-lbget="${it.id}" title="κατέβασμα" style="padding:3px 7px">${I.download}</button>` : ''}
         ${it.kind === 'link' ? `<button class="btn btn-sm btn-o" data-lbcopy="${esc(it.url)}" title="αντιγραφή" style="padding:3px 7px">⧉</button>` : ''}
         ${it.kind === 'note' ? `<button class="btn btn-sm btn-o" data-lbcopyn="${it.id}" title="αντιγραφή κειμένου" style="padding:3px 7px">⧉</button>` : ''}
-        <button class="btn btn-sm btn-o" data-lbpin="${it.id}" title="${it.pinned ? 'ξεκαρφίτσωμα' : 'καρφίτσωμα'}" style="padding:3px 7px">${it.pinned ? '★' : '☆'}</button>
-        ${it.kind !== 'file' ? `<button class="btn btn-sm btn-o" data-lbedit="${it.id}" style="padding:3px 7px">${I.edit}</button>` : ''}
-        <button class="btn btn-sm btn-o" data-lbdel="${it.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button>
+        ${it.canEdit ? `<button class="btn btn-sm btn-o" data-lbpin="${it.id}" title="${it.pinned ? 'ξεκαρφίτσωμα' : 'καρφίτσωμα'}" style="padding:3px 7px">${it.pinned ? '★' : '☆'}</button>
+        <button class="btn btn-sm btn-o" data-lbedit="${it.id}" style="padding:3px 7px">${I.edit}</button>
+        <button class="btn btn-sm btn-o" data-lbdel="${it.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button>` : ''}
       </div></div>`;
     const pinned = d.items.filter(x => x.pinned);
     const rest = d.items.filter(x => !x.pinned);
@@ -744,32 +757,40 @@ R.library = async function () {
     const fd = new FormData(); fd.append('file', file); fd.append('title', file.name);
     toast('Ανεβαίνει…');
     const r = await fetch('api.php?a=lib_upload', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json());
-    if (r.ok) { toast('Ανέβηκε ✓'); load(); } else { toast(r.error || 'Σφάλμα', true); }
+    if (r.ok) { toast('Ανέβηκε ✓ — πάτα ✎ για κατηγορία/λήξη/κοινό'); load(); } else { toast(r.error || 'Σφάλμα', true); }
     e.target.value = '';
   };
+  $('#lbScope').onclick = e => { const b = e.target.closest('[data-scope]'); if (!b) { return; } st.scope = b.dataset.scope; st.cat = ''; load(); };
   $('#lbCats').onclick = e => { const b = e.target.closest('[data-cat]'); if (!b) { return; } st.cat = b.dataset.cat; load(); };
   function openLibForm(kind, item) {
     const isNew = !item;
     const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
-    ovl.innerHTML = `<div class="pal-box" style="margin:7vh auto 0;max-width:580px;text-align:left" onclick="event.stopPropagation()">
+    const kindTitle = kind === 'link' ? 'link' : kind === 'file' ? 'αρχείο' : 'σημείωση';
+    ovl.innerHTML = `<div class="pal-box" style="margin:6vh auto 0;max-width:580px;text-align:left" onclick="event.stopPropagation()">
       <div style="padding:20px 22px">
-        <h2 style="margin:0 0 15px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px">${kind === 'link' ? I.link : I.edit} ${isNew ? (kind === 'link' ? 'Νέο link' : 'Νέα σημείωση') : 'Επεξεργασία'}</h2>
+        <h2 style="margin:0 0 15px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px">${kind === 'link' ? I.link : kind === 'file' ? I.download : I.edit} ${isNew ? 'Νέα ' + kindTitle : 'Επεξεργασία'}</h2>
         <label class="lbl">Τίτλος *</label><input class="inp" id="lfT" value="${isNew ? '' : esc(item.title)}">
         ${kind === 'link' ? `<label class="lbl" style="margin-top:11px">URL</label><input class="inp" id="lfU" value="${isNew ? '' : esc(item.url)}" placeholder="https://…">` :
-          `<label class="lbl" style="margin-top:11px">Κείμενο</label><textarea class="inp" id="lfB" rows="6">${isNew ? '' : esc((item.body || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))}</textarea>`}
+          kind === 'note' ? `<label class="lbl" style="margin-top:11px">Κείμενο</label><textarea class="inp" id="lfB" rows="6">${isNew ? '' : esc((item.body || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))}</textarea>` :
+          `<div class="mut" style="font-size:12px;margin-top:8px">${I.download} ${esc(item.filename)} · ${_libSize(item.size)}</div>`}
         <div class="frow" style="margin-top:11px">
           <div><label class="lbl">Κατηγορία</label><input class="inp" id="lfC" list="lfCL" value="${isNew ? '' : esc(item.category)}" placeholder="π.χ. Δίκτυα"><datalist id="lfCL"></datalist></div>
           <div><label class="lbl">Ετικέτες (κόμμα)</label><input class="inp" id="lfTg" value="${isNew ? '' : esc(item.tags)}" placeholder="vpn, φορητός"></div>
         </div>
+        <div class="frow" style="margin-top:11px">
+          <div><label class="lbl">${I.clock} Ημ. λήξης <span class="mut" style="font-weight:400">(συμβόλαιο/άδεια)</span></label><input class="inp" type="date" id="lfExp" value="${isNew ? '' : (item.expires || '')}"></div>
+          <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;padding-bottom:9px"><input type="checkbox" id="lfSh" ${!isNew && item.shared ? 'checked' : ''} style="width:17px;height:17px">Κοινό για την ομάδα</label></div>
+        </div>
         <div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-p" id="lfSave">Αποθήκευση</button><button class="btn btn-o" id="lfX">Άκυρο</button></div>
       </div></div>`;
     document.body.appendChild(ovl);
-    api('lib_list').then(d => { const dl = $('#lfCL', ovl); if (dl) { dl.innerHTML = (d.cats || []).map(x => `<option value="${esc(x)}">`).join(''); } });
+    api('lib_list').then(dd => { const dl = $('#lfCL', ovl); if (dl) { dl.innerHTML = (dd.cats || []).map(x => `<option value="${esc(x)}">`).join(''); } });
     $('#lfX', ovl).onclick = () => ovl.remove();
     $('#lfSave', ovl).onclick = async () => {
       const title = $('#lfT', ovl).value.trim(); if (!title) { toast('Δώσε τίτλο', true); return; }
-      const payload = {id: isNew ? 0 : item.id, kind, title, category: $('#lfC', ovl).value, tags: $('#lfTg', ovl).value};
-      if (kind === 'link') { payload.url = $('#lfU', ovl).value; } else { payload.body = $('#lfB', ovl).value.replace(/\n/g, '<br>'); }
+      const payload = {id: isNew ? 0 : item.id, kind, title, category: $('#lfC', ovl).value, tags: $('#lfTg', ovl).value,
+        expires: $('#lfExp', ovl).value, shared: $('#lfSh', ovl).checked ? 1 : 0};
+      if (kind === 'link') { payload.url = $('#lfU', ovl).value; } else if (kind === 'note') { payload.body = $('#lfB', ovl).value.replace(/\n/g, '<br>'); }
       await api('lib_save', payload); ovl.remove(); toast('Αποθηκεύτηκε ✓'); load();
     };
   }
@@ -780,6 +801,7 @@ R.todos = async function () {
   setTop('Το πλάνο μου', 'Ανά project — τι έχεις να κάνεις & πού έμεινες');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:130px;margin-bottom:12px"></div>'.repeat(3);
+  const remLbl = r => new Date(r.replace(' ', 'T')).toLocaleString('el-GR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
   const load = async () => {
     const d = await api('todos_list');
     if (!d.groups.length) { c.innerHTML = `<div class="empty" style="padding:44px"><div class="big">${I.checkSquare}</div>Δεν έχεις ανοιχτά project ακόμη</div>`; return; }
@@ -798,10 +820,12 @@ R.todos = async function () {
           <textarea class="inp" data-wn="${g.id}" rows="2" placeholder="π.χ. έμεινα στη ρύθμιση DNS, περιμένω απάντηση πελάτη…" style="font-size:12.5px">${esc((g.note || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))}</textarea>
           <div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-o" data-wnsave="${g.id}">${I.save} Αποθήκευση σημείωσης</button></div>
         </div>
-        <div>
-          ${g.todos.length ? g.todos.map(t => `<div style="display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
+        <div class="todo-items" data-proj="${g.id}">
+          ${g.todos.length ? g.todos.map(t => `<div class="todo-row" data-tid="${t.id}" style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
+            <span class="drag-h" title="σύρε για αλλαγή σειράς" style="cursor:grab;color:var(--mut);flex:none;font-size:13px">⋮⋮</span>
             <input type="checkbox" data-ttog="${t.id}" ${t.done ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;flex:none">
-            <span style="flex:1;font-size:13px;${t.done ? 'text-decoration:line-through;color:var(--mut)' : ''}">${esc(t.text)}</span>
+            <span style="flex:1;font-size:13px;${t.done ? 'text-decoration:line-through;color:var(--mut)' : ''}">${esc(t.text)}${t.remind ? ` <span class="pill" style="font-size:9px;margin-left:4px;background:${t.overdue ? 'var(--bad)' : 'var(--warn)'}1a;color:${t.overdue ? 'var(--bad)' : 'var(--warn)'}">${I.clock} ${remLbl(t.remind)}</span>` : ''}</span>
+            <button class="btn btn-sm btn-o" data-trem="${t.id}" title="υπενθύμιση με ώρα" style="padding:2px 6px">${I.clock}</button>
             <button class="btn btn-sm btn-o" data-tdel="${t.id}" style="padding:2px 7px;color:var(--bad)">✕</button></div>`).join('') : '<div class="mut" style="font-size:12px;padding:6px 0">Καμία υπενθύμιση ακόμη</div>'}
         </div>
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
@@ -820,6 +844,36 @@ R.todos = async function () {
     $$('[data-tclear]').forEach(b => b.onclick = async () => { await api('todo_clear_done', {project: +b.dataset.tclear}); load(); });
     $$('[data-wnsave]').forEach(b => b.onclick = async () => { const ta = document.querySelector(`textarea[data-wn="${b.dataset.wnsave}"]`); await api('worknote_save', {project: +b.dataset.wnsave, note: ta.value.replace(/\n/g, '<br>')}); toast('Σημείωση αποθηκεύτηκε ✓'); });
     $$('[data-tgo]').forEach(x => x.onclick = () => openTask(+x.dataset.tgo));
+    $$('[data-trem]').forEach(b => b.onclick = async () => {
+      const d0 = new Date(Date.now() + 86400000);
+      const def = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')} 09:00`;
+      const v = await cnpPrompt('Πότε να σου θυμίσω; (μορφή: ΕΕΕΕ-ΜΜ-ΗΗ ΩΩ:ΛΛ) — κενό για αφαίρεση', {title: I.clock + ' Υπενθύμιση', input: def, placeholder: '2026-07-26 09:30', ok: 'Ορισμός'});
+      if (v === null) { return; }
+      await api('todo_update', {id: +b.dataset.trem, remind: v.trim()});
+      toast(v.trim() ? 'Υπενθύμιση ⏰ ορίστηκε' : 'Υπενθύμιση αφαιρέθηκε'); load();
+    });
+    $$('.todo-items').forEach(cont => enableTodoDrag(cont));
   };
+  function enableTodoDrag(cont) {
+    let drag = null;
+    cont.querySelectorAll('.todo-row').forEach(row => {
+      row.draggable = true;
+      row.ondragstart = () => { drag = row; row.classList.add('dragging'); row.style.opacity = '.4'; };
+      row.ondragend = async () => {
+        row.classList.remove('dragging'); row.style.opacity = '';
+        const ids = [...cont.querySelectorAll('.todo-row')].map(x => +x.dataset.tid);
+        await api('todo_reorder', {ids});
+      };
+    });
+    cont.ondragover = e => {
+      if (!drag) { return; }
+      e.preventDefault();
+      const after = [...cont.querySelectorAll('.todo-row:not(.dragging)')].reduce((closest, child) => {
+        const box = child.getBoundingClientRect(); const offset = e.clientY - box.top - box.height / 2;
+        return (offset < 0 && offset > closest.offset) ? {offset, el: child} : closest;
+      }, {offset: -Infinity, el: null}).el;
+      if (after == null) { cont.appendChild(drag); } else { cont.insertBefore(drag, after); }
+    };
+  }
   await load();
 };

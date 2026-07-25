@@ -119,7 +119,7 @@ function renderShell() {
   const has = a => me.full || (me.areas || []).includes(a);   // ειδικότητες/πρόσβαση
   const nav = [
     ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['todos', I.checkSquare, 'Το πλάνο μου'], ['library', I.book, 'Η βιβλιοθήκη μου'],
-      ['standup', I.clipboard, 'Standup'], ['calendar', I.cal, 'Ημερολόγιο'], ['chat', I.chat || I.ticket, 'Chat'], ['remotebook', I.monitor, 'Απομακρυσμένες']]],
+      ['vault', I.key, 'Κωδικοί'], ['standup', I.clipboard, 'Standup'], ['calendar', I.cal, 'Ημερολόγιο'], ['chat', I.chat || I.ticket, 'Chat'], ['remotebook', I.monitor, 'Απομακρυσμένες']]],
   ];
   if (has('support')) {
     nav.push(['Υποστήριξη', [['inbox', I.ticket, 'Tickets'], ['knowledge', I.book, 'Γνώση'], ['client360', I.user, 'Πελάτης 360°']]]);
@@ -803,6 +803,7 @@ async function vMyDay() {
   const c = $('#content');
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
   const d = await api('myday');
+  const mt = await api('my_todos').catch(() => ({todos: []}));
   const st = d.stats;
   setTimeout(loadMyNext, 50);   // ▶ επόμενο ticket (lazy, μετά το render)
   const coachCol = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)'};
@@ -841,7 +842,15 @@ async function vMyDay() {
         ${d.follows.map(f => `<div class="trow"><span>${I.phone} </span><div style="flex:1"><b>${esc(f.who)}</b>
           ${f.note ? `<div class="mut" style="font-size:11.5px">${esc(f.note)}</div>` : ''}</div>
           ${f.phone ? `<span class="mut">${esc(f.phone)}</span>` : ''}</div>`).join('')}</div>` : ''}
-      ${!d.plan.length && !d.balls.length && !d.follows.length ? '<div class="card"><div class="empty"><div class="big">🏖️</div>Καθαρή μέρα — τίποτα προγραμματισμένο!</div></div>' : ''}
+      ${mt.todos.length ? `<div class="card"><div class="card-h">${I.checkSquare} Το πλάνο μου <a data-gotodos style="margin-left:auto;font-size:11px;font-weight:600;color:var(--brand);cursor:pointer">όλα →</a></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:1px">
+        ${mt.todos.slice(0, 8).map(t => `<div style="display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
+          <input type="checkbox" data-mdtog="${t.id}" style="width:16px;height:16px;cursor:pointer;flex:none">
+          <div style="flex:1;min-width:0"><span style="font-size:13px">${esc(t.text)}</span>${t.remind ? ` <span class="pill" style="font-size:9px;background:${t.overdue ? 'var(--bad)' : 'var(--warn)'}1a;color:${t.overdue ? 'var(--bad)' : 'var(--warn)'}">${I.clock}</span>` : ''}
+            <div class="mut" style="font-size:11px;display:flex;align-items:center;gap:5px"><span class="dot" style="background:${t.pcolor};width:7px;height:7px"></span>${esc(t.pname)}</div></div></div>`).join('')}
+        ${mt.todos.length > 8 ? `<a data-gotodos style="cursor:pointer;color:var(--brand);font-size:12px;margin-top:6px">+ ${mt.todos.length - 8} ακόμη…</a>` : ''}
+        </div></div>` : ''}
+      ${!d.plan.length && !d.balls.length && !d.follows.length && !mt.todos.length ? '<div class="card"><div class="empty"><div class="big">🏖️</div>Καθαρή μέρα — τίποτα προγραμματισμένο!</div></div>' : ''}
     </div>
     <div>
       <div class="card"><div class="card-h">${I.ticket} Τα tickets μου <span class="mut" style="font-weight:600">(${d.tickets.length})</span></div>
@@ -853,6 +862,8 @@ async function vMyDay() {
     </div>
   </div>`;
   $$('#content .trow[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
+  $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
+  $$('#content [data-gotodos]').forEach(a => a.onclick = () => go('todos'));
 }
 
 /* ═════════ CRM ═════════ */

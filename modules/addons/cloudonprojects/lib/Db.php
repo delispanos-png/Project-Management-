@@ -568,6 +568,9 @@ class Db
                 $t->string('filename', 200)->default('');
                 $t->integer('size')->unsigned()->default(0);
                 $t->boolean('pinned')->default(0);
+                $t->date('expires_at')->nullable();              // λήξη (συμβόλαιο/άδεια → alert)
+                $t->boolean('shared')->default(0)->index();      // κοινό για την ομάδα
+                $t->boolean('exp_notified')->default(0);
                 $t->timestamp('created_at')->nullable();
                 $t->timestamp('updated_at')->nullable();
             });
@@ -581,6 +584,8 @@ class Db
                 $t->boolean('done')->default(0);
                 $t->integer('sort')->default(0);
                 $t->timestamp('done_at')->nullable();
+                $t->dateTime('remind_at')->nullable();           // υπενθύμιση με ώρα → καμπανάκι
+                $t->boolean('remind_sent')->default(0);
                 $t->timestamp('created_at')->nullable();
             });
         }

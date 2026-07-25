@@ -43,3 +43,34 @@ foreach ($due as $r) {
 if (count($due)) {
     echo count($due) . " υπενθυμίσεις εστάλησαν\n";
 }
+
+/* ⏰ Υπενθυμίσεις «Το πλάνο μου» (todos με ώρα) → καμπανάκι */
+try {
+    $todoDue = Capsule::table('mod_cpm_todos')->where('done', 0)->where('remind_sent', 0)
+        ->whereNotNull('remind_at')->where('remind_at', '<=', date('Y-m-d H:i:s'))->get();
+    foreach ($todoDue as $td) {
+        Db::pushNotification((int) $td->admin_id, 'due', '⏰ Υπενθύμιση: ' . mb_substr($td->text, 0, 90), '/project/#/todos');
+        Capsule::table('mod_cpm_todos')->where('id', $td->id)->update(['remind_sent' => 1]);
+    }
+    if (count($todoDue)) {
+        echo count($todoDue) . " todo reminders\n";
+    }
+} catch (\Throwable $e) {
+}
+
+/* 📄 Έγγραφα βιβλιοθήκης που λήγουν (≤7 ημέρες ή έληξαν) — μία ειδοποίηση ανά έγγραφο */
+try {
+    $soon = date('Y-m-d', strtotime('+7 days'));
+    $expDue = Capsule::table('mod_cpm_library')->where('exp_notified', 0)
+        ->whereNotNull('expires_at')->where('expires_at', '<=', $soon)->get();
+    foreach ($expDue as $lb) {
+        $days = (int) floor((strtotime($lb->expires_at) - time()) / 86400);
+        $msg = $days < 0 ? 'Έληξε: ' . $lb->title : ($days === 0 ? 'Λήγει σήμερα: ' . $lb->title : 'Λήγει σε ' . $days . ' ημ.: ' . $lb->title);
+        Db::pushNotification((int) $lb->admin_id, 'due', $msg, '/project/#/library');
+        Capsule::table('mod_cpm_library')->where('id', $lb->id)->update(['exp_notified' => 1]);
+    }
+    if (count($expDue)) {
+        echo count($expDue) . " expiry alerts\n";
+    }
+} catch (\Throwable $e) {
+}

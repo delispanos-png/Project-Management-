@@ -4529,7 +4529,10 @@ case 'vault_del':
 case 'lib_list':
     $q = trim($_GET['q'] ?? '');
     $cat = trim($_GET['cat'] ?? '');
-    $qry = Capsule::table('mod_cpm_library')->where('admin_id', $adminId);
+    $scope = ($_GET['scope'] ?? 'mine') === 'shared' ? 'shared' : 'mine';
+    $qry = Capsule::table('mod_cpm_library');
+    if ($scope === 'shared') { $qry->where('shared', 1); }
+    else { $qry->where('admin_id', $adminId); }
     if ($cat !== '') { $qry->where('category', $cat); }
     if (mb_strlen($q) >= 1) {
         $like = '%' . $q . '%';
@@ -4539,30 +4542,40 @@ case 'lib_list':
         });
     }
     $rows = $qry->orderByDesc('pinned')->orderByDesc('updated_at')->get();
-    $items = [];
+    $items = []; $today = date('Y-m-d');
     foreach ($rows as $r) {
+        $expDays = $r->expires_at ? (int) floor((strtotime($r->expires_at) - strtotime($today)) / 86400) : null;
         $items[] = ['id' => (int) $r->id, 'kind' => $r->kind, 'title' => $r->title, 'category' => $r->category,
             'tags' => $r->tags, 'body' => $r->kind === 'note' ? $r->body : '', 'url' => $r->url,
-            'filename' => $r->filename, 'size' => (int) $r->size, 'pinned' => (bool) $r->pinned, 'updated' => $r->updated_at];
+            'filename' => $r->filename, 'size' => (int) $r->size, 'pinned' => (bool) $r->pinned,
+            'expires' => $r->expires_at, 'expDays' => $expDays, 'shared' => (bool) $r->shared,
+            'owner' => (int) $r->admin_id, 'ownerName' => Db::adminName($r->admin_id), 'canEdit' => ((int) $r->admin_id === $adminId),
+            'updated' => $r->updated_at];
     }
-    $cats = Capsule::table('mod_cpm_library')->where('admin_id', $adminId)->where('category', '<>', '')
-        ->distinct()->orderBy('category')->pluck('category')->all();
-    out(['items' => $items, 'cats' => $cats]);
+    $catQ = Capsule::table('mod_cpm_library');
+    if ($scope === 'shared') { $catQ->where('shared', 1); } else { $catQ->where('admin_id', $adminId); }
+    $cats = $catQ->where('category', '<>', '')->distinct()->orderBy('category')->pluck('category')->all();
+    // πλήθος shared (για badge στο toggle)
+    $sharedN = (int) Capsule::table('mod_cpm_library')->where('shared', 1)->count();
+    out(['items' => $items, 'cats' => $cats, 'scope' => $scope, 'sharedN' => $sharedN]);
 
 case 'lib_save':
     $title = mb_substr(trim($in['title'] ?? ''), 0, 200);
     if ($title === '') { fail('Δώσε τίτλο'); }
-    $kind = in_array($in['kind'] ?? '', ['note', 'link'], true) ? $in['kind'] : 'note';
-    $data = ['kind' => $kind, 'title' => $title, 'category' => mb_substr(trim($in['category'] ?? ''), 0, 80),
-        'tags' => mb_substr(trim($in['tags'] ?? ''), 0, 200), 'body' => $kind === 'note' ? cnp_clean_html($in['body'] ?? '') : '',
-        'url' => $kind === 'link' ? mb_substr(trim($in['url'] ?? ''), 0, 500) : '', 'updated_at' => date('Y-m-d H:i:s')];
     $id = (int) ($in['id'] ?? 0);
+    $existing = $id ? Capsule::table('mod_cpm_library')->where('id', $id)->first() : null;
+    if ($id && (!$existing || (int) $existing->admin_id !== $adminId)) { fail('forbidden', 403); }
+    $kind = $existing ? $existing->kind : (in_array($in['kind'] ?? '', ['note', 'link'], true) ? $in['kind'] : 'note');
+    $data = ['title' => $title, 'category' => mb_substr(trim($in['category'] ?? ''), 0, 80),
+        'tags' => mb_substr(trim($in['tags'] ?? ''), 0, 200),
+        'expires_at' => ($in['expires'] ?? '') ?: null, 'shared' => !empty($in['shared']) ? 1 : 0,
+        'exp_notified' => 0, 'updated_at' => date('Y-m-d H:i:s')];
+    if ($kind === 'note') { $data['body'] = cnp_clean_html($in['body'] ?? ''); }
+    if ($kind === 'link') { $data['url'] = mb_substr(trim($in['url'] ?? ''), 0, 500); }
     if ($id) {
-        $own = (int) Capsule::table('mod_cpm_library')->where('id', $id)->value('admin_id');
-        if ($own !== $adminId) { fail('forbidden', 403); }
         Capsule::table('mod_cpm_library')->where('id', $id)->update($data);
     } else {
-        $data['admin_id'] = $adminId; $data['created_at'] = date('Y-m-d H:i:s');
+        $data['kind'] = $kind; $data['admin_id'] = $adminId; $data['created_at'] = date('Y-m-d H:i:s');
         $id = Capsule::table('mod_cpm_library')->insertGetId($data);
     }
     out(['ok' => true, 'id' => $id]);
@@ -4580,12 +4593,13 @@ case 'lib_upload':                       // multipart
     Capsule::table('mod_cpm_library')->insert(['admin_id' => $adminId, 'kind' => 'file',
         'title' => mb_substr(($_POST['title'] ?? '') ?: $f['name'], 0, 200), 'category' => mb_substr(trim($_POST['category'] ?? ''), 0, 80),
         'tags' => mb_substr(trim($_POST['tags'] ?? ''), 0, 200), 'filename' => mb_substr($f['name'], 0, 200),
-        'stored' => $stored, 'size' => (int) $f['size'], 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+        'stored' => $stored, 'size' => (int) $f['size'], 'expires_at' => ($_POST['expires'] ?? '') ?: null,
+        'shared' => !empty($_POST['shared']) ? 1 : 0, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true]);
 
 case 'lib_get':
-    $r = Capsule::table('mod_cpm_library')->where('id', (int) ($_GET['id'] ?? 0))->where('admin_id', $adminId)->first();
-    if (!$r || $r->kind !== 'file') { fail('file', 404); }
+    $r = Capsule::table('mod_cpm_library')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$r || $r->kind !== 'file' || ((int) $r->admin_id !== $adminId && !$r->shared)) { fail('file', 404); }
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->stored));
     if (!$path || !is_file($path)) { fail('file', 404); }
     header('Content-Type: application/octet-stream');
@@ -4637,7 +4651,8 @@ case 'todos_list':
     foreach ($todoRows as $t) {
         $pid = (int) $t->project_id;
         if (!isset($proj[$pid])) { $ensure($pid, $pid ? '—' : 'Γενικά', '#8291a9'); }
-        $proj[$pid]['todos'][] = ['id' => (int) $t->id, 'text' => $t->text, 'done' => (bool) $t->done];
+        $proj[$pid]['todos'][] = ['id' => (int) $t->id, 'text' => $t->text, 'done' => (bool) $t->done,
+            'remind' => $t->remind_at, 'overdue' => $t->remind_at && !$t->done && strtotime($t->remind_at) < time()];
     }
     // «Γενικά» πάντα διαθέσιμο για ελεύθερες σημειώσεις
     if (!isset($proj[0]) && !$todoRows->count()) { $ensure(0, 'Γενικά', '#8291a9'); }
@@ -4654,9 +4669,49 @@ case 'todos_list':
 case 'todo_add':
     $text = mb_substr(trim($in['text'] ?? ''), 0, 300);
     if ($text === '') { fail('empty'); }
+    $remind = ($in['remind'] ?? '') ? date('Y-m-d H:i:s', strtotime($in['remind'])) : null;
+    $sort = (int) Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->where('project_id', (int) ($in['project'] ?? 0))->max('sort') + 1;
     $id = Capsule::table('mod_cpm_todos')->insertGetId(['admin_id' => $adminId, 'project_id' => (int) ($in['project'] ?? 0),
-        'text' => $text, 'sort' => 0, 'created_at' => date('Y-m-d H:i:s')]);
+        'text' => $text, 'sort' => $sort, 'remind_at' => $remind, 'remind_sent' => 0, 'created_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true, 'id' => $id]);
+
+case 'todo_update':                      // επεξεργασία κειμένου/υπενθύμισης
+    $r = Capsule::table('mod_cpm_todos')->where('id', (int) ($in['id'] ?? 0))->where('admin_id', $adminId)->first();
+    if (!$r) { fail('notfound', 404); }
+    $upd = [];
+    if (isset($in['text']) && trim($in['text']) !== '') { $upd['text'] = mb_substr(trim($in['text']), 0, 300); }
+    if (array_key_exists('remind', $in)) {
+        $upd['remind_at'] = $in['remind'] ? date('Y-m-d H:i:s', strtotime($in['remind'])) : null;
+        $upd['remind_sent'] = 0;
+    }
+    if ($upd) { Capsule::table('mod_cpm_todos')->where('id', $r->id)->update($upd); }
+    out(['ok' => true]);
+
+case 'todo_reorder':                     // νέα σειρά (drag) — λίστα ids
+    $ids = $in['ids'] ?? [];
+    foreach ($ids as $i => $tid) {
+        Capsule::table('mod_cpm_todos')->where('id', (int) $tid)->where('admin_id', $adminId)->update(['sort' => $i + 1]);
+    }
+    out(['ok' => true]);
+
+case 'my_todos':                         // «Η μέρα μου»: τα ανοιχτά μου todos (flat)
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $rows = Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->where('done', 0)->orderBy('project_id')->orderBy('sort')->orderBy('id')->get();
+    $pnames = [];
+    $pids = array_values(array_filter(array_unique($rows->pluck('project_id')->all())));
+    if ($pids) {
+        foreach (Capsule::table('mod_cpm_projects')->whereIn('id', $pids)->get(['id', 'name', 'color']) as $p) {
+            $pnames[(int) $p->id] = ['name' => $p->name, 'color' => $p->color];
+        }
+    }
+    $todos = [];
+    foreach ($rows as $t) {
+        $pid = (int) $t->project_id;
+        $todos[] = ['id' => (int) $t->id, 'text' => $t->text, 'project' => $pid,
+            'pname' => $pid ? ($pnames[$pid]['name'] ?? '—') : 'Γενικά', 'pcolor' => $pid ? ($pnames[$pid]['color'] ?? '#8291a9') : '#8291a9',
+            'remind' => $t->remind_at, 'overdue' => $t->remind_at && strtotime($t->remind_at) < time()];
+    }
+    out(['todos' => $todos]);
 
 case 'todo_toggle':
     $r = Capsule::table('mod_cpm_todos')->where('id', (int) ($in['id'] ?? 0))->where('admin_id', $adminId)->first();
