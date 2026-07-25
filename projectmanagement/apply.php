@@ -342,9 +342,32 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 .done .ic{width:72px;height:72px;border-radius:50%;background:#16a26a1a;color:var(--ok);font-size:38px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
 .done h2{color:var(--ink);margin-bottom:8px}
 .empty{text-align:center;color:var(--mut);padding:20px}
-.foot{background:var(--navy);color:#8fb0d0;text-align:center;padding:30px 20px;font-size:13px}
-.foot .brand{margin:0 auto 12px}.foot .brand img{height:38px}
-.foot a{color:#bcd3ea}
+/* ── SITE FOOTER (ίδιο με cloudon.gr) ── */
+.sfoot{background:#f7f9fc;border-top:1px solid var(--line);padding:56px 0 0;margin-top:40px;color:#43536b}
+.sfoot-logo{display:block;width:max-content;margin:0 auto 18px}
+.sfoot-logo img{height:74px;width:auto;display:block}
+.sfoot-tag{display:flex;align-items:center;justify-content:center;gap:16px;font-size:12px;font-weight:700;letter-spacing:2px;color:#5a6b83;margin-bottom:44px}
+.sfoot-tag span{height:1px;width:70px;background:var(--line)}
+.sfoot-cols{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:34px}
+.sfoot-sub h4{font-size:15px;color:var(--ink);font-weight:800;margin-bottom:12px;line-height:1.32}
+.sfoot-sub p{font-size:13.5px;margin-bottom:14px}
+.sfoot-sub form input[type=email]{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:14px;margin-bottom:10px;background:#fff}
+.sfoot-chk{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--mut);margin:0 0 12px;text-transform:none;letter-spacing:0;font-weight:400}
+.sfoot-chk input{width:auto;margin-top:2px}
+.sfoot-chk a{color:var(--brand)}
+.sfoot-sub form button{background:var(--brand);color:#fff;border:0;border-radius:10px;padding:11px 26px;font-size:13px;font-weight:800;letter-spacing:1px;cursor:pointer}
+.sfoot-sub form button:hover{background:var(--brand-d)}
+.sfoot-contact{margin-top:20px;font-size:13.5px}
+.sfoot-contact a{color:var(--ink);font-weight:700;text-decoration:none}
+.sfoot-contact a:hover{color:var(--brand)}
+.sfoot-contact .sep{color:var(--mut);margin:0 5px}
+.sfoot-contact .addr{margin-top:6px;color:var(--mut);font-size:13px}
+.sfoot-nav{display:flex;flex-direction:column}
+.sfoot-nav a{font-size:13px;font-weight:700;color:#43536b;text-decoration:none;letter-spacing:.4px;padding:9px 0;border-bottom:1px solid var(--line)}
+.sfoot-nav a:hover{color:var(--brand)}
+.sfoot-bottom{text-align:center;font-size:12.5px;color:var(--mut);padding:22px 20px;margin-top:46px;border-top:1px solid var(--line)}
+@media(max-width:860px){.sfoot-cols{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.sfoot-cols{grid-template-columns:1fr;gap:26px}}
 @media(max-width:640px){.hero-in{margin-top:38px}.section{padding:44px 0}.modal-box{padding:26px 22px}}
 </style></head>
 <body>
@@ -507,10 +530,46 @@ function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeJob(); });
 </script>
 
-<footer class="foot">
-  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a><br>
-  <a href="https://cloudon.gr">cloudon.gr</a> · Careers
-</footer>
 <?php endif; ?>
+
+<footer class="sfoot">
+  <div class="container">
+    <a class="sfoot-logo" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
+    <div class="sfoot-tag"><span></span>CLOUD, WEB &amp; ERP SOLUTIONS<span></span></div>
+    <div class="sfoot-cols">
+      <div class="sfoot-sub">
+        <h4>SUBSCRIBE FOR CLOUD, WEB AND ERP UPDATES</h4>
+        <p>Get practical updates on cloud infrastructure, websites, and business automation.</p>
+        <form action="https://cloudon.gr/" method="get" target="_blank">
+          <input type="email" name="email" placeholder="E-mail" aria-label="E-mail">
+          <label class="sfoot-chk"><input type="checkbox"> <span>I have read and agree with <a href="https://cloudon.gr/personal-data/" target="_blank" rel="noopener">Privacy Policy</a></span></label>
+          <button type="submit">SUBSCRIBE</button>
+        </form>
+        <div class="sfoot-contact">
+          <a href="tel:+302107222560">210 7222560</a><span class="sep">•</span><a href="mailto:info@cloudon.gr">info@cloudon.gr</a>
+          <div class="addr">13 Peloponnisou Str., 15341 Agia Paraskevi</div>
+        </div>
+      </div>
+      <nav class="sfoot-nav">
+        <a href="https://cloudon.gr/about-us/">ABOUT US</a>
+        <a href="https://cloudon.gr/contact/">CONTACT</a>
+        <a href="https://cloudon.gr/web-design/">WEB DESIGN</a>
+        <a href="https://cloudon.gr/e-commerce/">E-COMMERCE</a>
+      </nav>
+      <nav class="sfoot-nav">
+        <a href="https://cloudon.gr/cloud-services/">CLOUD SERVICES</a>
+        <a href="https://cloudon.gr/erp-softone/">ERP</a>
+        <a href="https://cloudon.gr/backup-restore-solutions/">BACKUP &amp; RESTORE</a>
+        <a href="https://cloudon.gr/voip-services-and-cloud-pbx/">VOIP SERVICES</a>
+      </nav>
+      <nav class="sfoot-nav">
+        <a href="https://cloudon.gr/contact/">REQUEST QUOTE</a>
+        <a href="https://cloudon.gr/personal-data/">PRIVACY POLICY</a>
+        <a href="https://cloudon.gr/terms-conditions/">TERMS &amp; CONDITIONS</a>
+      </nav>
+    </div>
+  </div>
+  <div class="sfoot-bottom">© <?= date('Y') ?> CloudOn. All rights reserved.</div>
+</footer>
 
 </body></html>
