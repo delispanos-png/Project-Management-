@@ -343,7 +343,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 .done h2{color:var(--ink);margin-bottom:8px}
 .empty{text-align:center;color:var(--mut);padding:20px}
 /* ── SITE FOOTER (ίδιο με cloudon.gr) ── */
-.sfoot{background:#f7f9fc;border-top:1px solid var(--line);padding:56px 0 0;margin-top:40px;color:#43536b}
+.sfoot{background:#fff;border-top:1px solid var(--line);padding:56px 0 0;margin-top:40px;color:#43536b}
 .sfoot-logo{display:block;width:max-content;margin:0 auto 18px}
 .sfoot-logo img{height:74px;width:auto;display:block}
 .sfoot-tag{display:flex;align-items:center;justify-content:center;gap:16px;font-size:12px;font-weight:700;letter-spacing:2px;color:#5a6b83;margin-bottom:44px}
@@ -365,9 +365,16 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 .sfoot-nav{display:flex;flex-direction:column}
 .sfoot-nav a{font-size:13px;font-weight:700;color:#43536b;text-decoration:none;letter-spacing:.4px;padding:9px 0;border-bottom:1px solid var(--line)}
 .sfoot-nav a:hover{color:var(--brand)}
-.sfoot-bottom{text-align:center;font-size:12.5px;color:var(--mut);padding:22px 20px;margin-top:46px;border-top:1px solid var(--line)}
+.sfoot-bottom{margin-top:44px;padding-bottom:26px}
+.sfoot-bottom-in{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;border-top:1px solid rgba(7,26,48,.08);padding-top:16px}
+.sfoot-meta p{font-size:13px;color:#143468;margin:0;line-height:1.55}
+.sfoot-social{display:flex;gap:10px}
+.sfoot-social a{width:38px;height:38px;border-radius:50%;border:1px solid rgba(24,166,216,.18);display:flex;align-items:center;justify-content:center;color:#18a6d8;transition:background .15s,border-color .15s}
+.sfoot-social a:hover{background:#18a6d8;border-color:#18a6d8}
+.sfoot-social a:hover svg{fill:#fff}
+.sfoot-social svg{width:16px;height:16px;fill:#18a6d8}
 @media(max-width:860px){.sfoot-cols{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.sfoot-cols{grid-template-columns:1fr;gap:26px}}
+@media(max-width:560px){.sfoot-cols{grid-template-columns:1fr;gap:26px}.sfoot-bottom-in{justify-content:center;text-align:center}.sfoot-meta{text-align:center}}
 @media(max-width:640px){.hero-in{margin-top:38px}.section{padding:44px 0}.modal-box{padding:26px 22px}}
 </style></head>
 <body>
@@ -568,8 +575,15 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeJob(); });
         <a href="https://cloudon.gr/terms-conditions/">TERMS &amp; CONDITIONS</a>
       </nav>
     </div>
+    <div class="sfoot-bottom"><div class="sfoot-bottom-in">
+      <div class="sfoot-meta"><p>Powered by <strong>CloudOn</strong></p><p>© <?= date('Y') ?> CloudOn. All rights reserved.</p></div>
+      <div class="sfoot-social">
+        <a href="https://www.facebook.com/cloudongr" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-7h2.4l.4-3h-2.8V9.1c0-.9.3-1.6 1.6-1.6H16V4.9c-.5-.1-1.4-.2-2.4-.2-2.4 0-4 1.5-4 4.2V11H7v3h2.2v7h4.3Z"/></svg></a>
+        <a href="https://www.instagram.com/cloudon.gr/" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.8 3h8.4A4.8 4.8 0 0 1 21 7.8v8.4a4.8 4.8 0 0 1-4.8 4.8H7.8A4.8 4.8 0 0 1 3 16.2V7.8A4.8 4.8 0 0 1 7.8 3Zm0 1.8A3 3 0 0 0 4.8 7.8v8.4a3 3 0 0 0 3 3h8.4a3 3 0 0 0 3-3V7.8a3 3 0 0 0-3-3H7.8Zm8.9 1.3a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2ZM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 1.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z"/></svg></a>
+        <a href="https://www.linkedin.com/company/cloudon-pc/posts/?feedView=all" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 8.2A1.6 1.6 0 1 1 6 5a1.6 1.6 0 0 1 .1 3.2ZM4.3 9.8h3.5V20H4.3V9.8Zm5.7 0h3.3v1.4h.1c.5-.9 1.6-1.8 3.3-1.8 3.5 0 4.2 2.2 4.2 5.2V20h-3.5v-4.8c0-1.2 0-2.6-1.6-2.6s-1.8 1.2-1.8 2.5V20H10V9.8Z"/></svg></a>
+      </div>
+    </div></div>
   </div>
-  <div class="sfoot-bottom">© <?= date('Y') ?> CloudOn. All rights reserved.</div>
 </footer>
 
 </body></html>
