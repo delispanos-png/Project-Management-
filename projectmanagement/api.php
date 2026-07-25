@@ -457,6 +457,38 @@ function clientLabel($cid)
     return $c ? ($c->companyname ?: trim($c->firstname . ' ' . $c->lastname)) : ('#' . $cid);
 }
 
+/* ───────── Γενικά αρχεία (Storage layer: local/S3) ───────── */
+/** Ειδικότητα που απαιτείται ανά module ('' = οποιοσδήποτε authenticated, null = άγνωστο→deny). */
+function cnp_file_area($module)
+{
+    $map = ['cv' => 'hr', 'task' => 'projects', 'project' => 'projects', 'ticket' => 'support',
+        'lead' => 'sales', 'sales' => 'sales', 'chat' => '', 'general' => ''];
+    return array_key_exists($module, $map) ? $map[$module] : null;
+}
+function cnp_file_authz($adminId, $FULL, $module)
+{
+    $area = cnp_file_area($module);
+    if ($area === null) { return false; }
+    if ($area === '') { return $adminId > 0; }
+    return in_array($area, cnp_admin_areas($adminId, $FULL), true);
+}
+/** Blacklist επικίνδυνων επεκτάσεων (executables/scripts). */
+function cnp_file_ext_ok($name)
+{
+    $ext = strtolower(pathinfo((string) $name, PATHINFO_EXTENSION));
+    $bad = ['php', 'phtml', 'phar', 'php3', 'php4', 'php5', 'php7', 'pht', 'cgi', 'sh', 'bash', 'exe', 'bat', 'cmd',
+        'com', 'msi', 'htaccess', 'htm', 'html', 'svg', 'js', 'mjs', 'jsp', 'asp', 'aspx', 'pl', 'py', 'rb', 'so'];
+    return $ext !== '' && !in_array($ext, $bad, true);
+}
+/** Εγγραφή μητρώου → payload για frontend (url = proxy/redirect endpoint). */
+function cnp_file_row($rec)
+{
+    $rec = (array) $rec;
+    return ['id' => (int) $rec['id'], 'name' => $rec['orig_name'], 'mime' => $rec['mime'], 'size' => (int) $rec['size'],
+        'kind' => $rec['kind'], 'driver' => $rec['driver'], 'createdAt' => $rec['created_at'],
+        'url' => 'api.php?a=file_get&id=' . (int) $rec['id']];
+}
+
 switch ($action) {
 
 /* ================= BOOT ================= */
@@ -3234,6 +3266,81 @@ case 'settings_save':
 case 'storage_test':                      // health check σύνδεσης S3
     if (!$FULL) { fail('forbidden', 403); }
     out(Storage::s3Test());
+
+/* ── Γενικό API αρχείων (όλα τα modules, μέσω Storage) ── */
+case 'file_presign_put':                  // direct-to-S3 upload (μεγάλα/βίντεο)
+    $module = (string) ($in['module'] ?? '');
+    if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    if (!Storage::isS3()) { out(['mode' => 'multipart']); }   // local driver → ο client πέφτει σε file_upload
+    $name = (string) ($in['filename'] ?? 'file');
+    if (!cnp_file_ext_ok($name)) { fail('Μη επιτρεπτός τύπος αρχείου', 400); }
+    $size = (int) ($in['size'] ?? 0);
+    if ($size > 5 * 1024 * 1024 * 1024) { fail('Πολύ μεγάλο αρχείο (όριο 5GB)', 400); }
+    $mime = mb_substr((string) ($in['mime'] ?? 'application/octet-stream'), 0, 120);
+    $key = Storage::newKey($module ?: 'general', pathinfo($name, PATHINFO_EXTENSION), 's3');
+    out(['mode' => 'direct', 'uploadUrl' => Storage::presignPutKey($key, $mime, 900), 'key' => $key,
+        'headers' => ['Content-Type' => $mime]]);
+
+case 'file_confirm':                      // καταχώρηση μετά από direct-to-S3 upload
+    $module = (string) ($in['module'] ?? '');
+    if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    $key = (string) ($in['key'] ?? '');
+    $prefix = trim(Storage::config('s3_prefix', ''), '/');
+    $rel = ($prefix !== '' && strpos($key, $prefix . '/') === 0) ? substr($key, strlen($prefix) + 1) : $key;
+    if (!preg_match('#^' . preg_quote($module ?: 'general', '#') . '/\d{4}/\d{2}/[a-f0-9]{32}#', $rel)) { fail('Μη έγκυρο key', 400); }
+    if (!Storage::exists($key, 's3')) { fail('Το αρχείο δεν βρέθηκε στο storage', 404); }
+    $mime = mb_substr((string) ($in['mime'] ?? 'application/octet-stream'), 0, 120);
+    $size = (int) ($in['size'] ?? 0);
+    try { $h = Storage::s3()->headObject(['Bucket' => Storage::bucket(), 'Key' => $key]); $size = (int) $h['ContentLength']; if (!empty($h['ContentType'])) { $mime = $h['ContentType']; } } catch (\Throwable $e) {}
+    $rec = Storage::registerExternal(['module' => $module, 'ref_type' => (string) ($in['ref_type'] ?? ''), 'ref_id' => (int) ($in['ref_id'] ?? 0),
+        'storage_key' => $key, 'orig_name' => (string) ($in['orig_name'] ?? 'file'), 'mime' => $mime, 'size' => $size, 'uploaded_by' => $adminId]);
+    out(['ok' => true, 'file' => cnp_file_row($rec)]);
+
+case 'file_upload':                       // server-side upload (μικρά ή local driver) — multipart
+    if (!empty($_FILES)) { $in = $_POST; }
+    $module = (string) ($in['module'] ?? '');
+    if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    $f = $_FILES['file'] ?? null;
+    if (!$f || $f['error'] !== UPLOAD_ERR_OK) { fail('Σφάλμα ανεβάσματος', 400); }
+    if (!cnp_file_ext_ok($f['name'])) { fail('Μη επιτρεπτός τύπος αρχείου', 400); }
+    if ($f['size'] > 50 * 1024 * 1024) { fail('Πολύ μεγάλο για server upload — απαιτείται S3 (direct)', 400); }
+    $rec = Storage::store(['module' => $module, 'ref_type' => (string) ($in['ref_type'] ?? ''), 'ref_id' => (int) ($in['ref_id'] ?? 0),
+        'src' => $f['tmp_name'], 'orig_name' => $f['name'], 'mime' => $f['type'] ?: 'application/octet-stream', 'uploaded_by' => $adminId]);
+    out(['ok' => true, 'file' => cnp_file_row($rec)]);
+
+case 'file_list':                         // λίστα αρχείων ανά οντότητα
+    $module = (string) ($_GET['module'] ?? '');
+    if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    $q = Capsule::table('mod_cpm_storage')->where('module', $module);
+    if (isset($_GET['ref_type'])) { $q->where('ref_type', (string) $_GET['ref_type']); }
+    if (isset($_GET['ref_id'])) { $q->where('ref_id', (int) $_GET['ref_id']); }
+    out(['files' => array_map('cnp_file_row', $q->orderByDesc('id')->limit(500)->get()->all())]);
+
+case 'file_get':                          // προβολή/λήψη (s3→302 presigned, local→proxy stream)
+    $rec = Storage::record((int) ($_GET['id'] ?? 0));
+    if (!$rec) { fail('file', 404); }
+    if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('file', 403); }
+    $dl = !empty($_GET['dl']);
+    if ($rec['driver'] === 's3') {
+        header('Location: ' . Storage::presign($rec['id'], 300, $dl), true, 302);
+        exit;
+    }
+    $stream = Storage::openRead($rec['id']);
+    if (!$stream) { fail('file', 404); }
+    $mime = $rec['mime'] ?: 'application/octet-stream';
+    $previewable = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0 || strpos($mime, 'video/') === 0 || strpos($mime, 'audio/') === 0);
+    header('Content-Type: ' . $mime);
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: ' . (($dl || !$previewable) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($rec['orig_name'] ?: 'file') . '"');
+    if ($rec['size']) { header('Content-Length: ' . (int) $rec['size']); }
+    fpassthru($stream); fclose($stream); exit;
+
+case 'file_delete':
+    $rec = Storage::record((int) ($in['id'] ?? 0));
+    if (!$rec) { fail('file', 404); }
+    if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('forbidden', 403); }
+    Storage::delete($rec['id']);
+    out(['ok' => true]);
 
 case 'status_save':
     if (!$FULL) {
