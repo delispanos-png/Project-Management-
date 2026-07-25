@@ -4467,9 +4467,12 @@ case 'lead_task_del':
 /* ============ 🔐 ΘΥΡΙΔΑ ΚΩΔΙΚΩΝ (ανά χειριστή· admin βλέπει όλα) ============ */
 case 'vault_list':
     $kinds = cnp_vault_kinds();
-    $mine = !empty($_GET['mine']) || !$FULL;         // restricted πάντα μόνο δικά του
+    $mine = !empty($_GET['mine']) || !$FULL;         // restricted: δικά του + κοινά
     $q = Capsule::table('mod_cpm_vault');
-    if ($mine) { $q->where('admin_id', $adminId); }
+    if ($mine) {
+        // δικά μου Ή κοινά (ομάδας)
+        $q->where(function ($w) use ($adminId) { $w->where('admin_id', $adminId)->orWhere('shared', 1); });
+    }
     $rows = $q->orderBy('descr')->get();
     $cids = array_values(array_filter($rows->pluck('client_id')->all()));
     $cmap = [];
@@ -4484,7 +4487,9 @@ case 'vault_list':
             'username' => $r->username, 'ips' => $r->ips, 'url' => $r->url, 'location' => $r->location,
             'clientId' => $r->client_id ? (int) $r->client_id : null,
             'clientName' => $r->client_id ? ($cmap[(int) $r->client_id] ?? ('#' . $r->client_id)) : null,
-            'purpose' => $r->purpose, 'owner' => (int) $r->admin_id, 'ownerName' => Db::adminName($r->admin_id), 'updated' => $r->updated_at];
+            'purpose' => $r->purpose, 'shared' => (bool) $r->shared, 'owner' => (int) $r->admin_id,
+            'ownerName' => Db::adminName($r->admin_id), 'canEdit' => ((int) $r->admin_id === $adminId || $FULL),
+            'updated' => $r->updated_at];
     }
     out(['items' => $items, 'kinds' => $kinds, 'full' => $FULL, 'me' => $adminId, 'mine' => $mine]);
 
@@ -4497,7 +4502,7 @@ case 'vault_save':
         'ips' => mb_substr(trim($in['ips'] ?? ''), 0, 300), 'url' => mb_substr(trim($in['url'] ?? ''), 0, 300),
         'location' => mb_substr(trim($in['location'] ?? ''), 0, 150),
         'client_id' => (int) ($in['client'] ?? 0) ?: null, 'purpose' => mb_substr(trim($in['purpose'] ?? ''), 0, 200),
-        'updated_at' => date('Y-m-d H:i:s')];
+        'shared' => !empty($in['shared']) ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')];
     $pass = (string) ($in['password'] ?? '');
     $id = (int) ($in['id'] ?? 0);
     if ($id) {
@@ -4512,11 +4517,11 @@ case 'vault_save':
     }
     out(['ok' => true, 'id' => $id]);
 
-case 'vault_reveal':                     // αποκάλυψη κωδικού on-demand (owner ή full)
+case 'vault_reveal':                     // αποκάλυψη κωδικού on-demand (owner, full, ή κοινό)
     $id = (int) ($in['id'] ?? $_GET['id'] ?? 0);
     $r = Capsule::table('mod_cpm_vault')->where('id', $id)->first();
     if (!$r) { fail('notfound', 404); }
-    if ((int) $r->admin_id !== $adminId && !$FULL) { fail('forbidden', 403); }
+    if ((int) $r->admin_id !== $adminId && !$FULL && !$r->shared) { fail('forbidden', 403); }
     out(['password' => cnp_vault_dec($r->password_enc)]);
 
 case 'vault_del':

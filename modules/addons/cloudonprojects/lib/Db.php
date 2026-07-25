@@ -550,6 +550,7 @@ class Db
                 $t->string('location', 150)->default('');        // τοποθεσία
                 $t->integer('client_id')->unsigned()->nullable();// WHMCS πελάτης
                 $t->string('purpose', 200)->default('');         // ή χρήση
+                $t->boolean('shared')->default(0)->index();      // κοινή (ομάδας) vs προσωπική
                 $t->timestamp('created_at')->nullable();
                 $t->timestamp('updated_at')->nullable();
             });

@@ -1566,7 +1566,7 @@ async function loadVault() {
     box.innerHTML = scope + (d.items.length ? `<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:12.5px">
       <thead><tr><th style="text-align:left">Περιγραφή</th><th style="text-align:left">Τύπος</th><th style="text-align:left">User</th><th style="text-align:left">Κωδικός</th><th style="text-align:left">IP / URL</th><th style="text-align:left">Πελάτης / Χρήση</th>${d.full ? '<th style="text-align:left">Χειριστής</th>' : ''}<th></th></tr></thead><tbody>
       ${d.items.map(v => `<tr>
-        <td style="text-align:left"><b>${esc(v.descr)}</b>${v.location ? `<div class="mut" style="font-size:10.5px">${I.pin} ${esc(v.location)}</div>` : ''}</td>
+        <td style="text-align:left"><b>${esc(v.descr)}</b>${v.shared ? ` <span class="pill" style="background:var(--ok)1a;color:var(--ok);font-size:8.5px">${I.users} κοινή</span>` : ''}${v.location || (v.shared && !v.canEdit) ? `<div class="mut" style="font-size:10.5px">${v.location ? I.pin + ' ' + esc(v.location) : ''}${v.shared && !v.canEdit ? (v.location ? ' · ' : '') + esc(v.ownerName) : ''}</div>` : ''}</td>
         <td style="text-align:left"><span class="pill" style="font-size:9.5px">${esc(v.kindLbl)}</span></td>
         <td style="text-align:left">${v.username ? `<span style="font-family:monospace">${esc(v.username)}</span> <button class="btn btn-sm btn-o" data-vcopyu="${esc(v.username)}" title="αντιγραφή" style="padding:2px 6px">⧉</button>` : '<span class="mut">—</span>'}</td>
         <td style="text-align:left;white-space:nowrap"><span class="vpw" data-vid="${v.id}" style="font-family:monospace">••••••••</span>
@@ -1575,8 +1575,8 @@ async function loadVault() {
         <td style="text-align:left;font-size:11px">${v.ips ? esc(v.ips.split(/[,\n]/)[0].trim()) + (v.ips.split(/[,\n]/).filter(x => x.trim()).length > 1 ? ' <span class="mut">+' + (v.ips.split(/[,\n]/).filter(x => x.trim()).length - 1) + '</span>' : '') : ''}${v.url ? `<div><a href="${esc(v.url)}" target="_blank" rel="noopener" style="color:var(--brand)">${esc(v.url.replace(/^https?:\/\//, '').slice(0, 30))}</a></div>` : ''}</td>
         <td style="text-align:left;font-size:11px">${v.clientName ? esc(v.clientName) : ''}${v.purpose ? `<div class="mut">${esc(v.purpose)}</div>` : ''}</td>
         ${d.full ? `<td style="text-align:left;font-size:11px" class="mut">${esc(v.ownerName)}</td>` : ''}
-        <td style="text-align:right;white-space:nowrap"><button class="btn btn-sm btn-o" data-vedit="${v.id}" style="padding:3px 7px">${I.edit}</button>
-          <button class="btn btn-sm btn-o" data-vdel="${v.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button></td></tr>`).join('')}
+        <td style="text-align:right;white-space:nowrap">${v.canEdit ? `<button class="btn btn-sm btn-o" data-vedit="${v.id}" style="padding:3px 7px">${I.edit}</button>
+          <button class="btn btn-sm btn-o" data-vdel="${v.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button>` : '<span class="mut" style="font-size:10px">κοινό</span>'}</td></tr>`).join('')}
       </tbody></table></div>` : '<div class="empty" style="padding:22px">Καμία καταχώρηση ακόμη — πάτα «Νέος κωδικός»</div>');
     $$('[data-vscope]', box).forEach(b => b.onclick = () => { _vaultMine = b.dataset.vscope === '1'; loadVault(); });
     $$('[data-vreveal]', box).forEach(b => b.onclick = async () => {
@@ -1596,45 +1596,58 @@ async function loadVault() {
     return Array.from(a, x => cc[x % cc.length]).join('');
   }
   function openVaultForm(item) {
+    const box = $('#vaultBox'); if (!box) { return; }
     const isNew = !item;
     const kinds = window._vaultKinds || {other: 'Άλλο'};
-    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
-    ovl.innerHTML = `<div class="pal-box" style="margin:5vh auto 0;max-width:760px;text-align:left" onclick="event.stopPropagation()">
-      <div style="padding:28px 34px">
-        <h2 style="margin:0 0 22px;font-size:19px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία'}</h2>
-        <div class="frow" style="gap:16px">
-          <div style="flex:2"><label class="lbl">Περιγραφή *</label><input class="inp" id="vDescr" value="${isNew ? '' : esc(item.descr)}" placeholder="π.χ. Firewall γραφείου"></div>
-          <div style="flex:1"><label class="lbl">Τύπος εξοπλισμού</label><select class="inp" id="vKind">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${!isNew && item.kind === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-        </div>
-        <div class="frow" style="margin-top:16px;gap:16px">
-          <div><label class="lbl">User</label><input class="inp" id="vUser" value="${isNew ? '' : esc(item.username)}" autocomplete="off"></div>
-          <div><label class="lbl">Κωδικός ${isNew ? '' : '<span class="mut" style="font-weight:400">(κενό = ίδιος)</span>'}</label>
-            <div style="display:flex;gap:7px"><input class="inp" id="vPass" type="text" autocomplete="off" placeholder="${isNew ? 'γράψε ή πάτα 🎲' : '••••••'}" style="font-family:monospace;flex:1">
-              <button class="btn btn-o" id="vGen" title="Παραγωγή ισχυρού" type="button">🎲</button></div></div>
-        </div>
-        <label class="lbl" style="margin-top:16px">IP <span class="mut" style="font-weight:400">(μία ή περισσότερες — κόμμα ή νέα γραμμή)</span></label>
-        <textarea class="inp" id="vIps" rows="3" placeholder="192.168.1.1, 10.0.0.5">${isNew ? '' : esc(item.ips)}</textarea>
-        <div class="frow" style="margin-top:16px;gap:16px">
-          <div><label class="lbl">URL</label><input class="inp" id="vUrl" value="${isNew ? '' : esc(item.url)}" placeholder="https://…"></div>
-          <div><label class="lbl">${I.pin} Τοποθεσία</label><input class="inp" id="vLoc" value="${isNew ? '' : esc(item.location)}" placeholder="π.χ. Rack A2 / γραφείο"></div>
-        </div>
-        <div class="frow" style="margin-top:16px;gap:16px">
-          <div><label class="lbl">Για ποιον πελάτη</label><input class="inp" id="vCli" list="vCliL" placeholder="αναζήτηση πελάτη…" value="${isNew || !item.clientId ? '' : esc(item.clientName + ' (#' + item.clientId + ')')}"><datalist id="vCliL"></datalist><input type="hidden" id="vCliId" value="${isNew ? '' : (item.clientId || '')}"></div>
-          <div><label class="lbl">…ή για ποια χρήση</label><input class="inp" id="vPurp" value="${isNew ? '' : esc(item.purpose)}" placeholder="π.χ. εσωτερικό backup"></div>
-        </div>
-        <div style="margin-top:24px;display:flex;gap:8px">
-          <button class="btn btn-p" id="vSave">Αποθήκευση</button>
-          <button class="btn btn-o" id="vCancel">Άκυρο</button></div>
-      </div></div>`;
-    document.body.appendChild(ovl);
+    const isShared = !isNew && item.shared;
+    box.innerHTML = `<div class="vault-form" style="max-width:900px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+        <h3 style="margin:0;font-size:18px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία καταχώρησης'}</h3>
+        <button class="btn btn-o btn-sm" id="vBack" style="margin-left:auto">← Πίσω στη λίστα</button>
+      </div>
+      <div class="frow" style="gap:18px">
+        <div style="flex:2"><label class="lbl">Περιγραφή *</label><input class="inp" id="vDescr" value="${isNew ? '' : esc(item.descr)}" placeholder="π.χ. Firewall γραφείου"></div>
+        <div style="flex:1"><label class="lbl">Τύπος εξοπλισμού</label><select class="inp" id="vKind">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${!isNew && item.kind === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      </div>
+      <div class="frow" style="margin-top:18px;gap:18px">
+        <div><label class="lbl">User</label><input class="inp" id="vUser" value="${isNew ? '' : esc(item.username)}" autocomplete="off"></div>
+        <div><label class="lbl">Κωδικός ${isNew ? '' : '<span class="mut" style="font-weight:400">(κενό = ίδιος)</span>'}</label>
+          <div style="display:flex;gap:7px"><input class="inp" id="vPass" type="text" autocomplete="off" placeholder="${isNew ? 'γράψε ή πάτα 🎲' : '••••••'}" style="font-family:monospace;flex:1">
+            <button class="btn btn-o" id="vGen" title="Παραγωγή ισχυρού" type="button">🎲</button></div></div>
+      </div>
+      <label class="lbl" style="margin-top:18px">IP <span class="mut" style="font-weight:400">(μία ή περισσότερες — κόμμα ή νέα γραμμή)</span></label>
+      <textarea class="inp" id="vIps" rows="3" placeholder="192.168.1.1, 10.0.0.5">${isNew ? '' : esc(item.ips)}</textarea>
+      <div class="frow" style="margin-top:18px;gap:18px">
+        <div><label class="lbl">URL</label><input class="inp" id="vUrl" value="${isNew ? '' : esc(item.url)}" placeholder="https://…"></div>
+        <div><label class="lbl">${I.pin} Τοποθεσία</label><input class="inp" id="vLoc" value="${isNew ? '' : esc(item.location)}" placeholder="π.χ. Rack A2 / γραφείο"></div>
+      </div>
+      <div class="frow" style="margin-top:18px;gap:18px">
+        <div><label class="lbl">Για ποιον πελάτη</label><input class="inp" id="vCli" list="vCliL" placeholder="αναζήτηση πελάτη…" value="${isNew || !item.clientId ? '' : esc(item.clientName + ' (#' + item.clientId + ')')}"><datalist id="vCliL"></datalist><input type="hidden" id="vCliId" value="${isNew ? '' : (item.clientId || '')}"></div>
+        <div><label class="lbl">…ή για ποια χρήση</label><input class="inp" id="vPurp" value="${isNew ? '' : esc(item.purpose)}" placeholder="π.χ. εσωτερικό backup"></div>
+      </div>
+      <label class="lbl" style="margin-top:20px">Ορατότητα</label>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <label class="vis-opt ${isShared ? '' : 'on'}"><input type="radio" name="vShared" value="0" ${isShared ? '' : 'checked'}><span>${I.shield} <b>Προσωπική</b> — μόνο εσύ (& διαχειριστής)</span></label>
+        <label class="vis-opt ${isShared ? 'on' : ''}"><input type="radio" name="vShared" value="1" ${isShared ? 'checked' : ''}><span>${I.users} <b>Κοινή (ομάδας)</b> — όλη η ομάδα βλέπει/χρησιμοποιεί</span></label>
+      </div>
+      <div style="margin-top:26px;display:flex;gap:8px">
+        <button class="btn btn-p" id="vSave">${I.save} Αποθήκευση</button>
+        <button class="btn btn-o" id="vCancel">Άκυρο</button></div>
+    </div>`;
+    box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
     clientAuto('vCli', 'vCliL', 'vCliId');
-    $('#vGen', ovl).onclick = () => { $('#vPass', ovl).value = vaultGen(); };
-    $('#vCancel', ovl).onclick = () => ovl.remove();
-    $('#vSave', ovl).onclick = async () => {
-      const descr = $('#vDescr', ovl).value.trim(); if (!descr) { toast('Δώσε περιγραφή', true); return; }
-      await api('vault_save', {id: isNew ? 0 : item.id, descr, kind: $('#vKind', ovl).value, username: $('#vUser', ovl).value,
-        password: $('#vPass', ovl).value, ips: $('#vIps', ovl).value, url: $('#vUrl', ovl).value, location: $('#vLoc', ovl).value,
-        client: +($('#vCliId', ovl).value || 0), purpose: $('#vPurp', ovl).value}).catch(e => ({err: e.message}));
-      ovl.remove(); toast('Αποθηκεύτηκε ✓'); loadVault();
+    $$('.vis-opt', box).forEach(l => l.querySelector('input').onchange = () => {
+      $$('.vis-opt', box).forEach(x => x.classList.toggle('on', x.querySelector('input').checked));
+    });
+    $('#vGen', box).onclick = () => { $('#vPass', box).value = vaultGen(); };
+    $('#vBack', box).onclick = () => loadVault();
+    $('#vCancel', box).onclick = () => loadVault();
+    $('#vSave', box).onclick = async () => {
+      const descr = $('#vDescr', box).value.trim(); if (!descr) { toast('Δώσε περιγραφή', true); return; }
+      const sh = box.querySelector('input[name="vShared"]:checked');
+      await api('vault_save', {id: isNew ? 0 : item.id, descr, kind: $('#vKind', box).value, username: $('#vUser', box).value,
+        password: $('#vPass', box).value, ips: $('#vIps', box).value, url: $('#vUrl', box).value, location: $('#vLoc', box).value,
+        client: +($('#vCliId', box).value || 0), purpose: $('#vPurp', box).value, shared: sh ? +sh.value : 0}).catch(e => ({err: e.message}));
+      toast('Αποθηκεύτηκε ✓'); loadVault();
     };
   }
