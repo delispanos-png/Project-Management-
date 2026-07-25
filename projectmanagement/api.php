@@ -4862,17 +4862,30 @@ case 'cv_jobs':
 
 case 'cv_list':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
-    $q = Capsule::table('mod_cpm_cv');
-    if (!empty($_GET['job'])) { $q->where('job_id', (int) $_GET['job']); }
-    if (!empty($_GET['status'])) { $q->where('status', $_GET['status']); }
-    $sq = trim($_GET['q'] ?? '');
-    if (mb_strlen($sq) >= 2) {
-        $like = '%' . $sq . '%';
-        $q->where(function ($w) use ($like) {
-            $w->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like)->orWhere('job_title', 'like', $like);
-        });
-    }
-    $rows = $q->orderByDesc('applied_at')->orderByDesc('id')->limit(400)->get();
+    $job = (int) ($_GET['job'] ?? 0); $status = $_GET['status'] ?? ''; $sq = trim($_GET['q'] ?? '');
+    $applyBase = function ($q) use ($job, $sq) {
+        if ($job) { $q->where('job_id', $job); }
+        if (mb_strlen($sq) >= 2) {
+            $like = '%' . $sq . '%';
+            $q->where(function ($w) use ($like) {
+                $w->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like)->orWhere('job_title', 'like', $like);
+            });
+        }
+        return $q;
+    };
+    // πλήθη ανά στάδιο (με φίλτρο θέσης/αναζήτησης)
+    $counts = [];
+    foreach ($applyBase(Capsule::table('mod_cpm_cv'))->groupBy('status')->selectRaw('status, COUNT(*) c')->get() as $c) { $counts[$c->status] = (int) $c->c; }
+    $totalAll = array_sum($counts);
+    // σελιδοποίηση
+    $per = in_array((int) ($_GET['per'] ?? 0), [25, 50, 100, 200], true) ? (int) $_GET['per'] : 50;
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $lq = $applyBase(Capsule::table('mod_cpm_cv'));
+    if ($status !== '') { $lq->where('status', $status); }
+    $filtered = (clone $lq)->count();
+    $pages = max(1, (int) ceil($filtered / $per));
+    if ($page > $pages) { $page = $pages; }
+    $rows = $lq->orderByDesc('applied_at')->orderByDesc('id')->offset(($page - 1) * $per)->limit($per)->get();
     $items = [];
     foreach ($rows as $r) {
         $ai = $r->ai_json ? json_decode($r->ai_json, true) : null;
@@ -4884,9 +4897,8 @@ case 'cv_list':
             'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '',
             'assignee' => $r->assignee ? (int) $r->assignee : null, 'source' => $r->source, 'appliedAt' => $r->applied_at];
     }
-    $counts = [];
-    foreach (Capsule::table('mod_cpm_cv')->groupBy('status')->selectRaw('status, COUNT(*) c')->get() as $c) { $counts[$c->status] = (int) $c->c; }
-    out(['items' => $items, 'counts' => $counts, 'total' => count($items), 'statuses' => cnp_cv_statuses()]);
+    out(['items' => $items, 'counts' => $counts, 'totalAll' => $totalAll, 'filtered' => $filtered,
+        'page' => $page, 'per' => $per, 'pages' => $pages, 'statuses' => cnp_cv_statuses()]);
 
 case 'cv_get':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }

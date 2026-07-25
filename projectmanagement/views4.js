@@ -894,7 +894,7 @@ function _cvRing(n) {
 R.recruit = async function () {
   setTop('Προσλήψεις', 'Βιογραφικά υποψηφίων — αξιολόγηση με AI co-pilot');
   const c = $('#content');
-  const st = R.recruit._s = R.recruit._s || {job: '', status: '', q: ''};
+  const st = R.recruit._s = R.recruit._s || {job: '', status: '', q: '', page: 1, per: 50};
   c.innerHTML = '<div class="skel" style="height:60px;margin-bottom:12px"></div><div class="skel" style="height:420px"></div>';
   const jd = await api('cv_jobs').catch(() => null);
   if (!jd) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Χρειάζεσαι ειδικότητα «HR» για αυτή την ενότητα.</div>`; return; }
@@ -908,7 +908,8 @@ R.recruit = async function () {
     <button class="btn btn-p btn-sm" id="cvAdd">${I.plus} Νέος υποψήφιος</button>
   </div>
   <div id="cvTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
-  <div id="cvList">${'<div class="skel" style="height:56px;margin-bottom:8px"></div>'.repeat(5)}</div>`;
+  <div id="cvList">${'<div class="skel" style="height:56px;margin-bottom:8px"></div>'.repeat(5)}</div>
+  <div id="cvPager" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px"></div>`;
   const cvAva = x => x.photo
     ? `<img src="api.php?a=cv_photo&id=${x.id}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex:none;border:1px solid var(--line)" loading="lazy">`
     : `<span class="ava" style="width:36px;height:36px;font-size:12px;flex:none">${esc((x.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase())}</span>`;
@@ -924,17 +925,33 @@ R.recruit = async function () {
     <span class="pill" style="background:${_cvStatusCol[x.status]}1a;color:${_cvStatusCol[x.status]};font-size:9px">${esc(statuses[x.status] || x.status)}</span>
     ${x.hasCv ? `<span class="mut" title="έχει CV" style="display:inline-flex">${I.doc}</span>` : ''}</div>`;
   const load = async () => {
-    const d = await api('cv_list&job=' + st.job + '&status=' + st.status + '&q=' + encodeURIComponent(st.q));
-    const tabs = [['', 'Όλες', d.total]].concat(Object.entries(statuses).map(([k, l]) => [k, l, d.counts[k] || 0]));
+    const d = await api('cv_list&job=' + st.job + '&status=' + st.status + '&q=' + encodeURIComponent(st.q) + '&page=' + st.page + '&per=' + st.per);
+    st.page = d.page;
+    const tabs = [['', 'Όλες', d.totalAll]].concat(Object.entries(statuses).map(([k, l]) => [k, l, d.counts[k] || 0]));
     $('#cvTabs').innerHTML = tabs.map(([k, l, n]) => `<button class="btn btn-sm ${st.status === k ? 'btn-p' : 'btn-o'}" data-cvstatus="${k}">${l}${n ? ` <span class="kb-n" style="margin-left:3px">${n}</span>` : ''}</button>`).join('');
     const box = $('#cvList');
     box.innerHTML = d.items.length ? d.items.map(cvRow).join('') : '<div class="empty" style="padding:36px">Κανένας υποψήφιος</div>';
-    $$('[data-cvstatus]').forEach(b => b.onclick = () => { st.status = b.dataset.cvstatus; load(); });
+    // pagination
+    const from = d.filtered ? (d.page - 1) * d.per + 1 : 0;
+    const to = Math.min(d.page * d.per, d.filtered);
+    $('#cvPager').innerHTML = `
+      <span class="mut" style="font-size:12.5px">${from}–${to} από ${d.filtered}</span>
+      <div style="display:flex;gap:5px;align-items:center;margin-left:auto">
+        <button class="btn btn-o btn-sm" data-pg="1" ${d.page <= 1 ? 'disabled' : ''}>«</button>
+        <button class="btn btn-o btn-sm" data-pg="${d.page - 1}" ${d.page <= 1 ? 'disabled' : ''}>‹</button>
+        <span style="font-size:12.5px;padding:0 6px">Σελ. ${d.page}/${d.pages}</span>
+        <button class="btn btn-o btn-sm" data-pg="${d.page + 1}" ${d.page >= d.pages ? 'disabled' : ''}>›</button>
+        <button class="btn btn-o btn-sm" data-pg="${d.pages}" ${d.page >= d.pages ? 'disabled' : ''}>»</button>
+      </div>
+      <select class="inp" id="cvPer" style="width:auto;font-size:12.5px;padding:5px 8px">${[25, 50, 100, 200].map(n => `<option value="${n}" ${st.per === n ? 'selected' : ''}>${n} / σελίδα</option>`).join('')}</select>`;
+    $$('[data-cvstatus]').forEach(b => b.onclick = () => { st.status = b.dataset.cvstatus; st.page = 1; load(); });
     $$('[data-cvo]').forEach(r => r.onclick = () => openCv(+r.dataset.cvo));
+    $$('#cvPager [data-pg]').forEach(b => b.onclick = () => { if (!b.disabled) { st.page = +b.dataset.pg; load(); window.scrollTo(0, 0); const cc = $('.content'); if (cc) { cc.scrollTop = 0; } } });
+    const perSel = $('#cvPer'); if (perSel) { perSel.onchange = () => { st.per = +perSel.value; st.page = 1; load(); }; }
   };
   await load();
-  $('#cvJob').onchange = () => { st.job = $('#cvJob').value; load(); };
-  let qt; $('#cvQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#cvQ').value.trim(); load(); }, 300); };
+  $('#cvJob').onchange = () => { st.job = $('#cvJob').value; st.page = 1; load(); };
+  let qt; $('#cvQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#cvQ').value.trim(); st.page = 1; load(); }, 300); };
   $('#cvAdd').onclick = () => openCvAdd(jd.jobs, load);
 };
 
