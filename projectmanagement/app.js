@@ -135,6 +135,9 @@ function renderShell() {
     nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
       ['profit', I.coin, 'Κερδοφορία'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
   }
+  if (has('hr')) {
+    nav.push(['Προσλήψεις', [['recruit', I.contact || I.users, 'Βιογραφικά']]]);
+  }
   nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']]]);
   $('#app').innerHTML = `
   <div class="shell${localStorage.cnpSideCollapsed === '1' ? ' collapsed' : ''}">

@@ -555,6 +555,41 @@ class Db
                 $t->timestamp('updated_at')->nullable();
             });
         }
+        if (!$s->hasTable('mod_cpm_cv_jobs')) {
+            $s->create('mod_cpm_cv_jobs', function ($t) {
+                $t->increments('id');
+                $t->integer('wp_id')->unsigned()->nullable()->index();  // αγγελία (wp-job-openings)
+                $t->string('title', 190);
+                $t->text('descr')->nullable();
+                $t->boolean('active')->default(1);
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_cv')) {
+            $s->create('mod_cpm_cv', function ($t) {
+                $t->increments('id');
+                $t->string('source', 8)->default('wp');          // wp | form | manual
+                $t->integer('wp_id')->unsigned()->nullable()->unique();
+                $t->string('name', 150);
+                $t->string('email', 150)->default('');
+                $t->string('phone', 50)->default('');
+                $t->integer('job_id')->unsigned()->nullable()->index();
+                $t->string('job_title', 190)->default('');
+                $t->text('letter')->nullable();
+                $t->string('cv_stored', 140)->default('');
+                $t->string('cv_name', 190)->default('');
+                $t->string('cv_mime', 90)->default('');
+                $t->string('status', 12)->default('new');         // new/review/shortlist/interview/rejected/hired
+                $t->tinyInteger('rating')->default(0);
+                $t->integer('ai_score')->nullable();              // co-pilot 0-100
+                $t->text('ai_json')->nullable();
+                $t->integer('assignee')->unsigned()->nullable()->index();
+                $t->text('notes')->nullable();
+                $t->timestamp('applied_at')->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+            });
+        }
         if (!$s->hasTable('mod_cpm_library')) {
             $s->create('mod_cpm_library', function ($t) {
                 $t->increments('id');

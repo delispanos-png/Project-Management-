@@ -678,7 +678,7 @@ R.settings = async function (sub) {
        ${u.full ? '<div class="mut" style="font-size:10.5px;padding:0 0 3px 4px">Διαχειριστής — βλέπει όλα τα κυκλώματα</div>'
          : `<div style="display:flex;gap:5px;padding:0 0 3px 4px;flex-wrap:wrap;align-items:center">
            <span class="mut" style="font-size:10.5px">Ειδικότητες:</span>
-           ${[['sales', 'Πωλήσεις'], ['support', 'Υποστήριξη'], ['projects', 'Έργα']].map(([k, l]) =>
+           ${[['sales', 'Πωλήσεις'], ['support', 'Υποστήριξη'], ['projects', 'Έργα'], ['hr', 'HR/Προσλήψεις']].map(([k, l]) =>
              `<label class="pill ${u.areas.includes(k) ? 'pill-info' : 'pill-mut'}" style="font-size:10px;cursor:pointer;display:inline-flex;gap:3px;align-items:center">
                <input type="checkbox" data-uarea="${u.id}:${k}" ${u.areas.includes(k) ? 'checked' : ''} style="width:12px;height:12px">${l}</label>`).join('')}</div>`}
       </div>`).join('') + `

@@ -160,7 +160,7 @@ function cnp_can_reply_clients($adminId, $isFull)
 function cnp_admin_areas($adminId, $isFull)
 {
     if ($isFull) {
-        return ['sales', 'support', 'projects', 'admin'];
+        return ['sales', 'support', 'projects', 'admin', 'hr'];
     }
     $raw = Db::pref($adminId, 'areas', '');
     $a = array_values(array_filter(array_map('trim', explode(',', $raw))));
@@ -259,6 +259,13 @@ function cnp_vault_kinds()
         'app' => 'Εφαρμογή', 'saas' => 'Cloud / SaaS', 'microsoft' => 'Microsoft 365', 'db' => 'Βάση δεδομένων',
         'vpn' => 'VPN', 'portal' => 'Πύλη / Portal', 'hosting' => 'Hosting / cPanel', 'domain' => 'Domain / DNS',
         'account' => 'Λογαριασμός', 'other' => 'Άλλο'];
+}
+
+/** Στάδια αξιολόγησης υποψηφίου (Προσλήψεις). */
+function cnp_cv_statuses()
+{
+    return ['new' => 'Νέες', 'review' => 'Υπό αξιολόγηση', 'shortlist' => 'Shortlist',
+        'interview' => 'Συνέντευξη', 'rejected' => 'Απορρίφθηκε', 'hired' => 'Προσλήφθηκε'];
 }
 
 /** Έλεγχος πρόσβασης σε κανάλι chat: team=όλοι, dN-M=οι δύο, gN=μέλη ομάδας. */
@@ -2802,7 +2809,7 @@ case 'user_areas_save':                 // ειδικότητες/πρόσβασ
     }
     $uid7 = (int) ($in['id'] ?? 0);
     if (!$uid7 || !Capsule::table('tbladmins')->where('id', $uid7)->exists()) { fail('user'); }
-    $valid = ['sales', 'support', 'projects', 'admin'];
+    $valid = ['sales', 'support', 'projects', 'admin', 'hr'];
     $areas7 = array_values(array_intersect($valid, (array) ($in['areas'] ?? [])));
     Db::setPref($uid7, 'areas', implode(',', $areas7));
     out(['ok' => true, 'areas' => $areas7]);
@@ -4766,6 +4773,142 @@ case 'worknote_save':
     if ($ex) { Capsule::table('mod_cpm_worknote')->where('id', $ex->id)->update(['note' => $note, 'updated_at' => date('Y-m-d H:i:s')]); }
     else { Capsule::table('mod_cpm_worknote')->insert(['admin_id' => $adminId, 'project_id' => $pid, 'note' => $note, 'updated_at' => date('Y-m-d H:i:s')]); }
     out(['ok' => true]);
+
+/* ============ 🧑‍💼 ΠΡΟΣΛΗΨΕΙΣ / ΒΙΟΓΡΑΦΙΚΑ (ειδικότητα hr) ============ */
+case 'cv_jobs':
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $jobs = [];
+    foreach (Capsule::table('mod_cpm_cv_jobs')->orderByDesc('active')->orderBy('title')->get() as $jb) {
+        $jobs[] = ['id' => (int) $jb->id, 'title' => $jb->title, 'active' => (bool) $jb->active,
+            'count' => (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)->count()];
+    }
+    out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses()]);
+
+case 'cv_list':
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $q = Capsule::table('mod_cpm_cv');
+    if (!empty($_GET['job'])) { $q->where('job_id', (int) $_GET['job']); }
+    if (!empty($_GET['status'])) { $q->where('status', $_GET['status']); }
+    $sq = trim($_GET['q'] ?? '');
+    if (mb_strlen($sq) >= 2) {
+        $like = '%' . $sq . '%';
+        $q->where(function ($w) use ($like) {
+            $w->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like)->orWhere('job_title', 'like', $like);
+        });
+    }
+    $rows = $q->orderByRaw('ai_score IS NULL, ai_score DESC')->orderByDesc('applied_at')->limit(400)->get();
+    $items = [];
+    foreach ($rows as $r) {
+        $ai = $r->ai_json ? json_decode($r->ai_json, true) : null;
+        $items[] = ['id' => (int) $r->id, 'name' => $r->name, 'email' => $r->email, 'phone' => $r->phone,
+            'jobTitle' => $r->job_title, 'status' => $r->status, 'rating' => (int) $r->rating,
+            'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null,
+            'fit' => $ai['fit'] ?? null, 'category' => $ai['category'] ?? null, 'seniority' => $ai['seniority'] ?? null,
+            'decision' => $ai['decision'] ?? null, 'hasCv' => $r->cv_stored !== '',
+            'assignee' => $r->assignee ? (int) $r->assignee : null, 'source' => $r->source, 'appliedAt' => $r->applied_at];
+    }
+    $counts = [];
+    foreach (Capsule::table('mod_cpm_cv')->groupBy('status')->selectRaw('status, COUNT(*) c')->get() as $c) { $counts[$c->status] = (int) $c->c; }
+    out(['items' => $items, 'counts' => $counts, 'total' => count($items), 'statuses' => cnp_cv_statuses()]);
+
+case 'cv_get':
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $ai = $r->ai_json ? json_decode($r->ai_json, true) : null;
+    out(['id' => (int) $r->id, 'name' => $r->name, 'email' => $r->email, 'phone' => $r->phone,
+        'jobTitle' => $r->job_title, 'jobId' => $r->job_id ? (int) $r->job_id : null, 'letter' => $r->letter,
+        'status' => $r->status, 'rating' => (int) $r->rating, 'notes' => $r->notes,
+        'assignee' => $r->assignee ? (int) $r->assignee : null, 'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null, 'ai' => $ai,
+        'hasCv' => $r->cv_stored !== '', 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
+
+case 'cv_file':                          // προβολή/λήψη CV (auth + hr)
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('file', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$r || !$r->cv_stored) { fail('file', 404); }
+    $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored));
+    if (!$path || !is_file($path)) { fail('file', 404); }
+    header('Content-Type: ' . ($r->cv_mime ?: 'application/octet-stream'));
+    header('Content-Disposition: ' . (!empty($_GET['dl']) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($r->cv_name ?: 'cv.pdf') . '"');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
+
+case 'cv_update':                        // status / rating / notes / assignee
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $upd = ['updated_at' => date('Y-m-d H:i:s')];
+    if (isset($in['status']) && array_key_exists($in['status'], cnp_cv_statuses())) { $upd['status'] = $in['status']; }
+    if (isset($in['rating'])) { $upd['rating'] = max(0, min(5, (int) $in['rating'])); }
+    if (array_key_exists('notes', $in)) { $upd['notes'] = cnp_clean_html($in['notes']); }
+    if (array_key_exists('assignee', $in)) { $upd['assignee'] = (int) $in['assignee'] ?: null; }
+    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update($upd);
+    out(['ok' => true]);
+
+case 'cv_add':                           // χειροκίνητη προσθήκη υποψηφίου (CV από άλλες πηγές) — multipart
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $name = mb_substr(trim($_POST['name'] ?? ''), 0, 150);
+    if ($name === '') { fail('Δώσε ονοματεπώνυμο'); }
+    $stored = ''; $cvName = ''; $cvMime = '';
+    $f = $_FILES['file'] ?? null;
+    if ($f && $f['error'] === UPLOAD_ERR_OK) {
+        if ($f['size'] > 15 * 1024 * 1024) { fail('Μέγιστο 15MB'); }
+        $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, ['php', 'phtml', 'phar', 'cgi', 'sh', 'exe', 'htaccess'], true)) { fail('Μη επιτρεπτός τύπος'); }
+        $dir = __DIR__ . '/../attachments/cloudonprojects';
+        if (!is_dir($dir)) { @mkdir($dir, 0750, true); }
+        $stored = uniqid('cv', true) . '.' . (preg_replace('/[^a-z0-9]/', '', $ext) ?: 'pdf');
+        if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $stored)) { fail('write'); }
+        $cvName = mb_substr($f['name'], 0, 190);
+        $cvMime = $ext === 'pdf' ? 'application/pdf' : (($ext === 'doc' || $ext === 'docx') ? 'application/msword' : ($f['type'] ?: 'application/octet-stream'));
+    }
+    $jobId = (int) ($_POST['job'] ?? 0) ?: null;
+    $jobTitle = mb_substr(trim($_POST['job_title'] ?? ''), 0, 190);
+    if ($jobId && $jobTitle === '') { $jobTitle = (string) Capsule::table('mod_cpm_cv_jobs')->where('id', $jobId)->value('title'); }
+    $id = Capsule::table('mod_cpm_cv')->insertGetId([
+        'source' => 'manual', 'name' => $name,
+        'email' => mb_substr(trim($_POST['email'] ?? ''), 0, 150), 'phone' => mb_substr(trim($_POST['phone'] ?? ''), 0, 50),
+        'job_id' => $jobId, 'job_title' => $jobTitle, 'letter' => mb_substr(trim($_POST['letter'] ?? ''), 0, 8000),
+        'cv_stored' => $stored, 'cv_name' => $cvName, 'cv_mime' => $cvMime, 'status' => 'new',
+        'applied_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
+    ]);
+    out(['ok' => true, 'id' => $id]);
+
+case 'cv_ai':                            // co-pilot: αξιολόγηση/ταξινόμηση βιογραφικού
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') { fail('Δεν έχει οριστεί κλειδί AI (Ρυθμίσεις → AI)'); }
+    $jobDesc = $r->job_id ? (string) Capsule::table('mod_cpm_cv_jobs')->where('id', $r->job_id)->value('descr') : '';
+    $content = [];
+    $path = $r->cv_stored ? realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored)) : false;
+    $isPdf = $path && $r->cv_mime === 'application/pdf' && is_file($path) && filesize($path) < 8 * 1024 * 1024;
+    if ($isPdf) {
+        $content[] = ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => base64_encode(file_get_contents($path))]];
+    }
+    $instr = "Είσαι έμπειρος recruiter/HR. Αξιολόγησε αντικειμενικά το βιογραφικό του υποψηφίου \"{$r->name}\" για τη θέση \"{$r->job_title}\".\n"
+        . ($jobDesc !== '' ? "ΠΕΡΙΓΡΑΦΗ ΘΕΣΗΣ:\n" . mb_substr(strip_tags($jobDesc), 0, 3000) . "\n\n" : '')
+        . ($r->letter ? "ΣΥΝΟΔΕΥΤΙΚΗ ΕΠΙΣΤΟΛΗ:\n" . mb_substr($r->letter, 0, 1500) . "\n\n" : '')
+        . (!$isPdf ? "(Το αρχείο CV δεν είναι σε αναγνώσιμη μορφή — αξιολόγησε με βάση τη θέση, το όνομα και την επιστολή, με χαμηλότερη βεβαιότητα.)\n\n" : '')
+        . "Απάντησε ΜΟΝΟ με έγκυρο JSON (χωρίς markdown, στα ελληνικά) με ΑΚΡΙΒΩΣ αυτό το σχήμα:\n"
+        . '{"score":0-100,"fit":0-100,"summary":"2-3 προτάσεις","strengths":["..."],"concerns":["..."],"category":"π.χ. Support/Developer/Sales/Marketing/Admin/Άλλο","seniority":"junior|mid|senior","yearsExp":αριθμός,"skills":["..."],"decision":"shortlist|interview|reject|maybe","interviewQuestions":["3 στοχευμένες ερωτήσεις"]}';
+    $content[] = ['type' => 'text', 'text' => $instr];
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode(['model' => 'claude-haiku-4-5-20251001', 'max_tokens' => 1500, 'messages' => [['role' => 'user', 'content' => $content]]])]);
+    $resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $j = json_decode((string) $resp, true);
+    if ($code !== 200 || empty($j['content'][0]['text'])) { fail('AI: ' . ($j['error']['message'] ?? ('HTTP ' . $code))); }
+    $txt = $j['content'][0]['text'];
+    if (preg_match('/\{.*\}/s', $txt, $mm)) { $txt = $mm[0]; }
+    $ai = json_decode($txt, true);
+    if (!is_array($ai)) { fail('AI: μη έγκυρη απάντηση'); }
+    $score = isset($ai['score']) ? max(0, min(100, (int) $ai['score'])) : null;
+    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update(['ai_score' => $score, 'ai_json' => json_encode($ai, JSON_UNESCAPED_UNICODE), 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'ai' => $ai, 'score' => $score]);
 
 case 'topstats':                         // πάνω μενού: live σφυγμός + κατάσταση διαθεσιμότητας
     $today = date('Y-m-d');
