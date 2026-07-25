@@ -166,8 +166,9 @@ class Storage
     public static function presignPutKey($key, $mime, $ttl = 900, $bucket = null)
     {
         if (!self::isS3()) { return null; }
+        // ΟΧΙ ACL header (bucket ήδη private) — αλλιώς ο uploader πρέπει να στείλει x-amz-acl → 403.
         $cmd = self::s3()->getCommand('PutObject', ['Bucket' => $bucket ?: self::bucket(), 'Key' => $key,
-            'ContentType' => $mime ?: 'application/octet-stream', 'ACL' => 'private']);
+            'ContentType' => $mime ?: 'application/octet-stream']);
         return (string) self::s3()->createPresignedRequest($cmd, '+' . (int) $ttl . ' seconds')->getUri();
     }
 
