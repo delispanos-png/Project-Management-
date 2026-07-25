@@ -135,6 +135,7 @@ function renderShell() {
     nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
       ['profit', I.coin, 'Κερδοφορία'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
   }
+  nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']]]);
   $('#app').innerHTML = `
   <div class="shell${localStorage.cnpSideCollapsed === '1' ? ' collapsed' : ''}">
     <aside class="side">

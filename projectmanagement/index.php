@@ -141,7 +141,7 @@ if (isset($_GET['t'])) {
     exit;
 }
 
-$v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.css'), @filemtime(__DIR__ . '/views2.js'), @filemtime(__DIR__ . '/views3.js'), @filemtime(__DIR__ . '/views4.js'), @filemtime(__DIR__ . '/views5.js'));
+$v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.css'), @filemtime(__DIR__ . '/views2.js'), @filemtime(__DIR__ . '/views3.js'), @filemtime(__DIR__ . '/views4.js'), @filemtime(__DIR__ . '/views5.js'), @filemtime(__DIR__ . '/help.js'));
 ?>
 <!DOCTYPE html>
 <html lang="el">
@@ -166,5 +166,6 @@ $v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.cs
 <script type="module" src="views3.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="views4.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="views5.js?v=<?= htmlspecialchars($v) ?>"></script>
+<script type="module" src="help.js?v=<?= htmlspecialchars($v) ?>"></script>
 </body>
 </html>
