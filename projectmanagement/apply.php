@@ -353,7 +353,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 
 <?php if ($mode === 'form'): // ── ΣΕΛΙΔΑ ΦΟΡΜΑΣ ── ?>
 <header class="applyhead"><div class="container">
-  <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span>
+  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a>
   <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
 </div></header>
 <div class="applywrap">
@@ -398,7 +398,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 
 <?php elseif ($done): // ── THANK YOU ── ?>
 <header class="applyhead"><div class="container">
-  <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span>
+  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a>
   <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
 </div></header>
 <div class="applywrap">
@@ -412,7 +412,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 <header class="hero">
   <div class="container">
     <nav class="nav">
-      <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span>
+      <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a>
       <div class="links"><?= $langSwitch ?><a class="btn ghost sm" href="#jobs"><?= $e($t('nav_jobs')) ?></a></div>
     </nav>
     <div class="hero-in">
@@ -507,7 +507,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeJob(); });
 </script>
 
 <footer class="foot">
-  <span class="brand"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></span><br>
+  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a><br>
   <a href="https://cloudon.gr">cloudon.gr</a> · Careers
 </footer>
 <?php endif; ?>
