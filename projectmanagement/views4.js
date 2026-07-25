@@ -1022,7 +1022,8 @@ async function openCv(id) {
     </div>
     ${(d.others && d.others.length) ? `<div style="margin-bottom:14px;padding:9px 12px;border-radius:10px;background:#8291a912;border-left:3px solid #8291a9">
       <b style="font-size:12px">⧉ Άλλες αιτήσεις του ίδιου ατόμου (${d.others.length}) — ίδιο email</b>
-      ${d.others.map(o => `<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:4px 0;cursor:pointer" data-otherid="${o.id}"><span class="mut">→</span>${esc(o.jobTitle || '—')}${o.appliedAt ? ' · ' + _cvDate(o.appliedAt) : ''}${o.aiScore !== null ? ' · score ' + o.aiScore : ''}<span class="pill" style="font-size:8.5px;margin-left:auto">${esc((window._cvStatuses || {})[o.status] || o.status)}</span></div>`).join('')}
+      ${d.others.map(o => `<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:4px 0;cursor:pointer" data-otherid="${o.id}"><span class="mut">→</span><b>${esc(o.name || '—')}</b><span class="mut">· ${esc(o.jobTitle || '—')}${o.appliedAt ? ' · ' + _cvDate(o.appliedAt) : ''}${o.aiScore !== null ? ' · score ' + o.aiScore : ''}</span><span class="pill" style="font-size:8.5px;margin-left:auto">${esc((window._cvStatuses || {})[o.status] || o.status)}</span></div>`).join('')}
+      ${(() => { const names = [d.name].concat(d.others.map(o => o.name)); const uniq = [...new Set(names.map(n => (n || '').toLowerCase().replace(/\s+/g, ' ').trim()))]; return uniq.length > 1 ? `<div class="mut" style="font-size:10.5px;margin-top:5px">ℹ️ Διαφορετική γραφή ονόματος (ελληνικά/λατινικά, υποκοριστικό κ.λπ.) — πιθανώς το ίδιο άτομο. Επιβεβαίωσε.</div>` : ''; })()}
     </div>` : ''}
     <div class="card"><div class="card-h">${I.mail} Επικοινωνία & προγραμματισμός</div><div class="card-b" id="cvCommsBox"></div></div>
     <div class="card"><div class="card-h" style="flex-wrap:wrap;gap:6px">${I.brain || I.bulb} AI co-pilot
