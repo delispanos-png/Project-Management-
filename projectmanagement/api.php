@@ -283,6 +283,32 @@ function cnp_cv_default_model()
     $m = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'cv_ai_model')->value('value') ?: '');
     return array_key_exists($m, cnp_cv_models()) ? $m : 'claude-haiku-4-5-20251001';
 }
+/** Preset cover εικόνες αγγελιών (stem => label). Αρχεία: apply-assets/jobs/<stem>.jpg */
+function cnp_cv_job_presets()
+{
+    return ['office' => 'Γραφείο / Γενικό', 'dev' => 'Ανάπτυξη λογισμικού', 'backend' => 'Backend / Υποδομές',
+        'support' => 'Υποστήριξη / IT', 'pm' => 'Διαχείριση / Meetings', 'marketing' => 'Marketing', 'design' => 'Design / Creative'];
+}
+/** Αυτόματη επιλογή cover βάσει τίτλου/κειμένου θέσης. */
+function cnp_cv_job_image_auto($text)
+{
+    $s = mb_strtolower((string) $text, 'UTF-8');
+    $has = fn($needles) => (bool) preg_match('/(' . implode('|', $needles) . ')/u', $s);
+    if ($has(['back[\s-]?end', 'devops', 'infrastr', 'server', 'database', 'βάσ[ηε]', 'υποδομ', 'sysadmin', 'network', 'δίκτυ'])) { return 'backend'; }
+    if ($has(['market', 'seo', 'social media', 'advertis', 'μάρκετ', 'διαφήμ', 'προώθησ'])) { return 'marketing'; }
+    if ($has(['design', ' ux', ' ui', 'graphic', 'creativ', 'σχεδ', 'γραφίστ'])) { return 'design'; }
+    if ($has(['develop', 'software', 'engineer', 'program', 'front[\s-]?end', 'full[\s-]?stack', 'coder', 'προγραμμ', 'μηχανικ'])) { return 'dev'; }
+    if ($has(['project', 'account', 'manager', 'coordinat', 'διαχειρ', 'υπεύθυν', 'συντον'])) { return 'pm'; }
+    if ($has(['help[\s-]?desk', 'support', 'technician', 'τεχνικ', 'υποστήρ', 'service desk'])) { return 'support'; }
+    return 'office';
+}
+/** Τελικό cover stem για θέση (stored αν έγκυρο, αλλιώς auto). */
+function cnp_cv_job_image($job)
+{
+    $img = trim((string) ($job->image ?? ''));
+    if ($img !== '' && array_key_exists($img, cnp_cv_job_presets())) { return $img; }
+    return cnp_cv_job_image_auto(($job->title ?? '') . ' ' . ($job->title_en ?? ''));
+}
 /** Ids διαχειριστών HR (full ή με ειδικότητα hr) — για ειδοποιήσεις. */
 function cnp_hr_admin_ids()
 {
@@ -4895,10 +4921,12 @@ case 'cv_jobs':
         $jobs[] = ['id' => (int) $jb->id, 'title' => $jb->title, 'active' => (bool) $jb->active,
             'descr' => $jb->descr, 'skills' => $jb->skills, 'location' => $jb->location, 'emptype' => $jb->emptype,
             'titleEn' => $jb->title_en, 'descrEn' => $jb->descr_en, 'skillsEn' => $jb->skills_en, 'emptypeEn' => $jb->emptype_en,
+            'image' => (string) ($jb->image ?? ''), 'imageResolved' => cnp_cv_job_image($jb),
             'sections' => $jb->descr_json ? json_decode($jb->descr_json, true) : null,
             'count' => (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)->count()];
     }
     out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses(), 'models' => cnp_cv_models(), 'defaultModel' => cnp_cv_default_model(),
+        'imagePresets' => cnp_cv_job_presets(), 'imageBase' => 'apply-assets/jobs/',
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
 case 'cv_job_save':                      // δημιουργία/επεξεργασία αγγελίας
@@ -4911,6 +4939,7 @@ case 'cv_job_save':                      // δημιουργία/επεξεργ�
         'emptype' => mb_substr(trim($in['emptype'] ?? ''), 0, 40), 'active' => !empty($in['active']) ? 1 : 0,
         'title_en' => mb_substr(trim($in['titleEn'] ?? ''), 0, 190), 'descr_en' => mb_substr(trim($in['descrEn'] ?? ''), 0, 12000),
         'skills_en' => mb_substr(trim($in['skillsEn'] ?? ''), 0, 3000), 'emptype_en' => mb_substr(trim($in['emptypeEn'] ?? ''), 0, 40),
+        'image' => array_key_exists($in['image'] ?? '', cnp_cv_job_presets()) ? $in['image'] : '',
         'descr_json' => $sections ? mb_substr(json_encode($sections, JSON_UNESCAPED_UNICODE), 0, 30000) : null];
     $id = (int) ($in['id'] ?? 0);
     if ($id) { Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->update($data); }

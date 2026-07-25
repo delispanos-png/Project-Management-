@@ -990,6 +990,7 @@ function renderJobsPanel(host, reload) {
       <div id="jmForm"></div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
         ${d.jobs.length ? d.jobs.map(j => `<div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px${j.active ? '' : ';opacity:.72'}">
+          <div style="height:86px;margin:-14px -16px 8px;border-radius:15px 15px 0 0;background:#eef2f7 url('${(d.imageBase || 'apply-assets/jobs/')}${esc(j.imageResolved || 'office')}.jpg') center/cover"></div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="width:9px;height:9px;border-radius:50%;background:${j.active ? 'var(--ok)' : 'var(--mut)'};flex:none" title="${j.active ? 'ενεργή' : 'ανενεργή'}"></span>
             <b style="font-size:14px;flex:1;min-width:0">${esc(j.title)}</b>
@@ -1007,6 +1008,7 @@ function renderJobsPanel(host, reload) {
     host.querySelectorAll('[data-jmdel]').forEach(b => b.onclick = async () => { const j = d.jobs.find(x => x.id === +b.dataset.jmdel); if (!await cnpConfirm('Διαγραφή θέσης «' + j.title + '»;')) { return; } const r = await api('cv_job_del', {id: j.id}); toast(r.archived ? r.msg : 'Διαγράφηκε'); render(); });
     function jobForm(j) {
       const isNew = !j; const f = host.querySelector('#jmForm');
+      let curImg = isNew ? '' : (j.image || '');
       const asText = v => Array.isArray(v) ? v.join('\n') : (v == null ? '' : String(v));
       const S = (j && j.sections) ? j.sections : null;
       const el = S && S.el ? S.el : {}, en = S && S.en ? S.en : {};
@@ -1038,6 +1040,8 @@ function renderJobsPanel(host, reload) {
           <div><label class="lbl">Τοποθεσία</label><input class="inp" id="jfLoc" value="${isNew ? '' : esc(j.location || '')}" placeholder="π.χ. Αθήνα / Remote"></div></div>
         <div class="frow" style="gap:14px;margin-top:11px"><div><label class="lbl">Τύπος απασχόλησης</label><input class="inp" id="jfType" list="jfTypeL" value="${isNew ? '' : esc(j.emptype || '')}" placeholder="Πλήρης / Μερική / Remote"><datalist id="jfTypeL"><option value="Πλήρης απασχόληση"></option><option value="Μερική απασχόληση"></option><option value="Remote"></option><option value="Σύμβαση έργου"></option><option value="Πρακτική"></option></datalist></div>
           <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-size:13px;padding-bottom:9px;cursor:pointer"><input type="checkbox" id="jfActive" ${isNew || j.active ? 'checked' : ''} style="width:17px;height:17px">Ενεργή (ορατή δημόσια)</label></div></div>
+        <label class="lbl" style="margin-top:14px">🖼️ Φωτογραφία θέσης <span class="mut" style="text-transform:none;font-weight:400">— εμφανίζεται στην αγγελία (δημόσια)</span></label>
+        <div id="jfImgs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap">
           <button class="btn btn-sm" id="jfDraft" style="background:linear-gradient(135deg,#7c5cff,#5a8dee);color:#fff;border:0" title="Γράφει αναλυτική αγγελία σε EL & EN">✨ Σύνταξη με AI (EL + EN)</button>
           <button class="btn btn-sm btn-o" id="jfTranslate" title="Μεταφράζει το ελληνικό κείμενο στα Αγγλικά">🌐 Μετάφραση EL→EN</button>
@@ -1051,6 +1055,19 @@ function renderJobsPanel(host, reload) {
       f.scrollIntoView({behavior: 'smooth', block: 'nearest'});
       const val = id => { const x = f.querySelector('#' + id); return x ? x.value.trim() : ''; };
       const setVal = (id, v) => { const x = f.querySelector('#' + id); if (x) { x.value = v; } };
+      // picker φωτογραφίας θέσης
+      const imgPresets = d.imagePresets || {}, imgBase = d.imageBase || 'apply-assets/jobs/';
+      const renderImgs = () => {
+        const box = f.querySelector('#jfImgs'); if (!box) { return; }
+        const tile = (v, label, style, thumb) => `<button type="button" data-img="${v}" title="${esc(label)}" style="width:108px;height:66px;border-radius:9px;border:2px solid ${curImg === v ? 'var(--brand)' : 'var(--line)'};cursor:pointer;overflow:hidden;padding:0;position:relative;${style}">
+          ${thumb ? `<img src="${imgBase}${v}.jpg" style="width:100%;height:100%;object-fit:cover;display:block" loading="lazy">` : '<div style="font-size:20px;padding-top:8px">✨</div>'}
+          <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(9,20,38,.66);color:#fff;font-size:9px;font-weight:700;padding:2px 3px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(label)}</span>
+          ${curImg === v ? '<span style="position:absolute;top:3px;right:3px;background:var(--brand);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center">✓</span>' : ''}</button>`;
+        box.innerHTML = tile('', 'Αυτόματη', 'background:linear-gradient(135deg,#e8f6ff,#d3ecff)', false)
+          + Object.entries(imgPresets).map(([k, l]) => tile(k, l, 'background:#eef2f7', true)).join('');
+        box.querySelectorAll('[data-img]').forEach(b => b.onclick = () => { curImg = b.dataset.img; renderImgs(); });
+      };
+      renderImgs();
       f.querySelectorAll('.jltab').forEach(b => b.onclick = () => {
         const lg = b.dataset.lg;
         f.querySelector('#pane_el').style.display = lg === 'el' ? '' : 'none';
@@ -1087,7 +1104,7 @@ function renderJobsPanel(host, reload) {
         const secEl = readSec('el'), secEn = readSec('en');
         await api('cv_job_save', {id: isNew ? 0 : j.id, title, titleEn: val('jfTen'), location: val('jfLoc'), emptype: val('jfType'), emptypeEn: val('jfTypeEn'),
           skills: secEl.skills, skillsEn: secEn.skills, descr: compose(secEl, LBL.el), descrEn: compose(secEn, LBL.en),
-          sections: {el: secEl, en: secEn}, active: f.querySelector('#jfActive').checked ? 1 : 0});
+          image: curImg, sections: {el: secEl, en: secEn}, active: f.querySelector('#jfActive').checked ? 1 : 0});
         toast('Αποθηκεύτηκε ✓'); render();
       };
     }

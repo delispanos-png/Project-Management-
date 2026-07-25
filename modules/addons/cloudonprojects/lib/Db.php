@@ -568,6 +568,7 @@ class Db
                 $t->text('descr_en')->nullable();
                 $t->text('skills_en')->nullable();
                 $t->string('emptype_en', 40)->nullable();
+                $t->string('image', 190)->nullable();            // cover εικόνα (preset stem ή '')
                 $t->mediumText('descr_json')->nullable();        // δομημένες ενότητες (editor source, el+en)
                 $t->boolean('active')->default(1);
                 $t->timestamp('created_at')->nullable();

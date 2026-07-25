@@ -173,6 +173,22 @@ $skillChips = function ($csv) use ($e) {
     foreach (preg_split('/[,\n·]+/', (string) $csv) as $s) { $s = trim($s); if ($s !== '') { $out .= '<span class="chip">' . $e($s) . '</span>'; } }
     return $out;
 };
+/** Cover εικόνα θέσης (stored preset ή auto βάσει ρόλου) → πλήρες σχετικό path. */
+$jobImg = function ($job) {
+    $presets = ['office', 'dev', 'backend', 'support', 'pm', 'marketing', 'design'];
+    $img = trim((string) ($job->image ?? ''));
+    if ($img === '' || !in_array($img, $presets, true)) {
+        $s = mb_strtolower(($job->title ?? '') . ' ' . ($job->title_en ?? ''), 'UTF-8');
+        $has = fn($n) => (bool) preg_match('/(' . implode('|', $n) . ')/u', $s);
+        $img = $has(['back[\s-]?end', 'devops', 'infrastr', 'server', 'database', 'βάσ[ηε]', 'υποδομ', 'sysadmin', 'network', 'δίκτυ']) ? 'backend'
+            : ($has(['market', 'seo', 'social media', 'advertis', 'μάρκετ', 'διαφήμ', 'προώθησ']) ? 'marketing'
+            : ($has(['design', ' ux', ' ui', 'graphic', 'creativ', 'σχεδ', 'γραφίστ']) ? 'design'
+            : ($has(['develop', 'software', 'engineer', 'program', 'front[\s-]?end', 'full[\s-]?stack', 'coder', 'προγραμμ', 'μηχανικ']) ? 'dev'
+            : ($has(['project', 'account', 'manager', 'coordinat', 'διαχειρ', 'υπεύθυν', 'συντον']) ? 'pm'
+            : ($has(['help[\s-]?desk', 'support', 'technician', 'τεχνικ', 'υποστήρ', 'service desk']) ? 'support' : 'office')))));
+    }
+    return 'apply-assets/jobs/' . $img . '.jpg';
+};
 /** Τοπικοποιημένη τιμή πεδίου θέσης (EN έκδοση αν lang=en & υπάρχει, αλλιώς fallback). */
 $jl = function ($job, $field) use ($lang) {
     if ($lang === 'en') {
@@ -211,7 +227,7 @@ foreach ($jobs as $jj) {
 $jobsData = [];
 foreach ($jobs as $jj) {
     $jobsData[(int) $jj->id] = ['title' => $jl($jj, 'title'), 'location' => $jj->location, 'emptype' => $jl($jj, 'emptype'),
-        'skills' => $skillChips($jl($jj, 'skills')), 'html' => $fmtDesc($jl($jj, 'descr'))];
+        'skills' => $skillChips($jl($jj, 'skills')), 'html' => $fmtDesc($jl($jj, 'descr')), 'image' => $jobImg($jj)];
 }
 ?><!DOCTYPE html><html lang="<?= $lang ?>"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -294,6 +310,10 @@ img{max-width:100%;display:block}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .chip{font-size:10.5px;font-weight:600;color:var(--txt);background:#f1f5fa;border:1px solid var(--line);border-radius:8px;padding:3px 9px}
 .job .acts{display:flex;gap:8px;flex-wrap:wrap}
+.job-cover{height:132px;margin:-22px -22px 16px;border-radius:15px 15px 0 0;background:#eef2f7 no-repeat center/cover}
+.modal-cover{height:200px;margin:-34px -34px 22px;border-radius:21px 21px 0 0;background:#eef2f7 no-repeat center/cover}
+.jobctx-cover{height:168px;margin:-26px -28px 20px;border-radius:17px 17px 0 0;background:#eef2f7 no-repeat center/cover}
+@media(max-width:640px){.modal-cover{margin:-26px -22px 18px;height:158px}}
 /* job description */
 .jobdesc h4{font-size:12.5px;letter-spacing:.6px;color:var(--brand-d);margin:18px 0 7px;font-weight:800;text-transform:uppercase}
 .jobdesc h4:first-child{margin-top:0}
@@ -389,6 +409,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 </div></header>
 <div class="applywrap">
   <div class="jobctx">
+    <?php if ($formJob): ?><div class="jobctx-cover" style="background-image:url('<?= $e($jobImg($formJob)) ?>')"></div><?php endif; ?>
     <span class="assigned"><?= $e($t('assigned')) ?></span>
     <h1><?= $e($formJob ? $jl($formJob, 'title') : $t('general_title')) ?></h1>
     <?php if ($formJob): ?>
@@ -485,6 +506,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
       <div class="jobs">
         <?php foreach ($jobs as $j): ?>
           <div class="job">
+            <div class="job-cover" style="background-image:url('<?= $e($jobImg($j)) ?>')"></div>
             <h3><?= $e($jl($j, 'title')) ?></h3>
             <div class="meta">
               <?php if ($j->location): ?><span class="tag">📍 <?= $e($j->location) ?></span><?php endif; ?>
@@ -509,6 +531,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 <div class="modal" id="jobModal" onclick="if(event.target===this)closeJob()">
   <div class="modal-box">
     <button class="modal-x" onclick="closeJob()" aria-label="<?= $e($t('close')) ?>">✕</button>
+    <div id="jmImg" class="modal-cover"></div>
     <h2 id="jmTitle"></h2>
     <div id="jmMeta"></div>
     <div id="jmDesc" class="jobdesc"></div>
@@ -524,6 +547,7 @@ const JOBS = <?= json_encode($jobsData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_
 const LANG = '<?= $lang ?>';
 function openJob(id){
   const j = JOBS[id]; if(!j) return;
+  document.getElementById('jmImg').style.backgroundImage = j.image ? "url('" + j.image + "')" : '';
   document.getElementById('jmTitle').textContent = j.title;
   document.getElementById('jmMeta').innerHTML = (j.location?'<span class="tag">📍 '+esc(j.location)+'</span>':'') + (j.emptype?'<span class="tag">'+esc(j.emptype)+'</span>':'');
   document.getElementById('jmDesc').innerHTML = j.html || '<p class="mut">—</p>';
