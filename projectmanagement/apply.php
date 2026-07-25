@@ -247,8 +247,8 @@ img{max-width:100%;display:block}
 .btn.o{background:#fff;color:var(--brand-d);border:1.5px solid var(--line);box-shadow:none}
 .btn.o:hover{border-color:var(--brand);box-shadow:0 8px 20px -10px rgba(0,144,221,.4)}
 .btn.sm{padding:10px 18px;font-size:14px;border-radius:11px}
-.brand{display:inline-flex;background:#fff;border-radius:11px;padding:8px 14px;box-shadow:0 6px 20px -8px rgba(0,0,0,.4)}
-.brand img{height:30px;display:block}
+.brand{display:inline-flex;align-items:center}
+.brand img{height:72px;width:auto;display:block}
 .langsw{display:inline-flex;gap:2px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:10px;padding:3px;font-size:12.5px;font-weight:800}
 .langsw a{color:#cfe0f0;text-decoration:none;padding:5px 10px;border-radius:7px;line-height:1}
 .langsw a.on{background:#fff;color:var(--brand-d)}
@@ -314,6 +314,7 @@ img{max-width:100%;display:block}
 .applyhead{background:var(--navy);color:#fff;padding:15px 0}
 .applyhead .container{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .applyhead .r{display:flex;align-items:center;gap:12px}
+.applyhead .brand img{height:44px}
 .backlink{color:#bcd3ea;text-decoration:none;font-size:14px;font-weight:700}
 .backlink:hover{color:#fff}
 .applywrap{max-width:720px;margin:0 auto;padding:40px 20px 64px}
@@ -342,7 +343,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 .done h2{color:var(--ink);margin-bottom:8px}
 .empty{text-align:center;color:var(--mut);padding:20px}
 .foot{background:var(--navy);color:#8fb0d0;text-align:center;padding:30px 20px;font-size:13px}
-.foot .brand{margin:0 auto 12px}.foot .brand img{height:24px}
+.foot .brand{margin:0 auto 12px}.foot .brand img{height:38px}
 .foot a{color:#bcd3ea}
 @media(max-width:640px){.hero-in{margin-top:38px}.section{padding:44px 0}.modal-box{padding:26px 22px}}
 </style></head>
@@ -353,7 +354,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 
 <?php if ($mode === 'form'): // ── ΣΕΛΙΔΑ ΦΟΡΜΑΣ ── ?>
 <header class="applyhead"><div class="container">
-  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a>
+  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
   <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
 </div></header>
 <div class="applywrap">
@@ -398,7 +399,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 
 <?php elseif ($done): // ── THANK YOU ── ?>
 <header class="applyhead"><div class="container">
-  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a>
+  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
   <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
 </div></header>
 <div class="applywrap">
@@ -412,7 +413,7 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 <header class="hero">
   <div class="container">
     <nav class="nav">
-      <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a>
+      <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
       <div class="links"><?= $langSwitch ?><a class="btn ghost sm" href="#jobs"><?= $e($t('nav_jobs')) ?></a></div>
     </nav>
     <div class="hero-in">
@@ -507,7 +508,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeJob(); });
 </script>
 
 <footer class="foot">
-  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo.svg" alt="CloudOn"></a><br>
+  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a><br>
   <a href="https://cloudon.gr">cloudon.gr</a> · Careers
 </footer>
 <?php endif; ?>
