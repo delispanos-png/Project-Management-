@@ -4894,6 +4894,8 @@ case 'cv_jobs':
     foreach (Capsule::table('mod_cpm_cv_jobs')->orderByDesc('active')->orderBy('title')->get() as $jb) {
         $jobs[] = ['id' => (int) $jb->id, 'title' => $jb->title, 'active' => (bool) $jb->active,
             'descr' => $jb->descr, 'skills' => $jb->skills, 'location' => $jb->location, 'emptype' => $jb->emptype,
+            'titleEn' => $jb->title_en, 'descrEn' => $jb->descr_en, 'skillsEn' => $jb->skills_en, 'emptypeEn' => $jb->emptype_en,
+            'sections' => $jb->descr_json ? json_decode($jb->descr_json, true) : null,
             'count' => (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)->count()];
     }
     out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses(), 'models' => cnp_cv_models(), 'defaultModel' => cnp_cv_default_model(),
@@ -4903,9 +4905,13 @@ case 'cv_job_save':                      // δημιουργία/επεξεργ�
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
     if ($title === '') { fail('Δώσε τίτλο θέσης'); }
-    $data = ['title' => $title, 'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 6000),
+    $sections = (isset($in['sections']) && is_array($in['sections'])) ? $in['sections'] : null;
+    $data = ['title' => $title, 'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 12000),
         'skills' => mb_substr(trim($in['skills'] ?? ''), 0, 3000), 'location' => mb_substr(trim($in['location'] ?? ''), 0, 120),
-        'emptype' => mb_substr(trim($in['emptype'] ?? ''), 0, 40), 'active' => !empty($in['active']) ? 1 : 0];
+        'emptype' => mb_substr(trim($in['emptype'] ?? ''), 0, 40), 'active' => !empty($in['active']) ? 1 : 0,
+        'title_en' => mb_substr(trim($in['titleEn'] ?? ''), 0, 190), 'descr_en' => mb_substr(trim($in['descrEn'] ?? ''), 0, 12000),
+        'skills_en' => mb_substr(trim($in['skillsEn'] ?? ''), 0, 3000), 'emptype_en' => mb_substr(trim($in['emptypeEn'] ?? ''), 0, 40),
+        'descr_json' => $sections ? mb_substr(json_encode($sections, JSON_UNESCAPED_UNICODE), 0, 30000) : null];
     $id = (int) ($in['id'] ?? 0);
     if ($id) { Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->update($data); }
     else { $data['created_at'] = date('Y-m-d H:i:s'); $id = Capsule::table('mod_cpm_cv_jobs')->insertGetId($data); }
@@ -4922,7 +4928,7 @@ case 'cv_job_del':                       // διαγραφή (ή αρχειοθ�
     Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->delete();
     out(['ok' => true, 'deleted' => true]);
 
-case 'cv_job_draft':                     // ✨ AI σύνταξη αγγελίας από τίτλο + skills
+case 'cv_job_draft':                     // ✨ AI σύνταξη δομημένης ΔΙΓΛΩΣΣΗΣ αγγελίας
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
     if ($title === '') { fail('Δώσε πρώτα τίτλο θέσης'); }
@@ -4931,22 +4937,31 @@ case 'cv_job_draft':                     // ✨ AI σύνταξη αγγελία
     $skills = mb_substr(trim($in['skills'] ?? ''), 0, 2000);
     $loc = mb_substr(trim($in['location'] ?? ''), 0, 120);
     $emp = mb_substr(trim($in['emptype'] ?? ''), 0, 40);
-    $hint = mb_substr(trim($in['hint'] ?? ''), 0, 1500);   // προαιρετικές οδηγίες χρήστη
-    $prompt = "Είσαι HR copywriter της εταιρείας CloudOn (πάροχος cloud/IT υπηρεσιών, έδρα Αθήνα). "
-        . "Σύνταξε ελκυστική, επαγγελματική αγγελία εργασίας στα ΕΛΛΗΝΙΚΑ για την παρακάτω θέση.\n\n"
-        . "Τίτλος: {$title}\n" . ($loc ? "Τοποθεσία: {$loc}\n" : '') . ($emp ? "Τύπος: {$emp}\n" : '')
-        . ($skills ? "Δεξιότητες/απαιτήσεις που ζητάμε: {$skills}\n" : '')
-        . ($hint ? "Επιπλέον οδηγίες: {$hint}\n" : '')
-        . "\nΓράψε περιγραφή με ενότητες: σύντομη εισαγωγή για τη θέση & την ομάδα, «Τι θα κάνεις» (bullet list), "
-        . "«Τι ζητάμε» (bullet list με προσόντα/δεξιότητες), «Τι προσφέρουμε» (bullet list με παροχές/εξέλιξη). "
-        . "Θετικός, φιλικός αλλά επαγγελματικός τόνος. Χρησιμοποίησε απλή μορφοποίηση με παύλες (-) για bullets, ΟΧΙ markdown/HTML/αστεράκια. "
-        . "Επίσης πρότεινε λίστα 6-12 βασικών δεξιοτήτων (comma-separated).\n\n"
-        . "Απάντησε ΜΟΝΟ με έγκυρο JSON: {\"descr\":\"...\",\"skills\":\"skill1, skill2, ...\"}";
-    $res = cnp_anthropic($key, cnp_cv_default_model(), [['type' => 'text', 'text' => $prompt]], 2500);
+    $hint = mb_substr(trim($in['hint'] ?? ''), 0, 1500);
+    $mode = ($in['mode'] ?? '') === 'translate' ? 'translate' : 'draft';   // translate: μεταφράζει υπάρχον EL→EN
+    if ($mode === 'translate') {
+        $src = mb_substr(trim($in['descr'] ?? ''), 0, 12000);
+        if ($src === '') { fail('Δεν υπάρχει ελληνικό κείμενο για μετάφραση'); }
+        $prompt = "Μετάφρασε την παρακάτω αγγελία εργασίας από τα Ελληνικά στα Αγγλικά, διατηρώντας ΑΚΡΙΒΩΣ την ίδια δομή "
+            . "(εισαγωγή, αρμοδιότητες, προσόντα, παροχές) σε επαγγελματικό ύφος.\n\nΤίτλος: {$title}\n\nΚείμενο:\n{$src}\n\n"
+            . "Δώσε επίσης τον τίτλο & τα skills στα Αγγλικά. Απάντησε ΜΟΝΟ με JSON: "
+            . "{\"en\":{\"title\":\"...\",\"intro\":\"...\",\"responsibilities\":[\"..\"],\"requirements\":[\"..\"],\"benefits\":[\"..\"],\"skills\":\"a, b, c\"}}";
+    } else {
+        $prompt = "Είσαι HR copywriter της CloudOn (πάροχος cloud/IT υπηρεσιών, έδρα Αθήνα). "
+            . "Σύνταξε ελκυστική, ΑΝΑΛΥΤΙΚΗ, επαγγελματική αγγελία εργασίας για την παρακάτω θέση, ΚΑΙ στα Ελληνικά ΚΑΙ στα Αγγλικά.\n\n"
+            . "Τίτλος: {$title}\n" . ($loc ? "Τοποθεσία: {$loc}\n" : '') . ($emp ? "Τύπος: {$emp}\n" : '')
+            . ($skills ? "Δεξιότητες/απαιτήσεις: {$skills}\n" : '') . ($hint ? "Επιπλέον οδηγίες: {$hint}\n" : '')
+            . "\nΚάθε γλώσσα να έχει: intro (2-4 προτάσεις για τη θέση & την ομάδα), responsibilities (5-8 αρμοδιότητες), "
+            . "requirements (5-8 προσόντα/δεξιότητες), benefits (4-6 παροχές/ευκαιρίες εξέλιξης). Αναλυτικά & συγκεκριμένα, ΟΧΙ γενικόλογα. "
+            . "Πρότεινε και 6-12 skills (comma-separated). Καθαρό κείμενο, ΟΧΙ markdown/αστεράκια.\n\n"
+            . "Απάντησε ΜΟΝΟ με έγκυρο JSON: {\"el\":{\"intro\":\"..\",\"responsibilities\":[\"..\"],\"requirements\":[\"..\"],\"benefits\":[\"..\"],\"skills\":\"..\"},"
+            . "\"en\":{\"title\":\"english title\",\"intro\":\"..\",\"responsibilities\":[\"..\"],\"requirements\":[\"..\"],\"benefits\":[\"..\"],\"skills\":\"..\"}}";
+    }
+    $res = cnp_anthropic($key, cnp_cv_default_model(), [['type' => 'text', 'text' => $prompt]], 4000);
     if (!$res['ok']) { fail($res['error']); }
     $d = cnp_json_extract($res['text']);
-    if (!$d || empty($d['descr'])) { fail('Η AI επέστρεψε μη έγκυρη απάντηση — δοκίμασε ξανά'); }
-    out(['ok' => true, 'descr' => mb_substr(trim($d['descr']), 0, 6000), 'skills' => mb_substr(trim($d['skills'] ?? $skills), 0, 3000)]);
+    if (!$d || (empty($d['el']) && empty($d['en']))) { fail('Η AI επέστρεψε μη έγκυρη απάντηση — δοκίμασε ξανά'); }
+    out(['ok' => true, 'sections' => $d]);
 
 case 'cv_list':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }

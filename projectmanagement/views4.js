@@ -1007,37 +1007,87 @@ function renderJobsPanel(host, reload) {
     host.querySelectorAll('[data-jmdel]').forEach(b => b.onclick = async () => { const j = d.jobs.find(x => x.id === +b.dataset.jmdel); if (!await cnpConfirm('Διαγραφή θέσης «' + j.title + '»;')) { return; } const r = await api('cv_job_del', {id: j.id}); toast(r.archived ? r.msg : 'Διαγράφηκε'); render(); });
     function jobForm(j) {
       const isNew = !j; const f = host.querySelector('#jmForm');
+      const asText = v => Array.isArray(v) ? v.join('\n') : (v == null ? '' : String(v));
+      const S = (j && j.sections) ? j.sections : null;
+      const el = S && S.el ? S.el : {}, en = S && S.en ? S.en : {};
+      // descr_json αποθηκεύεται με keys resp/req/ben (readSec)· δεχόμαστε & AI-shape ως fallback
+      const gv = (o, k, k2) => asText(o[k] != null && o[k] !== '' ? o[k] : (o[k2] ?? ''));
+      const V = {
+        el: {intro: asText(el.intro) || (!S && j ? asText(j.descr) : ''), resp: gv(el, 'resp', 'responsibilities'), req: gv(el, 'req', 'requirements'), ben: gv(el, 'ben', 'benefits'), skills: (S ? asText(el.skills) : (j ? asText(j.skills) : ''))},
+        en: {intro: asText(en.intro) || (!S && j ? asText(j.descrEn) : ''), resp: gv(en, 'resp', 'responsibilities'), req: gv(en, 'req', 'requirements'), ben: gv(en, 'ben', 'benefits'), skills: (S ? asText(en.skills) : (j ? asText(j.skillsEn) : ''))},
+      };
+      const LBL = {el: {intro: 'Η ΘΕΣΗ', resp: 'ΑΡΜΟΔΙΟΤΗΤΕΣ', req: 'ΤΙ ΖΗΤΑΜΕ', ben: 'ΤΙ ΠΡΟΣΦΕΡΟΥΜΕ'}, en: {intro: 'THE ROLE', resp: 'RESPONSIBILITIES', req: 'REQUIREMENTS', ben: 'WHAT WE OFFER'}};
+      const compose = (s, L) => { const out = []; const add = (h, txt, bul) => { const v = (txt || '').trim(); if (!v) { return; } out.push(h); if (bul) { v.split('\n').map(x => x.replace(/^[-•·]\s*/, '').trim()).filter(Boolean).forEach(x => out.push('- ' + x)); } else { out.push(v); } out.push(''); }; add(L.intro, s.intro, false); add(L.resp, s.resp, true); add(L.req, s.req, true); add(L.ben, s.ben, true); return out.join('\n').trim(); };
+      const pane = (lg, v, ph) => `<div id="pane_${lg}" style="${lg === 'en' ? 'display:none' : ''}">
+        ${lg === 'en' ? `<label class="lbl">Τίτλος (EN)</label><input class="inp" id="jfTen" value="${isNew ? '' : esc(j.titleEn || '')}" placeholder="e.g. IT Help Desk Technician">
+        <div class="frow" style="gap:14px;margin-top:9px"><div><label class="lbl">Τύπος (EN)</label><input class="inp" id="jfTypeEn" value="${isNew ? '' : esc(j.emptypeEn || '')}" placeholder="Full-time / Part-time / Remote"></div><div></div></div>` : ''}
+        <label class="lbl" style="margin-top:11px">📝 ${lg === 'en' ? 'Overview' : 'Εισαγωγή / περίληψη θέσης'}</label>
+        <textarea class="inp" id="jfIntro_${lg}" rows="3" placeholder="${ph.intro}">${esc(v.intro)}</textarea>
+        <label class="lbl" style="margin-top:10px">✅ ${lg === 'en' ? 'Responsibilities' : 'Αρμοδιότητες'} <span class="mut" style="text-transform:none;font-weight:400">— ${lg === 'en' ? 'one per line' : 'μία ανά γραμμή'}</span></label>
+        <textarea class="inp" id="jfResp_${lg}" rows="5" placeholder="${ph.list}">${esc(v.resp)}</textarea>
+        <label class="lbl" style="margin-top:10px">🎯 ${lg === 'en' ? 'Requirements' : 'Τι ζητάμε (προσόντα)'} <span class="mut" style="text-transform:none;font-weight:400">— ${lg === 'en' ? 'one per line' : 'μία ανά γραμμή'}</span></label>
+        <textarea class="inp" id="jfReq_${lg}" rows="5" placeholder="${ph.list}">${esc(v.req)}</textarea>
+        <label class="lbl" style="margin-top:10px">🎁 ${lg === 'en' ? 'What we offer' : 'Τι προσφέρουμε'} <span class="mut" style="text-transform:none;font-weight:400">— ${lg === 'en' ? 'one per line' : 'μία ανά γραμμή'}</span></label>
+        <textarea class="inp" id="jfBen_${lg}" rows="4" placeholder="${ph.list}">${esc(v.ben)}</textarea>
+        <label class="lbl" style="margin-top:10px">🧩 Skills <span class="mut" style="text-transform:none;font-weight:400">— comma separated</span></label>
+        <textarea class="inp" id="jfSkills_${lg}" rows="2" placeholder="${lg === 'en' ? 'e.g. Windows/Linux, TCP/IP, ticketing, English' : 'π.χ. Windows/Linux, δίκτυα TCP/IP, ticketing, Αγγλικά'}">${esc(v.skills)}</textarea>
+      </div>`;
       f.innerHTML = `<div class="card" style="border:1.5px solid var(--brand);padding:18px 20px;margin-bottom:16px">
         <h3 style="margin:0 0 12px;font-size:15px">${isNew ? '➕ Νέα θέση' : '✏️ Επεξεργασία: ' + esc(j.title)}</h3>
-        <div class="frow" style="gap:14px"><div style="flex:2"><label class="lbl">Τίτλος θέσης *</label><input class="inp" id="jfT" value="${isNew ? '' : esc(j.title)}" placeholder="π.χ. IT Help Desk Technician"></div>
+        <div class="frow" style="gap:14px"><div style="flex:2"><label class="lbl">Τίτλος θέσης (EL) *</label><input class="inp" id="jfT" value="${isNew ? '' : esc(j.title)}" placeholder="π.χ. IT Help Desk Technician"></div>
           <div><label class="lbl">Τοποθεσία</label><input class="inp" id="jfLoc" value="${isNew ? '' : esc(j.location || '')}" placeholder="π.χ. Αθήνα / Remote"></div></div>
         <div class="frow" style="gap:14px;margin-top:11px"><div><label class="lbl">Τύπος απασχόλησης</label><input class="inp" id="jfType" list="jfTypeL" value="${isNew ? '' : esc(j.emptype || '')}" placeholder="Πλήρης / Μερική / Remote"><datalist id="jfTypeL"><option value="Πλήρης απασχόληση"></option><option value="Μερική απασχόληση"></option><option value="Remote"></option><option value="Σύμβαση έργου"></option><option value="Πρακτική"></option></datalist></div>
           <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-size:13px;padding-bottom:9px;cursor:pointer"><input type="checkbox" id="jfActive" ${isNew || j.active ? 'checked' : ''} style="width:17px;height:17px">Ενεργή (ορατή δημόσια)</label></div></div>
-        <label class="lbl" style="margin-top:11px">🎯 Δεξιότητες που χρειάζονται (skills)</label>
-        <textarea class="inp" id="jfSkills" rows="3" placeholder="π.χ. Windows/Linux, δίκτυα TCP/IP, ticketing systems, Αγγλικά, επικοινωνιακές δεξιότητες…">${isNew ? '' : esc(j.skills || '')}</textarea>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:11px;gap:10px;flex-wrap:wrap">
-          <label class="lbl" style="margin:0">Περιγραφή θέσης</label>
-          <button class="btn btn-sm" id="jfDraft" style="background:linear-gradient(135deg,#7c5cff,#5a8dee);color:#fff;border:0" title="Σύνταξη ελκυστικής αγγελίας από τον τίτλο & τα skills">✨ Σύνταξη με AI</button></div>
-        <textarea class="inp" id="jfDescr" rows="8" placeholder="Καθήκοντα, απαιτήσεις, τι προσφέρουμε… — ή πάτα «✨ Σύνταξη με AI»">${isNew ? '' : esc(j.descr || '')}</textarea>
-        <div class="mut" id="jfDraftHint" style="font-size:11px;margin-top:4px">💡 Συμπλήρωσε τίτλο & δεξιότητες και άσε την AI να γράψει ελκυστική αγγελία — μπορείς μετά να την επεξεργαστείς.</div>
-        <div style="margin-top:14px;display:flex;gap:8px"><button class="btn btn-p" id="jfSave">${I.save} Αποθήκευση</button><button class="btn btn-o" id="jfCancel">Άκυρο</button></div></div>`;
+        <div style="display:flex;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn btn-sm" id="jfDraft" style="background:linear-gradient(135deg,#7c5cff,#5a8dee);color:#fff;border:0" title="Γράφει αναλυτική αγγελία σε EL & EN">✨ Σύνταξη με AI (EL + EN)</button>
+          <button class="btn btn-sm btn-o" id="jfTranslate" title="Μεταφράζει το ελληνικό κείμενο στα Αγγλικά">🌐 Μετάφραση EL→EN</button>
+          <span class="mut" id="jfDraftHint" style="font-size:11px;flex:1;min-width:120px">💡 Δώσε τίτλο & skills και άσε την AI να γράψει δομημένη αγγελία και στις δύο γλώσσες.</span></div>
+        <div style="display:flex;gap:4px;margin:16px 0 12px;border-bottom:1px solid var(--line)">
+          <button class="btn btn-sm jltab" data-lg="el" style="border:0;border-bottom:2.5px solid var(--brand);border-radius:0;background:none;color:var(--brand);font-weight:700">🇬🇷 Ελληνικά</button>
+          <button class="btn btn-sm jltab" data-lg="en" style="border:0;border-bottom:2.5px solid transparent;border-radius:0;background:none;color:var(--mut);font-weight:700">🇬🇧 English</button></div>
+        ${pane('el', V.el, {intro: 'Σύντομη περιγραφή της θέσης & της ομάδας…', list: '- π.χ. Υποστήριξη χρηστών\n- Διαχείριση αιτημάτων'})}
+        ${pane('en', V.en, {intro: 'Short description of the role & the team…', list: '- e.g. User support\n- Ticket handling'})}
+        <div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-p" id="jfSave">${I.save} Αποθήκευση</button><button class="btn btn-o" id="jfCancel">Άκυρο</button></div></div>`;
       f.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      const val = id => { const x = f.querySelector('#' + id); return x ? x.value.trim() : ''; };
+      const setVal = (id, v) => { const x = f.querySelector('#' + id); if (x) { x.value = v; } };
+      f.querySelectorAll('.jltab').forEach(b => b.onclick = () => {
+        const lg = b.dataset.lg;
+        f.querySelector('#pane_el').style.display = lg === 'el' ? '' : 'none';
+        f.querySelector('#pane_en').style.display = lg === 'en' ? '' : 'none';
+        f.querySelectorAll('.jltab').forEach(x => { const on = x.dataset.lg === lg; x.style.color = on ? 'var(--brand)' : 'var(--mut)'; x.style.borderBottomColor = on ? 'var(--brand)' : 'transparent'; });
+      });
+      const readSec = lg => ({intro: val('jfIntro_' + lg), resp: val('jfResp_' + lg), req: val('jfReq_' + lg), ben: val('jfBen_' + lg), skills: val('jfSkills_' + lg)});
+      const fillLang = (lg, s) => { if (!s) { return; } setVal('jfIntro_' + lg, asText(s.intro)); setVal('jfResp_' + lg, asText(s.responsibilities)); setVal('jfReq_' + lg, asText(s.requirements)); setVal('jfBen_' + lg, asText(s.benefits)); if (s.skills) { setVal('jfSkills_' + lg, asText(s.skills)); } };
       f.querySelector('#jfCancel').onclick = () => { f.innerHTML = ''; };
       f.querySelector('#jfDraft').onclick = async () => {
-        const btn = f.querySelector('#jfDraft'); const title = f.querySelector('#jfT').value.trim();
+        const btn = f.querySelector('#jfDraft'); const title = val('jfT');
         if (!title) { toast('Δώσε πρώτα τίτλο θέσης', true); return; }
-        const existing = f.querySelector('#jfDescr').value.trim();
-        if (existing && !await cnpConfirm('Υπάρχει ήδη περιγραφή — να αντικατασταθεί από την AI;')) { return; }
-        btn.disabled = true; btn.textContent = '✨ Σύνταξη…'; f.querySelector('#jfDraftHint').textContent = 'Η AI γράφει την αγγελία…';
-        const r = await api('cv_job_draft', {title, skills: f.querySelector('#jfSkills').value, location: f.querySelector('#jfLoc').value, emptype: f.querySelector('#jfType').value}).catch(e => ({error: (e && e.message) || 'σφάλμα'}));
-        btn.disabled = false; btn.innerHTML = '✨ Σύνταξη με AI';
-        if (r && r.ok) { f.querySelector('#jfDescr').value = r.descr; if (r.skills && !f.querySelector('#jfSkills').value.trim()) { f.querySelector('#jfSkills').value = r.skills; } f.querySelector('#jfDraftHint').textContent = '✓ Έτοιμο — έλεγξε/προσάρμοσε και αποθήκευσε.'; toast('Η AI συνέταξε την αγγελία ✓'); }
+        const filled = ['jfIntro_el', 'jfResp_el', 'jfIntro_en'].some(id => val(id));
+        if (filled && !await cnpConfirm('Υπάρχει ήδη περιεχόμενο — να αντικατασταθεί από την AI;')) { return; }
+        btn.disabled = true; btn.textContent = '✨ Σύνταξη…'; f.querySelector('#jfDraftHint').textContent = 'Η AI γράφει την αγγελία σε EL & EN…';
+        const r = await api('cv_job_draft', {title, skills: val('jfSkills_el') || val('jfSkills_en'), location: val('jfLoc'), emptype: val('jfType')}).catch(e => ({error: (e && e.message) || 'σφάλμα'}));
+        btn.disabled = false; btn.innerHTML = '✨ Σύνταξη με AI (EL + EN)';
+        if (r && r.ok && r.sections) { fillLang('el', r.sections.el); fillLang('en', r.sections.en); if (r.sections.en && r.sections.en.title && !val('jfTen')) { setVal('jfTen', r.sections.en.title); } f.querySelector('#jfDraftHint').textContent = '✓ Έτοιμο σε EL & EN — έλεγξε/προσάρμοσε και αποθήκευσε.'; toast('Η AI συνέταξε την αγγελία ✓'); }
+        else { f.querySelector('#jfDraftHint').textContent = '⚠ ' + ((r && r.error) || 'Σφάλμα AI'); toast((r && r.error) || 'Σφάλμα AI', true); }
+      };
+      f.querySelector('#jfTranslate').onclick = async () => {
+        const btn = f.querySelector('#jfTranslate'); const title = val('jfT');
+        const elText = compose(readSec('el'), LBL.el);
+        if (!elText) { toast('Συμπλήρωσε πρώτα το ελληνικό κείμενο', true); return; }
+        if (['jfIntro_en', 'jfResp_en'].some(id => val(id)) && !await cnpConfirm('Υπάρχει ήδη αγγλικό κείμενο — να αντικατασταθεί;')) { return; }
+        btn.disabled = true; btn.textContent = '🌐 Μετάφραση…'; f.querySelector('#jfDraftHint').textContent = 'Μετάφραση στα Αγγλικά…';
+        const r = await api('cv_job_draft', {mode: 'translate', title, descr: elText}).catch(e => ({error: (e && e.message) || 'σφάλμα'}));
+        btn.disabled = false; btn.innerHTML = '🌐 Μετάφραση EL→EN';
+        if (r && r.ok && r.sections && r.sections.en) { fillLang('en', r.sections.en); if (r.sections.en.title && !val('jfTen')) { setVal('jfTen', r.sections.en.title); } f.querySelector('#pane_el').style.display = 'none'; f.querySelector('#pane_en').style.display = ''; f.querySelectorAll('.jltab').forEach(x => { const on = x.dataset.lg === 'en'; x.style.color = on ? 'var(--brand)' : 'var(--mut)'; x.style.borderBottomColor = on ? 'var(--brand)' : 'transparent'; }); f.querySelector('#jfDraftHint').textContent = '✓ Μεταφράστηκε — έλεγξε το αγγλικό κείμενο.'; toast('Μεταφράστηκε ✓'); }
         else { f.querySelector('#jfDraftHint').textContent = '⚠ ' + ((r && r.error) || 'Σφάλμα AI'); toast((r && r.error) || 'Σφάλμα AI', true); }
       };
       f.querySelector('#jfSave').onclick = async () => {
-        const title = f.querySelector('#jfT').value.trim(); if (!title) { toast('Δώσε τίτλο', true); return; }
-        await api('cv_job_save', {id: isNew ? 0 : j.id, title, location: f.querySelector('#jfLoc').value, emptype: f.querySelector('#jfType').value,
-          skills: f.querySelector('#jfSkills').value, descr: f.querySelector('#jfDescr').value, active: f.querySelector('#jfActive').checked ? 1 : 0});
+        const title = val('jfT'); if (!title) { toast('Δώσε τίτλο (EL)', true); return; }
+        const secEl = readSec('el'), secEn = readSec('en');
+        await api('cv_job_save', {id: isNew ? 0 : j.id, title, titleEn: val('jfTen'), location: val('jfLoc'), emptype: val('jfType'), emptypeEn: val('jfTypeEn'),
+          skills: secEl.skills, skillsEn: secEn.skills, descr: compose(secEl, LBL.el), descrEn: compose(secEn, LBL.en),
+          sections: {el: secEl, en: secEn}, active: f.querySelector('#jfActive').checked ? 1 : 0});
         toast('Αποθηκεύτηκε ✓'); render();
       };
     }

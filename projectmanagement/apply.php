@@ -173,6 +173,14 @@ $skillChips = function ($csv) use ($e) {
     foreach (preg_split('/[,\n·]+/', (string) $csv) as $s) { $s = trim($s); if ($s !== '') { $out .= '<span class="chip">' . $e($s) . '</span>'; } }
     return $out;
 };
+/** Τοπικοποιημένη τιμή πεδίου θέσης (EN έκδοση αν lang=en & υπάρχει, αλλιώς fallback). */
+$jl = function ($job, $field) use ($lang) {
+    if ($lang === 'en') {
+        $map = ['title' => 'title_en', 'descr' => 'descr_en', 'skills' => 'skills_en', 'emptype' => 'emptype_en'];
+        if (isset($map[$field]) && trim((string) ($job->{$map[$field]} ?? '')) !== '') { return $job->{$map[$field]}; }
+    }
+    return $job->$field ?? '';
+};
 
 // ── Ποια όψη; landing | form | thank-you ──
 $postedJob = ($_SERVER['REQUEST_METHOD'] === 'POST' && !$done) ? (int) ($_POST['job'] ?? 0) : 0;
@@ -188,12 +196,12 @@ if ($mode === 'form') { $curBase .= '?job=' . ($formJob ? (int) $formJob->id : '
 $switch = fn($lg) => $curBase . (strpos($curBase, '?') !== false ? '&' : '?') . 'lang=' . $lg;
 
 // SEO
-$titles = []; foreach ($jobs as $jj) { $titles[] = $jj->title; }
+$titles = []; foreach ($jobs as $jj) { $titles[] = $jl($jj, 'title'); }
 $metaDesc = count($jobs) ? $t('meta_jobs') . mb_substr(implode(', ', $titles), 0, 150) . $t('meta_tail') : $t('meta_none');
 $ld = [];
 foreach ($jobs as $jj) {
-    $ld[] = ['@context' => 'https://schema.org/', '@type' => 'JobPosting', 'title' => $jj->title,
-        'description' => '<p>' . htmlspecialchars((string) ($jj->descr ?: $jj->title) . ($jj->skills ? ' Skills: ' . $jj->skills : '')) . '</p>',
+    $ld[] = ['@context' => 'https://schema.org/', '@type' => 'JobPosting', 'title' => $jl($jj, 'title'),
+        'description' => '<p>' . htmlspecialchars((string) ($jl($jj, 'descr') ?: $jl($jj, 'title')) . ($jl($jj, 'skills') ? ' Skills: ' . $jl($jj, 'skills') : '')) . '</p>',
         'datePosted' => date('Y-m-d', strtotime((string) ($jj->created_at ?: 'now'))),
         'employmentType' => stripos((string) $jj->emptype, 'μερικ') !== false ? 'PART_TIME' : 'FULL_TIME',
         'hiringOrganization' => ['@type' => 'Organization', 'name' => 'CloudOn', 'sameAs' => 'https://cloudon.gr'],
@@ -202,8 +210,8 @@ foreach ($jobs as $jj) {
 }
 $jobsData = [];
 foreach ($jobs as $jj) {
-    $jobsData[(int) $jj->id] = ['title' => $jj->title, 'location' => $jj->location, 'emptype' => $jj->emptype,
-        'skills' => $skillChips($jj->skills), 'html' => $fmtDesc($jj->descr)];
+    $jobsData[(int) $jj->id] = ['title' => $jl($jj, 'title'), 'location' => $jj->location, 'emptype' => $jl($jj, 'emptype'),
+        'skills' => $skillChips($jl($jj, 'skills')), 'html' => $fmtDesc($jl($jj, 'descr'))];
 }
 ?><!DOCTYPE html><html lang="<?= $lang ?>"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -351,15 +359,15 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
 <div class="applywrap">
   <div class="jobctx">
     <span class="assigned"><?= $e($t('assigned')) ?></span>
-    <h1><?= $e($formJob ? $formJob->title : $t('general_title')) ?></h1>
+    <h1><?= $e($formJob ? $jl($formJob, 'title') : $t('general_title')) ?></h1>
     <?php if ($formJob): ?>
       <div class="meta">
         <?php if ($formJob->location): ?><span class="tag">📍 <?= $e($formJob->location) ?></span><?php endif; ?>
-        <?php if ($formJob->emptype): ?><span class="tag"><?= $e($formJob->emptype) ?></span><?php endif; ?>
+        <?php if ($jl($formJob, 'emptype')): ?><span class="tag"><?= $e($jl($formJob, 'emptype')) ?></span><?php endif; ?>
       </div>
-      <?php if (trim((string) $formJob->skills) !== ''): ?><div class="chips" style="margin-bottom:4px"><?= $skillChips($formJob->skills) ?></div><?php endif; ?>
-      <?php if (trim((string) $formJob->descr) !== ''): ?>
-      <details><summary><?= $e($t('see_full')) ?></summary><div class="jobdesc"><?= $fmtDesc($formJob->descr) ?></div></details>
+      <?php if (trim((string) $jl($formJob, 'skills')) !== ''): ?><div class="chips" style="margin-bottom:4px"><?= $skillChips($jl($formJob, 'skills')) ?></div><?php endif; ?>
+      <?php if (trim((string) $jl($formJob, 'descr')) !== ''): ?>
+      <details><summary><?= $e($t('see_full')) ?></summary><div class="jobdesc"><?= $fmtDesc($jl($formJob, 'descr')) ?></div></details>
       <?php endif; ?>
     <?php else: ?>
       <p class="mut" style="font-size:14px"><?= $e($t('general_desc')) ?></p>
@@ -446,13 +454,13 @@ $langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lan
       <div class="jobs">
         <?php foreach ($jobs as $j): ?>
           <div class="job">
-            <h3><?= $e($j->title) ?></h3>
+            <h3><?= $e($jl($j, 'title')) ?></h3>
             <div class="meta">
               <?php if ($j->location): ?><span class="tag">📍 <?= $e($j->location) ?></span><?php endif; ?>
-              <?php if ($j->emptype): ?><span class="tag"><?= $e($j->emptype) ?></span><?php endif; ?>
+              <?php if ($jl($j, 'emptype')): ?><span class="tag"><?= $e($jl($j, 'emptype')) ?></span><?php endif; ?>
             </div>
-            <?php if (trim((string) $j->descr) !== ''): ?><p class="d"><?= $e(mb_substr(strip_tags($j->descr), 0, 170)) ?>…</p><?php endif; ?>
-            <?php if (trim((string) $j->skills) !== ''): ?><div class="chips"><?= $skillChips($j->skills) ?></div><?php endif; ?>
+            <?php if (trim((string) $jl($j, 'descr')) !== ''): ?><p class="d"><?= $e(mb_substr(strip_tags($jl($j, 'descr')), 0, 170)) ?>…</p><?php endif; ?>
+            <?php if (trim((string) $jl($j, 'skills')) !== ''): ?><div class="chips"><?= $skillChips($jl($j, 'skills')) ?></div><?php endif; ?>
             <div class="acts">
               <button class="btn o sm" onclick="openJob(<?= (int) $j->id ?>)"><?= $e($t('view_posting')) ?></button>
               <a class="btn sm" href="apply.php?job=<?= (int) $j->id ?><?= $qlang ?>"><?= $e($t('apply_cta')) ?></a>

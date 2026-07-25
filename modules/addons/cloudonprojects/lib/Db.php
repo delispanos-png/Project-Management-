@@ -564,6 +564,11 @@ class Db
                 $t->text('skills')->nullable();                  // απαιτούμενες δεξιότητες
                 $t->string('location', 120)->default('');
                 $t->string('emptype', 40)->default('');          // τύπος απασχόλησης
+                $t->string('title_en', 190)->nullable();         // αγγλική έκδοση
+                $t->text('descr_en')->nullable();
+                $t->text('skills_en')->nullable();
+                $t->string('emptype_en', 40)->nullable();
+                $t->mediumText('descr_json')->nullable();        // δομημένες ενότητες (editor source, el+en)
                 $t->boolean('active')->default(1);
                 $t->timestamp('created_at')->nullable();
             });
