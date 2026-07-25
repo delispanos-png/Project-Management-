@@ -4922,6 +4922,32 @@ case 'cv_job_del':                       // διαγραφή (ή αρχειοθ�
     Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->delete();
     out(['ok' => true, 'deleted' => true]);
 
+case 'cv_job_draft':                     // ✨ AI σύνταξη αγγελίας από τίτλο + skills
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
+    if ($title === '') { fail('Δώσε πρώτα τίτλο θέσης'); }
+    $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') { fail('Δεν έχει οριστεί κλειδί AI (Ρυθμίσεις → AI)'); }
+    $skills = mb_substr(trim($in['skills'] ?? ''), 0, 2000);
+    $loc = mb_substr(trim($in['location'] ?? ''), 0, 120);
+    $emp = mb_substr(trim($in['emptype'] ?? ''), 0, 40);
+    $hint = mb_substr(trim($in['hint'] ?? ''), 0, 1500);   // προαιρετικές οδηγίες χρήστη
+    $prompt = "Είσαι HR copywriter της εταιρείας CloudOn (πάροχος cloud/IT υπηρεσιών, έδρα Αθήνα). "
+        . "Σύνταξε ελκυστική, επαγγελματική αγγελία εργασίας στα ΕΛΛΗΝΙΚΑ για την παρακάτω θέση.\n\n"
+        . "Τίτλος: {$title}\n" . ($loc ? "Τοποθεσία: {$loc}\n" : '') . ($emp ? "Τύπος: {$emp}\n" : '')
+        . ($skills ? "Δεξιότητες/απαιτήσεις που ζητάμε: {$skills}\n" : '')
+        . ($hint ? "Επιπλέον οδηγίες: {$hint}\n" : '')
+        . "\nΓράψε περιγραφή με ενότητες: σύντομη εισαγωγή για τη θέση & την ομάδα, «Τι θα κάνεις» (bullet list), "
+        . "«Τι ζητάμε» (bullet list με προσόντα/δεξιότητες), «Τι προσφέρουμε» (bullet list με παροχές/εξέλιξη). "
+        . "Θετικός, φιλικός αλλά επαγγελματικός τόνος. Χρησιμοποίησε απλή μορφοποίηση με παύλες (-) για bullets, ΟΧΙ markdown/HTML/αστεράκια. "
+        . "Επίσης πρότεινε λίστα 6-12 βασικών δεξιοτήτων (comma-separated).\n\n"
+        . "Απάντησε ΜΟΝΟ με έγκυρο JSON: {\"descr\":\"...\",\"skills\":\"skill1, skill2, ...\"}";
+    $res = cnp_anthropic($key, cnp_cv_default_model(), [['type' => 'text', 'text' => $prompt]], 2500);
+    if (!$res['ok']) { fail($res['error']); }
+    $d = cnp_json_extract($res['text']);
+    if (!$d || empty($d['descr'])) { fail('Η AI επέστρεψε μη έγκυρη απάντηση — δοκίμασε ξανά'); }
+    out(['ok' => true, 'descr' => mb_substr(trim($d['descr']), 0, 6000), 'skills' => mb_substr(trim($d['skills'] ?? $skills), 0, 3000)]);
+
 case 'cv_list':
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $job = (int) ($_GET['job'] ?? 0); $status = $_GET['status'] ?? ''; $sq = trim($_GET['q'] ?? '');
