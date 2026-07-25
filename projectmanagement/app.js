@@ -118,8 +118,8 @@ function renderShell() {
   const me = S.boot.me;
   const has = a => me.full || (me.areas || []).includes(a);   // ειδικότητες/πρόσβαση
   const nav = [
-    ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['standup', I.clipboard, 'Standup'],
-      ['calendar', I.cal, 'Ημερολόγιο'], ['chat', I.chat || I.ticket, 'Chat'], ['remotebook', I.monitor, 'Απομακρυσμένες']]],
+    ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['todos', I.checkSquare, 'Το πλάνο μου'], ['library', I.book, 'Η βιβλιοθήκη μου'],
+      ['standup', I.clipboard, 'Standup'], ['calendar', I.cal, 'Ημερολόγιο'], ['chat', I.chat || I.ticket, 'Chat'], ['remotebook', I.monitor, 'Απομακρυσμένες']]],
   ];
   if (has('support')) {
     nav.push(['Υποστήριξη', [['inbox', I.ticket, 'Tickets'], ['knowledge', I.book, 'Γνώση'], ['client360', I.user, 'Πελάτης 360°']]]);

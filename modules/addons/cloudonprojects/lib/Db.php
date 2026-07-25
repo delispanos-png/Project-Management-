@@ -554,6 +554,46 @@ class Db
                 $t->timestamp('updated_at')->nullable();
             });
         }
+        if (!$s->hasTable('mod_cpm_library')) {
+            $s->create('mod_cpm_library', function ($t) {
+                $t->increments('id');
+                $t->integer('admin_id')->unsigned()->index();    // ιδιωτική βιβλιοθήκη χειριστή
+                $t->string('kind', 8)->default('note');          // note/link/file
+                $t->string('title', 200);
+                $t->string('category', 80)->default('')->index();
+                $t->string('tags', 200)->default('');
+                $t->text('body')->nullable();
+                $t->string('url', 500)->default('');
+                $t->string('stored', 120)->default('');
+                $t->string('filename', 200)->default('');
+                $t->integer('size')->unsigned()->default(0);
+                $t->boolean('pinned')->default(0);
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_todos')) {
+            $s->create('mod_cpm_todos', function ($t) {
+                $t->increments('id');
+                $t->integer('admin_id')->unsigned()->index();    // προσωπικό πλάνο ανά project
+                $t->integer('project_id')->unsigned()->default(0)->index();
+                $t->string('text', 300);
+                $t->boolean('done')->default(0);
+                $t->integer('sort')->default(0);
+                $t->timestamp('done_at')->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_worknote')) {
+            $s->create('mod_cpm_worknote', function ($t) {
+                $t->increments('id');
+                $t->integer('admin_id')->unsigned();             // «πού έμεινα» ανά project
+                $t->integer('project_id')->unsigned()->default(0);
+                $t->text('note')->nullable();
+                $t->timestamp('updated_at')->nullable();
+                $t->unique(['admin_id', 'project_id']);
+            });
+        }
         if (!$s->hasTable('mod_cpm_prefs')) {
             $s->create('mod_cpm_prefs', function ($t) {
                 $t->increments('id');
