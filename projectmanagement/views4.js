@@ -1025,6 +1025,7 @@ async function openCv(id) {
         ${(d.cvMime === 'application/pdf') ? `<iframe src="api.php?a=cv_file&id=${id}" style="width:100%;height:520px;border:1px solid var(--line);border-radius:10px"></iframe>` : `<div class="mut" style="font-size:12px">${esc(d.cvName || 'αρχείο')} — προεπισκόπηση μη διαθέσιμη, κατέβασέ το.</div>`}` : '<div class="mut" style="font-size:12px">Χωρίς συνημμένο CV.</div>'}
       ${d.letter ? `<div style="margin-top:12px"><b style="font-size:12px">Συνοδευτική επιστολή</b><div class="mut" style="font-size:12.5px;white-space:pre-wrap;margin-top:4px">${esc(d.letter)}</div></div>` : ''}
     </div></div>
+    <div class="card"><div class="card-h">${I.chat || I.users} Συνέντευξη <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">χαρακτήρας + επαλήθευση γνώσεων</span></div><div class="card-b" id="cvIvBox"></div></div>
     <div class="card"><div class="card-h">${I.checkSquare} Αξιολόγηση & κατάσταση</div><div class="card-b">
       <label class="lbl">Στάδιο</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="cvStatusBtns">
@@ -1059,4 +1060,69 @@ async function openCv(id) {
   });
   $('#cvAssignee', dr).onchange = async () => { await api('cv_update', {id, assignee: +$('#cvAssignee', dr).value || 0}); toast('Ανατέθηκε'); };
   $('#cvNotesSave', dr).onclick = async () => { await api('cv_update', {id, notes: $('#cvNotes', dr).value.replace(/\n/g, '<br>')}); toast('Αποθηκεύτηκε ✓'); };
+
+  // ── Συνέντευξη ──
+  const catIco = {Γνώσεις: '🧠', Χαρακτήρας: '🎭', Εμπειρία: '💼', Κίνητρα: '🎯'};
+  function renderIvEval(ev) {
+    if (!ev) { return ''; }
+    const kv = ({verified: ['Επαληθεύτηκαν', '#16a26a'], partial: ['Μερικώς', '#e0a020'], not: ['Δεν επαληθεύτηκαν', '#e2515f'], unclear: ['Ασαφές', '#8291a9']})[ev.knowledgeVerified] || ['—', '#8291a9'];
+    const rec = ({proceed: ['Προχώρα', '#16a26a'], hold: ['Αναμονή', '#e0a020'], reject: ['Απόρριψη', '#e2515f']})[ev.recommendation] || ['—', '#8291a9'];
+    return `<div style="border-top:1px solid var(--line);padding-top:11px;margin-top:4px">
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-weight:800;font-size:16px;color:${_cvScoreCol(ev.score ?? null)}">${ev.score ?? '—'}/100</span>
+        <span class="pill" style="background:${kv[1]}1a;color:${kv[1]};font-size:9.5px">Γνώσεις: ${kv[0]}</span>
+        <span class="pill" style="background:${rec[1]}1a;color:${rec[1]};font-size:9.5px">${rec[0]}</span></div>
+      ${ev.character ? `<div style="font-size:12.5px;margin-bottom:6px"><b>Χαρακτήρας:</b> ${esc(ev.character)}</div>` : ''}
+      ${ev.knowledgeNote ? `<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(ev.knowledgeNote)}</div>` : ''}
+      ${ev.strengths && ev.strengths.length ? `<div style="font-size:12px"><b style="color:var(--ok)">Δυνατά:</b> ${ev.strengths.map(esc).join(' · ')}</div>` : ''}
+      ${ev.redFlags && ev.redFlags.length ? `<div style="font-size:12px;margin-top:3px"><b style="color:var(--bad)">Red flags:</b> ${ev.redFlags.map(esc).join(' · ')}</div>` : ''}
+      ${ev.summary ? `<p style="font-size:12.5px;margin-top:6px">${esc(ev.summary)}</p>` : ''}</div>`;
+  }
+  async function ivGenerate() {
+    const box = $('#cvIvBox', dr); const btn = $('#ivKit', box); if (btn) { btn.disabled = true; btn.textContent = '✨ Δημιουργία…'; }
+    const r = await api('cv_interview_kit', {id, regen: (d.interview && d.interview.questions) ? 1 : 0}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); if (btn) { btn.disabled = false; btn.textContent = '✨ Δημιουργία ερωτήσεων'; } return; }
+    d.interview = r.kit; renderInterview(); toast('Ερωτήσεις έτοιμες ✓');
+  }
+  function renderInterview() {
+    const box = $('#cvIvBox', dr); if (!box) { return; }
+    const iv = d.interview; const ev = d.interviewEval; const models = window._cvModels || {};
+    const kitBtn = `<button class="btn btn-o btn-sm" id="ivKit">${iv && iv.questions ? '↻ Νέες ερωτήσεις' : '✨ Δημιουργία ερωτήσεων'}</button>`;
+    if (!iv || !iv.questions || !iv.questions.length) {
+      box.innerHTML = `<p class="mut" style="font-size:12.5px;margin:0 0 10px">Ο AI δημιουργεί στοχευμένες ερωτήσεις (χαρακτήρα + επαλήθευσης γνώσεων) βάσει του CV. Κατέγραψε τις απαντήσεις και αξιολόγησέ τες.</p>${kitBtn}`;
+      $('#ivKit', box).onclick = ivGenerate; return;
+    }
+    const cats = {}; iv.questions.forEach(q => { const cat = q.category || 'Άλλο'; (cats[cat] = cats[cat] || []).push(q); });
+    const ans = iv.answers || {};
+    const ratings = {}; iv.questions.forEach(q => { ratings[q.id] = (ans[q.id] && ans[q.id].rating) || 0; });
+    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">${kitBtn}<span class="mut" style="font-size:11px">${iv.questions.length} ερωτήσεις</span></div>
+      ${Object.entries(cats).map(([cat, qs]) => `<div style="margin-bottom:10px"><b style="font-size:13px;color:var(--ink)">${catIco[cat] || ''} ${esc(cat)}</b>
+        ${qs.map(q => `<div style="margin:8px 0 11px">
+          <div style="font-size:12.5px;font-weight:600">${esc(q.q)}</div>
+          ${q.purpose ? `<div class="mut" style="font-size:10.5px;margin-bottom:4px">↳ ${esc(q.purpose)}</div>` : ''}
+          <textarea class="inp iv-ans" data-q="${q.id}" rows="2" style="font-size:12.5px" placeholder="Τι απάντησε ο υποψήφιος…">${esc((ans[q.id] && ans[q.id].text) || '')}</textarea>
+          <div style="margin-top:3px;color:#e0a020;cursor:pointer;font-size:15px" data-ivstars="${q.id}">${[1, 2, 3, 4, 5].map(n => `<span data-s="${n}">${(n <= ratings[q.id]) ? '★' : '☆'}</span>`).join('')}</div>
+        </div>`).join('')}</div>`).join('')}
+      <label class="lbl">Γενικές σημειώσεις συνέντευξης</label>
+      <textarea class="inp" id="ivNotes" rows="2" style="font-size:12.5px">${esc(iv.notes || '')}</textarea>
+      <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-o btn-sm" id="ivSave">${I.save} Αποθήκευση</button>
+        <select class="inp" id="ivModel" style="width:auto;font-size:11.5px;padding:4px 8px;margin-left:auto">${Object.entries(models).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>
+        <button class="btn btn-p btn-sm" id="ivEval">✨ Αξιολόγηση συνέντευξης</button></div>
+      <div id="ivEvalBox" style="margin-top:12px">${renderIvEval(ev)}</div>`;
+    $$('[data-ivstars]', box).forEach(row => { const qid = row.dataset.ivstars; row.querySelectorAll('[data-s]').forEach(s => s.onclick = () => { ratings[qid] = +s.dataset.s; row.querySelectorAll('[data-s]').forEach(x => x.textContent = +x.dataset.s <= ratings[qid] ? '★' : '☆'); }); });
+    const collect = () => { const a = {}; $$('.iv-ans', box).forEach(t => { const qid = t.dataset.q; a[qid] = {text: t.value, rating: ratings[qid] || 0}; }); return a; };
+    $('#ivKit', box).onclick = ivGenerate;
+    $('#ivSave', box).onclick = async () => { const answers = collect(); const notes = $('#ivNotes', box).value; await api('cv_interview_save', {id, answers, notes}); d.interview.answers = answers; d.interview.notes = notes; toast('Αποθηκεύτηκε ✓'); };
+    $('#ivEval', box).onclick = async () => {
+      const answers = collect(); const notes = $('#ivNotes', box).value;
+      await api('cv_interview_save', {id, answers, notes}); d.interview.answers = answers; d.interview.notes = notes;
+      const btn = $('#ivEval', box); btn.disabled = true; btn.textContent = '✨ Ανάλυση…';
+      const r = await api('cv_interview_eval', {id, model: $('#ivModel', box).value}).catch(e => ({err: e.message}));
+      btn.disabled = false; btn.textContent = '✨ Αξιολόγηση συνέντευξης';
+      if (r.err) { toast(r.err, true); return; }
+      d.interviewEval = r.eval; $('#ivEvalBox', box).innerHTML = renderIvEval(r.eval); toast('Έτοιμη η αξιολόγηση ✓');
+    };
+  }
+  renderInterview();
 }

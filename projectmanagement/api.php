@@ -293,6 +293,37 @@ function cnp_hr_admin_ids()
     return array_values(array_unique($ids));
 }
 
+/** Κλήση Anthropic messages API. Επιστρέφει ['ok'=>bool,'text'=>...,'error'=>...]. */
+function cnp_anthropic($key, $model, $content, $maxTokens = 1500)
+{
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 120, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode(['model' => $model, 'max_tokens' => $maxTokens, 'messages' => [['role' => 'user', 'content' => $content]]])]);
+    $resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $j = json_decode((string) $resp, true);
+    $txt = '';
+    foreach ($j['content'] ?? [] as $blk) { if (($blk['type'] ?? '') === 'text' && !empty($blk['text'])) { $txt = $blk['text']; break; } }
+    if ($code !== 200 || $txt === '') { return ['ok' => false, 'error' => 'AI: ' . ($j['error']['message'] ?? ('HTTP ' . $code))]; }
+    return ['ok' => true, 'text' => $txt];
+}
+/** Εξαγωγή JSON object από απάντηση AI (αγνοεί markdown fences κ.λπ.). */
+function cnp_json_extract($txt)
+{
+    if (preg_match('/\{.*\}/s', $txt, $m)) { $txt = $m[0]; }
+    $d = json_decode($txt, true);
+    return is_array($d) ? $d : null;
+}
+/** PDF document block για το CV ενός υποψηφίου (ή null). */
+function cnp_cv_pdf_block($r)
+{
+    $path = $r->cv_stored ? realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->cv_stored)) : false;
+    if ($path && $r->cv_mime === 'application/pdf' && is_file($path) && filesize($path) < 8 * 1024 * 1024) {
+        return ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => base64_encode(file_get_contents($path))]];
+    }
+    return null;
+}
+
 /**
  * Αξιολόγηση CV με AI co-pilot. Επιστρέφει ['ok'=>bool,'ai'=>...,'score'=>...,'model'=>...,'error'=>...].
  * $notify=true → ειδοποιεί υπεύθυνους HR όταν high-interest (μία φορά ανά υποψήφιο).
@@ -4909,6 +4940,8 @@ case 'cv_get':
         'jobTitle' => $r->job_title, 'jobId' => $r->job_id ? (int) $r->job_id : null, 'letter' => $r->letter,
         'status' => $r->status, 'rating' => (int) $r->rating, 'notes' => $r->notes,
         'assignee' => $r->assignee ? (int) $r->assignee : null, 'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null, 'ai' => $ai, 'aiModel' => $r->ai_model,
+        'interview' => $r->interview_json ? json_decode($r->interview_json, true) : null,
+        'interviewEval' => $r->interview_eval ? json_decode($r->interview_eval, true) : null,
         'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '', 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
 
 case 'cv_photo':                         // headshot thumbnail (auth + hr)
@@ -4988,6 +5021,85 @@ case 'cv_ai':                            // co-pilot: αξιολόγηση/τα�
     $res = cnp_cv_evaluate((int) ($in['id'] ?? 0), $model, true);
     if (empty($res['ok'])) { fail($res['error'] === 'notfound' ? 'notfound' : $res['error'], $res['error'] === 'notfound' ? 404 : 400); }
     out(['ok' => true, 'ai' => $res['ai'], 'score' => $res['score'], 'model' => $res['model']]);
+
+case 'cv_interview_kit':                 // παραγωγή οδηγού ερωτήσεων συνέντευξης
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $iv = $r->interview_json ? json_decode($r->interview_json, true) : null;
+    if ($iv && !empty($iv['questions']) && empty($in['regen'])) { out(['ok' => true, 'kit' => $iv]); }
+    $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') { fail('Δεν έχει οριστεί κλειδί AI'); }
+    $model = array_key_exists($in['model'] ?? '', cnp_cv_models()) ? $in['model'] : cnp_cv_default_model();
+    $ai = $r->ai_json ? json_decode($r->ai_json, true) : null;
+    $skills = ($ai && !empty($ai['skills'])) ? implode(', ', array_slice($ai['skills'], 0, 15)) : '';
+    $content = [];
+    $blk = cnp_cv_pdf_block($r); if ($blk) { $content[] = $blk; }
+    $content[] = ['type' => 'text', 'text' =>
+        "Είσαι έμπειρος recruiter. Ετοίμασε στοχευμένο ΟΔΗΓΟ ΣΥΝΕΝΤΕΥΞΗΣ για τον υποψήφιο \"{$r->name}\" για τη θέση \"{$r->job_title}\".\n"
+        . ($skills !== '' ? "Δηλωμένες δεξιότητες: $skills\n" : '')
+        . "Δημιούργησε 10-14 ερωτήσεις σε 4 κατηγορίες:\n"
+        . "• Γνώσεις — ερωτήσεις που ΕΠΑΛΗΘΕΥΟΥΝ σε βάθος όσα δηλώνει ότι γνωρίζει (τεχνικές/πρακτικές, όχι ναι/όχι).\n"
+        . "• Χαρακτήρας — behavioral, soft skills, ομαδικότητα, διαχείριση πίεσης/σύγκρουσης.\n"
+        . "• Εμπειρία — πραγματικά παραδείγματα από προηγούμενη δουλειά (STAR).\n"
+        . "• Κίνητρα — γιατί εδώ, στόχοι, καταλληλότητα.\n"
+        . 'Απάντησε ΜΟΝΟ με JSON (ελληνικά): {"questions":[{"id":"q1","category":"Γνώσεις|Χαρακτήρας|Εμπειρία|Κίνητρα","q":"...","purpose":"τι αξιολογεί σε λίγες λέξεις"}]}'];
+    $resp = cnp_anthropic($key, $model, $content, 3500);
+    if (empty($resp['ok'])) { fail($resp['error']); }
+    $kit = cnp_json_extract($resp['text']);
+    if (!$kit || empty($kit['questions'])) { fail('AI: μη έγκυρη απάντηση (δοκίμασε ξανά)'); }
+    // δώσε ids αν λείπουν, κράτα τυχόν υπάρχουσες απαντήσεις
+    foreach ($kit['questions'] as $i => &$qq) { if (empty($qq['id'])) { $qq['id'] = 'q' . ($i + 1); } } unset($qq);
+    $kit['answers'] = $iv['answers'] ?? [];
+    $kit['generated_at'] = date('Y-m-d H:i:s'); $kit['model'] = $model;
+    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update(['interview_json' => json_encode($kit, JSON_UNESCAPED_UNICODE), 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'kit' => $kit]);
+
+case 'cv_interview_save':                // αποθήκευση καταγεγραμμένων απαντήσεων
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $iv = $r->interview_json ? json_decode($r->interview_json, true) : ['questions' => []];
+    $ans = [];
+    foreach ((array) ($in['answers'] ?? []) as $qid => $a) {
+        $qid = preg_replace('/[^a-z0-9_]/i', '', (string) $qid);
+        $ans[$qid] = ['text' => mb_substr(trim(strip_tags((string) ($a['text'] ?? ''))), 0, 4000), 'rating' => max(0, min(5, (int) ($a['rating'] ?? 0)))];
+    }
+    $iv['answers'] = $ans;
+    $iv['interviewer'] = $adminId;
+    if (isset($in['when'])) { $iv['when'] = trim($in['when']); }
+    if (array_key_exists('notes', $in)) { $iv['notes'] = mb_substr(trim(strip_tags((string) $in['notes'])), 0, 4000); }
+    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update(['interview_json' => json_encode($iv, JSON_UNESCAPED_UNICODE), 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'cv_interview_eval':                // AI αξιολόγηση της συνέντευξης
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $iv = $r->interview_json ? json_decode($r->interview_json, true) : null;
+    if (!$iv || empty($iv['questions'])) { fail('Δημιούργησε & κατέγραψε πρώτα τη συνέντευξη'); }
+    $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($key === '') { fail('Δεν έχει οριστεί κλειδί AI'); }
+    $model = array_key_exists($in['model'] ?? '', cnp_cv_models()) ? $in['model'] : cnp_cv_default_model();
+    $ansMap = $iv['answers'] ?? [];
+    $trans = '';
+    foreach ($iv['questions'] as $qq) {
+        $a = $ansMap[$qq['id']] ?? null;
+        $trans .= '[' . ($qq['category'] ?? '') . "] " . ($qq['q'] ?? '') . "\n";
+        $trans .= 'ΑΠΑΝΤΗΣΗ: ' . (($a && trim($a['text']) !== '') ? $a['text'] : '(δεν καταγράφηκε)') . (($a && !empty($a['rating'])) ? ' [βαθμ. συνεντευκτή: ' . $a['rating'] . '/5]' : '') . "\n\n";
+    }
+    $txt = "Αξιολόγησε τη ΣΥΝΕΝΤΕΥΞΗ του υποψηφίου \"{$r->name}\" για τη θέση \"{$r->job_title}\". Ακολουθούν οι ερωτήσεις και οι απαντήσεις όπως τις κατέγραψε ο συνεντευκτής.\n\n"
+        . "ΣΥΝΕΝΤΕΥΞΗ:\n" . mb_substr($trans, 0, 12000) . "\n";
+    if (!empty($iv['notes'])) { $txt .= "ΣΗΜΕΙΩΣΕΙΣ ΣΥΝΕΝΤΕΥΚΤΗ: " . mb_substr($iv['notes'], 0, 1500) . "\n"; }
+    $txt .= "\nΑξιολόγησε: (α) χαρακτήρα & soft skills, (β) αν ΕΠΑΛΗΘΕΥΤΗΚΑΝ οι γνώσεις που δήλωνε (verified/partial/not/unclear), (γ) red flags, (δ) συνολική σύσταση.\n"
+        . 'Απάντησε ΜΟΝΟ με JSON (ελληνικά): {"score":0-100,"character":"εκτίμηση χαρακτήρα 2-3 προτάσεις","knowledgeVerified":"verified|partial|not|unclear","knowledgeNote":"τι επαληθεύτηκε/όχι","strengths":["..."],"redFlags":["..."],"recommendation":"proceed|hold|reject","summary":"συνολικό συμπέρασμα"}';
+    $resp = cnp_anthropic($key, $model, [['type' => 'text', 'text' => $txt]], 1500);
+    if (empty($resp['ok'])) { fail($resp['error']); }
+    $ev = cnp_json_extract($resp['text']);
+    if (!$ev) { fail('AI: μη έγκυρη απάντηση'); }
+    $ev['model'] = $model; $ev['at'] = date('Y-m-d H:i:s');
+    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update(['interview_eval' => json_encode($ev, JSON_UNESCAPED_UNICODE), 'updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'eval' => $ev]);
 
 case 'topstats':                         // πάνω μενού: live σφυγμός + κατάσταση διαθεσιμότητας
     $today = date('Y-m-d');

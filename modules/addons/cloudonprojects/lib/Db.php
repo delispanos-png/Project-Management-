@@ -586,6 +586,8 @@ class Db
                 $t->text('ai_json')->nullable();
                 $t->string('ai_model', 40)->default('');          // ποιο μοντέλο αξιολόγησε
                 $t->boolean('notified')->default(0);              // dedupe ειδοποίησης high-interest
+                $t->text('interview_json')->nullable();           // ερωτήσεις + απαντήσεις συνέντευξης
+                $t->text('interview_eval')->nullable();           // AI αξιολόγηση συνέντευξης
                 $t->integer('assignee')->unsigned()->nullable()->index();
                 $t->text('notes')->nullable();
                 $t->timestamp('applied_at')->nullable();
