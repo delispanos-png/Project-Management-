@@ -2,6 +2,7 @@
 /**
  * CloudOn Project Manager — hooks.
  *   • TicketOpen              : auto-task στο project του τμήματος (αν auto_task=on)
+ *   • TicketStatusChange      : δίγλωσσο email στον πελάτη σε ουσιαστική αλλαγή status
  *   • AdminAreaViewTicketPage : panel με link στο task (ή δημιουργία task)
  *
  * @package WHMCS\Module\Addon\CloudonProjects
@@ -307,4 +308,81 @@ add_hook('TicketOpen', 5, function ($vars) {
 });
 add_hook('TicketAdminOpen', 5, function ($vars) {
     cpm_quota_track($vars['ticketid'] ?? 0, $vars['userid'] ?? 0, 'phone');
+});
+
+/* ---- Ειδοποίηση πελάτη σε αλλαγή status (δίγλωσσο EL/EN) — έξυπνο σετ ---- */
+add_hook('TicketStatusChange', 1, function ($vars) {
+    if (cloudonprojects_setting('ticket_status_email', 'on') !== 'on') {
+        return;
+    }
+    $ticketId = (int) ($vars['ticketid'] ?? 0);
+    if ($ticketId <= 0) {
+        return;
+    }
+    $tk = Capsule::table('tbltickets')->where('id', $ticketId)->first(['tid', 'title', 'userid', 'name', 'email', 'c', 'status']);
+    if (!$tk) {
+        return;
+    }
+    $status = (string) ($vars['status'] ?? $tk->status);
+
+    // Έξυπνο σετ — μόνο ουσιαστικές αλλαγές (Open/Answered/Customer-Reply καλύπτονται αλλού)
+    $INFO = [
+        'In Progress' => ['Σε εξέλιξη', 'In Progress',
+            'Ξεκινήσαμε να επεξεργαζόμαστε το αίτημά σας. Η ομάδα μας το εξετάζει και θα σας ενημερώσουμε για την εξέλιξη.',
+            'We have started working on your request. Our team is looking into it and will keep you updated.'],
+        'On Hold' => ['Σε αναμονή', 'On Hold',
+            'Το αίτημά σας βρίσκεται προσωρινά σε αναμονή — ενδέχεται να χρειαζόμαστε επιπλέον στοιχεία ή να αναμένουμε τρίτο μέρος. Θα επανέλθουμε το συντομότερο δυνατό.',
+            'Your request is temporarily on hold — we may need additional information or are waiting on a third party. We will get back to you as soon as possible.'],
+        'Escalated' => ['Κλιμακώθηκε (προτεραιότητα)', 'Escalated (priority)',
+            'Το αίτημά σας κλιμακώθηκε στην αρμόδια ομάδα για κατά προτεραιότητα διαχείριση. Σας ευχαριστούμε για την υπομονή σας.',
+            'Your request has been escalated to the appropriate team for priority handling. Thank you for your patience.'],
+        'Resolved' => ['Επιλύθηκε', 'Resolved',
+            'Θεωρούμε ότι το αίτημά σας επιλύθηκε. Εάν όλα είναι εντάξει, δεν απαιτείται καμία ενέργεια. Εάν χρειάζεστε κάτι ακόμη, απλώς απαντήστε σε αυτό το email.',
+            'We believe your request has been resolved. If everything is in order, no action is needed. If you need anything else, simply reply to this email.'],
+        'Closed' => ['Ολοκληρώθηκε', 'Closed',
+            'Το αίτημά σας ολοκληρώθηκε και το ticket έκλεισε. Σας ευχαριστούμε που επικοινωνήσατε μαζί μας — είμαστε στη διάθεσή σας για οτιδήποτε άλλο.',
+            'Your request has been completed and the ticket is now closed. Thank you for contacting us — we are here for anything else you may need.'],
+    ];
+    if (!isset($INFO[$status])) {
+        return;
+    }
+    [$elLabel, $enLabel, $elMsg, $enMsg] = $INFO[$status];
+
+    $name = trim((string) $tk->name);
+    $tid = (string) $tk->tid;
+    $subj = htmlspecialchars((string) $tk->title, ENT_QUOTES, 'UTF-8');
+    $sysurl = rtrim((string) Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value'), '/');
+    $link = $sysurl . '/viewticket.php?tid=' . rawurlencode($tid) . '&c=' . rawurlencode((string) $tk->c);
+    $box = fn($l1, $v1, $l2, $v2) => '<div style="background:#f4f7fb;border-radius:8px;padding:12px 15px;margin:14px 0;font-size:13.5px"><b>' . $l1 . ':</b> #' . htmlspecialchars($tid) . ' — ' . $subj . '<br><b>' . $l2 . ':</b> ' . $v2 . '</div>';
+
+    $html = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;line-height:1.55;max-width:640px">'
+        . '<p>Γεια σας' . ($name ? ' ' . htmlspecialchars($name) : '') . ',</p>'
+        . '<p>' . htmlspecialchars($elMsg) . '</p>'
+        . $box('Αίτημα', $tid, 'Κατάσταση', htmlspecialchars($elLabel))
+        . '<p><a href="' . $link . '" style="color:#0090dd;font-weight:700;text-decoration:none">» Δείτε το αίτημά σας</a></p>'
+        . '<hr style="border:none;border-top:1px solid #e6ecf3;margin:24px 0">'
+        . '<p>Hello' . ($name ? ' ' . htmlspecialchars($name) : '') . ',</p>'
+        . '<p>' . htmlspecialchars($enMsg) . '</p>'
+        . $box('Request', $tid, 'Status', htmlspecialchars($enLabel))
+        . '<p><a href="' . $link . '" style="color:#0090dd;font-weight:700;text-decoration:none">» View your request</a></p>'
+        . '<p style="color:#8093ac;font-size:12px;margin-top:22px">CloudOn Support · <a href="https://cloudon.gr" style="color:#8093ac">cloudon.gr</a></p>'
+        . '</div>';
+    $subject = '[Ticket #' . $tid . '] Ενημέρωση κατάστασης / Status update: ' . $enLabel;
+
+    // Αποστολή: εγγεγραμμένος πελάτης → WHMCS mailer· αλλιώς → mail()
+    $sent = false;
+    if ((int) $tk->userid > 0 && function_exists('localAPI')) {
+        try {
+            $r = localAPI('SendEmail', ['customtype' => 'general', 'customsubject' => $subject, 'custommessage' => $html, 'id' => (int) $tk->userid]);
+            $sent = (($r['result'] ?? '') === 'success');
+        } catch (\Throwable $e) {
+        }
+    }
+    if (!$sent) {
+        $to = filter_var((string) $tk->email, FILTER_VALIDATE_EMAIL);
+        if ($to) {
+            $headers = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\nFrom: CloudOn Support <noreply@cloudon.gr>\r\n";
+            @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $html, $headers);
+        }
+    }
 });
