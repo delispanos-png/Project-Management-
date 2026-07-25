@@ -588,11 +588,23 @@ class Db
                 $t->boolean('notified')->default(0);              // dedupe ειδοποίησης high-interest
                 $t->text('interview_json')->nullable();           // ερωτήσεις + απαντήσεις συνέντευξης
                 $t->text('interview_eval')->nullable();           // AI αξιολόγηση συνέντευξης
+                $t->dateTime('interview_at')->nullable();         // προγραμματισμένη συνέντευξη
                 $t->integer('assignee')->unsigned()->nullable()->index();
                 $t->text('notes')->nullable();
                 $t->timestamp('applied_at')->nullable();
                 $t->timestamp('created_at')->nullable();
                 $t->timestamp('updated_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_cv_comms')) {
+            $s->create('mod_cpm_cv_comms', function ($t) {
+                $t->increments('id');
+                $t->integer('cv_id')->unsigned()->index();       // ιστορικό επικοινωνίας υποψηφίου
+                $t->string('kind', 16)->default('email');        // email/note/interview
+                $t->string('subject', 190)->default('');
+                $t->text('body')->nullable();
+                $t->integer('by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
             });
         }
         if (!$s->hasTable('mod_cpm_library')) {

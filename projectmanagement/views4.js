@@ -1016,6 +1016,7 @@ async function openCv(id) {
       ${d.email ? `<a class="btn btn-o btn-sm" href="mailto:${esc(d.email)}">${I.mail} ${esc(d.email)}</a>` : ''}
       ${d.phone ? `<a class="btn btn-o btn-sm" href="tel:${esc(d.phone)}">${I.phone} ${esc(d.phone)}</a>` : ''}
     </div>
+    <div class="card"><div class="card-h">${I.mail} Επικοινωνία & προγραμματισμός</div><div class="card-b" id="cvCommsBox"></div></div>
     <div class="card"><div class="card-h" style="flex-wrap:wrap;gap:6px">${I.brain || I.bulb} AI co-pilot
       <select class="inp" id="cvModel" style="width:auto;font-size:11.5px;padding:4px 8px;margin-left:auto">${Object.entries(models).map(([k, l]) => `<option value="${k}" ${k === defModel ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
       <button class="btn btn-p btn-sm" id="cvAiBtn">✨ ${d.ai ? 'Επαναξιολόγηση' : 'Αξιολόγηση'}</button></div>
@@ -1125,4 +1126,50 @@ async function openCv(id) {
     };
   }
   renderInterview();
+
+  // ── Επικοινωνία & προγραμματισμός ──
+  function renderComms() {
+    const box = $('#cvCommsBox', dr); if (!box) { return; }
+    const company = 'CloudOn';
+    const first = ((d.name || '').trim().split(/\s+/)[0]) || d.name || '';
+    const templates = {
+      invite: {s: 'Πρόσκληση για συνέντευξη — ' + d.jobTitle, b: 'Αγαπητέ/ή ' + first + ',\n\nΣας ευχαριστούμε για το ενδιαφέρον σας για τη θέση «' + d.jobTitle + '». Θα θέλαμε να σας καλέσουμε σε συνέντευξη.\n\nΗμερομηνία & ώρα: [συμπλήρωσε]\nΤρόπος: [δια ζώσης / τηλεδιάσκεψη]\n\nΠαρακαλούμε επιβεβαιώστε τη διαθεσιμότητά σας.\n\nΜε εκτίμηση,\nΟμάδα ' + company},
+      reject: {s: 'Ενημέρωση για την αίτησή σας — ' + d.jobTitle, b: 'Αγαπητέ/ή ' + first + ',\n\nΣας ευχαριστούμε θερμά για το ενδιαφέρον σας και τον χρόνο που αφιερώσατε. Μετά από προσεκτική αξιολόγηση, αποφασίσαμε να προχωρήσουμε με άλλους υποψηφίους για τη θέση «' + d.jobTitle + '».\n\nΘα διατηρήσουμε το βιογραφικό σας για μελλοντικές ευκαιρίες που ταιριάζουν στο προφίλ σας.\n\nΣας ευχόμαστε κάθε επιτυχία.\n\nΜε εκτίμηση,\nΟμάδα ' + company},
+      info: {s: 'Αίτημα για επιπλέον στοιχεία — ' + d.jobTitle, b: 'Αγαπητέ/ή ' + first + ',\n\nΣχετικά με την αίτησή σας για τη θέση «' + d.jobTitle + '», θα θέλαμε κάποιες επιπλέον πληροφορίες:\n\n- [ερώτηση 1]\n- [ερώτηση 2]\n\nΣας ευχαριστούμε.\n\nΜε εκτίμηση,\nΟμάδα ' + company},
+    };
+    box.innerHTML = `
+      <label class="lbl">📅 Προγραμματισμός συνέντευξης</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="inp" type="datetime-local" id="cvWhen" value="${d.interviewAt ? d.interviewAt.replace(' ', 'T').slice(0, 16) : ''}" style="width:auto">
+        <button class="btn btn-p btn-sm" id="cvSched">Όρισε & ειδοποίησε</button>
+        ${d.interviewAt ? `<span class="pill pill-info">Ορισμένη: ${_cvDate(d.interviewAt)} ${esc(d.interviewAt.slice(11, 16))}</span>` : ''}
+      </div>
+      <div style="border-top:1px solid var(--line);margin:14px 0 10px"></div>
+      <label class="lbl">✉️ Email προς υποψήφιο ${d.email ? '' : '<span style="color:var(--bad)">— χωρίς email</span>'}</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn btn-o btn-sm" data-tpl="invite">Πρόσκληση συνέντευξης</button>
+        <button class="btn btn-o btn-sm" data-tpl="reject">Ευγενική απόρριψη</button>
+        <button class="btn btn-o btn-sm" data-tpl="info">Αίτημα στοιχείων</button>
+      </div>
+      <input class="inp" id="cvEmSubj" placeholder="Θέμα email" style="margin-bottom:7px">
+      <textarea class="inp" id="cvEmBody" rows="7" placeholder="Κείμενο email…" style="font-size:12.5px"></textarea>
+      <div style="text-align:right;margin-top:8px"><button class="btn btn-p btn-sm" id="cvEmSend" ${d.email ? '' : 'disabled'}>${I.mail} Αποστολή email</button></div>
+      ${(d.comms && d.comms.length) ? `<div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px"><b style="font-size:12px">Ιστορικό επικοινωνίας</b>
+        ${d.comms.map(cm => `<div style="font-size:11.5px;padding:5px 0;border-bottom:1px dashed var(--line)"><b>${cm.kind === 'email' ? '✉️' : cm.kind === 'interview' ? '📅' : '📝'} ${esc(cm.subject)}</b> <span class="mut">· ${esc(cm.by || '')} · ${cm.at ? _cvDate(cm.at) : ''}</span></div>`).join('')}</div>` : ''}`;
+    $('#cvSched', box).onclick = async () => {
+      const w = $('#cvWhen', box).value; if (!w) { toast('Διάλεξε ημ/ώρα', true); return; }
+      await api('cv_schedule', {id, when: w}); toast('Ορίστηκε ✓ — ειδοποιήθηκαν οι υπεύθυνοι'); openCv(id);
+    };
+    box.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => { const t = templates[b.dataset.tpl]; $('#cvEmSubj', box).value = t.s; $('#cvEmBody', box).value = t.b; });
+    $('#cvEmSend', box).onclick = async () => {
+      const subject = $('#cvEmSubj', box).value.trim(), body = $('#cvEmBody', box).value.trim();
+      if (!subject || !body) { toast('Θέμα & κείμενο', true); return; }
+      const btn = $('#cvEmSend', box); btn.disabled = true;
+      const r = await api('cv_email', {id, subject, body}).catch(e => ({err: e.message}));
+      btn.disabled = false;
+      if (r.err) { toast(r.err, true); return; }
+      toast(r.sent ? 'Το email στάλθηκε ✓' : 'Καταγράφηκε (η αποστολή απέτυχε)', !r.sent); openCv(id);
+    };
+  }
+  renderComms();
 }

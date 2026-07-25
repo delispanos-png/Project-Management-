@@ -4942,6 +4942,14 @@ case 'cv_get':
         'assignee' => $r->assignee ? (int) $r->assignee : null, 'aiScore' => $r->ai_score !== null ? (int) $r->ai_score : null, 'ai' => $ai, 'aiModel' => $r->ai_model,
         'interview' => $r->interview_json ? json_decode($r->interview_json, true) : null,
         'interviewEval' => $r->interview_eval ? json_decode($r->interview_eval, true) : null,
+        'interviewAt' => $r->interview_at,
+        'comms' => (function ($cid) {
+            $out = [];
+            foreach (Capsule::table('mod_cpm_cv_comms')->where('cv_id', $cid)->orderByDesc('id')->limit(30)->get() as $cm) {
+                $out[] = ['kind' => $cm->kind, 'subject' => $cm->subject, 'body' => $cm->body, 'by' => Db::adminName($cm->by), 'at' => $cm->created_at];
+            }
+            return $out;
+        })((int) $r->id),
         'hasCv' => $r->cv_stored !== '', 'photo' => $r->photo !== '', 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
 
 case 'cv_photo':                         // headshot thumbnail (auth + hr)
@@ -5021,6 +5029,42 @@ case 'cv_ai':                            // co-pilot: αξιολόγηση/τα�
     $res = cnp_cv_evaluate((int) ($in['id'] ?? 0), $model, true);
     if (empty($res['ok'])) { fail($res['error'] === 'notfound' ? 'notfound' : $res['error'], $res['error'] === 'notfound' ? 404 : 400); }
     out(['ok' => true, 'ai' => $res['ai'], 'score' => $res['score'], 'model' => $res['model']]);
+
+case 'cv_email':                         // αποστολή email σε υποψήφιο (καταγράφεται)
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $to = filter_var(trim($r->email), FILTER_VALIDATE_EMAIL);
+    if (!$to) { fail('Ο υποψήφιος δεν έχει έγκυρο email'); }
+    $subject = mb_substr(trim($in['subject'] ?? ''), 0, 190);
+    $body = cnp_clean_html($in['body'] ?? '');
+    if ($subject === '' || trim(strip_tags($body)) === '') { fail('Συμπλήρωσε θέμα & κείμενο'); }
+    $adminEmail = filter_var(Capsule::table('tbladmins')->where('id', $adminId)->value('email'), FILTER_VALIDATE_EMAIL);
+    $html = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;line-height:1.55;max-width:640px">' . nl2br($body) . '</div>';
+    $headers = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\nFrom: CloudOn <noreply@cloudon.gr>\r\n";
+    if ($adminEmail) { $headers .= 'Reply-To: ' . $adminEmail . "\r\n"; }
+    $sent = @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $html, $headers);
+    Capsule::table('mod_cpm_cv_comms')->insert(['cv_id' => $r->id, 'kind' => 'email', 'subject' => $subject, 'body' => $body, 'by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    if ($r->status === 'new') { Capsule::table('mod_cpm_cv')->where('id', $r->id)->update(['status' => 'review']); }
+    out(['ok' => true, 'sent' => (bool) $sent]);
+
+case 'cv_schedule':                      // προγραμματισμός συνέντευξης + ειδοποίηση/υπενθύμιση
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$r) { fail('notfound', 404); }
+    $when = trim($in['when'] ?? '');
+    $at = $when ? date('Y-m-d H:i:s', strtotime($when)) : null;
+    $upd = ['interview_at' => $at, 'updated_at' => date('Y-m-d H:i:s')];
+    if ($at && !in_array($r->status, ['hired', 'rejected'], true)) { $upd['status'] = 'interview'; }
+    Capsule::table('mod_cpm_cv')->where('id', $r->id)->update($upd);
+    if ($at) {
+        Capsule::table('mod_cpm_cv_comms')->insert(['cv_id' => $r->id, 'kind' => 'interview', 'subject' => 'Προγραμματισμός συνέντευξης',
+            'body' => 'Συνέντευξη ορίστηκε: ' . date('d/m/Y H:i', strtotime($at)), 'by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+        try { Db::addReminder((int) ($r->assignee ?: $adminId), date('Y-m-d H:i:s', strtotime($at . ' -1 hour')), 'Συνέντευξη: ' . $r->name . ' (' . $r->job_title . ')', null); } catch (\Throwable $e) {
+        }
+        foreach (cnp_hr_admin_ids() as $aid) { Db::pushNotification($aid, 'due', '📅 Συνέντευξη: ' . $r->name . ' — ' . date('d/m H:i', strtotime($at)), '/project/#/recruit'); }
+    }
+    out(['ok' => true, 'interviewAt' => $at]);
 
 case 'cv_interview_kit':                 // παραγωγή οδηγού ερωτήσεων συνέντευξης
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
