@@ -690,7 +690,7 @@ R.client360 = async function (cid) {
   setTop('Πελάτης 360°', 'Το πλήρες ιστορικό ενός πελάτη');
   const c = $('#content');
   c.innerHTML = `<div class="card" style="padding:13px 16px;display:flex;gap:9px">
-    <input class="inp" id="c3Q" placeholder="ID, όνομα, επωνυμία ή email… (Enter)" style="max-width:340px"></div>
+    <input class="inp" id="c3Q" placeholder="Πληκτρολόγησε ID, όνομα, επωνυμία ή email…" autocomplete="off" style="max-width:400px"></div>
     <div id="c3Res"></div>`;
   const typeIco = {task: '🟦', task_done: '✅', time: '⏱', time_bill: '💶', ticket: '🎫',
     sc_plus: '🔋', sc_minus: '🪫', offer: '📄', offer_won: '🏆', offer_lost: '❌', payment: '💰', contact: '💬'};
@@ -774,15 +774,26 @@ R.client360 = async function (cid) {
       toast('Το πακέτο του πελάτη ενημερώθηκε 🎟');
     };
   };
-  $('#c3Q').onkeydown = async e => {
-    if (e.key !== 'Enter') return;
-    const d = await api('client360&q=' + encodeURIComponent(e.target.value.trim()));
-    if (d.client) { show(d.client.id); return; }
-    $('#c3Res').innerHTML = d.matches.length ? `<div class="card">${d.matches.map(m =>
-      `<div class="trow" data-c="${m.id}"><b>${esc(m.name)}</b><span class="mut">#${m.id} · ${esc(m.email)}</span></div>`).join('')}</div>`
-      : '<div class="empty">Δεν βρέθηκε πελάτης</div>';
+  // live auto-match: εμφανίζει αποτελέσματα καθώς πληκτρολογείς — επιλέγεις με κλικ (ή Enter για το 1ο)
+  let c3t;
+  const liveSearch = async q => {
+    const d = await api('client360&q=' + encodeURIComponent(q)).catch(() => null);
+    if (!d || $('#c3Q').value.trim() !== q) return;   // αγνόησε παλιά/άκυρα responses
+    const matches = d.client ? [d.client] : (d.matches || []);
+    $('#c3Res').innerHTML = matches.length ? `<div class="card" style="margin-top:2px;overflow:hidden">${matches.map(m =>
+      `<div class="trow" data-c="${m.id}" style="gap:10px"><span class="ava" style="flex:none">${esc((m.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase())}</span>
+        <div style="flex:1;min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name)}</b>
+        <span class="mut" style="font-size:11.5px">#${m.id}${m.email ? ' · ' + esc(m.email) : ''}</span></div></div>`).join('')}</div>`
+      : '<div class="empty" style="padding:22px">Δεν βρέθηκε πελάτης</div>';
     $$('#c3Res [data-c]').forEach(r => r.onclick = () => show(+r.dataset.c));
   };
+  $('#c3Q').oninput = e => {
+    clearTimeout(c3t);
+    const q = e.target.value.trim();
+    if (q.length < 2) { $('#c3Res').innerHTML = ''; return; }
+    c3t = setTimeout(() => liveSearch(q), 250);
+  };
+  $('#c3Q').onkeydown = e => { if (e.key === 'Enter') { const first = $('#c3Res [data-c]'); if (first) show(+first.dataset.c); } };
   if (cid) show(+cid);
 };
 
