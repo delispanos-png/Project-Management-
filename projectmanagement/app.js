@@ -557,6 +557,7 @@ function go(view, arg) {
   $$('#tabBar [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === view));
   document.body.classList.remove('detail-open');   // νέα οθόνη → επαναφορά tab bar
   const c = $('#content'); c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
+  c.scrollTop = 0;   // νέα οθόνη → ξεκίνα από την κορυφή (όπως σε native app)
   ((window.R && window.R[view]) || vMyDay)(arg);
   if (typeof loadTopStats === 'function') { loadTopStats(); }
 }

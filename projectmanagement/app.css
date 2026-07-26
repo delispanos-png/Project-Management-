@@ -928,3 +928,14 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .cal-leg{flex:0 0 auto}
   .cal-top .cal-newev{flex:1 0 auto}
 }
+
+/* ── «Νέο» ως FAB πάνω από τα tabs (η πάνω-δεξιά γωνία είναι δυσπρόσιτη για τον αντίχειρα) ── */
+@media (max-width:768px){
+  #newBtn{position:fixed;right:16px;bottom:calc(var(--tabbar-h) + var(--sab) + 16px);z-index:37;
+    width:56px;height:56px;min-height:56px;border-radius:50%;padding:0;justify-content:center;font-size:0;
+    box-shadow:0 8px 22px rgba(0,144,221,.5)}
+  #newBtn svg{width:26px;height:26px;stroke-width:2.4}
+  #newBtn:active{transform:scale(.92)}
+  /* σε ανοιχτό ticket/συνομιλία το composer έχει την προτεραιότητα */
+  body.detail-open #newBtn{display:none}
+}
