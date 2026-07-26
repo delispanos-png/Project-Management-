@@ -52,8 +52,8 @@ const EV_KINDS = {meeting: ['🤝', 'Meeting', '#7b5cd6'], appointment: ['📅',
   leave: ['🌴', 'Άδεια', '#e2a33c'], other: ['📌', 'Άλλο', '#8595ac']};
 function openEvent(ev, ymRefresh) {
   closeDrawer();
-  const isNew = !ev;
-  ev = ev || {kind: 'meeting', attendees: [S.boot.me.id], allDay: false};
+  const isNew = !ev || !ev.id;
+  ev = Object.assign({kind: 'meeting', attendees: [S.boot.me.id], allDay: false}, ev || {});
   const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
   const dr = document.createElement('div'); dr.className = 'drawer';
   const d0 = ev.start ? ev.start.slice(0, 10) : today();
@@ -228,7 +228,7 @@ R.calendar = async function (ym) {
   for (let day = 1; day <= dim; day++) {
     if (col === 7) { cells += '</tr><tr>'; col = 0; }
     const date = d.ym + '-' + String(day).padStart(2, '0');
-    cells += `<td class="${date === today() ? 'today' : ''}"><div class="d">${day}</div>` +
+    cells += `<td class="cal-cell ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>` +
       (evByDay[date] || []).map(ev => {
         const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
         const who = ev.attendees.map(a => adminIni(a)).join(',');
@@ -259,16 +259,52 @@ R.calendar = async function (ym) {
     ${Object.entries(EV_KINDS).map(([, [ico, l, col]]) => `<span class="cal-leg" style="border-color:${col}40;background:${col}14"><span class="dot" style="background:${col}"></span>${ico} ${l}</span>`).join('')}
   </div>
     <table class="cpm-cal cnp-cal"><thead><tr>${['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'].map(x => `<th>${x}</th>`).join('')}</tr></thead>
-    <tbody>${cells}</tr></tbody></table>`;
+    <tbody>${cells}</tr></tbody></table>
+    <div id="calDay" class="cal-agenda"></div>`;
   $('#calP').onclick = () => R.calendar(fmtYm(prev));
   $('#calN').onclick = () => R.calendar(fmtYm(next));
   const t = $('#calT'); if (t) t.onclick = () => R.calendar();
   $('#evNew').onclick = () => openEvent(null, d.ym);
-  $$('.ev[data-task]').forEach(a => a.onclick = () => openTask(+a.dataset.task));
-  $$('.ev[data-event]').forEach(a => a.onclick = () => {
+  $$('.ev[data-task]').forEach(a => a.onclick = e => { e.stopPropagation(); openTask(+a.dataset.task); });
+  $$('.ev[data-event]').forEach(a => a.onclick = e => {
+    e.stopPropagation();
     const ev = (d.events || []).find(x => x.id === +a.dataset.event);
     if (ev) openEvent(ev, d.ym);
   });
+  // ── agenda επιλεγμένης μέρας (κάτω από το ημερολόγιο) ──
+  const dayNames = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
+  const renderDay = date => {
+    $$('.cal-cell').forEach(td => td.classList.toggle('sel', td.dataset.date === date));
+    const box = $('#calDay'); if (!box) return;
+    const dt = new Date(date + 'T12:00:00');
+    const evs = (evByDay[date] || []).slice().sort((a, b) => (a.allDay ? '0' : a.start).localeCompare(b.allDay ? '0' : b.start));
+    const tasks = byDay[date] || [];
+    let body = '';
+    evs.forEach(ev => {
+      const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
+      const tm = ev.allDay ? 'Ολοήμερο' : ev.start.slice(11, 16) + (ev.end && ev.end.slice(0, 10) === date ? '–' + ev.end.slice(11, 16) : '');
+      const who = ev.attendees.map(a => adminName(a)).join(', ');
+      body += `<div class="cal-ag-row" data-agevent="${ev.id}" style="border-left-color:${col}">
+        <div class="cal-ag-ic" style="background:${col}20">${ico}</div>
+        <div style="flex:1;min-width:0"><b>${esc(ev.title)}</b>
+          <div class="cal-ag-meta"><span class="cal-ag-time">${tm}</span>${who ? ' · ' + esc(who) : ''}${ev.location ? ' · 📍 ' + esc(ev.location) : ''}</div></div></div>`;
+    });
+    tasks.forEach(tk => {
+      const over = date < today() && !tk.done;
+      body += `<div class="cal-ag-row" data-agtask="${tk.id}" style="border-left-color:${tk.color}">
+        <div class="cal-ag-ic" style="background:${tk.color}20">${I.checkSquare || '✔'}</div>
+        <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio === 2 ? '❗ ' : ''}${esc(tk.title)}</b>
+          <div class="cal-ag-meta">Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
+    });
+    box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dt.getDay()]} ${dt.getDate()} ${mn}</b>
+        <button class="btn btn-p btn-sm" id="calDayNew">${I.plus} Νέο εδώ</button></div>
+      ${body || '<div class="empty" style="padding:24px 12px">Καμία δραστηριότητα αυτή τη μέρα.</div>'}`;
+    const nb = $('#calDayNew'); if (nb) nb.onclick = () => openEvent({start: date + 'T09:00', end: date + 'T10:00'}, d.ym);
+    $$('[data-agevent]', box).forEach(r => r.onclick = () => { const ev = (d.events || []).find(x => x.id === +r.dataset.agevent); if (ev) openEvent(ev, d.ym); });
+    $$('[data-agtask]', box).forEach(r => r.onclick = () => openTask(+r.dataset.agtask));
+  };
+  $$('.cal-cell').forEach(td => td.onclick = () => renderDay(td.dataset.date));
+  renderDay(today().slice(0, 7) === d.ym ? today() : d.ym + '-01');
 };
 
 /* ═════════ ΧΡΟΝΟΣ ═════════ */

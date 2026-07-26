@@ -738,3 +738,18 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 
 /* το back button του chat να εμφανίζεται σε κινητό (override του base display:none που ορίζεται πιο κάτω) */
 @media (max-width:768px){ .ch-back{display:inline-flex} }
+
+/* ── ημερολόγιο: agenda επιλεγμένης μέρας (κάτω από το grid) ── */
+.cnp-cal td.cal-cell{cursor:pointer}
+.cnp-cal td.sel{box-shadow:inset 0 0 0 2px var(--brand)}
+.cnp-cal td.today.sel{box-shadow:inset 0 3px 0 var(--brand),inset 0 0 0 2px var(--brand)}
+.cal-agenda{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh);overflow:hidden}
+.cal-agenda-h{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.cal-agenda-h b{font-size:15.5px;color:var(--ink);flex:1;text-transform:capitalize}
+.cal-ag-row{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);border-left:4px solid transparent;cursor:pointer;transition:background .12s}
+.cal-ag-row:last-child{border-bottom:0}
+.cal-ag-row:hover{background:var(--canvas)}
+.cal-ag-ic{width:38px;height:38px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;font-size:18px}
+.cal-ag-row b{font-size:14px;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-ag-meta{font-size:11.5px;color:var(--mut);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-ag-time{font-weight:700;color:var(--txt)}
