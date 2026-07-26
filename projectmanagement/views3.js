@@ -63,26 +63,28 @@ R.inbox = async function (openId) {
     const dd = await api('ticket&id=' + id).catch(() => null);
     if (!dd) { conv.innerHTML = '<div class="empty">Δεν έχεις πρόσβαση</div>'; return; }
     const t = dd.ticket;
+    const classified = !!(dd.class && (dd.class.area || dd.class.cause));
     conv.innerHTML = `
     <div class="ib-head">
       <button class="ib-back" id="ibBack" aria-label="Πίσω στη λίστα" title="Πίσω"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div style="flex:1;min-width:0">
-        <b style="font-size:14.5px;color:var(--ink)">#${esc(t.tid)} — ${esc(t.title)}</b>
-        <div class="mut" style="font-size:11.5px">${esc(t.client || '')} ${t.email ? '· ' + esc(t.email) : ''}
-          ${t.slaDue ? ` · <span style="color:var(--bad);font-weight:700">SLA έως ${tShort(t.slaDue)}</span>` : ''}</div>
+        <b style="font-size:14.5px;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#${esc(t.tid)} — ${esc(t.title)}</b>
+        <div class="mut" style="font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.client || '')}${t.email ? ' · ' + esc(t.email) : ''}${t.slaDue ? ` · <span style="color:var(--bad);font-weight:700">SLA ${tShort(t.slaDue)}</span>` : ''}</div>
       </div>
-      <select class="inp" id="ibStatus" style="width:auto;padding:6px 10px;font-size:12px">
+      <select class="inp ib-status-sel" id="ibStatus">
         ${dd.statuses.map(s => `<option ${s === t.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}
         <option value="Closed" ${t.status === 'Closed' ? 'selected' : ''}>Closed</option></select>
-      ${S.boot.me.full ? `<select class="inp" id="ibFlag" style="width:auto;padding:6px 10px;font-size:12px">
+    </div>
+    <div class="tk-toolbar">
+      ${S.boot.me.full ? `<select class="inp" id="ibFlag" style="flex:1;min-width:140px;font-size:12px">
         <option value="0">— ανάθεση —</option>
         ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === t.flag ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}
-      ${S.boot.me.canReply ? `<button class="btn btn-sm ${(dd.class && (dd.class.area || dd.class.cause)) ? 'btn-p' : 'btn-o'}" id="ibClassify" title="Κατηγοριοποίηση (ρίζα προβλήματος)${(dd.class && (dd.class.area || dd.class.cause)) ? ' — ✓ ταξινομημένο' : ''}">${I.tag}</button>` : ''}
-      ${dd.quota ? `<span class="pill ${dd.quota.over ? 'pill-bad' : dd.quota.used > dd.quota.quota * 0.8 ? 'pill-warn' : 'pill-mut'}"
+      ${S.boot.me.canReply ? `<button class="btn btn-sm ${classified ? 'btn-p' : 'btn-o'}" id="ibClassify" title="Κατηγοριοποίηση (ρίζα προβλήματος)">${I.tag} Κατηγορία${classified ? ' ✓' : ''}</button>` : ''}
+      ${t.clientId ? `<button class="btn btn-sm btn-o" id="ibRemote" title="Remote συνεδρία με χρονομέτρηση">${I.monitor} Remote</button>` : ''}
+      ${dd.task ? `<button class="btn btn-sm btn-o" id="ibTask" title="Άνοιγμα task">${I.clipboard} Task</button>` : ''}
+      ${dd.quota ? `<span class="pill ${dd.quota.over ? 'pill-bad' : dd.quota.used > dd.quota.quota * 0.8 ? 'pill-warn' : 'pill-mut'}" style="margin-left:auto"
         title="Όριο ομάδας πελάτη — μήνας: ${dd.quota.used}/${dd.quota.quota}${dd.quota.email.q ? ' · email ' + dd.quota.email.u + '/' + dd.quota.email.q : ''}${dd.quota.phone.q ? ' · τηλ. ' + dd.quota.phone.u + '/' + dd.quota.phone.q : ''}">
         ${I.ticket} ${dd.quota.used}/${dd.quota.quota}${dd.quota.over ? ' ΥΠΕΡΒΑΣΗ' : ''}</span>` : ''}
-      ${t.clientId ? `<button class="btn btn-sm btn-o" id="ibRemote" title="Remote συνεδρία με χρονομέτρηση">${I.monitor}</button>` : ''}
-      ${dd.task ? `<button class="btn btn-sm btn-o" id="ibTask" title="Άνοιγμα task">${I.clipboard}</button>` : ''}
     </div>
     ${(dd.suggest && (dd.suggest.kb.length || dd.suggest.similar.length)) ? `
     <div style="margin:9px 13px 0;padding:10px 13px;border-radius:11px;background:color-mix(in srgb, var(--warn) 9%, transparent);border:1px solid color-mix(in srgb, var(--warn) 30%, transparent)">

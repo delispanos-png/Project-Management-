@@ -653,15 +653,18 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   border:none;background:none;color:var(--ink);cursor:pointer;border-radius:9px;margin-right:2px}
 .ib-back:hover{background:#8595ac1c}
 @media (max-width:768px){
+  /* ── LIST view: σταθερό ύψος, η λίστα κάνει scroll ── */
   .inbox{height:calc(100dvh - 110px);margin:-14px -12px -48px}
-  .ib-left{width:100%;flex-basis:auto;border-right:0}
+  .ib-left{width:100%;flex-basis:auto;border-right:0;display:flex;flex-direction:column}
   .ib-right{display:none}
   .inbox.has-sel .ib-left{display:none}
-  .inbox.has-sel .ib-right{display:flex}
   .ib-back{display:inline-flex}
-  .ib-msgs{padding:14px 14px}
-  .ib-compose{padding:10px 12px}
-  .ib-head{padding:11px 13px}
+  /* ── DETAIL view: ΦΥΣΙΚΟ scroll ολόκληρης της σελίδας — τίποτα κρυμμένο ── */
+  .inbox.has-sel{height:auto;display:block;margin:-14px -12px 0}
+  .inbox.has-sel .ib-right{display:flex;flex-direction:column;min-height:calc(100dvh - 92px)}
+  .ib-head{position:sticky;top:0;z-index:6;gap:8px;padding:9px 12px}
+  .ib-msgs{flex:none;overflow:visible;min-height:80px;padding:14px 12px}
+  .ib-compose{padding:12px 12px 22px}
 }
 
 /* ── calendar: πιο συμπαγή κελιά + events σε κινητό ── */
@@ -780,18 +783,17 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .rb-go{flex:1}
 }
 
-/* ── ticket detail: μάζεμα σε κινητό ── */
+/* ── ticket detail: toolbar ενεργειών + base ── */
+.tk-toolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:9px 18px;background:var(--card);border-bottom:1px solid var(--line)}
+.ib-status-sel{width:auto!important;padding:6px 10px;font-size:12px;font-weight:700;flex:none}
 @media (max-width:768px){
   /* drop-zone συνημμένων: compact + κρύψε το «σύρε» (δεν υπάρχει drag σε κινητό) */
   .cnpa-drop{padding:11px}
   .cnpa-drop-drag,.cnpa-drop-sub{display:none}
-  /* header ticket: πιο μαζεμένο */
-  .ib-head{gap:7px;padding:9px 11px}
-  .ib-head .inp{padding:6px 9px}
-  .ib-head h2,.ib-head b{font-size:14px}
-  /* μηνύματα: περισσότερο πλάτος */
+  .tk-toolbar{padding:9px 12px}
+  /* status: full-width & prominent στο κινητό */
+  .ib-status-sel{width:100%!important;font-size:14px;padding:10px 13px}
   .ib-msg{max-width:90%}
-  .ib-msgs{padding:14px 12px}
   /* mode tabs (Απάντηση / Σημείωση): μοιράζονται το πλάτος */
   .ib-mode .ib-mbtn{flex:1;text-align:center;justify-content:center}
   /* reply toolbar: το «Αποστολή» πρωτεύον full-width, το «κλείσιμο» δική του σειρά */
