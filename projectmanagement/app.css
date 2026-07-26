@@ -698,3 +698,9 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
      !important για να νικά το inline style="flex:1" (π.χ. γραμμές χρηστών) */
   .set-row>div:first-child{flex-basis:100%!important}
 }
+
+/* ── triage (Πλάνο ημέρας): κουμπί προτεινόμενης ανάθεσης σε δική του σειρά ── */
+@media (max-width:768px){
+  .set-row[data-tgo]{align-items:flex-start}
+  .set-row[data-tgo] [data-assign]{order:5;flex-basis:100%;justify-content:flex-start;margin-top:6px}
+}
