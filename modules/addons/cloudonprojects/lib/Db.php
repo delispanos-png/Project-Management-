@@ -438,10 +438,13 @@ class Db
                 $t->string('keywords', 500)->default('');
                 $t->mediumText('solution');
                 $t->string('tags', 190)->default('');
+                $t->integer('area_id')->unsigned()->default(0);   // κύριο προϊόν (mod_cpm_ticket_cats kind=area)
+                $t->string('rel_areas', 190)->default('');        // συναφή προϊόντα (comma ids)
                 $t->integer('uses')->unsigned()->default(0);
                 $t->integer('created_by')->unsigned()->nullable();
                 $t->timestamp('created_at')->nullable();
                 $t->timestamp('updated_at')->nullable();
+                $t->index('area_id', 'idx_area');
             });
         }
         if (!$s->hasTable('mod_cpm_project_todos')) {

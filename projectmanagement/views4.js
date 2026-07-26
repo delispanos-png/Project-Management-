@@ -67,96 +67,212 @@ window.CNP.quickNew = quickNew;
 
 /* ═════════ Λίστα v2 — grouping + saved views ═════════ */
 R.list = async function () {
-  setTop('Λίστα tasks', 'g+l · ομαδοποίηση & αποθηκευμένα views');
+  setTop('Λίστα tasks', 'Όλα τα tasks ομαδοποιημένα — g+l');
   const c = $('#content');
-  const f = R.list._f = R.list._f || {open: 1, group: ''};
+  // ίδια δομή με τη Βιβλιοθήκη γνώσης: search + chips + ομαδοποίηση + φόρμα πίσω από κουμπί
+  const f = R.list._f = R.list._f || {open: 1, group: 'project', proj: '', q: '', fs: '', fa: '', mine: false, closed: {}};
   const views = JSON.parse(localStorage.cnpViews || '[]');
+  let D = {tasks: []};
+  const GROUPS = {project: 'Ανά project', status: 'Ανά στήλη', assignee: 'Ανά χειριστή', prio: 'Ανά προτεραιότητα', '': 'Χωρίς ομαδοποίηση'};
+  const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
+  const prioName = p => ['Κανονική', 'Υψηλή', 'Κρίσιμη'][p] || 'Κανονική';
+
   c.innerHTML = `
-  ${views.length ? `<div style="display:flex;gap:7px;margin-bottom:11px;flex-wrap:wrap">
-    ${views.map((v, i) => `<button class="btn btn-sm btn-o" data-view="${i}">${I.pin} ${esc(v.name)}</button>
-      <button class="btn btn-sm btn-o" data-viewDel="${i}" style="margin-left:-4px;padding:5px 7px">✕</button>`).join('')}</div>` : ''}
-  <div class="card" style="padding:13px 16px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    <select class="inp" id="lfP" style="width:auto"><option value="">— όλα τα projects —</option>
-      ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-    <select class="inp" id="lfS" style="width:auto"><option value="">— status —</option>
-      ${S.boot.statuses.map(s => `<option value="${s.id}" ${f.fs == s.id ? 'selected' : ''}>${esc(s.title)}</option>`).join('')}</select>
-    <select class="inp" id="lfA" style="width:auto"><option value="">— χειριστής —</option>
-      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
-    <input class="inp" id="lfQ" placeholder="αναζήτηση…" style="width:150px" value="${esc(f.q || '')}">
-    <label style="display:flex;gap:5px;align-items:center;font-size:12.5px">
-      <input type="checkbox" id="lfO" ${f.open ? 'checked' : ''}> ανοιχτά</label>
-    <select class="inp" id="lfG" style="width:auto">
-      <option value="">— χωρίς ομαδοποίηση —</option>
-      <option value="status" ${f.group === 'status' ? 'selected' : ''}>Ανά στήλη</option>
-      <option value="assignee" ${f.group === 'assignee' ? 'selected' : ''}>Ανά χειριστή</option>
-      <option value="project" ${f.group === 'project' ? 'selected' : ''}>Ανά project</option>
-      <option value="prio" ${f.group === 'prio' ? 'selected' : ''}>Ανά προτεραιότητα</option></select>
-    <button class="btn btn-p btn-sm" id="lfGo">Εφαρμογή</button>
-    <button class="btn btn-o btn-sm" id="lfSave" title="Αποθήκευση view">${I.pin} </button>
-    <button class="btn btn-o btn-sm" id="lfCsv" title="Εξαγωγή CSV">⬇ CSV</button>
-  </div><div id="lRes"><div class="skel" style="height:300px"></div></div>`;
-  const apply = () => {
-    R.list._f = {fp: $('#lfP').value, fs: $('#lfS').value, fa: $('#lfA').value,
-      q: $('#lfQ').value, open: $('#lfO').checked ? 1 : 0, group: $('#lfG').value};
-    R.list();
+  <div class="card kb-search">
+    <div class="kb-srow">
+      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+        <input class="inp" id="lfQ" placeholder="Ψάξε τα πάντα — τίτλο, project, χειριστή, κατάσταση…" value="${esc(f.q || '')}"></div>
+      <button class="btn btn-o btn-sm" id="lfCsv" title="Εξαγωγή CSV">${I.download} CSV</button>
+      <button class="btn btn-p btn-sm" id="lfNew">${I.plus} Νέο task</button>
+    </div>
+    <div class="kb-filters">
+      <button class="kb-chip${f.proj === '' ? ' on' : ''}" data-lproj="">Όλα <b id="lcAll"></b></button>
+      <span class="chipwrap" id="lProjChips"></span>
+      <select class="inp kb-sort" id="lfG">${Object.entries(GROUPS).map(([k, l]) => `<option value="${k}" ${f.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="kb-mine"><input type="checkbox" id="lfO" ${f.open ? 'checked' : ''}> Μόνο ανοιχτά</label>
+      <label class="kb-mine"><input type="checkbox" id="lfM" ${f.mine ? 'checked' : ''}> Μόνο δικά μου</label>
+      <button class="btn btn-o btn-sm" id="lfSave" title="Αποθήκευση αυτών των φίλτρων ως view">${I.pin}</button>
+    </div>
+    ${views.length ? `<div class="kb-filters" style="border-top:0;padding-top:0;margin-top:7px">
+      ${views.map((v, i) => `<span class="kb-chip" style="padding-right:4px">${I.pin}
+        <span data-view="${i}" style="cursor:pointer">${esc(v.name)}</span>
+        <b data-viewdel="${i}" style="cursor:pointer;padding:0 5px;opacity:.5">✕</b></span>`).join('')}</div>` : ''}
+  </div>
+  <div id="lForm"></div>
+  <div id="lRes"><div class="skel" style="height:220px"></div></div>`;
+
+  /* ── γραμμή task (ίδιο ύφος με τις καταχωρήσεις γνώσης) ── */
+  const row = t => {
+    const stt = statusOf(t.status), over = t.due && t.due < today() && !t.done;
+    return `<div class="kb-item kb-trow" data-task="${t.id}">
+      <span class="kb-dot" style="background:${prioDot(t.prio)}" title="Προτεραιότητα: ${prioName(t.prio)}"></span>
+      <b>${esc(t.title)}</b>
+      <span class="kb-sum-meta">
+        ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}">⚡${esc(adminIni(t.ball))}</span>` : ''}
+        ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname)}</span>` : ''}
+        <span class="kb-tag" style="background:${stt.color}18;color:${stt.color}">${esc(stt.title)}</span>
+        ${t.assignee ? `<span class="mut">${esc(adminName(t.assignee))}</span>` : '<span class="mut">χωρίς ανάθεση</span>'}
+        ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
+        ${t.mins ? `<span class="mut">${fmtMin(t.mins)}</span>` : ''}
+      </span></div>`;
   };
-  $('#lfGo').onclick = apply;
-  $('#lfQ').onkeydown = e => { if (e.key === 'Enter') apply(); };
+
+  const norm = s => String(s || '').toLowerCase()
+    .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
+    .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
+  const match = t => !f.q || norm([t.title, t.pname, statusOf(t.status).title,
+    t.assignee ? adminName(t.assignee) : '', prioName(t.prio)].join(' ')).includes(norm(f.q));
+
+  const render = () => {
+    let list = D.tasks.filter(match);
+    if (f.proj !== '') list = list.filter(t => t.project == f.proj);
+    if (f.mine) list = list.filter(t => t.assignee === S.boot.me.id);
+
+    // μετρητές ανά project για τα chips
+    const cnt = {};
+    D.tasks.filter(match).forEach(t => { cnt[t.project] = (cnt[t.project] || 0) + 1; });
+    $('#lcAll').textContent = D.tasks.filter(match).length;
+    $('#lProjChips').innerHTML = S.boot.projects.filter(p => cnt[p.id]).map(p =>
+      `<button class="kb-chip${f.proj == p.id ? ' on' : ''}" data-lproj="${p.id}" style="--kc:${p.color}">
+        <span class="kb-dot" style="background:${p.color}"></span>${esc(p.name)} <b>${cnt[p.id]}</b></button>`).join('');
+
+    const el = $('#lRes');
+    if (!list.length) {
+      el.innerHTML = `<div class="card"><div class="empty" style="padding:40px">
+        <div class="big">${I.list}</div>
+        <b style="color:var(--ink);font-size:15px">${D.tasks.length ? 'Κανένα task με αυτά τα φίλτρα' : 'Καμία εργασία ακόμη'}</b>
+        <div class="mut" style="font-size:12.5px;margin-top:6px">${D.tasks.length ? 'Καθάρισε την αναζήτηση ή τα φίλτρα.' : 'Ξεκίνα προσθέτοντας το πρώτο task.'}</div>
+        <button class="btn btn-p" id="lfNew2" style="margin-top:14px">${I.plus} Νέο task</button></div></div>`;
+      bindRows();
+      return;
+    }
+    if (!f.group) {
+      el.innerHTML = `<div class="card kb-group"><div class="card-b kb-gbody">${list.map(row).join('')}</div></div>`;
+      bindRows();
+      return;
+    }
+    const keyOf = t => f.group === 'status' ? statusOf(t.status).title
+      : f.group === 'assignee' ? (t.assignee ? adminName(t.assignee) : 'Χωρίς ανάθεση')
+        : f.group === 'project' ? t.pname : prioName(t.prio);
+    const colOf = t => f.group === 'status' ? statusOf(t.status).color
+      : f.group === 'project' ? t.pcolor : f.group === 'prio' ? prioDot(t.prio) : '#8595ac';
+    const groups = {};
+    list.forEach(t => { const k = keyOf(t); (groups[k] = groups[k] || {col: colOf(t), rows: []}).rows.push(t); });
+    el.innerHTML = Object.entries(groups).map(([g, o]) => `
+      <div class="card kb-group">
+        <div class="card-h kb-ghead" data-lgrp="${esc(g)}">
+          <span class="kb-gbar" style="background:${o.col}"></span>${esc(g)}
+          <span class="kb-n">${o.rows.length}</span><span style="flex:1"></span>
+          <span class="kb-gchev ${f.closed[g] ? '' : 'open'}">${I.chev}</span>
+        </div>
+        <div class="card-b kb-gbody" ${f.closed[g] ? 'style="display:none"' : ''}>${o.rows.map(row).join('')}</div>
+      </div>`).join('');
+    bindRows();
+  };
+
+  const bindRows = () => {
+    $$('[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
+    $$('[data-lproj]').forEach(b => b.onclick = () => { f.proj = b.dataset.lproj; render(); });
+    $$('.kb-ghead').forEach(h => h.onclick = () => {
+      const g = h.dataset.lgrp; f.closed[g] = !f.closed[g];
+      h.nextElementSibling.style.display = f.closed[g] ? 'none' : '';
+      h.querySelector('.kb-gchev').classList.toggle('open', !f.closed[g]);
+    });
+    const n2 = $('#lfNew2'); if (n2) n2.onclick = () => openForm();
+    $$('[data-view]').forEach(b => b.onclick = () => { Object.assign(R.list._f, views[+b.dataset.view].f); R.list(); });
+    $$('[data-viewdel]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      views.splice(+b.dataset.viewdel, 1);
+      localStorage.cnpViews = JSON.stringify(views); R.list();
+    });
+  };
+
+  /* ── φόρμα νέου task: ΚΛΕΙΣΤΗ by default, ανοίγει με «Νέο task» ── */
+  const openForm = () => {
+    if (!S.boot.projects.length) { toast('Δεν έχεις projects', true); return; }
+    const FULL = S.boot.me.full;
+    $('#lForm').innerHTML = `<div class="card kb-form">
+      <div class="card-h">${I.plus} Νέο task</div>
+      <div class="card-b">
+        <label>Τι πρέπει να γίνει;</label>
+        <input class="inp" id="ntT" placeholder="Τίτλος του task">
+        <div class="frow" style="margin-top:11px">
+          <div><label>Project</label><select class="inp" id="ntP">${S.boot.projects.map(p =>
+            `<option value="${p.id}" ${p.id == (f.proj || S.project) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div><label>Κατάσταση</label><select class="inp" id="ntS">${S.boot.statuses.map(s =>
+            `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></div>
+        </div>
+        <div class="frow" style="margin-top:11px">
+          <div><label>Χειριστής${FULL ? '' : ' <span class="mut">(αυτο-ανάθεση)</span>'}</label>
+            ${FULL ? `<select class="inp" id="ntA"><option value="">— χωρίς ανάθεση —</option>
+              ${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>`
+              : `<input class="inp" value="${esc(S.boot.me.name)}" disabled>`}</div>
+          <div><label>Προθεσμία</label><input class="inp" type="date" id="ntD"></div>
+        </div>
+        ${FULL ? `<label style="margin-top:11px;display:block">Προτεραιότητα</label>
+          <select class="inp" id="ntR" style="max-width:220px">
+            <option value="0">Κανονική</option><option value="1">Υψηλή</option><option value="2">Κρίσιμη</option></select>` : ''}
+        <label style="margin-top:11px;display:block">Περιγραφή <span class="mut">(προαιρετικά)</span></label>
+        <textarea class="inp" id="ntX" rows="4" placeholder="Λεπτομέρειες…"></textarea>
+        <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
+          <button class="btn btn-o" id="ntCancel">Άκυρο</button>
+          <button class="btn btn-p" id="ntGo">${I.save} Δημιουργία</button></div>
+      </div></div>`;
+    $('#lForm').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    setTimeout(() => $('#ntT').focus(), 40);
+    $('#ntCancel').onclick = () => { $('#lForm').innerHTML = ''; };
+    $('#ntT').onkeydown = e => { if (e.key === 'Enter') { $('#ntGo').click(); } };
+    $('#ntGo').onclick = async () => {
+      const title = $('#ntT').value.trim();
+      if (!title) { toast('Γράψε τίτλο', true); return; }
+      const r = await api('quick_task', {project: +$('#ntP').value, title, status: +$('#ntS').value})
+        .catch(e => ({err: e.message}));
+      if (r.err || !r.id) { toast(r.err || 'Δεν δημιουργήθηκε', true); return; }
+      // τα υπόλοιπα πεδία με δεύτερη κλήση (το quick_task φτιάχνει μόνο τίτλο/project/status)
+      const extra = {task: r.id, descr: $('#ntX').value, due: $('#ntD').value};
+      if (S.boot.me.full) {
+        extra.assignee = +(($('#ntA') || {}).value || 0);
+        extra.prio = +(($('#ntR') || {}).value || 0);
+      }
+      await api('save_task', extra).catch(() => {});
+      toast('Το task δημιουργήθηκε');
+      $('#lForm').innerHTML = '';
+      await load();
+    };
+  };
+
+  // Το q ΔΕΝ πάει στον server: το tasksFiltered ψάχνει μόνο title/descr, οπότε αναζήτηση
+  // κατά χειριστή/project/κατάσταση θα γύριζε 0. Ό,τι αφορά κείμενο γίνεται client-side (match).
+  const load = async () => {
+    const qs = ['fs=' + encodeURIComponent(f.fs || ''), 'fa=' + encodeURIComponent(f.fa || ''),
+      'open=' + (f.open ? 1 : 0)].join('&');
+    D = await api('list&' + qs).catch(() => ({tasks: []}));
+    render();
+  };
+
+  let qt;
+  $('#lfQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { f.q = $('#lfQ').value.trim(); render(); }, 180); };
+  $('#lfG').onchange = () => { f.group = $('#lfG').value; render(); };
+  $('#lfO').onchange = () => { f.open = $('#lfO').checked ? 1 : 0; load(); };
+  $('#lfM').onchange = () => { f.mine = $('#lfM').checked; render(); };
+  $('#lfNew').onclick = openForm;
   $('#lfSave').onclick = async () => {
-    const name = await cnpPrompt('Όνομα view:', {title: '📌 Αποθήκευση view', placeholder: 'π.χ. Bugs Τεχνικού', ok: 'Αποθήκευση'});
-    if (!name) return;
-    views.push({name, f: {...R.list._f}});
+    const name = await cnpPrompt('Όνομα view:', {title: I.pin + ' Αποθήκευση view', placeholder: 'π.χ. Bugs Τεχνικού', ok: 'Αποθήκευση'});
+    if (!name) { return; }
+    views.push({name, f: Object.assign({}, f, {closed: {}})});
     localStorage.cnpViews = JSON.stringify(views);
     toast('Το view αποθηκεύτηκε'); R.list();
   };
-  $$('[data-view]').forEach(b => b.onclick = () => { R.list._f = {...views[+b.dataset.view].f}; R.list(); });
-  $$('[data-viewDel]').forEach(b => b.onclick = () => {
-    views.splice(+b.dataset.viewDel, 1);
-    localStorage.cnpViews = JSON.stringify(views); R.list();
-  });
-
-  const qs = Object.entries(f).filter(([k, v]) => k !== 'group' && v !== '' && v != null)
-    .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
-  const d = await api('list&' + qs);
-  const el = $('#lRes'); if (!el) return;
-  const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
-  const rowHtml = t => {
-    const st = statusOf(t.status), over = t.due && t.due < today() && !t.done;
-    return `<tr data-task="${t.id}" style="cursor:pointer">
-      <td><span class="dot" style="background:${prioDot(t.prio)};margin-right:7px"></span><b>${esc(t.title)}</b>
-        ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}">⚡${esc(adminIni(t.ball))}</span>` : ''}</td>
-      <td><span class="dot" style="background:${t.pcolor};margin-right:5px"></span>${esc(t.pname)}</td>
-      <td><span class="pill" style="background:${st.color}22;color:${st.color}">${esc(st.title)}</span></td>
-      <td>${t.assignee ? esc(adminName(t.assignee)) : '—'}</td>
-      <td class="${over ? 'pill pill-bad' : ''}">${t.due ? dShort(t.due) : '—'}</td>
-      <td>${t.mins ? fmtMin(t.mins) : '—'}</td></tr>`;
-  };
-  const tbl = rows => `<table class="tbl"><thead><tr>
-    <th>Task</th><th>Project</th><th>Status</th><th>Χειριστής</th><th>Λήξη</th><th>Χρόνος</th></tr></thead>
-    <tbody>${rows.map(rowHtml).join('')}</tbody></table>`;
-  if (!d.tasks.length) {
-    el.innerHTML = '<div class="card"><div class="empty">Κανένα task με αυτά τα φίλτρα</div></div>';
-  } else if (f.group) {
-    const keyOf = t => f.group === 'status' ? statusOf(t.status).title
-      : f.group === 'assignee' ? (t.assignee ? adminName(t.assignee) : '— χωρίς ανάθεση —')
-      : f.group === 'project' ? t.pname
-      : ['🔵 Κανονική', '🟡 Υψηλή', '🔴 Κρίσιμη'][t.prio];
-    const groups = {};
-    d.tasks.forEach(t => (groups[keyOf(t)] = groups[keyOf(t)] || []).push(t));
-    el.innerHTML = Object.entries(groups).map(([g, rows]) =>
-      `<div class="card"><div class="card-h">${esc(g)}<span class="kb-n" style="margin-left:auto">${rows.length}</span></div>${tbl(rows)}</div>`).join('');
-  } else {
-    el.innerHTML = `<div class="card">${tbl(d.tasks)}</div>`;
-  }
-  $$('#lRes tr[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
   $('#lfCsv').onclick = () => {
-    const esc2 = v => '"' + String(v ?? '').replaceAll('"', '""') + '"';
+    const esc2 = v => '"' + String(v == null ? '' : v).replaceAll('"', '""') + '"';
     const rows = [['Task', 'Project', 'Status', 'Χειριστής', 'Λήξη', 'Λεπτά'].map(esc2).join(';')];
-    d.tasks.forEach(t => rows.push([t.title, t.pname, statusOf(t.status).title, t.assignee ? adminName(t.assignee) : '', t.due || '', t.mins || 0].map(esc2).join(';')));
-    const blob = new Blob(['\ufeff' + rows.join('\n')], {type: 'text/csv;charset=utf-8'});
+    D.tasks.filter(match).forEach(t => rows.push([t.title, t.pname, statusOf(t.status).title,
+      t.assignee ? adminName(t.assignee) : '', t.due || '', t.mins || 0].map(esc2).join(';')));
+    const blob = new Blob(['﻿' + rows.join('\n')], {type: 'text/csv;charset=utf-8'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'tasks.csv'; a.click();
   };
+  await load();
 };
 
 
@@ -244,97 +360,217 @@ R.triage = async function () {
 
 /* ═════════ 📚 ΓΝΩΣΗ — «το έχω ξαναλύσει;» ═════════ */
 R.knowledge = async function () {
-  setTop('Γνώση', 'Ψάξε αν το πρόβλημα έχει ξαναλυθεί · τράπεζα συχνών λύσεων');
+  setTop('Γνώση', 'Βιβλιοθήκη γνώσης ανά προϊόν — ψάξε αν το πρόβλημα έχει ξαναλυθεί');
   const c = $('#content');
-  const st = R.knowledge._st = R.knowledge._st || {q: ''};
+  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}};
+  let D = {items: [], products: [], unfiled: 0};
+  const prod = id => D.products.find(p => p.id === +id);
+  const KSORT = {uses: 'Πιο χρήσιμα', recent: 'Πιο πρόσφατα', title: 'Αλφαβητικά'};
+
   c.innerHTML = `
-  <div class="card" style="padding:15px 18px">
-    <div style="display:flex;gap:9px">
-      <input class="inp" id="kQ" placeholder="Περιέγραψε το πρόβλημα… π.χ. «δεν στέλνει email το 3CX» (Enter)" style="flex:1;font-size:14px" value="${esc(st.q)}">
-      <button class="btn btn-p" id="kGo">${I.search} Αναζήτηση</button>
-    </div></div>
+  <div class="card kb-search">
+    <div class="kb-srow">
+      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+        <input class="inp" id="kQ" placeholder="Ψάξε τα πάντα — τίτλο, λέξεις-κλειδιά, κείμενο λύσης, προϊόν…" value="${esc(st.q)}"></div>
+      <button class="btn btn-o btn-sm" id="kDeep" title="Ψάξε και στο ιστορικό των tickets">${I.ticket} Και στα tickets</button>
+      <button class="btn btn-p btn-sm" id="kNew">${I.plus} Προσθήκη γνώσης</button>
+    </div>
+    <div class="kb-filters">
+      <button class="kb-chip${st.prod === '' ? ' on' : ''}" data-kprod="">Όλα <b id="kcAll"></b></button>
+      <span class="chipwrap" id="kProdChips"></span>
+      <select class="inp kb-sort" id="kSort">${Object.entries(KSORT).map(([k, l]) => `<option value="${k}" ${st.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="kb-mine"><input type="checkbox" id="kMine" ${st.mine ? 'checked' : ''}> Μόνο δικά μου</label>
+    </div>
+  </div>
+  <div id="kForm"></div>
   <div id="kRes"></div>
-  <div class="card"><div class="card-h">${I.book} Τράπεζα λύσεων <span class="kb-n" id="kbCount" style="margin-left:auto"></span></div>
-    <div class="card-b" id="kbList"><div class="skel" style="height:60px"></div></div></div>`;
-  const kbBox = (k, openable) => `
-    <details class="set-row" style="display:block" ${openable ? '' : 'open'}>
-      <summary style="cursor:pointer;display:flex;gap:8px;align-items:baseline">
-        <b style="font-size:13px">${I.bulb} ${esc(k.title)}</b>
-        ${k.tags ? `<span class="pill pill-mut">${esc(k.tags)}</span>` : ''}
-        ${k.uses ? `<span class="mut" style="font-size:10.5px">χρησιμοποιήθηκε ${k.uses}×</span>` : ''}
-        ${k.by ? `<span class="mut" style="margin-left:auto;font-size:10.5px">${esc(k.by)} · ${k.at ? dShort(k.at) : ''}</span>` : ''}
+  <div id="kbList"><div class="skel" style="height:120px"></div></div>`;
+
+  /* ── κάρτα γνώσης ── */
+  const kbBox = k => {
+    const p = prod(k.areaId);
+    return `<details class="kb-item" data-kbid="${k.id}">
+      <summary>
+        <span class="kb-dot" style="background:${p ? p.color : '#8595ac'}"></span>
+        <b>${esc(k.title)}</b>
+        <span class="kb-sum-meta">
+          ${(k.relAreas || []).map(r => { const rp = prod(r); return rp ? `<span class="kb-tag" style="background:${rp.color}18;color:${rp.color}">${esc(rp.name)}</span>` : ''; }).join('')}
+          ${k.tags ? `<span class="kb-tag kb-tag-mut">${esc(k.tags)}</span>` : ''}
+          ${k.uses ? `<span class="mut">${k.uses}× χρήση</span>` : ''}
+        </span>
       </summary>
-      <div style="white-space:pre-wrap;font-size:12.5px;padding:9px 4px 4px;color:var(--txt)">${esc(k.solution)}</div>
-      <div style="display:flex;gap:7px;margin-top:6px">
-        <button class="btn btn-sm btn-o" data-kedit="${k.id}">${I.edit} </button>
-        ${S.boot.me.full ? `<button class="btn btn-sm btn-o" data-kdel="${k.id}">${I.trash}</button>` : ''}
+      <div class="kb-body">
+        <div class="kb-sol">${esc(k.solution)}</div>
+        <div class="kb-foot">
+          <span class="mut">${k.by ? esc(k.by) : ''}${k.at ? ' · ' + dShort(k.at) : ''}${k.keywords ? ' · ' + esc(k.keywords) : ''}</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-sm btn-o" data-kcopy="${k.id}" title="Αντιγραφή λύσης">${I.copy}</button>
+          <button class="btn btn-sm btn-o" data-kedit="${k.id}">${I.edit} Επεξεργασία</button>
+          ${S.boot.me.full ? `<button class="btn btn-sm btn-o" style="color:var(--bad)" data-kdel="${k.id}">${I.trash}</button>` : ''}
+        </div>
       </div>
     </details>`;
-  const search = async () => {
+  };
+
+  /* ── καθολικό φιλτράρισμα (τίτλος + λέξεις + ετικέτες + λύση + όνομα προϊόντος) ── */
+  const norm = s => String(s || '').toLowerCase()
+    .replace(/[άἀ]/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
+    .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
+  const match = k => {
+    if (!st.q) return true;
+    const p = prod(k.areaId), rel = (k.relAreas || []).map(r => (prod(r) || {}).name || '').join(' ');
+    return norm([k.title, k.keywords, k.tags, k.solution, p ? p.name : '', rel].join(' ')).includes(norm(st.q));
+  };
+
+  const render = () => {
+    let list = D.items.filter(match);
+    if (st.prod !== '') {
+      const pid = +st.prod;
+      list = st.prod === 'none' ? D.items.filter(k => !k.areaId && match(k))
+        : list.filter(k => k.areaId === pid || (k.relAreas || []).includes(pid));
+    }
+    if (st.mine) list = list.filter(k => k.byId === S.boot.me.id);
+    list.sort(st.sort === 'title' ? (a, b) => a.title.localeCompare(b.title, 'el')
+      : st.sort === 'recent' ? (a, b) => (b.at || '').localeCompare(a.at || '') || b.id - a.id
+        : (a, b) => b.uses - a.uses || b.id - a.id);
+
+    // ομαδοποίηση ανά κύριο προϊόν
+    const groups = [];
+    D.products.forEach(p => {
+      const items = list.filter(k => k.areaId === p.id);
+      const related = list.filter(k => k.areaId !== p.id && (k.relAreas || []).includes(p.id));
+      if (items.length || (st.prod !== '' && related.length)) groups.push({p, items, related});
+    });
+    const none = list.filter(k => !k.areaId);
+    if (none.length) groups.push({p: {id: 0, name: 'Χωρίς προϊόν', color: '#8595ac'}, items: none, related: []});
+
+    $('#kbList').innerHTML = list.length ? groups.map(g => `
+      <div class="card kb-group">
+        <div class="card-h kb-ghead" data-kgrp="${g.p.id}">
+          <span class="kb-gbar" style="background:${g.p.color}"></span>
+          ${esc(g.p.name)}
+          <span class="kb-n">${g.items.length}</span>
+          <span style="flex:1"></span>
+          <span class="kb-gchev ${st.closed[g.p.id] ? '' : 'open'}">${I.chev || '⌄'}</span>
+        </div>
+        <div class="card-b kb-gbody" ${st.closed[g.p.id] ? 'style="display:none"' : ''}>
+          ${g.items.map(kbBox).join('') || '<div class="mut" style="font-size:12.5px;padding:4px 2px">Καμία δική του καταχώρηση.</div>'}
+          ${g.related.length ? `<div class="kb-rel"><div class="kb-rel-h">${I.link} Συναφή από άλλα προϊόντα <span class="kb-n">${g.related.length}</span></div>
+            ${g.related.map(kbBox).join('')}</div>` : ''}
+        </div>
+      </div>`).join('')
+      : `<div class="card"><div class="empty" style="padding:40px">
+          <div class="big">${I.book}</div>
+          <b style="color:var(--ink);font-size:15px">${st.q || st.prod !== '' || st.mine ? 'Κανένα αποτέλεσμα' : 'Η βιβλιοθήκη είναι άδεια'}</b>
+          <div class="mut" style="font-size:12.5px;margin-top:6px">${st.q || st.prod !== '' || st.mine
+            ? 'Δοκίμασε άλλη λέξη ή καθάρισε τα φίλτρα.'
+            : 'Κάθε λύση που καταγράφεις εδώ γλιτώνει χρόνο στην επόμενη φορά.'}</div>
+          <button class="btn btn-p" id="kNew2" style="margin-top:14px">${I.plus} Προσθήκη γνώσης</button></div></div>`;
+
+    $('#kcAll').textContent = D.items.length;
+    $('#kProdChips').innerHTML = D.products.filter(p => p.count).map(p =>
+      `<button class="kb-chip${st.prod == p.id ? ' on' : ''}" data-kprod="${p.id}" style="--kc:${p.color}">
+        <span class="kb-dot" style="background:${p.color}"></span>${esc(p.name)} <b>${p.count}</b></button>`).join('')
+      + (D.unfiled ? `<button class="kb-chip${st.prod === 'none' ? ' on' : ''}" data-kprod="none">Χωρίς προϊόν <b>${D.unfiled}</b></button>` : '');
+    bindList();
+  };
+
+  const bindList = () => {
+    $$('[data-kprod]').forEach(b => b.onclick = () => { st.prod = b.dataset.kprod; render(); });
+    $$('.kb-ghead').forEach(h => h.onclick = () => {
+      const id = h.dataset.kgrp; st.closed[id] = !st.closed[id];
+      const body = h.nextElementSibling;
+      body.style.display = st.closed[id] ? 'none' : '';
+      h.querySelector('.kb-gchev').classList.toggle('open', !st.closed[id]);
+    });
+    $$('[data-kedit]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); openForm(D.items.find(x => x.id === +b.dataset.kedit)); });
+    $$('[data-kcopy]').forEach(b => b.onclick = e => {
+      e.preventDefault(); e.stopPropagation();
+      const k = D.items.find(x => x.id === +b.dataset.kcopy);
+      navigator.clipboard.writeText(k.solution).then(() => { toast('Η λύση αντιγράφηκε'); api('kb_use', {id: k.id}).catch(() => {}); });
+    });
+    $$('[data-kdel]').forEach(b => b.onclick = async e => {
+      e.preventDefault(); e.stopPropagation();
+      if (!(await cnpConfirm('Διαγραφή αυτής της γνώσης από τη βιβλιοθήκη;', {danger: true, ok: 'Διαγραφή'}))) return;
+      await api('kb_del', {id: +b.dataset.kdel}); toast('Διαγράφηκε'); load();
+    });
+    const n2 = $('#kNew2'); if (n2) n2.onclick = () => openForm(null);
+  };
+
+  /* ── φόρμα: ΚΛΕΙΣΤΗ by default, ανοίγει με κουμπί ── */
+  const openForm = (k) => {
+    const sel = k ? (k.relAreas || []) : [];
+    $('#kForm').innerHTML = `<div class="card kb-form">
+      <div class="card-h">${k ? I.edit + ' Επεξεργασία γνώσης' : I.plus + ' Νέα καταχώρηση γνώσης'}</div>
+      <div class="card-b">
+        <input type="hidden" id="knId" value="${k ? k.id : 0}">
+        <label>Τίτλος προβλήματος</label>
+        <input class="inp" id="knT" placeholder="π.χ. 3CX δεν στέλνει voicemail email" value="${esc(k ? k.title : '')}">
+        <div class="frow" style="margin-top:11px">
+          <div><label>Προϊόν</label>
+            <select class="inp" id="knA"><option value="0">— χωρίς προϊόν —</option>
+              ${D.products.map(p => `<option value="${p.id}" ${k && k.areaId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div><label>Λέξεις-κλειδιά <span class="mut">(βοηθούν την αναζήτηση)</span></label>
+            <input class="inp" id="knK" placeholder="3cx, voicemail, smtp" value="${esc(k ? k.keywords : '')}"></div>
+        </div>
+        <label style="margin-top:11px;display:block">Συναφή προϊόντα <span class="mut">(εμφανίζεται και στις δικές τους ενότητες)</span></label>
+        <div class="kb-rel-pick">${D.products.map(p => `<label class="kb-relchk"><input type="checkbox" class="knR" value="${p.id}" ${sel.includes(p.id) ? 'checked' : ''}>
+          <span class="kb-dot" style="background:${p.color}"></span>${esc(p.name)}</label>`).join('')}</div>
+        <label style="margin-top:11px;display:block">Ετικέτες <span class="mut">(ελεύθερες)</span></label>
+        <input class="inp" id="knG" placeholder="π.χ. voip, urgent" style="max-width:280px" value="${esc(k ? k.tags : '')}">
+        <label style="margin-top:11px;display:block">Η λύση — βήμα-βήμα</label>
+        <textarea class="inp" id="knS" rows="8" placeholder="1. …&#10;2. …">${esc(k ? k.solution : '')}</textarea>
+        <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
+          <button class="btn btn-o" id="knCancel">Άκυρο</button>
+          <button class="btn btn-p" id="knAdd">${I.save} Αποθήκευση</button></div>
+      </div></div>`;
+    $('#kForm').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    setTimeout(() => $('#knT').focus(), 40);
+    $('#knCancel').onclick = () => { $('#kForm').innerHTML = ''; };
+    $('#knAdd').onclick = async () => {
+      const r2 = await api('kb_save', {id: +$('#knId').value, title: $('#knT').value,
+        keywords: $('#knK').value, tags: $('#knG').value, solution: $('#knS').value,
+        areaId: +$('#knA').value, relAreas: $$('.knR').filter(x => x.checked).map(x => +x.value)}).catch(e => ({err: e.message}));
+      if (r2.err) { toast(r2.err, true); return; }
+      toast('Αποθηκεύτηκε στη βιβλιοθήκη');
+      $('#kForm').innerHTML = '';
+      load();
+    };
+  };
+
+  /* ── βαθιά αναζήτηση: και στο ιστορικό tickets ── */
+  const deep = async () => {
     const q = $('#kQ').value.trim();
-    st.q = q;
     if (q.length < 3) { toast('Γράψε τουλάχιστον 3 χαρακτήρες', true); return; }
     $('#kRes').innerHTML = '<div class="skel" style="height:120px"></div>';
     const r = await api('ksearch&q=' + encodeURIComponent(q)).catch(() => ({kb: [], tickets: []}));
-    $('#kRes').innerHTML = `
-      ${r.kb.length ? `<div class="card"><div class="card-h">${I.bulb} Λύσεις από την τράπεζα <span class="kb-n" style="margin-left:auto">${r.kb.length}</span></div>
-        <div class="card-b">${r.kb.map(k => kbBox(k, true)).join('')}</div></div>` : ''}
-      <div class="card"><div class="card-h">${I.ticket} Παρόμοια tickets στο ιστορικό <span class="kb-n" style="margin-left:auto">${r.tickets.length}</span></div>
-        <div class="card-b">${r.tickets.length ? r.tickets.map(t => `
-          <div class="set-row" data-tgo="${t.id}" style="cursor:pointer">
-            <span class="pill ${t.status === 'Closed' ? 'pill-ok' : 'pill-info'}">${t.status === 'Closed' ? '✓ λύθηκε' : esc(t.status)}</span>
-            <div style="flex:1;min-width:0"><b style="font-size:12.5px">#${esc(t.tid)} — ${esc(t.title)}</b>
-              <span class="mut" style="font-size:11px"> · ${esc(t.client || '—')} · ${dShort(t.last)}</span></div>
-            <span class="mut">→</span></div>`).join('')
-          : '<div class="empty" style="padding:16px">Τίποτα παρόμοιο — ίσως είναι η πρώτη φορά. Μόλις το λύσεις, γράσε το στην τράπεζα! 💪</div>'}</div></div>`;
+    $('#kRes').innerHTML = `<div class="card"><div class="card-h">${I.ticket} Παρόμοια tickets στο ιστορικό
+        <span class="kb-n">${r.tickets.length}</span><span style="flex:1"></span>
+        <button class="btn btn-sm btn-o" id="kResX">Κλείσιμο</button></div>
+      <div class="card-b">${r.tickets.length ? r.tickets.map(t => `
+        <div class="set-row" data-tgo="${t.id}" style="cursor:pointer">
+          <span class="pill ${t.status === 'Closed' ? 'pill-ok' : 'pill-info'}">${t.status === 'Closed' ? '✓ λύθηκε' : esc(t.status)}</span>
+          <div style="flex:1;min-width:0"><b style="font-size:12.5px">#${esc(t.tid)} — ${esc(t.title)}</b>
+            <span class="mut" style="font-size:11px"> · ${esc(t.client || '—')} · ${dShort(t.last)}</span></div>
+          <span class="mut">→</span></div>`).join('')
+        : '<div class="empty" style="padding:16px">Τίποτα παρόμοιο — ίσως είναι η πρώτη φορά. Μόλις το λύσεις, καταχώρησέ το εδώ!</div>'}</div></div>`;
     $$('#kRes [data-tgo]').forEach(x => x.onclick = () => go('inbox', +x.dataset.tgo));
-    $$('#kRes [data-kedit]').forEach(bindEdit);
+    $('#kResX').onclick = () => { $('#kRes').innerHTML = ''; };
   };
-  $('#kGo').onclick = search;
-  $('#kQ').onkeydown = e => { if (e.key === 'Enter') search(); };
-  if (st.q) search();
 
-  const loadKb = async () => {
-    const r = await api('kb_list');
-    $('#kbCount').textContent = r.items.length;
-    $('#kbList').innerHTML = r.items.map(k => kbBox(k, true)).join('') + `
-      <div style="border-top:2px solid var(--line);padding-top:12px;margin-top:10px">
-        <b style="font-size:12.5px;color:var(--ink)" id="kbFormTitle">+ Νέα λύση στην τράπεζα</b>
-        <input type="hidden" id="knId" value="0">
-        <input class="inp" id="knT" placeholder="Τίτλος προβλήματος (π.χ. 3CX δεν στέλνει voicemail email)" style="margin-top:8px">
-        <input class="inp" id="knK" placeholder="Λέξεις-κλειδιά (π.χ. 3cx, voicemail, smtp)" style="margin-top:7px">
-        <input class="inp" id="knG" placeholder="Ετικέτες (π.χ. 3CX)" style="margin-top:7px;width:200px">
-        <textarea class="inp" id="knS" rows="5" placeholder="Η λύση — βήμα-βήμα…" style="margin-top:7px"></textarea>
-        <div style="margin-top:9px;display:flex;gap:8px">
-          <button class="btn btn-p btn-sm" id="knAdd">Αποθήκευση</button>
-          <button class="btn btn-o btn-sm" id="knClear" style="display:none">Άκυρο</button></div>
-      </div>`;
-    $('#knAdd').onclick = async () => {
-      const r2 = await api('kb_save', {id: +$('#knId').value, title: $('#knT').value,
-        keywords: $('#knK').value, tags: $('#knG').value, solution: $('#knS').value}).catch(e => ({err: e.message}));
-      if (r2.err) { toast(r2.err, true); return; }
-      toast('Αποθηκεύτηκε στην τράπεζα 📚'); loadKb();
-    };
-    $('#knClear').onclick = () => loadKb();
-    $$('#kbList [data-kedit]').forEach(bindEdit);
-    $$('#kbList [data-kdel]').forEach(b => b.onclick = async () => {
-      if (!(await cnpConfirm('Διαγραφή λύσης από την τράπεζα;', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
-      await api('kb_del', {id: +b.dataset.kdel}); toast('Διαγράφηκε'); loadKb();
-    });
+  const load = async () => {
+    D = await api('kb_list').catch(() => ({items: [], products: [], unfiled: 0}));
+    render();
   };
-  function bindEdit(b) {
-    b.onclick = async () => {
-      const r = await api('kb_list');
-      const k = r.items.find(x => x.id === +b.dataset.kedit);
-      if (!k) return;
-      $('#knId').value = k.id; $('#knT').value = k.title; $('#knK').value = k.keywords;
-      $('#knG').value = k.tags; $('#knS').value = k.solution;
-      $('#kbFormTitle').textContent = '✎ Επεξεργασία: ' + k.title;
-      $('#knClear').style.display = '';
-      $('#knT').scrollIntoView({behavior: 'smooth', block: 'center'});
-    };
-  }
-  loadKb();
+
+  let qt;
+  $('#kQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#kQ').value.trim(); render(); }, 180); };
+  $('#kQ').onkeydown = e => { if (e.key === 'Enter') deep(); };
+  $('#kDeep').onclick = deep;
+  $('#kNew').onclick = () => openForm(null);
+  $('#kSort').onchange = () => { st.sort = $('#kSort').value; render(); };
+  $('#kMine').onchange = () => { st.mine = $('#kMine').checked; render(); };
+  await load();
 };
 
 
@@ -549,21 +785,24 @@ R.rootcause = async function (days) {
   const maxC = Math.max(1, ...d.topCauses.map(x => x.count));
   const aById = {}; d.areas.forEach(a => aById[a.id] = a);
   const cById = {}; d.causes.forEach(c2 => cById[c2.id] = c2);
+  const MOB = matchMedia('(max-width:768px)').matches;
   c.innerHTML = `
-  <div style="display:flex;gap:9px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-    ${[30, 90, 180, 365].map(dd => `<button class="btn btn-sm ${dd === st ? 'btn-p' : 'btn-o'}" data-days="${dd}">${dd === 365 ? '1 έτος' : dd + ' ημέρες'}</button>`).join('')}
-    <span class="mut" style="margin-left:auto;font-size:12px">Ταξινομημένα: <b>${d.totalClassified}</b> / ${d.allTickets} tickets (${pct}%)</span>
+  <div class="card kb-search">
+    <div class="kb-filters" style="border-top:0;padding-top:0;margin-top:0">
+      ${[30, 90, 180, 365].map(dd => `<button class="kb-chip${dd === st ? ' on' : ''}" data-days="${dd}">${dd === 365 ? '1 έτος' : dd + ' ημέρες'}</button>`).join('')}
+      <span class="crm-goal" style="margin-left:auto">${I.tag} <b>${d.totalClassified}</b><span class="mut"> / ${d.allTickets} ταξινομημένα (${pct}%)</span></span>
+    </div>
   </div>
   ${pct < 40 ? `<div class="card" style="border-left:4px solid var(--warn);margin-bottom:14px"><div class="card-b" style="font-size:12.5px">
     ${I.bulb} Μόνο το ${pct}% των tickets είναι ταξινομημένα. Όσο περισσότερα ταξινομείτε (${I.tag} στο ticket), τόσο πιο ακριβής η ανάλυση.</div></div>` : ''}
   <div class="grid g2">
     <div class="card"><div class="card-h">${I.lab} Κορυφαίες ρίζες προβλημάτων</div><div class="card-b">
-      ${d.topCauses.length ? d.topCauses.map(x => `<div data-cgo="${x.id}" style="cursor:pointer;display:flex;gap:10px;align-items:center;margin:7px 0">
-        <span style="width:140px;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.name)}</span>
-        <div style="flex:1;background:var(--line);border-radius:7px;height:20px;overflow:hidden">
-          <div style="width:${Math.round(x.count / maxC * 100)}%;min-width:24px;height:100%;background:${x.color};border-radius:7px;display:flex;align-items:center;justify-content:flex-end;padding-right:7px;color:#fff;font-size:11px;font-weight:700">${x.count}</div></div>
-        <span style="width:46px;text-align:right;font-size:11px;font-weight:700;color:${x.delta > 0 ? 'var(--bad)' : x.delta < 0 ? 'var(--ok)' : 'var(--mut)'}">${x.delta > 0 ? '▲+' + x.delta : x.delta < 0 ? '▼' + x.delta : '='}</span>
-        <span class="mut" style="width:60px;text-align:right;font-size:11.5px">${x.minutes ? fmtMin(x.minutes) : ''}</span></div>`).join('')
+      ${d.topCauses.length ? d.topCauses.map(x => `<div class="rc-row" data-cgo="${x.id}">
+        <span class="rc-name">${esc(x.name)}</span>
+        <div class="rc-track">
+          <div class="rc-fill" style="width:${Math.round(x.count / maxC * 100)}%;background:${x.color}">${x.count}</div></div>
+        <span class="rc-delta" style="color:${x.delta > 0 ? 'var(--bad)' : x.delta < 0 ? 'var(--ok)' : 'var(--mut)'}">${x.delta > 0 ? '▲+' + x.delta : x.delta < 0 ? '▼' + x.delta : '='}</span>
+        <span class="rc-min mut">${x.minutes ? fmtMin(x.minutes) : ''}</span></div>`).join('')
         : '<div class="empty" style="padding:20px">Καμία ταξινόμηση ακόμη</div>'}
       <div class="mut" style="font-size:11px;margin-top:6px">Δεξιά = συνολικός χρόνος υποστήριξης που «κόστισε» η κάθε ρίζα.</div>
     </div></div>
@@ -583,13 +822,30 @@ R.rootcause = async function (days) {
       </tbody></table></div>
       <div class="mut" style="font-size:11px;margin-top:6px">▲ κόκκινο = αυξάνεται vs προηγούμενη περίοδος · ▼ πράσινο = μειώνεται.</div>
     </div></div>` : ''}
-  <div class="card"><div class="card-h">${I.puzzle} Πίνακας: Περιοχή × Ρίζα <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ σε αριθμό → τα tickets</span></div>
+  ${MOB
+    /* Κινητό: ο pivot Περιοχή×Ρίζα (9 στήλες με κάθετους τίτλους) ήταν αδιάβαστος — γίνεται
+       λίστα ανά περιοχή, με chip ανά ρίζα που έχει έστω 1 ticket. */
+    ? d.areas.map(a => {
+        const cells = d.causes.map(c2 => ({c2, n: (d.matrix[a.id] || {})[c2.id] || 0})).filter(x => x.n)
+          .sort((x, y) => y.n - x.n);
+        if (!cells.length) { return ''; }
+        const tot = cells.reduce((s, x) => s + x.n, 0);
+        return `<div class="card kb-group"><div class="card-h">
+            <span class="kb-gbar" style="background:${a.color}"></span>${esc(a.name)}
+            <span class="kb-n">${tot}</span></div>
+          <div class="card-b" style="display:flex;flex-wrap:wrap;gap:7px">
+            ${cells.map(({c2, n}) => `<button class="kb-chip" data-mgo="${a.id}_${c2.id}" style="--kc:${c2.color}">
+              <span class="kb-dot" style="background:${c2.color}"></span>${esc(c2.name)} <b>${n}</b></button>`).join('')}
+          </div></div>`;
+      }).join('') || `<div class="card"><div class="empty" style="padding:34px">
+          <div class="big">${I.puzzle}</div>Καμία ταξινόμηση σε αυτή την περίοδο</div></div>`
+    : `<div class="card"><div class="card-h">${I.puzzle} Πίνακας: Περιοχή × Ρίζα <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ σε αριθμό → τα tickets</span></div>
     <div class="tw" style="overflow-x:auto"><table class="tbl" style="font-size:11.5px"><thead><tr><th></th>
       ${d.causes.map(c2 => `<th style="writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;max-height:120px">${esc(c2.name)}</th>`).join('')}</tr></thead><tbody>
       ${d.areas.map(a => `<tr><td style="font-weight:700;white-space:nowrap"><span class="dot" style="background:${a.color}"></span> ${esc(a.name)}</td>
         ${d.causes.map(c2 => { const n = (d.matrix[a.id] || {})[c2.id] || 0;
           return `<td align="center" ${n ? `data-mgo="${a.id}_${c2.id}" style="cursor:pointer;background:${c2.color}${n >= 5 ? '55' : n >= 2 ? '2e' : '14'};font-weight:700"` : 'class="mut"'}>${n || ''}</td>`; }).join('')}</tr>`).join('')}
-    </tbody></table></div></div>`;
+    </tbody></table></div></div>`}`;
   $$('[data-days]').forEach(b => b.onclick = () => R.rootcause(+b.dataset.days));
   const goInbox = (area, cause) => { R.inbox._st = {view: 'closed', q: '', sel: null, area: area || 0, cause: cause || 0}; go('inbox'); };
   $$('[data-cgo]').forEach(x => x.onclick = () => goInbox(0, +x.dataset.cgo));

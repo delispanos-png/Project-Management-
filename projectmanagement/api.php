@@ -1195,6 +1195,7 @@ case 'list':
     $list = [];
     foreach ($rows as $t) {
         $d = taskDto($t);
+        $d['project'] = (int) $t->project_id;      // το χρειάζεται το φίλτρο/chips ανά project
         $d['pname'] = $t->project_name;
         $d['pcolor'] = $t->project_color;
         $d['mins'] = (int) ($mins[(int) $t->id] ?? 0);
@@ -2531,14 +2532,23 @@ case 'ksearch':                         // «το έχω ξαναλύσει;» �
     if (!$qw) {
         fail('q');
     }
-    // KB
+    // KB — ταίριασμα λέξεων + fallback σε υποσυμβολοσειρά (ώστε το search «να πιάνει τα πάντα»)
+    $qRaw = mb_strtolower($q9, 'UTF-8');
     $kbHits = [];
     foreach (Capsule::table('mod_cpm_kb')->get() as $k9) {
-        $kw = cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags . ' ' . mb_substr($k9->solution, 0, 400));
+        $hay = $k9->title . ' ' . $k9->keywords . ' ' . $k9->tags . ' ' . $k9->solution;
+        $kw = cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags . ' ' . mb_substr($k9->solution, 0, 2000));
         $sc = cnp_overlap($qw, $kw);
+        if ($sc === 0 && mb_strpos(mb_strtolower($hay, 'UTF-8'), $qRaw) !== false) {
+            $sc = 1;                                   // δεν έπιασε λέξη, αλλά υπάρχει αυτούσιο το κείμενο
+        }
         if ($sc > 0) {
             $kbHits[] = ['id' => (int) $k9->id, 'title' => $k9->title, 'tags' => $k9->tags,
-                'solution' => $k9->solution, 'uses' => (int) $k9->uses, 'score' => $sc];
+                'keywords' => $k9->keywords, 'solution' => $k9->solution, 'uses' => (int) $k9->uses,
+                'areaId' => (int) $k9->area_id,
+                'relAreas' => array_values(array_filter(array_map('intval', explode(',', (string) $k9->rel_areas)))),
+                'by' => $k9->created_by ? Db::adminName($k9->created_by) : null,
+                'at' => substr((string) $k9->created_at, 0, 10), 'score' => $sc];
         }
     }
     usort($kbHits, function ($a, $b) { return $b['score'] <=> $a['score']; });
@@ -2728,18 +2738,45 @@ case 'client_health':                   // ❤️ υγεία πελατών — 
     out(['clients' => array_slice($outH, 0, 15)]);
 
 case 'kb_list':
-    out(['items' => array_map(function ($k9) {
+    $items9 = array_map(function ($k9) {
         return ['id' => (int) $k9->id, 'title' => $k9->title, 'keywords' => $k9->keywords,
             'tags' => $k9->tags, 'solution' => $k9->solution, 'uses' => (int) $k9->uses,
+            'areaId' => (int) $k9->area_id,
+            'relAreas' => array_values(array_filter(array_map('intval', explode(',', (string) $k9->rel_areas)))),
             'by' => $k9->created_by ? Db::adminName($k9->created_by) : null,
+            'byId' => (int) $k9->created_by,
             'at' => substr((string) $k9->created_at, 0, 10)];
-    }, Capsule::table('mod_cpm_kb')->orderBy('uses', 'desc')->orderBy('id', 'desc')->get()->all())]);
+    }, Capsule::table('mod_cpm_kb')->orderBy('uses', 'desc')->orderBy('id', 'desc')->get()->all());
+    // προϊόντα = η ενιαία ταξινομία περιοχών (Ρυθμίσεις → Κατηγορίες tickets)
+    $prods9 = [];
+    foreach (cnp_ticket_cats()['area'] as $a9) {
+        $n9 = 0;
+        foreach ($items9 as $it9) {
+            if ($it9['areaId'] === $a9['id'] || in_array($a9['id'], $it9['relAreas'], true)) {
+                $n9++;
+            }
+        }
+        $prods9[] = $a9 + ['count' => $n9];
+    }
+    $unfiled9 = 0;
+    foreach ($items9 as $it9) {
+        if (!$it9['areaId']) {
+            $unfiled9++;
+        }
+    }
+    out(['items' => $items9, 'products' => $prods9, 'unfiled' => $unfiled9]);
 
 case 'kb_save':
     $kid = (int) ($in['id'] ?? 0);
+    $valid9 = array_column(cnp_ticket_cats()['area'], 'id');
+    $area9 = (int) ($in['areaId'] ?? 0);
+    $rel9 = array_values(array_unique(array_filter(array_map('intval', (array) ($in['relAreas'] ?? [])),
+        function ($x) use ($valid9, $area9) { return in_array($x, $valid9, true) && $x !== $area9; })));
     $data9 = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 255),
         'keywords' => mb_substr(trim($in['keywords'] ?? ''), 0, 500),
         'tags' => mb_substr(trim($in['tags'] ?? ''), 0, 190),
+        'area_id' => in_array($area9, $valid9, true) ? $area9 : 0,
+        'rel_areas' => implode(',', array_slice($rel9, 0, 12)),
         'solution' => mb_substr(trim($in['solution'] ?? ''), 0, 60000),
         'updated_at' => date('Y-m-d H:i:s')];
     if ($data9['title'] === '' || $data9['solution'] === '') {
@@ -2840,19 +2877,56 @@ case 'remote_save_peer':                // αποθήκευση/επεξεργα
          'updated_by' => $adminId, 'updated_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true, 'rustdesk_id' => $peer8]);
 
-case 'remote_book':                     // 📇 όλες οι αποθηκευμένες συνδέσεις (address book)
+case 'remote_book':                     // 📇 όλες οι αποθηκευμένες συνδέσεις (address book) + ιστορικό/στατιστικά
     $rows = Capsule::table('mod_cpm_client_remote as r')
         ->join('tblclients as c', 'c.id', '=', 'r.clientid')
         ->orderBy('r.updated_at', 'desc')
         ->get(['r.clientid', 'r.rustdesk_id', 'r.label', 'r.updated_at',
                'c.firstname', 'c.lastname', 'c.companyname']);
+    // σύνοψη ολοκληρωμένων συνεδριών ανά πελάτη (πλήθος / τελευταία / συνολικά λεπτά)
+    $sAgg = [];
+    foreach (Capsule::table('mod_cpm_remote_sessions')->whereNotNull('ended_at')
+        ->groupBy('clientid')
+        ->get([Capsule::raw('clientid'), Capsule::raw('COUNT(*) as n'),
+               Capsule::raw('MAX(started_at) as last_at'), Capsule::raw('SUM(minutes) as mins')]) as $g) {
+        $sAgg[(int) $g->clientid] = ['n' => (int) $g->n, 'lastAt' => $g->last_at, 'mins' => (int) $g->mins];
+    }
     $book = [];
     foreach ($rows as $r) {
+        $a = $sAgg[(int) $r->clientid] ?? ['n' => 0, 'lastAt' => null, 'mins' => 0];
         $book[] = ['clientid' => (int) $r->clientid, 'rustdesk_id' => $r->rustdesk_id,
             'label' => $r->label, 'updated' => $r->updated_at,
-            'name' => $r->companyname ?: trim($r->firstname . ' ' . $r->lastname)];
+            'name' => $r->companyname ?: trim($r->firstname . ' ' . $r->lastname),
+            'sessions' => $a['n'], 'lastAt' => $a['lastAt'], 'totalMins' => $a['mins']];
     }
-    out(['book' => $book]);
+    // στατιστικά 30 ημερών (όλης της ομάδας — ο restricted βλέπει μόνο τα δικά του)
+    $since30 = date('Y-m-d H:i:s', strtotime('-30 days'));
+    $qStat = Capsule::table('mod_cpm_remote_sessions')->whereNotNull('ended_at')->where('started_at', '>=', $since30);
+    if (!$FULL) {
+        $qStat->where('admin_id', $adminId);
+    }
+    $st30 = $qStat->first([Capsule::raw('COUNT(*) as n'), Capsule::raw('SUM(minutes) as mins'),
+        Capsule::raw('SUM(CASE WHEN billable=1 THEN minutes ELSE 0 END) as bmins')]);
+    // πρόσφατες συνεδρίες
+    $qRec = Capsule::table('mod_cpm_remote_sessions as s')->leftJoin('tblclients as c', 'c.id', '=', 's.clientid')
+        ->whereNotNull('s.ended_at')->orderBy('s.started_at', 'desc')->limit(8);
+    if (!$FULL) {
+        $qRec->where('s.admin_id', $adminId);
+    }
+    $recent = [];
+    foreach ($qRec->get(['s.id', 's.clientid', 's.admin_id', 's.ticketid', 's.started_at', 's.minutes',
+        's.billable', 's.note', 'c.firstname', 'c.lastname', 'c.companyname']) as $s) {
+        $recent[] = ['id' => (int) $s->id, 'clientid' => (int) $s->clientid,
+            'name' => $s->companyname ?: trim($s->firstname . ' ' . $s->lastname) ?: ('#' . (int) $s->clientid),
+            'by' => Db::adminName((int) $s->admin_id), 'ticket' => (int) $s->ticketid,
+            'startedAt' => $s->started_at, 'minutes' => (int) $s->minutes,
+            'billable' => (bool) $s->billable, 'note' => $s->note];
+    }
+    out(['book' => $book, 'recent' => $recent,
+        'stats' => ['saved' => count($book), 'n30' => (int) ($st30->n ?? 0),
+            'mins30' => (int) ($st30->mins ?? 0), 'bmins30' => (int) ($st30->bmins ?? 0)],
+        'dl' => (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'rustdesk_dl')->value('value') ?: '')]);
 
 case 'remote_send_client':              // στείλε το πρόγραμμα υποστήριξης στον πελάτη
     $cid8 = (int) ($in['client'] ?? 0);

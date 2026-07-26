@@ -1,11 +1,13 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, dShort, today, toast, setTop, openTask, adminIni, adminName, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, dShort, today, toast, setTop, openTask, adminIni, adminName, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
 const CELL = 34;
-const LEFT = 470; // title 280 + duration 70 + start/end 120
+const LEFT = 470;        // desktop: title 280 + duration 70 + start/end 120
+const LEFT_MOB = 132;    // κινητό: μόνο τίτλος (470px δεν χωράει σε οθόνη 390 — έμενε αόρατο το χρονοδιάγραμμα)
+const isMob = () => matchMedia('(max-width:768px)').matches;
 const iso = d => d.toISOString().slice(0, 10);
 const addD = (s, n) => iso(new Date(new Date(s + 'T12:00:00').getTime() + n * DAY));
 const diffD = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / DAY);
@@ -14,6 +16,10 @@ R.gantt = async function () {
   setTop('Gantt', 'Χρονοδιάγραμμα projects & διαθεσιμότητα ομάδας');
   const c = $('#content');
   const st = R.gantt._st = R.gantt._st || {from: addD(today(), -7), weeks: 6, mode: 'project', open: {}};
+  const MOB = isMob();
+  const LEFTW = MOB ? LEFT_MOB : LEFT;
+  /** Οι δύο βοηθητικές στήλες — στο κινητό δεν αποδίδονται καθόλου (χώρος για το χρονοδιάγραμμα). */
+  const cols = (a, b) => MOB ? '' : `<div class="g-col">${a || ''}</div><div class="g-col g-col2">${b || ''}</div>`;
   c.innerHTML = '<div class="skel" style="height:420px"></div>';
   const to = addD(st.from, st.weeks * 7);
   const d = await api(`gantt&from=${st.from}&to=${to}`);
@@ -78,8 +84,7 @@ R.gantt = async function () {
           <span class="dot" style="background:${p.color}"></span>
           <b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</b>
           <span class="mut" style="margin-left:auto;font-size:10px">${own.length}</span></div>
-        <div class="g-col">${sp ? dur(sp[0], sp[1]) : ''}</div>
-        <div class="g-col g-col2">${sp ? fmtDates(sp[0], sp[1]) : ''}</div>
+        ${cols(sp ? dur(sp[0], sp[1]) : '', sp ? fmtDates(sp[0], sp[1]) : '')}
         <div class="g-cells" style="width:${nDays * CELL}px">${bgCells}${bar}</div></div>` +
         (isOpen ? (tasksBy[p.id] || []).map(t => taskRow(t, depth + 1)).join('')
           + (kids[p.id] || []).map(k => projRow(k, depth + 1)).join('') : '');
@@ -89,8 +94,7 @@ R.gantt = async function () {
       return `<div class="g-hrow g-taskrow">
         <div class="g-label g-tlabel" data-open="${t.id}" style="padding-left:${26 + depth * 20}px">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span></div>
-        <div class="g-col">${dur(t.start, t.end)}</div>
-        <div class="g-col g-col2">${fmtDates(t.start, t.end)}</div>
+        ${cols(dur(t.start, t.end), fmtDates(t.start, t.end))}
         <div class="g-cells" style="width:${nDays * CELL}px">${bgCells}
           <div class="g-bar ${t.prio === 2 ? 'crit' : t.prio === 1 ? 'high' : ''}" data-task="${t.id}"
             data-start="${t.start}" data-end="${t.end}"
@@ -109,12 +113,12 @@ R.gantt = async function () {
     const loadCls2 = m => !m ? '' : m <= 240 ? 'g-free' : m <= 480 ? 'g-ok' : 'g-over';
     const capacity = Object.keys(d.load).length ? `
       <div class="g-hrow g-agent"><div class="g-label"><b>👥 Χωρητικότητα ομάδας</b></div>
-        <div class="g-col"></div><div class="g-col g-col2"></div>
+        ${cols()}
         <div class="g-cells" style="width:${nDays * CELL}px">${bgCells}</div></div>` +
       Object.entries(d.load).map(([aid, ld]) => `
         <div class="g-hrow" style="height:26px"><div class="g-label" style="padding-left:26px;font-size:11.5px">
             <span class="ava" style="width:18px;height:18px;font-size:8px">${esc(adminIni(+aid))}</span>${esc(adminName(+aid))}</div>
-          <div class="g-col"></div><div class="g-col g-col2"></div>
+          ${cols()}
           <div class="g-cells" style="width:${nDays * CELL}px">
             ${days.map(x => (d.leaves && d.leaves[aid] && d.leaves[aid][x])
               ? `<div class="g-load g-leave" style="height:25px" title="${esc(adminName(+aid))} · ${dShort(x)} · 🌴 Άδεια">🌴</div>`
@@ -133,7 +137,7 @@ R.gantt = async function () {
       return `<div class="g-hrow g-agent">
         <div class="g-label"><span class="ava">${+aid ? esc(adminIni(+aid)) : '—'}</span><b>${esc(name)}</b>
           <span class="mut" style="margin-left:auto;font-size:10px">${byA[aid].length}</span></div>
-        <div class="g-col"></div><div class="g-col g-col2"></div>
+        ${cols()}
         <div class="g-cells" style="width:${nDays * CELL}px">
           ${days.map(x => (d.leaves && d.leaves[aid] && d.leaves[aid][x])
             ? `<div class="g-load g-leave" title="${esc(name)} · ${dShort(x)} · 🌴 Άδεια">🌴</div>`
@@ -145,8 +149,7 @@ R.gantt = async function () {
             <div class="g-label g-tlabel" data-open="${t.id}" style="padding-left:30px">
               <span class="dot" style="background:${t.color}"></span>
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span></div>
-            <div class="g-col">${dur(t.start, t.end)}</div>
-            <div class="g-col g-col2">${fmtDates(t.start, t.end)}</div>
+            ${cols(dur(t.start, t.end), fmtDates(t.start, t.end))}
             <div class="g-cells" style="width:${nDays * CELL}px">${bgCells}
               <div class="g-bar ${t.prio === 2 ? 'crit' : t.prio === 1 ? 'high' : ''}" data-task="${t.id}"
                 data-start="${t.start}" data-end="${t.end}"
@@ -157,30 +160,46 @@ R.gantt = async function () {
     }).join('') || '<div class="empty" style="padding:40px">Τίποτα προγραμματισμένο</div>';
   }
 
+  // Κενό χρονοδιάγραμμα → κανονική κάρτα ΕΚΤΟΣ του scroller (μέσα του θα ήταν κεντραρισμένο
+  // σε πλάτος ~1900px, δηλαδή αόρατο στο κινητό — έμοιαζε «χαλασμένο»).
+  const nothing = !d.tasks.length;
+
   c.innerHTML = `
-  <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+  <div class="g-toolbar" style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
     <div style="display:flex;background:#8595ac22;border-radius:10px;padding:3px">
       <button class="btn btn-sm ${st.mode === 'project' ? 'btn-p' : ''}" id="gMp" style="box-shadow:none">📁 Projects</button>
       <button class="btn btn-sm ${st.mode === 'people' ? 'btn-p' : ''}" id="gMa" style="box-shadow:none">👥 Διαθεσιμότητα</button>
     </div>
-    <button class="btn btn-o btn-sm" id="gPrev">←</button>
-    <button class="btn btn-o btn-sm" id="gToday">Σήμερα</button>
-    <button class="btn btn-o btn-sm" id="gNext">→</button>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="btn btn-o btn-sm" id="gPrev">←</button>
+      <button class="btn btn-o btn-sm" id="gToday">Σήμερα</button>
+      <button class="btn btn-o btn-sm" id="gNext">→</button>
+    </div>
     ${st.mode === 'project' ? '<button class="btn btn-o btn-sm" id="gAll">↕ Άνοιγμα όλων</button>' : `
       <span class="mut" style="font-size:11.5px"><span class="dot" style="background:#16a26a"></span>≤4ω
       <span class="dot" style="background:#eba63c"></span>≤8ω <span class="dot" style="background:#e2515f"></span>>8ω</span>`}
-    <span class="mut" style="margin-left:auto;font-size:11.5px">Σύρε μπάρα = μετακίνηση · άκρη = διάρκεια · κλικ = άνοιγμα</span>
+    <span class="mut g-hint" style="margin-left:auto;font-size:11.5px">Σύρε μπάρα = μετακίνηση · άκρη = διάρκεια · κλικ = άνοιγμα</span>
   </div>
-  <div class="gantt card" style="padding:0;overflow:hidden">
-    <div class="g-scroll"><div class="g-inner" style="width:${LEFT + nDays * CELL}px">
+  ${nothing ? `<div class="card"><div class="empty" style="padding:44px 22px">
+      <div class="big">${I.gantt}</div>
+      <b style="color:var(--ink);font-size:15px">Κανένα task στο χρονοδιάγραμμα</b>
+      <div class="mut" style="font-size:12.5px;margin-top:6px;max-width:420px;margin-inline:auto;line-height:1.6">
+        Στο Gantt εμφανίζονται μόνο τα ανοιχτά tasks που έχουν <b>ημερομηνία</b> — έναρξη, πλάνο ή προθεσμία.
+        Βάλε ημερομηνία σε ένα task και θα εμφανιστεί εδώ.</div>
+      <button class="btn btn-p" id="gToBoard" style="margin-top:14px">Πήγαινε στο Board</button></div></div>`
+    : `<div class="gantt card" style="padding:0;overflow:hidden;--gl:${LEFTW}px">
+    <div class="g-scroll"><div class="g-inner" style="width:${LEFTW + nDays * CELL}px">
       <div class="g-hrow g-sticky"><div class="g-label g-corner">ΤΙΤΛΟΣ</div>
-        <div class="g-col g-corner">ΔΙΑΡΚΕΙΑ</div><div class="g-col g-col2 g-corner">ΕΝΑΡΞΗ / ΛΗΞΗ</div>
+        ${MOB ? '' : '<div class="g-col g-corner">ΔΙΑΡΚΕΙΑ</div><div class="g-col g-col2 g-corner">ΕΝΑΡΞΗ / ΛΗΞΗ</div>'}
         <div class="g-cells" style="width:${nDays * CELL}px">${monthCells}</div></div>
-      <div class="g-hrow g-sticky2"><div class="g-label"></div><div class="g-col"></div><div class="g-col g-col2"></div>
+      <div class="g-hrow g-sticky2"><div class="g-label"></div>${cols()}
         <div class="g-cells" style="width:${nDays * CELL}px">${dayHead}</div></div>
       ${rowsHtml}
     </div></div>
-  </div>`;
+  </div>`}`;
+
+  const toB = $('#gToBoard');
+  if (toB) toB.onclick = () => window.CNP.go('board');
 
   $('#gMp').onclick = () => { st.mode = 'project'; R.gantt(); };
   $('#gMa').onclick = () => { st.mode = 'people'; R.gantt(); };
@@ -201,15 +220,26 @@ R.gantt = async function () {
   });
   $$('.g-tlabel').forEach(l => l.onclick = () => openTask(+l.dataset.open));
   const sc = $('.g-scroll');
-  sc.scrollLeft = Math.max(0, diffD(d.from, today()) * CELL - 300);
+  // στο κινητό η ορατή περιοχή είναι μικρή — κεντράρισε το σήμερα αντί για σταθερό offset 300px
+  if (sc) sc.scrollLeft = Math.max(0, diffD(d.from, today()) * CELL - (MOB ? 60 : 300));
 
   /* ---- drag / resize ---- */
   let drag = null;
   c.onpointerdown = e => {
     const bar = e.target.closest('.g-bar');
     if (!bar || e.button !== 0) return;
-    drag = {bar, x0: e.clientX, left0: parseFloat(bar.style.left), w0: parseFloat(bar.style.width),
+    // δέσε τον δείκτη στη μπάρα: με αφή, αλλιώς ο browser «κλέβει» το gesture για scroll
+    try { bar.setPointerCapture(e.pointerId); } catch (err) { /* ασήμαντο */ }
+    drag = {bar, id: e.pointerId, x0: e.clientX, left0: parseFloat(bar.style.left), w0: parseFloat(bar.style.width),
       resize: !!e.target.closest('.g-handle'), moved: false};
+  };
+  // αν το gesture ακυρωθεί (scroll/κλήση/εναλλαγή εφαρμογής) → επανάφερε, μη μείνει κολλημένο
+  c.onpointercancel = () => {
+    if (!drag) return;
+    drag.bar.style.left = drag.left0 + 'px';
+    drag.bar.style.width = drag.w0 + 'px';
+    drag.bar.classList.remove('dragging');
+    drag = null;
   };
   c.onpointermove = e => {
     if (!drag) return;

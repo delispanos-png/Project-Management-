@@ -50,6 +50,23 @@ R.list = async function () {
 /* ═════════ ΟΜΑΔΙΚΟ ΗΜΕΡΟΛΟΓΙΟ ═════════ */
 const EV_KINDS = {meeting: ['🤝', 'Meeting', '#7b5cd6'], appointment: ['📅', 'Ραντεβού', '#0090dd'],
   leave: ['🌴', 'Άδεια', '#e2a33c'], other: ['📌', 'Άλλο', '#8595ac']};
+/* Ελληνική μορφή ημερομηνίας/ώρας συμβάντος — «Παρασκευή 24 Ιουλίου · 10:00 – 11:00». */
+function evWhen(ev) {
+  const D = s => new Date(String(s).replace(' ', 'T'));
+  const dOpt = {weekday: 'long', day: 'numeric', month: 'long'};
+  if (!ev.start) { return ''; }
+  const a = D(ev.start), b = ev.end ? D(ev.end) : null;
+  const sameDay = b && a.toDateString() === b.toDateString();
+  const day = a.toLocaleDateString('el-GR', dOpt);
+  const hm = x => x.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false});
+  if (ev.allDay) {
+    return sameDay || !b ? `${day} · ολοήμερο`
+      : `${a.toLocaleDateString('el-GR', dOpt)} → ${b.toLocaleDateString('el-GR', dOpt)} · ολοήμερο`;
+  }
+  if (sameDay || !b) { return `${day} · ${hm(a)}${b ? ' – ' + hm(b) : ''}`; }
+  return `${day} ${hm(a)} → ${b.toLocaleDateString('el-GR', dOpt)} ${hm(b)}`;
+}
+
 function openEvent(ev, ymRefresh) {
   closeDrawer();
   const isNew = !ev || !ev.id;
@@ -60,13 +77,72 @@ function openEvent(ev, ymRefresh) {
   const t0 = ev.start ? ev.start.slice(11, 16) : '10:00';
   const d1 = ev.end ? ev.end.slice(0, 10) : today();
   const t1 = ev.end ? ev.end.slice(11, 16) : '11:00';
-  dr.innerHTML = `
-  <div class="drawer-h"><h2>${isNew ? 'Νέο συμβάν' : esc(ev.title)}</h2><button class="drawer-x" id="dX">✕</button></div>
-  <div class="drawer-b"><div class="card"><div class="card-b">
+  const xmails = [];
+  let editing = isNew;              // υπάρχον συμβάν → ΠΡΟΒΟΛΗ πρώτα (η φόρμα ανοίγει με «Επεξεργασία»)
+  let kind = ev.kind;
+
+  const isLink = !!(ev.location && /^https?:\/\//.test(ev.location));
+  const isMeet = isLink && /\/meet\.php|\/project(management)?\/meet/.test(ev.location);
+  const myRsvp = () => (ev.rsvp || {})['admin' + S.boot.me.id];
+
+  /* ── συμμετέχοντες με κατάσταση RSVP ── */
+  const whoHtml = () => `
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${(ev.attendees || []).map(a => {
+        const s = (ev.rsvp || {})['admin' + a];
+        return `<span class="pill ${s === 'accepted' ? 'pill-ok' : s === 'declined' ? 'pill-bad' : 'pill-mut'}"
+          title="${s === 'accepted' ? 'Αποδέχθηκε' : s === 'declined' ? 'Δεν μπορεί' : 'Δεν απάντησε ακόμη'}">
+          ${s === 'accepted' ? '✅' : s === 'declined' ? '❌' : '⏳'} ${esc(adminName(a))}</span>`;
+      }).join('')}
+      ${ev.client ? (() => {
+        const s = (ev.rsvp || {})['client' + ev.client];
+        return `<span class="pill ${s === 'accepted' ? 'pill-ok' : s === 'declined' ? 'pill-bad' : 'pill-mut'}">
+          ${s === 'accepted' ? '✅' : s === 'declined' ? '❌' : '⏳'} ${I.building} ${esc(ev.clientName || 'Πελάτης')}</span>`;
+      })() : ''}
+    </div>`;
+
+  /* ══ ΠΡΟΒΟΛΗ — ό,τι χρειάζεσαι στην κορυφή, χωρίς scroll ══ */
+  const viewHtml = () => {
+    const [ico, klabel, kcol] = EV_KINDS[ev.kind] || EV_KINDS.other;
+    return `
+    <div class="ev-hero" style="--evc:${kcol}">
+      <span class="ev-kind" style="background:${kcol}1a;color:${kcol}">${ico} ${klabel}</span>
+      <div class="ev-when">${I.cal} ${esc(evWhen(ev))}</div>
+      ${ev.location ? `<div class="ev-loc">${isLink ? I.video : I.pin} ${isLink
+        ? `<a href="${esc(ev.location)}" target="_blank" rel="noopener">${isMeet ? 'CloudOn Meet' : esc(ev.location)}</a>`
+        : esc(ev.location)}</div>` : ''}
+    </div>
+
+    ${isLink ? `<div class="ev-actions">
+      <button class="btn ev-join" id="evJoin">${I.video} Συμμετοχή στο meeting</button>
+      <button class="btn btn-o btn-ico" id="evCopy" title="Αντιγραφή συνδέσμου">${I.copy}</button>
+    </div>` : ''}
+
+    ${(ev.attendees || []).includes(S.boot.me.id) ? `<div class="ev-rsvp">
+      <span class="mut">Θα παρευρεθείς;</span>
+      <button class="btn btn-sm ${myRsvp() === 'accepted' ? 'btn-p' : 'btn-o'}" id="evAcc">✅ Θα είμαι εκεί</button>
+      <button class="btn btn-sm ${myRsvp() === 'declined' ? 'btn-p' : 'btn-o'}" id="evDec">❌ Δεν μπορώ</button>
+    </div>` : ''}
+
+    <div class="card"><div class="card-h">${I.users} Ποιος θα είναι εκεί</div>
+      <div class="card-b">${whoHtml()}</div></div>
+
+    ${ev.notes ? `<div class="card"><div class="card-h">${I.fileText} Σημειώσεις</div>
+      <div class="card-b" style="white-space:pre-wrap;font-size:13px;color:var(--txt)">${esc(ev.notes)}</div></div>` : ''}
+
+    ${ev.canEdit ? `<div class="ev-foot">
+      <button class="btn btn-o" id="evEdit">${I.edit} Επεξεργασία</button>
+      <button class="btn btn-o" id="evDel" style="color:var(--bad)">${I.trash} Διαγραφή</button>
+    </div>` : '<div class="mut" style="font-size:11.5px">Μόνο ο δημιουργός ή διαχειριστής μπορεί να το αλλάξει.</div>'}`;
+  };
+
+  /* ══ ΦΟΡΜΑ — νέο συμβάν ή «Επεξεργασία» ══ */
+  const formHtml = () => `
+  <div class="card"><div class="card-b">
     <label class="lbl">Τύπος</label>
     <div style="display:flex;gap:7px;flex-wrap:wrap" id="evKinds">
       ${Object.entries(EV_KINDS).map(([k, [ico, l, col]]) => `
-        <button class="btn btn-sm ${ev.kind === k ? 'btn-p' : 'btn-o'}" data-k="${k}" style="${ev.kind === k ? '' : 'border-color:' + col}">${ico} ${l}</button>`).join('')}
+        <button class="btn btn-sm ${kind === k ? 'btn-p' : 'btn-o'}" data-k="${k}" style="${kind === k ? '' : 'border-color:' + col}">${ico} ${l}</button>`).join('')}
     </div>
     <label class="lbl" style="margin-top:11px">Τίτλος</label>
     <input class="inp" id="evT" value="${esc(ev.title || '')}" placeholder="π.χ. Κλήση με PharmacyOne / Καλοκαιρινή άδεια">
@@ -79,9 +155,8 @@ function openEvent(ev, ymRefresh) {
     <label style="display:flex;gap:6px;align-items:center;margin-top:9px;font-size:12.5px">
       <input type="checkbox" id="evAll" ${ev.allDay ? 'checked' : ''}> Ολοήμερο (για άδειες/πολυήμερα)</label>
     <label class="lbl" style="margin-top:11px">Συμμετέχοντες</label>
-    <div style="display:flex;gap:9px;flex-wrap:wrap">
-      ${S.boot.admins.map(a => `<label style="font-size:12.5px;display:flex;gap:4px;align-items:center">
-        <input type="checkbox" class="evA" value="${a.id}" ${(ev.attendees || []).includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('')}
+    <div class="ev-att">
+      ${S.boot.admins.map(a => `<label><input type="checkbox" class="evA" value="${a.id}" ${(ev.attendees || []).includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('')}
     </div>
     <div class="frow" style="margin-top:11px">
       <div><label class="lbl">Πελάτης (για ραντεβού)</label><input class="inp" id="evCli" list="evCliL" autocomplete="off"
@@ -101,98 +176,99 @@ function openEvent(ev, ymRefresh) {
     <div class="mut" style="font-size:11px;margin-top:5px">Οι συμμετέχοντες της ομάδας παίρνουν αυτόματα email στη διεύθυνση του προφίλ τους.</div>
     <label class="lbl" style="margin-top:11px">Σημειώσεις</label>
     <textarea class="inp" id="evN" rows="3">${esc(ev.notes || '')}</textarea>
-    ${!isNew ? `<div style="margin-top:13px;padding:11px 14px;border-radius:11px;background:var(--line)">
-      <b style="font-size:12px;color:var(--ink)">Ποιος θα είναι εκεί</b>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
-        ${(ev.attendees || []).map(a => {
-          const st = (ev.rsvp || {})['admin' + a];
-          return `<span class="pill ${st === 'accepted' ? 'pill-ok' : st === 'declined' ? 'pill-bad' : 'pill-mut'}"
-            title="${st === 'accepted' ? 'Αποδέχθηκε' : st === 'declined' ? 'Δεν μπορεί' : 'Δεν απάντησε ακόμη'}">
-            ${st === 'accepted' ? '✅' : st === 'declined' ? '❌' : '⏳'} ${esc(adminName(a))}</span>`;
-        }).join('')}
-        ${ev.client ? (() => {
-          const st = (ev.rsvp || {})['client' + ev.client];
-          return `<span class="pill ${st === 'accepted' ? 'pill-ok' : st === 'declined' ? 'pill-bad' : 'pill-mut'}">
-            ${st === 'accepted' ? '✅' : st === 'declined' ? '❌' : '⏳'} ${I.building} ${esc(ev.clientName || 'Πελάτης')}</span>`;
-        })() : ''}
-      </div>
-      ${(ev.attendees || []).includes(S.boot.me.id) ? `<div style="display:flex;gap:7px;margin-top:9px">
-        <button class="btn btn-sm ${(ev.rsvp || {})['admin' + S.boot.me.id] === 'accepted' ? 'btn-p' : 'btn-o'}" id="evAcc">✅ Θα είμαι εκεί</button>
-        <button class="btn btn-sm btn-o" id="evDec">❌ Δεν μπορώ</button></div>` : ''}
-    </div>` : ''}
-    <div style="display:flex;gap:9px;margin-top:13px;flex-wrap:wrap">
-      ${!isNew && ev.location && /^https?:\/\//.test(ev.location) ? `<button class="btn" id="evJoin" style="background:var(--ok);color:#fff">${I.video} Συμμετοχή στο meeting</button>` : ''}
-      <button class="btn btn-p" id="evSave">Αποθήκευση</button>
-      ${!isNew && ev.canEdit ? `<button class="btn btn-o" id="evDel" style="color:var(--bad)">${I.trash} Διαγραφή</button>` : ''}
+    <div class="ev-foot" style="margin-top:14px">
+      ${isNew ? '' : '<button class="btn btn-o" id="evCancelEdit">Άκυρο</button>'}
+      <button class="btn btn-p" id="evSave">${I.save} Αποθήκευση</button>
     </div>
-    ${!isNew && !ev.canEdit ? '<div class="mut" style="font-size:11.5px;margin-top:8px">Μόνο ο δημιουργός ή διαχειριστής μπορεί να το αλλάξει.</div>' : ''}
-  </div></div></div>`;
-  document.body.append(ovl, dr);
-  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
-  $('#dX').onclick = closeDrawer;
-  clientAuto('evCli', 'evCliL', 'evCliId');
-  let kind = ev.kind;
-  $$('#evKinds [data-k]', dr).forEach(b => b.onclick = () => {
-    kind = b.dataset.k;
-    $$('#evKinds [data-k]', dr).forEach(x => x.className = 'btn btn-sm ' + (x === b ? 'btn-p' : 'btn-o'));
-    if (kind === 'leave') { $('#evAll', dr).checked = true; toggleTimes(); }
-  });
-  const toggleTimes = () => {
-    const off = $('#evAll', dr).checked;
-    $('#evT0w', dr).style.visibility = off ? 'hidden' : '';
-    $('#evT1w', dr).style.visibility = off ? 'hidden' : '';
+  </div></div>`;
+
+  const mount = () => {
+    dr.innerHTML = `
+      <div class="drawer-h"><h2>${isNew ? 'Νέο συμβάν' : esc(ev.title)}</h2><button class="drawer-x" id="dX">✕</button></div>
+      <div class="drawer-b">${editing ? formHtml() : viewHtml()}</div>`;
+    $('#dX', dr).onclick = closeDrawer;
+    editing ? bindForm() : bindView();
   };
-  $('#evAll', dr).onchange = toggleTimes; toggleTimes();
-  const xmails = [];
-  const renderXm = () => {
-    $('#evXmList', dr).innerHTML = xmails.map((m, i) => `
-      <span class="pill pill-info" style="display:inline-flex;gap:5px;align-items:center">${I.mail} ${esc(m)}
-        <b data-xmdel="${i}" style="cursor:pointer;opacity:.7">✕</b></span>`).join('');
-    $$('[data-xmdel]', dr).forEach(b => b.onclick = () => { xmails.splice(+b.dataset.xmdel, 1); renderXm(); });
+
+  const bindView = () => {
+    const jb = $('#evJoin', dr); if (jb) { jb.onclick = () => window.open(ev.location, '_blank'); }
+    const cp = $('#evCopy', dr); if (cp) {
+      cp.onclick = () => navigator.clipboard.writeText(ev.location)
+        .then(() => toast('Ο σύνδεσμος αντιγράφηκε')).catch(() => toast('Δεν έγινε αντιγραφή', true));
+    }
+    const acc = $('#evAcc', dr); if (acc) { acc.onclick = async () => {
+      await api('event_rsvp', {id: ev.id, status: 'accepted'});
+      ev.rsvp = Object.assign({}, ev.rsvp, {['admin' + S.boot.me.id]: 'accepted'});
+      toast('✅ Δήλωσες συμμετοχή'); mount();
+    }; }
+    const dec = $('#evDec', dr); if (dec) { dec.onclick = async () => {
+      await api('event_rsvp', {id: ev.id, status: 'declined'});
+      ev.rsvp = Object.assign({}, ev.rsvp, {['admin' + S.boot.me.id]: 'declined'});
+      toast('Καταγράφηκε ότι δεν μπορείς'); mount();
+    }; }
+    const ed = $('#evEdit', dr); if (ed) { ed.onclick = () => { editing = true; mount(); }; }
+    const del = $('#evDel', dr); if (del) { del.onclick = async () => {
+      if (!(await cnpConfirm('Διαγραφή συμβάντος;', {danger: true, ok: I.trash + ' Διαγραφή'}))) { return; }
+      await api('event_del', {id: ev.id});
+      toast('Διαγράφηκε'); closeDrawer(); R.calendar(ymRefresh);
+    }; }
   };
-  const addXm = () => {
-    const v = $('#evXm', dr).value.trim().toLowerCase();
-    if (!v) return;
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Μη έγκυρο email', true); return; }
-    if (xmails.includes(v)) { toast('Υπάρχει ήδη στη λίστα', true); return; }
-    xmails.push(v);
-    $('#evXm', dr).value = '';
+
+  const bindForm = () => {
+    clientAuto('evCli', 'evCliL', 'evCliId');
+    $$('#evKinds [data-k]', dr).forEach(b => b.onclick = () => {
+      kind = b.dataset.k;
+      $$('#evKinds [data-k]', dr).forEach(x => x.className = 'btn btn-sm ' + (x === b ? 'btn-p' : 'btn-o'));
+      if (kind === 'leave') { $('#evAll', dr).checked = true; toggleTimes(); }
+    });
+    const toggleTimes = () => {
+      const off = $('#evAll', dr).checked;
+      $('#evT0w', dr).style.visibility = off ? 'hidden' : '';
+      $('#evT1w', dr).style.visibility = off ? 'hidden' : '';
+    };
+    $('#evAll', dr).onchange = toggleTimes; toggleTimes();
+    const renderXm = () => {
+      $('#evXmList', dr).innerHTML = xmails.map((m, i) => `
+        <span class="pill pill-info" style="display:inline-flex;gap:5px;align-items:center">${I.mail} ${esc(m)}
+          <b data-xmdel="${i}" style="cursor:pointer;opacity:.7">✕</b></span>`).join('');
+      $$('[data-xmdel]', dr).forEach(b => b.onclick = () => { xmails.splice(+b.dataset.xmdel, 1); renderXm(); });
+    };
+    const addXm = () => {
+      const v = $('#evXm', dr).value.trim().toLowerCase();
+      if (!v) { return; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Μη έγκυρο email', true); return; }
+      if (xmails.includes(v)) { toast('Υπάρχει ήδη στη λίστα', true); return; }
+      xmails.push(v);
+      $('#evXm', dr).value = '';
+      renderXm();
+    };
     renderXm();
+    $('#evXmAdd', dr).onclick = addXm;
+    $('#evXm', dr).onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addXm(); } };
+    $('#evMeet', dr).onclick = async () => {
+      const r = await api('meet_room');
+      $('#evLoc', dr).value = r.url;
+      toast('🎥 Δημιουργήθηκε δωμάτιο CloudOn Meet — το link ισχύει και για πελάτες');
+    };
+    const ce = $('#evCancelEdit', dr); if (ce) { ce.onclick = () => { editing = false; mount(); }; }
+    $('#evSave', dr).onclick = async () => {
+      addXm();   // ό,τι έμεινε γραμμένο στο πεδίο email μπαίνει στη λίστα αυτόματα
+      const allDay = $('#evAll', dr).checked;
+      const r = await api('event_save', {id: ev.id || 0, kind, title: $('#evT', dr).value,
+        start: $('#evD0', dr).value + (allDay ? ' 00:00' : ' ' + $('#evT0', dr).value),
+        end: $('#evD1', dr).value + (allDay ? ' 23:59' : ' ' + $('#evT1', dr).value),
+        allDay, attendees: $$('.evA:checked', dr).map(x => +x.value),
+        client: +$('#evCliId', dr).value || 0, location: $('#evLoc', dr).value,
+        inviteClient: $('#evInv', dr).checked, extraEmails: xmails.join(','),
+        notes: $('#evN', dr).value}).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast('Αποθηκεύτηκε 📅'); closeDrawer(); R.calendar(ymRefresh);
+    };
   };
-  $('#evXmAdd', dr).onclick = addXm;
-  $('#evXm', dr).onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addXm(); } };
-  $('#evMeet', dr).onclick = async () => {
-    const r = await api('meet_room');
-    $('#evLoc', dr).value = r.url;
-    toast('🎥 Δημιουργήθηκε δωμάτιο CloudOn Meet — το link ισχύει και για πελάτες');
-  };
-  $('#evSave', dr).onclick = async () => {
-    addXm();   // ό,τι έμεινε γραμμένο στο πεδίο email μπαίνει στη λίστα αυτόματα
-    const allDay = $('#evAll', dr).checked;
-    const r = await api('event_save', {id: ev.id || 0, kind, title: $('#evT', dr).value,
-      start: $('#evD0', dr).value + (allDay ? ' 00:00' : ' ' + $('#evT0', dr).value),
-      end: $('#evD1', dr).value + (allDay ? ' 23:59' : ' ' + $('#evT1', dr).value),
-      allDay, attendees: $$('.evA:checked', dr).map(x => +x.value),
-      client: +$('#evCliId', dr).value || 0, location: $('#evLoc', dr).value,
-      inviteClient: $('#evInv', dr).checked, extraEmails: xmails.join(','),
-      notes: $('#evN', dr).value}).catch(e => ({err: e.message}));
-    if (r.err) { toast(r.err, true); return; }
-    toast('Αποθηκεύτηκε 📅'); closeDrawer(); R.calendar(ymRefresh);
-  };
-  const jb = $('#evJoin', dr); if (jb) jb.onclick = () => window.open(ev.location, '_blank');
-  const acc = $('#evAcc', dr); if (acc) acc.onclick = async () => {
-    await api('event_rsvp', {id: ev.id, status: 'accepted'});
-    toast('✅ Δήλωσες συμμετοχή'); closeDrawer(); R.calendar(ymRefresh);
-  };
-  const dec = $('#evDec', dr); if (dec) dec.onclick = async () => {
-    await api('event_rsvp', {id: ev.id, status: 'declined'});
-    toast('Καταγράφηκε ότι δεν μπορείς'); closeDrawer(); R.calendar(ymRefresh);
-  };
-  const del = $('#evDel', dr); if (del) del.onclick = async () => {
-    if (!(await cnpConfirm('Διαγραφή συμβάντος;', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
-    await api('event_del', {id: ev.id});
-    toast('Διαγράφηκε'); closeDrawer(); R.calendar(ymRefresh);
-  };
+
+  document.body.append(ovl, dr);
+  mount();
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 }
 
 R.calendar = async function (ym) {
@@ -367,15 +443,51 @@ R.offers = async function () {
   const d = await api('offers');
   const openV = d.offers.filter(o => !d.stages.find(s => s.key === o.stage)?.closed).reduce((s, o) => s + o.value, 0);
   const won = d.offers.filter(o => o.stage === 'accepted');
-  c.innerHTML = `
-  <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-    <div class="stat info" style="margin:0;flex:1;min-width:170px"><b>${fmtEur(openV)}</b><small>Ανοιχτές προσφορές</small></div>
-    <div class="stat ok" style="margin:0;flex:1;min-width:170px"><b>${won.length} / ${fmtEur(won.reduce((s, o) => s + o.value, 0))}</b><small>Κερδισμένες</small></div>
-    <button class="btn btn-p" id="newOffer">${I.plus} Νέα προσφορά</button>
-  </div>
-  <div class="kb" style="min-height:calc(100vh - 290px)">
+
+  /* ── Κινητό: λίστα ανά στάδιο (το kanban 5 στηλών ήθελε ατέλειωτο swipe) ── */
+  const MOB = matchMedia('(max-width:768px)').matches;
+  const st = R.offers._st = R.offers._st || {q: '', stage: '', closed: {}};
+  const norm = s => String(s || '').toLowerCase()
+    .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
+    .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
+  const hit = o => !st.q || norm([o.title, o.clientName, o.quote ? 'Q' + o.quote : ''].join(' ')).includes(norm(st.q));
+  const shown = d.offers.filter(hit);
+
+  const oChips = (o, sg) => `
+    ${o.clientName ? `<span>${I.user} ${esc(o.clientName)}</span>` : ''}
+    ${o.value > 0 ? `<b style="color:var(--ink)">${fmtEur(o.value)}</b>` : ''}
+    ${o.quote ? `<span class="pill pill-info">Q${o.quote}</span>` : ''}
+    ${o.expected ? `<span class="${o.expected < today() && !sg.closed ? 'pill pill-bad' : ''}">${I.cal} ${dShort(o.expected)}</span>` : ''}`;
+
+  const listMob = () => (shown.length ? '' : `<div class="card"><div class="empty" style="padding:44px 20px">
+      <div class="big">${I.doc}</div>
+      <b style="color:var(--ink);font-size:15px">${d.offers.length ? 'Καμία προσφορά με αυτά τα φίλτρα' : 'Καμία προσφορά ακόμη'}</b>
+      <div class="mut" style="font-size:12.5px;margin-top:6px">${d.offers.length
+        ? 'Καθάρισε την αναζήτηση ή τα φίλτρα.' : 'Ξεκίνα φτιάχνοντας την πρώτη προσφορά.'}</div>
+      <button class="btn btn-p" id="newOffer2" style="margin-top:14px">${I.plus} Νέα προσφορά</button></div></div>`)
+    + d.stages.map(sg => {
+      const list = shown.filter(o => o.stage === sg.key);
+      const sum = list.reduce((s, o) => s + o.value, 0);
+      if (st.stage !== '' && st.stage !== sg.key) { return ''; }
+      if (!list.length && st.stage === '') { return ''; }
+      return `<div class="card kb-group">
+        <div class="card-h kb-ghead" data-ostage="${sg.key}">
+          <span class="kb-gbar" style="background:${sg.color}"></span>${esc(sg.title)}
+          <span class="kb-n">${list.length}</span>
+          ${sum > 0 ? `<span class="mut" style="font-size:11px;margin-left:6px">${fmtEur(sum)}</span>` : ''}
+          <span style="flex:1"></span><span class="kb-gchev ${st.closed[sg.key] ? '' : 'open'}">${I.chev}</span></div>
+        <div class="card-b kb-gbody" ${st.closed[sg.key] ? 'style="display:none"' : ''}>
+          ${list.length ? list.map(o => `<div class="kb-trow orow" data-offer="${o.id}">
+              <span class="kb-dot" style="background:${sg.color}"></span>
+              <b>${esc(o.title)}</b>
+              <span class="kb-sum-meta">${oChips(o, sg)}</span></div>`).join('')
+            : '<div class="mut" style="font-size:12.5px;padding:4px 2px">Καμία προσφορά σε αυτό το στάδιο.</div>'}
+        </div></div>`;
+    }).join('');
+
+  const listDesk = () => `<div class="kb" style="min-height:calc(100vh - 290px)">
     ${d.stages.map(sg => {
-      const list = d.offers.filter(o => o.stage === sg.key);
+      const list = shown.filter(o => o.stage === sg.key);
       const sum = list.reduce((s, o) => s + o.value, 0);
       return `<div class="kb-col ocol" data-stage="${sg.key}">
         <div class="kb-h" style="border-color:${sg.color}">${esc(sg.title)}<span class="kb-n">${list.length}</span></div>
@@ -383,16 +495,42 @@ R.offers = async function () {
         <div class="kb-cards">${list.map(o => `
           <div class="tcard ocard" data-offer="${o.id}">
             <div class="tcard-t">${esc(o.title)}</div>
-            <div class="tcard-m">
-              ${o.clientName ? `<span>${I.user} ${esc(o.clientName)}</span>` : ''}
-              ${o.value > 0 ? `<b style="color:var(--ink)">${fmtEur(o.value)}</b>` : ''}
-              ${o.quote ? `<span class="pill pill-info">Q${o.quote}</span>` : ''}
-              ${o.expected ? `<span class="${o.expected < today() && !sg.closed ? 'pill pill-bad' : ''}">${I.cal} ${dShort(o.expected)}</span>` : ''}
-            </div></div>`).join('')}</div></div>`;
+            <div class="tcard-m">${oChips(o, sg)}</div></div>`).join('')}</div></div>`;
     }).join('')}
   </div>`;
+
+  c.innerHTML = `
+  <div class="card kb-search">
+    <div class="kb-srow">
+      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+        <input class="inp" id="ofQ" placeholder="Ψάξε προσφορά — τίτλο, πελάτη, αριθμό quote…" value="${esc(st.q)}"></div>
+      <button class="btn btn-p btn-sm" id="newOffer">${I.plus} Νέα προσφορά</button>
+    </div>
+    <div class="kb-filters">
+      <span class="crm-goal">${I.doc} <b>${fmtEur(openV)}</b><span class="mut"> ανοιχτές</span></span>
+      <span class="crm-goal" style="flex:0 1 auto">${I.trophy} <b>${won.length}</b><span class="mut"> κερδισμένες · ${fmtEur(won.reduce((s, o) => s + o.value, 0))}</span></span>
+    </div>
+    ${MOB ? `<div class="kb-filters" style="border-top:0;padding-top:0;margin-top:7px">
+      <button class="kb-chip${st.stage === '' ? ' on' : ''}" data-ofstage="">Όλες <b>${shown.length}</b></button>
+      ${d.stages.map(sg => { const n = shown.filter(o => o.stage === sg.key).length;
+        return `<button class="kb-chip${st.stage === sg.key ? ' on' : ''}" data-ofstage="${sg.key}" style="--kc:${sg.color}">
+          <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
+    </div>` : ''}
+  </div>
+  ${MOB ? listMob() : listDesk()}`;
+
   $('#newOffer').onclick = () => openOffer(null, d);
-  if (!R.offers._dnd) {
+  const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
+  let oqt;
+  $('#ofQ').oninput = () => { clearTimeout(oqt); oqt = setTimeout(() => { st.q = $('#ofQ').value.trim(); R.offers(); }, 300); };
+  $$('[data-ofstage]').forEach(b => b.onclick = () => { st.stage = b.dataset.ofstage; R.offers(); });
+  $$('.kb-ghead[data-ostage]').forEach(h => h.onclick = () => {
+    const k = h.dataset.ostage; st.closed[k] = !st.closed[k];
+    h.nextElementSibling.style.display = st.closed[k] ? 'none' : '';
+    h.querySelector('.kb-gchev').classList.toggle('open', !st.closed[k]);
+  });
+  $$('.orow[data-offer]').forEach(r => r.onclick = () => openOffer(d.offers.find(o => o.id === +r.dataset.offer), d));
+  if (!MOB && !R.offers._dnd) {
     R.offers._dnd = 1;
     dnd('.ocard', '.ocol', async (card, col) => {
       const r = await api('move_offer', {offer: +card.dataset.offer, stage: col.dataset.stage}).catch(() => ({ok: 0}));
@@ -459,6 +597,7 @@ function openOffer(o, d) {
     } else toast(r.err || 'Σφάλμα', true);
   };
 }
+window.CNP.clientAuto = clientAuto;   // το χρησιμοποιεί και το R.remotebook (app.js)
 function clientAuto(inpId, listId, hidId) {
   const inp = $('#' + inpId), dl = $('#' + listId), hid = $('#' + hidId);
   if (!inp) return;
@@ -970,18 +1109,84 @@ R.projects = async function () {
     <td>${p.trend === null ? '—' : p.trend > 0 ? `<b style="color:var(--bad)">▲ +${p.trend}</b>` : p.trend < 0 ? `<b style="color:var(--ok)">▼ ${p.trend}</b>` : '='}</td>
     ${d.canManage ? `<td><button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} </button>
       <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button></td>` : ''}</tr>`;
+  /* ── Κινητό: κάρτες αντί για πίνακες 8-9 στηλών (που γίνονταν οριζόντιο scroll) ── */
+  const MOB = matchMedia('(max-width:768px)').matches;
+  const st = R.projects._st = R.projects._st || {q: '', closed: {}};
+  const norm = s => String(s || '').toLowerCase()
+    .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
+    .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
+  const hit = p => !st.q || norm([p.name, p.clientName, psL[p.pstatus] || ''].join(' ')).includes(norm(st.q));
+
+  const pjCard = (p, depth) => `<div class="pj-card${p.archived ? ' mut' : ''}">
+    <div class="pj-top">
+      <span class="kb-dot" style="background:${p.health ? hC[p.health] : p.color};width:10px;height:10px"
+        title="Υγεία: ${p.health || '—'}"></span>
+      <a href="#/board/${p.id}" class="pj-name">${depth ? '↳ ' : ''}${esc(p.name)}</a>
+      ${p.pstatus ? `<span class="kb-tag" style="background:#0090dd18;color:#0374b0">${psL[p.pstatus]}</span>` : ''}
+      ${p.offerId ? `<span class="kb-tag kb-tag-mut" title="Από προσφορά">${I.briefcase}</span>` : ''}
+    </div>
+    <div class="pj-meta">
+      ${p.clientName ? `<span>${I.user} ${esc(p.clientName)}</span>` : ''}
+      ${p.due ? `<span class="${p.due < today() && p.pstatus !== 'done' ? 'pill pill-bad' : ''}">${I.cal} ${dShort(p.due)}</span>` : ''}
+      ${p.budget ? `<span>${fmtEur(p.budget)}</span>` : ''}
+      ${p.todos ? `<span class="pill ${p.todos[0] === p.todos[1] ? 'pill-ok' : 'pill-info'}">☑ ${p.todos[0]}/${p.todos[1]}</span>` : ''}
+      ${p.estHours ? `<span>${fmtMin(p.spentMins)} / ${p.estHours}ω</span>` : (p.spentMins ? `<span>${fmtMin(p.spentMins)}</span>` : '')}
+      ${p.trend === null || p.trend === undefined ? '' : p.trend > 0 ? `<span style="color:var(--bad);font-weight:700">▲ +${p.trend}</span>`
+        : p.trend < 0 ? `<span style="color:var(--ok);font-weight:700">▼ ${p.trend}</span>` : ''}
+    </div>
+    <div class="pj-prog"><div class="bar"><span class="ok" style="width:${p.pct}%"></span></div>
+      <small class="mut">${p.done}/${p.total} (${p.pct}%)</small></div>
+    ${d.canManage ? `<div class="pj-acts">
+      <button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} Επεξεργασία</button>
+      <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button></div>` : ''}
+  </div>`;
+
+  const group = (key, icon, title, sub, cards, emptyTxt) => `
+    <div class="card kb-group">
+      <div class="card-h kb-ghead" data-pgrp="${key}">
+        <span class="kb-gbar" style="background:${key === 'client' ? '#7b5cd6' : '#0090dd'}"></span>
+        ${icon} ${title} <span class="kb-n">${cards.length}</span>
+        <span style="flex:1"></span><span class="kb-gchev ${st.closed[key] ? '' : 'open'}">${I.chev}</span></div>
+      <div class="card-b kb-gbody" ${st.closed[key] ? 'style="display:none"' : ''}>
+        ${sub ? `<div class="mut" style="font-size:11.5px;margin:-4px 0 10px">${sub}</div>` : ''}
+        ${cards.length ? cards.join('') : `<div class="mut" style="font-size:12.5px;padding:4px 2px">${emptyTxt}</div>`}
+      </div></div>`;
+
+  const cliList = clientPjs.filter(hit);
+  const opsList = [];
+  roots.filter(hit).forEach(p => { opsList.push(pjCard(p, 0)); kids(p.id).filter(hit).forEach(k => opsList.push(pjCard(k, 1))); });
+
   c.innerHTML = `
-  ${d.canManage ? `<div style="margin-bottom:12px"><button class="btn btn-p" id="prNew">${I.plus} Νέο project</button>
-    <button class="btn btn-o" id="prRec" style="margin-left:8px">${I.repeat} Επαναλαμβανόμενα</button></div>` : ''}
-  <div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">σχεδιασμένα για συγκεκριμένη απαίτηση — με budget, εκτίμηση & deadline</span></div>
+  <div class="card kb-search">
+    <div class="kb-srow">
+      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+        <input class="inp" id="prQ" placeholder="Ψάξε έργο — όνομα, πελάτη, κατάσταση…" value="${esc(st.q)}"></div>
+      ${d.canManage ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>
+        <button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
+    </div>
+  </div>
+  ${MOB
+    ? group('client', I.rocket, 'Έργα πελατών', 'με budget, εκτίμηση & deadline', cliList.map(p => pjCard(p, 0)),
+        'Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά.')
+      + group('ops', I.building, 'Λειτουργικά projects', 'τμήματα & καθημερινή λειτουργία (tickets)', opsList,
+        'Κανένα λειτουργικό project.')
+    : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">σχεδιασμένα για συγκεκριμένη απαίτηση — με budget, εκτίμηση & deadline</span></div>
     <table class="tbl"><thead><tr>
     <th>Έργο</th><th>Πελάτης</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Παραδοτέα</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
-    <tbody>${clientPjs.length ? clientPjs.map(cRow).join('') : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>
+    <tbody>${cliList.length ? cliList.map(cRow).join('') : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>
   <div class="card"><div class="card-h">${I.building} Λειτουργικά projects <span class="mut" style="font-weight:400;font-size:11.5px">τμήματα & καθημερινή λειτουργία (tickets)</span></div>
     <table class="tbl"><thead><tr>
     <th>Project</th><th>Πελάτης</th><th>Κατάσταση</th><th>Ανοιχτά</th><th>Πρόοδος</th><th>Τάση 7ημ</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
-    <tbody>${roots.map(p => row(p, 0) + kids(p.id).map(k => row(k, 1)).join('')).join('')}</tbody></table></div>
+    <tbody>${roots.filter(hit).map(p => row(p, 0) + kids(p.id).filter(hit).map(k => row(k, 1)).join('')).join('')}</tbody></table></div>`}
   <div id="prExtra"></div>`;
+  let pqt;
+  $('#prQ').oninput = () => { clearTimeout(pqt); pqt = setTimeout(() => { st.q = $('#prQ').value.trim(); R.projects(); }, 300); };
+  $$('.kb-ghead[data-pgrp]').forEach(h => h.onclick = e => {
+    if (e.target.closest('a,button')) { return; }
+    const k = h.dataset.pgrp; st.closed[k] = !st.closed[k];
+    h.nextElementSibling.style.display = st.closed[k] ? 'none' : '';
+    h.querySelector('.kb-gchev').classList.toggle('open', !st.closed[k]);
+  });
   if (!d.canManage) return;
   const openProj = p => {
     closeDrawer();

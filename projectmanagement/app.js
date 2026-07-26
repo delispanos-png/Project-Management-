@@ -44,6 +44,8 @@ const I = { // inline icons
   folder: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
   tag: '<svg width="15" height="15" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
   link: '<svg width="14" height="14" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  copy: '<svg width="14" height="14" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  chev: '<svg width="14" height="14" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   trash: '<svg width="14" height="14" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
   funnel: '<svg width="15" height="15" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>',
   users: '<svg width="15" height="15" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
@@ -211,7 +213,7 @@ function renderShell() {
     ${(() => {
       // ── bottom tab bar (μόνο κινητό): ΟΛΟ το μενού σε μία μπάρα που σέρνεται ──
       const flat = nav.flatMap(([, items]) => items);
-      const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', calendar: 'Ατζέντα', todos: 'Πλάνο',
+      const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', calendar: 'Ημερολόγιο', todos: 'Πλάνο',
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
@@ -446,38 +448,157 @@ function startRemote(clientId, clientName, ticketId, opts) {
 
 // 📇 Address book: αποθηκευμένες RustDesk συνδέσεις πελατών — ένα κλικ, χωρίς να ξαναρωτάς
 window.R = window.R || {};
+const rbId = s => String(s || '').replace(/(\d{3})(?=\d)/g, '$1 ');   // 123456789 → 123 456 789
+const rbIni = n => (String(n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('') || '?').toUpperCase();
+/** «πριν 3 ημέρες» / «σήμερα» — σύντομη σχετική ώρα. */
+function rbAgo(dt) {
+  if (!dt) return '';
+  const days = Math.floor((Date.now() - new Date(String(dt).replace(' ', 'T')).getTime()) / 86400000);
+  if (days <= 0) return 'σήμερα';
+  if (days === 1) return 'χθες';
+  if (days < 30) return `πριν ${days} ημ.`;
+  const m = Math.round(days / 30);
+  return m < 12 ? `πριν ${m} μήνα${m > 1 ? 'ς' : ''}` : `πριν ${Math.round(days / 365)} χρόνια`;
+}
+
 window.R.remotebook = async function () {
   setTop('Απομακρυσμένες', 'Αποθηκευμένες συνδέσεις πελατών — ένα κλικ για σύνδεση');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:300px"></div>';
+  const st = R.remotebook._s = R.remotebook._s || {q: '', form: false, edit: null};
+  c.innerHTML = `<div class="grid g4" style="margin-bottom:14px">${'<div class="skel" style="height:56px"></div>'.repeat(4)}</div>
+    <div class="skel" style="height:300px"></div>`;
   const d = await api('remote_book').catch(() => null);
   if (!d) { c.innerHTML = '<div class="empty"><div class="big">' + I.monitor + '</div>Δεν φορτώθηκε</div>'; return; }
-  const rows = d.book || [];
-  c.innerHTML = `
-  <div class="card"><div class="card-h">${I.monitor} Οι συνδέσεις μου <span class="mut" style="font-weight:600">(${rows.length})</span>
-    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ «Σύνδεση» → ανοίγει το RustDesk έτοιμο</span></div>
-    <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
-    ${rows.length ? rows.map(r => `
-      <div class="rb-row">
-        <div class="rb-ic">${I.monitor}</div>
-        <div class="rb-body">
-          <div class="rb-name">${esc(r.name)}</div>
-          <div class="rb-meta">ID: <b>${esc((r.rustdesk_id || '').replace(/(\d{3})(?=\d)/g, '$1 '))}</b>${r.label ? ' · ' + esc(r.label) : ''}</div>
-        </div>
-        <div class="rb-acts">
-          <button class="btn btn-sm rb-go" data-rbgo="${r.clientid}" data-name="${esc(r.name)}" data-peer="${esc(r.rustdesk_id)}">${I.monitor} Σύνδεση</button>
-          <button class="btn btn-sm btn-o rb-del" data-rbdel="${r.clientid}" title="Αφαίρεση">${I.trash}</button>
-        </div>
-      </div>`).join('')
-      : `<div class="empty" style="padding:30px"><div class="big">${I.monitor}</div>Καμία αποθηκευμένη σύνδεση ακόμη.<br>
-         <span class="mut" style="font-size:12px">Μόλις συνδεθείς σε έναν πελάτη (από ticket ή Πελάτη 360°), το ID του αποθηκεύεται εδώ αυτόματα.</span></div>`}
+  const rows = d.book || [], recent = d.recent || [], sx = d.stats || {};
+  const dl = d.dl || S.boot.rustdeskDl || '';
+
+  const card = r => `<div class="rbk" data-rbcard="${r.clientid}">
+    <div class="rbk-top">
+      <span class="rbk-ava">${esc(rbIni(r.name))}</span>
+      <div class="rbk-id-wrap">
+        <div class="rbk-name" title="${esc(r.name)}">${esc(r.name)}</div>
+        <div class="rbk-id">${esc(rbId(r.rustdesk_id))}
+          <button class="rbk-copy" data-rbcopy="${esc(r.rustdesk_id)}" title="Αντιγραφή ID">${I.copy || I.link}</button></div>
+      </div>
+    </div>
+    ${r.label ? `<div class="rbk-label">${esc(r.label)}</div>` : ''}
+    <div class="rbk-meta">${r.sessions
+      ? `<span>${I.clock} ${r.sessions} ${r.sessions === 1 ? 'συνεδρία' : 'συνεδρίες'}</span><span class="sep">·</span><span>${esc(rbAgo(r.lastAt))}</span>`
+      : '<span class="mut">Καμία συνεδρία ακόμη</span>'}</div>
+    <div class="rbk-acts">
+      <button class="btn btn-sm rb-go" data-rbgo="${r.clientid}" data-name="${esc(r.name)}" data-peer="${esc(r.rustdesk_id)}">${I.monitor} Σύνδεση</button>
+      <button class="btn btn-sm btn-o rbk-ico" data-rbedit="${r.clientid}" title="Επεξεργασία">${I.edit}</button>
+      <button class="btn btn-sm btn-o rbk-ico rb-del" data-rbdel="${r.clientid}" title="Αφαίρεση">${I.trash}</button>
     </div></div>`;
-  $$('[data-rbgo]').forEach(b => b.onclick = () => startRemote(+b.dataset.rbgo, b.dataset.name, 0, {savedPeer: b.dataset.peer}));
-  $$('[data-rbdel]').forEach(b => b.onclick = async () => {
-    if (!(await cnpConfirm('Αφαίρεση αυτής της σύνδεσης από τη λίστα;', {danger: true, ok: 'Αφαίρεση'}))) return;
-    await api('remote_save_peer', {client: +b.dataset.rbdel, peer: ''});
-    toast('Αφαιρέθηκε'); R.remotebook();
-  });
+
+  c.innerHTML = `
+  <div class="grid g4" style="margin-bottom:14px">
+    ${suStat(I.contact, sx.saved || 0, 'Αποθηκευμένες', '#0090dd')}
+    ${suStat(I.monitor, sx.n30 || 0, 'Συνεδρίες 30 ημ.', '#7b5cd6')}
+    ${suStat(I.clock, fmtMin(sx.mins30 || 0), 'Χρόνος 30 ημ.', '#1f9d57')}
+    ${suStat(I.coin, fmtMin(sx.bmins30 || 0), 'Χρεώσιμος χρόνος', '#e0a020')}
+  </div>
+
+  <div class="card rbk-bar">
+    <input class="inp" id="rbQ" placeholder="Αναζήτηση πελάτη ή ID…" value="${esc(st.q)}">
+    <button class="btn btn-p btn-sm" id="rbNew">${I.plus} Νέα σύνδεση</button>
+    <button class="btn btn-o btn-sm" id="rbSend">${I.mail} Στείλε το πρόγραμμα</button>
+  </div>
+  <div id="rbForm"></div>
+
+  <div id="rbGrid" class="rbk-grid"></div>
+
+  ${recent.length ? `<div class="card" style="margin-top:16px"><div class="card-h">${I.clock} Πρόσφατες συνεδρίες</div>
+    <div class="card-b" style="padding-top:4px">
+      ${recent.map(s => `<div class="rbk-hrow">
+        <span class="rbk-hdot" style="background:${s.billable ? '#1f9d57' : '#8291a9'}"></span>
+        <div style="flex:1;min-width:0">
+          <div class="rbk-hname">${esc(s.name)}</div>
+          <div class="rbk-hmeta">${esc(tShort(s.startedAt))}${s.by ? ' · ' + esc(s.by) : ''}${s.note ? ' · ' + esc(s.note) : ''}</div>
+        </div>
+        <span class="su-chip" style="background:${s.billable ? '#1f9d5718' : '#8291a918'};color:${s.billable ? '#1f9d57' : '#8291a9'}">${fmtMin(s.minutes)}</span>
+      </div>`).join('')}
+    </div></div>` : ''}`;
+
+  /* ── λίστα (φιλτραρίσιμη) ── */
+  const paint = () => {
+    const q = st.q.toLowerCase();
+    const list = q ? rows.filter(r => (r.name || '').toLowerCase().includes(q)
+      || (r.rustdesk_id || '').includes(q.replace(/\D/g, '')) && q.replace(/\D/g, '')
+      || (r.label || '').toLowerCase().includes(q)) : rows;
+    $('#rbGrid').innerHTML = list.length ? list.map(card).join('')
+      : (rows.length ? `<div class="empty" style="padding:34px;grid-column:1/-1">Κανένα αποτέλεσμα για «${esc(st.q)}»</div>`
+        : `<div class="empty rbk-empty" style="grid-column:1/-1"><div class="big">${I.monitor}</div>
+           <b style="color:var(--ink);font-size:15px">Καμία αποθηκευμένη σύνδεση ακόμη</b>
+           <div class="mut" style="font-size:12.5px;margin-top:6px;max-width:420px;line-height:1.6">
+             Κάθε φορά που συνδέεσαι σε πελάτη (από ticket ή Πελάτη 360°) το RustDesk ID του αποθηκεύεται εδώ αυτόματα.
+             Μπορείς και να το καταχωρήσεις μόνος σου.</div>
+           <button class="btn btn-p" id="rbNew2" style="margin-top:14px">${I.plus} Πρόσθεσε σύνδεση</button></div>`);
+    $$('[data-rbgo]').forEach(b => b.onclick = e => { e.stopPropagation(); startRemote(+b.dataset.rbgo, b.dataset.name, 0, {savedPeer: b.dataset.peer}); });
+    $$('[data-rbcopy]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(b.dataset.rbcopy).then(() => toast('Το ID αντιγράφηκε'));
+    });
+    $$('[data-rbedit]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      openForm(rows.find(r => r.clientid === +b.dataset.rbedit));
+    });
+    $$('[data-rbdel]').forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      const r = rows.find(x => x.clientid === +b.dataset.rbdel);
+      if (!(await cnpConfirm(`Αφαίρεση της σύνδεσης «${r ? r.name : ''}» από τη λίστα;`, {danger: true, ok: 'Αφαίρεση'}))) return;
+      await api('remote_save_peer', {client: +b.dataset.rbdel, peer: ''});
+      toast('Αφαιρέθηκε'); R.remotebook();
+    });
+    const n2 = $('#rbNew2'); if (n2) n2.onclick = () => openForm(null);
+  };
+
+  /* ── inline φόρμα (νέα / επεξεργασία) ── */
+  const openForm = (rec) => {
+    st.edit = rec;
+    $('#rbForm').innerHTML = `<div class="card rbk-form">
+      <div class="card-h">${rec ? I.edit + ' Επεξεργασία σύνδεσης' : I.plus + ' Νέα σύνδεση'}</div>
+      <div class="card-b">
+        <div class="frow">
+          <div><label>Πελάτης</label>
+            ${rec ? `<input class="inp" value="${esc(rec.name)}" disabled>`
+              : `<input class="inp" id="rbCli" list="rbCliL" placeholder="Όνομα ή email πελάτη…" autocomplete="off">
+                 <datalist id="rbCliL"></datalist><input type="hidden" id="rbCliId">`}</div>
+          <div><label>RustDesk ID</label>
+            <input class="inp" id="rbPeer" placeholder="π.χ. 123 456 789" style="letter-spacing:1px" value="${esc(rbId(rec ? rec.rustdesk_id : ''))}"></div>
+        </div>
+        <div style="margin-top:10px"><label>Περιγραφή <span class="mut">(προαιρετικά — π.χ. «PC λογιστηρίου»)</span></label>
+          <input class="inp" id="rbLabel" placeholder="Ποιο μηχάνημα είναι;" value="${esc(rec ? (rec.label || '') : '')}"></div>
+        <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
+          <button class="btn btn-o" id="rbCancel">Άκυρο</button>
+          <button class="btn btn-p" id="rbSave">${I.save} Αποθήκευση</button></div>
+      </div></div>`;
+    if (!rec && window.CNP.clientAuto) window.CNP.clientAuto('rbCli', 'rbCliL', 'rbCliId');
+    setTimeout(() => { const f = $(rec ? '#rbPeer' : '#rbCli'); if (f) f.focus(); }, 30);
+    $('#rbCancel').onclick = () => { $('#rbForm').innerHTML = ''; st.edit = null; };
+    $('#rbSave').onclick = async () => {
+      const cid = rec ? rec.clientid : +($('#rbCliId').value || 0);
+      if (!cid) { toast('Διάλεξε πελάτη από τη λίστα', true); return; }
+      const peer = $('#rbPeer').value.replace(/\D/g, '');
+      if (peer.length < 6) { toast('Δώσε το RustDesk ID (9 ψηφία)', true); return; }
+      const r = await api('remote_save_peer', {client: cid, peer, label: $('#rbLabel').value.trim()}).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast(rec ? 'Αποθηκεύτηκε' : 'Η σύνδεση προστέθηκε');
+      R.remotebook();
+    };
+  };
+
+  paint();
+  let qt;
+  $('#rbQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#rbQ').value.trim(); paint(); }, 200); };
+  $('#rbNew').onclick = () => openForm(null);
+  $('#rbSend').onclick = async () => {
+    const em = await cnpPrompt('Σε ποιο email να σταλεί το πρόγραμμα «CloudOn Remote»;', {placeholder: 'email πελάτη', ok: 'Αποστολή'});
+    if (!em) return;
+    const r = await api('remote_send_client', {client: 0, email: em.trim()}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast('Στάλθηκε στο ' + r.sent);
+  };
 };
 
 async function stopRemote() {
@@ -545,9 +666,19 @@ const cnpPrompt = (body, opts) => cnpDialog(Object.assign({title: '', body, inpu
 function crmTabs(act) {
   const tabs = [['crm', I.funnel, 'Funnel'], ['crmov', I.chart, 'Επισκόπηση'], ['contacts', I.users, 'Επαφές'], ['comms', I.phone, 'Επικοινωνίες'], ['campaigns', I.megaphone, 'Καμπάνιες']];
   if (S.boot.me.full) { tabs.push(['targets', I.target, 'Στόχοι προϊόντων'], ['reports', I.chart, 'Reports'], ['crmdata', I.save, 'Import/Export']); }
-  return `<div class="ib-tabs" style="margin-bottom:16px;flex-wrap:wrap;border:0;background:0">
+  // κινητό: dropdown αντί για 3 σειρές pills (ίδιο μοτίβο με τις Ρυθμίσεις)
+  return `<select class="inp set-subsel" id="crmSubSel" aria-label="Ενότητα CRM">
+      ${tabs.map(([k, , l]) => `<option value="${k}" ${act === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="ib-tabs set-subtabs" style="margin-bottom:16px;flex-wrap:wrap;border:0;background:0">
     ${tabs.map(([k, ic, l]) => `<button class="ib-tab ${act === k ? 'on' : ''}" data-crmtab="${k}"><span class="tico">${ic}</span>${l}</button>`).join('')}</div>`;
 }
+// το select του κινητού (delegation — το markup ξαναχτίζεται σε κάθε render)
+document.addEventListener('change', e => {
+  const s = e.target.closest('#crmSubSel');
+  if (!s) { return; }
+  go(s.value);
+  $$('.sitem').forEach(b => b.classList.toggle('on', b.dataset.nav === 'crm'));
+});
 document.addEventListener('click', e => {
   if (e.target.closest('[data-profile]')) { go('profile'); $$('.sitem').forEach(b => b.classList.remove('on')); return; }
   const ct = e.target.closest('[data-crmtab]');
@@ -948,7 +1079,7 @@ function loadMyNext() {
 async function vCrm() {
   setTop('CRM', 'Pipeline πωλήσεων — στόχοι → επαφή → πελάτες');
   const c = $('#content');
-  const f = vCrm._f = vCrm._f || {fa: '', src: '', q: ''};
+  const f = vCrm._f = vCrm._f || {fa: '', src: '', q: '', stage: '', closed: {}};
   c.innerHTML = crmTabs('crm') + '<div class="kb">' + '<div class="skel" style="flex:1;min-height:280px"></div>'.repeat(5) + '</div>';
   const d = await api('crm');
   const pct = d.target > 0 ? Math.min(100, Math.round(d.won / d.target * 100)) : 0;
@@ -957,23 +1088,47 @@ async function vCrm() {
     && (!f.q || ((l.company || '') + ' ' + (l.contact || '') + ' ' + (l.email || '') + ' ' + (l.phone || '')).toLowerCase().includes(f.q.toLowerCase()));
   const leads = d.leads.filter(flt);
   const sources = [...new Set(d.leads.map(l => l.source).filter(Boolean))];
-  c.innerHTML = crmTabs('crm') + `
-  <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-    <div class="card" style="flex:1;min-width:280px;margin:0;padding:14px 18px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <b style="color:var(--ink);display:inline-flex;align-items:center;gap:7px">${I.target} Πωλήσεις μήνα</b>
-        <span><b style="font-size:18px;color:var(--ink)">${fmtEur(d.won)}</b>
-        ${d.target > 0 ? `<span class="mut"> / ${fmtEur(d.target)}</span>` : ''}</span></div>
-      ${d.target > 0 ? `<div class="bar" style="margin-top:9px"><span class="${pct >= 100 ? 'ok' : ''}" style="width:${pct}%"></span></div>` : ''}
-    </div>
-    <select class="inp" id="cfA" style="width:auto"><option value="">— χειριστής —</option>
-      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
-    <select class="inp" id="cfS" style="width:auto"><option value="">— πηγή —</option>
-      ${sources.map(x => `<option ${f.src === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-    <input class="inp" id="cfQ" placeholder="αναζήτηση… (Enter)" value="${esc(f.q)}" style="width:170px">
-    <button class="btn btn-p" id="newLead">${I.plus} Νέο lead</button>
-  </div>
-  <div class="kb" id="crmKb" style="min-height:calc(100vh - 340px)">
+  const MOB = matchMedia('(max-width:768px)').matches;
+  const leadChips = (l, sg) => `
+    ${l.contact && l.company ? `<span>${I.user} ${esc(l.contact)}</span>` : ''}
+    ${l.phone ? `<span>${I.phone} ${esc(l.phone)}</span>` : ''}
+    ${l.value ? `<span class="pill pill-ok" style="font-weight:700">${fmtEur(l.value)}</span>` : ''}
+    ${l.source ? `<span class="pill pill-mut">${esc(l.source)}</span>` : ''}
+    ${l.next && !sg.closed ? `<span class="${l.next <= today() ? 'pill pill-bad' : ''}">${I.bell} ${dShort(l.next)}</span>` : ''}
+    ${!l.next && !sg.closed ? `<span class="pill pill-warn" title="Χωρίς επόμενη ενέργεια">${I.snow} </span>` : ''}
+    ${l.client ? '<span class="pill pill-ok">✓ πελάτης</span>' : ''}
+    ${sg.key === 'lost' && l.lostReason ? `<span class="pill pill-bad" title="${esc(l.lostReason)}">${I.chat} </span>` : ''}`;
+
+  /* Κινητό: λίστα ανά στάδιο (το kanban ήθελε ατέλειωτο swipe σε 6 στήλες των 84vw).
+     Αλλαγή σταδίου γίνεται από το drawer του lead. Desktop: το kanban ως έχει. */
+  const funnelMob = () => (leads.length ? '' : `<div class="card"><div class="empty" style="padding:44px 20px">
+      <div class="big">${I.target}</div>
+      <b style="color:var(--ink);font-size:15px">${d.leads.length ? 'Κανένα lead με αυτά τα φίλτρα' : 'Κανένα lead ακόμη'}</b>
+      <div class="mut" style="font-size:12.5px;margin-top:6px">${d.leads.length
+        ? 'Καθάρισε την αναζήτηση ή τα φίλτρα.' : 'Ξεκίνα καταχωρώντας τον πρώτο υποψήφιο πελάτη.'}</div>
+      <button class="btn btn-p" id="newLead2" style="margin-top:14px">${I.plus} Νέο lead</button></div></div>`)
+    + d.stages.map(sg => {
+    const sl = leads.filter(l => l.stage === sg.key);
+    const val = sl.reduce((t, l) => t + (l.value || 0), 0);
+    if (f.stage !== '' && f.stage !== sg.key) { return ''; }
+    if (!sl.length && f.stage === '') { return ''; }   // άδεια στάδια κρύβονται (φαίνονται στα chips με 0)
+    return `<div class="card kb-group">
+      <div class="card-h kb-ghead" data-cstage="${sg.key}">
+        <span class="kb-gbar" style="background:${sg.color}"></span>${esc(sg.title)}
+        <span class="kb-n">${sl.length}</span>
+        ${val ? `<span class="mut" style="font-size:11px;margin-left:6px">${fmtEur(val)}</span>` : ''}
+        <span style="flex:1"></span>
+        <span class="kb-gchev ${f.closed[sg.key] ? '' : 'open'}">${I.chev}</span></div>
+      <div class="card-b kb-gbody" ${f.closed[sg.key] ? 'style="display:none"' : ''}>
+        ${sl.length ? sl.map(l => `<div class="kb-trow lrow ${l.next && l.next <= today() && !sg.closed ? 'overdue' : ''}" data-lead="${l.id}">
+            <span class="kb-dot" style="background:${sg.color}"></span>
+            <b>${esc(l.company || l.contact || '—')}</b>
+            <span class="kb-sum-meta">${leadChips(l, sg)}</span></div>`).join('')
+          : '<div class="mut" style="font-size:12.5px;padding:4px 2px">Κανένα lead σε αυτό το στάδιο.</div>'}
+      </div></div>`;
+  }).join('');
+
+  const funnelDesk = () => `<div class="kb" id="crmKb" style="min-height:calc(100vh - 340px)">
     ${d.stages.map(sg => {
       const sl = leads.filter(l => l.stage === sg.key);
       const val = sl.reduce((t, l) => t + (l.value || 0), 0);
@@ -983,24 +1138,48 @@ async function vCrm() {
         <div class="kb-cards">${sl.map(l => `
           <div class="tcard lcard ${l.next && l.next <= today() && !sg.closed ? 'overdue' : ''}" data-lead="${l.id}">
             <div class="tcard-t">${esc(l.company || l.contact || '—')}</div>
-            <div class="tcard-m">
-              ${l.contact && l.company ? `<span>${I.user} ${esc(l.contact)}</span>` : ''}
-              ${l.phone ? `<span>${I.phone} ${esc(l.phone)}</span>` : ''}
-              ${l.value ? `<span class="pill pill-ok" style="font-weight:700">${fmtEur(l.value)}</span>` : ''}
-              ${l.source ? `<span class="pill pill-mut">${esc(l.source)}</span>` : ''}
-              ${l.next && !sg.closed ? `<span class="${l.next <= today() ? 'pill pill-bad' : ''}">${I.bell} ${dShort(l.next)}</span>` : ''}
-              ${!l.next && !sg.closed ? `<span class="pill pill-warn" title="Χωρίς επόμενη ενέργεια">${I.snow} </span>` : ''}
-              ${l.client ? '<span class="pill pill-ok">✓ πελάτης</span>' : ''}
-              ${sg.key === 'lost' && l.lostReason ? `<span class="pill pill-bad" title="${esc(l.lostReason)}">${I.chat} </span>` : ''}
-            </div></div>`).join('')}</div>
+            <div class="tcard-m">${leadChips(l, sg)}</div></div>`).join('')}</div>
       </div>`;
     }).join('')}
   </div>`;
+
+  c.innerHTML = crmTabs('crm') + `
+  <div class="card kb-search">
+    <div class="kb-srow">
+      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+        <input class="inp" id="cfQ" placeholder="Ψάξε lead — εταιρεία, επαφή, email, τηλέφωνο…" value="${esc(f.q)}"></div>
+      <button class="btn btn-p btn-sm" id="newLead">${I.plus} Νέο lead</button>
+    </div>
+    <div class="kb-filters">
+      <span class="crm-goal">${I.target} <b>${fmtEur(d.won)}</b>${d.target > 0 ? `<span class="mut"> / ${fmtEur(d.target)} μήνα</span>` : '<span class="mut"> πωλήσεις μήνα</span>'}
+        ${d.target > 0 ? `<span class="crm-bar"><span class="${pct >= 100 ? 'ok' : ''}" style="width:${pct}%"></span></span>` : ''}</span>
+      <select class="inp kb-sort" id="cfA"><option value="">— χειριστής —</option>
+        ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+      <select class="inp kb-sort" id="cfS" style="margin-left:0"><option value="">— πηγή —</option>
+        ${sources.map(x => `<option ${f.src === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+    </div>
+    ${MOB ? `<div class="kb-filters" style="border-top:0;padding-top:0;margin-top:7px">
+      <button class="kb-chip${f.stage === '' ? ' on' : ''}" data-cfstage="">Όλα <b>${leads.length}</b></button>
+      ${d.stages.map(sg => { const n = leads.filter(l => l.stage === sg.key).length;
+        return `<button class="kb-chip${f.stage === sg.key ? ' on' : ''}" data-cfstage="${sg.key}" style="--kc:${sg.color}">
+          <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
+    </div>` : ''}
+  </div>
+  ${MOB ? funnelMob() : funnelDesk()}`;
   $('#cfA').onchange = () => { f.fa = $('#cfA').value; vCrm(); };
   $('#cfS').onchange = () => { f.src = $('#cfS').value; vCrm(); };
-  $('#cfQ').onkeydown = e => { if (e.key === 'Enter') { f.q = $('#cfQ').value.trim(); vCrm(); } };
+  let cqt;
+  $('#cfQ').oninput = () => { clearTimeout(cqt); cqt = setTimeout(() => { f.q = $('#cfQ').value.trim(); vCrm(); }, 320); };
   $('#newLead').onclick = () => openLead(null, d);
-  dndLead(d);
+  const nl2 = $('#newLead2'); if (nl2) { nl2.onclick = () => openLead(null, d); }
+  $$('[data-cfstage]').forEach(b => b.onclick = () => { f.stage = b.dataset.cfstage; vCrm(); });
+  $$('.kb-ghead[data-cstage]').forEach(h => h.onclick = () => {
+    const k = h.dataset.cstage; f.closed[k] = !f.closed[k];
+    h.nextElementSibling.style.display = f.closed[k] ? 'none' : '';
+    h.querySelector('.kb-gchev').classList.toggle('open', !f.closed[k]);
+  });
+  $$('.lrow[data-lead]').forEach(r => r.onclick = () => openLead(d.leads.find(x => x.id === +r.dataset.lead), d));
+  if (!MOB) { dndLead(d); }
 }
 let leadDndBound = false;
 function dndLead(data) {
