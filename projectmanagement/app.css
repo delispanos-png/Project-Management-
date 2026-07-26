@@ -965,3 +965,11 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   /* μεγάλα URLs/tokens μέσα σε μηνύματα να σπάνε αντί να σπρώχνουν το layout */
   .ib-msg-b,.ch-m,.msg-b,.cal-ag-meta,.sol-html{overflow-wrap:anywhere;word-break:break-word}
 }
+
+/* ── ειδοποιήσεις: σε κινητό να κουμπώνει στην οθόνη (είχε σταθερό πλάτος 360px
+   αγκυρωμένο στο καμπανάκι → «έφευγε» αριστερά εκτός οθόνης) ── */
+@media (max-width:768px){
+  .pop{position:fixed;left:10px;right:10px;top:calc(66px + var(--sat));width:auto;
+    max-height:min(70dvh,520px);border-radius:14px;box-shadow:0 18px 44px rgba(0,0,0,.28)}
+  .pop .nrow{padding:12px 15px}
+}
