@@ -345,31 +345,44 @@ R.chat = async function () {
   const st = R.chat._st = R.chat._st || {ch: 'team', lastId: 0};
   clearInterval(R.chat._t);
   const d = await api('chat_channels');
+  const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
+  const chAva = ch => `<span class="ch-av ${ch.kind !== 'dm' ? 'ch-av-grp' : ''}">${ch.kind === 'team' ? I.users : ch.kind === 'group' ? '#' : esc(ini(ch.name))}${ch.kind === 'dm' ? `<span class="ch-av-dot ${ch.status || 'online'}"></span>` : ''}</span>`;
+  const chPresence = ch => ch.status === 'offline' ? '⚫ Offline' + (ch.reason ? ' · ' + esc(ch.reason) : '') : ch.status === 'away' ? '🟡 Away' + (ch.reason ? ' · ' + esc(ch.reason) : '') : '🟢 Online';
+  const cur = d.channels.find(x => x.id === st.ch) || d.channels[0] || {name: 'Chat', kind: 'team'};
   c.innerHTML = `
-  <div class="chat">
+  <div class="chat${st.mobileConv ? ' conv-open' : ''}">
     <div class="ch-left">
-      <div style="padding:10px 13px;border-bottom:2px solid var(--line)">
-        <div style="display:flex;gap:7px;align-items:center">
-          <span class="ch-dot ${d.myStatus === 'offline' ? 'offline' : 'online'}"></span>
-          <select class="inp" id="chSt" style="flex:1;padding:4px 8px;font-size:12px">
-            <option value="online" ${d.myStatus !== 'offline' ? 'selected' : ''}>🟢 Online</option>
-            <option value="offline" ${d.myStatus === 'offline' ? 'selected' : ''}>⚫ Offline</option>
-          </select></div>
-        ${d.myStatus === 'offline' && d.myReason ? `<div class="mut" style="font-size:11px;margin-top:5px;padding-left:15px;cursor:pointer" id="chReasonEdit" title="Αλλαγή λόγου">${I.chat} ${esc(d.myReason)} <span style="opacity:.6">· αλλαγή</span></div>` : ''}
+      <div class="ch-mystatus">
+        <span class="ch-dot ${d.myStatus === 'offline' ? 'offline' : 'online'}"></span>
+        <select class="inp" id="chSt" style="flex:1;padding:5px 9px;font-size:12.5px;font-weight:600">
+          <option value="online" ${d.myStatus !== 'offline' ? 'selected' : ''}>🟢 Είμαι Online</option>
+          <option value="offline" ${d.myStatus === 'offline' ? 'selected' : ''}>⚫ Είμαι Offline</option>
+        </select>
       </div>
+      ${d.myStatus === 'offline' && d.myReason ? `<div class="mut" style="font-size:11px;padding:6px 15px;cursor:pointer" id="chReasonEdit" title="Αλλαγή λόγου">${I.chat} ${esc(d.myReason)} <span style="opacity:.6">· αλλαγή</span></div>` : ''}
+      <div class="ch-list">
       ${d.channels.map(ch => `
         <div class="ch-row ${st.ch === ch.id ? 'on' : ''}" data-ch="${ch.id}">
-          ${ch.kind === 'team' ? `<span style="font-size:15px">${I.users} </span>`
-            : ch.kind === 'group' ? '<span style="font-size:14px">#</span>'
-            : `<span class="ch-dot ${ch.status}" title="${ch.status === 'offline' ? 'Offline' : ch.status === 'away' ? 'Away' : 'Online'}${ch.reason ? ' — ' + esc(ch.reason) : ''}"></span>`}
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ch.name)}
-            ${ch.kind === 'group' ? `<span class="mut" style="font-size:10px">(${ch.members})</span>` : ''}
-            ${ch.reason ? `<span class="mut" style="font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${I.chat} ${esc(ch.reason)}</span>` : ''}</span>
+          ${chAva(ch)}
+          <span class="ch-row-body">
+            <span class="ch-row-name">${esc(ch.name)}${ch.kind === 'group' ? ` <span class="mut" style="font-size:10.5px;font-weight:500">· ${ch.members} μέλη</span>` : ''}</span>
+            <span class="ch-row-sub">${ch.reason ? I.chat + ' ' + esc(ch.reason) : ch.kind === 'dm' ? (ch.status === 'offline' ? 'Offline' : ch.status === 'away' ? 'Away' : 'Online') : ch.kind === 'team' ? 'Όλη η ομάδα' : 'Ομαδική συνομιλία'}</span>
+          </span>
           ${ch.unread ? `<span class="chat-n">${ch.unread}</span>` : ''}
-          ${ch.kind === 'group' ? `<span data-gdel="${ch.groupId}" data-gmine="${ch.mine ? 1 : 0}" title="${ch.mine ? 'Διαγραφή ομάδας' : 'Αποχώρηση'}" style="cursor:pointer;opacity:.5;font-size:11px">✕</span>` : ''}</div>`).join('')}
-      <div class="ch-row" id="chNewGrp" style="color:var(--brand);font-weight:700"><span>＋</span><span>Νέα ομάδα</span></div>
+          ${ch.kind === 'group' ? `<span data-gdel="${ch.groupId}" data-gmine="${ch.mine ? 1 : 0}" title="${ch.mine ? 'Διαγραφή ομάδας' : 'Αποχώρηση'}" class="ch-row-x">✕</span>` : ''}
+        </div>`).join('')}
+      <div class="ch-row ch-newgrp" id="chNewGrp"><span class="ch-av ch-av-grp">＋</span><span class="ch-row-name" style="color:var(--brand);font-weight:700">Νέα ομάδα</span></div>
+      </div>
     </div>
     <div class="ch-main">
+      <div class="ch-head">
+        <button class="ch-back" id="chBack" aria-label="Πίσω στις συζητήσεις"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        ${chAva(cur)}
+        <div style="min-width:0;flex:1">
+          <b style="font-size:14.5px;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cur.name)}</b>
+          <div class="mut" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cur.kind === 'dm' ? chPresence(cur) : cur.kind === 'group' ? (cur.members || 0) + ' μέλη' : 'Όλη η ομάδα'}</div>
+        </div>
+      </div>
       <div class="ch-msgs" id="chMsgs"><div class="skel" style="height:60px"></div></div>
       <div class="ch-comp">
         <label class="btn btn-o btn-sm" style="cursor:pointer" title="Αρχείο">${I.clip}<input type="file" id="chFile" style="display:none"></label>
@@ -423,9 +436,10 @@ R.chat = async function () {
   };
   const re = $('#chReasonEdit'); if (re) { re.onclick = () => goOffline(d.myReason); }
   $$('.ch-row[data-ch]').forEach(r => r.onclick = e => {
-    if (e.target.dataset.gdel) return;
-    st.ch = r.dataset.ch; st.lastId = 0; R.chat();
+    if (e.target.closest('[data-gdel]')) return;
+    st.ch = r.dataset.ch; st.lastId = 0; st.mobileConv = true; R.chat();   // mobile: άνοιξε τη συνομιλία full-screen
   });
+  { const bk = $('#chBack'); if (bk) bk.onclick = () => { st.mobileConv = false; const cw = $('.chat'); if (cw) cw.classList.remove('conv-open'); }; }
   $$('[data-gdel]').forEach(x => x.onclick = async e => {
     e.stopPropagation();
     const mine = x.dataset.gmine === '1';

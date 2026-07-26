@@ -621,11 +621,14 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .drawer-b{padding:14px 15px}
   .frow{gap:12px}
 
-  /* ── chat: λίστα ως οριζόντια λωρίδα, μηνύματα από κάτω ── */
-  .chat{flex-direction:column;height:calc(100dvh - 128px);min-height:0}
-  .ch-left{width:100%;flex-shrink:0;display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;
-    border-right:0;border-bottom:1px solid var(--line);max-height:60px}
-  .ch-row{border-bottom:0;border-right:1px solid var(--line);white-space:nowrap;flex:0 0 auto}
+  /* ── chat: master→detail (λίστα συζητήσεων → full-screen συνομιλία με back) ── */
+  .chat{height:calc(100dvh - 110px);min-height:0;position:relative}
+  .ch-left{width:100%;flex-basis:auto;border-right:0;max-height:none;display:flex;flex-direction:column}
+  .ch-main{display:none}
+  .chat.conv-open .ch-left{display:none}
+  .chat.conv-open .ch-main{display:flex}
+  .ch-back{display:inline-flex}
+  .ch-row{padding:12px 15px}
   .ch-m{max-width:86%}
 
   /* ── οδηγός χρήσης ── */
@@ -711,3 +714,27 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 .cal-leg .dot{width:8px;height:8px;border-radius:50%;flex:none}
 .cal-newev{font-weight:700;border-radius:11px;box-shadow:0 5px 16px rgba(0,144,221,.4)}
 .cal-newev:hover{box-shadow:0 7px 20px rgba(0,144,221,.5)}
+
+/* ── chat redesign: λίστα συζητήσεων με avatars + status· header συνομιλίας ── */
+.ch-mystatus{display:flex;gap:8px;align-items:center;padding:10px 13px;border-bottom:1px solid var(--line)}
+.ch-list{overflow-y:auto}
+.ch-row{align-items:center;gap:11px}
+.ch-av{width:40px;height:40px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;
+  position:relative;background:linear-gradient(135deg,var(--brand2),var(--brand-d));color:#fff;font-size:13.5px;font-weight:800}
+.ch-av svg{width:19px;height:19px}
+.ch-av.ch-av-grp{background:#8595ac2e;color:var(--txt);font-size:17px;font-weight:700}
+.ch-av-dot{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;border-radius:50%;border:2.5px solid var(--card)}
+.ch-av-dot.online{background:var(--ok)}.ch-av-dot.away{background:var(--warn)}.ch-av-dot.offline{background:#9aa7ba}
+.ch-row-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.ch-row-name{font-weight:700;color:var(--ink);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-row-sub{font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-row.on .ch-row-name{color:var(--brand-d)}
+.ch-row-x{cursor:pointer;opacity:.45;font-size:12px;flex:none;padding:2px 4px}
+.ch-row-x:hover{opacity:1;color:var(--bad)}
+.ch-newgrp .ch-av{background:color-mix(in srgb,var(--brand) 12%,transparent);color:var(--brand)}
+.ch-head{display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--card);flex:none}
+.ch-back{display:none;align-items:center;justify-content:center;width:34px;height:34px;flex:none;padding:0;border:0;background:none;color:var(--ink);cursor:pointer;border-radius:9px}
+.ch-back:hover{background:#8595ac22}
+
+/* το back button του chat να εμφανίζεται σε κινητό (override του base display:none που ορίζεται πιο κάτω) */
+@media (max-width:768px){ .ch-back{display:inline-flex} }
