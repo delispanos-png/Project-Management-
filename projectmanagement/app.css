@@ -688,3 +688,13 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .set-subsel{display:block;width:100%;margin-bottom:14px;font-weight:700;font-size:14.5px;padding:12px 13px}
   .set-subtabs{display:none}
 }
+
+/* ── settings: inline-edit rows (.set-row) να αναδιπλώνονται σε κινητό ── */
+@media (max-width:768px){
+  .set-row{flex-wrap:wrap}
+  .set-row .inp{max-width:100%}
+  .set-row [type=color]{flex:none}
+  /* label/όνομα (πρώτο div) πιάνει πλήρη σειρά → τα controls πάνε από κάτω (όχι στριμωγμένα).
+     !important για να νικά το inline style="flex:1" (π.χ. γραμμές χρηστών) */
+  .set-row>div:first-child{flex-basis:100%!important}
+}
