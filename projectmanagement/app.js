@@ -406,13 +406,16 @@ window.R.remotebook = async function () {
     <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ «Σύνδεση» → ανοίγει το RustDesk έτοιμο</span></div>
     <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
     ${rows.length ? rows.map(r => `
-      <div style="display:flex;align-items:center;gap:12px;padding:10px 13px;border:1px solid var(--line);border-radius:11px">
-        <span style="font-size:18px">${I.monitor}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</div>
-          <div class="mut" style="font-size:11.5px">ID: <b style="letter-spacing:1px">${esc((r.rustdesk_id || '').replace(/(\d{3})(?=\d)/g, '$1 '))}</b>${r.label ? ' · ' + esc(r.label) : ''}</div></div>
-        <button class="btn btn-sm" data-rbgo="${r.clientid}" data-name="${esc(r.name)}" data-peer="${esc(r.rustdesk_id)}" style="background:var(--ok);color:#fff">${I.monitor} Σύνδεση</button>
-        <button class="btn btn-sm btn-o" data-rbdel="${r.clientid}" title="Αφαίρεση" style="color:var(--bad)">${I.trash}</button>
+      <div class="rb-row">
+        <div class="rb-ic">${I.monitor}</div>
+        <div class="rb-body">
+          <div class="rb-name">${esc(r.name)}</div>
+          <div class="rb-meta">ID: <b>${esc((r.rustdesk_id || '').replace(/(\d{3})(?=\d)/g, '$1 '))}</b>${r.label ? ' · ' + esc(r.label) : ''}</div>
+        </div>
+        <div class="rb-acts">
+          <button class="btn btn-sm rb-go" data-rbgo="${r.clientid}" data-name="${esc(r.name)}" data-peer="${esc(r.rustdesk_id)}">${I.monitor} Σύνδεση</button>
+          <button class="btn btn-sm btn-o rb-del" data-rbdel="${r.clientid}" title="Αφαίρεση">${I.trash}</button>
+        </div>
       </div>`).join('')
       : `<div class="empty" style="padding:30px"><div class="big">${I.monitor}</div>Καμία αποθηκευμένη σύνδεση ακόμη.<br>
          <span class="mut" style="font-size:12px">Μόλις συνδεθείς σε έναν πελάτη (από ticket ή Πελάτη 360°), το ID του αποθηκεύεται εδώ αυτόματα.</span></div>`}
