@@ -265,12 +265,8 @@ R.calendar = async function (ym) {
   $('#calN').onclick = () => R.calendar(fmtYm(next));
   const t = $('#calT'); if (t) t.onclick = () => R.calendar();
   $('#evNew').onclick = () => openEvent(null, d.ym);
-  $$('.ev[data-task]').forEach(a => a.onclick = e => { e.stopPropagation(); openTask(+a.dataset.task); });
-  $$('.ev[data-event]').forEach(a => a.onclick = e => {
-    e.stopPropagation();
-    const ev = (d.events || []).find(x => x.id === +a.dataset.event);
-    if (ev) openEvent(ev, d.ym);
-  });
+  // (τα in-cell events ΔΕΝ ανοίγουν με κλικ — το κλικ σε κελί κάνει απλώς select τη μέρα·
+  //  τα events ανοίγουν από την αναλυτική agenda κάτω από το ημερολόγιο)
   // ── agenda επιλεγμένης μέρας (κάτω από το ημερολόγιο) ──
   const dayNames = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
   const renderDay = date => {
