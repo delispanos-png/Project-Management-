@@ -28,7 +28,7 @@ if ($adminId <= 0) {
     // δεν υπάρχει έγκυρο app session → οδηγίες εισόδου μέσω WHMCS admin
     $loginUrl = '/cloudonadminpanel/addonmodules.php?module=cloudonprojects&pmlaunch=1';
     ?><!DOCTYPE html><html lang="el"><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="robots" content="noindex,nofollow"><title>CloudOn Projects — Έξυπνη διαχείριση έργων</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230090dd'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>P</text></svg>">
     <link rel="manifest" href="/project/manifest.json">
@@ -155,7 +155,7 @@ $v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.cs
 <html lang="el">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>CloudOn Projects</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230090dd'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>P</text></svg>">

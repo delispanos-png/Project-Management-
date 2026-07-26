@@ -114,6 +114,30 @@ const statusOf = id => S.boot.statuses.find(s => s.id === +id) || {};
 const typeOf = id => S.boot.types.find(t => t.id === +id);
 
 /* ───────── shell ───────── */
+/* ── edge swipe (native feel): σύρσιμο από την αριστερή άκρη → πίσω ή άνοιγμα μενού ── */
+(function edgeSwipe() {
+  let x0 = null, y0 = 0, t0 = 0;
+  document.addEventListener('touchstart', e => {
+    x0 = null;
+    if (e.touches.length !== 1) { return; }
+    const t = e.touches[0];
+    if (t.clientX > 30) { return; }              // μόνο από την αριστερή άκρη
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
+  }, {passive: true});
+  document.addEventListener('touchend', e => {
+    if (x0 === null) { return; }
+    const t = e.changedTouches[0];
+    const dx = t.clientX - x0, dy = Math.abs(t.clientY - y0), dt = Date.now() - t0;
+    x0 = null;
+    if (dx < 70 || dy > 55 || dt > 700) { return; }   // καθαρό, γρήγορο οριζόντιο swipe
+    if (!matchMedia('(max-width:768px)').matches) { return; }
+    if (document.querySelector('.drawer.show, .ovl.show')) { return; }   // ανοιχτό πάνελ → μην παρεμβαίνεις
+    const back = document.querySelector('#ibBack, #chBack');
+    if (document.body.classList.contains('detail-open') && back) { back.click(); return; }
+    const sh = document.querySelector('.shell'); if (sh) { sh.classList.add('nav-open'); }
+  }, {passive: true});
+})();
+
 function renderShell() {
   const me = S.boot.me;
   const has = a => me.full || (me.areas || []).includes(a);   // ειδικότητες/πρόσβαση
@@ -184,6 +208,18 @@ function renderShell() {
       <div class="content" id="content"></div>
     </div>
     <div class="side-scrim" id="sideScrim"></div>
+    ${(() => {
+      // ── bottom tab bar (μόνο κινητό): οι πιο συχνές οθόνες σε απόσταση αντίχειρα ──
+      const flat = nav.flatMap(([, items]) => items);
+      const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', chat: 'Chat', calendar: 'Ατζέντα',
+        board: 'Board', crm: 'CRM', recruit: 'CV', todos: 'Πλάνο'};
+      const tabs = ['myday', 'inbox', 'chat', 'calendar', 'board', 'crm', 'todos']
+        .map(k => flat.find(x => x[0] === k)).filter(Boolean).slice(0, 4);
+      return `<nav class="tabbar" id="tabBar" aria-label="Κύρια πλοήγηση">
+        ${tabs.map(([k, ic, lb]) => `<button class="tab" data-tab="${k}">${ic}<span>${esc(SHORT[k] || lb)}</span></button>`).join('')}
+        <button class="tab" id="tabMore"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span>Μενού</span></button>
+      </nav>`;
+    })()}
   </div>`;
   $$('.sitem').forEach(b => b.onclick = () => { $('.shell').classList.remove('nav-open'); go(b.dataset.nav); });
   // ── mobile off-canvas menu ──
@@ -191,6 +227,9 @@ function renderShell() {
     const _sh = $('.shell');
     const _hb = $('#hambBtn'); if (_hb) _hb.onclick = () => _sh.classList.toggle('nav-open');
     const _sc = $('#sideScrim'); if (_sc) _sc.onclick = () => _sh.classList.remove('nav-open');
+    // bottom tabs
+    $$('#tabBar [data-tab]').forEach(b => b.onclick = () => { _sh.classList.remove('nav-open'); go(b.dataset.tab); });
+    const _tm = $('#tabMore'); if (_tm) _tm.onclick = () => _sh.classList.toggle('nav-open');
     if (!window._cnpNavEsc) {
       window._cnpNavEsc = 1;
       document.addEventListener('keydown', e => { if (e.key === 'Escape') { const s = document.querySelector('.shell'); if (s) s.classList.remove('nav-open'); } });
@@ -515,6 +554,8 @@ function go(view, arg) {
   S.view = view;
   location.hash = '#/' + view + (arg ? '/' + arg : '');
   $$('.sitem').forEach(b => b.classList.toggle('on', b.dataset.nav === view));
+  $$('#tabBar [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === view));
+  document.body.classList.remove('detail-open');   // νέα οθόνη → επαναφορά tab bar
   const c = $('#content'); c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
   ((window.R && window.R[view]) || vMyDay)(arg);
   if (typeof loadTopStats === 'function') { loadTopStats(); }
@@ -871,13 +912,16 @@ function loadMyNext() {
     el.style.display = '';
     el.innerHTML = `<div class="card-h">▶ Τι δουλεύω τώρα <span class="mut" style="margin-left:auto;font-size:11px;font-weight:400">κρισιμότητα · αναμονή · SLA</span></div>
       <div class="card-b">${r.next.map((t, i) => `
-        <div class="set-row" data-nxgo="${t.id}" style="cursor:pointer">
-          <b style="width:22px;text-align:center;color:${i === 0 ? 'var(--bad)' : 'var(--mut)'}">${i + 1}</b>
-          <div style="flex:1;min-width:0"><b style="font-size:12.5px">#${esc(t.tid)} — ${esc(t.title)}</b>
-            <span class="mut" style="font-size:11px"> · ${esc(t.client || '—')}</span>
-            ${!t.mine ? '<span class="pill pill-warn" style="font-size:9.5px">χωρίς ανάθεση</span>' : ''}
-            ${t.waiting ? '<span class="pill pill-bad" style="font-size:9.5px">περιμένει</span>' : ''}</div>
-          <b style="color:${t.score >= 45 ? 'var(--bad)' : 'var(--warn)'}">${t.score}</b></div>`).join('')}</div>`;
+        <div class="nx-row" data-nxgo="${t.id}">
+          <b class="nx-rank" style="color:${i === 0 ? 'var(--bad)' : 'var(--mut)'}">${i + 1}</b>
+          <div class="nx-body">
+            <div class="nx-title">#${esc(t.tid)} — ${esc(t.title)}</div>
+            <div class="nx-meta">
+              <span class="mut">${esc(t.client || '—')}</span>
+              ${!t.mine ? '<span class="pill pill-warn">χωρίς ανάθεση</span>' : ''}
+              ${t.waiting ? '<span class="pill pill-bad">περιμένει</span>' : ''}</div>
+          </div>
+          <b class="nx-score" style="color:${t.score >= 45 ? 'var(--bad)' : 'var(--warn)'}">${t.score}</b></div>`).join('')}</div>`;
     el.querySelectorAll('[data-nxgo]').forEach(x => x.onclick = () => go('inbox', +x.dataset.nxgo));
   }).catch(() => {});
 }

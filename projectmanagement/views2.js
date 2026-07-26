@@ -255,7 +255,7 @@ R.calendar = async function (ym) {
     ${d.ym !== today().slice(0, 7) ? '<button class="btn btn-o btn-sm" id="calT">Σήμερα</button>' : ''}
     <button class="btn btn-p cal-newev" id="evNew" style="margin-left:auto">${I.plus} Νέο συμβάν</button>
   </div>
-  <div class="cal-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+  <div class="cal-legend">
     ${Object.entries(EV_KINDS).map(([, [ico, l, col]]) => `<span class="cal-leg" style="border-color:${col}40;background:${col}14"><span class="dot" style="background:${col}"></span>${ico} ${l}</span>`).join('')}
   </div>
     <table class="cpm-cal cnp-cal"><thead><tr>${['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'].map(x => `<th>${x}</th>`).join('')}</tr></thead>

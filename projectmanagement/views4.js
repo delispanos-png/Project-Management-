@@ -439,7 +439,8 @@ R.chat = async function () {
     if (e.target.closest('[data-gdel]')) return;
     st.ch = r.dataset.ch; st.lastId = 0; st.mobileConv = true; R.chat();   // mobile: άνοιξε τη συνομιλία full-screen
   });
-  { const bk = $('#chBack'); if (bk) bk.onclick = () => { st.mobileConv = false; const cw = $('.chat'); if (cw) cw.classList.remove('conv-open'); }; }
+  document.body.classList.toggle('detail-open', !!st.mobileConv);
+  { const bk = $('#chBack'); if (bk) bk.onclick = () => { st.mobileConv = false; const cw = $('.chat'); if (cw) cw.classList.remove('conv-open'); document.body.classList.remove('detail-open'); }; }
   $$('[data-gdel]').forEach(x => x.onclick = async e => {
     e.stopPropagation();
     const mine = x.dataset.gmine === '1';

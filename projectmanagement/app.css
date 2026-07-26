@@ -712,6 +712,7 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 }
 
 /* ── ημερολόγιο: legend chips (icon+label μαζί) + κουμπί νέου συμβάντος ── */
+.cal-legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 .cal-leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--txt);
   border:1px solid var(--line);border-radius:999px;padding:4px 11px;white-space:nowrap}
 .cal-leg .dot{width:8px;height:8px;border-radius:50%;flex:none}
@@ -821,4 +822,109 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .c3-hero{flex-wrap:wrap;padding:14px}
   .c3-hero-acts{flex-basis:100%;justify-content:flex-start;margin-top:6px}
   .c3-hero-name{font-size:17px}
+}
+
+/* ═══════════════════ 📱 MOBILE-APP FEEL (όχι απλώς responsive) ═══════════════════ */
+:root{--tabbar-h:60px;--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
+
+/* ── native touch behaviour ── */
+*{-webkit-tap-highlight-color:transparent}
+.btn,.sitem,.tab,.hamb,.ib-tab,.ch-row,.trow,.cvrow,.rb-row,.cal-ag-row,.ib-row,.set-subsel,
+.ib-mbtn,.theme-btn,.ch-back,.ib-back,.drawer-x,.pill,.cal-leg,.stat,.su-stat{-webkit-user-select:none;user-select:none}
+/* το περιεχόμενο πρέπει να παραμένει επιλέξιμο */
+.ib-msg-b,.ch-m,.msg-b,.man-sec,.rte,.sol-html,.cal-ag-meta{-webkit-user-select:text;user-select:text}
+
+@media (max-width:768px){
+  /* κύλιση με momentum, χωρίς αλυσιδωτό bounce */
+  .content,.ch-msgs,.ib-list,.ch-list,.side{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  html,body{overscroll-behavior-y:none}
+
+  /* ── safe areas (notch + home indicator) στο εγκατεστημένο PWA ── */
+  .top{padding-top:calc(9px + var(--sat));min-height:calc(52px + var(--sat))}
+  .side{padding-top:calc(16px + var(--sat));padding-bottom:calc(16px + var(--sab))}
+  .drawer{padding-bottom:var(--sab)}
+  .ib-compose,.ch-comp{padding-bottom:calc(14px + var(--sab))}
+
+  /* ── touch targets (Apple HIG) ── */
+  .btn{min-height:42px}
+  .btn-sm{min-height:38px;padding:8px 13px;font-size:12.5px}
+  .btn-ico,.hamb{min-width:42px;min-height:42px}
+  .sitem{min-height:48px}
+  .inp,select.inp{min-height:44px}
+  .ib-tab,.ib-mbtn{min-height:38px}
+  input[type=checkbox],input[type=radio]{width:20px;height:20px}
+
+  /* ── απτική ανάδραση (αντί για hover που δεν υπάρχει) ── */
+  .btn:active,.tab:active,.sitem:active,.ch-row:active,.ib-row:active,.trow:active,
+  .cvrow:active,.rb-row:active,.cal-ag-row:active,.stat.click:active{transform:scale(.975);opacity:.85}
+  .btn,.tab,.ch-row,.ib-row,.trow,.cvrow,.rb-row,.cal-ag-row{transition:transform .09s ease,opacity .09s ease,background .12s}
+  /* το hover σε touch «κολλάει» — ουδετέρωσέ το */
+  .btn:hover{transform:none}
+  .cvrow:hover,.rb-row:hover,.trow:hover{box-shadow:none}
+}
+
+/* ══ Bottom tab bar — πλοήγηση με τον αντίχειρα ══ */
+.tabbar{display:none}
+@media (max-width:768px){
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:38;
+    background:color-mix(in srgb,var(--card) 92%,transparent);-webkit-backdrop-filter:saturate(180%) blur(14px);backdrop-filter:saturate(180%) blur(14px);
+    border-top:1px solid var(--line);padding-bottom:var(--sab);
+    box-shadow:0 -2px 14px rgba(15,32,56,.06)}
+  .tab{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    padding:8px 2px 7px;background:none;border:0;cursor:pointer;color:var(--mut);font-family:inherit;
+    font-size:10.5px;font-weight:700;letter-spacing:-.1px;min-height:var(--tabbar-h)}
+  .tab svg{width:22px;height:22px;stroke-width:2}
+  .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tab.on{color:var(--brand)}
+  .tab.on svg{stroke-width:2.4}
+  .tab .tab-n{position:absolute;transform:translate(14px,-9px);background:var(--bad);color:#fff;
+    border-radius:99px;font-size:9.5px;font-weight:800;padding:1px 5px;min-width:16px;text-align:center;line-height:1.5}
+  /* χώρος ώστε το tabbar να μην κρύβει περιεχόμενο */
+  .content{padding-bottom:calc(var(--tabbar-h) + var(--sab) + 16px)}
+  /* σε λίστα-με-σταθερό-ύψος (inbox/chat) αφαίρεσε το ύψος του tabbar */
+  .inbox,.chat{height:calc(100dvh - 110px - var(--tabbar-h) - var(--sab))}
+  /* detail view (ανοιχτό ticket/συνομιλία) → κρύψε τα tabs για μέγιστο χώρο (native pattern) */
+  body.detail-open .tabbar{display:none}
+  body.detail-open .content{padding-bottom:0}
+  body.detail-open .chat{height:calc(100dvh - 110px)}
+}
+
+/* ── inbox: πυκνή, mobile-first λίστα (τα φίλτρα να μην τρώνε την οθόνη) ── */
+.ib-search{display:flex;gap:7px;align-items:center;padding:9px 10px}
+.ib-search .inp{flex:1}
+.ib-filt-tgl{display:none;flex:none}
+.ib-filters{display:flex;gap:6px;padding:0 10px 8px}
+.ib-filters .inp{flex:1;font-size:12px}
+@media (max-width:768px){
+  /* tabs: μία σειρά που σέρνεται οριζόντια (αντί για 2-3 σειρές που τρώνε μισή οθόνη) */
+  .ib-tabs{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;padding:8px 10px 2px;gap:6px;scrollbar-width:none}
+  .ib-tabs::-webkit-scrollbar{display:none}
+  .ib-tab{flex:0 0 auto;white-space:nowrap}
+  /* δευτερεύοντα φίλτρα: κρυφά πίσω από κουμπί */
+  .ib-filt-tgl{display:inline-flex}
+  .ib-filters{display:none}
+  .ib-filters.show{display:flex}
+  .ib-search{padding:8px 10px}
+}
+
+/* ── «Τι δουλεύω τώρα» (myday): δομημένη γραμμή αντί για wrap χάος ── */
+.nx-row{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px dashed var(--line);cursor:pointer}
+.nx-row:last-child{border-bottom:0}
+.nx-rank{flex:none;width:22px;text-align:center;font-size:15px}
+.nx-body{flex:1;min-width:0}
+.nx-title{font-weight:700;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nx-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;font-size:11px}
+.nx-meta .pill{font-size:9.5px}
+.nx-score{flex:none;font-size:17px;font-variant-numeric:tabular-nums}
+
+/* ── με bottom tabs, το hamburger είναι περιττό (η πρόσβαση είναι από «Μενού» + edge-swipe) ── */
+@media (max-width:768px){
+  .hamb{display:none}
+  body.detail-open .hamb{display:none}
+  .top h1{font-size:17px}
+  /* ημερολόγιο: legend σε μία σειρά που σέρνεται (αντί για 2 σειρές) */
+  .cal-legend{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding-bottom:2px}
+  .cal-legend::-webkit-scrollbar{display:none}
+  .cal-leg{flex:0 0 auto}
+  .cal-top .cal-newev{flex:1 0 auto}
 }

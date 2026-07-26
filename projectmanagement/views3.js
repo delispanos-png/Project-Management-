@@ -17,17 +17,21 @@ R.inbox = async function (openId) {
     <div class="ib-left">
       <div class="ib-tabs">${tabs.map(([k, l]) =>
         `<button class="ib-tab ${st.view === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
-      <input class="inp" id="ibQ" placeholder="Αναζήτηση… (Enter)" value="${esc(st.q)}"
-        style="margin:9px 10px;width:calc(100% - 20px)">
-      <div style="display:flex;gap:6px;margin:0 10px 6px">
-        <select class="inp" id="ibFArea" style="flex:1;font-size:11.5px;padding:5px 7px"><option value="">Όλες οι περιοχές</option></select>
-        <select class="inp" id="ibFCause" style="flex:1;font-size:11.5px;padding:5px 7px"><option value="">Όλες οι ρίζες</option></select>
+      <div class="ib-search">
+        <input class="inp" id="ibQ" placeholder="Αναζήτηση…" value="${esc(st.q)}">
+        <button class="btn btn-o btn-sm ib-filt-tgl" id="ibFiltTgl" title="Φίλτρα">${I.filter || I.funnel || '⚙'}</button>
+      </div>
+      <div class="ib-filters${(st.area || st.cause) ? ' show' : ''}" id="ibFilters">
+        <select class="inp" id="ibFArea"><option value="">Όλες οι περιοχές</option></select>
+        <select class="inp" id="ibFCause"><option value="">Όλες οι ρίζες</option></select>
       </div>
       <div class="ib-list" id="ibList"><div class="skel" style="height:70px;margin:10px"></div></div>
     </div>
     <div class="ib-right" id="ibConv"><div class="empty" style="margin-top:80px"><div class="big">${I.ticket}</div>Διάλεξε ticket</div></div>
   </div>`;
-  $$('.ib-tab').forEach(b => b.onclick = () => { st.view = b.dataset.v; st.sel = null; R.inbox(); });
+  document.body.classList.toggle('detail-open', !!st.sel);
+  { const ft = $('#ibFiltTgl'); if (ft) ft.onclick = () => $('#ibFilters').classList.toggle('show'); }
+  $$('.ib-tab').forEach(b => b.onclick = () => { st.view = b.dataset.v; st.sel = null; document.body.classList.remove('detail-open'); R.inbox(); });
   const fillCat = (el, list, sel) => { if (!el) return; list.forEach(x => el.insertAdjacentHTML('beforeend', `<option value="${x.id}" ${x.id == sel ? 'selected' : ''}>${esc(x.name)}</option>`)); };
   $('#ibQ').onkeydown = e => { if (e.key === 'Enter') { st.q = e.target.value.trim(); R.inbox(); } };
   const d = await api('tickets&view=' + st.view + (st.q ? '&q=' + encodeURIComponent(st.q) : '')
@@ -54,6 +58,7 @@ R.inbox = async function (openId) {
   $$('.ib-row').forEach(r => r.onclick = () => { st.sel = +r.dataset.t;
     $$('.ib-row').forEach(x => x.classList.toggle('on', x === r));
     const _ibx = $('.inbox'); if (_ibx) _ibx.classList.add('has-sel');   // mobile master→detail
+    document.body.classList.add('detail-open');
     loadConv(st.sel); });
   if (st.sel) loadConv(st.sel);
 
@@ -207,7 +212,7 @@ R.inbox = async function (openId) {
     };
     $('#ibSend').onclick = send;
     $('#ibBody').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); };
-    { const _bk = $('#ibBack'); if (_bk) _bk.onclick = () => { st.sel = null; const _ibx = $('.inbox'); if (_ibx) _ibx.classList.remove('has-sel'); conv.innerHTML = `<div class="empty" style="margin-top:80px"><div class="big">${I.ticket}</div>Διάλεξε ticket</div>`; }; }
+    { const _bk = $('#ibBack'); if (_bk) _bk.onclick = () => { st.sel = null; const _ibx = $('.inbox'); if (_ibx) _ibx.classList.remove('has-sel'); document.body.classList.remove('detail-open'); conv.innerHTML = `<div class="empty" style="margin-top:80px"><div class="big">${I.ticket}</div>Διάλεξε ticket</div>`; }; }
     $('#ibStatus').onchange = async e => {
       await api('ticket_update', {ticket: id, status: e.target.value});
       toast('Κατάσταση: ' + e.target.value);
