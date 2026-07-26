@@ -132,7 +132,7 @@ R.inbox = async function (openId) {
           ${S.boot.admins.filter(a => a.id !== S.boot.me.id).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
       </div>
       <textarea class="inp" id="ibBody" rows="3" placeholder="Γράψε απάντηση… (Ctrl+Enter για αποστολή)"></textarea>
-      <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <div class="ib-actions" style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-p btn-sm" id="ibSend">Αποστολή</button>
         <select class="inp" id="ibCanned" style="width:auto;padding:5px 10px;font-size:12px">
           <option value="">Έτοιμες απαντήσεις…</option></select>

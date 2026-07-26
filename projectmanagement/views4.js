@@ -1207,10 +1207,10 @@ function cnpAttachments(host, opts) {
   }
   host.innerHTML = `
     <div id="cnpaList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
-    <div id="cnpaDrop" style="border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:.15s">
+    <div id="cnpaDrop" class="cnpa-drop" style="border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:.15s">
       <input type="file" id="cnpaInput" multiple style="display:none" ${opts.accept ? `accept="${opts.accept}"` : ''}>
-      <div style="font-size:13px;color:var(--mut)">📎 Σύρε αρχεία εδώ ή <b style="color:var(--brand)">κάνε κλικ</b> — έγγραφα, εικόνες, <b>βίντεο</b></div>
-      <div class="mut" style="font-size:11px;margin-top:3px">Τα βίντεο/μεγάλα ανεβαίνουν κατευθείαν στο cloud storage</div>
+      <div class="cnpa-drop-main" style="font-size:13px;color:var(--mut)">📎 <b style="color:var(--brand)">Επισύναψη</b> — έγγραφα, εικόνες, <b>βίντεο</b><span class="cnpa-drop-drag"> (ή σύρε εδώ)</span></div>
+      <div class="cnpa-drop-sub mut" style="font-size:11px;margin-top:3px">Τα βίντεο/μεγάλα ανεβαίνουν κατευθείαν στο cloud storage</div>
     </div>
     <div id="cnpaProg" style="display:none;margin-top:10px"></div>`;
   renderList();

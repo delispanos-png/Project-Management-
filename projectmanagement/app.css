@@ -779,3 +779,23 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .rb-acts{flex-basis:100%;margin-top:2px}
   .rb-go{flex:1}
 }
+
+/* ── ticket detail: μάζεμα σε κινητό ── */
+@media (max-width:768px){
+  /* drop-zone συνημμένων: compact + κρύψε το «σύρε» (δεν υπάρχει drag σε κινητό) */
+  .cnpa-drop{padding:11px}
+  .cnpa-drop-drag,.cnpa-drop-sub{display:none}
+  /* header ticket: πιο μαζεμένο */
+  .ib-head{gap:7px;padding:9px 11px}
+  .ib-head .inp{padding:6px 9px}
+  .ib-head h2,.ib-head b{font-size:14px}
+  /* μηνύματα: περισσότερο πλάτος */
+  .ib-msg{max-width:90%}
+  .ib-msgs{padding:14px 12px}
+  /* mode tabs (Απάντηση / Σημείωση): μοιράζονται το πλάτος */
+  .ib-mode .ib-mbtn{flex:1;text-align:center;justify-content:center}
+  /* reply toolbar: το «Αποστολή» πρωτεύον full-width, το «κλείσιμο» δική του σειρά */
+  .ib-actions{gap:7px}
+  .ib-actions #ibSend{flex:1 1 100%;padding:10px}
+  .ib-actions #ibCloseWrap{flex-basis:100%;margin:2px 0 0!important;justify-content:flex-start}
+}
