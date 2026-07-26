@@ -140,7 +140,7 @@ function renderShell() {
   }
   nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']]]);
   $('#app').innerHTML = `
-  <div class="shell${localStorage.cnpSideCollapsed === '1' ? ' collapsed' : ''}">
+  <div class="shell${(localStorage.cnpSideCollapsed === '1' && !matchMedia('(max-width:768px)').matches) ? ' collapsed' : ''}">
     <aside class="side">
       <div class="brand"><div class="brand-ico">P</div>
         <div class="brand-t">Cloudon<b>Projects</b><small>Project Manager</small></div></div>
@@ -167,6 +167,7 @@ function renderShell() {
     </aside>
     <div class="main">
       <div class="top">
+        <button class="hamb" id="hambBtn" aria-label="Μενού" title="Μενού"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <div class="top-l"><h1 id="topTitle"></h1><small id="topSub"></small></div>
         <button class="top-search" id="palBtn" title="Αναζήτηση (Ctrl+K)">${I.search}<span>Αναζήτηση…</span><kbd>Ctrl K</kbd></button>
         <div class="top-pulse" id="topPulse"></div>
@@ -182,8 +183,19 @@ function renderShell() {
       </div>
       <div class="content" id="content"></div>
     </div>
+    <div class="side-scrim" id="sideScrim"></div>
   </div>`;
-  $$('.sitem').forEach(b => b.onclick = () => go(b.dataset.nav));
+  $$('.sitem').forEach(b => b.onclick = () => { $('.shell').classList.remove('nav-open'); go(b.dataset.nav); });
+  // ── mobile off-canvas menu ──
+  {
+    const _sh = $('.shell');
+    const _hb = $('#hambBtn'); if (_hb) _hb.onclick = () => _sh.classList.toggle('nav-open');
+    const _sc = $('#sideScrim'); if (_sc) _sc.onclick = () => _sh.classList.remove('nav-open');
+    if (!window._cnpNavEsc) {
+      window._cnpNavEsc = 1;
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') { const s = document.querySelector('.shell'); if (s) s.classList.remove('nav-open'); } });
+    }
+  }
   $$('[data-grptoggle]').forEach(b => b.onclick = () => {
     b.closest('.snav-grp').classList.toggle('open');
     localStorage.cnpNavOpen = JSON.stringify($$('.snav-grp.open').map(x => x.querySelector('.sgroup').dataset.grptoggle));

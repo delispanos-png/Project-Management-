@@ -13,7 +13,7 @@ R.inbox = async function (openId) {
   const tabs = [['open', 'Ανοιχτά'], ['mine', 'Δικά μου'], ['unassigned', 'Χωρίς ανάθεση'],
     ['waiting', 'Περιμένουν'], ['closed', 'Κλειστά']];
   c.innerHTML = `
-  <div class="inbox">
+  <div class="inbox${st.sel ? ' has-sel' : ''}">
     <div class="ib-left">
       <div class="ib-tabs">${tabs.map(([k, l]) =>
         `<button class="ib-tab ${st.view === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
@@ -52,7 +52,9 @@ R.inbox = async function (openId) {
       </div></div>`).join('')
     : '<div class="empty" style="padding:30px 10px">Κανένα ticket εδώ 🎉</div>';
   $$('.ib-row').forEach(r => r.onclick = () => { st.sel = +r.dataset.t;
-    $$('.ib-row').forEach(x => x.classList.toggle('on', x === r)); loadConv(st.sel); });
+    $$('.ib-row').forEach(x => x.classList.toggle('on', x === r));
+    const _ibx = $('.inbox'); if (_ibx) _ibx.classList.add('has-sel');   // mobile master→detail
+    loadConv(st.sel); });
   if (st.sel) loadConv(st.sel);
 
   async function loadConv(id) {
@@ -63,6 +65,7 @@ R.inbox = async function (openId) {
     const t = dd.ticket;
     conv.innerHTML = `
     <div class="ib-head">
+      <button class="ib-back" id="ibBack" aria-label="Πίσω στη λίστα" title="Πίσω"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div style="flex:1;min-width:0">
         <b style="font-size:14.5px;color:var(--ink)">#${esc(t.tid)} — ${esc(t.title)}</b>
         <div class="mut" style="font-size:11.5px">${esc(t.client || '')} ${t.email ? '· ' + esc(t.email) : ''}
@@ -202,6 +205,7 @@ R.inbox = async function (openId) {
     };
     $('#ibSend').onclick = send;
     $('#ibBody').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); };
+    { const _bk = $('#ibBack'); if (_bk) _bk.onclick = () => { st.sel = null; const _ibx = $('.inbox'); if (_ibx) _ibx.classList.remove('has-sel'); conv.innerHTML = `<div class="empty" style="margin-top:80px"><div class="big">${I.ticket}</div>Διάλεξε ticket</div>`; }; }
     $('#ibStatus').onchange = async e => {
       await api('ticket_update', {ticket: id, status: e.target.value});
       toast('Κατάσταση: ' + e.target.value);
