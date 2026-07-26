@@ -799,3 +799,24 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .ib-actions #ibSend{flex:1 1 100%;padding:10px}
   .ib-actions #ibCloseWrap{flex-basis:100%;margin:2px 0 0!important;justify-content:flex-start}
 }
+
+/* ── Πελάτης 360°: όμορφο detail ── */
+.c3-hero{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--sh);margin:14px 0}
+.c3-hero-ava{width:54px;height:54px;border-radius:15px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--brand2),var(--brand-d));color:#fff;font-size:19px;font-weight:800;box-shadow:0 5px 16px rgba(0,144,221,.4)}
+.c3-hero-main{flex:1;min-width:0}
+.c3-hero-name{font-size:19px;font-weight:800;color:var(--ink);letter-spacing:-.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c3-hero-meta{font-size:12.5px;color:var(--mut);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c3-hero-acts{display:flex;gap:7px;flex:none}
+.c3-alerts{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.c3-alert{display:flex;align-items:center;gap:9px;padding:11px 15px;border-radius:12px;font-size:13.5px;font-weight:600;border-left:4px solid}
+.c3-alert.bad{background:color-mix(in srgb,var(--bad) 11%,transparent);border-left-color:var(--bad);color:var(--bad)}
+.c3-alert.warn{background:color-mix(in srgb,var(--warn) 14%,transparent);border-left-color:var(--warn);color:#a8720e}
+.c3-alert.info{background:color-mix(in srgb,var(--brand) 9%,transparent);border-left-color:var(--brand);color:var(--brand-d)}
+.c3-svc{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;transition:border-color .12s}
+.c3-svc:hover{border-color:var(--brand)}
+#c3Res .trow[data-c]{cursor:pointer;padding:12px 14px}
+@media (max-width:768px){
+  .c3-hero{flex-wrap:wrap;padding:14px}
+  .c3-hero-acts{flex-basis:100%;justify-content:flex-start;margin-top:6px}
+  .c3-hero-name{font-size:17px}
+}

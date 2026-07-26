@@ -698,29 +698,48 @@ R.client360 = async function (cid) {
     $('#c3Res').innerHTML = skel(4);
     const d = await api('client360&id=' + id + (months ? '&months=' + months : ''));
     let lastDay = '';
+    const ini = (d.client.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
+    // ── alerts: ό,τι ΠΡΕΠΕΙ να δει αμέσως ο χειριστής ──
+    const alerts = [];
+    if (d.owed.flag) alerts.push(['bad', '💰', d.full ? `Ανοιχτό υπόλοιπο ${fmtEur(d.owed.amount)} · ${d.owed.count} τιμ.` : 'Έχει ανοιχτό υπόλοιπο — παρέπεμψε στο λογιστήριο']);
+    if (d.sla && d.sla.enabled && d.sla.priority === 'High') alerts.push(['warn', '⚡', 'Πελάτης προτεραιότητας — SLA Υψηλή']);
+    if (d.sla && d.sla.enabled && d.sla.balance <= 0) alerts.push(['bad', '🪫', 'Εξαντλημένο υπόλοιπο ωρών υποστήριξης']);
+    const expSoon = (d.services || []).filter(sv => sv.status === 'Active' && sv.due && ((new Date(sv.due) - Date.now()) / 86400000) < 15);
+    if (expSoon.length) alerts.push(['warn', '⏰', `${expSoon.length === 1 ? 'Υπηρεσία λήγει' : expSoon.length + ' υπηρεσίες λήγουν'} σε <15 ημέρες`]);
+    if (d.summary.openTickets) alerts.push(['info', '🎫', `${d.summary.openTickets} ανοιχτ${d.summary.openTickets === 1 ? 'ό ticket' : 'ά tickets'}`]);
     $('#c3Res').innerHTML = `
-    <h3 style="margin:14px 0 10px;color:var(--ink);display:flex;align-items:center;gap:10px">${esc(d.client.name)}
-      <span class="mut" style="font-weight:600;font-size:13px">#${d.client.id} · ${esc(d.client.email)}</span>
-      <button class="btn btn-sm btn-o" id="c3Rt" style="margin-left:auto">${I.monitor} Remote συνεδρία</button></h3>
+    <div class="c3-hero">
+      <span class="c3-hero-ava">${esc(ini)}</span>
+      <div class="c3-hero-main">
+        <div class="c3-hero-name">${esc(d.client.name)}</div>
+        <div class="c3-hero-meta">#${d.client.id}${d.client.email ? ' · ' + esc(d.client.email) : ''}${d.client.phone ? ' · ' + esc(d.client.phone) : ''}</div>
+      </div>
+      <div class="c3-hero-acts">
+        ${d.client.phone ? `<a class="btn btn-o btn-sm" href="tel:${esc(d.client.phone)}">${I.phone || '📞'} Κλήση</a>` : ''}
+        <button class="btn btn-p btn-sm" id="c3Rt">${I.monitor} Remote</button>
+      </div>
+    </div>
+    ${alerts.length ? `<div class="c3-alerts">${alerts.map(([t, ic, txt]) => `<div class="c3-alert ${t}"><span style="font-size:16px">${ic}</span> ${txt}</div>`).join('')}</div>` : ''}
     <div class="grid g4">
-      <div class="stat"><b>${d.summary.services}</b><small>Ενεργές υπηρεσίες</small></div>
+      <div class="stat info"><b>${d.summary.services}</b><small>Ενεργές υπηρεσίες</small></div>
       <div class="stat ${d.summary.openTasks ? 'info' : ''}"><b>${d.summary.openTasks}</b><small>Ανοιχτά tasks</small></div>
-      <div class="stat ${d.summary.openTickets ? 'warn' : ''}"><b>${d.summary.openTickets}</b><small>Ανοιχτά tickets</small></div>
+      <div class="stat ${d.summary.openTickets ? 'warn' : 'ok'}"><b>${d.summary.openTickets}</b><small>Ανοιχτά tickets</small></div>
       ${d.summary.scBalance !== null ? `<div class="stat ${d.summary.scBalance > 0 ? 'ok' : 'bad'}"><b>${fmtMin(d.summary.scBalance)}</b><small>Υπόλοιπο προαγοράς</small></div>` : ''}
     </div>
     <div class="grid g2" style="margin-bottom:14px">
       <div class="card"><div class="card-h">${I.box} Υπηρεσίες & προγράμματα <span class="kb-n" style="margin-left:auto">${d.services.length}</span></div>
-        <div class="tw" style="overflow-x:auto"><table class="tbl"><thead><tr>
-          <th>Πρόγραμμα</th><th>Domain / IP</th><th>Κατάσταση</th><th>Λήγει</th>${d.full ? '<th>Ποσό</th>' : ''}</tr></thead><tbody>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
           ${d.services.length ? d.services.map(sv => {
-            const days = sv.due ? Math.round((new Date(sv.due) - new Date()) / 86400000) : null;
-            return `<tr>
-              <td><b style="font-size:12.5px">${esc(sv.product)}</b></td>
-              <td class="mut" style="font-size:12px">${esc(sv.domain || sv.ip || '—')}</td>
-              <td><span class="pill ${sv.status === 'Active' ? 'pill-ok' : 'pill-warn'}">${sv.status === 'Active' ? 'Ενεργό' : 'Σε αναστολή'}</span></td>
-              <td>${sv.due ? `<span class="${days < 15 ? 'pill pill-bad' : days < 30 ? 'pill pill-warn' : ''}">${dShort(sv.due)}${days !== null && days < 30 ? ' (' + days + 'ημ)' : ''}</span>` : '—'}</td>
-              ${d.full ? `<td class="mut">${sv.amount ? fmtEur(sv.amount) + '/' + (sv.cycle || '').slice(0, 3) : '—'}</td>` : ''}</tr>`;
-          }).join('') : '<tr><td colspan="9" class="empty">Καμία ενεργή υπηρεσία</td></tr>'}</tbody></table></div></div>
+            const days = sv.due ? Math.round((new Date(sv.due) - Date.now()) / 86400000) : null;
+            return `<div class="c3-svc">
+              <div style="flex:1;min-width:0"><b style="font-size:13px;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sv.product)}</b>
+                <span class="mut" style="font-size:11.5px">${esc(sv.domain || sv.ip || '—')}${d.full && sv.amount ? ' · ' + fmtEur(sv.amount) + '/' + (sv.cycle || '').slice(0, 3) : ''}</span></div>
+              <div style="text-align:right;flex:none">
+                <span class="pill ${sv.status === 'Active' ? 'pill-ok' : 'pill-warn'}">${sv.status === 'Active' ? 'Ενεργό' : 'Αναστολή'}</span>
+                ${sv.due ? `<div class="mut" style="font-size:10.5px;margin-top:3px">λήγει ${dShort(sv.due)}${days !== null && days < 30 ? ` <b style="color:${days < 15 ? 'var(--bad)' : 'var(--warn)'}">(${days}ημ)</b>` : ''}</div>` : ''}
+              </div></div>`;
+          }).join('') : '<div class="empty" style="padding:20px">Καμία ενεργή υπηρεσία</div>'}
+        </div></div>
       <div>
         <div class="card"><div class="card-h">${I.shield} SLA & Συμβόλαιο</div><div class="card-b">
           ${d.full ? `<div class="set-row"><b>${I.ticket} Πακέτο υποστήριξης</b>
@@ -785,15 +804,17 @@ R.client360 = async function (cid) {
         <div style="flex:1;min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name)}</b>
         <span class="mut" style="font-size:11.5px">#${m.id}${m.email ? ' · ' + esc(m.email) : ''}</span></div></div>`).join('')}</div>`
       : '<div class="empty" style="padding:22px">Δεν βρέθηκε πελάτης</div>';
-    $$('#c3Res [data-c]').forEach(r => r.onclick = () => show(+r.dataset.c));
+    // (το click χειρίζεται με delegation στο #c3Res → δεν χάνεται σε re-render)
   };
+  const pick = id => { clearTimeout(c3t); const q = $('#c3Q'); if (q) q.blur(); show(id); };
+  $('#c3Res').onclick = e => { const row = e.target.closest('[data-c]'); if (row) pick(+row.dataset.c); };
   $('#c3Q').oninput = e => {
     clearTimeout(c3t);
     const q = e.target.value.trim();
     if (q.length < 2) { $('#c3Res').innerHTML = ''; return; }
     c3t = setTimeout(() => liveSearch(q), 250);
   };
-  $('#c3Q').onkeydown = e => { if (e.key === 'Enter') { const first = $('#c3Res [data-c]'); if (first) show(+first.dataset.c); } };
+  $('#c3Q').onkeydown = e => { if (e.key === 'Enter') { const first = $('#c3Res [data-c]'); if (first) pick(+first.dataset.c); } };
   if (cid) show(+cid);
 };
 
