@@ -31,6 +31,13 @@ if ($adminId <= 0) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow"><title>CloudOn Projects — Έξυπνη διαχείριση έργων</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230090dd'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>P</text></svg>">
+    <link rel="manifest" href="/project/manifest.json">
+    <meta name="theme-color" content="#131e33">
+    <link rel="apple-touch-icon" href="/project/icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Projects">
     <style>
     *{box-sizing:border-box}
     :root{--bg:#0a1220;--bg2:#0e1a2e;--ink:#eaf2ff;--mut:#8091ad;--cyan:#22b8ff;--blue:#0090dd}
@@ -131,6 +138,7 @@ if ($adminId <= 0) {
       }
     })();
     </script>
+    <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("/project/sw.js").catch(function(){});</script>
     </body></html><?php
     exit;
 }
@@ -151,9 +159,13 @@ $v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.cs
 <meta name="robots" content="noindex,nofollow">
 <title>CloudOn Projects</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230090dd'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>P</text></svg>">
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="/project/manifest.json">
 <meta name="theme-color" content="#131e33">
-<link rel="apple-touch-icon" href="icon.svg">
+<link rel="apple-touch-icon" href="/project/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Projects">
 <link rel="stylesheet" href="app.css?v=<?= htmlspecialchars($v) ?>">
 </head>
 <body>
