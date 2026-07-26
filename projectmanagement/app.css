@@ -704,3 +704,10 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .set-row[data-tgo]{align-items:flex-start}
   .set-row[data-tgo] [data-assign]{order:5;flex-basis:100%;justify-content:flex-start;margin-top:6px}
 }
+
+/* ── ημερολόγιο: legend chips (icon+label μαζί) + κουμπί νέου συμβάντος ── */
+.cal-leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--txt);
+  border:1px solid var(--line);border-radius:999px;padding:4px 11px;white-space:nowrap}
+.cal-leg .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.cal-newev{font-weight:700;border-radius:11px;box-shadow:0 5px 16px rgba(0,144,221,.4)}
+.cal-newev:hover{box-shadow:0 7px 20px rgba(0,144,221,.5)}

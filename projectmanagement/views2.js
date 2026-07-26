@@ -248,13 +248,16 @@ R.calendar = async function (ym) {
     ${away.length ? `<span style="font-size:12.5px">🌴 <b>Λείπουν σήμερα:</b> ${away.map(e => esc(e.attendees.map(a => adminName(a)).join(', '))).join(' · ')}</span>` : ''}
     ${meets.length ? `<span style="font-size:12.5px">${I.handshake} <b>Σήμερα:</b> ${meets.map(e => (e.allDay ? '' : e.start.slice(11, 16) + ' ') + esc(e.title)).join(' · ')}</span>` : ''}
   </div>` : ''}
-  <div style="display:flex;gap:11px;align-items:center;margin-bottom:14px">
-    <button class="btn btn-o btn-sm" id="calP">←</button>
-    <b style="font-size:17px;color:var(--ink)">${mn} ${Y}</b>
-    <button class="btn btn-o btn-sm" id="calN">→</button>
-    ${d.ym !== today().slice(0, 7) ? '<button class="btn btn-sm" id="calT">Σήμερα</button>' : ''}
-    <button class="btn btn-p btn-sm" id="evNew" style="margin-left:auto">${I.plus} Νέο συμβάν</button>
-    <span class="mut" style="font-size:11px">${Object.entries(EV_KINDS).map(([, [ico, l]]) => ico + ' ' + l).join(' · ')}</span></div>
+  <div class="cal-top" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <button class="btn btn-o btn-ico" id="calP" title="Προηγούμενος μήνας">←</button>
+    <b style="font-size:17px;color:var(--ink);min-width:118px;text-align:center">${mn} ${Y}</b>
+    <button class="btn btn-o btn-ico" id="calN" title="Επόμενος μήνας">→</button>
+    ${d.ym !== today().slice(0, 7) ? '<button class="btn btn-o btn-sm" id="calT">Σήμερα</button>' : ''}
+    <button class="btn btn-p cal-newev" id="evNew" style="margin-left:auto">${I.plus} Νέο συμβάν</button>
+  </div>
+  <div class="cal-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+    ${Object.entries(EV_KINDS).map(([, [ico, l, col]]) => `<span class="cal-leg" style="border-color:${col}40;background:${col}14"><span class="dot" style="background:${col}"></span>${ico} ${l}</span>`).join('')}
+  </div>
     <table class="cpm-cal cnp-cal"><thead><tr>${['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'].map(x => `<th>${x}</th>`).join('')}</tr></thead>
     <tbody>${cells}</tr></tbody></table>`;
   $('#calP').onclick = () => R.calendar(fmtYm(prev));
