@@ -420,7 +420,11 @@ R.settings = async function (sub) {
   const txt = (k, label, descr, w) => `
     <div class="set-row"><div><b>${label}</b><div class="mut" style="font-size:12px">${descr}</div></div>
       <input class="inp" data-set="${k}" value="${esc(s[k])}" style="width:${w || '110px'}"></div>`;
-  const tabsHtml = `<div class="ib-tabs" style="margin-bottom:16px;flex-wrap:wrap;border:0;background:0">
+  const tabsHtml = `
+    <select class="inp set-subsel" id="setSubSel" aria-label="Ενότητα ρυθμίσεων">
+      ${SUBS.map(([k, ic, l]) => `<option value="${k}" ${st.sub === k ? 'selected' : ''}>${l}</option>`).join('')}
+    </select>
+    <div class="ib-tabs set-subtabs" style="margin-bottom:16px;flex-wrap:wrap;border:0;background:0">
     ${SUBS.map(([k, ic, l]) => `<button class="ib-tab ${st.sub === k ? 'on' : ''}" data-sub="${k}"><span class="tico">${ic}</span>${l}</button>`).join('')}</div>`;
 
   let body = '';
@@ -536,6 +540,7 @@ R.settings = async function (sub) {
   }
   c.innerHTML = tabsHtml + body;
   $$('[data-sub]').forEach(b => b.onclick = () => R.settings(b.dataset.sub));
+  { const _ss = $('#setSubSel'); if (_ss) _ss.onchange = () => R.settings(_ss.value); }
 
   if ($('#setSave')) $('#setSave').onclick = async () => {
     const settings = {};

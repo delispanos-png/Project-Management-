@@ -931,18 +931,19 @@ R.recruit = async function () {
   const cvAva = x => x.photo
     ? `<img src="api.php?a=cv_photo&id=${x.id}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex:none;border:1px solid var(--line)" loading="lazy">`
     : `<span class="ava" style="width:36px;height:36px;font-size:12px;flex:none">${esc((x.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase())}</span>`;
-  const cvRow = x => `<div class="set-row" data-cvo="${x.id}" style="cursor:pointer;gap:11px;align-items:center">
-    <div style="width:38px;text-align:center;flex:none">${x.aiScore !== null ? `<span style="display:inline-block;min-width:34px;padding:3px 0;border-radius:8px;font-weight:800;font-size:13px;color:#fff;background:${_cvScoreCol(x.aiScore)}">${x.aiScore}</span>` : '<span class="mut" style="font-size:16px">·</span>'}</div>
+  const cvRow = x => `<div class="cvrow" data-cvo="${x.id}">
+    <div class="cv-score">${x.aiScore !== null ? `<span style="display:inline-block;min-width:34px;padding:3px 0;border-radius:8px;font-weight:800;font-size:13px;color:#fff;background:${_cvScoreCol(x.aiScore)}">${x.aiScore}</span>` : '<span class="mut" style="font-size:16px">·</span>'}</div>
     ${cvAva(x)}
-    <div style="flex:1;min-width:0"><b style="font-size:13.5px">${esc(x.name)}</b>
+    <div class="cv-main"><b style="font-size:13.5px">${esc(x.name)}</b>
       <div class="mut" style="font-size:11.5px">${esc(x.jobTitle || '—')}${x.category ? ' · ' + esc(x.category) : ''}${x.seniority ? ' · ' + esc(x.seniority) : ''}</div></div>
+    <div class="cv-tags">
     ${x.aiGen === 'ai' ? `<span class="pill" style="background:#e2515f1a;color:#e2515f;font-size:9px" title="πιθανό AI-generated">🤖 AI</span>` : x.aiGen === 'mixed' ? `<span class="pill" style="background:#e0a0201a;color:#e0a020;font-size:9px" title="μερικώς AI">🤖 ~</span>` : ''}
     ${x.dup > 1 ? `<span class="pill" style="background:#8291a91a;color:#8291a9;font-size:9px" title="υπέβαλε ${x.dup} φορές (ίδιο email)">⧉ ×${x.dup}</span>` : ''}
     ${x.appliedAt ? `<span class="mut" style="font-size:11px;white-space:nowrap" title="ημ. υποβολής">${_cvDate(x.appliedAt)}</span>` : ''}
     ${x.decision && _cvDecision[x.decision] ? `<span class="pill" style="background:${_cvDecision[x.decision][1]}1a;color:${_cvDecision[x.decision][1]};font-size:9px">${_cvDecision[x.decision][0]}</span>` : ''}
     ${x.rating ? `<span style="color:#e0a020;font-size:11px">${'★'.repeat(x.rating)}</span>` : ''}
     <span class="pill" style="background:${_cvStatusCol[x.status]}1a;color:${_cvStatusCol[x.status]};font-size:9px">${esc(statuses[x.status] || x.status)}</span>
-    ${x.hasCv ? `<span class="mut" title="έχει CV" style="display:inline-flex">${I.doc}</span>` : ''}</div>`;
+    ${x.hasCv ? `<span class="mut" title="έχει CV" style="display:inline-flex">${I.doc}</span>` : ''}</div></div>`;
   const load = async () => {
     const d = await api('cv_list&job=' + st.job + '&status=' + st.status + '&q=' + encodeURIComponent(st.q) + '&page=' + st.page + '&per=' + st.per + (st.dups ? '&dups=1' : ''));
     st.page = d.page;

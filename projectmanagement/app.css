@@ -590,9 +590,12 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .card-h{padding:12px 14px}
   .card-b{padding:13px 14px}
 
-  /* ── grids → μία στήλη ── */
-  .g2,.g4{grid-template-columns:1fr}
+  /* ── grids ── g4 = μικρά stat tiles → 2-up· g2 = μεγάλα → 1-up ── */
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g2{grid-template-columns:1fr}
   .frow{grid-template-columns:1fr;gap:12px}
+  /* τα grid items να μπορούν να συρρικνωθούν (αλλιώς ξεχειλίζουν) */
+  .grid,.grid>*{min-width:0}
   .stat{padding:14px 16px 12px 20px}
   .stat b{font-size:24px}
 
@@ -664,4 +667,24 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .cnp-cal th{padding:6px 2px;font-size:9px}
   .cnp-cal .d{font-size:11px;margin-bottom:2px}
   .cnp-cal a.ev{padding:1px 4px;font-size:9.5px;border-radius:4px;margin-bottom:2px}
+}
+
+/* ── recruit: γραμμή υποψηφίου (desktop + mobile stack) ── */
+.cvrow{display:flex;gap:11px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line);cursor:pointer;transition:background .12s}
+.cvrow:last-child{border:none}
+.cvrow:hover{background:#0090dd0a}
+.cv-score{flex:none;width:38px;text-align:center}
+.cv-main{flex:1;min-width:0}
+.cv-tags{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;flex:none}
+@media (max-width:768px){
+  .cvrow{flex-wrap:wrap;padding:12px 0}
+  .cv-main{flex:1 1 auto}
+  .cv-tags{flex-basis:100%;justify-content:flex-start;padding-left:49px;margin-top:3px}
+}
+
+/* ── settings: dropdown ενοτήτων σε κινητό (αντί για απλωμένα tabs) ── */
+.set-subsel{display:none}
+@media (max-width:768px){
+  .set-subsel{display:block;width:100%;margin-bottom:14px;font-weight:700;font-size:14.5px;padding:12px 13px}
+  .set-subtabs{display:none}
 }

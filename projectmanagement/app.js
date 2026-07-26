@@ -1210,7 +1210,7 @@ async function vKpi() {
           <td>${w.today}</td><td>${w.over ? `<b style="color:var(--bad)">${w.over}</b>` : '0'}</td></tr>`).join('')
           : '<tr><td colspan="5" class="empty">Χωρίς ανοιχτά tasks με ανάθεση</td></tr>'}</tbody></table></div>
       <div class="card"><div class="card-h">${I.coin} Μήνας — γρήγορη εικόνα</div><div class="card-b">
-        <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+        <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
           <div class="stat ok" style="margin:0"><b>${fmtEur(d.month.won)}</b><small>Κερδισμένες προσφορές</small></div>
           <div class="stat warn" style="margin:0"><b>${fmtEur(d.month.laborCost)}</b><small>Κόστος εργασίας (${fmtMin(d.month.minutes)})</small></div>
           <div class="stat warn" style="margin:0"><b>${fmtEur(d.month.expenses)}</b><small>Έξοδα projects</small></div>
