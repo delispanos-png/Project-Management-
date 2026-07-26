@@ -261,8 +261,7 @@ function renderShell() {
     S.theme = S.theme === 'dark' ? 'light' : 'dark';
     localStorage.cnpTheme = S.theme; document.documentElement.dataset.theme = S.theme;
     $('#themeBtn').textContent = S.theme === 'dark' ? '☀️' : '🌙';
-  };
-  $('#logoutBtn').onclick = async () => {
+  };  $('#logoutBtn').onclick = async () => {
     if (!await cnpConfirm('Αποσύνδεση από την εφαρμογή;', {ok: 'Αποσύνδεση'})) { return; }
     location.href = '?logout=1';
   };
@@ -1296,6 +1295,11 @@ window.CNP = {S, api, esc, suStat, fmtMin, fmtEur, dShort, tShort, today, toast,
 (async function init() {
   try {
     S.boot = await api('boot');
+    // γλώσσα από το προφίλ του χρήστη (ισχύει σε κάθε συσκευή)
+    if (window.CNP_I18N && S.boot.me && S.boot.me.lang && S.boot.me.lang !== window.CNP_I18N.get()) {
+      window.CNP_I18N.set(S.boot.me.lang);   // αποθηκεύει + reload μία φορά
+      return;
+    }
   } catch (e) {
     $('#app').innerHTML = '<div class="boot"><div class="boot-logo">P</div><div class="boot-txt">Σύνδεση…</div></div>';
     return;

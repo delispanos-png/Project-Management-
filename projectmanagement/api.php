@@ -525,7 +525,8 @@ case 'boot':
             'req' => ['assignee' => (bool) $ty->req_assignee, 'due' => (bool) $ty->req_due, 'est' => (bool) $ty->req_estimate]];
     }
     out(['me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
-            'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL)],
+            'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
+            'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
             ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0)) : 0,
@@ -2368,6 +2369,7 @@ case 'profile':                        // το προφίλ ΜΟΥ (κάθε χ�
         'allProjects' => $projs8 === null,
         'prefs' => ['notify_email' => Db::pref($adminId, 'notify_email', 'on'),
             'digest' => Db::pref($adminId, 'digest', 'on'),
+            'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el',
             'meet_link' => Db::pref($adminId, 'meet_link', '')]]);
 
 case 'profile_save':                   // στοιχεία μου (self μόνο)
@@ -2403,6 +2405,10 @@ case 'profile_pass':                   // αλλαγή δικού μου κωδ�
 
 case 'profile_pref':                   // προσωπικές προτιμήσεις ειδοποιήσεων
     $key8 = (string) ($in['key'] ?? '');
+    if ($key8 === 'lang') {                       // γλώσσα διεπαφής ανά χρήστη (el|en)
+        Db::setPref($adminId, 'lang', ($in['value'] ?? '') === 'en' ? 'en' : 'el');
+        out(['ok' => true]);
+    }
     if (!in_array($key8, ['notify_email', 'digest'], true)) {
         fail('pref');
     }

@@ -149,7 +149,7 @@ if (isset($_GET['t'])) {
     exit;
 }
 
-$v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.css'), @filemtime(__DIR__ . '/views2.js'), @filemtime(__DIR__ . '/views3.js'), @filemtime(__DIR__ . '/views4.js'), @filemtime(__DIR__ . '/views5.js'), @filemtime(__DIR__ . '/help.js'));
+$v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.css'), @filemtime(__DIR__ . '/views2.js'), @filemtime(__DIR__ . '/views3.js'), @filemtime(__DIR__ . '/views4.js'), @filemtime(__DIR__ . '/views5.js'), @filemtime(__DIR__ . '/help.js'), @filemtime(__DIR__ . '/i18n.js'));
 ?>
 <!DOCTYPE html>
 <html lang="el">
@@ -173,6 +173,7 @@ $v = '1.0.' . max(@filemtime(__DIR__ . '/app.js'), @filemtime(__DIR__ . '/app.cs
   <div class="boot"><div class="boot-logo">P</div><div class="boot-txt">CloudOn Projects</div><div class="boot-bar"><span></span></div></div>
 </div>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("/project/sw.js").catch(()=>{});</script>
+<script src="i18n.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="app.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="views2.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="views3.js?v=<?= htmlspecialchars($v) ?>"></script>

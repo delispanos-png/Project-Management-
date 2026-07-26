@@ -1556,6 +1556,14 @@ R.profile = async function () {
           ${I.bulb} <b>Για δικούς μας servers:</b> εγκατέστησέ το και εκεί με <b>μόνιμο κωδικό</b> (Settings → Security → «Set permanent password») για πρόσβαση όποτε θες, χωρίς να είναι κανείς μπροστά (unattended).</div>
         <div class="mut" style="font-size:11px;margin-top:9px">Ο πελάτης ΔΕΝ χρειάζεται εγκατάσταση — απλά τρέχει το ίδιο αρχείο και σου διαβάζει το ID.</div>
       </div></div>
+      <div class="card"><div class="card-h">${I.gear} Οι προτιμήσεις μου</div><div class="card-b">
+        <div class="set-row"><div><b>Γλώσσα διεπαφής / Interface language</b>
+          <div class="mut" style="font-size:12px">Σε ποια γλώσσα θα βλέπεις την εφαρμογή όταν συνδέεσαι — ισχύει μόνο για εσένα, σε κάθε συσκευή.</div></div>
+          <select class="inp" id="prefLang" style="width:auto;min-width:150px">
+            <option value="el" ${(d.prefs.lang || 'el') !== 'en' ? 'selected' : ''}>🇬🇷 Ελληνικά</option>
+            <option value="en" ${(d.prefs.lang || 'el') === 'en' ? 'selected' : ''}>🇬🇧 English</option>
+          </select></div>
+      </div></div>
       <div class="card"><div class="card-h">${I.bell} Οι ειδοποιήσεις μου</div><div class="card-b">
         ${sw('notify_email', 'Ειδοποιήσεις email', 'Αναθέσεις, σχόλια, μπάλες, υπενθυμίσεις — το καμπανάκι μένει πάντα ενεργό')}
         ${sw('digest', 'Πρωινό daily digest', 'Καθημερινό email 07:30 με εκπρόθεσμα & follow-ups')}
@@ -1597,6 +1605,12 @@ R.profile = async function () {
     await api('profile_pref', {key: sw2.dataset.pref, value: sw2.checked ? 'on' : 'off'});
     toast(sw2.checked ? 'Ενεργοποιήθηκε' : 'Απενεργοποιήθηκε');
   });
+  { const lg = $('#prefLang');
+    if (lg) { lg.onchange = async () => {
+      await api('profile_pref', {key: 'lang', value: lg.value});
+      toast(lg.value === 'en' ? 'Language set to English' : 'Η γλώσσα άλλαξε σε Ελληνικά');
+      if (window.CNP_I18N) { window.CNP_I18N.set(lg.value); }   // εφαρμογή άμεσα (reload)
+    }; } }
   $$('[data-pgo]').forEach(r => r.onclick = () => {
     S.project = +r.dataset.pgo;
     window.CNP.go('board');
