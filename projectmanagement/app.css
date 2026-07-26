@@ -867,12 +867,16 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 .tabbar{display:none}
 @media (max-width:768px){
   .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:38;
-    background:color-mix(in srgb,var(--card) 92%,transparent);-webkit-backdrop-filter:saturate(180%) blur(14px);backdrop-filter:saturate(180%) blur(14px);
+    background:color-mix(in srgb,var(--card) 94%,transparent);-webkit-backdrop-filter:saturate(180%) blur(14px);backdrop-filter:saturate(180%) blur(14px);
     border-top:1px solid var(--line);padding-bottom:var(--sab);
-    box-shadow:0 -2px 14px rgba(15,32,56,.06)}
-  .tab{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-    padding:8px 2px 7px;background:none;border:0;cursor:pointer;color:var(--mut);font-family:inherit;
-    font-size:10.5px;font-weight:700;letter-spacing:-.1px;min-height:var(--tabbar-h)}
+    box-shadow:0 -2px 14px rgba(15,32,56,.06);
+    /* ΟΛΟ το μενού εδώ → σέρνεται οριζόντια */
+    overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;
+    scroll-snap-type:x proximity;scrollbar-width:none}
+  .tabbar::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;width:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    padding:8px 4px 7px;background:none;border:0;cursor:pointer;color:var(--mut);font-family:inherit;
+    font-size:10.5px;font-weight:700;letter-spacing:-.1px;min-height:var(--tabbar-h);scroll-snap-align:center}
   .tab svg{width:22px;height:22px;stroke-width:2}
   .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tab.on{color:var(--brand)}
@@ -938,4 +942,14 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   #newBtn:active{transform:scale(.92)}
   /* σε ανοιχτό ticket/συνομιλία το composer έχει την προτεραιότητα */
   body.detail-open #newBtn{display:none}
+}
+
+/* ── avatar λογαριασμού στο header (μόνο κινητό — στο desktop είναι στο sidebar footer) ── */
+.top-ava{display:none}
+@media (max-width:768px){
+  .top-ava{display:inline-flex;width:38px;height:38px;font-size:12.5px;border:0;cursor:pointer;flex:none}
+  .top-ava:active{transform:scale(.92)}
+  /* ενεργό tab: δείκτης στην κορυφή (ξεχωρίζει σε μπάρα που σέρνεται) */
+  .tab{position:relative}
+  .tab.on::before{content:"";position:absolute;top:0;left:22px;right:22px;height:3px;border-radius:0 0 3px 3px;background:var(--brand)}
 }

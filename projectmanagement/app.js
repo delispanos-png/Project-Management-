@@ -133,8 +133,7 @@ const typeOf = id => S.boot.types.find(t => t.id === +id);
     if (!matchMedia('(max-width:768px)').matches) { return; }
     if (document.querySelector('.drawer.show, .ovl.show')) { return; }   // ανοιχτό πάνελ → μην παρεμβαίνεις
     const back = document.querySelector('#ibBack, #chBack');
-    if (document.body.classList.contains('detail-open') && back) { back.click(); return; }
-    const sh = document.querySelector('.shell'); if (sh) { sh.classList.add('nav-open'); }
+    if (document.body.classList.contains('detail-open') && back) { back.click(); }
   }, {passive: true});
 })();
 
@@ -202,6 +201,7 @@ function renderShell() {
           <button class="btn btn-o btn-ico" id="helpBtn" title="Βοήθεια για αυτή την οθόνη">${I.bulb}</button>
           <div class="bell-wrap"><button class="btn btn-o btn-ico" id="bellBtn" style="position:relative">${I.bell}
             <span class="bell-n" id="bellN" style="display:none"></span></button></div>
+          <button class="ava top-ava" id="topAva" title="Ο λογαριασμός μου">${esc(me.ini)}</button>
           <button class="btn btn-o btn-ico" id="sideTgl" title="Μεγέθυνση/σμίκρυνση μενού"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         </div>
       </div>
@@ -209,15 +209,18 @@ function renderShell() {
     </div>
     <div class="side-scrim" id="sideScrim"></div>
     ${(() => {
-      // ── bottom tab bar (μόνο κινητό): οι πιο συχνές οθόνες σε απόσταση αντίχειρα ──
+      // ── bottom tab bar (μόνο κινητό): ΟΛΟ το μενού σε μία μπάρα που σέρνεται ──
       const flat = nav.flatMap(([, items]) => items);
-      const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', chat: 'Chat', calendar: 'Ατζέντα',
-        board: 'Board', crm: 'CRM', recruit: 'CV', todos: 'Πλάνο'};
-      const tabs = ['myday', 'inbox', 'chat', 'calendar', 'board', 'crm', 'todos']
-        .map(k => flat.find(x => x[0] === k)).filter(Boolean).slice(0, 4);
+      const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', calendar: 'Ατζέντα', todos: 'Πλάνο',
+        library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
+        knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
+        triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
+        teams: 'Ομάδες', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+      const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
+      const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
+        .concat(flat.filter(x => !FIRST.includes(x[0])));
       return `<nav class="tabbar" id="tabBar" aria-label="Κύρια πλοήγηση">
-        ${tabs.map(([k, ic, lb]) => `<button class="tab" data-tab="${k}">${ic}<span>${esc(SHORT[k] || lb)}</span></button>`).join('')}
-        <button class="tab" id="tabMore"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span>Μενού</span></button>
+        ${ordered.map(([k, ic, lb]) => `<button class="tab" data-tab="${k}">${ic}<span>${esc(SHORT[k] || lb)}</span></button>`).join('')}
       </nav>`;
     })()}
   </div>`;
@@ -227,9 +230,20 @@ function renderShell() {
     const _sh = $('.shell');
     const _hb = $('#hambBtn'); if (_hb) _hb.onclick = () => _sh.classList.toggle('nav-open');
     const _sc = $('#sideScrim'); if (_sc) _sc.onclick = () => _sh.classList.remove('nav-open');
-    // bottom tabs
+    // bottom tabs (όλο το μενού — σέρνεται οριζόντια)
     $$('#tabBar [data-tab]').forEach(b => b.onclick = () => { _sh.classList.remove('nav-open'); go(b.dataset.tab); });
-    const _tm = $('#tabMore'); if (_tm) _tm.onclick = () => _sh.classList.toggle('nav-open');
+    // avatar header → λογαριασμός (προφίλ / θέμα / αποσύνδεση)
+    const _av = $('#topAva');
+    if (_av) {
+      _av.onclick = e => {
+        e.stopPropagation();
+        miniMenu(_av, [
+          {icon: I.user || I.contact, label: 'Το προφίλ μου', on: () => { const p = $('[data-profile]'); if (p) { p.click(); } }},
+          {icon: I.bulb, label: S.theme === 'dark' ? 'Φωτεινό θέμα' : 'Σκοτεινό θέμα', on: () => $('#themeBtn').click()},
+          {icon: I.lock, label: 'Αποσύνδεση', on: () => $('#logoutBtn').click()},
+        ]);
+      };
+    }
     if (!window._cnpNavEsc) {
       window._cnpNavEsc = 1;
       document.addEventListener('keydown', e => { if (e.key === 'Escape') { const s = document.querySelector('.shell'); if (s) s.classList.remove('nav-open'); } });
@@ -554,7 +568,13 @@ function go(view, arg) {
   S.view = view;
   location.hash = '#/' + view + (arg ? '/' + arg : '');
   $$('.sitem').forEach(b => b.classList.toggle('on', b.dataset.nav === view));
-  $$('#tabBar [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === view));
+  $$('#tabBar [data-tab]').forEach(b => {
+    const on = b.dataset.tab === view;
+    b.classList.toggle('on', on);
+    if (on && matchMedia('(max-width:768px)').matches) {   // φέρε το ενεργό tab στο κέντρο
+      try { b.scrollIntoView({inline: 'center', block: 'nearest', behavior: 'smooth'}); } catch (e) { }
+    }
+  });
   document.body.classList.remove('detail-open');   // νέα οθόνη → επαναφορά tab bar
   const c = $('#content'); c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
   c.scrollTop = 0;   // νέα οθόνη → ξεκίνα από την κορυφή (όπως σε native app)
