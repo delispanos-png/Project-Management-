@@ -16,6 +16,10 @@ if ($room === '' || ($isGuest && pm_verify_meet($tok) !== $room)) {
     exit;
 }
 $isRemote = strpos($room, 'r') === 0;   // δωμάτια remote υποστήριξης (r…) vs meetings (m…)
+// Έξοδος/επιστροφή στην εφαρμογή — μόνο για την ομάδα (οι guests δεν έχουν πάνελ).
+// Σε PWA/standalone δεν υπάρχει back του browser, άρα ΠΡΕΠΕΙ να υπάρχει ρητό κουμπί.
+$backUrl = $isGuest ? '' : ($isRemote ? '/project/#/inbox' : '/project/#/calendar');
+$backLabel = $isRemote ? 'Επιστροφή στα tickets' : 'Επιστροφή στο ημερολόγιο';
 $myName = '';
 $team = [];
 if (!$isGuest) {
@@ -67,6 +71,20 @@ h1 b{color:var(--brand)}
 #bar .leave{background:var(--bad)}
 #topbar{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13px;color:var(--mut)}
 #topbar b{color:var(--ink)}
+/* έξοδος/επιστροφή στην εφαρμογή */
+.meet-back{display:inline-flex;align-items:center;gap:7px;background:var(--card);color:var(--ink);
+  border:1px solid var(--line);border-radius:11px;padding:9px 14px;font-size:13px;font-weight:700;
+  cursor:pointer;text-decoration:none;flex:none;min-height:42px}
+.meet-back:hover{filter:brightness(1.2)}
+.meet-back:active{transform:scale(.96)}
+.meet-back svg{width:17px;height:17px}
+#topbar .meet-back{padding:7px 12px;min-height:38px;font-size:12.5px}
+@media (max-width:768px){
+  #topbar{padding:8px 10px;gap:8px;flex-wrap:wrap}
+  #topbar .meet-back span{display:none}   /* σε κινητό μόνο το βέλος */
+  #bar{gap:8px;padding:12px 8px calc(12px + env(safe-area-inset-bottom,0px))}
+  #bar .rbtn{width:48px;height:48px}
+}
 .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:var(--card);padding:10px 18px;border-radius:12px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:9}
 .bgb.on{background:var(--brand);color:#fff}
 </style>
@@ -83,6 +101,11 @@ h1 b{color:var(--brand)}
       </div>
     </div>
     <div class="pre-form">
+      <?php if ($backUrl): ?>
+      <a class="meet-back" href="<?= htmlspecialchars($backUrl) ?>" style="align-self:flex-start">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <span><?= htmlspecialchars($backLabel) ?></span></a>
+      <?php endif; ?>
       <h1><b>CloudOn</b> <?= $isRemote ? 'Remote' : 'Meet' ?></h1>
       <?php if ($isRemote && $isGuest): ?>
       <div style="font-size:12.5px;color:var(--mut);line-height:1.6;background:var(--card);border-radius:10px;padding:10px 13px">
@@ -109,7 +132,13 @@ h1 b{color:var(--brand)}
 </div>
 
 <div id="call">
-  <div id="topbar"><b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span></div>
+  <div id="topbar">
+    <?php if ($backUrl): ?>
+    <button class="meet-back" id="cExit" title="<?= htmlspecialchars($backLabel) ?>">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      <span><?= htmlspecialchars($backLabel) ?></span></button>
+    <?php endif; ?>
+    <b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span></div>
   <div id="grid"></div>
   <div id="bar">
     <button class="rbtn" id="cMic" title="Μικρόφωνο"></button>
@@ -563,17 +592,31 @@ function stopShare() {
   }
   toast('Ο διαμοιρασμός σταμάτησε');
 }
-function leave() {
+const BACK_URL = <?= json_encode($backUrl) ?>;
+const BACK_LABEL = <?= json_encode($backLabel) ?>;
+/** Τερματισμός σύνδεσης & απελευθέρωση κάμερας/μικροφώνου (χωρίς αλλαγή οθόνης). */
+function leaveCleanup() {
   clearInterval(pollT);
-  Object.keys(pcs).forEach(p => api('rtc_signal', {peer: me, to: p, kind: 'bye', payload: ''}));
-  api('rtc_leave', {peer: me});
+  if (me) {
+    Object.keys(pcs).forEach(p => api('rtc_signal', {peer: me, to: p, kind: 'bye', payload: ''}));
+    api('rtc_leave', {peer: me});
+  }
   Object.keys(pcs).forEach(dropPeer);
   cancelAnimationFrame(procRAF);
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (rawStream) rawStream.getTracks().forEach(t => t.stop());
-  document.body.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px"><div style="font-size:56px">👋</div><h2>Το meeting ολοκληρώθηκε</h2><button class="btn btn-p" onclick="location.reload()">Επανασύνδεση</button></div>';
+  me = null;   // μη στείλεις δεύτερο leave στο beforeunload
+}
+function leave() {
+  leaveCleanup();
+  document.body.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:20px;text-align:center">'
+    + '<div style="font-size:56px">👋</div><h2>Το meeting ολοκληρώθηκε</h2>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">'
+    + (BACK_URL ? '<a class="btn btn-p" href="' + BACK_URL + '" style="text-decoration:none">' + BACK_LABEL + '</a>' : '')
+    + '<button class="btn" onclick="location.reload()">Επανασύνδεση</button></div></div>';
 }
 $('#cLeave').onclick = leave;
+{ const ex = $('#cExit'); if (ex) { ex.onclick = () => { leaveCleanup(); location.href = BACK_URL; }; } }
 window.addEventListener('beforeunload', () => { if (me) { navigator.sendBeacon && api('rtc_leave', {peer: me}); } });
 </script>
 </body>
