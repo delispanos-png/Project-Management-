@@ -643,7 +643,9 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 /* πολύ μικρές οθόνες */
 @media (max-width:400px){
   .top h1{font-size:15px}
-  .content{padding:12px 10px 44px}
+  /* το οριζόντιο padding ΠΡΕΠΕΙ να μένει 12px: τα full-bleed views (inbox/chat)
+     χρησιμοποιούν margin:-12px — αλλιώς η σελίδα ξεχειλίζει και «κουνιέται» πλάγια */
+  .content{padding:12px 12px 44px}
   .btn-sm{padding:6px 10px}
   .su-ring{width:44px;height:44px}
 }
@@ -952,4 +954,17 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   /* ενεργό tab: δείκτης στην κορυφή (ξεχωρίζει σε μπάρα που σέρνεται) */
   .tab{position:relative}
   .tab.on::before{content:"";position:absolute;top:0;left:22px;right:22px;height:3px;border-radius:0 0 3px 3px;background:var(--brand)}
+}
+
+/* ── ΚΑΝΕΝΑ οριζόντιο «κούνημα» της σελίδας σε κινητό ──
+   Σε app δεν σέρνεται ολόκληρη η οθόνη πλάγια. Ό,τι είναι εγγενώς φαρδύ
+   (πίνακες, kanban, tabs, legend) έχει ΔΙΚΟ του overflow-x — άρα το κλείδωμα
+   εδώ δεν χαλάει τίποτα, απλώς εμποδίζει διαρροές από λάθος πλάτη. */
+@media (max-width:768px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .content{overflow-x:hidden}
+  /* ΠΡΟΣΟΧΗ: μη βάζεις max-width:100% σε .inbox/.chat — είναι full-bleed με
+     αρνητικά margins, οπότε το 100% (=πλάτος content) τα κόβει δεξιά. */
+  /* μεγάλα URLs/tokens μέσα σε μηνύματα να σπάνε αντί να σπρώχνουν το layout */
+  .ib-msg-b,.ch-m,.msg-b,.cal-ag-meta,.sol-html{overflow-wrap:anywhere;word-break:break-word}
 }
