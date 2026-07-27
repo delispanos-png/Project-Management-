@@ -678,9 +678,13 @@ function rteVal(id, root) {
   return (h === '<br>' || h === '<div><br></div>' || el.textContent.trim() === '') ? '' : h;
 }
 
-// καθολικό wiring της μπάρας εργαλείων — ισχύει για ΚΑΘΕ .rte στη σελίδα
+/* Καθολικό wiring της μπάρας εργαλείων — ισχύει για ΚΑΘΕ .rte στη σελίδα.
+   ΣΗΜΑΝΤΙΚΟ: capture phase (true). Τα modals (.pal-box) έχουν
+   onclick="event.stopPropagation()" ώστε να μην κλείνει το overlay — που σημαίνει
+   ότι στο bubble phase το κλικ ΔΕΝ φτάνει ποτέ στο document και η μπάρα ήταν νεκρή
+   μέσα σε modal (βιβλιοθήκη, ταξινόμηση ticket, kbCapture). Το capture τρέχει πριν. */
 document.addEventListener('click', e => {
-  const b = e.target.closest('.rte-b');
+  const b = e.target.closest && e.target.closest('.rte-b');
   if (!b) { return; }
   e.preventDefault();
   const ed = b.closest('.rte-wrap').querySelector('.rte');
@@ -698,7 +702,7 @@ document.addEventListener('click', e => {
   } else {
     document.execCommand(cmd, false, b.dataset.arg || null);
   }
-});
+}, true);
 /** ✨ Ορθογραφικός/συντακτικός έλεγχος του editor — δείχνει ΤΙ αλλάζει πριν εφαρμοστεί. */
 async function rteProof(ed, btn) {
   if (!ed.textContent.trim()) { toast('Γράψε πρώτα κείμενο', true); return; }
@@ -753,7 +757,7 @@ document.addEventListener('paste', e => {
   e.preventDefault();
   const t = (e.clipboardData || window.clipboardData).getData('text/plain');
   document.execCommand('insertText', false, t);
-});
+}, true);
 
 /* ═══ In-app διαλογικά (αντί για browser confirm/prompt) ═══ */
 function cnpDialog(opts) {
