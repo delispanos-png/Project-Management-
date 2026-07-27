@@ -672,6 +672,21 @@ function rteHtml(id, value, placeholder, opts) {
   </div>`;
 }
 
+/**
+ * Εικόνες άρθρων που δεν φορτώνουν (σπασμένος σύνδεσμος στην ΠΗΓΗ) αντικαθίστανται
+ * με διακριτική σήμανση — αλλιώς το width/height τους άφηνε τεράστιο κενό στη σελίδα.
+ * Καθολικό: πιάνει και ό,τι ζωγραφίζεται αργότερα.
+ */
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (!img || img.tagName !== 'IMG' || !img.closest('.kb-sol,.rt-view,.sol-html')) { return; }
+  const span = document.createElement('span');
+  span.className = 'kb-img-bad';
+  span.textContent = '🖼 Η εικόνα δεν είναι διαθέσιμη στην πηγή';
+  span.title = img.getAttribute('src') || '';
+  img.replaceWith(span);
+}, true);
+
 /** Το περιεχόμενο ενός RTE (κενό → '' ώστε να μη σώζεται σκέτο <br>). */
 function rteVal(id, root) {
   const el = (root || document).querySelector('#' + id);

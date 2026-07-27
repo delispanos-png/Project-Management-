@@ -155,6 +155,26 @@ function cnp_site_root($url)
     return $p['scheme'] . '://' . $p['host'] . (!empty($p['port']) ? ':' . $p['port'] : '');
 }
 
+/**
+ * Μετατρέπει σχετικά src/href σε απόλυτα (με βάση το URL του άρθρου) και πετά το
+ * srcset/sizes — αλλιώς οι εικόνες σπάνε όταν το περιεχόμενο εμφανίζεται στο δικό μας domain.
+ */
+function cnp_absolutize_html($html, $base)
+{
+    $p = parse_url($base);
+    if (empty($p['host'])) { return $html; }
+    $root = ($p['scheme'] ?? 'https') . '://' . $p['host'];
+    $dir = $root . preg_replace('#/[^/]*$#', '/', $p['path'] ?? '/');
+    $html = preg_replace('/\s(?:srcset|sizes|data-lazy-srcset)\s*=\s*("[^"]*"|\'[^\']*\')/i', '', $html);
+    return preg_replace_callback('/\s(src|href)\s*=\s*"([^"]*)"/i', function ($m) use ($root, $dir) {
+        $u = trim($m[2]);
+        if ($u === '' || preg_match('#^(https?:|mailto:|tel:|data:|\#)#i', $u)) { return $m[0]; }
+        if (strpos($u, '//') === 0) { return ' ' . $m[1] . '="https:' . $u . '"'; }
+        if ($u[0] === '/') { return ' ' . $m[1] . '="' . $root . $u . '"'; }
+        return ' ' . $m[1] . '="' . $dir . $u . '"';
+    }, $html);
+}
+
 /** Κύριο περιεχόμενο από HTML σελίδα (χωρίς μενού/υποσέλιδα) + τίτλος. */
 function cnp_html_article($html)
 {
@@ -2993,7 +3013,7 @@ case 'kb_import_commit':                 // εισαγωγή επιλεγμέν�
             $html = $a['html'];
             if ($title === '') { $title = $a['title']; }
         }
-        $clean = cnp_clean_html($html, 60000);
+        $clean = cnp_clean_html(cnp_absolutize_html($html, $link), 60000);
         if ($title === '' || trim(strip_tags($clean)) === '') { $errs[] = $title ?: $link; continue; }
         $kw = implode(', ', array_slice(cnp_words($title . ' ' . mb_substr(strip_tags($clean), 0, 1500)), 0, 18));
         $row = ['title' => mb_substr($title, 0, 255), 'keywords' => mb_substr($kw, 0, 500),
