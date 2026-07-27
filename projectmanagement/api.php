@@ -89,6 +89,10 @@ function cnp_clean_html($html, $max = 12000)
 {
     $html = (string) $html;
     $html = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $html);          // 4-byte emoji → out
+    // script/style/noscript ΜΑΖΙ με το περιεχόμενό τους — το strip_tags μόνο του αφαιρεί τα tags
+    // και άφηνε τον κώδικα ως ορατό κείμενο (φαινόταν σε εισαγωγές από Confluence/WordPress).
+    $html = preg_replace('#<(script|style|noscript|template)\b[^>]*>.*?</\1\s*>#is', ' ', $html);
+    $html = preg_replace('#<(script|style|noscript)\b[^>]*/?>#i', ' ', $html);
     $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre><img><figure><figcaption><table><thead><tbody><tr><th><td>');
     $html = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);   // on* handlers
     // href/src: ALLOWLIST σχημάτων (blacklist «javascript:» άφηνε unquoted τιμές & data: URLs)
@@ -146,6 +150,17 @@ function cnp_safe_fetch($url, $maxBytes = 3000000)
         return ['ok' => false, 'error' => 'Η σελίδα δεν κατέβηκε (HTTP ' . $code . ')'];
     }
     return ['ok' => true, 'body' => $body, 'url' => $eff ?: $url, 'code' => $code];
+}
+
+/**
+ * Ο cursor της επόμενης σελίδας ενός Confluence api/v2 response, ως «&cursor=…».
+ * ΔΕΝ χρησιμοποιούμε αυτούσιο το _links.next: έρχεται με πρόθεμα «/wiki/» (Atlassian Cloud)
+ * που δεν ισχύει σε custom domain → η σελιδοποίηση σταματούσε στην 1η σελίδα.
+ */
+function cnp_cursor_of($json)
+{
+    $n = $json['_links']['next'] ?? '';
+    return ($n && preg_match('/[?&]cursor=([^&]+)/', $n, $m)) ? '&cursor=' . $m[1] : '';
 }
 
 /** Το root ενός URL (https://host) — για να βρούμε το wp-json. */
@@ -2974,7 +2989,64 @@ case 'kb_import_probe':                  // 🌐 ανάλυση URL τεκμηρ
         out(['ok' => true, 'mode' => 'wp', 'site' => $rootI, 'total' => count($found),
             'cats' => $cats, 'items' => $found]);
     }
-    // 2) απλή σελίδα
+    // 2) Confluence / Atlassian wiki (π.χ. wiki.soft1.eu) — api/v2
+    $spaceKey = null; $pageId = null;
+    if (preg_match('#/(?:space|spaces|display)/([A-Za-z0-9_~-]{2,40})#', $urlI, $mk)) { $spaceKey = $mk[1]; }
+    if (preg_match('#/(?:pages/)?(\d{5,})#', $urlI, $mp)) { $pageId = $mp[1]; }
+    if ($spaceKey || $pageId) {
+        $conf = [];
+        // 2α. αν το URL δείχνει σε σελίδα → ΟΛΟ το δέντρο από κάτω (τα άμεσα παιδιά είναι
+        //     συνήθως ευρετήρια· η ουσία βρίσκεται βαθύτερα).
+        if ($pageId) {
+            $base = '/api/v2/pages/' . $pageId . '/descendants?limit=250&depth=10';
+            $cur = '';
+            for ($guard = 0; $guard < 8; $guard++) {
+                $cr = cnp_safe_fetch($rootI . $base . $cur);
+                if (empty($cr['ok'])) { break; }
+                $cj = json_decode($cr['body'], true);
+                foreach ($cj['results'] ?? [] as $c) {
+                    if (($c['type'] ?? 'page') !== 'page') { continue; }
+                    $conf[] = ['id' => (string) $c['id'], 'type' => 'confluence', 'title' => (string) $c['title'],
+                        'link' => $rootI . '/pages/' . $c['id'], 'cat' => 0];
+                }
+                $cur = cnp_cursor_of($cj);
+                if ($cur === '') { break; }
+            }
+        }
+        // 2β. αλλιώς (ή αν δεν είχε παιδιά) → όλο το space, με σελιδοποίηση
+        if (!$conf && $spaceKey) {
+            $sr = cnp_safe_fetch($rootI . '/api/v2/spaces?keys=' . rawurlencode($spaceKey));
+            $sj = !empty($sr['ok']) ? json_decode($sr['body'], true) : null;
+            $sid = $sj['results'][0]['id'] ?? null;
+            if ($sid) {
+                $base = '/api/v2/spaces/' . $sid . '/pages?limit=250';
+                $cur = '';
+                for ($guard = 0; $guard < 8; $guard++) {
+                    $pr = cnp_safe_fetch($rootI . $base . $cur);
+                    if (empty($pr['ok'])) { break; }
+                    $pj = json_decode($pr['body'], true);
+                    foreach ($pj['results'] ?? [] as $c) {
+                        $conf[] = ['id' => (string) $c['id'], 'type' => 'confluence', 'title' => (string) $c['title'],
+                            'link' => $rootI . '/pages/' . $c['id'], 'cat' => 0];
+                    }
+                    $cur = cnp_cursor_of($pj);
+                    if ($cur === '') { break; }
+                }
+            }
+        }
+        if ($conf) {
+            $have = [];
+            foreach (Capsule::table('mod_cpm_kb')->whereIn('source_url', array_column($conf, 'link'))
+                ->pluck('source_url') as $u) { $have[$u] = true; }
+            foreach ($conf as &$c2) { $c2['catName'] = $spaceKey ?: 'Wiki'; $c2['exists'] = isset($have[$c2['link']]); }
+            unset($c2);
+            out(['ok' => true, 'mode' => 'confluence', 'site' => $rootI, 'total' => count($conf),
+                'cats' => [], 'items' => $conf,
+                'note' => 'Οι σελίδες-ευρετήρια (χωρίς δικό τους κείμενο) παραλείπονται αυτόματα κατά την εισαγωγή.']);
+        }
+    }
+
+    // 3) απλή σελίδα
     $pg = cnp_safe_fetch($urlI);
     if (empty($pg['ok'])) { fail($pg['error']); }
     $art = cnp_html_article($pg['body']);
@@ -2997,7 +3069,16 @@ case 'kb_import_commit':                 // εισαγωγή επιλεγμέν�
         $exists = Capsule::table('mod_cpm_kb')->where('source_url', $link)->first();
         if ($exists && empty($in['overwrite'])) { $skip++; continue; }
         $html = ''; $title = trim($it['title'] ?? '');
-        if (!empty($it['id']) && !empty($it['type'])) {           // WP REST → καθαρό content
+        if (($it['type'] ?? '') === 'confluence' && !empty($it['id'])) {   // Confluence api/v2
+            $r = cnp_safe_fetch(cnp_site_root($link) . '/api/v2/pages/'
+                . preg_replace('/\D/', '', $it['id']) . '?body-format=export_view');
+            if (!empty($r['ok'])) {
+                $j = json_decode($r['body'], true);
+                $html = (string) ($j['body']['export_view']['value'] ?? '');
+                if ($title === '') { $title = (string) ($j['title'] ?? ''); }
+            }
+            if (trim(strip_tags(cnp_clean_html($html, 60000))) === '') { $skip++; continue; }  // σελίδα-ευρετήριο
+        } elseif (!empty($it['id']) && !empty($it['type'])) {     // WP REST → καθαρό content
             $r = cnp_safe_fetch(cnp_site_root($link) . '/wp-json/wp/v2/' . preg_replace('/[^a-z]/', '', $it['type'])
                 . '/' . (int) $it['id'] . '?_fields=title,content,link');
             if (!empty($r['ok'])) {
@@ -3015,7 +3096,12 @@ case 'kb_import_commit':                 // εισαγωγή επιλεγμέν�
         }
         $clean = cnp_clean_html(cnp_absolutize_html($html, $link), 60000);
         if ($title === '' || trim(strip_tags($clean)) === '') { $errs[] = $title ?: $link; continue; }
-        $kw = implode(', ', array_slice(cnp_words($title . ' ' . mb_substr(strip_tags($clean), 0, 1500)), 0, 18));
+        // html_entity_decode ΠΡΙΝ την εξαγωγή λέξεων: το Confluence κωδικοποιεί τα ελληνικά ως
+        // &alpha;&omicron;… και οι λέξεις-κλειδιά γέμιζαν «alpha, omicron, chi».
+        $plain = html_entity_decode(strip_tags($clean), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $kw = implode(', ', array_slice(cnp_words($title . ' ' . mb_substr($plain, 0, 1800)), 0, 18));
+        // 4-byte (emoji) εκτός — DB utf8mb3, αλλιώς αποθηκεύεται ως ????
+        $title = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $title));
         $row = ['title' => mb_substr($title, 0, 255), 'keywords' => mb_substr($kw, 0, 500),
             'solution' => $clean, 'tags' => $tagI, 'area_id' => $areaI, 'rel_areas' => '',
             'source_url' => mb_substr($link, 0, 500), 'updated_at' => date('Y-m-d H:i:s')];
