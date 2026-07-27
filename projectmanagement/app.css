@@ -999,6 +999,21 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   background:var(--canvas);cursor:pointer;color:var(--txt)}
 .kb-relchk input{margin:0}
 .kb-form label{display:block;font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:4px}
+/* ── αναδιάταξη κατηγοριών: σύρσιμο (ποντίκι) + ↑↓ (και σε αφή) ── */
+.tc-row{transition:background .15s,box-shadow .15s,opacity .15s}
+.tc-grip{color:var(--mut);cursor:grab;display:inline-flex;flex:none;padding:0 2px;touch-action:none}
+.tc-grip:active{cursor:grabbing}
+.tc-row.tc-drag{opacity:.45;background:var(--canvas)}
+.tc-row.tc-moved{background:color-mix(in srgb,var(--brand) 12%,transparent);border-radius:9px}
+.tc-mv{display:inline-flex;gap:3px;flex:none}
+.tc-ico{min-width:28px;padding:4px 7px;font-size:13px;line-height:1}
+@media (max-width:768px){
+  /* το σύρσιμο δεν δουλεύει με αφή → τα ↑↓ είναι ο κύριος τρόπος, κάνε τα μεγάλα */
+  .tc-grip{display:none}
+  .tc-ico{min-width:38px;height:36px}
+  .set-row.tc-row>div:first-child{flex-basis:auto!important}
+}
+
 /* εισαγωγή γνώσης από URL */
 .imp-list{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:11px;padding:6px}
 .imp-cat+.imp-cat{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}

@@ -4529,6 +4529,17 @@ case 'tcat_save':
     }
     out(['ok' => true, 'id' => $cid7]);
 
+case 'tcat_reorder':                     // νέα σειρά περιοχών/ριζών (drag ή ↑↓)
+    if (!$FULL) { fail('forbidden', 403); }
+    $kindR = ($in['kind'] ?? '') === 'cause' ? 'cause' : 'area';
+    $idsR = (array) ($in['ids'] ?? []);
+    if (!$idsR) { fail('Δεν δόθηκε σειρά'); }
+    foreach ($idsR as $i => $cid) {
+        Capsule::table('mod_cpm_ticket_cats')->where('id', (int) $cid)->where('kind', $kindR)
+            ->update(['sort' => $i + 1]);
+    }
+    out(['ok' => true]);
+
 case 'tcat_del':
     if (!$FULL) {
         fail('perm', 403);

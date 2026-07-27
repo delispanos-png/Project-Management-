@@ -819,15 +819,50 @@ R.settings = async function (sub) {
   if (st.sub === 'tcats') {
     const tc = await api('tcats');
     const render = (box, kind, list) => {
-      $(box).innerHTML = list.map(c => `<div class="set-row" data-tc="${c.id}">
+      $(box).innerHTML = `<div class="tc-list" data-kind="${kind}">${list.map(c => `
+        <div class="set-row tc-row" data-tc="${c.id}" draggable="true">
+          <span class="tc-grip" title="Σύρε για αλλαγή σειράς">${I.grip}</span>
           <input class="inp" type="color" data-f="color" value="${c.color}" style="width:42px;padding:3px">
           <input class="inp" data-f="name" value="${esc(c.name)}" style="flex:1">
           <span class="mut" style="font-size:11px;white-space:nowrap">${c.used}×</span>
+          <span class="tc-mv"><button class="btn btn-sm btn-o tc-ico" data-tcup="${c.id}" title="Πάνω">↑</button>
+            <button class="btn btn-sm btn-o tc-ico" data-tcdn="${c.id}" title="Κάτω">↓</button></span>
           <button class="btn btn-sm btn-o" data-tcsave="${c.id}">${I.save} </button>
-          <button class="btn btn-sm btn-o" data-tcdel="${c.id}" style="color:var(--bad)">✕</button></div>`).join('') + `
+          <button class="btn btn-sm btn-o" data-tcdel="${c.id}" style="color:var(--bad)">✕</button></div>`).join('')}</div>
         <div class="set-row"><input class="inp" type="color" id="${kind}NewC" value="#0090dd" style="width:42px;padding:3px">
           <input class="inp" id="${kind}NewN" placeholder="Νέα κατηγορία…" style="flex:1">
           <button class="btn btn-sm btn-p" id="${kind}Add">+</button></div>`;
+
+      /* ── αναδιάταξη: σύρσιμο (ποντίκι) + ↑↓ (δουλεύουν και σε αφή) ── */
+      const listEl = $('.tc-list', $(box));
+      const saveOrder = async () => {
+        const ids = [...listEl.querySelectorAll('.tc-row')].map(r => +r.dataset.tc);
+        const r = await api('tcat_reorder', {kind, ids}).catch(e => ({err: e.message}));
+        if (r.err) { toast(r.err, true); return; }
+        toast('Η σειρά αποθηκεύτηκε');
+      };
+      const move = (id, dir) => {
+        const row = listEl.querySelector(`[data-tc="${id}"]`);
+        const sib = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
+        if (!sib || !sib.classList.contains('tc-row')) { return; }
+        if (dir < 0) { listEl.insertBefore(row, sib); } else { listEl.insertBefore(sib, row); }
+        row.classList.add('tc-moved');
+        setTimeout(() => row.classList.remove('tc-moved'), 600);
+        saveOrder();
+      };
+      $(box).querySelectorAll('[data-tcup]').forEach(b => b.onclick = () => move(+b.dataset.tcup, -1));
+      $(box).querySelectorAll('[data-tcdn]').forEach(b => b.onclick = () => move(+b.dataset.tcdn, 1));
+      let dragRow = null;
+      listEl.querySelectorAll('.tc-row').forEach(r => {
+        r.addEventListener('dragstart', e => { dragRow = r; r.classList.add('tc-drag'); e.dataTransfer.effectAllowed = 'move'; });
+        r.addEventListener('dragend', () => { r.classList.remove('tc-drag'); if (dragRow) { saveOrder(); } dragRow = null; });
+        r.addEventListener('dragover', e => {
+          e.preventDefault();
+          if (!dragRow || dragRow === r) { return; }
+          const rect = r.getBoundingClientRect();
+          listEl.insertBefore(dragRow, (e.clientY - rect.top) / rect.height > 0.5 ? r.nextSibling : r);
+        });
+      });
       $(box).querySelectorAll('[data-tcsave]').forEach(b => b.onclick = async () => {
         const r = $(`[data-tc="${b.dataset.tcsave}"]`, $(box));
         await api('tcat_save', {id: +b.dataset.tcsave, kind, name: $('[data-f=name]', r).value, color: $('[data-f=color]', r).value});
