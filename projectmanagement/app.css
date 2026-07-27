@@ -1021,11 +1021,18 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .set-row.tc-row>div:first-child{flex-basis:auto!important}
 }
 
-/* «Περισσότερα» ανά ομάδα γνώσης (σελιδοποίηση) */
-.kb-more{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 2px 2px;
+/* σελιδοποίηση ανά ομάδα γνώσης */
+.kb-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:11px 2px 2px;
   margin-top:6px;border-top:1px dashed var(--line);font-size:12.5px}
-.kb-more b{color:var(--ink)}
-@media (max-width:768px){.kb-more .btn{flex:1;justify-content:center}.kb-more>span{flex-basis:100%}}
+.kb-pager b{color:var(--ink)}
+.kb-pager .btn{padding:5px 10px}
+.kb-pager .btn:disabled{opacity:.4;cursor:default}
+.kb-pager .btn:disabled:hover{transform:none;border-color:var(--line);color:var(--txt)}
+.kb-pgn{font-weight:700;color:var(--ink);padding:0 6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media (max-width:768px){
+  .kb-pager>span:first-child{flex-basis:100%}
+  .kb-pager .btn{flex:1;justify-content:center;padding:7px 6px}
+}
 
 /* μπάρα μαζικών ενεργειών στη Γνώση (εμφανίζεται με την πρώτη επιλογή) */
 .kb-bulk{position:sticky;top:0;z-index:12;display:flex;gap:8px;align-items:center;flex-wrap:wrap;

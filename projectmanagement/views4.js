@@ -362,7 +362,7 @@ R.triage = async function () {
 R.knowledge = async function () {
   setTop('Γνώση', 'Βιβλιοθήκη γνώσης ανά προϊόν — ψάξε αν το πρόβλημα έχει ξαναλυθεί');
   const c = $('#content');
-  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}, shown: {}};
+  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}, page: {}};
   const PER = 25;   // πόσα άρθρα ανά ομάδα πριν το «Περισσότερα»
   let D = {items: [], products: [], unfiled: 0};
   const prod = id => D.products.find(p => p.id === +id);
@@ -462,18 +462,22 @@ R.knowledge = async function () {
         </div>
         <div class="card-b kb-gbody" ${st.closed[g.p.id] ? 'style="display:none"' : ''}>
           ${(() => {
-            // σελιδοποίηση ανά ομάδα: με 1.000+ άρθρα το DOM γινόταν τεράστιο
-            const shown = st.shown[g.p.id] || PER;
-            const slice = g.items.slice(0, shown);
-            const rest = g.items.length - slice.length;
+            // σελιδοποίηση ανά ομάδα: κάθε σελίδα ΑΝΤΙΚΑΘΙΣΤΑ την προηγούμενη —
+            // το ύψος της ενότητας μένει σταθερό, όσα άρθρα κι αν έχει το προϊόν.
+            const pages = Math.max(1, Math.ceil(g.items.length / PER));
+            const page = Math.min(Math.max(1, st.page[g.p.id] || 1), pages);
+            const from = (page - 1) * PER;
+            const slice = g.items.slice(from, from + PER);
             return (slice.map(kbBox).join('') || '<div class="mut" style="font-size:12.5px;padding:4px 2px">Καμία δική του καταχώρηση.</div>')
-              + (rest > 0 ? `<div class="kb-more">
-                  <span class="mut">Εμφανίζονται <b>${slice.length}</b> από <b>${g.items.length}</b></span>
-                  <button class="btn btn-o btn-sm" data-kmore="${g.p.id}">Περισσότερα (+${Math.min(PER, rest)})</button>
-                  <button class="btn btn-o btn-sm" data-kall="${g.p.id}">Όλα (${g.items.length})</button>
-                </div>` : (g.items.length > PER
-                  ? `<div class="kb-more"><span class="mut">Εμφανίζονται και τα ${g.items.length}</span>
-                     <button class="btn btn-o btn-sm" data-kless="${g.p.id}">Σύμπτυξη</button></div>` : ''));
+              + (pages > 1 ? `<div class="kb-pager">
+                  <span class="mut"><b>${from + 1}–${from + slice.length}</b> από <b>${g.items.length}</b></span>
+                  <span style="flex:1"></span>
+                  <button class="btn btn-o btn-sm" data-kpg="${g.p.id}:1" ${page === 1 ? 'disabled' : ''} title="Πρώτη">«</button>
+                  <button class="btn btn-o btn-sm" data-kpg="${g.p.id}:${page - 1}" ${page === 1 ? 'disabled' : ''}>‹ Προηγούμενη</button>
+                  <span class="kb-pgn">${page} / ${pages}</span>
+                  <button class="btn btn-o btn-sm" data-kpg="${g.p.id}:${page + 1}" ${page === pages ? 'disabled' : ''}>Επόμενη ›</button>
+                  <button class="btn btn-o btn-sm" data-kpg="${g.p.id}:${pages}" ${page === pages ? 'disabled' : ''} title="Τελευταία">»</button>
+                </div>` : '');
           })()}
           ${g.related.length ? `<div class="kb-rel"><div class="kb-rel-h">${I.link} Συναφή από άλλα προϊόντα <span class="kb-n">${g.related.length}</span></div>
             ${g.related.slice(0, PER).map(kbBox).join('')}</div>` : ''}
@@ -496,7 +500,7 @@ R.knowledge = async function () {
   };
 
   const bindList = () => {
-    $$('[data-kprod]').forEach(b => b.onclick = () => { st.prod = b.dataset.kprod; st.shown = {}; render(); });
+    $$('[data-kprod]').forEach(b => b.onclick = () => { st.prod = b.dataset.kprod; st.page = {}; render(); });
     $$('.kb-ghead').forEach(h => h.onclick = () => {
       const id = h.dataset.kgrp; st.closed[id] = !st.closed[id];
       const body = h.nextElementSibling;
@@ -539,9 +543,15 @@ R.knowledge = async function () {
       if (!(await cnpConfirm('Διαγραφή αυτής της γνώσης από τη βιβλιοθήκη;', {danger: true, ok: 'Διαγραφή'}))) return;
       await api('kb_del', {id: +b.dataset.kdel}); toast('Διαγράφηκε'); load();
     });
-    $$('[data-kmore]').forEach(b => b.onclick = () => { const g = b.dataset.kmore; st.shown[g] = (st.shown[g] || PER) + PER; render(); });
-    $$('[data-kall]').forEach(b => b.onclick = () => { st.shown[b.dataset.kall] = 1e6; render(); });
-    $$('[data-kless]').forEach(b => b.onclick = () => { delete st.shown[b.dataset.kless]; render(); });
+    $$('[data-kpg]').forEach(b => b.onclick = () => {
+      if (b.disabled) { return; }
+      const parts = b.dataset.kpg.split(':');
+      st.page[parts[0]] = +parts[1];
+      render();
+      // φέρε την κορυφή της ενότητας στο οπτικό πεδίο — βλέπεις αμέσως τα νέα αποτελέσματα
+      const head = document.querySelector('.kb-ghead[data-kgrp="' + parts[0] + '"]');
+      if (head) { head.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+    });
     const n2 = $('#kNew2'); if (n2) n2.onclick = () => openForm(null);
     $$('.kb-pick').forEach(c => c.onchange = bulkBar);
     bulkBar();
@@ -665,7 +675,7 @@ R.knowledge = async function () {
   };
 
   let qt;
-  $('#kQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#kQ').value.trim(); st.shown = {}; render(); }, 180); };
+  $('#kQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#kQ').value.trim(); st.page = {}; render(); }, 180); };
   $('#kQ').onkeydown = e => { if (e.key === 'Enter') deep(); };
   $('#kDeep').onclick = deep;
   $('#kNew').onclick = () => openForm(null);
