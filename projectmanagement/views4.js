@@ -516,6 +516,15 @@ R.knowledge = async function () {
       const r = await api('kb_get&id=' + box.dataset.kbsol).catch(() => null);
       if (r && r.solution) {
         box.innerHTML = r.solution;
+        // κάθε πίνακας σε δικό του scroller — αλλιώς οι στήλες στριμώχνονται και
+        // οι επικεφαλίδες σπάνε στη μέση σε στενές οθόνες
+        box.querySelectorAll('table').forEach(t => {
+          if (t.parentElement && t.parentElement.classList.contains('kb-tw')) { return; }
+          const w = document.createElement('div');
+          w.className = 'kb-tw';
+          t.replaceWith(w);
+          w.appendChild(t);
+        });
         const k = D.items.find(x => x.id === +box.dataset.kbsol);
         if (k) { k.solution = r.solution; }
       }

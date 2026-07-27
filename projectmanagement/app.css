@@ -493,7 +493,9 @@ table.tbl{width:100%;border-collapse:collapse}
 }
 
 /* ── read-only εμφάνιση rich κειμένου (λύσεις, περιγραφές, σημειώσεις) ── */
-.sol-html,.kb-sol,.rt-view{font-size:12.5px;line-height:1.6;color:var(--txt);overflow-wrap:anywhere}
+/* break-word (ΟΧΙ anywhere): το «anywhere» έσπαγε λέξεις στη μέση μέσα σε στενά
+   κελιά πινάκων («Publis / h»). Το break-word σπάει μόνο ό,τι δεν χωράει αλλιώς. */
+.sol-html,.kb-sol,.rt-view{font-size:12.5px;line-height:1.6;color:var(--txt);overflow-wrap:break-word}
 .sol-html ul,.sol-html ol,.kb-sol ul,.kb-sol ol,.rt-view ul,.rt-view ol{margin:5px 0 5px 20px}
 .sol-html li,.kb-sol li,.rt-view li{margin:2px 0}
 .sol-html a,.kb-sol a,.rt-view a{color:var(--brand);text-decoration:underline}
@@ -505,8 +507,15 @@ table.tbl{width:100%;border-collapse:collapse}
 .kb-sol{background:var(--canvas);border-radius:10px;padding:12px 14px;font-size:13px}
 /* εικόνες/πίνακες σε άρθρα γνώσης: πάντα μέσα στα όρια, ποτέ οριζόντιο scroll */
 .kb-sol img,.rt-view img,.sol-html img{max-width:100%;height:auto;border-radius:8px;display:block;margin:8px 0}
-.kb-sol table,.rt-view table,.sol-html table{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0}
-.kb-sol td,.kb-sol th,.rt-view td,.rt-view th{border:1px solid var(--line);padding:6px 9px;text-align:left}
+/* πίνακες άρθρων: σε δικό τους οριζόντιο scroller ώστε να μη στριμώχνονται οι στήλες */
+.kb-tw{overflow-x:auto;margin:8px 0;-webkit-overflow-scrolling:touch}
+.kb-sol table,.rt-view table,.sol-html table{width:100%;min-width:560px;border-collapse:collapse;font-size:12.5px;margin:0}
+.kb-sol td,.kb-sol th,.rt-view td,.rt-view th,.sol-html td,.sol-html th{
+  border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+/* οι επικεφαλίδες είναι σύντομες ετικέτες — να μη σπάνε ποτέ */
+.kb-sol th,.rt-view th,.sol-html th{white-space:nowrap;overflow-wrap:normal;background:var(--canvas);font-weight:700;color:var(--ink)}
+.kb-sol table p,.rt-view table p,.sol-html table p{margin:0 0 5px}
+.kb-sol table p:last-child,.rt-view table p:last-child{margin-bottom:0}
 /* εικόνα που δεν φορτώνει (σπασμένος σύνδεσμος στην πηγή) → διακριτική σήμανση αντί για τεράστιο κενό */
 .kb-img-bad{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--mut);
   background:var(--canvas);border:1px dashed var(--line);border-radius:8px;padding:6px 11px;margin:6px 0}
