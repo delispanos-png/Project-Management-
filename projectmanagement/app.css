@@ -521,6 +521,60 @@ table.tbl{width:100%;border-collapse:collapse}
   background:var(--canvas);border:1px dashed var(--line);border-radius:8px;padding:6px 11px;margin:6px 0}
 .sol-html pre{background:var(--line);border-radius:5px;padding:7px 10px;white-space:pre-wrap;overflow-x:auto;font-size:12px}
 
+/* ═══════ Εισαγόμενο περιεχόμενο (Confluence / WordPress) ═══════
+   Το HTML της πηγής κουβαλά τις δικές της κλάσεις. Χωρίς αυτούς τους κανόνες
+   η σελίδα «ισοπεδώνεται»: οι στήλες στοιβάζονται, τα εικονίδια πάνε σε δική
+   τους γραμμή και τα πλαίσια σημειώσεων εξαφανίζονται. Εδώ αναπαράγουμε τη
+   διάταξη της πηγής με δικά μας tokens (δουλεύει και σε dark mode). */
+.kb-sol .columnLayout,.rt-view .columnLayout,.sol-html .columnLayout{display:grid;gap:2px 26px;align-items:start}
+.kb-sol .columnLayout.two-equal,.rt-view .columnLayout.two-equal,.sol-html .columnLayout.two-equal{grid-template-columns:1fr 1fr}
+.kb-sol .columnLayout.three-equal,.rt-view .columnLayout.three-equal,.sol-html .columnLayout.three-equal{grid-template-columns:repeat(3,1fr)}
+.kb-sol .columnLayout.two-right-sidebar,.rt-view .columnLayout.two-right-sidebar,.sol-html .columnLayout.two-right-sidebar{grid-template-columns:2fr 1fr}
+/* min-width:0 = τα κελιά επιτρέπεται να συρρικνωθούν, αλλιώς φαρδύς πίνακας σπάει το grid */
+.kb-sol .cell,.kb-sol .innerCell,.rt-view .cell,.rt-view .innerCell,.sol-html .cell,.sol-html .innerCell{min-width:0}
+
+/* emoji/εικονίδια της πηγής: μένουν στη γραμμή τους (ο γενικός κανόνας img είναι display:block) */
+.kb-sol .emoticon,.rt-view .emoticon,.sol-html .emoticon,
+.kb-sol .confluence-content-image-inline,.rt-view .confluence-content-image-inline,.sol-html .confluence-content-image-inline{
+  display:inline-block;width:16px;height:16px;margin:0 4px 0 0;vertical-align:-3px;border-radius:0}
+/* sprite-εικονίδια του Atlassian που δεν υπάρχουν εδώ → κρύψ' τα αντί για κενά κουτάκια */
+.kb-sol .aui-icon,.rt-view .aui-icon,.sol-html .aui-icon{display:none}
+
+/* πλαίσια σημειώσεων (info / tip / note / warning) */
+.kb-sol .confluence-information-macro,.rt-view .confluence-information-macro,.sol-html .confluence-information-macro{
+  position:relative;border-radius:9px;padding:10px 13px 10px 34px;margin:10px 0;
+  border:1px solid var(--line);border-left-width:3px;background:rgba(125,150,190,.07)}
+.kb-sol .confluence-information-macro:before,.rt-view .confluence-information-macro:before,.sol-html .confluence-information-macro:before{
+  content:"i";position:absolute;left:11px;top:10px;width:15px;height:15px;line-height:15px;text-align:center;
+  border-radius:50%;font-size:10.5px;font-weight:800;font-style:italic;color:#fff;background:#4b7fd6}
+.kb-sol .confluence-information-macro-information,.rt-view .confluence-information-macro-information,.sol-html .confluence-information-macro-information{border-left-color:#4b7fd6}
+.kb-sol .confluence-information-macro-tip,.rt-view .confluence-information-macro-tip,.sol-html .confluence-information-macro-tip{border-left-color:#3aa76d}
+.kb-sol .confluence-information-macro-tip:before,.rt-view .confluence-information-macro-tip:before,.sol-html .confluence-information-macro-tip:before{content:"\2714";background:#3aa76d;font-style:normal}
+.kb-sol .confluence-information-macro-note,.rt-view .confluence-information-macro-note,.sol-html .confluence-information-macro-note{border-left-color:#8b6fd0}
+.kb-sol .confluence-information-macro-note:before,.rt-view .confluence-information-macro-note:before,.sol-html .confluence-information-macro-note:before{content:"\270E";background:#8b6fd0;font-style:normal}
+.kb-sol .confluence-information-macro-warning,.rt-view .confluence-information-macro-warning,.sol-html .confluence-information-macro-warning{border-left-color:#d9534f}
+.kb-sol .confluence-information-macro-warning:before,.rt-view .confluence-information-macro-warning:before,.sol-html .confluence-information-macro-warning:before{content:"!";background:#d9534f;font-style:normal}
+.kb-sol .confluence-information-macro-body>*:last-child,.rt-view .confluence-information-macro-body>*:last-child,.sol-html .confluence-information-macro-body>*:last-child{margin-bottom:0}
+.kb-sol .panel,.rt-view .panel,.sol-html .panel{border:1px solid var(--line);border-radius:9px;padding:10px 13px;margin:10px 0;background:var(--canvas)}
+
+/* εικόνες με στοίχιση όπως στην πηγή */
+.kb-sol .image-center-wrapper,.rt-view .image-center-wrapper,.sol-html .image-center-wrapper{text-align:center}
+.kb-sol .image-center-wrapper img,.rt-view .image-center-wrapper img,.sol-html .image-center-wrapper img{margin-left:auto;margin-right:auto}
+/* ο δικός τους wrapper πίνακα κάνει scroll ακριβώς όπως ο δικός μας */
+.kb-sol .table-wrap,.rt-view .table-wrap,.sol-html .table-wrap{overflow-x:auto;margin:8px 0;-webkit-overflow-scrolling:touch}
+
+/* χρώματα κειμένου της πηγής. Το «inverse» είναι λευκό — σε λευκό φόντο γίνεται
+   αόρατο, οπότε το επαναφέρουμε στο κανονικό χρώμα κειμένου. */
+.kb-sol .legacy-color-text-inverse,.rt-view .legacy-color-text-inverse,.sol-html .legacy-color-text-inverse,
+.kb-sol .legacy-color-text-default,.rt-view .legacy-color-text-default,.sol-html .legacy-color-text-default{color:inherit}
+.kb-sol .legacy-color-text-blue1,.sol-html .legacy-color-text-blue1,.rt-view .legacy-color-text-blue1,
+.kb-sol .legacy-color-text-blue3,.sol-html .legacy-color-text-blue3,.rt-view .legacy-color-text-blue3,
+.kb-sol .legacy-color-text-blue4,.sol-html .legacy-color-text-blue4,.rt-view .legacy-color-text-blue4{color:#3c74c8}
+.kb-sol .legacy-color-text-green4,.sol-html .legacy-color-text-green4,.rt-view .legacy-color-text-green4{color:#2f8f5b}
+.kb-sol .legacy-color-text-orange2,.sol-html .legacy-color-text-orange2,.rt-view .legacy-color-text-orange2{color:#c47a1a}
+.kb-sol .legacy-color-text-gray1,.sol-html .legacy-color-text-gray1,.rt-view .legacy-color-text-gray1,
+.kb-sol .legacy-color-text-gray2,.sol-html .legacy-color-text-gray2,.rt-view .legacy-color-text-gray2{color:var(--mut)}
+
 /* big empty-state icons (SVG) */
 .empty .big svg{width:46px;height:46px;opacity:.5}
 
@@ -1254,6 +1308,8 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
      αρνητικά margins, οπότε το 100% (=πλάτος content) τα κόβει δεξιά. */
   /* μεγάλα URLs/tokens μέσα σε μηνύματα να σπάνε αντί να σπρώχνουν το layout */
   .ib-msg-b,.ch-m,.msg-b,.cal-ag-meta,.sol-html{overflow-wrap:anywhere;word-break:break-word}
+  /* οι πολλαπλές στήλες της πηγής γίνονται μία — σε 390px δεν χωράνε δύο */
+  .kb-sol .columnLayout,.rt-view .columnLayout,.sol-html .columnLayout{grid-template-columns:1fr!important}
 }
 
 /* ── ειδοποιήσεις: σε κινητό να κουμπώνει στην οθόνη (είχε σταθερό πλάτος 360px
