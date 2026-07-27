@@ -435,7 +435,9 @@ table.tbl{width:100%;border-collapse:collapse}
 
 /* Rich-text editor (κατηγοριοποίηση/λύση) */
 .rte-wrap{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
-.rte-tb{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:5px 6px;background:var(--bg,#f4f7fb);border-bottom:1px solid var(--line)}
+/* Δύο ζώνες: αριστερά τα εργαλεία μορφοποίησης, δεξιά ΠΑΝΤΑ ορατό το ✨ AI */
+.rte-tb{display:flex;align-items:center;gap:4px;padding:5px 6px;background:var(--bg,#f4f7fb);border-bottom:1px solid var(--line)}
+.rte-tools{display:flex;flex-wrap:wrap;align-items:center;gap:2px;flex:1;min-width:0}
 .rte-b{min-width:28px;height:26px;padding:0 7px;border:1px solid transparent;border-radius:6px;background:transparent;
   color:var(--ink);font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .rte-b:hover{background:var(--line);border-color:var(--line)}
@@ -470,14 +472,21 @@ table.tbl{width:100%;border-collapse:collapse}
 .pf-why{color:var(--mut);font-size:11px;flex-basis:100%}
 .pf-prev{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:11px 13px;max-height:26vh;overflow:auto}
 @media (max-width:768px){
-  .rte-ai-l{display:none}          /* στο κινητό μένει μόνο το εικονίδιο */
   .pf-box{margin:5vh auto 0}
   .pf-list{max-height:30vh}
   .pf-box .btn{flex:1;justify-content:center}
 }
 @media (max-width:768px){
-  .rte-tb{gap:1px;padding:4px}
-  .rte-b{min-width:26px;height:28px;padding:0 5px;font-size:12px}
+  /* Τα εργαλεία σέρνονται οριζόντια σε ΜΙΑ σειρά (το wrap άφηνε ορφανά κουμπιά σε
+     δεύτερη σειρά)· το ✨ είναι ΞΕΧΩΡΙΣΤΗ ζώνη δεξιά, οπότε δεν σκεπάζει τίποτα. */
+  .rte-tb{gap:0;padding:4px 0 4px 4px}
+  .rte-tools{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .rte-tools::-webkit-scrollbar{display:none}
+  .rte-b{flex:0 0 auto;min-width:30px;height:32px;padding:0 7px;font-size:13px}
+  .rte-l{display:none}                     /* «Λίστα» → μένει μόνο το • / 1. */
+  .rte-sep{margin:0 2px}
+  .rte-b[data-cmd="__ai"]{flex:0 0 auto;border-left:1px solid var(--line);border-radius:0;
+    margin-left:2px;padding:0 9px;height:32px}
   .rte{max-height:44vh;font-size:16px}   /* 16px: αλλιώς το iOS Safari κάνει zoom στο focus */
 }
 

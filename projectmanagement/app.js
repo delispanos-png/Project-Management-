@@ -649,20 +649,21 @@ function rteHtml(id, value, placeholder, opts) {
   const o = opts || {};
   return `<div class="rte-wrap"${o.style ? ` style="${o.style}"` : ''}>
     <div class="rte-tb">
-      ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}
-      ${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}
-      ${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
-      <span class="rte-sep"></span>
-      ${_rteB('insertUnorderedList', '&bull;&nbsp;Λίστα', 'Κουκκίδες')}
-      ${_rteB('insertOrderedList', '1.&nbsp;Λίστα', 'Αρίθμηση')}
-      <span class="rte-sep"></span>
-      ${_rteB('formatBlock', 'H', 'Επικεφαλίδα', 'h3')}
-      ${_rteB('formatBlock', '&ldquo;&rdquo;', 'Παράθεση', 'blockquote')}
-      ${_rteB('__code', '&lt;/&gt;', 'Κώδικας')}
-      <span class="rte-sep"></span>
-      ${_rteB('__link', I.link, 'Σύνδεσμος')}
-      ${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
-      <span class="rte-sep"></span>
+      <div class="rte-tools">
+        ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}
+        ${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}
+        ${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
+        <span class="rte-sep"></span>
+        ${_rteB('insertUnorderedList', '&bull;&nbsp;<span class="rte-l">Λίστα</span>', 'Κουκκίδες')}
+        ${_rteB('insertOrderedList', '1.&nbsp;<span class="rte-l">Λίστα</span>', 'Αρίθμηση')}
+        <span class="rte-sep"></span>
+        ${_rteB('formatBlock', 'H', 'Επικεφαλίδα', 'h3')}
+        ${_rteB('formatBlock', '&ldquo;&rdquo;', 'Παράθεση', 'blockquote')}
+        ${_rteB('__code', '&lt;/&gt;', 'Κώδικας')}
+        <span class="rte-sep"></span>
+        ${_rteB('__link', I.link, 'Σύνδεσμος')}
+        ${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
+      </div>
       ${_rteB('__ai', I.sparkle + ' <span class="rte-ai-l">Έλεγχος</span>', 'Ορθογραφικός & συντακτικός έλεγχος με AI')}
     </div>
     <div class="rte" id="${id}" contenteditable="true"${o.min ? ` style="min-height:${o.min}px"` : ''}

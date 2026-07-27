@@ -519,7 +519,7 @@ R.knowledge = async function () {
         <label style="margin-top:11px;display:block">Ετικέτες <span class="mut">(ελεύθερες)</span></label>
         <input class="inp" id="knG" placeholder="π.χ. voip, urgent" style="max-width:280px" value="${esc(k ? k.tags : '')}">
         <label style="margin-top:11px;display:block">Η λύση — βήμα-βήμα</label>
-        ${rteHtml('knS', k ? k.solution : '', '1. Πρώτο βήμα\n2. Δεύτερο βήμα…', {min: 190})}
+        ${rteHtml('knS', k ? k.solution : '', '1. Πρώτο βήμα · 2. Δεύτερο βήμα · …', {min: 190})}
         <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
           <button class="btn btn-o" id="knCancel">Άκυρο</button>
           <button class="btn btn-p" id="knAdd">${I.save} Αποθήκευση</button></div>
