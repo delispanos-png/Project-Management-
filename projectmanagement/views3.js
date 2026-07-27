@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Inbox / Ρυθμίσεις / ⌘K ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, dShort, tShort, today, toast, setTop,
+const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop,
   adminName, adminIni, dnd, I, openTask, closeDrawer, go, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
 const R = window.R;
 
@@ -97,7 +97,7 @@ R.inbox = async function (openId) {
       <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">
         ${dd.suggest.kb.map(k => `
           <details><summary style="cursor:pointer;font-size:12px"><b>${I.book} ${esc(k.title)}</b> <span class="mut">(τράπεζα λύσεων)</span></summary>
-            <div style="white-space:pre-wrap;font-size:12px;padding:7px 4px;color:var(--txt)" data-kbuse="${k.id}">${esc(k.solution)}</div></details>`).join('')}
+            <div class="kb-sol" style="font-size:12px;padding:7px 9px" data-kbuse="${k.id}">${k.solution}</div></details>`).join('')}
         ${dd.suggest.similar.map(x => `
           <div style="font-size:12px;cursor:pointer" data-simgo="${x.id}">${I.ticket} <b>#${esc(x.tid)}</b> ${esc(x.title)}
             <span class="mut">· ${esc(x.client || '')} · λύθηκε ${dShort(x.last)}</span> <span class="mut">→</span></div>`).join('')}
@@ -265,7 +265,6 @@ function classifyTicket(id, dd, done) {
   const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
   ovl.onclick = e => { if (e.target === ovl) ovl.remove(); };
   const opts = (list, sel) => '<option value="">—</option>' + list.map(x => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
-  const rteBtn = (cmd, label, title, arg) => `<button type="button" class="rte-b" data-cmd="${cmd}"${arg ? ` data-arg="${arg}"` : ''} title="${title}">${label}</button>`;
   ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:600px" onclick="event.stopPropagation()">
     <div style="padding:20px 22px;max-height:82vh;overflow:auto">
       <div style="display:flex;align-items:center;gap:8px">
@@ -279,24 +278,7 @@ function classifyTicket(id, dd, done) {
           <select class="inp" id="clC">${opts(C, cur.cause)}</select></div>
       </div>
       <label class="lbl" style="margin-top:13px">Περιγραφή λύσης — τι φταίει & πώς λύθηκε</label>
-      <div class="rte-wrap">
-        <div class="rte-tb">
-          ${rteBtn('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}
-          ${rteBtn('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}
-          ${rteBtn('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
-          <span class="rte-sep"></span>
-          ${rteBtn('insertUnorderedList', '&bull;&nbsp;Λίστα', 'Κουκκίδες')}
-          ${rteBtn('insertOrderedList', '1.&nbsp;Λίστα', 'Αρίθμηση')}
-          <span class="rte-sep"></span>
-          ${rteBtn('formatBlock', 'H', 'Επικεφαλίδα', 'h3')}
-          ${rteBtn('formatBlock', '&ldquo;&rdquo;', 'Παράθεση', 'blockquote')}
-          ${rteBtn('__code', '&lt;/&gt;', 'Κώδικας')}
-          <span class="rte-sep"></span>
-          ${rteBtn('__link', I.link, 'Σύνδεσμος')}
-          ${rteBtn('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
-        </div>
-        <div class="rte" id="clN" contenteditable="true" data-ph="π.χ. Το πρόβλημα ήταν λάθος MX record στον registrar. Λύση: διόρθωση MX σε mail.cloudon.gr, propagation ~2h…">${cur.note || ''}</div>
-      </div>
+      ${rteHtml('clN', cur.note || '', 'π.χ. Το πρόβλημα ήταν λάθος MX record στον registrar. Λύση: διόρθωση MX σε mail.cloudon.gr, propagation ~2h…', {min: 150})}
       <div id="clKb" style="margin-top:12px"></div>
       <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
         <button class="btn btn-o" id="clNo">Άκυρο</button>
@@ -304,20 +286,8 @@ function classifyTicket(id, dd, done) {
     </div></div>`;
   document.body.appendChild(ovl);
   const ed = ovl.querySelector('#clN');
-  // rich-text toolbar
-  ovl.querySelectorAll('.rte-b').forEach(b => b.onclick = () => {
-    ed.focus();
-    const cmd = b.dataset.cmd;
-    if (cmd === '__link') {
-      cnpPrompt('Διεύθυνση συνδέσμου (URL):', {ok: 'Εισαγωγή', placeholder: 'https://…'}).then(u => {
-        if (u) { document.execCommand('createLink', false, /^https?:|^mailto:/.test(u) ? u : 'https://' + u); }
-      });
-    } else if (cmd === '__code') {
-      document.execCommand('formatBlock', false, 'pre');
-    } else {
-      document.execCommand(cmd, false, b.dataset.arg || null);
-    }
-  });
+  // η μπάρα εργαλείων δουλεύει από το ΚΑΘΟΛΙΚΟ delegation στο app.js — μη ξαναδένεις εδώ
+  // (διπλό binding = κάθε execCommand έτρεχε 2 φορές, δηλ. bold on→off).
   ovl.querySelector('#clNo').onclick = () => ovl.remove();
   const nmeOf = (list, id) => (list.find(x => x.id === id) || {}).name || '';
   const refreshKb = async () => {
@@ -330,7 +300,7 @@ function classifyTicket(id, dd, done) {
       <a href="#" id="clNewKb" style="float:right;font-weight:700">+ Νέα λύση για αυτή τη ρίζα</a></div>`
       + (r.items.length ? r.items.map(k => `<details style="font-size:12px;margin-bottom:3px">
           <summary style="cursor:pointer"><b>${I.bulb} ${esc(k.title)}</b></summary>
-          <div style="white-space:pre-wrap;padding:5px 4px;color:var(--txt)">${esc(k.solution)}</div></details>`).join('')
+          <div class="kb-sol" style="padding:6px 9px">${k.solution}</div></details>`).join('')
         : '<div class="mut" style="font-size:11.5px">Καμία ακόμη — γράψε την τώρα ώστε να βοηθήσει την επόμενη φορά.</div>');
     const nk = box.querySelector('#clNewKb');
     if (nk) nk.onclick = (e) => { e.preventDefault();
@@ -380,7 +350,7 @@ async function kbCapture(ticketId) {
       <label class="lbl" style="margin-top:9px">Λέξεις-κλειδιά</label>
       <input class="inp" id="kcK" value="${esc(d.keywords)}">
       <label class="lbl" style="margin-top:9px">Λύση</label>
-      <textarea class="inp" id="kcS" rows="9">${esc(d.solution)}</textarea>
+      ${rteHtml('kcS', d.solution, 'Η λύση — βήμα-βήμα…', {min: 170})}
       <div style="display:flex;gap:9px;margin-top:12px">
         <button class="btn btn-p" id="kcSave">${I.book} Αποθήκευση στην τράπεζα</button>
         <button class="btn btn-o" id="kcSkip">Όχι αυτή τη φορά</button></div>
@@ -390,7 +360,7 @@ async function kbCapture(ticketId) {
   ovl.querySelector('#kcSave').onclick = async () => {
     const rr = await api('kb_save', {id: 0, title: ovl.querySelector('#kcT').value,
       keywords: ovl.querySelector('#kcK').value, tags: '',
-      solution: ovl.querySelector('#kcS').value}).catch(e => ({err: e.message}));
+      solution: rteVal('kcS', ovl)}).catch(e => ({err: e.message}));
     if (rr.err) { toast(rr.err, true); return; }
     toast('Η γνώση αποθηκεύτηκε — ευχαριστούμε! 🧠');
     ovl.remove();

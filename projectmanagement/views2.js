@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλα τα κυκλώματα) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, dShort, tShort, today, toast, setTop,
+const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
@@ -175,7 +175,7 @@ function openEvent(ev, ymRefresh) {
       <button type="button" class="btn btn-o btn-sm" id="evXmAdd">+ Προσθήκη</button></div>
     <div class="mut" style="font-size:11px;margin-top:5px">Οι συμμετέχοντες της ομάδας παίρνουν αυτόματα email στη διεύθυνση του προφίλ τους.</div>
     <label class="lbl" style="margin-top:11px">Σημειώσεις</label>
-    <textarea class="inp" id="evN" rows="3">${esc(ev.notes || '')}</textarea>
+    ${rteHtml('evN', ev.notes || '', 'Ατζέντα, θέματα, σύνδεσμοι…', {min: 110})}
     <div class="ev-foot" style="margin-top:14px">
       ${isNew ? '' : '<button class="btn btn-o" id="evCancelEdit">Άκυρο</button>'}
       <button class="btn btn-p" id="evSave">${I.save} Αποθήκευση</button>
@@ -260,7 +260,7 @@ function openEvent(ev, ymRefresh) {
         allDay, attendees: $$('.evA:checked', dr).map(x => +x.value),
         client: +$('#evCliId', dr).value || 0, location: $('#evLoc', dr).value,
         inviteClient: $('#evInv', dr).checked, extraEmails: xmails.join(','),
-        notes: $('#evN', dr).value}).catch(e => ({err: e.message}));
+        notes: rteVal('evN', dr)}).catch(e => ({err: e.message}));
       if (r.err) { toast(r.err, true); return; }
       toast('Αποθηκεύτηκε 📅'); closeDrawer(); R.calendar(ymRefresh);
     };
@@ -559,7 +559,7 @@ function openOffer(o, d) {
         <div><label class="lbl">Αναμ. κλείσιμο</label><input type="date" class="inp" id="oExp" value="${o.expected || ''}"></div>
       </div>
       <label class="lbl" style="margin-top:11px">Σημειώσεις</label>
-      <textarea class="inp" id="oDescr" rows="3">${esc(o.descr || '')}</textarea>
+      ${rteHtml('oDescr', o.descr || '', 'Τι περιλαμβάνει η προσφορά…', {min: 120})}
       <div style="margin-top:13px;display:flex;gap:9px;flex-wrap:wrap"><button class="btn btn-p" id="oSave">Αποθήκευση</button>
         ${!isNew && o.stage === 'accepted' && S.boot.me.full ? `<button class="btn btn-o" id="oProj">${I.rocket} Δημιουργία έργου</button>` : ''}</div>
     </div></div>
@@ -578,7 +578,7 @@ function openOffer(o, d) {
   $('#oSave', dr).onclick = async () => {
     await api('save_offer', {offer: o.id || 0, title: $('#oTitle').value, client: +$('#oClientId').value || 0,
       amount: $('#oAmount').value !== '' ? +$('#oAmount').value : null, stage: $('#oStage').value,
-      expected: $('#oExp').value || null, descr: $('#oDescr').value});
+      expected: $('#oExp').value || null, descr: rteVal('oDescr')});
     toast('Αποθηκεύτηκε'); closeDrawer(); R.offers();
   };
   const opj = $('#oProj', dr); if (opj) opj.onclick = async () => {

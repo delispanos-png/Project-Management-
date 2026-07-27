@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
-const {S, api, esc, suStat, fmtMin, dShort, tShort, today, toast, setTop, go,
+const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, I, $, $$} = window.CNP;
 const R = window.R;
 
@@ -213,7 +213,7 @@ R.list = async function () {
           <select class="inp" id="ntR" style="max-width:220px">
             <option value="0">Κανονική</option><option value="1">Υψηλή</option><option value="2">Κρίσιμη</option></select>` : ''}
         <label style="margin-top:11px;display:block">Περιγραφή <span class="mut">(προαιρετικά)</span></label>
-        <textarea class="inp" id="ntX" rows="4" placeholder="Λεπτομέρειες…"></textarea>
+        ${rteHtml('ntX', '', 'Λεπτομέρειες, βήματα, σύνδεσμοι…', {min: 110})}
         <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
           <button class="btn btn-o" id="ntCancel">Άκυρο</button>
           <button class="btn btn-p" id="ntGo">${I.save} Δημιουργία</button></div>
@@ -229,7 +229,7 @@ R.list = async function () {
         .catch(e => ({err: e.message}));
       if (r.err || !r.id) { toast(r.err || 'Δεν δημιουργήθηκε', true); return; }
       // τα υπόλοιπα πεδία με δεύτερη κλήση (το quick_task φτιάχνει μόνο τίτλο/project/status)
-      const extra = {task: r.id, descr: $('#ntX').value, due: $('#ntD').value};
+      const extra = {task: r.id, descr: rteVal('ntX'), due: $('#ntD').value};
       if (S.boot.me.full) {
         extra.assignee = +(($('#ntA') || {}).value || 0);
         extra.prio = +(($('#ntR') || {}).value || 0);
@@ -400,7 +400,7 @@ R.knowledge = async function () {
         </span>
       </summary>
       <div class="kb-body">
-        <div class="kb-sol">${esc(k.solution)}</div>
+        <div class="kb-sol">${k.solution}</div>
         <div class="kb-foot">
           <span class="mut">${k.by ? esc(k.by) : ''}${k.at ? ' · ' + dShort(k.at) : ''}${k.keywords ? ' · ' + esc(k.keywords) : ''}</span>
           <span style="flex:1"></span>
@@ -519,7 +519,7 @@ R.knowledge = async function () {
         <label style="margin-top:11px;display:block">Ετικέτες <span class="mut">(ελεύθερες)</span></label>
         <input class="inp" id="knG" placeholder="π.χ. voip, urgent" style="max-width:280px" value="${esc(k ? k.tags : '')}">
         <label style="margin-top:11px;display:block">Η λύση — βήμα-βήμα</label>
-        <textarea class="inp" id="knS" rows="8" placeholder="1. …&#10;2. …">${esc(k ? k.solution : '')}</textarea>
+        ${rteHtml('knS', k ? k.solution : '', '1. Πρώτο βήμα\n2. Δεύτερο βήμα…', {min: 190})}
         <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
           <button class="btn btn-o" id="knCancel">Άκυρο</button>
           <button class="btn btn-p" id="knAdd">${I.save} Αποθήκευση</button></div>
@@ -529,7 +529,7 @@ R.knowledge = async function () {
     $('#knCancel').onclick = () => { $('#kForm').innerHTML = ''; };
     $('#knAdd').onclick = async () => {
       const r2 = await api('kb_save', {id: +$('#knId').value, title: $('#knT').value,
-        keywords: $('#knK').value, tags: $('#knG').value, solution: $('#knS').value,
+        keywords: $('#knK').value, tags: $('#knG').value, solution: rteVal('knS'),
         areaId: +$('#knA').value, relAreas: $$('.knR').filter(x => x.checked).map(x => +x.value)}).catch(e => ({err: e.message}));
       if (r2.err) { toast(r2.err, true); return; }
       toast('Αποθηκεύτηκε στη βιβλιοθήκη');
@@ -1043,7 +1043,7 @@ R.library = async function () {
         <h2 style="margin:0 0 15px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px">${kind === 'link' ? I.link : kind === 'file' ? I.download : I.edit} ${isNew ? 'Νέα ' + kindTitle : 'Επεξεργασία'}</h2>
         <label class="lbl">Τίτλος *</label><input class="inp" id="lfT" value="${isNew ? '' : esc(item.title)}">
         ${kind === 'link' ? `<label class="lbl" style="margin-top:11px">URL</label><input class="inp" id="lfU" value="${isNew ? '' : esc(item.url)}" placeholder="https://…">` :
-          kind === 'note' ? `<label class="lbl" style="margin-top:11px">Κείμενο</label><textarea class="inp" id="lfB" rows="6">${isNew ? '' : esc((item.body || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))}</textarea>` :
+          kind === 'note' ? `<label class="lbl" style="margin-top:11px">Κείμενο</label>${rteHtml('lfB', isNew ? '' : (item.body || ''), 'Η σημείωσή σου…', {min: 150})}` :
           `<div class="mut" style="font-size:12px;margin-top:8px">${I.download} ${esc(item.filename)} · ${_libSize(item.size)}</div>`}
         <div class="frow" style="margin-top:11px">
           <div><label class="lbl">Κατηγορία</label><input class="inp" id="lfC" list="lfCL" value="${isNew ? '' : esc(item.category)}" placeholder="π.χ. Δίκτυα"><datalist id="lfCL"></datalist></div>
@@ -1062,7 +1062,7 @@ R.library = async function () {
       const title = $('#lfT', ovl).value.trim(); if (!title) { toast('Δώσε τίτλο', true); return; }
       const payload = {id: isNew ? 0 : item.id, kind, title, category: $('#lfC', ovl).value, tags: $('#lfTg', ovl).value,
         expires: $('#lfExp', ovl).value, shared: $('#lfSh', ovl).checked ? 1 : 0};
-      if (kind === 'link') { payload.url = $('#lfU', ovl).value; } else if (kind === 'note') { payload.body = $('#lfB', ovl).value.replace(/\n/g, '<br>'); }
+      if (kind === 'link') { payload.url = $('#lfU', ovl).value; } else if (kind === 'note') { payload.body = rteVal('lfB', ovl); }
       await api('lib_save', payload); ovl.remove(); toast('Αποθηκεύτηκε ✓'); load();
     };
   }

@@ -81,15 +81,29 @@ function cnp_words($text, $max = 40)
     return array_keys($out);
 }
 
-/** Καθαρισμός rich-text HTML (ασφαλή tags μόνο· χωρίς 4-byte για utf8mb3 DB). */
-function cnp_clean_html($html)
+/**
+ * Καθαρισμός rich-text HTML (ασφαλή tags μόνο· χωρίς 4-byte για utf8mb3 DB).
+ * $max: όριο χαρακτήρων — τα μεγάλα πεδία (descr/solution) κρατούν τη χωρητικότητά τους (60k).
+ */
+function cnp_clean_html($html, $max = 12000)
 {
     $html = (string) $html;
     $html = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $html);          // 4-byte emoji → out
     $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre>');
     $html = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);   // on* handlers
-    $html = preg_replace('/(href|src)\s*=\s*(["\'])\s*javascript:[^"\']*\2/i', '$1="#"', $html);
-    return mb_substr(trim($html), 0, 12000);
+    // href/src: ALLOWLIST σχημάτων (blacklist «javascript:» άφηνε unquoted τιμές & data: URLs)
+    $html = preg_replace_callback('/\b(href|src)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', function ($m) {
+        $raw = trim($m[2], "\"'");
+        $u = preg_replace('/[\x00-\x20]/', '', html_entity_decode($raw, ENT_QUOTES, 'UTF-8'));
+        $safe = $u === '' || $u[0] === '#' || $u[0] === '/'
+            || preg_match('#^(https?:|mailto:|tel:)#i', $u)
+            || !preg_match('/^[a-z0-9.+-]*:/i', $u);      // σχετικό path χωρίς scheme
+        return $m[1] . '="' . ($safe ? htmlspecialchars($raw, ENT_QUOTES, 'UTF-8') : '#') . '"';
+    }, $html);
+    $html = preg_replace('/\sstyle\s*=\s*("[^"]*"|\'[^\']*\')/i', '', $html);           // inline styles → out
+    // target=_blank + rel για ασφάλεια σε συνδέσμους
+    $html = preg_replace('/<a\s+(?![^>]*\btarget=)/i', '<a target="_blank" rel="noopener noreferrer" ', $html);
+    return mb_substr(trim($html), 0, (int) $max);
 }
 
 /** Κατηγορίες tickets (area/cause) — cached ανά request. */
@@ -987,10 +1001,11 @@ case 'save_task':
         fail('task', 403);
     }
     $data = [];
-    foreach (['title' => 200, 'descr' => 60000] as $f => $max) {
-        if (array_key_exists($f, $in)) {
-            $data[$f] = mb_substr(trim((string) $in[$f]), 0, $max);
-        }
+    if (array_key_exists('title', $in)) {
+        $data['title'] = mb_substr(trim((string) $in['title']), 0, 200);
+    }
+    if (array_key_exists('descr', $in)) {
+        $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
     }
     foreach (['due_date' => 'due', 'schedule_date' => 'sched'] as $col => $k) {
         if (array_key_exists($k, $in)) {
@@ -1149,7 +1164,7 @@ case 'save_lead':
         'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
         'next_action' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['next'] ?? '') ? $in['next'] : null,
         'next_note' => mb_substr(trim($in['nextNote'] ?? ''), 0, 200) ?: null,
-        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
         'value' => ($in['value'] ?? '') !== '' && ($in['value'] ?? '') !== null
             ? round((float) str_replace(',', '.', (string) $in['value']), 2) : null,
         'lost_reason' => mb_substr(trim($in['lostReason'] ?? ''), 0, 190) ?: null,
@@ -1258,7 +1273,7 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
         'attendees' => ',' . implode(',', $att) . ',',
         'clientid' => (int) ($in['client'] ?? 0) ?: null,
         'location' => mb_substr(trim($in['location'] ?? ''), 0, 190) ?: null,
-        'notes' => mb_substr(trim($in['notes'] ?? ''), 0, 5000) ?: null];
+        'notes' => cnp_clean_html($in['notes'] ?? '') ?: null];
     if ($eid) {
         $ev = Capsule::table('mod_cpm_events')->where('id', $eid)->first();
         if (!$ev || (!$FULL && (int) $ev->created_by !== $adminId)) {
@@ -1442,7 +1457,7 @@ case 'save_offer':
         'amount' => ($in['amount'] ?? '') !== '' && $in['amount'] !== null ? round((float) $in['amount'], 2) : null,
         'stage' => $stage, 'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
         'expected_close' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['expected'] ?? '') ? $in['expected'] : null,
-        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
         'closed_at' => Db::offerStages()[$stage][2] ? date('Y-m-d H:i:s') : null];
     if (!$oid) {
         $data['created_by'] = $adminId;
@@ -1952,7 +1967,7 @@ case 'save_project':
         'clientid' => (int) ($in['client'] ?? 0) ?: null,
         'deptid' => (int) ($in['dept'] ?? 0) ?: null,
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
-        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
         'client_visible' => !empty($in['visible']) ? 1 : 0,
         'parent_id' => ((int) ($in['parent'] ?? 0) && (int) $in['parent'] !== $pid) ? (int) $in['parent'] : null,
         'pstatus' => array_key_exists($in['pstatus'] ?? '', Db::projectStatuses()) ? $in['pstatus'] : null,
@@ -2079,7 +2094,7 @@ case 'save_recurring':
     Db::saveRecurring((int) ($in['id'] ?? 0), [
         'project_id' => (int) ($in['project'] ?? 0),
         'title' => mb_substr(trim($in['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
-        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 60000),
+        'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
         'priority' => min(2, max(0, (int) ($in['prio'] ?? 0))),
         'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
         'freq' => $freq, 'every' => max(1, (int) ($in['every'] ?? 1)),
@@ -2777,7 +2792,7 @@ case 'kb_save':
         'tags' => mb_substr(trim($in['tags'] ?? ''), 0, 190),
         'area_id' => in_array($area9, $valid9, true) ? $area9 : 0,
         'rel_areas' => implode(',', array_slice($rel9, 0, 12)),
-        'solution' => mb_substr(trim($in['solution'] ?? ''), 0, 60000),
+        'solution' => cnp_clean_html($in['solution'] ?? '', 60000),   // rich-text
         'updated_at' => date('Y-m-d H:i:s')];
     if ($data9['title'] === '' || $data9['solution'] === '') {
         fail('Τίτλος και λύση είναι υποχρεωτικά');
@@ -3572,6 +3587,47 @@ case 'auto_del':
     out(['ok' => true]);
 
 /* ================= AI (Claude) ================= */
+case 'ai_proofread':                     // ✨ ορθογραφικός/συντακτικός έλεγχος κειμένου (κάθε editor)
+    $keyP = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($keyP === '') {
+        fail('Δεν έχει οριστεί AI API key — βάλ\' το στις Ρυθμίσεις');
+    }
+    $srcP = cnp_clean_html($in['html'] ?? '', 20000);
+    if (trim(strip_tags($srcP)) === '') {
+        fail('Δεν υπάρχει κείμενο για έλεγχο');
+    }
+    $modeP = ($in['mode'] ?? 'fix') === 'polish' ? 'polish' : 'fix';
+    $rulesP = $modeP === 'polish'
+        ? "Διόρθωσε ορθογραφία, τονισμό, στίξη και σύνταξη ΚΑΙ βελτίωσε τη ροή/σαφήνεια, κρατώντας το ίδιο νόημα και ύφος."
+        : "Διόρθωσε ΜΟΝΟ ορθογραφία, τονισμό, στίξη και προφανή συντακτικά λάθη. ΜΗΝ αλλάξεις ύφος, λεξιλόγιο ή δομή.";
+    $promptP = "Είσαι επιμελητής ελληνικών (και αγγλικών) κειμένων για επαγγελματικό εργαλείο υποστήριξης.\n"
+        . $rulesP . "\n\nΚΑΝΟΝΕΣ:\n"
+        . "- Το κείμενο είναι HTML. Διατήρησε ΑΚΡΙΒΩΣ τα ίδια tags (<b>, <ul>, <li>, <p>, <br>, <a href>…). Μην προσθέσεις/αφαιρέσεις tags.\n"
+        . "- Μην μεταφράσεις. Κράτα τη γλώσσα του πρωτοτύπου.\n"
+        . "- Μην πειράξεις ονόματα, IP, domain, κωδικούς, εντολές, αριθμούς ticket.\n"
+        . "- Αν το κείμενο είναι ήδη σωστό, επίστρεψε το ίδιο και κενή λίστα αλλαγών.\n\n"
+        . "Απάντησε ΜΟΝΟ με JSON:\n"
+        . '{"html":"<το διορθωμένο HTML>","changes":[{"from":"λάθος","to":"σωστό","why":"σύντομη αιτία"}],"summary":"μία φράση"}'
+        . "\n\nΚΕΙΜΕΝΟ:\n" . $srcP;
+    $resP = cnp_anthropic($keyP, 'claude-haiku-4-5-20251001', $promptP, 4000);
+    if (empty($resP['ok'])) {
+        fail($resP['error']);
+    }
+    $jP = cnp_json_extract($resP['text']);
+    if (!$jP || !isset($jP['html'])) {
+        fail('Η απάντηση του AI δεν διαβάστηκε');
+    }
+    $changesP = [];
+    foreach (array_slice((array) ($jP['changes'] ?? []), 0, 40) as $ch) {
+        $changesP[] = ['from' => mb_substr((string) ($ch['from'] ?? ''), 0, 120),
+            'to' => mb_substr((string) ($ch['to'] ?? ''), 0, 120),
+            'why' => mb_substr((string) ($ch['why'] ?? ''), 0, 120)];
+    }
+    out(['ok' => true, 'html' => cnp_clean_html($jP['html'], 60000),
+        'changes' => $changesP, 'summary' => mb_substr((string) ($jP['summary'] ?? ''), 0, 200),
+        'clean' => count($changesP) === 0]);
+
 case 'ai_suggest':
 case 'ai_summary':
     $tid3 = (int) ($in['ticket'] ?? 0);
@@ -3662,7 +3718,7 @@ case 'person_save':
         'email' => mb_substr(trim($in['email'] ?? ''), 0, 120) ?: null,
         'phone' => mb_substr(trim($in['phone'] ?? ''), 0, 40) ?: null,
         'title' => mb_substr(trim($in['title'] ?? ''), 0, 80) ?: null,
-        'notes' => mb_substr(trim($in['notes'] ?? ''), 0, 5000) ?: null];
+        'notes' => cnp_clean_html($in['notes'] ?? '') ?: null];
     if (!$pid5) {
         $data['lead_id'] = (int) ($in['lead'] ?? 0) ?: null;
         $data['clientid'] = (int) ($in['client'] ?? 0) ?: null;

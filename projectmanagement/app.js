@@ -628,6 +628,133 @@ async function stopRemote() {
   };
 }
 
+/* ═══ Rich-text editor — ΕΝΑ component για όλα τα πεδία κειμένου ═══
+   Χρήση:  rteHtml('fDescr', htmlΉΚείμενο, 'placeholder…')  → markup
+           rteVal('fDescr')                                  → το HTML για αποθήκευση
+   Το wiring γίνεται με ΚΑΘΟΛΙΚΟ delegation (παρακάτω) — δεν χρειάζεται bind ανά χρήση,
+   δουλεύει και σε drawers/modals που χτίζονται δυναμικά.
+   ΠΡΟΣΟΧΗ: κάθε πεδίο που γίνεται RTE πρέπει (α) να περνά από cnp_clean_html στο api.php
+   και (β) να εμφανίζεται ως HTML (όχι esc()) όπου προβάλλεται read-only. */
+const _rteB = (cmd, label, title, arg) =>
+  `<button type="button" class="rte-b" data-cmd="${cmd}"${arg ? ` data-arg="${arg}"` : ''} title="${title}">${label}</button>`;
+
+/** Αν η τιμή είναι σκέτο κείμενο (χωρίς tags), τα newlines γίνονται <br> ώστε να μη χαθεί η μορφή. */
+function _rteSeed(v) {
+  const s = String(v == null ? '' : v);
+  return /<(p|div|br|ul|ol|li|b|strong|i|em|u|h3|h4|blockquote|pre|code|span|a)\b/i.test(s)
+    ? s : esc(s).replace(/\n/g, '<br>');
+}
+
+function rteHtml(id, value, placeholder, opts) {
+  const o = opts || {};
+  return `<div class="rte-wrap"${o.style ? ` style="${o.style}"` : ''}>
+    <div class="rte-tb">
+      ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}
+      ${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}
+      ${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
+      <span class="rte-sep"></span>
+      ${_rteB('insertUnorderedList', '&bull;&nbsp;Λίστα', 'Κουκκίδες')}
+      ${_rteB('insertOrderedList', '1.&nbsp;Λίστα', 'Αρίθμηση')}
+      <span class="rte-sep"></span>
+      ${_rteB('formatBlock', 'H', 'Επικεφαλίδα', 'h3')}
+      ${_rteB('formatBlock', '&ldquo;&rdquo;', 'Παράθεση', 'blockquote')}
+      ${_rteB('__code', '&lt;/&gt;', 'Κώδικας')}
+      <span class="rte-sep"></span>
+      ${_rteB('__link', I.link, 'Σύνδεσμος')}
+      ${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
+      <span class="rte-sep"></span>
+      ${_rteB('__ai', I.sparkle + ' <span class="rte-ai-l">Έλεγχος</span>', 'Ορθογραφικός & συντακτικός έλεγχος με AI')}
+    </div>
+    <div class="rte" id="${id}" contenteditable="true"${o.min ? ` style="min-height:${o.min}px"` : ''}
+      data-ph="${esc(placeholder || '')}">${_rteSeed(value)}</div>
+  </div>`;
+}
+
+/** Το περιεχόμενο ενός RTE (κενό → '' ώστε να μη σώζεται σκέτο <br>). */
+function rteVal(id, root) {
+  const el = (root || document).querySelector('#' + id);
+  if (!el) { return ''; }
+  const h = el.innerHTML.trim();
+  return (h === '<br>' || h === '<div><br></div>' || el.textContent.trim() === '') ? '' : h;
+}
+
+// καθολικό wiring της μπάρας εργαλείων — ισχύει για ΚΑΘΕ .rte στη σελίδα
+document.addEventListener('click', e => {
+  const b = e.target.closest('.rte-b');
+  if (!b) { return; }
+  e.preventDefault();
+  const ed = b.closest('.rte-wrap').querySelector('.rte');
+  if (!ed) { return; }
+  ed.focus();
+  const cmd = b.dataset.cmd;
+  if (cmd === '__ai') {
+    rteProof(ed, b);
+  } else if (cmd === '__link') {
+    cnpPrompt('Διεύθυνση συνδέσμου (URL):', {ok: 'Εισαγωγή', placeholder: 'https://…'}).then(u => {
+      if (u) { document.execCommand('createLink', false, /^https?:|^mailto:/.test(u) ? u : 'https://' + u); }
+    });
+  } else if (cmd === '__code') {
+    document.execCommand('formatBlock', false, 'pre');
+  } else {
+    document.execCommand(cmd, false, b.dataset.arg || null);
+  }
+});
+/** ✨ Ορθογραφικός/συντακτικός έλεγχος του editor — δείχνει ΤΙ αλλάζει πριν εφαρμοστεί. */
+async function rteProof(ed, btn) {
+  if (!ed.textContent.trim()) { toast('Γράψε πρώτα κείμενο', true); return; }
+  const before = ed.innerHTML;
+  const old = btn.innerHTML;
+  btn.innerHTML = '<span class="rte-spin"></span>';
+  btn.disabled = true;
+  const r = await api('ai_proofread', {html: before, mode: 'fix'}).catch(e => ({err: e.message}));
+  btn.innerHTML = old; btn.disabled = false;
+  if (r.err) { toast(r.err, true); return; }
+  if (r.clean) { toast('Κανένα λάθος — το κείμενο είναι σωστό'); return; }
+
+  const rows = (r.changes || []).map(c => `<div class="pf-row">
+      <span class="pf-from">${esc(c.from)}</span><span class="pf-arr">→</span><span class="pf-to">${esc(c.to)}</span>
+      ${c.why ? `<span class="pf-why">${esc(c.why)}</span>` : ''}</div>`).join('');
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+  ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
+  ovl.innerHTML = `<div class="pal-box pf-box" onclick="event.stopPropagation()">
+    <div style="padding:18px 20px">
+      <b style="font-size:15.5px;color:var(--ink);display:flex;align-items:center;gap:8px">${I.sparkle} Προτεινόμενες διορθώσεις</b>
+      ${r.summary ? `<div class="mut" style="font-size:12.5px;margin-top:4px">${esc(r.summary)}</div>` : ''}
+      <div class="pf-list">${rows || '<div class="mut">—</div>'}</div>
+      <div class="pf-prev"><div class="mut" style="font-size:11px;font-weight:700;margin-bottom:5px">ΠΡΟΕΠΙΣΚΟΠΗΣΗ</div>
+        <div class="rt-view">${r.html}</div></div>
+      <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn btn-o" id="pfNo">Άκυρο</button>
+        <button class="btn btn-o" id="pfPolish">${I.sparkle} Και βελτίωση ύφους</button>
+        <button class="btn btn-p" id="pfYes">Εφαρμογή</button></div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  ovl.querySelector('#pfNo').onclick = () => ovl.remove();
+  ovl.querySelector('#pfYes').onclick = () => {
+    ed.innerHTML = r.html;
+    ovl.remove();
+    toast('Οι διορθώσεις εφαρμόστηκαν — μην ξεχάσεις Αποθήκευση');
+  };
+  ovl.querySelector('#pfPolish').onclick = async () => {
+    const btn2 = ovl.querySelector('#pfPolish');
+    btn2.innerHTML = '<span class="rte-spin"></span>'; btn2.disabled = true;
+    const r2 = await api('ai_proofread', {html: before, mode: 'polish'}).catch(e => ({err: e.message}));
+    if (r2.err) { toast(r2.err, true); btn2.disabled = false; return; }
+    ed.innerHTML = r2.html;
+    ovl.remove();
+    toast('Το κείμενο βελτιώθηκε — μην ξεχάσεις Αποθήκευση');
+  };
+}
+
+// επικόλληση: πάντα ΧΩΡΙΣ μορφοποίηση από Word/σελίδες (αλλιώς μπαίνουν styles/fonts)
+document.addEventListener('paste', e => {
+  const ed = e.target.closest && e.target.closest('.rte');
+  if (!ed) { return; }
+  e.preventDefault();
+  const t = (e.clipboardData || window.clipboardData).getData('text/plain');
+  document.execCommand('insertText', false, t);
+});
+
 /* ═══ In-app διαλογικά (αντί για browser confirm/prompt) ═══ */
 function cnpDialog(opts) {
   return new Promise(resolve => {
@@ -841,7 +968,7 @@ async function openTask(id) {
         <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
       </div>
       <label class="lbl" style="margin-top:12px">Περιγραφή</label>
-      <textarea class="inp" id="fDescr" rows="3">${esc(d.descr || '')}</textarea>
+      ${rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 120})}
       <div style="display:flex;gap:9px;margin-top:13px;align-items:center">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
@@ -914,7 +1041,7 @@ async function openTask(id) {
 
   $('#dX').onclick = closeDrawer;
   $('#dSave', dr).onclick = async () => {
-    await api('save_task', {task: id, title: $('#fTitle').value, descr: $('#fDescr').value,
+    await api('save_task', {task: id, title: $('#fTitle').value, descr: rteVal('fDescr'),
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
       type: +$('#fType').value || 0, ball: +$('#fBall').value || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value});
@@ -1224,7 +1351,7 @@ function openLead(l, d) {
       </div>
       <label class="lbl">Τι θα γίνει</label><input class="inp" id="lNextNote" value="${esc(l.nextNote || '')}" placeholder="π.χ. τηλέφωνο για demo">
       <label class="lbl" style="margin-top:11px">Σημειώσεις</label>
-      <textarea class="inp" id="lDescr" rows="4">${esc(l.descr || '')}</textarea>
+      ${rteHtml('lDescr', l.descr || '', 'Σημειώσεις για το lead…', {min: 130})}
       <div style="margin-top:13px"><button class="btn btn-p" id="lSave">Αποθήκευση</button></div>
     </div></div>
     ${!isNew ? `<div class="card" id="lScoreCard"><div class="card-b" id="lScoreBox"><div class="mut" style="font-size:12px">Υπολογισμός βαθμολογίας…</div></div></div>
@@ -1259,7 +1386,7 @@ function openLead(l, d) {
       email: $('#lEmail').value, phone: $('#lPhone').value, source: $('#lSource').value,
       stage: $('#lStage').value, assignee: +$('#lAssignee').value || 0,
       value: $('#lValue').value.trim(), lostReason: $('#lLost').value,
-      next: $('#lNext').value || null, nextNote: $('#lNextNote').value, descr: $('#lDescr').value});
+      next: $('#lNext').value || null, nextNote: $('#lNextNote').value, descr: rteVal('lDescr')});
     toast('Αποθηκεύτηκε'); closeDrawer(); vCrm();
   };
   const iS = $('#iSave', dr); if (iS) iS.onclick = async () => {
@@ -1467,7 +1594,7 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-window.CNP = {S, api, esc, suStat, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */
