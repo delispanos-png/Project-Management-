@@ -5,9 +5,9 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtMin = m => { m = +m || 0; const h = Math.floor(m / 60), r = m % 60; return h && r ? `${h}ω ${r}΄` : h ? `${h}ω` : `${r}΄`; };
-const fmtEur = v => (+v || 0).toLocaleString('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
-const dShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'}) : '';
-const tShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleString('el-GR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
+const fmtEur = v => (+v || 0).toLocaleString((window.CNP_LOCALE||'el-GR'), {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+const dShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleDateString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit'}) : '';
+const tShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
 const today = () => new Date().toISOString().slice(0, 10);
 
 const I = { // inline icons
@@ -692,7 +692,7 @@ document.addEventListener('click', e => {
 });
 function setTop(t, sub) {
   $('#topTitle').textContent = t;
-  $('#topSub').textContent = sub || new Date().toLocaleDateString('el-GR', {weekday: 'long', day: 'numeric', month: 'long'});
+  $('#topSub').textContent = sub || new Date().toLocaleDateString((window.CNP_LOCALE||'el-GR'), {weekday: 'long', day: 'numeric', month: 'long'});
 }
 function go(view, arg) {
   S.view = view;

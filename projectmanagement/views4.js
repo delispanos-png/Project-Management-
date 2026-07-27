@@ -1073,7 +1073,7 @@ R.todos = async function () {
   setTop('Το πλάνο μου', 'Ανά project — τι έχεις να κάνεις & πού έμεινες');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:130px;margin-bottom:12px"></div>'.repeat(3);
-  const remLbl = r => new Date(r.replace(' ', 'T')).toLocaleString('el-GR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+  const remLbl = r => new Date(r.replace(' ', 'T')).toLocaleString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
   const load = async () => {
     const d = await api('todos_list');
     if (!d.groups.length) { c.innerHTML = `<div class="empty" style="padding:44px"><div class="big">${I.checkSquare}</div>Δεν έχεις ανοιχτά project ακόμη</div>`; return; }
@@ -1154,7 +1154,7 @@ R.todos = async function () {
 const _cvStatusCol = {new: '#0097e4', review: '#e0a020', shortlist: '#7b5cd6', interview: '#16a26a', rejected: '#e2515f', hired: '#0a8a4f'};
 const _cvDecision = {shortlist: ['Shortlist', '#7b5cd6'], interview: ['Συνέντευξη', '#16a26a'], maybe: ['Ίσως', '#e0a020'], reject: ['Απόρριψη', '#e2515f']};
 const _cvScoreCol = n => n === null ? 'var(--mut)' : n >= 75 ? '#16a26a' : n >= 55 ? '#0090dd' : n >= 35 ? '#e0a020' : '#e2515f';
-const _cvDate = d => d ? new Date(d.replace(' ', 'T')).toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '';
+const _cvDate = d => d ? new Date(d.replace(' ', 'T')).toLocaleDateString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', year: 'numeric'}) : '';
 function _cvRing(n) {
   const r = 24, circ = 2 * Math.PI * r, off = circ * (1 - (n || 0) / 100), cl = _cvScoreCol(n);
   return `<div style="position:relative;width:58px;height:58px;flex:none"><svg width="58" height="58" viewBox="0 0 58 58">

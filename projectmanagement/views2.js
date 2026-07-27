@@ -57,14 +57,14 @@ function evWhen(ev) {
   if (!ev.start) { return ''; }
   const a = D(ev.start), b = ev.end ? D(ev.end) : null;
   const sameDay = b && a.toDateString() === b.toDateString();
-  const day = a.toLocaleDateString('el-GR', dOpt);
-  const hm = x => x.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false});
+  const day = a.toLocaleDateString((window.CNP_LOCALE||'el-GR'), dOpt);
+  const hm = x => x.toLocaleTimeString((window.CNP_LOCALE||'el-GR'), {hour: '2-digit', minute: '2-digit', hour12: false});
   if (ev.allDay) {
     return sameDay || !b ? `${day} · ολοήμερο`
-      : `${a.toLocaleDateString('el-GR', dOpt)} → ${b.toLocaleDateString('el-GR', dOpt)} · ολοήμερο`;
+      : `${a.toLocaleDateString((window.CNP_LOCALE||'el-GR'), dOpt)} → ${b.toLocaleDateString((window.CNP_LOCALE||'el-GR'), dOpt)} · ολοήμερο`;
   }
   if (sameDay || !b) { return `${day} · ${hm(a)}${b ? ' – ' + hm(b) : ''}`; }
-  return `${day} ${hm(a)} → ${b.toLocaleDateString('el-GR', dOpt)} ${hm(b)}`;
+  return `${day} ${hm(a)} → ${b.toLocaleDateString((window.CNP_LOCALE||'el-GR'), dOpt)} ${hm(b)}`;
 }
 
 function openEvent(ev, ymRefresh) {
