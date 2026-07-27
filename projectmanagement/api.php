@@ -3112,9 +3112,11 @@ case 'kb_import_commit':                 // εισαγωγή επιλεγμέν�
         }
         $clean = cnp_clean_html(cnp_absolutize_html($html, $link), 60000);
         if ($title === '' || trim(strip_tags($clean)) === '') { $errs[] = $title ?: $link; continue; }
-        // html_entity_decode ΠΡΙΝ την εξαγωγή λέξεων: το Confluence κωδικοποιεί τα ελληνικά ως
-        // &alpha;&omicron;… και οι λέξεις-κλειδιά γέμιζαν «alpha, omicron, chi».
-        $plain = html_entity_decode(strip_tags($clean), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // (1) κενό ΑΝΤΙ για κάθε tag — αλλιώς τα κελιά πινάκων κολλάνε σε μία λέξη
+        //     («publishκατηγοριαερωτησηαπαντησηναι»).
+        // (2) html_entity_decode ΠΡΙΝ την εξαγωγή: το Confluence κωδικοποιεί τα ελληνικά ως
+        //     &alpha;&omicron;… και οι λέξεις γέμιζαν «alpha, omicron, chi».
+        $plain = html_entity_decode(preg_replace('/<[^>]+>/', ' ', $clean), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $kw = implode(', ', array_slice(cnp_words($title . ' ' . mb_substr($plain, 0, 1800)), 0, 18));
         // 4-byte (emoji) εκτός — DB utf8mb3, αλλιώς αποθηκεύεται ως ????
         $title = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $title));
