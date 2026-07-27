@@ -385,6 +385,7 @@ R.knowledge = async function () {
   </div>
   <div id="kForm"></div>
   <div id="kRes"></div>
+  <div id="kbBulk" class="kb-bulk" style="display:none"></div>
   <div id="kbList"><div class="skel" style="height:120px"></div></div>`;
 
   /* ── κάρτα γνώσης ── */
@@ -392,6 +393,8 @@ R.knowledge = async function () {
     const p = prod(k.areaId);
     return `<details class="kb-item" data-kbid="${k.id}">
       <summary>
+        <input type="checkbox" class="kb-pick" value="${k.id}" title="Επιλογή για μαζική ενέργεια"
+          onclick="event.stopPropagation()">
         <span class="kb-dot" style="background:${p ? p.color : '#8595ac'}"></span>
         <b>${esc(k.title)}</b>
         <span class="kb-sum-meta">
@@ -496,6 +499,59 @@ R.knowledge = async function () {
       await api('kb_del', {id: +b.dataset.kdel}); toast('Διαγράφηκε'); load();
     });
     const n2 = $('#kNew2'); if (n2) n2.onclick = () => openForm(null);
+    $$('.kb-pick').forEach(c => c.onchange = bulkBar);
+    bulkBar();
+  };
+
+  /* ── μαζικές ενέργειες: εμφανίζεται μόλις επιλέξεις έστω ένα ── */
+  const picked = () => $$('.kb-pick').filter(c => c.checked).map(c => +c.value);
+  const bulkBar = () => {
+    const bar = $('#kbBulk');
+    if (!bar) { return; }
+    const ids = picked();
+    if (!ids.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    bar.style.display = '';
+    bar.innerHTML = `
+      <b>${ids.length}</b> επιλεγμένα
+      <button class="btn btn-o btn-sm" id="kbAll">Επιλογή όλων (${$$('.kb-pick').length})</button>
+      <button class="btn btn-o btn-sm" id="kbNone">Καθαρισμός</button>
+      <span style="flex:1"></span>
+      <select class="inp" id="kbArea" style="width:auto;min-width:150px">
+        <option value="">— ορισμός προϊόντος —</option>
+        <option value="0">χωρίς προϊόν</option>
+        ${D.products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+      <input class="inp" id="kbTags" placeholder="ετικέτες…" style="width:130px">
+      <button class="btn btn-o btn-sm" id="kbTagGo">Ορισμός ετικετών</button>
+      ${S.boot.me.full ? `<button class="btn btn-sm" id="kbDel"
+        style="background:var(--bad);color:#fff">${I.trash} Διαγραφή ${ids.length}</button>` : ''}`;
+    $('#kbAll').onclick = () => { $$('.kb-pick').forEach(c => c.checked = true); bulkBar(); };
+    $('#kbNone').onclick = () => { $$('.kb-pick').forEach(c => c.checked = false); bulkBar(); };
+    $('#kbArea').onchange = async () => {
+      const v = $('#kbArea').value;
+      if (v === '') { return; }
+      const r = await api('kb_bulk', {op: 'area', ids: picked(), areaId: +v}).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast(`Ορίστηκε προϊόν σε ${r.n} άρθρα`);
+      await load();
+    };
+    $('#kbTagGo').onclick = async () => {
+      const r = await api('kb_bulk', {op: 'tags', ids: picked(), tags: $('#kbTags').value}).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast(`Ενημερώθηκαν ${r.n} άρθρα`);
+      await load();
+    };
+    const del = $('#kbDel');
+    if (del) {
+      del.onclick = async () => {
+        const ids2 = picked();
+        if (!(await cnpConfirm(`Οριστική διαγραφή ${ids2.length} άρθρων από τη βιβλιοθήκη;`,
+          {title: I.alert + ' Μαζική διαγραφή', danger: true, ok: 'Διαγραφή ' + ids2.length}))) { return; }
+        const r = await api('kb_bulk', {op: 'delete', ids: ids2}).catch(e => ({err: e.message}));
+        if (r.err) { toast(r.err, true); return; }
+        toast(`Διαγράφηκαν ${r.n} άρθρα`);
+        await load();
+      };
+    }
   };
 
   /* ── φόρμα: ΚΛΕΙΣΤΗ by default, ανοίγει με κουμπί ── */

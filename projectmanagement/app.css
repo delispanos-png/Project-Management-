@@ -1014,6 +1014,18 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
   .set-row.tc-row>div:first-child{flex-basis:auto!important}
 }
 
+/* μπάρα μαζικών ενεργειών στη Γνώση (εμφανίζεται με την πρώτη επιλογή) */
+.kb-bulk{position:sticky;top:0;z-index:12;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  background:var(--card);border:1px solid color-mix(in srgb,var(--brand) 35%,transparent);
+  border-radius:12px;padding:10px 14px;margin-bottom:12px;box-shadow:var(--sh);font-size:12.5px}
+.kb-bulk b{color:var(--ink);font-size:14px}
+.kb-pick{flex:none;width:16px;height:16px;cursor:pointer;accent-color:var(--brand)}
+@media (max-width:768px){
+  .kb-bulk{gap:6px}
+  .kb-bulk .inp,.kb-bulk .btn{flex:1;min-width:0}
+  .kb-bulk>span[style]{display:none}
+}
+
 /* εισαγωγή γνώσης από URL */
 .imp-list{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:11px;padding:6px}
 .imp-cat+.imp-cat{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}

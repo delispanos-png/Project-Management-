@@ -2885,6 +2885,30 @@ case 'kb_save':
     }
     out(['ok' => true, 'id' => $kid]);
 
+case 'kb_bulk':                          // μαζικές ενέργειες σε άρθρα γνώσης
+    $idsB = array_values(array_filter(array_map('intval', (array) ($in['ids'] ?? []))));
+    if (!$idsB) { fail('Δεν διάλεξες άρθρα'); }
+    $opB = (string) ($in['op'] ?? '');
+    if ($opB === 'delete') {
+        if (!$FULL) { fail('Μόνο διαχειριστής μπορεί να διαγράψει', 403); }
+        $n = Capsule::table('mod_cpm_kb')->whereIn('id', $idsB)->delete();
+        out(['ok' => true, 'op' => 'delete', 'n' => $n]);
+    }
+    if ($opB === 'area') {
+        $validB = array_column(cnp_ticket_cats()['area'], 'id');
+        $aB = (int) ($in['areaId'] ?? 0);
+        if ($aB && !in_array($aB, $validB, true)) { fail('Άγνωστο προϊόν'); }
+        $n = Capsule::table('mod_cpm_kb')->whereIn('id', $idsB)
+            ->update(['area_id' => $aB, 'updated_at' => date('Y-m-d H:i:s')]);
+        out(['ok' => true, 'op' => 'area', 'n' => $n]);
+    }
+    if ($opB === 'tags') {
+        $n = Capsule::table('mod_cpm_kb')->whereIn('id', $idsB)
+            ->update(['tags' => mb_substr(trim($in['tags'] ?? ''), 0, 190), 'updated_at' => date('Y-m-d H:i:s')]);
+        out(['ok' => true, 'op' => 'tags', 'n' => $n]);
+    }
+    fail('Άγνωστη ενέργεια');
+
 case 'kb_import_probe':                  // 🌐 ανάλυση URL τεκμηρίωσης πριν την εισαγωγή
     $urlI = trim($in['url'] ?? '');
     $rootI = null;
