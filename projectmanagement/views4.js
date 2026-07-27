@@ -25,7 +25,7 @@ const R = window.R;
   });
   function showKeys() {
     closeDrawer();
-    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = () => ovl.remove();
+    const ovl = document.createElement('div'); ovl.className = 'ovl show';
     ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:420px" onclick="event.stopPropagation()">
       <div class="pop-h" style="padding:14px 18px">⌨️ Συντομεύσεις</div>
       <div style="padding:12px 18px 18px;font-size:13px;line-height:2">
@@ -43,7 +43,7 @@ const R = window.R;
 function quickNew() {
   closeDrawer();
   if (!S.boot.projects.length) { toast('Δεν έχεις projects', true); return; }
-  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) ovl.remove(); };
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; 
   ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:520px" onclick="event.stopPropagation()">
     <div style="padding:16px 18px">
       <input class="inp" id="qnT" placeholder="Τι πρέπει να γίνει; (Enter)" style="font-size:15px;margin-bottom:10px">
@@ -654,7 +654,7 @@ R.chat = async function () {
     $('#rOk', ovl).onclick = () => done($('#rCustom', ovl).value.trim());
     $('#rSkip', ovl).onclick = () => done('');
     $('#rCancel', ovl).onclick = () => done(null);
-    ovl.onclick = e => { if (e.target === ovl) done(null); };
+
     setTimeout(() => $('#rCustom', ovl).focus(), 30);
   });
   const goOffline = async (current) => {
@@ -688,7 +688,7 @@ R.chat = async function () {
   });
   $('#chNewGrp').onclick = () => {
     const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
-    ovl.onclick = e => { if (e.target === ovl) ovl.remove(); };
+    
     ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:460px" onclick="event.stopPropagation()">
       <div style="padding:20px 22px">
         <b style="font-size:15.5px;color:var(--ink)"># Νέα ομάδα συνομιλίας</b>
@@ -1036,7 +1036,7 @@ R.library = async function () {
   $('#lbCats').onclick = e => { const b = e.target.closest('[data-cat]'); if (!b) { return; } st.cat = b.dataset.cat; load(); };
   function openLibForm(kind, item) {
     const isNew = !item;
-    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
+    const ovl = document.createElement('div'); ovl.className = 'ovl show'; 
     const kindTitle = kind === 'link' ? 'link' : kind === 'file' ? 'αρχείο' : 'σημείωση';
     ovl.innerHTML = `<div class="pal-box" style="margin:6vh auto 0;max-width:580px;text-align:left" onclick="event.stopPropagation()">
       <div style="padding:20px 22px">
@@ -1053,17 +1053,47 @@ R.library = async function () {
           <div><label class="lbl">${I.clock} Ημ. λήξης <span class="mut" style="font-weight:400">(συμβόλαιο/άδεια)</span></label><input class="inp" type="date" id="lfExp" value="${isNew ? '' : (item.expires || '')}"></div>
           <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;padding-bottom:9px"><input type="checkbox" id="lfSh" ${!isNew && item.shared ? 'checked' : ''} style="width:17px;height:17px">Κοινό για την ομάδα</label></div>
         </div>
+        <div id="lfFiles" style="margin-top:14px"></div>
         <div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-p" id="lfSave">Αποθήκευση</button><button class="btn btn-o" id="lfX">Άκυρο</button></div>
       </div></div>`;
     document.body.appendChild(ovl);
     api('lib_list').then(dd => { const dl = $('#lfCL', ovl); if (dl) { dl.innerHTML = (dd.cats || []).map(x => `<option value="${esc(x)}">`).join(''); } });
-    $('#lfX', ovl).onclick = () => ovl.remove();
+
+    /* 📎 Συνημμένα — ζουν πάνω στο τεκμήριο, άρα χρειάζονται id. Σε νέα καταχώρηση
+       ενεργοποιούνται μόλις γίνει η πρώτη αποθήκευση (το popup μένει ανοιχτό). */
+    let curId = isNew ? 0 : item.id;
+    const mountFiles = () => {
+      const box = $('#lfFiles', ovl);
+      if (!box) { return; }
+      if (!curId) {
+        box.innerHTML = `<div class="lbl">${I.clip} Συνημμένα</div>
+          <div class="mut" style="font-size:12px;padding:9px 11px;background:var(--canvas);border-radius:9px">
+            Αποθήκευσε πρώτα την καταχώρηση και μετά πρόσθεσε αρχεία εδώ.</div>`;
+        return;
+      }
+      box.innerHTML = `<div class="lbl">${I.clip} Συνημμένα</div><div id="lfFilesW"></div>`;
+      window.cnpAttachments($('#lfFilesW', ovl), {module: 'library', refType: 'library', refId: curId});
+    };
+    mountFiles();
+
+    $('#lfX', ovl).onclick = () => cnpAskClose(ovl.querySelector('.pal-box'));
     $('#lfSave', ovl).onclick = async () => {
       const title = $('#lfT', ovl).value.trim(); if (!title) { toast('Δώσε τίτλο', true); return; }
-      const payload = {id: isNew ? 0 : item.id, kind, title, category: $('#lfC', ovl).value, tags: $('#lfTg', ovl).value,
+      const payload = {id: curId, kind, title, category: $('#lfC', ovl).value, tags: $('#lfTg', ovl).value,
         expires: $('#lfExp', ovl).value, shared: $('#lfSh', ovl).checked ? 1 : 0};
       if (kind === 'link') { payload.url = $('#lfU', ovl).value; } else if (kind === 'note') { payload.body = rteVal('lfB', ovl); }
-      await api('lib_save', payload); ovl.remove(); toast('Αποθηκεύτηκε ✓'); load();
+      const r = await api('lib_save', payload).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); return; }
+      const box = ovl.querySelector('.pal-box');
+      if (box) { box.dataset.dirty = ''; }
+      load();
+      if (!curId && r.id) {          // νέα καταχώρηση → μείνε ανοιχτός για συνημμένα
+        curId = r.id;
+        mountFiles();
+        toast('Αποθηκεύτηκε ✓ — μπορείς τώρα να προσθέσεις αρχεία');
+        return;
+      }
+      ovl.remove(); toast('Αποθηκεύτηκε ✓');
     };
   }
 };
@@ -1386,7 +1416,7 @@ function renderJobsPanel(host, reload) {
 }
 
 function openCvAdd(jobs, reload) {
-  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; 
   ovl.innerHTML = `<div class="pal-box" style="margin:6vh auto 0;max-width:640px;text-align:left" onclick="event.stopPropagation()">
     <div style="padding:22px 26px">
       <h2 style="margin:0 0 6px;font-size:18px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.contact || I.users} Νέος υποψήφιος</h2>
@@ -1484,7 +1514,7 @@ window.cnpAttachments = cnpAttachments;   // reusable σε όλα τα views (ES
 async function openCv(id) {
   closeDrawer();
   const statuses = window._cvStatuses || {};
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer'; dr.style.width = 'min(780px,96vw)';
   dr.innerHTML = '<div class="drawer-b"><div class="skel" style="height:340px"></div></div>';
   document.body.append(ovl, dr);
@@ -1543,7 +1573,7 @@ async function openCv(id) {
       <div style="text-align:right;margin-top:8px"><button class="btn btn-o btn-sm" id="cvNotesSave">${I.save} Αποθήκευση σημειώσεων</button></div>
     </div></div>
   </div>`;
-  $('#dX', dr).onclick = closeDrawer;
+  $('#dX', dr).onclick = () => cnpAskClose(dr);
   cnpAttachments($('#cvFilesBox', dr), {module: 'cv', refType: 'cv', refId: id});
   $$('[data-otherid]', dr).forEach(b => b.onclick = () => openCv(+b.dataset.otherid));
   $('#cvAiBtn', dr).onclick = async () => {

@@ -486,8 +486,19 @@ function clientLabel($cid)
 function cnp_file_area($module)
 {
     $map = ['cv' => 'hr', 'task' => 'projects', 'project' => 'projects', 'ticket' => 'support',
-        'lead' => 'sales', 'sales' => 'sales', 'chat' => '', 'general' => ''];
+        'lead' => 'sales', 'sales' => 'sales', 'chat' => '', 'general' => '', 'library' => ''];
     return array_key_exists($module, $map) ? $map[$module] : null;
+}
+/**
+ * Η βιβλιοθήκη είναι ΙΔΙΩΤΙΚΗ ανά χειριστή — τα συνημμένα της ακολουθούν τον ίδιο κανόνα.
+ * Επιστρέφει true αν ο admin δικαιούται πρόσβαση στα αρχεία του συγκεκριμένου τεκμηρίου.
+ */
+function cnp_lib_can($adminId, $refId, $needOwner = false)
+{
+    $row = Capsule::table('mod_cpm_library')->where('id', (int) $refId)->first();
+    if (!$row) { return false; }
+    if ((int) $row->admin_id === (int) $adminId) { return true; }
+    return !$needOwner && !empty($row->shared);   // κοινόχρηστο → μόνο ανάγνωση
 }
 function cnp_file_authz($adminId, $FULL, $module)
 {
@@ -3395,6 +3406,7 @@ case 'file_presign_put':                  // direct-to-S3 upload (μεγάλα/�
 case 'file_confirm':                      // καταχώρηση μετά από direct-to-S3 upload
     $module = (string) ($in['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    if ($module === 'library' && !cnp_lib_can($adminId, (int) ($in['ref_id'] ?? 0), true)) { fail('forbidden', 403); }
     $key = (string) ($in['key'] ?? '');
     $prefix = trim(Storage::config('s3_prefix', ''), '/');
     $rel = ($prefix !== '' && strpos($key, $prefix . '/') === 0) ? substr($key, strlen($prefix) + 1) : $key;
@@ -3411,6 +3423,7 @@ case 'file_upload':                       // server-side upload (μικρά ή l
     if (!empty($_FILES)) { $in = $_POST; }
     $module = (string) ($in['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    if ($module === 'library' && !cnp_lib_can($adminId, (int) ($in['ref_id'] ?? 0), true)) { fail('forbidden', 403); }
     $f = $_FILES['file'] ?? null;
     if (!$f || $f['error'] !== UPLOAD_ERR_OK) { fail('Σφάλμα ανεβάσματος', 400); }
     if (!cnp_file_ext_ok($f['name'])) { fail('Μη επιτρεπτός τύπος αρχείου', 400); }
@@ -3422,6 +3435,7 @@ case 'file_upload':                       // server-side upload (μικρά ή l
 case 'file_list':                         // λίστα αρχείων ανά οντότητα
     $module = (string) ($_GET['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
+    if ($module === 'library' && !cnp_lib_can($adminId, (int) ($_GET['ref_id'] ?? 0))) { fail('forbidden', 403); }
     $q = Capsule::table('mod_cpm_storage')->where('module', $module);
     if (isset($_GET['ref_type'])) { $q->where('ref_type', (string) $_GET['ref_type']); }
     if (isset($_GET['ref_id'])) { $q->where('ref_id', (int) $_GET['ref_id']); }
@@ -3431,6 +3445,7 @@ case 'file_get':                          // προβολή/λήψη (s3→302 p
     $rec = Storage::record((int) ($_GET['id'] ?? 0));
     if (!$rec) { fail('file', 404); }
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('file', 403); }
+    if ($rec['module'] === 'library' && !cnp_lib_can($adminId, (int) $rec['ref_id'])) { fail('file', 403); }
     $dl = !empty($_GET['dl']);
     if ($rec['driver'] === 's3') {
         header('Location: ' . Storage::presign($rec['id'], 300, $dl), true, 302);
@@ -3450,6 +3465,7 @@ case 'file_delete':
     $rec = Storage::record((int) ($in['id'] ?? 0));
     if (!$rec) { fail('file', 404); }
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('forbidden', 403); }
+    if ($rec['module'] === 'library' && !cnp_lib_can($adminId, (int) $rec['ref_id'], true)) { fail('forbidden', 403); }
     Storage::delete($rec['id']);
     out(['ok' => true]);
 

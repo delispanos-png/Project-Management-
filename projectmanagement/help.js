@@ -431,7 +431,7 @@ function openHelpFor(view) {
   closeHelp();
   const id = VIEW_TO_HELP[view] || 'intro';
   const s = HELP.find(x => x.id === id) || HELP[0];
-  const ovl = document.createElement('div'); ovl.className = 'ovl help-ovl'; ovl.onclick = closeHelp;
+  const ovl = document.createElement('div'); ovl.className = 'ovl help-ovl';   // κλικ έξω ΔΕΝ κλείνει — μόνο το ✕
   const dr = document.createElement('div'); dr.className = 'drawer help-drawer';
   dr.innerHTML = `<div class="drawer-h"><h2 style="display:flex;align-items:center;gap:9px;font-size:17px">${s.icon} ${esc(s.title)}</h2><button class="drawer-x" id="hdX">✕</button></div>
     <div class="drawer-b"><div class="man-sec help-inline">${s.html}</div>

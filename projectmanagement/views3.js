@@ -263,7 +263,7 @@ function classifyTicket(id, dd, done) {
   const A = dd.cats.area || [], C = dd.cats.cause || [];
   const cur = dd.class || {};
   const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
-  ovl.onclick = e => { if (e.target === ovl) ovl.remove(); };
+  
   const opts = (list, sel) => '<option value="">—</option>' + list.map(x => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
   ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:600px" onclick="event.stopPropagation()">
     <div style="padding:20px 22px;max-height:82vh;overflow:auto">
@@ -341,7 +341,7 @@ async function kbCapture(ticketId) {
   if (r.err) { toast(r.err, true); return; }
   const d = r.draft;
   const ovl = document.createElement('div'); ovl.className = 'ovl show';
-  ovl.onclick = e => { if (e.target === ovl) ovl.remove(); };
+  
   ovl.innerHTML = `<div class="pal-box" style="margin:8vh auto 0;max-width:640px" onclick="event.stopPropagation()">
     <div class="pop-h" style="padding:14px 18px">${I.book} Νέα λύση στην τράπεζα γνώσης</div>
     <div style="padding:4px 18px 18px">

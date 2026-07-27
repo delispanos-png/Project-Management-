@@ -322,7 +322,12 @@ table.tbl{width:100%;border-collapse:collapse}
 /* ── command palette ── */
 #cnpPal{position:fixed;inset:0;background:#0b142599;backdrop-filter:blur(3px);z-index:120;display:flex;
   align-items:flex-start;justify-content:center;padding-top:12vh;animation:viewIn .14s}
-.pal-box{width:min(620px,92vw);background:var(--card);border-radius:16px;box-shadow:var(--sh-lg);overflow:hidden}
+.pal-box{width:min(620px,92vw);background:var(--card);border-radius:16px;box-shadow:var(--sh-lg);overflow:hidden;position:relative}
+/* ✕ κλεισίματος — μπαίνει αυτόματα σε κάθε popup (τα popup ΔΕΝ κλείνουν με κλικ έξω) */
+.pal-x{position:absolute;top:9px;right:10px;z-index:3;width:32px;height:32px;border:none;background:none;
+  font-size:17px;line-height:1;color:var(--mut);cursor:pointer;border-radius:9px;display:flex;
+  align-items:center;justify-content:center;transition:background .13s,color .13s}
+.pal-x:hover{background:#8595ac22;color:var(--ink)}
 .pal-inp{width:100%;border:none;background:transparent;padding:17px 20px;font-size:16px;color:var(--ink);
   font-family:inherit;border-bottom:1px solid var(--line)}
 .pal-inp:focus{outline:none}

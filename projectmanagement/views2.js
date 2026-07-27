@@ -71,7 +71,7 @@ function openEvent(ev, ymRefresh) {
   closeDrawer();
   const isNew = !ev || !ev.id;
   ev = Object.assign({kind: 'meeting', attendees: [S.boot.me.id], allDay: false}, ev || {});
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
   const d0 = ev.start ? ev.start.slice(0, 10) : today();
   const t0 = ev.start ? ev.start.slice(11, 16) : '10:00';
@@ -186,7 +186,7 @@ function openEvent(ev, ymRefresh) {
     dr.innerHTML = `
       <div class="drawer-h"><h2>${isNew ? 'Νέο συμβάν' : esc(ev.title)}</h2><button class="drawer-x" id="dX">✕</button></div>
       <div class="drawer-b">${editing ? formHtml() : viewHtml()}</div>`;
-    $('#dX', dr).onclick = closeDrawer;
+    $('#dX', dr).onclick = () => cnpAskClose(dr);
     editing ? bindForm() : bindView();
   };
 
@@ -543,7 +543,7 @@ R.offers = async function () {
 function openOffer(o, d) {
   closeDrawer();
   const isNew = !o; o = o || {stage: 'new'};
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
   dr.innerHTML = `
   <div class="drawer-h"><h2>${isNew ? 'Νέα προσφορά' : esc(o.title)}</h2><button class="drawer-x" id="dX">✕</button></div>
@@ -573,7 +573,7 @@ function openOffer(o, d) {
   </div>`;
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
-  $('#dX').onclick = closeDrawer;
+  $('#dX').onclick = () => cnpAskClose(dr);
   clientAuto('oClient', 'oCliL', 'oClientId');
   $('#oSave', dr).onclick = async () => {
     await api('save_offer', {offer: o.id || 0, title: $('#oTitle').value, client: +$('#oClientId').value || 0,
@@ -751,7 +751,7 @@ R.targets = async function (ym) {
 function openTargetDrawer(card, d) {
   closeDrawer();
   const isNew = !card;
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
   const col4 = pct => pct === null ? 'var(--mut)' : pct >= 100 ? 'var(--ok)' : pct >= 60 ? 'var(--brand)' : 'var(--warn)';
   const bar = (pct, cl) => `<div class="bar" style="height:8px;flex:1"><span style="width:${Math.min(100, pct || 0)}%;background:${cl};display:block;height:100%;border-radius:6px"></span></div>`;
@@ -801,7 +801,7 @@ function openTargetDrawer(card, d) {
   </div>`;
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
-  $('#dX').onclick = closeDrawer;
+  $('#dX').onclick = () => cnpAskClose(dr);
   const prodId = () => pid || +$('#tgProd', dr).value;
   $('#ovSave', dr).onclick = async () => {
     await api('save_ptarget', {product: prodId(), admin: 0, units: +$('#ovU', dr).value || 0, value: +$('#ovV', dr).value || 0});
@@ -1191,7 +1191,7 @@ R.projects = async function () {
   const openProj = p => {
     closeDrawer();
     p = p || {visible: true, members: [], teams: []};
-    const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+    const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
     const dr = document.createElement('div'); dr.className = 'drawer';
     dr.innerHTML = `
     <div class="drawer-h"><h2>${p.id ? esc(p.name) : 'Νέο project'}</h2><button class="drawer-x" id="dX">✕</button></div>
@@ -1248,7 +1248,7 @@ R.projects = async function () {
       <div class="card-b" id="pjShare"><div class="skel" style="height:50px"></div></div></div>` : ''}</div>`;
     document.body.append(ovl, dr);
     requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
-    $('#dX').onclick = closeDrawer;
+    $('#dX').onclick = () => cnpAskClose(dr);
     clientAuto('pjCli', 'pjCliL', 'pjCliId');
     const loadTodos = async () => {
       const box = $('#pjTodos', dr); if (!box) return;
@@ -1517,7 +1517,7 @@ async function openCampaign(id, listD) {
   closeDrawer();
   const isNew = !id;
   const chOpts = Object.entries(listD.channels);
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
   let d = {name: '', channel: 'email', status: 'draft', budget: '', goal: '', start: '', end: '', notes: '', members: [], candidates: []};
   if (!isNew) { d = await api('campaign_detail&id=' + id); }
@@ -1558,7 +1558,7 @@ async function openCampaign(id, listD) {
   </div>`;
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
-  $('#dX', dr).onclick = closeDrawer;
+  $('#dX', dr).onclick = () => cnpAskClose(dr);
   $('#cpSave', dr).onclick = async () => {
     const name = $('#cpN', dr).value.trim(); if (!name) { toast('Δώσε όνομα'); return; }
     const r = await api('campaign_save', {id: id || 0, name, channel: $('#cpCh', dr).value, status: $('#cpSt', dr).value,

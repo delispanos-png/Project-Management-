@@ -380,7 +380,7 @@ function startRemote(clientId, clientName, ticketId, opts) {
   opts = opts || {};
   const dl = (S.boot.rustdeskDl || 'https://remote.cloudon.gr/download/CloudOn-Remote.exe');
   const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
-  ovl.onclick = e => { if (e.target === ovl) ovl.remove(); };
+  
   ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:480px" onclick="event.stopPropagation()">
     <div style="padding:20px 22px">
       <b style="font-size:15.5px;color:var(--ink)">${I.monitor} Απομακρυσμένη υποστήριξη</b>
@@ -683,25 +683,49 @@ function rteVal(id, root) {
    onclick="event.stopPropagation()" ώστε να μην κλείνει το overlay — που σημαίνει
    ότι στο bubble phase το κλικ ΔΕΝ φτάνει ποτέ στο document και η μπάρα ήταν νεκρή
    μέσα σε modal (βιβλιοθήκη, ταξινόμηση ticket, kbCapture). Το capture τρέχει πριν. */
+/* ⚠️ ΚΡΙΣΙΜΟ: mousedown → preventDefault. Το <button> παίρνει focus με το mousedown και
+   ΚΑΤΑΣΤΡΕΦΕΙ την επιλογή μέσα στο contenteditable — γι' αυτό «δεν εφάρμοζε τίποτα»
+   (bold/underline/H σε επιλεγμένο κείμενο). Έτσι η επιλογή μένει άθικτη. */
+document.addEventListener('mousedown', e => {
+  if (e.target.closest && e.target.closest('.rte-b')) { e.preventDefault(); }
+}, true);
+
 document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('.rte-b');
   if (!b) { return; }
   e.preventDefault();
   const ed = b.closest('.rte-wrap').querySelector('.rte');
   if (!ed) { return; }
-  ed.focus();
   const cmd = b.dataset.cmd;
+  // αν χάθηκε η εστίαση (π.χ. tab/πρόγραμμα ανάγνωσης), επανέφερέ τη στον editor
+  if (!ed.contains(document.activeElement) && document.activeElement !== ed) { ed.focus(); }
   if (cmd === '__ai') {
     rteProof(ed, b);
-  } else if (cmd === '__link') {
-    cnpPrompt('Διεύθυνση συνδέσμου (URL):', {ok: 'Εισαγωγή', placeholder: 'https://…'}).then(u => {
-      if (u) { document.execCommand('createLink', false, /^https?:|^mailto:/.test(u) ? u : 'https://' + u); }
-    });
-  } else if (cmd === '__code') {
-    document.execCommand('formatBlock', false, 'pre');
-  } else {
-    document.execCommand(cmd, false, b.dataset.arg || null);
+    return;
   }
+  if (cmd === '__link') {
+    const sel = getSelection();
+    const saved = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    cnpPrompt('Διεύθυνση συνδέσμου (URL):', {ok: 'Εισαγωγή', placeholder: 'https://…'}).then(u => {
+      if (!u) { return; }
+      ed.focus();
+      if (saved) { const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(saved); }
+      document.execCommand('createLink', false, /^https?:|^mailto:/.test(u) ? u : 'https://' + u);
+    });
+    return;
+  }
+  if (cmd === '__code') {
+    document.execCommand('formatBlock', false, '<pre>');
+    return;
+  }
+  if (cmd === 'formatBlock') {
+    // toggle: αν είσαι ήδη σε h3/blockquote, γύρνα σε παράγραφο
+    const tag = (b.dataset.arg || 'p').toLowerCase();
+    const cur = (document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '');
+    document.execCommand('formatBlock', false, cur === tag ? '<p>' : '<' + tag + '>');
+    return;
+  }
+  document.execCommand(cmd, false, b.dataset.arg || null);
 }, true);
 /** ✨ Ορθογραφικός/συντακτικός έλεγχος του editor — δείχνει ΤΙ αλλάζει πριν εφαρμοστεί. */
 async function rteProof(ed, btn) {
@@ -719,7 +743,7 @@ async function rteProof(ed, btn) {
       <span class="pf-from">${esc(c.from)}</span><span class="pf-arr">→</span><span class="pf-to">${esc(c.to)}</span>
       ${c.why ? `<span class="pf-why">${esc(c.why)}</span>` : ''}</div>`).join('');
   const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 320;
-  ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); } };
+  
   ovl.innerHTML = `<div class="pal-box pf-box" onclick="event.stopPropagation()">
     <div style="padding:18px 20px">
       <b style="font-size:15.5px;color:var(--ink);display:flex;align-items:center;gap:8px">${I.sparkle} Προτεινόμενες διορθώσεις</b>
@@ -771,8 +795,9 @@ function cnpDialog(opts) {
         ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${o.title}</b>` : ''}
         ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap">${o.body}</div>` : ''}
         ${o.input !== null ? `<input class="inp" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">` : ''}
-        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>
+          ${o.third ? `<button class="btn btn-o" id="cnpDlgTh" style="color:var(--bad)">${o.third}</button>` : ''}
           <button class="btn ${o.danger ? '' : 'btn-p'}" id="cnpDlgOk" style="${o.danger ? 'background:var(--bad);color:#fff' : ''}">${o.ok}</button>
         </div>
       </div></div>`;
@@ -787,7 +812,9 @@ function cnpDialog(opts) {
     document.addEventListener('keydown', onKey);
     ovl.querySelector('#cnpDlgOk').onclick = ok;
     ovl.querySelector('#cnpDlgNo').onclick = () => done(o.input !== null ? null : false);
-    ovl.onclick = e => { if (e.target === ovl) done(o.input !== null ? null : false); };
+    const th = ovl.querySelector('#cnpDlgTh');
+    if (th) { th.onclick = () => done('third'); }
+    // ΟΧΙ κλείσιμο με κλικ έξω — μόνο από τα κουμπιά ή ESC
     setTimeout(() => (inp || ovl.querySelector('#cnpDlgOk')).focus(), 30);
   });
 }
@@ -942,7 +969,7 @@ async function openTask(id) {
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   closeDrawer();
   const t = d.task, me = S.boot.me;
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
   const admOpts = sel => '<option value="">— κανείς —</option>' + S.boot.admins.map(a => `<option value="${a.id}" ${a.id === +sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
   dr.innerHTML = `
@@ -1043,7 +1070,7 @@ async function openTask(id) {
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
-  $('#dX').onclick = closeDrawer;
+  $('#dX').onclick = () => cnpAskClose(dr);
   $('#dSave', dr).onclick = async () => {
     await api('save_task', {task: id, title: $('#fTitle').value, descr: rteVal('fDescr'),
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
@@ -1111,10 +1138,88 @@ async function openTask(id) {
     toast('Στάλθηκε'); openTask(id);
   };
 }
+/** Άμεσο κλείσιμο ΧΩΡΙΣ ερώτηση — το καλούν τα views ΜΕΤΑ από επιτυχή αποθήκευση. */
 function closeDrawer() {
   clearInterval(timerInt);
   $$('.ovl,.drawer').forEach(el => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); });
 }
+
+/* ═══ Popups: ΔΕΝ κλείνουν με κλικ έξω — μόνο από ✕/Άκυρο/ESC, και ρωτούν αν
+   υπάρχουν μη αποθηκευμένες αλλαγές. Κεντρικό, ισχύει για ΟΛΟ το project. ═══ */
+
+// 1) Σήμανση «βρόμικου» popup σε κάθε πληκτρολόγηση/αλλαγή μέσα του
+function _cnpMarkDirty(e) {
+  const box = e.target.closest && e.target.closest('.drawer, .pal-box');
+  if (box && !box.dataset.cnpClean) { box.dataset.dirty = '1'; }
+}
+document.addEventListener('input', _cnpMarkDirty, true);
+document.addEventListener('change', _cnpMarkDirty, true);
+
+/** Το κουμπί αποθήκευσης ενός popup (για την επιλογή «Αποθήκευση» στην ερώτηση). */
+function _cnpSaveBtn(box) {
+  return box.querySelector('[data-save]')
+    || Array.prototype.find.call(box.querySelectorAll('.btn-p, button.btn'),
+      b => /αποθήκευ|δημιουργ|καταχώρ|save/i.test(b.textContent || '')) || null;
+}
+
+/**
+ * Κλείσιμο popup με έλεγχο αλλαγών.
+ * @param {Element} box  το .drawer ή .pal-box (αν λείπει → το ανοιχτό)
+ * @returns {Promise<boolean>} true αν έκλεισε
+ */
+async function cnpAskClose(box) {
+  box = box || document.querySelector('.drawer.show, .drawer') || document.querySelector('.pal-box');
+  const isDrawer = box && box.classList.contains('drawer');
+  const kill = () => {
+    if (isDrawer || !box) { closeDrawer(); return; }
+    const ovl = box.closest('.ovl') || box;
+    ovl.classList.remove('show');
+    setTimeout(() => ovl.remove(), 200);
+  };
+  if (!box || box.dataset.dirty !== '1') { kill(); return true; }
+  const saveBtn = _cnpSaveBtn(box);
+  const r = await cnpDialog({
+    title: I.alert + ' Μη αποθηκευμένες αλλαγές',
+    body: 'Έκανες αλλαγές που δεν έχουν αποθηκευτεί.' + (saveBtn ? ' Θέλεις να τις αποθηκεύσω;' : ''),
+    ok: saveBtn ? 'Αποθήκευση' : 'Κλείσιμο χωρίς αποθήκευση',
+    cancel: 'Συνέχεια επεξεργασίας',
+    third: saveBtn ? 'Απόρριψη αλλαγών' : null,
+  });
+  if (r === false || r === null) { return false; }          // Άκυρο → μένει ανοιχτό
+  if (r === 'third' || !saveBtn) { kill(); return true; }   // Απόρριψη
+  box.dataset.dirty = '';                                    // Αποθήκευση → το view κλείνει μόνο του
+  saveBtn.click();
+  return true;
+}
+window.cnpAskClose = cnpAskClose;
+
+// 2) Κάθε popup παίρνει αυτόματα ✕ (αν δεν έχει) — και κανένα δεν κλείνει με κλικ έξω
+new MutationObserver(ms => {
+  ms.forEach(m => m.addedNodes.forEach(node => {
+    if (node.nodeType !== 1) { return; }
+    const ovl = node.classList && node.classList.contains('ovl') ? node : null;
+    if (!ovl) { return; }
+    ovl.addEventListener('click', ev => { if (ev.target === ovl) { ev.stopPropagation(); } }, true);
+    const box = ovl.querySelector('.pal-box');
+    if (!box || box.querySelector('.pal-x') || box.querySelector('.drawer-x')) { return; }
+    const x = document.createElement('button');
+    x.className = 'pal-x'; x.type = 'button'; x.title = 'Κλείσιμο'; x.innerHTML = '✕';
+    x.onclick = () => cnpAskClose(box);
+    box.style.position = box.style.position || 'relative';
+    box.prepend(x);
+  }));
+}).observe(document.body, {childList: true});
+
+// 3) ESC → ελεγχόμενο κλείσιμο του πιο πρόσφατου popup
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') { return; }
+  const boxes = document.querySelectorAll('.pal-box, .drawer');
+  if (!boxes.length) { return; }
+  const top = boxes[boxes.length - 1];
+  if (top.closest('.ovl') && top.querySelector('#cnpDlgOk')) { return; }   // τα ίδια τα dialogs
+  e.stopPropagation();
+  cnpAskClose(top);
+}, true);
 
 /* ═════════ Η ΜΕΡΑ ΜΟΥ ═════════ */
 async function vMyDay() {
@@ -1331,7 +1436,7 @@ function dndLead(data) {
 function openLead(l, d) {
   closeDrawer();
   const isNew = !l; l = l || {stage: 'target'};
-  const ovl = document.createElement('div'); ovl.className = 'ovl'; ovl.onclick = closeDrawer;
+  const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
   dr.innerHTML = `
   <div class="drawer-h"><h2>${isNew ? 'Νέος στόχος / lead' : esc(l.company || l.contact)}</h2>
@@ -1381,7 +1486,7 @@ function openLead(l, d) {
   </div>`;
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
-  $('#dX').onclick = closeDrawer;
+  $('#dX').onclick = () => cnpAskClose(dr);
   if (!isNew) {
     loadLeadExtras(l.id, dr);
   }
