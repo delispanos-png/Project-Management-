@@ -2868,15 +2868,25 @@ case 'client_health':                   // ❤️ υγεία πελατών — 
     out(['clients' => array_slice($outH, 0, 15)]);
 
 case 'kb_list':
+    /* ΧΩΡΙΣ το πλήρες `solution`: με 1.000+ άρθρα το payload έφτανε 22MB και ο browser
+       κόλλαγε. Στέλνουμε μόνο μετα-δεδομένα + απόσπασμα· το πλήρες κείμενο έρχεται με
+       kb_get όταν ανοίξει το άρθρο. */
     $items9 = array_map(function ($k9) {
+        // κενό ΠΡΙΝ το strip_tags — αλλιώς «</td><td>» κολλάει τις λέξεις («ΚατηγορίαΕρώτηση»)
+        $plain9 = preg_replace('/<[^>]+>/', ' ', (string) $k9->solution);
+        $plain9 = trim(preg_replace('/\s+/u', ' ',
+            html_entity_decode($plain9, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
         return ['id' => (int) $k9->id, 'title' => $k9->title, 'keywords' => $k9->keywords,
-            'tags' => $k9->tags, 'solution' => $k9->solution, 'uses' => (int) $k9->uses,
+            'tags' => $k9->tags, 'excerpt' => mb_substr($plain9, 0, 400), 'uses' => (int) $k9->uses,
             'areaId' => (int) $k9->area_id,
             'relAreas' => array_values(array_filter(array_map('intval', explode(',', (string) $k9->rel_areas)))),
             'by' => $k9->created_by ? Db::adminName($k9->created_by) : null,
-            'byId' => (int) $k9->created_by,
+            'byId' => (int) $k9->created_by, 'src' => (string) $k9->source_url,
             'at' => substr((string) $k9->created_at, 0, 10)];
-    }, Capsule::table('mod_cpm_kb')->orderBy('uses', 'desc')->orderBy('id', 'desc')->get()->all());
+    }, Capsule::table('mod_cpm_kb')
+        ->select('id', 'title', 'keywords', 'tags', 'area_id', 'rel_areas', 'uses', 'created_by', 'created_at',
+            'source_url', Capsule::raw('LEFT(solution, 1200) as solution'))
+        ->orderBy('uses', 'desc')->orderBy('id', 'desc')->get()->all());
     // προϊόντα = η ενιαία ταξινομία περιοχών (Ρυθμίσεις → Κατηγορίες tickets)
     $prods9 = [];
     foreach (cnp_ticket_cats()['area'] as $a9) {
@@ -2919,6 +2929,12 @@ case 'kb_save':
             + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
     }
     out(['ok' => true, 'id' => $kid]);
+
+case 'kb_get':                           // πλήρες κείμενο ΕΝΟΣ άρθρου (on demand)
+    $kg = Capsule::table('mod_cpm_kb')->where('id', (int) ($_GET['id'] ?? $in['id'] ?? 0))->first();
+    if (!$kg) { fail('notfound', 404); }
+    out(['ok' => true, 'id' => (int) $kg->id, 'title' => $kg->title,
+        'solution' => (string) $kg->solution, 'src' => (string) $kg->source_url]);
 
 case 'kb_bulk':                          // μαζικές ενέργειες σε άρθρα γνώσης
     $idsB = array_values(array_filter(array_map('intval', (array) ($in['ids'] ?? []))));

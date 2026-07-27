@@ -362,7 +362,8 @@ R.triage = async function () {
 R.knowledge = async function () {
   setTop('Γνώση', 'Βιβλιοθήκη γνώσης ανά προϊόν — ψάξε αν το πρόβλημα έχει ξαναλυθεί');
   const c = $('#content');
-  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}};
+  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}, shown: {}};
+  const PER = 25;   // πόσα άρθρα ανά ομάδα πριν το «Περισσότερα»
   let D = {items: [], products: [], unfiled: 0};
   const prod = id => D.products.find(p => p.id === +id);
   const KSORT = {uses: 'Πιο χρήσιμα', recent: 'Πιο πρόσφατα', title: 'Αλφαβητικά'};
@@ -404,7 +405,7 @@ R.knowledge = async function () {
         </span>
       </summary>
       <div class="kb-body">
-        <div class="kb-sol">${k.solution}</div>
+        <div class="kb-sol" data-kbsol="${k.id}">${esc(k.excerpt || '')}${(k.excerpt || '').length >= 400 ? '…' : ''}</div>
         <div class="kb-foot">
           <span class="mut">${k.by ? esc(k.by) : ''}${k.at ? ' · ' + dShort(k.at) : ''}${k.keywords ? ' · ' + esc(k.keywords) : ''}</span>
           <span style="flex:1"></span>
@@ -423,7 +424,9 @@ R.knowledge = async function () {
   const match = k => {
     if (!st.q) return true;
     const p = prod(k.areaId), rel = (k.relAreas || []).map(r => (prod(r) || {}).name || '').join(' ');
-    return norm([k.title, k.keywords, k.tags, k.solution, p ? p.name : '', rel].join(' ')).includes(norm(st.q));
+    // excerpt αντί για ολόκληρη τη λύση (η λίστα δεν την κατεβάζει πια)· για βαθιά
+    // αναζήτηση μέσα στο πλήρες κείμενο υπάρχει το «Και στα tickets» (server-side).
+    return norm([k.title, k.keywords, k.tags, k.excerpt, p ? p.name : '', rel].join(' ')).includes(norm(st.q));
   };
 
   const render = () => {
@@ -458,9 +461,22 @@ R.knowledge = async function () {
           <span class="kb-gchev ${st.closed[g.p.id] ? '' : 'open'}">${I.chev || '⌄'}</span>
         </div>
         <div class="card-b kb-gbody" ${st.closed[g.p.id] ? 'style="display:none"' : ''}>
-          ${g.items.map(kbBox).join('') || '<div class="mut" style="font-size:12.5px;padding:4px 2px">Καμία δική του καταχώρηση.</div>'}
+          ${(() => {
+            // σελιδοποίηση ανά ομάδα: με 1.000+ άρθρα το DOM γινόταν τεράστιο
+            const shown = st.shown[g.p.id] || PER;
+            const slice = g.items.slice(0, shown);
+            const rest = g.items.length - slice.length;
+            return (slice.map(kbBox).join('') || '<div class="mut" style="font-size:12.5px;padding:4px 2px">Καμία δική του καταχώρηση.</div>')
+              + (rest > 0 ? `<div class="kb-more">
+                  <span class="mut">Εμφανίζονται <b>${slice.length}</b> από <b>${g.items.length}</b></span>
+                  <button class="btn btn-o btn-sm" data-kmore="${g.p.id}">Περισσότερα (+${Math.min(PER, rest)})</button>
+                  <button class="btn btn-o btn-sm" data-kall="${g.p.id}">Όλα (${g.items.length})</button>
+                </div>` : (g.items.length > PER
+                  ? `<div class="kb-more"><span class="mut">Εμφανίζονται και τα ${g.items.length}</span>
+                     <button class="btn btn-o btn-sm" data-kless="${g.p.id}">Σύμπτυξη</button></div>` : ''));
+          })()}
           ${g.related.length ? `<div class="kb-rel"><div class="kb-rel-h">${I.link} Συναφή από άλλα προϊόντα <span class="kb-n">${g.related.length}</span></div>
-            ${g.related.map(kbBox).join('')}</div>` : ''}
+            ${g.related.slice(0, PER).map(kbBox).join('')}</div>` : ''}
         </div>
       </div>`).join('')
       : `<div class="card"><div class="empty" style="padding:40px">
@@ -480,24 +496,52 @@ R.knowledge = async function () {
   };
 
   const bindList = () => {
-    $$('[data-kprod]').forEach(b => b.onclick = () => { st.prod = b.dataset.kprod; render(); });
+    $$('[data-kprod]').forEach(b => b.onclick = () => { st.prod = b.dataset.kprod; st.shown = {}; render(); });
     $$('.kb-ghead').forEach(h => h.onclick = () => {
       const id = h.dataset.kgrp; st.closed[id] = !st.closed[id];
       const body = h.nextElementSibling;
       body.style.display = st.closed[id] ? 'none' : '';
       h.querySelector('.kb-gchev').classList.toggle('open', !st.closed[id]);
     });
-    $$('[data-kedit]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); openForm(D.items.find(x => x.id === +b.dataset.kedit)); });
-    $$('[data-kcopy]').forEach(b => b.onclick = e => {
+    // πλήρες κείμενο ΜΟΝΟ όταν ανοίξει το άρθρο (η λίστα φέρνει μόνο απόσπασμα)
+    $$('.kb-item').forEach(d => d.addEventListener('toggle', async () => {
+      if (!d.open) { return; }
+      const box = d.querySelector('.kb-sol');
+      if (!box || box.dataset.loaded) { return; }
+      box.dataset.loaded = '1';
+      const r = await api('kb_get&id=' + box.dataset.kbsol).catch(() => null);
+      if (r && r.solution) {
+        box.innerHTML = r.solution;
+        const k = D.items.find(x => x.id === +box.dataset.kbsol);
+        if (k) { k.solution = r.solution; }
+      }
+    }));
+    $$('[data-kedit]').forEach(b => b.onclick = async e => {
+      e.preventDefault(); e.stopPropagation();
+      const k = D.items.find(x => x.id === +b.dataset.kedit);
+      if (k && !k.solution) {                       // η φόρμα χρειάζεται το πλήρες κείμενο
+        const r = await api('kb_get&id=' + k.id).catch(() => null);
+        if (r) { k.solution = r.solution; }
+      }
+      openForm(k);
+    });
+    $$('[data-kcopy]').forEach(b => b.onclick = async e => {
       e.preventDefault(); e.stopPropagation();
       const k = D.items.find(x => x.id === +b.dataset.kcopy);
-      navigator.clipboard.writeText(k.solution).then(() => { toast('Η λύση αντιγράφηκε'); api('kb_use', {id: k.id}).catch(() => {}); });
+      if (k && !k.solution) {
+        const r = await api('kb_get&id=' + k.id).catch(() => null);
+        if (r) { k.solution = r.solution; }
+      }
+      navigator.clipboard.writeText(k.solution || '').then(() => { toast('Η λύση αντιγράφηκε'); api('kb_use', {id: k.id}).catch(() => {}); });
     });
     $$('[data-kdel]').forEach(b => b.onclick = async e => {
       e.preventDefault(); e.stopPropagation();
       if (!(await cnpConfirm('Διαγραφή αυτής της γνώσης από τη βιβλιοθήκη;', {danger: true, ok: 'Διαγραφή'}))) return;
       await api('kb_del', {id: +b.dataset.kdel}); toast('Διαγράφηκε'); load();
     });
+    $$('[data-kmore]').forEach(b => b.onclick = () => { const g = b.dataset.kmore; st.shown[g] = (st.shown[g] || PER) + PER; render(); });
+    $$('[data-kall]').forEach(b => b.onclick = () => { st.shown[b.dataset.kall] = 1e6; render(); });
+    $$('[data-kless]').forEach(b => b.onclick = () => { delete st.shown[b.dataset.kless]; render(); });
     const n2 = $('#kNew2'); if (n2) n2.onclick = () => openForm(null);
     $$('.kb-pick').forEach(c => c.onchange = bulkBar);
     bulkBar();
@@ -621,7 +665,7 @@ R.knowledge = async function () {
   };
 
   let qt;
-  $('#kQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#kQ').value.trim(); render(); }, 180); };
+  $('#kQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#kQ').value.trim(); st.shown = {}; render(); }, 180); };
   $('#kQ').onkeydown = e => { if (e.key === 'Enter') deep(); };
   $('#kDeep').onclick = deep;
   $('#kNew').onclick = () => openForm(null);
