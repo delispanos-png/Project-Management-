@@ -89,7 +89,7 @@ function cnp_clean_html($html, $max = 12000)
 {
     $html = (string) $html;
     $html = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $html);          // 4-byte emoji → out
-    $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre>');
+    $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre><img><figure><figcaption><table><thead><tbody><tr><th><td>');
     $html = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);   // on* handlers
     // href/src: ALLOWLIST σχημάτων (blacklist «javascript:» άφηνε unquoted τιμές & data: URLs)
     $html = preg_replace_callback('/\b(href|src)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', function ($m) {
@@ -104,6 +104,75 @@ function cnp_clean_html($html, $max = 12000)
     // target=_blank + rel για ασφάλεια σε συνδέσμους
     $html = preg_replace('/<a\s+(?![^>]*\btarget=)/i', '<a target="_blank" rel="noopener noreferrer" ', $html);
     return mb_substr(trim($html), 0, (int) $max);
+}
+
+/**
+ * Ασφαλές fetch URL που δίνει ο χρήστης (εισαγωγή γνώσης από τεκμηρίωση).
+ * 🔒 SSRF: μόνο http/https, ΟΧΙ ιδιωτικά/loopback IP, όριο μεγέθους & redirects.
+ */
+function cnp_safe_fetch($url, $maxBytes = 3000000)
+{
+    $p = parse_url((string) $url);
+    if (!$p || !in_array(strtolower($p['scheme'] ?? ''), ['http', 'https'], true) || empty($p['host'])) {
+        return ['ok' => false, 'error' => 'Μη έγκυρο URL (μόνο http/https)'];
+    }
+    $ips = @gethostbynamel($p['host']);
+    if (!$ips) {
+        $ips = filter_var($p['host'], FILTER_VALIDATE_IP) ? [$p['host']] : [];
+    }
+    if (!$ips) {
+        return ['ok' => false, 'error' => 'Το domain δεν αναλύεται'];
+    }
+    foreach ($ips as $ip) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return ['ok' => false, 'error' => 'Δεν επιτρέπονται εσωτερικές διευθύνσεις'];
+        }
+    }
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25, CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3,
+        CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+        CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; CloudOnProjects/1.0)',
+        CURLOPT_BUFFERSIZE => 65536, CURLOPT_NOPROGRESS => false,
+        CURLOPT_PROGRESSFUNCTION => function ($r, $dl) use ($maxBytes) { return $dl > $maxBytes ? 1 : 0; },
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $eff = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+    curl_close($ch);
+    if ($body === false || $code >= 400) {
+        return ['ok' => false, 'error' => 'Η σελίδα δεν κατέβηκε (HTTP ' . $code . ')'];
+    }
+    return ['ok' => true, 'body' => $body, 'url' => $eff ?: $url, 'code' => $code];
+}
+
+/** Το root ενός URL (https://host) — για να βρούμε το wp-json. */
+function cnp_site_root($url)
+{
+    $p = parse_url($url);
+    return $p['scheme'] . '://' . $p['host'] . (!empty($p['port']) ? ':' . $p['port'] : '');
+}
+
+/** Κύριο περιεχόμενο από HTML σελίδα (χωρίς μενού/υποσέλιδα) + τίτλος. */
+function cnp_html_article($html)
+{
+    $title = '';
+    if (preg_match('/<h1[^>]*>(.*?)<\/h1>/is', $html, $m)) {
+        $title = trim(html_entity_decode(strip_tags($m[1]), ENT_QUOTES, 'UTF-8'));
+    }
+    if ($title === '' && preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $m)) {
+        $title = trim(html_entity_decode(strip_tags($m[1]), ENT_QUOTES, 'UTF-8'));
+    }
+    $html = preg_replace('#<(script|style|nav|header|footer|form|noscript|svg)\b[^>]*>.*?</\1>#is', ' ', $html);
+    $body = '';
+    foreach (['#<article\b[^>]*>(.*?)</article>#is', '#<main\b[^>]*>(.*?)</main>#is',
+        '#<div[^>]*class="[^"]*(?:entry-content|betterdocs-content|post-content)[^"]*"[^>]*>(.*?)</div>\s*</div>#is'] as $rx) {
+        if (preg_match($rx, $html, $m)) { $body = $m[1]; break; }
+    }
+    if ($body === '' && preg_match('#<body\b[^>]*>(.*?)</body>#is', $html, $m)) { $body = $m[1]; }
+    return ['title' => mb_substr($title, 0, 200), 'html' => $body];
 }
 
 /** Κατηγορίες tickets (area/cause) — cached ανά request. */
@@ -2815,6 +2884,106 @@ case 'kb_save':
             + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
     }
     out(['ok' => true, 'id' => $kid]);
+
+case 'kb_import_probe':                  // 🌐 ανάλυση URL τεκμηρίωσης πριν την εισαγωγή
+    $urlI = trim($in['url'] ?? '');
+    $rootI = null;
+    if ($urlI === '') { fail('Δώσε URL'); }
+    if (!preg_match('#^https?://#i', $urlI)) { $urlI = 'https://' . $urlI; }
+    $rootI = cnp_site_root($urlI);
+    // 1) WordPress REST — πιάνει BetterDocs/σελίδες/άρθρα με μία κλήση
+    $found = [];
+    foreach (['docs', 'pages', 'posts'] as $ptype) {
+        $probe = cnp_safe_fetch($rootI . '/wp-json/wp/v2/' . $ptype . '?per_page=100&_fields=id,title,link,doc_category,categories', 4000000);
+        if (empty($probe['ok'])) { continue; }
+        $arr = json_decode($probe['body'], true);
+        if (!is_array($arr) || !$arr || isset($arr['code'])) { continue; }
+        foreach ($arr as $it) {
+            if (empty($it['id'])) { continue; }
+            $found[] = ['id' => (int) $it['id'], 'type' => $ptype,
+                'title' => html_entity_decode(strip_tags($it['title']['rendered'] ?? ''), ENT_QUOTES, 'UTF-8'),
+                'link' => (string) ($it['link'] ?? ''),
+                'cat' => (int) (($it['doc_category'][0] ?? $it['categories'][0] ?? 0))];
+        }
+        if ($found) { break; }
+    }
+    if ($found) {
+        // ονόματα κατηγοριών (ό,τι ταξινομία βρέθηκε)
+        $cats = [];
+        foreach (['doc_category', 'categories'] as $tax) {
+            $cp = cnp_safe_fetch($rootI . '/wp-json/wp/v2/' . $tax . '?per_page=100&_fields=id,name,count');
+            if (empty($cp['ok'])) { continue; }
+            $ca = json_decode($cp['body'], true);
+            if (!is_array($ca) || isset($ca['code'])) { continue; }
+            foreach ($ca as $c) { $cats[(int) $c['id']] = html_entity_decode($c['name'], ENT_QUOTES, 'UTF-8'); }
+            if ($cats) { break; }
+        }
+        // ήδη εισαγμένα (για να μη διπλογράψουμε)
+        $have = [];
+        foreach (Capsule::table('mod_cpm_kb')->whereIn('source_url', array_column($found, 'link'))
+            ->pluck('source_url') as $u) { $have[$u] = true; }
+        foreach ($found as &$f) {
+            $f['catName'] = $cats[$f['cat']] ?? '';
+            $f['exists'] = isset($have[$f['link']]);
+        }
+        unset($f);
+        out(['ok' => true, 'mode' => 'wp', 'site' => $rootI, 'total' => count($found),
+            'cats' => $cats, 'items' => $found]);
+    }
+    // 2) απλή σελίδα
+    $pg = cnp_safe_fetch($urlI);
+    if (empty($pg['ok'])) { fail($pg['error']); }
+    $art = cnp_html_article($pg['body']);
+    if (trim(strip_tags($art['html'])) === '') { fail('Δεν βρέθηκε περιεχόμενο σε αυτή τη σελίδα'); }
+    out(['ok' => true, 'mode' => 'page', 'site' => $rootI,
+        'items' => [['id' => 0, 'title' => $art['title'] ?: $urlI, 'link' => $pg['url'], 'cat' => 0,
+            'catName' => '', 'exists' => Capsule::table('mod_cpm_kb')->where('source_url', $pg['url'])->exists()]]]);
+
+case 'kb_import_commit':                 // εισαγωγή επιλεγμένων άρθρων στην τράπεζα
+    $items = (array) ($in['items'] ?? []);
+    if (!$items) { fail('Δεν διάλεξες άρθρα'); }
+    if (count($items) > 120) { fail('Πολλά άρθρα μαζί — διάλεξε έως 120'); }
+    $validI = array_column(cnp_ticket_cats()['area'], 'id');
+    $areaI = in_array((int) ($in['areaId'] ?? 0), $validI, true) ? (int) $in['areaId'] : 0;
+    $tagI = mb_substr(trim($in['tags'] ?? ''), 0, 190);
+    $ok = 0; $skip = 0; $errs = [];
+    foreach ($items as $it) {
+        $link = trim($it['link'] ?? '');
+        if ($link === '') { continue; }
+        $exists = Capsule::table('mod_cpm_kb')->where('source_url', $link)->first();
+        if ($exists && empty($in['overwrite'])) { $skip++; continue; }
+        $html = ''; $title = trim($it['title'] ?? '');
+        if (!empty($it['id']) && !empty($it['type'])) {           // WP REST → καθαρό content
+            $r = cnp_safe_fetch(cnp_site_root($link) . '/wp-json/wp/v2/' . preg_replace('/[^a-z]/', '', $it['type'])
+                . '/' . (int) $it['id'] . '?_fields=title,content,link');
+            if (!empty($r['ok'])) {
+                $j = json_decode($r['body'], true);
+                $html = (string) ($j['content']['rendered'] ?? '');
+                if ($title === '') { $title = html_entity_decode(strip_tags($j['title']['rendered'] ?? ''), ENT_QUOTES, 'UTF-8'); }
+            }
+        }
+        if ($html === '') {                                        // fallback: κατέβασε τη σελίδα
+            $r = cnp_safe_fetch($link);
+            if (empty($r['ok'])) { $errs[] = $title ?: $link; continue; }
+            $a = cnp_html_article($r['body']);
+            $html = $a['html'];
+            if ($title === '') { $title = $a['title']; }
+        }
+        $clean = cnp_clean_html($html, 60000);
+        if ($title === '' || trim(strip_tags($clean)) === '') { $errs[] = $title ?: $link; continue; }
+        $kw = implode(', ', array_slice(cnp_words($title . ' ' . mb_substr(strip_tags($clean), 0, 1500)), 0, 18));
+        $row = ['title' => mb_substr($title, 0, 255), 'keywords' => mb_substr($kw, 0, 500),
+            'solution' => $clean, 'tags' => $tagI, 'area_id' => $areaI, 'rel_areas' => '',
+            'source_url' => mb_substr($link, 0, 500), 'updated_at' => date('Y-m-d H:i:s')];
+        if ($exists) {
+            Capsule::table('mod_cpm_kb')->where('id', $exists->id)->update($row);
+        } else {
+            Capsule::table('mod_cpm_kb')->insert($row + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+        }
+        $ok++;
+    }
+    out(['ok' => true, 'imported' => $ok, 'skipped' => $skip, 'failed' => count($errs),
+        'failedTitles' => array_slice($errs, 0, 10)]);
 
 case 'kb_del':
     if (!$FULL) {

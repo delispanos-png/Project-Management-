@@ -373,6 +373,7 @@ R.knowledge = async function () {
       <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
         <input class="inp" id="kQ" placeholder="Ψάξε τα πάντα — τίτλο, λέξεις-κλειδιά, κείμενο λύσης, προϊόν…" value="${esc(st.q)}"></div>
       <button class="btn btn-o btn-sm" id="kDeep" title="Ψάξε και στο ιστορικό των tickets">${I.ticket} Και στα tickets</button>
+      <button class="btn btn-o btn-sm" id="kImp" title="Εισαγωγή από online τεκμηρίωση/εγχειρίδιο">${I.download} Εισαγωγή από URL</button>
       <button class="btn btn-p btn-sm" id="kNew">${I.plus} Προσθήκη γνώσης</button>
     </div>
     <div class="kb-filters">
@@ -568,11 +569,104 @@ R.knowledge = async function () {
   $('#kQ').onkeydown = e => { if (e.key === 'Enter') deep(); };
   $('#kDeep').onclick = deep;
   $('#kNew').onclick = () => openForm(null);
+  $('#kImp').onclick = () => openImport(D.products, load);
   $('#kSort').onchange = () => { st.sort = $('#kSort').value; render(); };
   $('#kMine').onchange = () => { st.mine = $('#kMine').checked; render(); };
   await load();
 };
 
+
+/* ═════════ 🌐 Εισαγωγή γνώσης από online τεκμηρίωση ═════════
+   Δίνεις το URL ενός εγχειριδίου· αν το site είναι WordPress (π.χ. BetterDocs)
+   κατεβαίνει ΟΛΟΣ ο κατάλογος άρθρων και διαλέγεις τι θα μπει στην τράπεζα. */
+function openImport(products, reload) {
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
+  ovl.innerHTML = `<div class="pal-box" style="margin:6vh auto 0;max-width:760px" onclick="event.stopPropagation()">
+    <div style="padding:20px 22px" id="impBody">
+      <b style="font-size:16px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.download} Εισαγωγή γνώσης από URL</b>
+      <div class="mut" style="font-size:12.5px;margin-top:4px">
+        Δώσε τη διεύθυνση ενός online εγχειριδίου. Αν βρεθεί κατάλογος άρθρων, θα τα δεις όλα και θα διαλέξεις.</div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <input class="inp" id="impUrl" placeholder="https://example.com/docs/εγχειρίδιο-χρήσης/" style="flex:1">
+        <button class="btn btn-p" id="impGo">${I.search} Ανάλυση</button>
+      </div>
+      <div id="impRes" style="margin-top:14px"></div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const box = ovl.querySelector('.pal-box');
+  setTimeout(() => $('#impUrl', ovl).focus(), 40);
+
+  const probe = async () => {
+    const url = $('#impUrl', ovl).value.trim();
+    if (!url) { toast('Δώσε URL', true); return; }
+    const res = $('#impRes', ovl);
+    res.innerHTML = '<div class="skel" style="height:120px"></div>';
+    const d = await api('kb_import_probe', {url}).catch(e => ({err: e.message}));
+    if (d.err) { res.innerHTML = `<div class="mut" style="color:var(--bad);font-size:13px">${esc(d.err)}</div>`; return; }
+    const cats = d.cats || {};
+    const byCat = {};
+    d.items.forEach(it => { (byCat[it.catName || '—'] = byCat[it.catName || '—'] || []).push(it); });
+    res.innerHTML = `
+      <div class="set-row" style="border:0;padding:0 0 10px">
+        <div><b style="color:var(--ink)">${d.items.length} άρθρα</b>
+          <span class="mut" style="font-size:12px"> · ${esc(d.site)}${d.mode === 'wp' ? ' · WordPress' : ''}</span></div>
+        <button class="btn btn-o btn-sm" id="impAll">Επιλογή όλων</button>
+        <button class="btn btn-o btn-sm" id="impNone">Καμία</button>
+      </div>
+      <div class="frow" style="margin-bottom:10px">
+        <div><label class="lbl">Προϊόν για όλα</label>
+          <select class="inp" id="impArea"><option value="0">— χωρίς προϊόν —</option>
+            ${products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Ετικέτες</label><input class="inp" id="impTags" placeholder="π.χ. PharmacyOne, εγχειρίδιο"></div>
+      </div>
+      <div class="imp-list">
+        ${Object.entries(byCat).map(([cat, list]) => `
+          <div class="imp-cat">
+            <label class="imp-cathead"><input type="checkbox" class="impCat" data-cat="${esc(cat)}" checked>
+              <b>${esc(cat)}</b> <span class="kb-n">${list.length}</span></label>
+            ${list.map(it => `<label class="imp-row${it.exists ? ' has' : ''}">
+              <input type="checkbox" class="impIt" data-cat="${esc(cat)}" ${it.exists ? '' : 'checked'}
+                data-it='${esc(JSON.stringify({id: it.id, type: it.type || '', title: it.title, link: it.link}))}'>
+              <span class="imp-t">${esc(it.title)}</span>
+              ${it.exists ? '<span class="pill pill-mut">υπάρχει ήδη</span>' : ''}</label>`).join('')}
+          </div>`).join('')}
+      </div>
+      <label class="kb-mine" style="margin-top:10px"><input type="checkbox" id="impOver"> Ενημέρωση όσων υπάρχουν ήδη</label>
+      <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
+        <button class="btn btn-o" id="impCancel">Άκυρο</button>
+        <button class="btn btn-p" id="impSave" data-save>${I.download} Εισαγωγή <span id="impN"></span></button></div>`;
+
+    const items = () => $$('.impIt', ovl);
+    const count = () => { const n = items().filter(x => x.checked).length; $('#impN', ovl).textContent = '(' + n + ')'; };
+    $('#impAll', ovl).onclick = () => { items().forEach(x => x.checked = true); $$('.impCat', ovl).forEach(c => c.checked = true); count(); };
+    $('#impNone', ovl).onclick = () => { items().forEach(x => x.checked = false); $$('.impCat', ovl).forEach(c => c.checked = false); count(); };
+    $$('.impCat', ovl).forEach(c => c.onchange = () => {
+      items().filter(x => x.dataset.cat === c.dataset.cat).forEach(x => x.checked = c.checked); count();
+    });
+    items().forEach(x => x.onchange = count);
+    $('#impOver', ovl).onchange = () => {
+      if ($('#impOver', ovl).checked) { items().forEach(x => x.checked = true); count(); }
+    };
+    count();
+    $('#impCancel', ovl).onclick = () => cnpAskClose(box);
+    $('#impSave', ovl).onclick = async () => {
+      const sel = items().filter(x => x.checked).map(x => JSON.parse(x.dataset.it));
+      if (!sel.length) { toast('Δεν διάλεξες άρθρα', true); return; }
+      const btn = $('#impSave', ovl);
+      btn.disabled = true; btn.innerHTML = '<span class="rte-spin"></span> Εισαγωγή…';
+      const r = await api('kb_import_commit', {items: sel, areaId: +$('#impArea', ovl).value,
+        tags: $('#impTags', ovl).value, overwrite: $('#impOver', ovl).checked ? 1 : 0}).catch(e => ({err: e.message}));
+      btn.disabled = false; btn.innerHTML = 'Εισαγωγή';
+      if (r.err) { toast(r.err, true); return; }
+      box.dataset.dirty = '';
+      ovl.remove();
+      toast(`Μπήκαν ${r.imported} άρθρα` + (r.skipped ? ` · ${r.skipped} υπήρχαν ήδη` : '') + (r.failed ? ` · ${r.failed} απέτυχαν` : ''));
+      reload();
+    };
+  };
+  $('#impGo', ovl).onclick = probe;
+  $('#impUrl', ovl).onkeydown = e => { if (e.key === 'Enter') { probe(); } };
+}
 
 /* ═════════ 💬 ΕΣΩΤΕΡΙΚΟ CHAT ═════════ */
 R.chat = async function () {

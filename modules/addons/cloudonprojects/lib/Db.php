@@ -440,6 +440,7 @@ class Db
                 $t->string('tags', 190)->default('');
                 $t->integer('area_id')->unsigned()->default(0);   // κύριο προϊόν (mod_cpm_ticket_cats kind=area)
                 $t->string('rel_areas', 190)->default('');        // συναφή προϊόντα (comma ids)
+                $t->string('source_url', 500)->default('');       // εισαγωγή από τεκμηρίωση προμηθευτή
                 $t->integer('uses')->unsigned()->default(0);
                 $t->integer('created_by')->unsigned()->nullable();
                 $t->timestamp('created_at')->nullable();
