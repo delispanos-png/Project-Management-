@@ -1,0 +1,15 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-servers",
+  "name": "scaleway",
+  "license": "proprietary",
+  "category": "vpscloud",
+  "description": {
+    "name": "Cloud Servers (Scaleway)",
+    "tagline": "White-label cloud server provisioning & full lifecycle management.",
+    "long": "Provisions and fully manages cloud instances via the Scaleway Instance API while presenting only your own brand to clients. Pairs with the Scaleway addon for credential/project management, price sync and import of already-sold services."
+  },
+  "authors": [
+    { "name": "Cloudon" }
+  ]
+}
