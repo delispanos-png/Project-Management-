@@ -266,11 +266,26 @@ class Api
 
     public function testConnection()
     {
+        // Έλεγχος μορφής ΠΡΙΝ την κλήση — δίνει κατανοητό μήνυμα αντί για HTTP 401.
+        $uuid = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+        if ($this->secretKey === '') {
+            return ['success' => false, 'error' => 'Λείπει το Secret Key.'];
+        }
+        if (!preg_match($uuid, $this->secretKey)) {
+            return ['success' => false, 'error' =>
+                'Το Secret Key δεν έχει τη σωστή μορφή. Το Scaleway secret key είναι UUID 36 χαρακτήρων '
+                . '(π.χ. 11111111-2222-3333-4444-555555555555). Αποθηκεύτηκαν ' . strlen($this->secretKey)
+                . ' χαρακτήρες. Πρόσεξε να μην έβαλες κατά λάθος το Access Key (ξεκινά με SCW…).'];
+        }
+        if ($this->projectId === '') {
+            return ['success' => false, 'error' =>
+                'Λείπει το Project ID. Το βρίσκεις στο Scaleway console → Project Dashboard → Settings → Project ID (UUID).'];
+        }
+        if (!preg_match($uuid, $this->projectId)) {
+            return ['success' => false, 'error' => 'Το Project ID δεν είναι έγκυρο UUID 36 χαρακτήρων.'];
+        }
         try {
             $this->serverTypes();
-            if ($this->projectId === '') {
-                return ['success' => false, 'error' => 'Λείπει το Project ID.'];
-            }
             return ['success' => true, 'error' => ''];
         } catch (ApiException $e) {
             return ['success' => false, 'error' => $e->getMessage()];
