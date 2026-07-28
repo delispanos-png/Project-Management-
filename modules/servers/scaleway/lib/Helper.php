@@ -420,9 +420,10 @@ class Helper
             }
         }
         // φιλικές ονομασίες
-        $map = ['paris' => 'fr-par-1', 'france' => 'fr-par-1', 'γαλλία' => 'fr-par-1',
-            'amsterdam' => 'nl-ams-1', 'netherlands' => 'nl-ams-1', 'ολλανδία' => 'nl-ams-1',
-            'warsaw' => 'pl-waw-1', 'poland' => 'pl-waw-1', 'πολωνία' => 'pl-waw-1'];
+        $map = ['paris' => 'fr-par-1', 'france' => 'fr-par-1', 'γαλλία' => 'fr-par-1', 'παρίσι' => 'fr-par-1',
+            'amsterdam' => 'nl-ams-1', 'netherlands' => 'nl-ams-1', 'ολλανδία' => 'nl-ams-1', 'άμστερνταμ' => 'nl-ams-1',
+            'warsaw' => 'pl-waw-1', 'poland' => 'pl-waw-1', 'πολωνία' => 'pl-waw-1', 'βαρσοβία' => 'pl-waw-1',
+            'milan' => 'it-mil-1', 'italy' => 'it-mil-1', 'ιταλία' => 'it-mil-1', 'μιλάνο' => 'it-mil-1'];
         foreach ($map as $k => $z) {
             if (strpos($low, $k) !== false) {
                 return $z;

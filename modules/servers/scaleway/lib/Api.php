@@ -51,6 +51,7 @@ class Api
         'pl-waw-1' => 'Warsaw 1, Poland',
         'pl-waw-2' => 'Warsaw 2, Poland',
         'pl-waw-3' => 'Warsaw 3, Poland',
+        'it-mil-1' => 'Milan 1, Italy',
     ];
 
     /** @var string Secret key (X-Auth-Token). */
