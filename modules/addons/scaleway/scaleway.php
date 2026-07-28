@@ -63,11 +63,11 @@ function scaleway_config()
                 'Default'      => 'fr-par-1',
             ],
             'markup' => [
-                'FriendlyName' => 'Περιθώριο κέρδους %',
+                'FriendlyName' => '➤ ΤΟ ΚΕΡΔΟΣ ΣΟΥ: περιθώριο %',
                 'Type'         => 'text',
                 'Size'         => '6',
                 'Default'      => '30',
-                'Description'  => 'Εφαρμόζεται στο κόστος για τον υπολογισμό τιμής πώλησης.',
+                'Description'  => 'Πόσο % πάνω από το κόστος του παρόχου χρεώνεις. Εφαρμόζεται στο <b>σύνολο</b> (instance + IPv4 + δίσκος). Π.χ. κόστος 10 € + 30% → τιμή πώλησης 13 €.',
             ],
             'rounding' => [
                 'FriendlyName' => 'Στρογγυλοποίηση',
@@ -97,17 +97,18 @@ function scaleway_config()
                 'Description'  => 'Το ID νομίσματος του WHMCS στο οποίο γράφονται οι τιμές.',
             ],
             'ipv4_monthly' => [
-                'FriendlyName' => 'Κόστος IPv4 / μήνα (€)',
+                'FriendlyName' => 'ΚΟΣΤΟΣ παρόχου: IPv4 / μήνα (€)',
                 'Type'         => 'text',
                 'Size'         => '8',
-                'Default'      => '0.99',
-                'Description'  => 'Χρέωση flexible IP — προστίθεται στο κόστος όταν το προϊόν περιλαμβάνει IPv4.',
+                'Default'      => '2.92',
+                'Description'  => 'Τι <b>σου χρεώνει η Scaleway</b> (ΟΧΙ τι χρεώνεις εσύ). Flexible IP ≈ 0,004 €/ώρα × 730 = <b>2,92 €</b>. Το API δεν το επιστρέφει, γι\' αυτό δηλώνεται εδώ.',
             ],
             'block_gb_monthly' => [
-                'FriendlyName' => 'Κόστος block storage / GB / μήνα (€)',
+                'FriendlyName' => 'ΚΟΣΤΟΣ παρόχου: block storage / GB / μήνα (€)',
                 'Type'         => 'text',
                 'Size'         => '8',
-                'Default'      => '0.088',
+                'Default'      => '0.086',
+                'Description'  => 'Τι <b>σου χρεώνει η Scaleway</b> ανά GB. Τρέχουσα τιμή SSD block storage ≈ <b>0,086 €</b>. Χρεώνεται μόνο ο δίσκος πέρα από τον περιλαμβανόμενο του τύπου.',
             ],
             'scan_all_zones' => [
                 'FriendlyName' => 'Σάρωση όλων των zones',
