@@ -422,12 +422,38 @@ function cnp_cv_job_image_auto($text)
     if ($has(['help[\s-]?desk', 'support', 'technician', 'τεχνικ', 'υποστήρ', 'service desk'])) { return 'support'; }
     return 'office';
 }
+/** Φάκελος για ανεβασμένες (custom) φωτογραφίες θέσεων. */
+function cnp_cv_job_custom_dir()
+{
+    return __DIR__ . '/apply-assets/jobs/custom';
+}
+/** Είναι έγκυρο key ανεβασμένης εικόνας (custom/job-xxxx) που υπάρχει στον δίσκο; */
+function cnp_cv_job_image_is_custom($img)
+{
+    $img = trim((string) $img);
+    if (!preg_match('#^custom/job-[a-z0-9\-]{6,60}$#', $img)) { return false; }
+    return is_file(__DIR__ . '/apply-assets/jobs/' . $img . '.jpg');
+}
 /** Τελικό cover stem για θέση (stored αν έγκυρο, αλλιώς auto). */
 function cnp_cv_job_image($job)
 {
     $img = trim((string) ($job->image ?? ''));
     if ($img !== '' && array_key_exists($img, cnp_cv_job_presets())) { return $img; }
+    if (cnp_cv_job_image_is_custom($img)) { return $img; }
     return cnp_cv_job_image_auto(($job->title ?? '') . ' ' . ($job->title_en ?? ''));
+}
+/** Λίστα ανεβασμένων εικόνων (πιο πρόσφατες πρώτα). */
+function cnp_cv_job_custom_list($limit = 24)
+{
+    $dir = cnp_cv_job_custom_dir();
+    if (!is_dir($dir)) { return []; }
+    $files = glob($dir . '/job-*.jpg') ?: [];
+    usort($files, fn($a, $b) => filemtime($b) <=> filemtime($a));
+    $out = [];
+    foreach (array_slice($files, 0, $limit) as $f) {
+        $out[] = 'custom/' . basename($f, '.jpg');
+    }
+    return $out;
 }
 /** Ids διαχειριστών HR (full ή με ειδικότητα hr) — για ειδοποιήσεις. */
 function cnp_hr_admin_ids()
@@ -5484,6 +5510,7 @@ case 'cv_jobs':
     }
     out(['jobs' => $jobs, 'statuses' => cnp_cv_statuses(), 'models' => cnp_cv_models(), 'defaultModel' => cnp_cv_default_model(),
         'imagePresets' => cnp_cv_job_presets(), 'imageBase' => 'apply-assets/jobs/',
+        'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
 case 'cv_job_save':                      // δημιουργία/επεξεργασία αγγελίας
@@ -5496,12 +5523,58 @@ case 'cv_job_save':                      // δημιουργία/επεξεργ�
         'emptype' => mb_substr(trim($in['emptype'] ?? ''), 0, 40), 'active' => !empty($in['active']) ? 1 : 0,
         'title_en' => mb_substr(trim($in['titleEn'] ?? ''), 0, 190), 'descr_en' => mb_substr(trim($in['descrEn'] ?? ''), 0, 12000),
         'skills_en' => mb_substr(trim($in['skillsEn'] ?? ''), 0, 3000), 'emptype_en' => mb_substr(trim($in['emptypeEn'] ?? ''), 0, 40),
-        'image' => array_key_exists($in['image'] ?? '', cnp_cv_job_presets()) ? $in['image'] : '',
+        'image' => (array_key_exists($in['image'] ?? '', cnp_cv_job_presets())
+            || cnp_cv_job_image_is_custom($in['image'] ?? '')) ? $in['image'] : '',
         'descr_json' => $sections ? mb_substr(json_encode($sections, JSON_UNESCAPED_UNICODE), 0, 30000) : null];
     $id = (int) ($in['id'] ?? 0);
     if ($id) { Capsule::table('mod_cpm_cv_jobs')->where('id', $id)->update($data); }
     else { $data['created_at'] = date('Y-m-d H:i:s'); $id = Capsule::table('mod_cpm_cv_jobs')->insertGetId($data); }
     out(['ok' => true, 'id' => $id]);
+
+case 'cv_job_image_upload':              // ανέβασμα δικής μας φωτογραφίας θέσης
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $f = $_FILES['file'] ?? null;
+    if (!$f || ($f['error'] ?? 1) !== UPLOAD_ERR_OK) { fail('Δεν ανέβηκε αρχείο.'); }
+    if ($f['size'] > 8 * 1024 * 1024) { fail('Το αρχείο ξεπερνά τα 8 MB.'); }
+    $info = @getimagesize($f['tmp_name']);
+    if (!$info) { fail('Το αρχείο δεν είναι έγκυρη εικόνα.'); }
+    $allowed = [IMAGETYPE_JPEG => 1, IMAGETYPE_PNG => 1, IMAGETYPE_WEBP => 1];
+    if (!isset($allowed[$info[2]])) { fail('Επιτρέπονται JPG, PNG ή WebP.'); }
+
+    $src = null;
+    if ($info[2] === IMAGETYPE_JPEG) { $src = @imagecreatefromjpeg($f['tmp_name']); }
+    elseif ($info[2] === IMAGETYPE_PNG) { $src = @imagecreatefrompng($f['tmp_name']); }
+    elseif ($info[2] === IMAGETYPE_WEBP && function_exists('imagecreatefromwebp')) { $src = @imagecreatefromwebp($f['tmp_name']); }
+    if (!$src) { fail('Δεν ήταν δυνατή η επεξεργασία της εικόνας.'); }
+
+    // Cover 1200×500 (ίδια αναλογία με τις έτοιμες) — center crop χωρίς παραμόρφωση.
+    $tw = 1200; $th = 500;
+    $sw = imagesx($src); $sh = imagesy($src);
+    $scale = max($tw / $sw, $th / $sh);
+    $nw = (int) ceil($sw * $scale); $nh = (int) ceil($sh * $scale);
+    $dst = imagecreatetruecolor($tw, $th);
+    imagecopyresampled($dst, $src, (int) (($tw - $nw) / 2), (int) (($th - $nh) / 2), 0, 0, $nw, $nh, $sw, $sh);
+    imagedestroy($src);
+
+    $dir = cnp_cv_job_custom_dir();
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) { imagedestroy($dst); fail('Ο φάκελος εικόνων δεν είναι εγγράψιμος.'); }
+    $stem = 'job-' . date('Ymd') . '-' . bin2hex(random_bytes(4));
+    $path = $dir . '/' . $stem . '.jpg';
+    $okw = imagejpeg($dst, $path, 82);
+    imagedestroy($dst);
+    if (!$okw) { fail('Αποτυχία αποθήκευσης.'); }
+    @chmod($path, 0644);
+    out(['ok' => true, 'image' => 'custom/' . $stem]);
+
+case 'cv_job_image_delete':              // διαγραφή ανεβασμένης φωτογραφίας
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    $img = (string) ($in['image'] ?? '');
+    if (!cnp_cv_job_image_is_custom($img)) { fail('Μη έγκυρη εικόνα.'); }
+    // Μην τη σβήσεις αν τη χρησιμοποιεί θέση.
+    $used = (int) Capsule::table('mod_cpm_cv_jobs')->where('image', $img)->count();
+    if ($used > 0) { fail('Χρησιμοποιείται από ' . $used . ' θέση/θέσεις.'); }
+    @unlink(__DIR__ . '/apply-assets/jobs/' . $img . '.jpg');
+    out(['ok' => true]);
 
 case 'cv_job_del':                       // διαγραφή (ή αρχειοθέτηση αν έχει υποψηφίους)
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }

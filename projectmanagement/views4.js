@@ -1573,15 +1573,65 @@ function renderJobsPanel(host, reload) {
       const setVal = (id, v) => { const x = f.querySelector('#' + id); if (x) { x.value = v; } };
       // picker φωτογραφίας θέσης
       const imgPresets = d.imagePresets || {}, imgBase = d.imageBase || 'apply-assets/jobs/';
+      let customImgs = (d.customImages || []).slice();
       const renderImgs = () => {
         const box = f.querySelector('#jfImgs'); if (!box) { return; }
         const tile = (v, label, style, thumb) => `<button type="button" data-img="${v}" title="${esc(label)}" style="width:108px;height:66px;border-radius:9px;border:2px solid ${curImg === v ? 'var(--brand)' : 'var(--line)'};cursor:pointer;overflow:hidden;padding:0;position:relative;${style}">
           ${thumb ? `<img src="${imgBase}${v}.jpg" style="width:100%;height:100%;object-fit:cover;display:block" loading="lazy">` : '<div style="font-size:20px;padding-top:8px">✨</div>'}
           <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(9,20,38,.66);color:#fff;font-size:9px;font-weight:700;padding:2px 3px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(label)}</span>
           ${curImg === v ? '<span style="position:absolute;top:3px;right:3px;background:var(--brand);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center">✓</span>' : ''}</button>`;
+        // πλακίδιο ανεβάσματος + δικές μας εικόνες (με κουμπάκι διαγραφής)
+        const upTile = `<button type="button" id="jfImgUp" title="Ανέβασε δική σου φωτογραφία"
+          style="width:108px;height:66px;border-radius:9px;border:2px dashed var(--brand);cursor:pointer;overflow:hidden;padding:0;position:relative;background:color-mix(in srgb,var(--brand) 8%,transparent);color:var(--brand)">
+          <div style="font-size:19px;padding-top:9px">⬆</div>
+          <span style="position:absolute;left:0;right:0;bottom:0;background:var(--brand);color:#fff;font-size:9px;font-weight:700;padding:2px 3px;text-align:center">Ανέβασμα</span>
+          </button><input type="file" id="jfImgFile" accept="image/jpeg,image/png,image/webp" style="display:none">`;
+        const customTiles = customImgs.map(v => tile(v, 'Δική μου', 'background:#eef2f7', true)
+          .replace('</button>', `<span data-imgdel="${v}" title="Διαγραφή" style="position:absolute;top:3px;left:3px;background:rgba(226,81,95,.92);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center">✕</span></button>`)).join('');
         box.innerHTML = tile('', 'Αυτόματη', 'background:linear-gradient(135deg,#e8f6ff,#d3ecff)', false)
+          + upTile + customTiles
           + Object.entries(imgPresets).map(([k, l]) => tile(k, l, 'background:#eef2f7', true)).join('');
-        box.querySelectorAll('[data-img]').forEach(b => b.onclick = () => { curImg = b.dataset.img; renderImgs(); });
+
+        box.querySelectorAll('[data-img]').forEach(b => b.onclick = e => {
+          if (e.target.dataset && e.target.dataset.imgdel) { return; }   // το ✕ έχει δικό του handler
+          curImg = b.dataset.img; renderImgs();
+        });
+        // διαγραφή ανεβασμένης
+        box.querySelectorAll('[data-imgdel]').forEach(x => x.onclick = async e => {
+          e.stopPropagation();
+          const v = x.dataset.imgdel;
+          if (!await cnpConfirm('Διαγραφή αυτής της φωτογραφίας;', {danger: true, ok: 'Διαγραφή'})) { return; }
+          const r = await api('cv_job_image_delete', {image: v}).catch(er => ({err: er.message}));
+          if (r.err) { toast(r.err, true); return; }
+          customImgs = customImgs.filter(z => z !== v);
+          if (curImg === v) { curImg = ''; }
+          toast('Διαγράφηκε'); renderImgs();
+        });
+        // ανέβασμα
+        const upBtn = box.querySelector('#jfImgUp'), upInp = box.querySelector('#jfImgFile');
+        if (upBtn && upInp) {
+          upBtn.onclick = () => upInp.click();
+          upInp.onchange = async () => {
+            const file = upInp.files && upInp.files[0];
+            if (!file) { return; }
+            if (file.size > 8 * 1024 * 1024) { toast('Μέγιστο μέγεθος 8 MB', true); return; }
+            upBtn.disabled = true; upBtn.style.opacity = '.6';
+            try {
+              const fd = new FormData();
+              fd.append('file', file);
+              const res = await fetch('api.php?a=cv_job_image_upload', {method: 'POST', body: fd, credentials: 'same-origin'});
+              const j = await res.json();
+              if (!j || !j.ok) { throw new Error((j && (j.error || j.err)) || 'Αποτυχία ανεβάσματος'); }
+              customImgs.unshift(j.image);
+              curImg = j.image;
+              toast('Η φωτογραφία ανέβηκε ✓');
+            } catch (err) {
+              toast(err.message || 'Αποτυχία ανεβάσματος', true);
+            }
+            upInp.value = '';
+            renderImgs();
+          };
+        }
       };
       renderImgs();
       f.querySelectorAll('.jltab').forEach(b => b.onclick = () => {
