@@ -177,6 +177,11 @@ $skillChips = function ($csv) use ($e) {
 $jobImg = function ($job) {
     $presets = ['office', 'dev', 'backend', 'support', 'pm', 'marketing', 'design'];
     $img = trim((string) ($job->image ?? ''));
+    // Ανεβασμένη (custom) φωτογραφία — δεκτή εφόσον υπάρχει στον δίσκο.
+    if (preg_match('#^custom/job-[a-z0-9\-]{6,60}$#', $img)
+        && is_file(__DIR__ . '/apply-assets/jobs/' . $img . '.jpg')) {
+        return 'apply-assets/jobs/' . $img . '.jpg';
+    }
     if ($img === '' || !in_array($img, $presets, true)) {
         $s = mb_strtolower(($job->title ?? '') . ' ' . ($job->title_en ?? ''), 'UTF-8');
         $has = fn($n) => (bool) preg_match('/(' . implode('|', $n) . ')/u', $s);
