@@ -1585,7 +1585,8 @@ function renderJobsPanel(host, reload) {
           style="width:108px;height:66px;border-radius:9px;border:2px dashed var(--brand);cursor:pointer;overflow:hidden;padding:0;position:relative;background:color-mix(in srgb,var(--brand) 8%,transparent);color:var(--brand)">
           <div style="font-size:19px;padding-top:9px">⬆</div>
           <span style="position:absolute;left:0;right:0;bottom:0;background:var(--brand);color:#fff;font-size:9px;font-weight:700;padding:2px 3px;text-align:center">Ανέβασμα</span>
-          </button><input type="file" id="jfImgFile" accept="image/jpeg,image/png,image/webp" style="display:none">`;
+          </button><input type="file" id="jfImgFile" accept="image/jpeg,image/png,image/webp" style="display:none">
+          <span class="mut" style="flex-basis:100%;font-size:11px;margin-top:2px">📐 Ιδανικό μέγεθος: <b>1600×900</b> (16:9). Κόβεται αυτόματα με κεντράρισμα — κράτα το θέμα στο κέντρο. JPG/PNG/WebP έως 8 MB.</span>`;
         const customTiles = customImgs.map(v => tile(v, 'Δική μου', 'background:#eef2f7', true)
           .replace('</button>', `<span data-imgdel="${v}" title="Διαγραφή" style="position:absolute;top:3px;left:3px;background:rgba(226,81,95,.92);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center">✕</span></button>`)).join('');
         box.innerHTML = tile('', 'Αυτόματη', 'background:linear-gradient(135deg,#e8f6ff,#d3ecff)', false)

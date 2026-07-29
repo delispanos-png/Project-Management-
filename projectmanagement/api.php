@@ -5547,8 +5547,9 @@ case 'cv_job_image_upload':              // ανέβασμα δικής μας �
     elseif ($info[2] === IMAGETYPE_WEBP && function_exists('imagecreatefromwebp')) { $src = @imagecreatefromwebp($f['tmp_name']); }
     if (!$src) { fail('Δεν ήταν δυνατή η επεξεργασία της εικόνας.'); }
 
-    // Cover 1200×500 (ίδια αναλογία με τις έτοιμες) — center crop χωρίς παραμόρφωση.
-    $tw = 1200; $th = 500;
+    // Cover 1600×900 (16:9 — πρακτικά ίδια αναλογία με τις έτοιμες 900×520)
+    // center crop χωρίς παραμόρφωση.
+    $tw = 1600; $th = 900;
     $sw = imagesx($src); $sh = imagesy($src);
     $scale = max($tw / $sw, $th / $sh);
     $nw = (int) ceil($sw * $scale); $nh = (int) ceil($sh * $scale);
