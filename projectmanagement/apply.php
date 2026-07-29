@@ -315,10 +315,10 @@ img{max-width:100%;display:block}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .chip{font-size:10.5px;font-weight:600;color:var(--txt);background:#f1f5fa;border:1px solid var(--line);border-radius:8px;padding:3px 9px}
 .job .acts{display:flex;gap:8px;flex-wrap:wrap}
-.job-cover{height:132px;margin:-22px -22px 16px;border-radius:15px 15px 0 0;background:#eef2f7 no-repeat center/cover}
-.modal-cover{height:200px;margin:-34px -34px 22px;border-radius:21px 21px 0 0;background:#eef2f7 no-repeat center/cover}
-.jobctx-cover{height:168px;margin:-26px -28px 20px;border-radius:17px 17px 0 0;background:#eef2f7 no-repeat center/cover}
-@media(max-width:640px){.modal-cover{margin:-26px -22px 18px;height:158px}}
+.job-cover{aspect-ratio:16/9;height:auto;max-height:186px;margin:-22px -22px 16px;border-radius:15px 15px 0 0;background:#eef2f7 no-repeat center 30%/cover}
+.modal-cover{aspect-ratio:16/9;height:auto;max-height:300px;margin:-34px -34px 22px;border-radius:21px 21px 0 0;background:#eef2f7 no-repeat center 30%/cover}
+.jobctx-cover{aspect-ratio:16/9;height:auto;max-height:264px;margin:-26px -28px 20px;border-radius:17px 17px 0 0;background:#eef2f7 no-repeat center 30%/cover}
+@media(max-width:640px){.modal-cover{margin:-26px -22px 18px;max-height:200px}}
 /* job description */
 .jobdesc h4{font-size:12.5px;letter-spacing:.6px;color:var(--brand-d);margin:18px 0 7px;font-weight:800;text-transform:uppercase}
 .jobdesc h4:first-child{margin-top:0}
