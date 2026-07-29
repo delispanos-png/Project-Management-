@@ -170,7 +170,10 @@ $fmtDesc = function ($txt) use ($e) {
 };
 $skillChips = function ($csv) use ($e) {
     $out = '';
-    foreach (preg_split('/[,\n·]+/', (string) $csv) as $s) { $s = trim($s); if ($s !== '') { $out .= '<span class="chip">' . $e($s) . '</span>'; } }
+    // ΠΡΟΣΟΧΗ: ο τροποποιητής /u είναι ΑΠΑΡΑΙΤΗΤΟΣ. Χωρίς αυτόν η PHP κόβει σε bytes
+    // και το «·» (C2 B7) ταιριάζει με το δεύτερο byte του ελληνικού «η» (CE B7),
+    // σπάζοντας κάθε λέξη που το περιέχει (π.χ. «Ελληνική» → «νική»).
+    foreach (preg_split('/[,\n·]+/u', (string) $csv) as $s) { $s = trim($s); if ($s !== '') { $out .= '<span class="chip">' . $e($s) . '</span>'; } }
     return $out;
 };
 /** Cover εικόνα θέσης (stored preset ή auto βάσει ρόλου) → πλήρες σχετικό path. */
