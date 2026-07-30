@@ -69,6 +69,7 @@
 | `scaleway` | server + addon | `mod_scaleway_*` | Φτιαγμένο, **δεν έχει δοκιμαστεί ζωντανά** |
 | `hetznercloud`, `hetznerstorage` | server + addon | `mod_hetzner_*` | Ενεργό σε παραγωγή |
 | `cloudonprojects` | addon | `mod_cpm_*` (60+ πίνακες) | Το Project Management |
+| `cloudonprojects` → Προσλήψεις | addon | `mod_cpm_cv_jobs`, `mod_cpm_cv`, **`mod_cpm_cv_job_views`** | Αγγελίες, υποψήφιοι, **επισκεψιμότητα** |
 | `supportcontracts` | addon | `mod_supportcontracts_*` | Τράπεζα χρόνου υποστήριξης |
 | `gooddaysync` | addon | `mod_gooddaysync_*` | Συγχρονισμός GoodDay |
 | `staffboard`, `servicesfee`, `ai_copilot`, `bulkpricingupdater` | addon | διάφοροι | |
@@ -101,6 +102,19 @@
 `configuration.php` δεν αντικαταστάθηκε.**
 
 ---
+
+### 3.5 Δημόσια σελίδα καριέρας & επισκεψιμότητα
+
+| Αρχείο | Ρόλος |
+|---|---|
+| `projectmanagement/apply.php` | Η δημόσια σελίδα αγγελιών (EL/EN) |
+| `modules/addons/cloudonprojects/lib/JobViews.php` | Καταγραφή & στατιστικά επισκεψιμότητας |
+| `projectmanagement/api.php` → `cv_job_views` | API στατιστικών |
+| `projectmanagement/views4.js` → `renderTrafficPanel()` | Η καρτέλα «Επισκεψιμότητα» |
+
+Η μέτρηση γίνεται σε τρία σημεία του `apply.php`:
+`?trk=<id>` (beacon από το modal), προβολή landing (`job_id = 0`), άνοιγμα φόρμας.
+**Δεν αποθηκεύεται IP** — μόνο ανώνυμο ημερήσιο αποτύπωμα. Τα bots φιλτράρονται.
 
 ## 4. Το πρότυπο `horn` — διάβασέ το πριν κάνεις οτιδήποτε
 
@@ -223,6 +237,12 @@
 - [ ] `https://my.cloudon.gr/remote` φορτώνει και κατεβάζει ZIP;
 - [ ] `https://my.cloudon.gr/project/` (Project Management) φορτώνει;
 
+### 🟠 Προσλήψεις
+
+- [ ] `https://my.cloudon.gr/project/apply.php` φορτώνει με τις ενεργές θέσεις;
+- [ ] Άνοιξε μια αγγελία → **αυξάνεται** ο μετρητής στο Προσλήψεις → Επισκεψιμότητα;
+- [ ] Η υποβολή αίτησης με CV δουλεύει (αποθήκευση στο S3);
+
 ### 🟡 Εμφάνιση
 
 - [ ] Πίνακας ελέγχου πελάτη με τα πλακίδια;
@@ -262,6 +282,35 @@ crontab -l -u cloudon.gr_chbouao8z8 > /root/crontab-pre-upgrade.bak
 # 5. Έλεγχος υγείας ΠΡΙΝ, για σύγκριση
 /opt/plesk/php/8.3/bin/php scripts/healthcheck.php > /root/health-before.txt
 ```
+
+---
+
+## 7β. Αμέσως μετά την αναβάθμιση
+
+```bash
+cd /var/www/vhosts/cloudon.gr/my.cloudon.gr
+
+# 1. Τι έσβησε η αναβάθμιση — το git το δείχνει ακριβώς
+git status
+git diff --stat
+
+# 2. Αυτόματος έλεγχος και σύγκριση με το πριν
+/opt/plesk/php/8.3/bin/php scripts/healthcheck.php > /root/health-after.txt
+diff /root/health-before.txt /root/health-after.txt
+
+# 3. Ό,τι έσβησε, επαναφορά από το git (ΠΡΟΣΟΧΗ: μόνο δικά μας αρχεία)
+git checkout -- includes/hooks/ templates/horn/ lang/overrides/
+
+# 4. Καθάρισε τα μεταγλωττισμένα πρότυπα
+rm -f tpl_cache_k7m2/*.php
+
+# 5. Ξανατρέξε τον έλεγχο — πρέπει 0 σφάλματα
+/opt/plesk/php/8.3/bin/php scripts/healthcheck.php
+```
+
+**Αν το `git status` δείχνει διαγραμμένα δικά μας αρχεία** → η αναβάθμιση τα έσβησε.
+Το `git checkout` τα επαναφέρει ακέραια. Γι' αυτό το βήμα «καθαρό git πριν» είναι
+υποχρεωτικό: χωρίς αυτό δεν ξεχωρίζεις τι έσβησε η αναβάθμιση από τι δεν είχες σώσει.
 
 ---
 

@@ -68,6 +68,8 @@ $files = [
     'templates/horn/assets/layout/menu.tpl'                => 'Μενού horn',
     'templates/horn/css/custom.css'                        => 'Προσαρμογές CSS',
     'remote/index.php'                                     => 'Σελίδα απομακρυσμένης υποστήριξης',
+    'projectmanagement/apply.php'                          => 'Δημόσια σελίδα καριέρας',
+    'modules/addons/cloudonprojects/lib/JobViews.php'      => 'Επισκεψιμότητα αγγελιών',
 ];
 foreach ($files as $f => $what) {
     is_file($root . '/' . $f) ? ok($what, $f) : bad($what . ' — ΛΕΙΠΕΙ', $f);
@@ -89,6 +91,18 @@ foreach ($marks as $f => [$needle, $what]) {
         ok($what);
     } else {
         bad($what . ' — ΧΑΘΗΚΕ', $f);
+    }
+}
+
+$applyMarks = [
+    "JobViews::hit"  => 'Καταγραφή προβολών στο apply.php',
+    "isset(\$_GET['trk'])" => 'Beacon μέτρησης αγγελιών',
+];
+$applyPath = $root . '/projectmanagement/apply.php';
+if (is_file($applyPath)) {
+    $applySrc = file_get_contents($applyPath);
+    foreach ($applyMarks as $needle => $what) {
+        strpos($applySrc, $needle) !== false ? ok($what) : bad($what . ' — ΧΑΘΗΚΕ', 'projectmanagement/apply.php');
     }
 }
 
@@ -139,6 +153,8 @@ $tables = [
     'mod_viva_log'    => 'Ιστορικό Viva',
     'mod_hetzner_instances' => 'Hetzner',
     'mod_cpm_tasks'   => 'Project Management',
+    'mod_cpm_cv_jobs' => 'Αγγελίες θέσεων',
+    'mod_cpm_cv_job_views' => 'Επισκεψιμότητα αγγελιών',
 ];
 foreach ($tables as $t => $what) {
     Capsule::schema()->hasTable($t)
