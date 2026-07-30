@@ -136,8 +136,8 @@
 
 ## 4. Το πρότυπο πελάτη — `cloudon` (δικό μας fork)
 
-**Από 30/07/2026 υπάρχει το `templates/cloudon`**, fork του horn με όλες τις
-προσαρμογές μας. Δες `templates/cloudon/CLOUDON-TEMPLATE.md`.
+**Από 30/07/2026 το ενεργό πρότυπο είναι το `templates/cloudon`**, fork του horn με
+όλες τις προσαρμογές μας. Το `horn` δεν χρησιμοποιείται πλέον. Δες `templates/cloudon/CLOUDON-TEMPLATE.md`.
 
 - **Το WHMCS δεν το αγγίζει ποτέ** (αντικαθιστά μόνο `six` / `twenty-one`).
 - **Ο κατασκευαστής του horn δεν το αγγίζει ποτέ** — εκεί ήταν ο πραγματικός κίνδυνος.
@@ -217,7 +217,7 @@
 
 | Ρύθμιση | Τιμή |
 |---|---|
-| `Template` / `OrderFormTemplate` | `horn` / `horn` |
+| `Template` / `OrderFormTemplate` | `cloudon` / `cloudon` (fork μας· επιστροφή: `horn`) |
 | `Language` | `greek` |
 | `TaxEnabled` | `on` (ΦΠΑ 24%, τύπος Exclusive) |
 | `AutoRedirectoInvoice` | `gateway` |
