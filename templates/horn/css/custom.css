@@ -1455,3 +1455,17 @@ li:nth-child(3) {
 /* 💚 CloudOn — πράσινα LED μέσα στο εικονίδιο server (SVG) */
 @keyframes cnpLedSvg{0%,100%{opacity:1}50%{opacity:.18}}
 .cnp-led{fill:#2ddc6e;filter:drop-shadow(0 0 .6px #2ddc6e);animation:cnpLedSvg 1.4s infinite ease-in-out}
+
+/* ---- Μετρητής καλαθιού στην πάνω μπάρα ------------------------------
+   Ο πελάτης δεν είχε τρόπο να δει ότι έχει προϊόντα στο καλάθι χωρίς να
+   μπει σε αυτό. Το σήμα κάθεται πάνω δεξιά στο εικονίδιο. -------------- */
+.cnp-cart-link { position: relative; display: inline-block; }
+.cnp-cart-badge {
+    position: absolute; top: -6px; right: -10px;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 9px; background: #e8453c; color: #fff;
+    font-size: 11px; font-weight: 700; line-height: 18px;
+    text-align: center; box-shadow: 0 0 0 2px rgba(255,255,255,.85);
+    font-family: system-ui, -apple-system, sans-serif;
+}
+@media (max-width: 768px) { .cnp-cart-badge { top: -5px; right: -8px; } }

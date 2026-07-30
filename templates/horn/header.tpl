@@ -137,7 +137,7 @@
                 {if $languagechangeenabled && count($locales) > 1}
     			{include file="$template/assets/layout/language.tpl"}<!-- language selector -->
     			{/if}
-    			<li><a class="f-15" href="{$WEB_ROOT}/cart.php?a=view" aria-label="{$LANG.hzCart}"><img class="svg icohorn" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/shopping-cart.svg" alt=""></a></li>
+    			<li><a class="f-15 cnp-cart-link" href="{$WEB_ROOT}/cart.php?a=view" aria-label="{$LANG.hzCart}{if $cnpCartCount} ({$cnpCartCount}){/if}"><img class="svg icohorn" src="{$WEB_ROOT}/templates/{$template}/assets/fonts/icohorn/shopping-cart.svg" alt="">{if $cnpCartCount > 0}<span class="cnp-cart-badge">{$cnpCartCount}</span>{/if}</a></li>
                 {if $loggedin}
     			{include file="$template/assets/layout/notifications.tpl"}<!-- the notifications -->
                 {/if}

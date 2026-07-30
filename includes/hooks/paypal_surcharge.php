@@ -184,40 +184,18 @@ add_hook('InvoiceCreated', 1, function ($vars) {
     }
 });
 
-/**
- * Ταμείο: η χρέωση πρέπει να μπει στο σύνολο ΠΡΙΝ ολοκληρωθεί η παραγγελία,
- * αλλιώς ο πελάτης βλέπει ένα ποσό στο καλάθι και άλλο στη σελίδα πληρωμής.
+/*
+ * ΓΙΑΤΙ ΔΕΝ ΧΡΗΣΙΜΟΠΟΙΟΥΜΕ ΤΟ CartTotalAdjustment
+ *
+ * Θα ήταν ο «σωστός» τρόπος, αλλά το πρότυπο horn δεν εμφανίζει καθόλου
+ * προσαρμογές καλαθιού — η σύνοψη έχει μόνο υποσύνολο, έκπτωση, ΦΠΑ, σύνολο.
+ * Η χρέωση θα άλλαζε το σύνολο ΑΟΡΑΤΑ, που είναι και παραπλανητικό για τον
+ * πελάτη και θα μετριόταν δύο φορές μαζί με το script παρακάτω.
+ *
+ * Αντ' αυτού: στο ταμείο τη δείχνει το script (μία πηγή αλήθειας για την
+ * οθόνη), και στο τιμολόγιο τη βάζει το InvoiceCreated (μία πηγή αλήθειας
+ * για τη χρέωση). Τα δύο συμφωνούν γιατί χρησιμοποιούν τον ίδιο τύπο.
  */
-add_hook('CartTotalAdjustment', 1, function ($vars) {
-    $cfg = CNP_SURCHARGE[cnp_surcharge_cart_gateway()] ?? null;
-    if (!$cfg) {
-        return [];
-    }
-
-    // Βάση: το πληρωτέο σήμερα, μετά ΦΠΑ. Τα κλειδιά διαφέρουν ανά έκδοση,
-    // οπότε δοκιμάζουμε με σειρά προτίμησης και σε αποτυχία δεν χρεώνουμε.
-    $base = 0.0;
-    foreach (['total', 'subtotal'] as $k) {
-        if (isset($vars[$k]) && is_numeric((string) $vars[$k])) {
-            $base = (float) $vars[$k];
-            break;
-        }
-    }
-    if ($base <= 0 && isset($vars['subtotal'], $vars['taxtotal'])) {
-        $base = (float) $vars['subtotal'] + (float) $vars['taxtotal'];
-    }
-    if ($base <= 0) {
-        return [];
-    }
-
-    $isEn = strtolower((string) ($_SESSION['Language'] ?? '')) === 'english';
-
-    return [
-        'description' => $isEn ? $cfg['labelEn'] : $cfg['labelEl'],
-        'amount'      => number_format(cnp_surcharge_amount($base, $cfg), 2, '.', ''),
-        'taxed'       => !empty($cfg['taxed']),
-    ];
-});
 
 /**
  * Στο ταμείο, η αλλαγή τρόπου πληρωμής δεν ξαναφορτώνει τη σελίδα — άρα ο
