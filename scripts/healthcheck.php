@@ -64,9 +64,7 @@ $files = [
     'modules/gateways/vivapayments/crons/reconcile.php'    => 'Cron συμφωνίας',
     'lang/overrides/greek.php'                             => 'Ελληνικά κλειδιά',
     'lang/overrides/english.php'                           => 'Αγγλικά κλειδιά',
-    'templates/horn/header.tpl'                            => 'Κεφαλίδα horn',
-    'templates/horn/assets/layout/menu.tpl'                => 'Μενού horn',
-    'templates/horn/css/custom.css'                        => 'Προσαρμογές CSS',
+    'templates/cloudon/CLOUDON-TEMPLATE.md'                => 'Δικό μας πρότυπο cloudon',
     'remote/index.php'                                     => 'Σελίδα απομακρυσμένης υποστήριξης',
     'projectmanagement/apply.php'                          => 'Δημόσια σελίδα καριέρας',
     'modules/addons/cloudonprojects/lib/JobViews.php'      => 'Επισκεψιμότητα αγγελιών',
@@ -78,10 +76,12 @@ foreach ($files as $f => $what) {
 /* ------------------------------------------------------------------ */
 section('Προσαρμογές μέσα στα πρότυπα (χάνονται σε ενημέρωση horn)');
 
+// Ελέγχεται το ΕΝΕΡΓΟ πρότυπο, ώστε ο έλεγχος να ισχύει είτε τρέχουμε horn είτε cloudon.
+$tpl = Capsule::table('tblconfiguration')->where('setting', 'Template')->value('value') ?: 'cloudon';
 $marks = [
-    'templates/horn/header.tpl'             => ['cnp-cart-link',  'Μετρητής καλαθιού στην μπάρα'],
-    'templates/horn/assets/layout/menu.tpl' => ['cnp_remote_nav', 'Απομακρυσμένη υποστήριξη στο μενού'],
-    'templates/horn/css/custom.css'         => ['cnp-cart-badge', 'CSS μετρητή καλαθιού'],
+    "templates/$tpl/header.tpl"             => ['cnp-cart-link',  "Μετρητής καλαθιού ($tpl)"],
+    "templates/$tpl/assets/layout/menu.tpl" => ['cnp_remote_nav', "Απομακρυσμένη υποστήριξη στο μενού ($tpl)"],
+    "templates/$tpl/css/custom.css"         => ['cnp-cart-badge', "CSS μετρητή καλαθιού ($tpl)"],
 ];
 foreach ($marks as $f => [$needle, $what]) {
     $p = $root . '/' . $f;
@@ -166,13 +166,20 @@ foreach ($tables as $t => $what) {
 section('Ρυθμίσεις');
 
 $settings = [
-    'Template'                      => 'horn',
-    'OrderFormTemplate'             => 'horn',
+
     'Language'                      => 'greek',
     'SequentialInvoiceNumbering'    => '1',
     'SequentialInvoiceNumberFormat' => '{YEAR}{NUMBER}',
     'TaxCustomInvoiceNumberFormat'  => 'PF{YEAR}{NUMBER}',
 ];
+// Πρότυπο: αποδεκτά είναι horn (παλιό) και cloudon (δικό μας fork).
+foreach (['Template' => 'πελάτη', 'OrderFormTemplate' => 'παραγγελίας'] as $k => $lbl) {
+    $v = Capsule::table('tblconfiguration')->where('setting', $k)->value('value');
+    in_array($v, ['horn', 'cloudon'], true)
+        ? ok("Πρότυπο $lbl = $v", $v === 'cloudon' ? '(δικό μας fork)' : '(εμπορικό — σκέψου μετάβαση σε cloudon)')
+        : bad("Πρότυπο $lbl", "μη αναμενόμενο: '" . $v . "'");
+}
+
 foreach ($settings as $s => $expected) {
     $v = Capsule::table('tblconfiguration')->where('setting', $s)->value('value');
     $v === $expected ? ok("$s = $expected") : bad("$s", "αναμενόταν '$expected', βρέθηκε '" . $v . "'");

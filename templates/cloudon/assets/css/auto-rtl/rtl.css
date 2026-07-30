@@ -1,0 +1,605 @@
+/* *****************************************************
+    
+Project: Horn - WHMCS Dashboard Hosting Theme
+Description: Horn Responsive Premium Theme Designed for all web hosting providers
+Author: inebur (Rúben Rodrigues)
+Author URI: http://inebur.com/
+Author Envato: https://themeforest.net/user/inebur
+Copyright: 2022 inebur
+Version: 1.9
+
+***************************************************** */
+@import url("//fonts.googleapis.com/earlyaccess/droidarabicnaskh.css");
+body {
+    direction:rtl;
+}
+html {
+    direction:rtl;
+}
+.btn {
+    border-radius: 50px !important;
+}
+.main-container {
+    margin-right: 264px;
+    margin-left: 0;
+}
+.header {
+    margin-right: 264px;
+    margin-left: 0;
+}
+.navbar.navbar-collapsed ~ .header, .navbar.navbar-collapsed ~ .main-container {
+    margin-left: 0;
+    margin-right: 80px;
+}
+.header .main-search svg.icohorn {
+    padding-right: 10px;
+    left: 15px;
+    padding-left: initial;
+    right: initial;
+}
+.header .dropdown.user-login .login-header h6 {
+    float: right;
+}
+.header .dropdown.user-login .login-header:before {
+    left: -40px;
+    right: initial;
+}
+.header .dropdown.open .dropdown-menu:before {
+    left: 28px;
+    right: initial;
+}
+.header .dropdown .profile-notification {
+    margin-left: -12px;
+}
+.header .ml-auto .dropdown-menu {
+    margin-left: -18px;
+}
+.header .main-search .form-control {
+    padding: 0 30px 0 60px;
+}
+.header #mobile-header {
+    left: auto;
+    right: 15px;
+}
+.mr-auto, .mx-auto {
+    margin-left: auto !important;
+    margin-right: 0 !important;
+}
+.ml-auto, .mx-auto {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+}
+.forgot-pass {
+    text-align: left;
+}
+.dropnav-header-lined {
+    left: 40px;
+    right: initial;
+}
+body#layout01 .mobmenu {
+    left: 55px;
+    right: initial;
+}
+body#layout01 .dropnav-header-lined .dropdown-menu {
+    left: 0;
+    right: auto;
+}
+body#layout01 .dropnav-header-lined .dropdown-menu:before {
+    left: -115px;
+    right: initial;
+}
+nav.navbar ul {
+    padding-right: 0;
+}
+nav.navbar .mobmenu span:after {
+    -webkit-transform: rotate(0deg) translate(3px, -7px);
+    transform: rotate(0deg) translate(3px, -7px);
+}
+body#layout01 .logo-content .b-title {
+    margin-right: 10px;
+}
+body#layout01 .navbar .inner-navbar .nav-menu-title {
+    padding: 0 25px 0 0;
+}
+nav.navbar .inner-navbar li > a {
+    text-align: right;
+}
+body#layout01 .navbar .inner-navbar li > a > .labelinfo {
+    left: 45px;
+    right: initial;
+}
+body#layout01 .navbar .inner-navbar li.hasmenu > a:after {
+    left: 20px;
+    right: initial;
+}
+body#layout01 .navbar .inner-navbar > li .submenu li a {
+    padding: 10px 35px 10px 0px;
+}
+nav.navbar .inner-navbar li.hasmenu .submenu li > a {
+    text-align: right;
+}
+body#layout01 .navbar .inner-navbar li.hasmenu > a:after {
+    content: "\e934";
+}
+nav.navbar .inner-navbar li.hasmenu.trigger > a:after {
+    -webkit-transform: rotate(-90deg);
+    transform: rotate(-90deg);
+}
+section#footer {
+    padding-right: 325px;
+    padding-left: 60px;
+}
+section#footer.footer-collapsed {
+    padding-right: 140px;
+    padding-left: 60px;
+}
+.setmenu {
+    left: 15px;
+    right: initial;
+}
+.body-setmenu .setswitch {
+    transform: rotate(-90deg);
+}
+.header .dropdown .notification .notify-header:before {
+    left: -40px;
+    right: initial;
+}
+.header .dropdown .notification .notify-header h6 {
+    float: right;
+}
+.header .dropdown .notification .notify-header .notify-number {
+    left: 40px;
+    right: initial;
+}
+.alert.alert-warning.notify-alert {
+    text-align: right;
+}
+.alert.alert-warning.notify-alert i {
+    left: 15px;
+    right: initial;
+}
+nav.navbar .inner-navbar li > a > .icony {
+    margin-left: 5px;
+    margin-right: initial;
+}
+.main-container.slider .silder-container .slider-content {
+    right: 0;
+    padding-right: 60px;
+}
+.main-container.slider .silder-container .slider-content h5 {
+    text-align: right;
+}
+.slider-content .btn i {
+    float: left;
+}
+.slider-content .btn i.ico-chevron-right:before {
+    content: "\e934" !important;
+}
+.domains-search .ds-content {
+    left: 0;
+    right: initial;
+    padding: 6px 0px 6px 8px;
+}
+.header-main-slider .flickity-page-dots {
+    left: 25px;
+    right: initial;
+}
+.news-content .news-content-footer span {
+    float: left;
+}
+.special-note {
+    margin: 0px 60px 25px 0px;
+}
+.special-note .badge {
+    margin-left: 12px;
+    margin-right: 0px;
+}
+.header .dropdown .lang-container .notify-header a {
+    left: 40px;
+    right: initial;
+}
+.wrapper-plan .specs-content i {
+    float: right;
+    margin-left: 10px;
+    margin-right: 0px;
+}
+section#footer .footer-menu a {
+    margin: 0 1.25rem 0 0;
+}
+section#footer .footer-menu {
+    padding: 0 1rem 0 0;
+}
+#order-standard_cart .domain-selection-options .option .iradio_square-blue {
+    float: right;
+    margin-left: 10px;
+    margin-right: initial;
+}
+#order-standard_cart .domain-selection-options .option label {
+    text-align: right !important;
+}
+.suggested-domains .btn:not(.domain-contact-support) {
+    float: left !important;
+}
+.suggested-domains .price {
+    float: left !important;
+}
+.btn .w-icon {
+    margin: 0px 5px 0px 0px !important;
+}
+.float-right {
+    float: left !important;
+}
+.user-quicklinks li a {
+    padding-right: 55px !important;
+}
+.user-quicklinks li a i {
+    right: 30px;
+    left: initial;
+}
+.user-info-content .user-info {
+    margin-right: 10px;
+    margin-left: initial;
+}
+.user-info-content .user-info:first-child {
+    margin-right: 0px !important;
+    margin-left: initial;
+}
+.login-header .logout-btn {
+    left: 40px;
+    right: initial;
+}
+.login-header .user-info-avatar {
+    float: right;
+    margin-left: 15px;
+    margin-right: initial;
+}
+body#layout01 .header .main-search {
+    margin-right: 45px;
+}
+body#layout01 .header .navbar-nav > li:first-child {
+    padding-right: 0;
+    padding-left: 20px;
+}
+body#layout01 .header .dropdown.user-login .login-header.on h6 {
+    text-align: right;
+}
+.header .dropdown.open .dropdown-menu.logined-user-drop-down:before {
+    left: 33px;
+    right: initial;
+}
+.container-clientarea .clientarea-new-header .profile-photo {
+    margin-left: 25px;
+    margin-right: 0px;
+    right: 0;
+}
+.container-clientarea .header-features-icons {
+  float: left;
+}
+.container-clientarea .header-features-icons .badge.feat {
+  position: relative;
+  right: initial;
+  left: 10px;
+  margin-right: 10px;
+  margin-left: 0px;
+}
+.container-clientarea:before {
+    left: -80px;
+    right: initial;
+}
+body#layout01 .invoices-elements-tringo .number {
+    left: 30px;
+    right: initial;
+}
+.invoices-elements-tringo .total {
+    margin-right: 10px;
+}
+.invoice-elements-footer .invoice-elements-btns{
+    float: left;
+}
+.area-discreted-info-user .content-serv:before {
+    left: -120px;
+}
+.promo-banner ul li {
+    float: right;
+    margin: 0px 0px 15px 30px !important;
+}
+.promo-banner .icon-left {
+    left: 30px;
+    right: initial;
+}
+.client-home-panels .panel-heading .badge.feat {
+    left: 15px;
+    right: initial;
+}
+.mr-30 {
+    margin-left: 30px !important;
+}
+.page-wrapper .wrapper-plan .badge.feat {
+    left: 15px;
+    right: initial;
+}
+.fetures-section .fetures-content .badge.feat {
+    left: 15px;
+    right: initial;
+}
+.news-content:before {
+    right: -150px;
+    left: initial;
+}
+.announcement-single .badge.feat {
+    left: 15px;
+    right: initial;
+}
+.announcement-single p:before {
+    left: -60px;
+    right: initial;
+}
+.announcement-single .title {
+    padding: 30px 40px 30px 60px;
+}
+.mr-20 {
+    margin-left: 20px !important;
+}
+.loginpage .login-page-header i {
+    right: auto !important;
+    left: 20px !important;
+}
+.loginpage .login-page-header .navbar-brand {
+    float: right;
+}
+.intl-tel-input.separate-dial-code .selected-dial-code {
+    padding-right: 28px;
+}
+.intl-tel-input .selected-flag .iti-arrow {
+    left: 10px;
+    right: initial;
+}
+.intl-tel-input .selected-flag .iti-flag {
+    margin-right: 5px;
+}
+.loginpage .login-page-header i {
+    right: auto !important;
+    left: 20px !important;
+}
+.loginpage .login-page-header .navbar-brand {
+    float: right;
+}
+.intl-tel-input .country-list {
+    text-align: right;
+}
+.intl-tel-input .country-list .flag-box {
+    margin-left: 6px;
+}
+.loginpage .login-page-header .navbar-brand .w-text {
+    margin-right: 10px;
+}
+.loginpage .login-wrapper .login-form-container .generate-password {
+    left: 10px;
+    top: 8px;
+    right: initial;
+}
+.loginpage .login-wrapper .login-form-container .btn-social i {
+    right: 10px;
+    left: initial;
+}
+.loginpage .login-wrapper .login-form-container .btn-social img {
+    right: 10px;
+    left: initial;
+}
+.custom-control-label::after {
+    left: -25px;
+}
+.main-content .client-home-panels .panel.panel-default {
+    overflow: initial !important;
+}
+.client-home-panels .panel>.list-group .list-group-item .label {
+    float: left;
+}
+body#layout01 .client-home-panels .panel .panel-body .input-group-btn input.btn:last-child {
+    border-top-left-radius: 50px !important;
+    border-bottom-left-radius: 50px !important;
+    border-top-right-radius: 0px !important;
+    border-bottom-right-radius: 0px !important;
+}
+.domain-checker-container .input-group-btn>.btn {
+    left: -10px;
+    right: initial;
+    border-top-left-radius: 50px !important;
+    border-bottom-left-radius: 50px !important;
+    border-top-right-radius: 0px !important;
+    border-bottom-right-radius: 0px !important;
+}
+.ml-30 {
+    margin-right: 30px !important;
+    margin-left: 0px !important;
+}
+.dropdown-menu > li > a i {
+    margin-left: 10px;
+}
+.table-container tbody tr td .btn-group a{
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+    border-top-right-radius: 50px !important;
+    border-bottom-right-radius: 50px !important;
+}
+.table-container tbody tr td .btn-group button{
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-top-left-radius: 50px !important;
+    border-bottom-left-radius: 50px !important;
+}
+.dataTables_wrapper .dataTables_paginate {
+    float: left;
+}
+.pagination>li:first-child>a, .pagination>li:first-child>span {
+    border-top-right-radius: 50px !important;
+    border-bottom-right-radius: 50px !important;
+}
+.pagination>li:last-child>a, .pagination>li:last-child>span {
+    border-top-left-radius: 50px !important;
+    border-bottom-left-radius: 50px !important;
+}
+.domain-previw-box .right-overview-box-domain .badge.feat {
+    left: 15px;
+    right: initial;
+}
+.right-overview-box-domain:before {
+    left: -120px;
+    right: initial;
+}
+.domain-previw-box .overview-box span i {
+    float: left;
+}
+.domains-dotoday:before {
+    left: -120px;
+    right: initial;
+}
+.domains-dotoday {
+    text-align: right;
+}
+.affiliate-stat:before {
+    left: -120px;
+    right: initial;
+}
+.affiliate-stat i {
+    float: right;
+}
+.affiliate-stat span {
+    right: 100px;
+    left: initial;
+}
+.form-horizontal label.control-label {
+    text-align: right;
+}
+.main-content .panel.panel-default .panel-body:before {
+    left: -60px;
+    right: initial;
+}
+.ticket-reply .message {
+    text-align: right;
+}
+.ticket-reply .user {
+    float: right;
+}
+.ticket-reply .user img {
+    float: right;
+}
+.ticket-reply .user .name {
+    float: right;
+    padding: 3px 8px 3px 0px;
+}
+.ticket-reply .user .type {
+    float: left;
+}
+.ticket-reply .user .date {
+    float: right;
+}
+.know-bgbox-container .col-sm-12 a i {
+    right: 14px;
+    left: initial;
+}
+.know-bgbox-container .col-sm-12 a span {
+    left: 25px;
+    right: initial;
+}
+.know-bgbox-container .col-sm-12 {
+    padding: 25px 90px 25px 50px;
+}
+#btnKnowledgebaseSearch {
+    border-bottom-right-radius: 0px !important;
+    border-top-right-radius: 0px !important;
+    border-bottom-left-radius: 50px !important;
+    border-top-left-radius: 50px !important;
+    left: -1px;
+    right: initial;
+}
+.landing-page .hero {
+    text-align: right !important;
+}
+.landing-page .plans .plan ul li span {
+    float: right !important;
+}
+.landing-page .plans .plan ul li {
+    text-align: left !important;
+}
+.landing-page .features {
+    text-align: right !important;
+}
+.landing-page .feature-wrapper i {
+    float: right !important;
+}
+.landing-page .feature-wrapper .content {
+    margin-right: 100px !important;
+}
+.landing-page .pricing-item header {
+    margin-right: initial;
+}
+.landing-page.codeguard .pricing-container {
+    float: right !important;
+}
+.btn-group>.btn:last-child:not(:first-child), .btn-group>.dropdown-toggle:not(:first-child) {
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+.btn-group>.btn:first-child:not(:last-child):not(.dropdown-toggle) {
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+}
+/*------------------------------------------------------------------
+  Responsive RTL
+-------------------------------------------------------------------*/
+@media only screen and (max-width:991px) {
+  .header #mobile-header {
+    left: 20px;
+    right: initial;
+  }
+  .header .m-header .logo-content {
+    margin-right: 20px;
+  }
+  .header .m-header .mobmenu {
+    left: 20px;
+    right: initial;
+  }
+  .header .full-screen {
+    display: none;
+  }
+  .navbar {
+    margin-right: -264px;
+  }
+  .navbar ~ .header, .navbar ~ .main-container {
+    margin-right: 0;
+  }
+  .navbar.mob-open {
+    margin-right: 0;
+  }
+  .navbar.mob-open ~ .header, .navbar.mob-open ~ .main-container {
+    margin-right: 0;
+  }
+  body#layout01 .header .m-header {
+    padding-right: 60px;
+  }
+  body#layout01 .header .m-header .mobmenu {
+    right: 35px;
+    left: initial;
+  }
+  body#layout01 .header .navbar-nav > li:last-child {
+    padding-left: 8px !important;
+  }
+  header.navbar .mobmenu span:after {
+    content: "\e912" !important;
+    font-family: 'evafeat' !important;
+  }
+  section#footer {
+    padding-right: initial;
+    padding-left: initial;
+  }
+}
+@media (max-width: 767px) {
+    .dropnav-header-lined {
+        left: 30px !important;
+        right: initial;
+    }
+    .container-clientarea .header-features-icons {
+        float: initial;
+    }
+}

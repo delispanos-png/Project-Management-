@@ -1,0 +1,821 @@
+/* ==========================================================================
+   Cloud On — Foundation layer
+   foundation.css · Sprint M1 (Foundation & Correctness)
+   --------------------------------------------------------------------------
+   Correctness fixes that must win over the legacy framework, so this file
+   loads AFTER all.min.css / main.min.css. Consumes tokens.css only — no
+   hardcoded design values. Additive: new utilities + a global overflow
+   guard; safe to remove without side effects.
+   ========================================================================== */
+
+/* --- T1.4 · F-02 — no horizontal overflow on any viewport -----------------
+   Header is position:fixed (not sticky), so a global x-guard is safe. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* --- Accessibility utility — visually hidden but available to AT ----------
+   Used for the homepage document heading (T1.3) and could serve future
+   sr-only labels. Standard clip pattern. */
+.hz-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* --- T1.8 · F-24 — skip link ---------------------------------------------
+   Off-screen until keyboard-focused, then slides into view. Motion honours
+   prefers-reduced-motion via the token (--dur-base → 0ms). */
+.hz-skip-link {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: var(--z-toast);
+  transform: translateY(-150%);
+  transition: transform var(--dur-base) var(--ease-out);
+  background: var(--brand);
+  color: var(--on-brand);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: var(--elev-3);
+}
+.hz-skip-link:focus,
+.hz-skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--on-brand);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* --- M2-A · WCAG 2.4.7 — visible keyboard focus --------------------------
+   The legacy theme sets `:focus { outline: 0 }` everywhere, hiding the
+   keyboard focus indicator. We restore it for KEYBOARD focus only
+   (:focus-visible), leaving mouse focus untouched. `outline` is used (not
+   box-shadow) so the ring is never clipped by the M1 overflow-x guard.
+   Element-qualified selectors (0,2,0) outrank the theme's `:focus` (0,1,0). */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+.btn:focus-visible,
+.nav-item > a:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--radius-xs);
+}
+
+/* --- A11y-4 · structural list fixes must not change appearance -----------
+   The plan-card CTA is now wrapped in <li class="specs-cta"> and the nav
+   section titles are <li class="nav-menu-title"> (so <ul> contains only
+   <li>). Neutralise default list-item styling so the visuals are identical. */
+.specs-content li.specs-cta {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: 0;
+  text-align: center;
+}
+.specs-content li.specs-cta::marker { content: ""; }
+.nav-menu-title { list-style: none; }
+.nav-menu-title::marker { content: ""; }
+
+/* --- A11y-5 · WCAG 2.2 AA — contrast (1.4.3) + target-size (2.5.8) --------
+   setupfee/spinner/datatable text inherited a too-light colour; footer links
+   were <24px tall. Contrast via darkest token; target-size via vertical
+   padding only (≥24px tall → 24x24 rule; no horizontal padding so the gap
+   between adjacent links is preserved). */
+/* setupfee & spinner sit on DARK surfaces (#343a40 / #101113) → light text */
+.product-desc .setupfee { color: var(--slate-100) !important; }
+/* Loading spinner text appears over varying backgrounds → give it its own
+   opaque dark chip so contrast is deterministic everywhere. */
+.spinner-txt {
+  color: var(--slate-0) !important;
+  background: var(--slate-800);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+}
+/* DataTables chrome sits in the dark services panel (#343a40) → light text */
+.dataTables_wrapper label,
+.dataTables_wrapper .dataTables_info { color: var(--slate-100) !important; }
+/* Footer links: guarantee a ≥24px touch target (vertical padding) */
+.footer-menu a { display: inline-block !important; padding: 10px 6px !important; }
+
+/* ==========================================================================
+   Responsive & UI Polish · Sprint 1 — Fluid typography (marketing headings)
+   Section titles were a fixed 28px (small on desktop, large on 320px). Make
+   them scale smoothly with the viewport for a premium, consistent rhythm.
+   Loads last → wins over .main-title h2 in main.min.css without !important.
+   ========================================================================== */
+/* NOTE: this theme sets html{font-size:10px}, so rem values render at 62.5%.
+   Use px in these clamps to get the intended sizes. */
+.main-title h2 {
+  font-size: clamp(24px, 18px + 1.6vw, 36px);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+}
+
+/* Hero slider heading jumped 26px↔52px at a breakpoint → make it fluid. */
+.slider-content h5 {
+  font-size: clamp(28px, 20px + 3.4vw, 52px);
+  line-height: 1.1;
+}
+
+/* ==========================================================================
+   R2 · Card System — enterprise polish (structure & interaction only, so it
+   is colour-theme agnostic). Tokens only. Equal heights + CTA pinned bottom,
+   defined border, softer radius, premium hover lift with a brand glow.
+   ========================================================================== */
+/* Equal-height only where cards sit side-by-side (≥768). At xs the BS3 cols
+   are full-width blocks; flex there would shrink them to content width. */
+@media (min-width: 768px) {
+  .bottom-sec .row { display: flex; flex-wrap: wrap; }
+  .bottom-sec .row > [class*="col-"] { display: flex; }
+}
+.wrapper-plan {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--slate-700);
+  transition: transform var(--dur-base) var(--ease-standard),
+              border-color var(--dur-base) var(--ease-standard),
+              box-shadow var(--dur-base) var(--ease-standard);
+}
+.wrapper-plan .specs-content { flex: 1 1 auto; display: flex; flex-direction: column; }
+.wrapper-plan .specs-content li.specs-cta { margin-top: auto; }
+.wrapper-plan:hover {
+  transform: translateY(-4px);
+  border-color: var(--brand);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+/* Feature cards + dashboard stat cards share the same premium treatment. */
+.fetures-content,
+.content-serv {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--slate-700);
+  transition: transform var(--dur-base) var(--ease-standard),
+              border-color var(--dur-base) var(--ease-standard),
+              box-shadow var(--dur-base) var(--ease-standard);
+}
+.fetures-content:hover,
+.content-serv:hover {
+  transform: translateY(-4px);
+  border-color: var(--brand);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+/* R2 · Dashboard — brighten empty-state/panel links (were #5c65ae on the dark
+   #282e32 panel = 2.57 contrast). Theme is dark throughout, so a light-blue
+   token gives ample contrast everywhere. */
+.panel-body a, .panel-body p a { color: var(--blue-300) !important; }
+
+/* ==========================================================================
+   R3 · Navigation System — enterprise SaaS polish (tokens only, colour-theme
+   agnostic). Clear brand active state, smooth hover, refined dropdowns/motion.
+   ========================================================================== */
+/* Nav items: smooth interaction + rounded hit area */
+.inner-navbar li > a {
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard);
+  border-radius: var(--radius-sm);
+}
+.inner-navbar li > a:hover {
+  background: color-mix(in srgb, var(--slate-0) 7%, transparent);
+}
+/* Active item: brand tint + left accent bar (Linear/Vercel style).
+   NOTE: the theme puts the active class on the <a>, not the <li>. */
+.inner-navbar a.active {
+  position: relative;
+  background: color-mix(in srgb, var(--brand) 16%, transparent) !important;
+  color: var(--brand) !important;
+}
+.inner-navbar a.active::before {
+  content: "";
+  position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: var(--brand);
+}
+/* Submenu links: same premium hover + active */
+.submenu li a {
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard);
+  border-radius: var(--radius-sm);
+}
+.submenu li a:hover { background: color-mix(in srgb, var(--slate-0) 6%, transparent); color: var(--brand); }
+.submenu li.active > a { color: var(--brand); }
+/* hasmenu chevron: brand tint on hover for affordance */
+.hasmenu > a:hover:after { color: var(--brand); }
+
+/* Header dropdowns (user / language / notifications): premium surface */
+.header .dropdown-menu,
+.dropdown-menu.notification {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--slate-700);
+  box-shadow: var(--elev-4);
+  overflow: hidden;
+}
+.header .dropdown-menu a:hover { background: color-mix(in srgb, var(--brand) 12%, transparent); }
+
+/* ==========================================================================
+   R4 · Dashboard System — enterprise SaaS (tokens only). Panels aligned with
+   the card system, stronger stat hierarchy, pill status badges, brand/semantic
+   invoice CTAs, interactive list rows.
+   ========================================================================== */
+/* Stat cards — stronger title hierarchy (border/hover already from R2). */
+.area-discreted-info-user .content-serv a span.title,
+.area-discreted-info-user a span.title {
+  font-size: 20px; font-weight: var(--fw-bold); letter-spacing: -0.01em;
+}
+/* Client-home panels — match the card system: defined, rounded, refined head. */
+.client-home-panels .panel {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--slate-700);
+  overflow: hidden;
+  transition: border-color var(--dur-base) var(--ease-standard);
+}
+.client-home-panels .panel > .panel-heading {
+  border-bottom: 1px solid var(--slate-700);
+}
+.client-home-panels .panel > .list-group .list-group-item {
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.client-home-panels .panel > .list-group .list-group-item:hover {
+  background: color-mix(in srgb, var(--slate-0) 5%, transparent);
+}
+/* Status badges → pill, consistent weight. */
+.label { border-radius: var(--radius-pill); font-weight: var(--fw-semibold); }
+/* Invoice CTA: brand by default, keep danger/success semantics. */
+.invoice-pay-button { border-radius: var(--radius-sm); background: var(--brand); }
+.invoice-pay-button:hover { background: var(--brand-hover); }
+.invoice-pay-button.status-unpaid { background: var(--danger); }
+.invoice-pay-button.status-unpaid:hover { background: var(--danger); filter: brightness(.92); }
+.invoice-pay-button.status-paid { background: var(--success); }
+
+/* ==========================================================================
+   R5 · Homepage — primary CTA hierarchy + section polish (tokens only).
+   The primary button base was an off-brand purple (#5c65ae); pin it to the
+   real brand and give it a premium hover lift + glow. Universal (hero, cards,
+   forms, checkout) so the whole product gets a consistent primary CTA.
+   ========================================================================== */
+/* NOTE: do NOT force background:var(--brand) — brand #0097e4 with white text
+   is only ~3:1 (fails WCAG). Keep the theme's passing button colour and add
+   only motion/radius polish + a brand glow on hover. */
+.btn-prussian {
+  border-radius: var(--radius-sm);
+  transition: transform var(--dur-fast) var(--ease-standard),
+              box-shadow var(--dur-fast) var(--ease-standard);
+}
+.btn-prussian:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--brand) 30%, transparent);
+}
+.btn-prussian:active { transform: translateY(0); }
+/* Features section container aligns with the card-system radius. */
+.fetures-section { border-radius: var(--radius-lg); }
+
+/* ==========================================================================
+   R6 · Checkout / Forms — consistency polish (tokens only). Checkout is core
+   WHMCS (no template override), so this is CSS-level: unify field radius and
+   align the order-summary card with the card system.
+   ========================================================================== */
+/* Unify field radius (selects were 50px, inputs 70px). */
+select.form-control { border-radius: 70px; }
+/* Order-summary card aligns with the card-system radius. */
+.order-summary,
+.summary-container { border-radius: var(--radius-lg); }
+
+/* ==========================================================================
+   R7 · Performance — CLS fix for the hero carousel. Before flickity runs, the
+   slides stack (4×500px); on init they collapse to one, shifting #main-content
+   by ~0.24 CLS. Reserve the initialised height until flickity is ready.
+   ========================================================================== */
+.header-main-slider:not(.flickity-enabled) {
+  height: 500px;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Dashboard Redesign 2.0 — new IA components (tokens only, dark-theme aware).
+   Replaces the WHMCS-default welcome/profile/stat blocks & panels.
+   ========================================================================== */
+.hz-dash{max-width:1200px;margin:0 auto;padding:8px 0 40px}
+.hz-dash-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+.hz-dash-title{font-size:clamp(24px,18px + 1vw,30px);font-weight:800;letter-spacing:-.02em;margin:0;line-height:1.1}
+.hz-dash-greet{margin:4px 0 0;color:var(--slate-300);font-size:14px}
+.hz-dash-cta{white-space:nowrap}
+.hz-dash-cta .fa-plus{margin-right:6px}
+/* P1 attention */
+.hz-attention{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:var(--radius-lg);background:color-mix(in srgb,var(--warn) 13%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);margin-bottom:22px}
+.hz-attn-icon{color:var(--warn);font-size:20px;flex:0 0 auto}
+.hz-attn-body{flex:1;display:flex;flex-direction:column;gap:2px}
+.hz-attn-body strong{font-size:14px}
+.hz-attn-body span{font-size:13px;color:var(--slate-300)}
+.hz-attn-cta{white-space:nowrap}
+/* P2 health */
+.hz-health{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin:0 0 12px}
+.hz-health .hz-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.hz-health--ok{color:var(--ok)}.hz-health--ok .hz-dot{background:var(--ok)}
+.hz-health--warn{color:var(--warn)}.hz-health--warn .hz-dot{background:var(--warn)}
+.hz-health--bad{color:var(--bad)}.hz-health--bad .hz-dot{background:var(--bad)}
+/* section head */
+.hz-sec-head{display:flex;align-items:baseline;justify-content:space-between;margin:26px 0 12px}
+.hz-sec-head h2{font-size:16px;font-weight:700;margin:0;letter-spacing:-.01em}
+.hz-sec-head a{font-size:13px;color:var(--blue-300);white-space:nowrap}
+.hz-sec-head a .fas{font-size:11px;margin-left:4px}
+/* P2 services */
+.hz-services{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hz-service{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);transition:border-color var(--dur-fast) var(--ease-standard),background var(--dur-fast) var(--ease-standard)}
+.hz-service:hover{border-color:var(--blue-300);background:color-mix(in srgb,var(--slate-0) 6%,transparent)}
+.hz-svc-icon{width:38px;height:38px;border-radius:var(--radius-sm);display:grid;place-items:center;background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--blue-300);flex:0 0 auto}
+.hz-svc-name{flex:1;min-width:0;display:flex;flex-direction:column;font-weight:600;font-size:14px}
+.hz-svc-name small{font-weight:400;color:var(--slate-300);font-size:12px}
+.hz-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--radius-pill);white-space:nowrap}
+.hz-badge .hz-dot{width:6px;height:6px;border-radius:50%}
+.hz-badge--active{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}.hz-badge--active .hz-dot{background:var(--ok)}
+.hz-badge--pending{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}.hz-badge--pending .hz-dot{background:var(--warn)}
+.hz-badge--suspended{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}.hz-badge--suspended .hz-dot{background:var(--bad)}
+.hz-svc-due{font-size:12px;color:var(--slate-300);white-space:nowrap}
+.hz-svc-action{font-size:13px;font-weight:600;color:var(--blue-300);white-space:nowrap}
+/* P3 financial tiles */
+.hz-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.hz-tile{padding:16px 18px;border-radius:var(--radius-lg);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700)}
+.hz-tile-v{font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15}
+.hz-tile-l{font-size:11px;color:var(--slate-300);margin-top:4px;text-transform:uppercase;letter-spacing:.03em}
+.hz-tile--alert .hz-tile-v{color:var(--warn)}
+/* Payment reliability (συνέπεια πληρωμών) — face + donut gauge + last payment */
+.hz-payrel{padding:20px 24px;border-radius:var(--radius-lg);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700)}
+.hz-payrel-top{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.hz-payrel--ok{--rc:var(--ok)}
+.hz-payrel--warn{--rc:var(--warn)}
+.hz-payrel--bad{--rc:var(--bad)}
+.hz-payrel-face{font-size:46px;line-height:1;color:var(--rc);flex:0 0 auto}
+.hz-payrel-gauge{--pct:0;width:96px;height:96px;flex:0 0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;background:conic-gradient(var(--rc) calc(var(--pct)*1%),color-mix(in srgb,var(--text) 12%,transparent) 0)}
+.hz-payrel-gauge-in{width:72px;height:72px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center}
+.hz-payrel-pct{font-size:21px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+.hz-payrel-body{flex:1;min-width:150px;display:flex;flex-direction:column;gap:3px}
+.hz-payrel-label{font-size:17px;font-weight:700;color:var(--rc)}
+.hz-payrel-sub{font-size:13px;color:var(--slate-300)}
+.hz-payrel-last{flex:0 0 auto;text-align:right;display:flex;flex-direction:column;gap:2px;padding-left:22px;border-left:1px solid var(--slate-700)}
+.hz-payrel-last-l{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--slate-300)}
+.hz-payrel-last-v{font-size:18px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+.hz-payrel-last-amt{font-size:13px;font-weight:700;color:var(--ok)}
+@media (max-width:640px){.hz-payrel-last{text-align:left;border-left:none;padding-left:0;border-top:1px solid var(--slate-700);padding-top:12px;width:100%}}
+/* open-balance aging chart (from which month, how it escalates) */
+.hz-open{margin-top:18px;padding-top:16px;border-top:1px solid var(--slate-700)}
+.hz-open-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
+.hz-open-l{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--slate-300)}
+.hz-open-total{font-size:22px;font-weight:800;color:var(--warn);font-variant-numeric:tabular-nums}
+.hz-open-chart{display:flex;align-items:flex-end;gap:6px;border-bottom:1px solid var(--slate-700);padding-bottom:6px}
+.hz-open-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:7px}
+.hz-open-track{height:90px;width:100%;display:flex;align-items:flex-end;justify-content:center}
+.hz-open-bar{width:100%;max-width:32px;height:calc(var(--h) * 0.9px);min-height:3px;border-radius:5px 5px 0 0;background:color-mix(in srgb,var(--warn) 42%,transparent);transition:filter .14s ease}
+.hz-open-bar--over{background:var(--warn)}
+.hz-open-bar:hover{filter:brightness(1.15)}
+.hz-open-x{font-size:10px;color:var(--slate-300);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* attention + health folded INTO the payments card (reclaims standalone space) */
+.hz-payrel-alert{display:flex;align-items:center;gap:14px;margin-top:16px;padding-top:16px;border-top:1px solid var(--slate-700)}
+.hz-payrel-foot{display:flex;align-items:center;gap:8px;margin:16px 0 0;padding-top:14px;border-top:1px solid var(--slate-700);font-size:13px;font-weight:600}
+.hz-payrel>.hz-payrel-alert:first-child,.hz-payrel>.hz-open:first-child,.hz-payrel>.hz-payrel-foot:first-child{margin-top:0;padding-top:0;border-top:none}
+/* support contract — prepaid time + SLA home card */
+.hz-portal a.sc-home{display:flex;flex-wrap:wrap;align-items:center;gap:24px;padding:20px 24px;border-radius:var(--radius-lg);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);text-decoration:none;color:inherit;transition:border-color .14s ease,transform .14s ease}
+.hz-portal a.sc-home:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--brand) 50%,transparent)}
+.hz-portal a.sc-home.sc-home--low{border-color:color-mix(in srgb,var(--warn) 55%,transparent)}
+.hz-portal a.sc-home.sc-home--empty{border-color:color-mix(in srgb,var(--bad) 60%,transparent)}
+.sc-home-main{display:flex;align-items:center;gap:16px;flex:0 0 auto}
+.sc-home-ic{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-size:22px;background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--blue-300)}
+.sc-home--low .sc-home-ic{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.sc-home--empty .sc-home-ic{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.sc-home-v{display:block;font-size:26px;font-weight:800;line-height:1.1}
+.sc-home--low .sc-home-v{color:var(--warn)}
+.sc-home--empty .sc-home-v{color:var(--bad)}
+.sc-home-l{display:block;font-size:12px;color:var(--slate-300);margin-top:2px}
+.sc-home-sla{flex:1;min-width:220px;display:flex;flex-direction:column;gap:5px}
+.sc-home-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;border-bottom:1px dashed var(--slate-700);padding-bottom:5px}
+.sc-home-row:last-child{border-bottom:none;padding-bottom:0}
+.sc-home-k{color:var(--slate-300)}
+.sc-home-val{font-weight:700}
+.sc-pill{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+.sc-pill--p1{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.sc-pill--p2{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.sc-home-go{flex:0 0 auto;font-size:13px;font-weight:600;color:var(--blue-300)}
+.sc-home-go .fas{font-size:11px;margin-left:4px}
+@media(max-width:640px){.sc-home-go{width:100%}}
+/* P4 quick */
+.hz-quick{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:26px;padding-top:18px;border-top:1px solid var(--slate-700)}
+.hz-quick a{font-size:13px;color:var(--slate-300)}
+.hz-quick a:hover{color:var(--blue-300)}
+/* onboarding */
+.hz-onboard{text-align:center;max-width:560px;margin:40px auto;padding:40px 28px;border-radius:var(--radius-xl);background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700)}
+.hz-onboard-icon{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;margin:0 auto 16px;background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--blue-300);font-size:24px}
+.hz-onboard h2{font-size:24px;font-weight:800;margin:0 0 20px}
+.hz-steps{list-style:none;padding:0;margin:0 0 24px;display:flex;justify-content:center;gap:24px;flex-wrap:wrap}
+.hz-steps li{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--slate-300)}
+.hz-steps li span{width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;font-weight:700;font-size:12px;display:grid;place-items:center;flex:0 0 auto}
+/* responsive */
+@media(max-width:991px){.hz-tiles{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){
+  .hz-dash-cta{width:100%;justify-content:center}
+  .hz-service{flex-wrap:wrap}
+  .hz-svc-name{flex:1 1 55%}
+}
+
+/* R2.0 · Services DataTable (dark) — readable links + filled status pills. */
+.dataTables_wrapper td a { color: var(--blue-300) !important; }
+.label.status { color: var(--slate-0) !important; padding: 3px 10px; border-radius: var(--radius-pill); font-weight: 600; }
+.label.status-active { background: var(--ok) !important; }
+.label.status-pending { background: var(--warn) !important; }
+.label.status-suspended,
+.label.status-terminated,
+.label.status-cancelled,
+.label.status-fraud { background: var(--bad) !important; }
+
+/* Services page — price cell in the service card. */
+.hz-svc-price{font-size:13px;font-weight:600;white-space:nowrap;text-align:right}
+.hz-svc-price small{display:block;font-weight:400;color:var(--slate-300);font-size:11px}
+.hz-services--full{margin-top:8px}
+/* services status filter (default: Active) */
+.hz-svc-filter{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.hz-flt{border:1px solid var(--slate-700);background:transparent;color:var(--slate-300);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:border-color .14s ease,color .14s ease,background .14s ease}
+.hz-flt:hover{border-color:var(--brand);color:var(--text)}
+.hz-flt.is-active{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
+.hz-flt-n{opacity:.7;font-weight:700;margin-left:2px}
+.hz-flt.is-active .hz-flt-n{opacity:.95}
+.hz-svc-empty{text-align:center;color:var(--slate-300);padding:34px 0;font-size:14px}
+
+/* Invoice status badges (Dashboard 2.0). */
+.hz-badge--paid{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}.hz-badge--paid .hz-dot{background:var(--ok)}
+.hz-badge--unpaid{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}.hz-badge--unpaid .hz-dot{background:var(--warn)}
+.hz-badge--overdue,.hz-badge--collections{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}.hz-badge--overdue .hz-dot,.hz-badge--collections .hz-dot{background:var(--bad)}
+.hz-badge--cancelled,.hz-badge--refunded,.hz-badge--draft{background:color-mix(in srgb,var(--slate-0) 10%,transparent);color:var(--slate-300)}.hz-badge--cancelled .hz-dot,.hz-badge--refunded .hz-dot,.hz-badge--draft .hz-dot{background:var(--slate-400)}
+
+/* ==========================================================================
+   CRITICAL — guarantee AOS content is always visible. AOS hides elements
+   (opacity:0) then reveals on scroll; below-the-fold product & feature cards
+   were staying invisible (empty outlines) when the scroll trigger didn't
+   fire. Content (especially products) must NEVER be hidden by animation.
+   ========================================================================== */
+[data-aos] { opacity: 1 !important; transform: none !important; }
+
+/* Domain status badge — expired. */
+.hz-badge--expired{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}.hz-badge--expired .hz-dot{background:var(--bad)}
+
+/* ==========================================================================
+   R8 — Consistent polish across ALL logged-in portal pages
+   Scope: body.hz-portal (client area / support / account — dark theme).
+   One global layer so every secondary page matches Dashboard 2.0 without
+   editing ~46 templates. Contrast kept AA (light text on dark surfaces).
+   ========================================================================== */
+
+/* -- Page-title bar: bright-blue block → modern navy card -------------- */
+.hz-portal .header-lined{
+  background:linear-gradient(135deg,#0e2c49,#0b2740)!important;
+  border:1px solid rgba(127,208,255,.12)!important;
+  border-left:4px solid #0097e4!important;
+  border-radius:14px!important;
+  padding:18px 24px!important;
+  box-shadow:0 4px 18px rgba(3,16,30,.30)!important;
+  margin-bottom:22px!important;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+}
+.hz-portal .header-lined h1{
+  color:#eaf3fb!important;font-weight:700!important;font-size:23px!important;
+  letter-spacing:-.01em;margin:0!important;line-height:1.25;
+}
+.hz-portal .header-lined h1 small{color:#9fb6c9!important;font-size:14px!important;font-weight:400;}
+
+/* -- Form controls: pill → modern rounded, visible border, brand focus - */
+.hz-portal .form-control,
+.hz-portal select.form-control,
+.hz-portal textarea,
+.hz-portal input[type=text],
+.hz-portal input[type=email],
+.hz-portal input[type=password],
+.hz-portal input[type=number],
+.hz-portal input[type=tel]{
+  border-radius:10px!important;
+  background:#18293a!important;
+  border:1px solid rgba(146,180,209,.22)!important;
+  color:#eef5fb!important;
+  box-shadow:none!important;
+}
+.hz-portal .form-control::placeholder{color:#8aa0b4!important;}
+.hz-portal .form-control:focus,
+.hz-portal select.form-control:focus,
+.hz-portal textarea:focus,
+.hz-portal input:focus{
+  border-color:#0097e4!important;
+  box-shadow:0 0 0 3px rgba(0,151,228,.22)!important;
+  background:#1d2f40!important;color:#fff!important;outline:none!important;
+}
+.hz-portal label,.hz-portal .control-label{color:#c3d3e2!important;font-weight:600!important;}
+
+/* -- Panels / wells → cards ------------------------------------------- */
+.hz-portal .panel,.hz-portal .well{
+  background:#122130!important;
+  border:1px solid rgba(146,180,209,.14)!important;
+  border-radius:14px!important;
+  box-shadow:0 2px 12px rgba(3,16,30,.22)!important;
+}
+.hz-portal .panel-heading{
+  background:transparent!important;
+  border-bottom:1px solid rgba(146,180,209,.14)!important;
+  color:#eaf3fb!important;font-weight:700!important;
+  border-radius:14px 14px 0 0!important;
+}
+.hz-portal .panel-title{color:#eaf3fb!important;}
+
+/* -- Buttons: readable success/danger actions ------------------------- */
+.hz-portal .btn-success{background:#1f9d57!important;border-color:#1f9d57!important;color:#fff!important;}
+.hz-portal .btn-success:hover{background:#1a8a4c!important;border-color:#1a8a4c!important;}
+.hz-portal .btn-danger{background:#cf4a3e!important;border-color:#cf4a3e!important;color:#fff!important;}
+.hz-portal .btn-danger:hover{background:#b93f34!important;border-color:#b93f34!important;}
+
+/* -- Tables: cleaner rows on dark ------------------------------------- */
+.hz-portal .table{color:#dbe6f0!important;}
+.hz-portal .table>thead>tr>th{border-bottom:1px solid rgba(146,180,209,.20)!important;color:#9fb6c9!important;}
+.hz-portal .table>tbody>tr>td,
+.hz-portal .table>tbody>tr>th{border-top:1px solid rgba(146,180,209,.10)!important;vertical-align:middle;}
+
+/* -- R8.1 — product-details overview: green date-pills → clean rows ---- */
+.hz-portal .overview-box.products-details{
+  background:#122130!important;border:1px solid rgba(146,180,209,.14)!important;
+  border-radius:14px!important;padding:6px 20px!important;text-align:left!important;
+  box-shadow:0 2px 12px rgba(3,16,30,.22)!important;
+}
+.hz-portal .overview-box.products-details span{
+  display:flex!important;align-items:center;justify-content:space-between;gap:14px;
+  padding:13px 2px!important;border-bottom:1px solid rgba(146,180,209,.10)!important;
+  color:#9fb6c9!important;font-size:14px!important;text-align:left!important;
+}
+.hz-portal .overview-box.products-details span:last-child{border-bottom:none!important;}
+.hz-portal .overview-box.products-details strong{
+  background:none!important;color:#eef5fb!important;font-weight:600!important;
+  padding:0!important;border-radius:0!important;font-size:14px!important;display:inline!important;
+  box-shadow:none!important;
+}
+/* Service hero card + status badge polish */
+.hz-portal .product-overbox{border-radius:16px!important;overflow:hidden;}
+.hz-portal .product-status-text{letter-spacing:.04em;font-weight:700!important;}
+/* Ticket list: readable subject/number on dark */
+.hz-portal .table-list .ticket-subject{color:#eef5fb!important;font-weight:600!important;}
+.hz-portal .table-list .ticket-number{color:#8aa0b4!important;}
+.hz-portal .table-list .ticket-subject.unread{color:#fff!important;}
+
+/* -- R8.2 — ticket department selection: modern interactive cards ------ */
+.hz-portal .hz-deptgrid{display:flex;flex-wrap:wrap;}
+.hz-portal .hz-deptgrid > [class*="col-"]{display:flex;}
+.hz-portal .hz-dept-card{
+  display:flex;align-items:center;gap:16px;width:100%;
+  background:#122130;border:1px solid rgba(146,180,209,.14);
+  border-radius:14px;padding:20px 22px;min-height:98px;
+  text-decoration:none!important;color:#eaf3fb;
+  box-shadow:0 2px 10px rgba(3,16,30,.20);
+  transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease,background .15s ease;
+}
+.hz-portal .hz-dept-card:hover,.hz-portal .hz-dept-card:focus-visible{
+  transform:translateY(-3px);border-color:#0097e4;background:#152838;
+  box-shadow:0 10px 28px rgba(0,151,228,.18);outline:none;
+}
+.hz-portal .hz-dept-ico{
+  flex:0 0 auto;width:52px;height:52px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#0e2c49,#0b2740);
+  border:1px solid rgba(0,151,228,.35);color:#3fb9ff;font-size:21px;
+}
+.hz-portal .hz-dept-body{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;min-width:0;}
+.hz-portal .hz-dept-name{font-weight:700;font-size:17px;color:#f2f8fd;line-height:1.25;}
+.hz-portal .hz-dept-desc{font-size:13px;color:#9fb6c9;line-height:1.4;}
+.hz-portal .hz-dept-arrow{flex:0 0 auto;color:#5a7d9c;font-size:16px;transition:transform .15s ease,color .15s ease;}
+.hz-portal .hz-dept-card:hover .hz-dept-arrow{color:#3fb9ff;transform:translateX(4px);}
+@media (max-width:767px){.hz-portal .hz-dept-card{min-height:auto;}}
+
+/* -- R8.3 — ticket list: colored status badges + interactive rows ------ */
+.hz-portal #tableTicketsList tbody tr{cursor:pointer;transition:background .12s ease;}
+.hz-portal #tableTicketsList tbody tr:hover{background:rgba(0,151,228,.07)!important;}
+.hz-portal .table-list .border-left{border-left:none!important;padding-left:0!important;text-decoration:none!important;}
+.hz-portal .table-list .ticket-number{display:block;font-size:12px;color:#adc0d0!important;font-weight:600;margin-bottom:2px;letter-spacing:.02em;}
+.hz-portal .table-list .ticket-subject{display:block;color:#dfeaf3!important;font-weight:500;font-size:14.5px;}
+.hz-portal .table-list .ticket-subject.unread{color:#fff!important;font-weight:700;}
+.hz-portal .table-list .ticket-subject.unread::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#0097e4;margin-right:7px;vertical-align:middle;}
+/* base badge */
+.hz-portal .label.status{
+  display:inline-block;padding:5px 13px;border-radius:999px;font-size:12px;font-weight:700;
+  border:1px solid rgba(146,180,209,.30);background:rgba(146,180,209,.10);color:#c3d3e2!important;
+  white-space:nowrap;line-height:1.5;letter-spacing:.01em;
+}
+.hz-portal .label.status.status-open{background:rgba(31,157,87,.16);border-color:rgba(31,157,87,.55);color:#63d69d!important;}
+.hz-portal .label.status.status-answered{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
+.hz-portal .label.status.status-customer-reply{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
+.hz-portal .label.status.status-in-progress{background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.55);color:#5cc0f5!important;}
+.hz-portal .label.status.status-on-hold{background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);color:#f2bd68!important;}
+.hz-portal .label.status.status-closed{background:rgba(146,180,209,.10);border-color:rgba(146,180,209,.28);color:#9fb6c9!important;}
+
+/* -- R8.4 — ticket list as MESSAGE cards (rounded, separated, inbox-style) */
+.hz-portal #tableTicketsList{border-collapse:separate!important;border-spacing:0 12px!important;width:100%;}
+/* header → minimal labels, no card */
+.hz-portal #tableTicketsList thead th{
+  background:transparent!important;border:none!important;
+  padding:4px 22px!important;color:#a8b8c7!important;font-size:12px!important;
+  font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+}
+/* each row = a rounded message card */
+.hz-portal #tableTicketsList tbody tr{
+  background:#12212f!important;
+  box-shadow:0 2px 10px rgba(3,16,30,.22);
+  transition:transform .14s ease,box-shadow .14s ease,background .14s ease;
+}
+.hz-portal #tableTicketsList tbody tr:hover{
+  transform:translateY(-2px);background:#16283a!important;
+  box-shadow:0 12px 30px rgba(0,151,228,.16);
+}
+.hz-portal #tableTicketsList tbody td{
+  border:none!important;background:transparent!important;
+  padding:20px 22px!important;vertical-align:middle;
+}
+.hz-portal #tableTicketsList tbody td:first-child{border-radius:18px 0 0 18px;}
+.hz-portal #tableTicketsList tbody td:last-child{border-radius:0 18px 18px 0;}
+/* department cell → small avatar-ish icon + label (message feel) */
+.hz-portal #tableTicketsList tbody td:first-child{color:#9fb6c9!important;font-size:13.5px;font-weight:600;position:relative;padding-left:64px!important;}
+.hz-portal #tableTicketsList tbody td:first-child::before{
+  content:"\f3ff";font-family:"Font Awesome 5 Pro","Font Awesome 5 Free";font-weight:900;
+  position:absolute;left:22px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#0e2c49,#0b2740);color:#3fb9ff;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  border:1px solid rgba(0,151,228,.30);
+}
+/* subject block */
+.hz-portal #tableTicketsList tbody .ticket-subject{font-size:15px!important;}
+/* time cell muted */
+.hz-portal #tableTicketsList tbody td:last-child{color:#8aa0b4!important;font-size:13px;}
+
+/* -- R8.5 — status-aware avatar icon+color per ticket row -------------- */
+/* (id + status class → higher specificity than the base ::before) */
+.hz-portal #tableTicketsList tbody tr.status-open td:first-child::before{
+  content:"\f3ff";color:#63d69d!important;border-color:rgba(31,157,87,.55)!important;
+  background:linear-gradient(135deg,rgba(31,157,87,.24),rgba(31,157,87,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-answered td:first-child::before{
+  content:"\f3ff";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
+  background:linear-gradient(135deg,rgba(0,151,228,.24),rgba(0,151,228,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-customer-reply td:first-child::before{
+  content:"\f3ff";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
+  background:linear-gradient(135deg,rgba(235,163,52,.24),rgba(235,163,52,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-in-progress td:first-child::before{
+  content:"\f3ff";color:#5cc0f5!important;border-color:rgba(0,151,228,.55)!important;
+  background:linear-gradient(135deg,rgba(0,151,228,.24),rgba(0,151,228,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-on-hold td:first-child::before{
+  content:"\f3ff";color:#f2bd68!important;border-color:rgba(235,163,52,.55)!important;
+  background:linear-gradient(135deg,rgba(235,163,52,.24),rgba(235,163,52,.10))!important;}
+.hz-portal #tableTicketsList tbody tr.status-closed td:first-child::before{
+  content:"\f3ff";color:#9fb6c9!important;border-color:rgba(146,180,209,.28)!important;
+  background:rgba(146,180,209,.10)!important;}
+/* subtle status-colored left edge on the card (respects the rounded corner) */
+.hz-portal #tableTicketsList tbody tr.status-open td:first-child{box-shadow:inset 4px 0 0 rgba(31,157,87,.85);}
+.hz-portal #tableTicketsList tbody tr.status-answered td:first-child{box-shadow:inset 4px 0 0 rgba(0,151,228,.85);}
+.hz-portal #tableTicketsList tbody tr.status-customer-reply td:first-child{box-shadow:inset 4px 0 0 rgba(235,163,52,.85);}
+.hz-portal #tableTicketsList tbody tr.status-in-progress td:first-child{box-shadow:inset 4px 0 0 rgba(0,151,228,.85);}
+.hz-portal #tableTicketsList tbody tr.status-on-hold td:first-child{box-shadow:inset 4px 0 0 rgba(235,163,52,.85);}
+.hz-portal #tableTicketsList tbody tr.status-closed td:first-child{box-shadow:inset 4px 0 0 rgba(146,180,209,.45);}
+
+/* -- R8.7 — triage chips (κρισιμότητα / αναμονή / SLA / VIP) ----------- */
+.hz-portal #tableTicketsList tbody .hz-tk-flags{
+  display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:9px;}
+.hz-portal #tableTicketsList tbody .hz-fl{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+  padding:3px 10px;border-radius:999px;line-height:1.5;
+  border:1px solid transparent;white-space:nowrap;}
+.hz-portal #tableTicketsList tbody .hz-fl i{font-size:10px;opacity:.95;}
+/* priority */
+.hz-portal #tableTicketsList tbody .hz-prio--high{
+  color:#ff9e90!important;background:rgba(224,67,54,.16);border-color:rgba(224,67,54,.48);}
+.hz-portal #tableTicketsList tbody .hz-prio--medium{
+  color:#f2bd68!important;background:rgba(235,163,52,.14);border-color:rgba(235,163,52,.42);}
+.hz-portal #tableTicketsList tbody .hz-prio--low{
+  color:#8fd6b0!important;background:rgba(31,157,87,.14);border-color:rgba(31,157,87,.40);}
+/* needs-reply (ball is in our court) */
+.hz-portal #tableTicketsList tbody .hz-fl--need{
+  color:#6ec8ff!important;background:rgba(0,151,228,.16);border-color:rgba(0,151,228,.48);}
+/* overdue (SLA breach) — strongest cue, gentle pulse */
+.hz-portal #tableTicketsList tbody .hz-fl--overdue{
+  color:#ff8a7a!important;background:rgba(224,67,54,.22);border-color:rgba(224,67,54,.65);
+  animation:hzOverduePulse 2.4s ease-in-out infinite;}
+@keyframes hzOverduePulse{0%,100%{box-shadow:0 0 0 0 rgba(224,67,54,.30);}50%{box-shadow:0 0 0 5px rgba(224,67,54,0);}}
+/* waiting time (muted) */
+.hz-portal #tableTicketsList tbody .hz-fl--wait{
+  color:#9fb6c9!important;background:rgba(146,180,209,.10);border-color:rgba(146,180,209,.28);
+  text-transform:none;letter-spacing:0;}
+/* VIP (gold) */
+.hz-portal #tableTicketsList tbody .hz-fl--vip{
+  color:#ffd479!important;background:rgba(235,163,52,.16);border-color:rgba(235,163,52,.55);}
+/* priority customer (support contract) */
+.hz-portal #tableTicketsList tbody .hz-fl--contract{
+  color:#c9a6ff!important;background:rgba(126,87,194,.18);border-color:rgba(126,87,194,.55);}
+@media (prefers-reduced-motion:reduce){
+  .hz-portal #tableTicketsList tbody .hz-fl--overdue{animation:none;}}
+
+/* -- R8.6 — viewticket conversation → chat bubbles --------------------- */
+.hz-portal .ticket-reply{max-width:80%;margin:0 0 20px!important;padding:0!important;border:none!important;
+  background:transparent!important;display:flex;flex-direction:column;box-shadow:none!important;}
+.hz-portal .ticket-reply.staff{margin-right:auto!important;align-items:flex-start;}
+.hz-portal .ticket-reply:not(.staff){margin-left:auto!important;align-items:flex-end;}
+.hz-portal .ticket-reply .user{display:flex;align-items:center;gap:9px;margin-bottom:7px;flex-wrap:wrap;}
+.hz-portal .ticket-reply:not(.staff) .user{flex-direction:row-reverse;}
+.hz-portal .ticket-reply .gravatar{width:36px;height:36px;border-radius:50%!important;object-fit:cover;
+  border:2px solid rgba(146,180,209,.25);}
+.hz-portal .ticket-reply.staff .gravatar{border-color:rgba(0,151,228,.55);}
+.hz-portal .ticket-reply:not(.staff) .gravatar{border-color:rgba(31,157,87,.55);}
+.hz-portal .ticket-reply .name{font-weight:700!important;color:#eaf3fb!important;font-size:14px;}
+.hz-portal .ticket-reply .type,.hz-portal .ticket-reply .date{color:#9db2c3!important;font-size:12px;}
+.hz-portal .ticket-reply .label[class*="requestor-type"]{font-size:11px;padding:2px 9px;border-radius:999px;
+  background:rgba(0,151,228,.15);color:#5cc0f5!important;border:1px solid rgba(0,151,228,.4);font-weight:600;}
+.hz-portal .ticket-reply .message{background:#16283a;border:1px solid rgba(146,180,209,.14);
+  border-radius:16px;padding:15px 18px;color:#dfeaf3!important;line-height:1.65;
+  box-shadow:0 2px 10px rgba(3,16,30,.20);width:fit-content;max-width:100%;}
+.hz-portal .ticket-reply.staff .message{border-top-left-radius:5px;}
+.hz-portal .ticket-reply:not(.staff) .message{
+  background:linear-gradient(135deg,#0e3252,#0b2740)!important;border-color:rgba(0,151,228,.30)!important;
+  border-top-right-radius:5px;text-align:left;}
+.hz-portal .ticket-reply .message a{color:#5cc0f5!important;}
+.hz-portal .ticket-reply .message p:last-child{margin-bottom:0;}
+.hz-portal .ticket-reply .attachments{margin-top:12px;font-size:13px;border-top:1px solid rgba(146,180,209,.12);padding-top:10px;}
+.hz-portal .ticket-reply .attachments a{color:#5cc0f5!important;}
+/* R8.6 fix — staff .type pill had low-contrast purple bg → plain muted text */
+.hz-portal .ticket-reply .type{background:transparent!important;padding:0!important;border:none!important;color:#9db2c3!important;}
+
+/* ===== Dashboard KPI cards (clickable, per-section) ===== */
+.hz-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.hz-kpi{display:flex;align-items:center;gap:14px;padding:15px 16px;border-radius:var(--radius-lg);
+  background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);
+  color:inherit;text-decoration:none;transition:transform .16s ease,border-color .16s ease,background .16s ease}
+.hz-kpi:hover,.hz-kpi:focus-visible{transform:translateY(-2px);text-decoration:none;
+  border-color:color-mix(in srgb,var(--brand) 55%,transparent);background:color-mix(in srgb,var(--slate-0) 7%,transparent)}
+.hz-kpi:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.hz-kpi-ic{flex:0 0 auto;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-size:19px;color:#fff}
+.hz-kpi-ic--svc{background:#00609a}
+.hz-kpi-ic--dom{background:#1f6d8f}
+.hz-kpi-ic--tik{background:#a06a12}
+.hz-kpi-ic--inv{background:#a83226}
+.hz-kpi-ic--acc{background:#4d5699}
+.hz-kpi-ic--ann{background:#2a7d5e}
+.hz-kpi-meta{display:flex;flex-direction:column;min-width:0;gap:2px}
+.hz-kpi-v{font-size:26px;font-weight:800;line-height:1;letter-spacing:-.02em}
+.hz-kpi-l{font-size:12px;color:var(--slate-300)}
+.hz-kpi-l--strong{font-size:15px;font-weight:700;color:var(--slate-100);line-height:1.15}
+.hz-kpi-sub{font-size:11px;color:var(--slate-300)}
+.hz-kpi-go{margin-left:auto;color:var(--slate-300);font-size:13px;opacity:.6;transition:transform .16s ease,opacity .16s ease}
+.hz-kpi:hover .hz-kpi-go{opacity:1;transform:translateX(3px)}
+.hz-kpi--warn{border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.hz-kpi--warn .hz-kpi-v{color:var(--warn)}
+.hz-kpi--alert{border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
+.hz-kpi--alert .hz-kpi-v{color:var(--bad)}
+@media(max-width:900px){.hz-kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.hz-kpis{grid-template-columns:1fr}}
+
+/* Health indicator as a link (→ services) */
+a.hz-health{text-decoration:none;cursor:pointer}
+a.hz-health:hover,a.hz-health:focus-visible{text-decoration:none;opacity:.85}
+a.hz-health:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
+.hz-health-go{font-size:10px;opacity:.55;transition:transform .16s ease,opacity .16s ease}
+a.hz-health:hover .hz-health-go{opacity:1;transform:translateX(3px)}
+
+/* ===== KPI enhancements: amount+pay, announcements badge, attention pulse, quick buttons ===== */
+.hz-kpi-amt{color:var(--bad);font-weight:800}
+.hz-kpi--warn .hz-kpi-amt{color:var(--warn)}
+.hz-kpi-pay{margin-left:auto;flex:0 0 auto;background:#b23325;color:#fff;font-size:11px;font-weight:800;
+  padding:6px 13px;border-radius:var(--radius-pill);white-space:nowrap;letter-spacing:.02em}
+.hz-kpi:hover .hz-kpi-pay{filter:brightness(1.1)}
+.hz-kpi-ic{position:relative}
+.hz-kpi-badge{position:absolute;top:-6px;right:-6px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;
+  background:#c0392b;color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;
+  border:2px solid var(--surface);line-height:1}
+@keyframes hzPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--bad) 15%,transparent)}}
+@keyframes hzPulseWarn{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--warn) 15%,transparent)}}
+.hz-kpi--alert{animation:hzPulse 2.6s ease-in-out infinite}
+.hz-kpi--warn{animation:hzPulseWarn 2.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.hz-kpi--alert,.hz-kpi--warn{animation:none}}
+.hz-quick{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;padding-top:0;border-top:0}
+.hz-quick-btn{display:inline-flex;align-items:center;gap:9px;padding:11px 16px;border-radius:var(--radius-lg);
+  background:color-mix(in srgb,var(--slate-0) 4%,transparent);border:1px solid var(--slate-700);
+  color:var(--slate-100);font-size:13px;font-weight:600;text-decoration:none;transition:transform .16s ease,border-color .16s ease,background .16s ease,color .16s ease}
+.hz-quick-btn i{color:var(--brand);font-size:15px}
+.hz-quick-btn:hover,.hz-quick-btn:focus-visible{text-decoration:none;transform:translateY(-2px);color:#fff;
+  border-color:color-mix(in srgb,var(--brand) 55%,transparent);background:color-mix(in srgb,var(--slate-0) 7%,transparent)}
+.hz-quick-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
