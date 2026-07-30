@@ -303,10 +303,14 @@ class Api
             throw new ApiException($oauthError);
         }
 
+        // Με Basic auth το endpoint ζει στον παλιό host (www./demo.), όχι στο api.
         if (($code < 200 || $code >= 300) && $this->merchantId !== '' && $this->apiKey !== '') {
-            [$code, $body] = $this->raw('GET', $url, null, [
-                'Authorization: Basic ' . base64_encode($this->merchantId . ':' . $this->apiKey),
-            ]);
+            [$code, $body] = $this->raw(
+                'GET',
+                $this->host('checkout') . '/api/messages/config/token',
+                null,
+                ['Authorization: Basic ' . base64_encode($this->merchantId . ':' . $this->apiKey)]
+            );
         }
 
         if ($code < 200 || $code >= 300) {
