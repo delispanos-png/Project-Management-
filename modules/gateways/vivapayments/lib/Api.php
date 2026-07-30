@@ -110,13 +110,22 @@ class Api
      * Το token κρατάει 1 ώρα· το αποθηκεύουμε στη βάση για να μη ζητάμε νέο
      * σε κάθε κλήση.
      */
-    public function accessToken($scope = 'urn:viva:payments:core:api:redirectcheckout')
+    /**
+     * Δεν στέλνουμε παράμετρο scope: έτσι το token παίρνει όσα δικαιώματα έχει
+     * το κλειδί στο portal της Viva (εκεί ορίζεται τι επιτρέπεται, όχι εδώ).
+     * Ρητό scope που δεν έχει παραχωρηθεί απαντά invalid_scope και μπλοκάρει
+     * όλη τη ροή — π.χ. το …:api:messages δεν δίνεται στα Smart Checkout κλειδιά.
+     */
+    public function accessToken($scope = '')
     {
         if ($this->clientId === '' || $this->clientSecret === '') {
             throw new ApiException('Λείπουν τα Client ID / Client Secret του Smart Checkout.');
         }
 
-        $key = ($this->demo ? 'demo:' : 'live:') . $scope . ':' . substr(sha1($this->clientId), 0, 12);
+        // Στο κλειδί μπαίνει και το secret: αν αλλάξουν τα credentials, το παλιό
+        // token δεν επαναχρησιμοποιείται κατά λάθος μέχρι να λήξει.
+        $key = ($this->demo ? 'demo:' : 'live:') . substr(sha1($scope), 0, 8) . ':'
+            . substr(sha1($this->clientId . "\0" . $this->clientSecret), 0, 24);
         $cached = Db::tokenGet($key);
         if ($cached !== null) {
             return $cached;
@@ -125,7 +134,7 @@ class Api
         [$code, $body] = $this->raw(
             'POST',
             $this->host('accounts') . '/connect/token',
-            http_build_query(['grant_type' => 'client_credentials', 'scope' => $scope]),
+            http_build_query(array_filter(['grant_type' => 'client_credentials', 'scope' => $scope])),
             [
                 'Content-Type: application/x-www-form-urlencoded',
                 'Authorization: Basic ' . base64_encode($this->clientId . ':' . $this->clientSecret),
@@ -291,7 +300,7 @@ class Api
 
         try {
             [$code, $body] = $this->raw('GET', $url, null, [
-                'Authorization: Bearer ' . $this->accessToken('urn:viva:payments:core:api:messages'),
+                'Authorization: Bearer ' . $this->accessToken(),
             ]);
         } catch (ApiException $e) {
             $code = 0;
