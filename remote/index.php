@@ -46,15 +46,15 @@ $T = [
     'contact_p' => 'Είμαστε εδώ για σένα.',
     'call' => 'Τηλεφώνησέ μας',
     'ticket' => 'Άνοιξε αίτημα',
-    'warn_h' => 'Θα σου βγάλουν τα Windows προειδοποίηση — είναι φυσιολογικό',
-    'warn_p' => 'Τα Windows εμφανίζουν προειδοποίηση σε <b>κάθε</b> πρόγραμμα που δεν κατεβαίνει από το Microsoft Store, ακόμη κι αν είναι απολύτως ασφαλές. Δεν σημαίνει ότι το αρχείο έχει ιό — σημαίνει απλώς ότι τα Windows δεν το έχουν ξαναδεί πολλές φορές.',
-    'warn_w1t' => '1. Κατά το κατέβασμα, ο browser λέει ότι «το αρχείο μπορεί να είναι επικίνδυνο»',
-    'warn_w1p' => 'Στη λίστα λήψεων (πάνω δεξιά στον browser) πάτα το <b>βελάκι ▾</b> ή τα <b>τρία τελεία</b> δίπλα στο αρχείο και επίλεξε <b>«Διατήρηση»</b> / <b>«Keep»</b>. Ο Chrome μπορεί να ζητήσει ακόμη μία επιβεβαίωση: <b>«Διατήρηση ούτως ή άλλως»</b>.',
-    'warn_w2t' => '2. Στο άνοιγμα: «Τα Windows προστάτευσαν τον υπολογιστή σας»',
-    'warn_w2p' => 'Πάτα <b>«Περισσότερες πληροφορίες»</b> και μετά εμφανίζεται το κουμπί <b>«Εκτέλεση οπωσδήποτε»</b>.',
+    'warn_h' => 'Τι θα δεις όταν το ανοίξεις',
+    'warn_p' => 'Τα Windows ρωτούν πριν τρέξει <b>κάθε</b> πρόγραμμα που δεν ήρθε από το Microsoft Store — ακόμη κι αν είναι απολύτως ασφαλές. <b>Δεν σημαίνει ότι υπάρχει ιός.</b> Δες τι να πατήσεις:',
+    'warn_w1t' => '«Τα Windows προστάτευσαν τον υπολογιστή σας»',
+    'warn_w1p' => 'Πάτα <b>«Περισσότερες πληροφορίες»</b> και μετά εμφανίζεται το κουμπί <b>«Εκτέλεση οπωσδήποτε»</b>.',
+    'warn_w2t' => '«Θέλετε να επιτρέψετε σε αυτήν την εφαρμογή…;»',
+    'warn_w2p' => 'Πάτα <b>«Ναι»</b>. Είναι το κανονικό παράθυρο αδειών των Windows.',
     'warn_w3t' => '3. «Θέλετε να επιτρέψετε σε αυτήν την εφαρμογή…;»',
     'warn_w3p' => 'Πάτα <b>«Ναι»</b>. Είναι το κανονικό παράθυρο αδειών των Windows.',
-    'warn_note' => 'Το αρχείο κατεβαίνει πάντα από <b>δικό μας server</b> (remote.cloudon.gr) μέσω ασφαλούς σύνδεσης. Αν έχεις οποιαδήποτε αμφιβολία, πάρε μας τηλέφωνο πριν το τρέξεις.',
+    'warn_note' => 'Αν επιλέξεις να κατεβάσεις απευθείας το <b>.exe</b> αντί για το ZIP, ο browser μπορεί να ρωτήσει αν θες να κρατήσεις το αρχείο — πάτα <b>«Διατήρηση» / «Keep»</b>. Το αρχείο κατεβαίνει πάντα από <b>δικό μας server</b> μέσω ασφαλούς σύνδεσης.',
     'foot' => 'Χρειάζεσαι Windows. Για Mac ή κινητό, επικοινώνησε μαζί μας και θα σε καθοδηγήσουμε.',
   ],
   'en' => [
@@ -87,15 +87,15 @@ $T = [
     'contact_p' => 'We’re here for you.',
     'call' => 'Call us',
     'ticket' => 'Open a ticket',
-    'warn_h' => 'Windows will show a warning — that’s normal',
-    'warn_p' => 'Windows warns about <b>every</b> program that does not come from the Microsoft Store, even perfectly safe ones. It does not mean the file has a virus — only that Windows has not seen it many times yet.',
+    'warn_h' => 'What you’ll see when you open it',
+    'warn_p' => 'Windows asks before running <b>any</b> program that did not come from the Microsoft Store — even perfectly safe ones. <b>It does not mean there is a virus.</b> Here is what to click:',
     'warn_w1t' => '“Windows protected your PC”',
     'warn_w1p' => 'Click <b>“More info”</b> and then <b>“Run anyway”</b>.',
     'warn_w2t' => '“Do you want to allow this app…?”',
     'warn_w2p' => 'Click <b>“Yes”</b>. This is the standard Windows permission dialog.',
     'warn_w3t' => 'Your browser says the file “isn’t downloaded securely”',
     'warn_w3p' => 'Click the arrow next to the file and choose <b>“Keep”</b> or <b>“Keep anyway”</b>.',
-    'warn_note' => 'The file always downloads from <b>our own server</b> (remote.cloudon.gr) over a secure connection. If you have any doubt, call us before running it.',
+    'warn_note' => 'If you choose the direct <b>.exe</b> instead of the ZIP, your browser may ask whether to keep the file — click <b>“Keep”</b>. The file always downloads from <b>our own server</b> over a secure connection.',
     'foot' => 'Windows required. For Mac or mobile, contact us and we’ll guide you.',
   ],
 ];
@@ -237,19 +237,6 @@ footer{text-align:center;color:var(--mut);font-size:13.5px;padding:34px 20px 44p
     <a href="<?= $e($DL_EXE) ?>" style="color:#7fd6ff;text-decoration:underline"><?= $e($t('dl_alt')) ?></a></div>
 </div></section>
 
-<section class="sec" style="padding-bottom:0"><div class="wrap">
-  <div class="warn">
-    <h2>⚠️ <?= $e($t('warn_h')) ?></h2>
-    <p class="warn-lead"><?= $t('warn_p') ?></p>
-    <div class="warn-list">
-      <?php foreach ([['warn_w1t','warn_w1p'], ['warn_w2t','warn_w2p'], ['warn_w3t','warn_w3p']] as [$a, $b]): ?>
-      <div class="warn-item"><b><?= $t($a) ?></b><span><?= $t($b) ?></span></div>
-      <?php endforeach; ?>
-    </div>
-    <p class="warn-note"><?= $t('warn_note') ?></p>
-  </div>
-</div></section>
-
 <section class="sec"><div class="wrap">
   <h2><?= $e($t('steps_h')) ?></h2>
   <div class="steps">
@@ -259,6 +246,19 @@ footer{text-align:center;color:var(--mut);font-size:13.5px;padding:34px 20px 44p
       <h3><?= $e($t('s2t')) ?></h3><p><?= $t('s2p') ?></p></div></div>
     <div class="step"><div class="step-n">3</div><div>
       <h3><?= $e($t('s3t')) ?></h3><p><?= $t('s3p') ?></p></div></div>
+  </div>
+</div></section>
+
+<section class="sec" style="padding-bottom:0"><div class="wrap">
+  <div class="warn">
+    <h2>⚠️ <?= $e($t('warn_h')) ?></h2>
+    <p class="warn-lead"><?= $t('warn_p') ?></p>
+    <div class="warn-list">
+      <?php foreach ([['warn_w1t','warn_w1p'], ['warn_w2t','warn_w2p']] as [$a, $b]): ?>
+      <div class="warn-item"><b><?= $t($a) ?></b><span><?= $t($b) ?></span></div>
+      <?php endforeach; ?>
+    </div>
+    <p class="warn-note"><?= $t('warn_note') ?></p>
   </div>
 </div></section>
 
