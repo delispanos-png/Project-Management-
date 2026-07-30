@@ -66,13 +66,39 @@ function cnp_surcharge_amount($base, array $cfg)
     return round($fee, 2);
 }
 
-/** Σβήνει τυχόν υπάρχουσα γραμμή χρέωσης από το τιμολόγιο. */
+/** Όλες οι ετικέτες που χρησιμοποιούμε, για αναγνώριση γραμμών από το καλάθι. */
+function cnp_surcharge_labels()
+{
+    $out = [];
+    foreach (CNP_SURCHARGE as $cfg) {
+        $out[] = $cfg['labelEl'];
+        $out[] = $cfg['labelEn'];
+    }
+    return $out;
+}
+
+/**
+ * Σβήνει τυχόν υπάρχουσα γραμμή χρέωσης από το τιμολόγιο.
+ *
+ * Ψάχνει και με ετικέτα, όχι μόνο με type: όταν η παραγγελία έρχεται από το
+ * καλάθι, τη γραμμή τη δημιουργεί το WHMCS και δεν φέρει το δικό μας type.
+ * Χωρίς αυτό θα προσθέταμε δεύτερη και θα διπλοχρεώναμε.
+ */
 function cnp_surcharge_remove($invoiceId)
 {
     return Capsule::table('tblinvoiceitems')
         ->where('invoiceid', (int) $invoiceId)
-        ->where('type', CNP_SURCHARGE_TYPE)
+        ->where(function ($q) {
+            $q->where('type', CNP_SURCHARGE_TYPE)
+              ->orWhereIn('description', cnp_surcharge_labels());
+        })
         ->delete();
+}
+
+/** Ο τρόπος πληρωμής που έχει επιλεγεί αυτή τη στιγμή στο καλάθι. */
+function cnp_surcharge_cart_gateway()
+{
+    return (string) ($_REQUEST['paymentmethod'] ?? ($_SESSION['cart']['paymentmethod'] ?? ''));
 }
 
 /**
@@ -156,4 +182,105 @@ add_hook('InvoiceCreated', 1, function ($vars) {
     if ($inv) {
         cnp_surcharge_sync($invoiceId, (string) $inv->paymentmethod);
     }
+});
+
+/**
+ * Ταμείο: η χρέωση πρέπει να μπει στο σύνολο ΠΡΙΝ ολοκληρωθεί η παραγγελία,
+ * αλλιώς ο πελάτης βλέπει ένα ποσό στο καλάθι και άλλο στη σελίδα πληρωμής.
+ */
+add_hook('CartTotalAdjustment', 1, function ($vars) {
+    $cfg = CNP_SURCHARGE[cnp_surcharge_cart_gateway()] ?? null;
+    if (!$cfg) {
+        return [];
+    }
+
+    // Βάση: το πληρωτέο σήμερα, μετά ΦΠΑ. Τα κλειδιά διαφέρουν ανά έκδοση,
+    // οπότε δοκιμάζουμε με σειρά προτίμησης και σε αποτυχία δεν χρεώνουμε.
+    $base = 0.0;
+    foreach (['total', 'subtotal'] as $k) {
+        if (isset($vars[$k]) && is_numeric((string) $vars[$k])) {
+            $base = (float) $vars[$k];
+            break;
+        }
+    }
+    if ($base <= 0 && isset($vars['subtotal'], $vars['taxtotal'])) {
+        $base = (float) $vars['subtotal'] + (float) $vars['taxtotal'];
+    }
+    if ($base <= 0) {
+        return [];
+    }
+
+    $isEn = strtolower((string) ($_SESSION['Language'] ?? '')) === 'english';
+
+    return [
+        'description' => $isEn ? $cfg['labelEn'] : $cfg['labelEl'],
+        'amount'      => number_format(cnp_surcharge_amount($base, $cfg), 2, '.', ''),
+        'taxed'       => !empty($cfg['taxed']),
+    ];
+});
+
+/**
+ * Στο ταμείο, η αλλαγή τρόπου πληρωμής δεν ξαναφορτώνει τη σελίδα — άρα ο
+ * πελάτης δεν θα έβλεπε τη χρέωση να εμφανίζεται. Ενημερώνουμε τη σύνοψη
+ * επιτόπου, με τον ίδιο τύπο που χρησιμοποιεί ο server.
+ */
+add_hook('ClientAreaFooterOutput', 1, function ($vars) {
+    if (($vars['templatefile'] ?? '') !== 'checkout') {
+        return '';
+    }
+
+    $cfgJson = json_encode(CNP_SURCHARGE, JSON_UNESCAPED_UNICODE);
+
+    return <<<HTML
+<script>
+(function () {
+  var CFG = {$cfgJson};
+  var total = document.getElementById('totalDueToday');
+  if (!total) return;
+
+  // "13,38 €" ή "€13.38" → 13.38
+  function num(t) {
+    t = (t || '').replace(/[^0-9.,-]/g, '').trim();
+    if (t.indexOf(',') > -1 && t.indexOf('.') > -1) {
+      t = t.lastIndexOf(',') > t.lastIndexOf('.') ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+    } else if (t.indexOf(',') > -1) {
+      t = t.replace(',', '.');
+    }
+    return parseFloat(t) || 0;
+  }
+  function money(v) { return v.toFixed(2).replace('.', ',') + ' €'; }
+
+  var baseText = total.textContent, base = num(baseText);
+  var row = null;
+
+  function render() {
+    var sel = document.querySelector('input[name=paymentmethod]:checked');
+    var cfg = sel ? CFG[sel.value] : null;
+
+    if (row) { row.parentNode.removeChild(row); row = null; }
+
+    if (!cfg || !base) { total.textContent = baseText; return; }
+
+    var p = cfg.percent / 100, f = cfg.fixed;
+    var fee = cfg.grossUp && p < 1 ? (p * base + f) / (1 - p) : p * base + f;
+    fee = Math.round(fee * 100) / 100;
+
+    var anchor = total.parentNode;
+    row = document.createElement('div');
+    row.className = 'subtotal clearfix';
+    row.style.cssText = 'padding:4px 0';
+    row.innerHTML = '<span class="pull-left">' + cfg.labelEl + '</span>'
+                  + '<span class="pull-right">' + money(fee) + '</span>';
+    anchor.parentNode.insertBefore(row, anchor);
+
+    total.textContent = money(base + fee);
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target && e.target.name === 'paymentmethod') render();
+  });
+  render();
+})();
+</script>
+HTML;
 });
