@@ -1419,7 +1419,8 @@ R.recruit = async function () {
   c.innerHTML = `
   <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:0">
     <button class="rtab" data-rview="cvs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.users || ''} Υποψήφιοι</button>
-    <button class="rtab" data-rview="jobs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.briefcase || I.folder} Θέσεις / Αγγελίες <span class="kb-n" style="margin-left:2px">${activeJobs}</span></button>
+    <button class="rtab" data-rview="jobs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.briefcase || I.folder} Θέσεις / Αγγελίες <span class="kb-n" style="margin-left:2px">${activeJobs}</span></button>
+    <button class="rtab" data-rview="traffic" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.chart || I.pie || '📈'} Επισκεψιμότητα</button>
   </div>
   <div id="cvPane">
     <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
@@ -1433,13 +1434,16 @@ R.recruit = async function () {
     <div id="cvList">${'<div class="skel" style="height:56px;margin-bottom:8px"></div>'.repeat(5)}</div>
     <div id="cvPager" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px"></div>
   </div>
-  <div id="jobsPane" style="display:none"></div>`;
+  <div id="jobsPane" style="display:none"></div>
+  <div id="trafficPane" style="display:none"></div>`;
   const setView = v => {
     st.view = v;
     $('#cvPane').style.display = v === 'cvs' ? '' : 'none';
     $('#jobsPane').style.display = v === 'jobs' ? '' : 'none';
+    $('#trafficPane').style.display = v === 'traffic' ? '' : 'none';
     $$('.rtab').forEach(b => { const on = b.dataset.rview === v; b.style.color = on ? 'var(--brand)' : 'var(--mut)'; b.style.borderBottomColor = on ? 'var(--brand)' : 'transparent'; });
     if (v === 'jobs') { renderJobsPanel($('#jobsPane'), () => { R.recruit(); }); }
+    if (v === 'traffic') { renderTrafficPanel($('#trafficPane')); }
   };
   $$('.rtab').forEach(b => b.onclick = () => setView(b.dataset.rview));
   const cvAva = x => x.photo
@@ -1491,6 +1495,138 @@ R.recruit = async function () {
   $('#cvDups').onclick = () => { st.dups = !st.dups; st.page = 1; load(); };
   setView(st.view || 'cvs');
 };
+
+/* ── Επισκεψιμότητα αγγελιών ───────────────────────────────────────────────
+   Δείχνει πόσοι είδαν κάθε θέση, ανεξάρτητα από το αν έκαναν αίτηση. Χωρίς
+   αυτό δεν ξεχωρίζεις τη θέση που δεν τη βλέπει κανείς από τη θέση που τη
+   βλέπουν πολλοί αλλά δεν τους πείθει. ------------------------------------ */
+async function renderTrafficPanel(host) {
+  const st = renderTrafficPanel._s = renderTrafficPanel._s || {days: 30};
+
+  const spark = (arr, col) => {
+    if (!arr || !arr.length) return '';
+    const max = Math.max(1, ...arr), w = 3, gap = 1, h = 26;
+    return `<svg width="${arr.length * (w + gap)}" height="${h}" style="vertical-align:middle">` +
+      arr.map((v, i) => {
+        const bh = Math.max(v ? 2 : 1, Math.round(v / max * h));
+        return `<rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh}" rx="1" fill="${v ? col : 'var(--line)'}"></rect>`;
+      }).join('') + '</svg>';
+  };
+  const pct = (a, b) => b > 0 ? Math.round(a / b * 100) : 0;
+  const ago = s => {
+    if (!s) return '—';
+    const d = Math.floor((Date.now() - new Date(s.replace(' ', 'T')).getTime()) / 86400000);
+    return d <= 0 ? 'σήμερα' : (d === 1 ? 'χθες' : `πριν ${d} ημέρες`);
+  };
+
+  host.innerHTML = '<div class="skel" style="height:96px;margin-bottom:12px"></div><div class="skel" style="height:340px"></div>';
+
+  const d = await api('cv_job_views', {days: st.days}).catch(() => null);
+  if (!d) { host.innerHTML = `<div class="empty"><div class="big">${I.lock || ''}</div>Δεν ήταν δυνατή η φόρτωση.</div>`; return; }
+
+  const rows = d.rows.slice().sort((a, b) => b.views - a.views || b.uniques - a.uniques);
+  const totViews = rows.reduce((s, r) => s + r.views, 0);
+  const totUniq = rows.reduce((s, r) => s + r.uniques, 0);
+  const totApps = rows.reduce((s, r) => s + r.apps, 0);
+  const totForms = rows.reduce((s, r) => s + r.forms, 0);
+
+  const tile = (label, value, sub, col) => `
+    <div class="card" style="padding:13px 15px;flex:1;min-width:135px">
+      <div class="mut" style="font-size:11.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase">${label}</div>
+      <div style="font-size:25px;font-weight:800;color:${col || 'var(--ink)'};line-height:1.15;margin-top:3px">${value}</div>
+      <div class="mut" style="font-size:11.5px;margin-top:1px">${sub}</div>
+    </div>`;
+
+  const periods = [[7, '7 ημέρες'], [30, '30 ημέρες'], [90, '3 μήνες'], [365, '1 έτος']];
+
+  host.innerHTML = `
+  <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <span style="font-weight:700;font-size:13.5px">Περίοδος</span>
+    ${periods.map(([n, l]) => `<button class="btn btn-sm ${st.days === n ? 'btn-p' : 'btn-o'}" data-tdays="${n}">${l}</button>`).join('')}
+    <span style="flex:1"></span>
+    <span class="mut" style="font-size:12px">Δεν καταγράφονται IP· μόνο ανώνυμοι μετρητές.</span>
+  </div>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    ${tile('Επισκέψεις σελίδας', d.page.views, `${d.page.uniques} μοναδικοί`, 'var(--brand)')}
+    ${tile('Προβολές αγγελιών', totViews, `${totUniq} μοναδικοί αναγνώστες`)}
+    ${tile('Άνοιγμα φόρμας', totForms, `${pct(totForms, totViews)}% όσων διάβασαν`, '#e0a020')}
+    ${tile('Αιτήσεις', totApps, `${pct(totApps, totViews)}% όσων διάβασαν`, '#16a26a')}
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px">
+        <thead><tr style="background:var(--bg2)">
+          <th style="text-align:left;padding:10px 14px;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;color:var(--mut)">Θέση</th>
+          <th style="text-align:center;padding:10px 8px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Τάση</th>
+          <th style="text-align:right;padding:10px 10px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Προβολές</th>
+          <th style="text-align:right;padding:10px 10px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Μοναδικοί</th>
+          <th style="text-align:right;padding:10px 10px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Φόρμα</th>
+          <th style="text-align:right;padding:10px 10px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Αιτήσεις</th>
+          <th style="text-align:right;padding:10px 10px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Μετατροπή</th>
+          <th style="text-align:right;padding:10px 14px;font-size:11.5px;text-transform:uppercase;color:var(--mut)">Τελευταία</th>
+        </tr></thead>
+        <tbody>
+        ${rows.map(r => {
+          const conv = pct(r.apps, r.views);
+          const col = conv >= 10 ? '#16a26a' : (conv >= 3 ? '#e0a020' : (r.views ? '#e2515f' : 'var(--mut)'));
+          return `<tr style="border-top:1px solid var(--line)">
+            <td style="padding:10px 14px">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${r.active ? '#16a26a' : 'var(--mut)'};margin-right:7px"></span>
+              <b>${esc(r.title)}</b>
+              ${r.active ? '' : '<span class="mut" style="font-size:11.5px;margin-left:5px">ανενεργή</span>'}
+            </td>
+            <td style="padding:6px 8px;text-align:center">${spark(r.series, 'var(--brand)')}</td>
+            <td style="padding:10px;text-align:right;font-weight:700">${r.views || '—'}</td>
+            <td style="padding:10px;text-align:right">${r.uniques || '—'}</td>
+            <td style="padding:10px;text-align:right">${r.forms || '—'}</td>
+            <td style="padding:10px;text-align:right">${r.apps || '—'}</td>
+            <td style="padding:10px;text-align:right;font-weight:800;color:${col}">${r.views ? conv + '%' : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:12.5px" class="mut">${ago(r.lastAt)}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="card" style="padding:13px 15px;flex:1;min-width:250px">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:9px">Από πού έρχονται</div>
+      ${d.breakdown.sources.length
+        ? d.breakdown.sources.map(s => {
+            const mx = Math.max(...d.breakdown.sources.map(x => x.n));
+            return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">
+              <span style="flex:0 0 110px;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name)}</span>
+              <span style="flex:1;height:7px;background:var(--line);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;width:${Math.round(s.n / mx * 100)}%;background:var(--brand)"></span></span>
+              <b style="font-size:12.5px;min-width:26px;text-align:right">${s.n}</b></div>`;
+          }).join('')
+        : '<div class="mut" style="font-size:13px">Δεν υπάρχουν ακόμη δεδομένα.</div>'}
+    </div>
+    <div class="card" style="padding:13px 15px;flex:1;min-width:250px">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:9px">Συσκευή</div>
+      ${d.breakdown.devices.length
+        ? d.breakdown.devices.map(s => {
+            const tot = d.breakdown.devices.reduce((a, x) => a + x.n, 0) || 1;
+            const nm = {mobile: '📱 Κινητό', desktop: '💻 Υπολογιστής', tablet: '▭ Tablet'}[s.name] || esc(s.name);
+            return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">
+              <span style="flex:0 0 110px;font-size:12.5px">${nm}</span>
+              <span style="flex:1;height:7px;background:var(--line);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;width:${Math.round(s.n / tot * 100)}%;background:#7b5cd6"></span></span>
+              <b style="font-size:12.5px;min-width:38px;text-align:right">${Math.round(s.n / tot * 100)}%</b></div>`;
+          }).join('')
+        : '<div class="mut" style="font-size:13px">Δεν υπάρχουν ακόμη δεδομένα.</div>'}
+    </div>
+  </div>
+
+  ${totViews === 0 ? `<div class="card" style="padding:14px 16px;margin-top:12px;border-left:3px solid var(--brand)">
+    <b style="font-size:13.5px">Η μέτρηση μόλις ξεκίνησε</b>
+    <div class="mut" style="font-size:13px;margin-top:4px;line-height:1.55">Τα νούμερα θα γεμίσουν καθώς οι επισκέπτες ανοίγουν τις αγγελίες στη δημόσια σελίδα.
+    Οι αιτήσεις που φαίνονται είναι όλες όσες έχουν καταγραφεί· οι προβολές μετρούν μόνο από σήμερα και μετά.</div>
+  </div>` : ''}`;
+
+  $$('[data-tdays]').forEach(b => b.onclick = () => { st.days = +b.dataset.tdays; renderTrafficPanel(host); });
+}
 
 function renderJobsPanel(host, reload) {
   host.innerHTML = '<div class="skel" style="height:260px"></div>';

@@ -19,7 +19,17 @@ $_COOKIE = $__cookies;
 use WHMCS\Database\Capsule;
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/JobViews.php';
 use WHMCS\Module\Addon\CloudonProjects\CvPhoto;
+use WHMCS\Module\Addon\CloudonProjects\JobViews;
+
+// ── Καταγραφή προβολής αγγελίας (beacon από το modal) ──
+// Απαντά αμέσως 204 και δεν συνεχίζει να χτίζει τη σελίδα.
+if (isset($_GET['trk'])) {
+    JobViews::hit((int) $_GET['trk'], ($_GET['k'] ?? '') === 'form' ? 'form' : 'view');
+    http_response_code(204);
+    exit;
+}
 
 // ── Γλώσσα ──
 $lang = (($_REQUEST['lang'] ?? '') === 'en') ? 'en' : 'el';
@@ -213,6 +223,14 @@ $formJob = null;
 foreach ($jobs as $jj) { if ((int) $jj->id === $reqJobId) { $formJob = $jj; break; } }
 $formGeneral = !$done && (($_GET['job'] ?? '') === 'general' || (!empty($_POST['general']) && $_SERVER['REQUEST_METHOD'] === 'POST'));
 $mode = $done ? 'done' : (($formJob || $formGeneral) ? 'form' : 'landing');
+
+// Μέτρηση: η σελίδα καριέρας συνολικά (job_id 0) και το άνοιγμα φόρμας ανά θέση.
+// Το άνοιγμα της αναλυτικής αγγελίας μετριέται από το beacon του modal.
+if ($mode === 'landing') {
+    JobViews::hit(0, 'view');
+} elseif ($mode === 'form' && $formJob) {
+    JobViews::hit((int) $formJob->id, 'form');
+}
 
 // base URL για εναλλαγή γλώσσας (διατηρεί context)
 $curBase = 'apply.php';
@@ -563,6 +581,18 @@ function openJob(id){
   document.getElementById('jmApply').href = 'apply.php?job=' + id + '&lang=' + LANG;
   document.getElementById('jobModal').classList.add('show');
   document.body.style.overflow = 'hidden';
+  trackJob(id);
+}
+
+// Μετράει ότι κάποιος διάβασε την αγγελία, ακόμη κι αν δεν κάνει αίτηση.
+// Μία φορά ανά θέση σε κάθε επίσκεψη — τα ξανα-ανοίγματα δεν φουσκώνουν το νούμερο.
+const TRACKED = new Set();
+function trackJob(id){
+  if (TRACKED.has(id)) return;
+  TRACKED.add(id);
+  const u = 'apply.php?trk=' + encodeURIComponent(id);
+  if (navigator.sendBeacon) { navigator.sendBeacon(u); }
+  else { fetch(u, {method:'GET', keepalive:true}).catch(()=>{}); }
 }
 function closeJob(){ document.getElementById('jobModal').classList.remove('show'); document.body.style.overflow=''; }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }

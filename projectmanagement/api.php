@@ -5513,6 +5513,39 @@ case 'cv_jobs':
         'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
+case 'cv_job_views':                     // επισκεψιμότητα αγγελιών (ανεξάρτητα από αιτήσεις)
+    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
+    require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/JobViews.php';
+    $vDays = max(1, min(365, (int) ($in['days'] ?? 30)));
+    $vStats = WHMCS\Module\Addon\CloudonProjects\JobViews::stats($vDays);
+    $vRows = [];
+    foreach (Capsule::table('mod_cpm_cv_jobs')->orderByDesc('active')->orderBy('title')->get() as $jb) {
+        $s = $vStats[(int) $jb->id] ?? ['views' => 0, 'forms' => 0, 'uniques' => 0, 'last_at' => null];
+        // Αιτήσεις της περιόδου, για να συγκρίνεται με τις προβολές της ίδιας περιόδου.
+        $apps = (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)
+            ->where('created_at', '>=', date('Y-m-d 00:00:00', strtotime('-' . $vDays . ' days')))->count();
+        $vRows[] = [
+            'id'       => (int) $jb->id,
+            'title'    => $jb->title,
+            'active'   => (bool) $jb->active,
+            'views'    => $s['views'],
+            'uniques'  => $s['uniques'],
+            'forms'    => $s['forms'],
+            'apps'     => $apps,
+            'appsAll'  => (int) Capsule::table('mod_cpm_cv')->where('job_id', $jb->id)->count(),
+            'lastAt'   => $s['last_at'],
+            'series'   => array_values(WHMCS\Module\Addon\CloudonProjects\JobViews::daily((int) $jb->id, min(30, $vDays))),
+        ];
+    }
+    $vPage = $vStats[0] ?? ['views' => 0, 'uniques' => 0];
+    out([
+        'days'      => $vDays,
+        'rows'      => $vRows,
+        'page'      => ['views' => $vPage['views'], 'uniques' => $vPage['uniques'],
+                        'series' => array_values(WHMCS\Module\Addon\CloudonProjects\JobViews::daily(0, min(30, $vDays)))],
+        'breakdown' => WHMCS\Module\Addon\CloudonProjects\JobViews::breakdown($vDays),
+    ]);
+
 case 'cv_job_save':                      // δημιουργία/επεξεργασία αγγελίας
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
