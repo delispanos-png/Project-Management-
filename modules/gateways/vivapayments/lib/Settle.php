@@ -52,7 +52,25 @@ class Settle
             return false;
         }
 
-        $invoiceId = checkCbInvoiceID((int) $order['invoice_id'], 'vivapayments');
+        $invoiceId = (int) $order['invoice_id'];
+
+        // Ο πελάτης μπορεί να πατήσει «Πληρωμή» δύο φορές και να δημιουργηθούν
+        // δύο παραγγελίες για το ΙΔΙΟ τιμολόγιο. Αν πληρώσει και τις δύο, τα
+        // χρήματα έχουν χρεωθεί δύο φορές. Δεν προσθέτουμε δεύτερη πληρωμή —
+        // το τιμολόγιο θα έβγαζε πιστωτικό υπόλοιπο και το λάθος θα περνούσε
+        // απαρατήρητο. Το καταγράφουμε ώστε να γίνει επιστροφή.
+        $inv = Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
+        if ($inv && $inv->status === 'Paid') {
+            Db::orderMark($orderCode, 'duplicate', $transId);
+            Db::log('ΔΙΠΛΗ ΧΡΕΩΣΗ', 'Το τιμολόγιο ' . $invoiceId . ' ήταν ήδη εξοφλημένο. Χρειάζεται'
+                . ' επιστροφή ' . number_format($paidCents / 100, 2) . ' EUR για τη συναλλαγή ' . $transId,
+                $invoiceId, $orderCode);
+            logActivity('Viva: ΔΙΠΛΗ ΧΡΕΩΣΗ στο τιμολόγιο ' . $invoiceId . ' — συναλλαγή ' . $transId
+                . ' (' . number_format($paidCents / 100, 2) . ' EUR) χρειάζεται επιστροφή.');
+            return false;
+        }
+
+        $invoiceId = checkCbInvoiceID($invoiceId, 'vivapayments');
         checkCbTransID($transId);
 
         // Αν το τιμολόγιο είναι σε άλλο νόμισμα (convertto), πιστώνουμε το
@@ -74,6 +92,13 @@ class Settle
 
         Db::log('paid', 'Εξόφληση τιμολογίου ' . $invoiceId . ' με συναλλαγή ' . $transId,
             $invoiceId, $orderCode);
+
+        // Τυχόν άλλες εκκρεμείς παραγγελίες του ίδιου τιμολογίου δεν έχουν πια
+        // νόημα — σταματάμε να τις ρωτάμε στη Viva.
+        Capsule::table(Db::T_ORDERS)
+            ->where('invoice_id', $invoiceId)
+            ->where('status', 'pending')
+            ->update(['status' => 'superseded', 'updated_at' => date('Y-m-d H:i:s')]);
 
         return true;
     }
