@@ -317,9 +317,11 @@ class Api
             $qs['sourceCode'] = $sourceCode;
         }
 
+        // Όπως και τα orderInfo/orderTransactions, οι επιστροφές ζουν στον παλιό
+        // host με Basic auth — στο api.vivapayments.com απαντά 404.
         [$code, $body] = $this->raw(
             'DELETE',
-            $this->host('api') . '/api/transactions/' . rawurlencode((string) $transactionId) . '?' . http_build_query($qs),
+            $this->host('checkout') . '/api/transactions/' . rawurlencode((string) $transactionId) . '?' . http_build_query($qs),
             null,
             ['Authorization: Basic ' . base64_encode($this->merchantId . ':' . $this->apiKey)]
         );
