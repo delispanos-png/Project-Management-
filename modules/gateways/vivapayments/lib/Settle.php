@@ -79,6 +79,69 @@ class Settle
     }
 
     /**
+     * Ρωτάει τη Viva για μία συγκεκριμένη παραγγελία και τακτοποιεί ό,τι βρει.
+     * Επιστρέφει 'paid', 'expired', 'canceled', 'pending' ή null σε σφάλμα.
+     */
+    public static function checkOrder(array $order, Api $api, array $gatewayParams)
+    {
+        $orderCode = (string) $order['order_code'];
+
+        // Σημάδεψε ότι ελέγχθηκε τώρα, ώστε παράλληλες κλήσεις να μην
+        // χτυπήσουν το API της Viva δεκάδες φορές για την ίδια παραγγελία.
+        Capsule::table(Db::T_ORDERS)->where('order_code', $orderCode)
+            ->update(['updated_at' => date('Y-m-d H:i:s')]);
+
+        try {
+            $state = (int) (($api->orderInfo($orderCode))['stateid'] ?? 0);
+        } catch (ApiException $e) {
+            Db::log('reconcile-error', $e->getMessage(), (int) $order['invoice_id'], $orderCode);
+            return null;
+        }
+
+        if ($state === 3) {
+            try {
+                foreach ($api->orderTransactions($orderCode) as $tx) {
+                    if (self::apply($order, $tx, $gatewayParams)) {
+                        return 'paid';
+                    }
+                }
+            } catch (ApiException $e) {
+                Db::log('reconcile-error', $e->getMessage(), (int) $order['invoice_id'], $orderCode);
+                return null;
+            }
+            return 'pending';
+        }
+
+        if ($state === 1 || $state === 2) {
+            $status = $state === 1 ? 'expired' : 'canceled';
+            Db::orderMark($orderCode, $status);
+            return $status;
+        }
+
+        return 'pending';
+    }
+
+    /**
+     * Άμεσος έλεγχος για ένα τιμολόγιο — καλείται όταν ο πελάτης ανοίγει τη
+     * σελίδα του. Έτσι η εξόφληση φαίνεται αμέσως, χωρίς αναμονή για cron ή
+     * webhook. Με φραγμό ρυθμού ώστε τα refresh να μη γίνουν καταιγισμός.
+     */
+    public static function checkInvoice($invoiceId, array $gatewayParams, $minSecondsBetweenChecks = 15)
+    {
+        $row = Capsule::table(Db::T_ORDERS)
+            ->where('invoice_id', (int) $invoiceId)
+            ->where('status', 'pending')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if (!$row || strtotime($row->updated_at) > time() - (int) $minSecondsBetweenChecks) {
+            return null;
+        }
+
+        return self::checkOrder((array) $row, Api::fromGatewayParams($gatewayParams), $gatewayParams);
+    }
+
+    /**
      * Ελέγχει τις εκκρεμείς παραγγελίες στη Viva και εξοφλεί όσες πληρώθηκαν
      * χωρίς να μας φτάσει η είδηση. Επιστρέφει σύνοψη.
      *
@@ -98,28 +161,18 @@ class Settle
             ->get();
 
         foreach ($pending as $row) {
-            $order = (array) $row;
-            $orderCode = (string) $order['order_code'];
             $summary['ελέγχθηκαν']++;
-
-            try {
-                $info = $api->orderInfo($orderCode);
-                $state = (int) ($info['stateid'] ?? 0);
-
-                if ($state === 3) {                       // πληρώθηκε
-                    foreach ($api->orderTransactions($orderCode) as $tx) {
-                        if (self::apply($order, $tx, $gatewayParams)) {
-                            $summary['εξοφλήθηκαν']++;
-                            break;
-                        }
-                    }
-                } elseif ($state === 1 || $state === 2) {  // έληξε ή ακυρώθηκε
-                    Db::orderMark($orderCode, $state === 1 ? 'expired' : 'canceled');
+            switch (self::checkOrder((array) $row, $api, $gatewayParams)) {
+                case 'paid':
+                    $summary['εξοφλήθηκαν']++;
+                    break;
+                case 'expired':
+                case 'canceled':
                     $summary['έληξαν']++;
-                }
-            } catch (ApiException $e) {
-                $summary['σφάλματα']++;
-                Db::log('reconcile-error', $e->getMessage(), (int) $order['invoice_id'], $orderCode);
+                    break;
+                case null:
+                    $summary['σφάλματα']++;
+                    break;
             }
         }
 
