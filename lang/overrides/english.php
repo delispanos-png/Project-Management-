@@ -209,3 +209,5 @@ $_LANG['cnp_afm_ok']      = "Details filled from the tax registry.";
 $_LANG['cnp_afm_inactive']= "Note: this VAT number appears inactive in the registry.";
 $_LANG['cnp_afm_notcompany']= "This VAT number belongs to an individual, not a business.";
 $_LANG['cnp_afm_err']     = "Could not retrieve details.";
+
+$_LANG["cnp_remote_nav"] = "Remote support";

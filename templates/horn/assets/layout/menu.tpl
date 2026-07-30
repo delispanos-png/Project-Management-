@@ -57,6 +57,9 @@
 		<li><a href="{$WEB_ROOT}/supporttickets.php">{$LANG.navtickets}</a></li>
 	</ul>
 </li>
+<li data-username="remotesupport" class="nav-item">
+	<a href="{$WEB_ROOT}/remote" aria-label="{$LANG.cnp_remote_nav}"><span class="icony"><img class="svg" src="{$ico}/download-cloud.svg" alt=""></span><span class="sideinfo">{$LANG.cnp_remote_nav}</span></a>
+</li>
 <li data-username="knowledgebase" class="nav-item">
 	<a href="{$WEB_ROOT}/knowledgebase.php" aria-label="{$LANG.knowledgebasetitle}"><span class="icony"><img class="svg" src="{$ico}/file-text.svg" alt=""></span><span class="sideinfo">{$LANG.knowledgebasetitle}</span></a>
 </li>
