@@ -225,7 +225,10 @@ add_hook('CartTotalAdjustment', 1, function ($vars) {
  * επιτόπου, με τον ίδιο τύπο που χρησιμοποιεί ο server.
  */
 add_hook('ClientAreaFooterOutput', 1, function ($vars) {
-    if (($vars['templatefile'] ?? '') !== 'checkout') {
+    // Το templatefile στο ταμείο δεν είναι σταθερό ανά έκδοση/πρότυπο, οπότε
+    // κρινόμαστε από το ίδιο το script: το ταμείο ζει πάντα στο cart.php.
+    $onCart = strpos((string) ($_SERVER['SCRIPT_NAME'] ?? ''), 'cart.php') !== false;
+    if (!$onCart) {
         return '';
     }
 
