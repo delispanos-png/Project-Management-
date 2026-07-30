@@ -232,13 +232,22 @@ add_hook('ClientAreaFooterOutput', 1, function ($vars) {
   function money(v) { return v.toFixed(2).replace('.', ',') + ' €'; }
 
   var baseText = total.textContent, base = num(baseText);
-  var row = null;
+  // Κράτα τον διαχωριστή του προτύπου (26.76 ή 26,76) για να μη «χτυπάει».
+  var dec = baseText.indexOf(',') > baseText.indexOf('.') ? ',' : '.';
+  function fmt(v) { return v.toFixed(2).replace('.', dec) + ' €'; }
 
-  function render() {
-    var sel = document.querySelector('input[name=paymentmethod]:checked');
-    var cfg = sel ? CFG[sel.value] : null;
+  var row = null, last = null;
 
-    if (row) { row.parentNode.removeChild(row); row = null; }
+  function selected() {
+    var el = document.querySelector('input[name="paymentmethod"]:checked');
+    return el ? el.value : '';
+  }
+
+  function render(gw) {
+    var cfg = CFG[gw] || null;
+
+    if (row && row.parentNode) { row.parentNode.removeChild(row); }
+    row = null;
 
     if (!cfg || !base) { total.textContent = baseText; return; }
 
@@ -248,19 +257,26 @@ add_hook('ClientAreaFooterOutput', 1, function ($vars) {
 
     var anchor = total.parentNode;
     row = document.createElement('div');
-    row.className = 'subtotal clearfix';
+    row.className = 'subtotal clearfix cnp-fee-row';
     row.style.cssText = 'padding:4px 0';
     row.innerHTML = '<span class="pull-left">' + cfg.labelEl + '</span>'
-                  + '<span class="pull-right">' + money(fee) + '</span>';
+                  + '<span class="pull-right">' + fmt(fee) + '</span>';
     anchor.parentNode.insertBefore(row, anchor);
 
-    total.textContent = money(base + fee);
+    total.textContent = fmt(base + fee);
   }
 
-  document.addEventListener('change', function (e) {
-    if (e.target && e.target.name === 'paymentmethod') render();
-  });
-  render();
+  function sync() {
+    var gw = selected();
+    if (gw !== last) { last = gw; render(gw); }
+  }
+
+  // Τα γεγονότα δεν αρκούν: αν το πρότυπο επιλέγει το radio μέσω JavaScript,
+  // το change δεν πυροδοτείται ποτέ. Γι' αυτό ελέγχουμε και περιοδικά.
+  document.addEventListener('change', sync, true);
+  document.addEventListener('click', function () { setTimeout(sync, 0); }, true);
+  setInterval(sync, 400);
+  sync();
 })();
 </script>
 HTML;
