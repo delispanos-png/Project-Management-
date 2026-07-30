@@ -102,14 +102,52 @@ function cnp_surcharge_cart_gateway()
 }
 
 /**
+ * Ξαναϋπολογίζει τα σύνολα τιμολογίου από τις γραμμές του.
+ *
+ * ΓΙΑΤΙ ΔΕΝ ΧΡΗΣΙΜΟΠΟΙΟΥΜΕ ΤΟ updateInvoiceTotal() ΤΟΥ WHMCS: δοκιμάστηκε και
+ * ΔΕΝ ξαναϋπολογίζει το υποσύνολο από τις γραμμές — άφηνε τιμολόγιο με γραμμές
+ * 11,92 να δείχνει υποσύνολο 10,79, δηλαδή η χρέωση δεν εισπραττόταν ποτέ.
+ */
+function cnp_invoice_recalc($invoiceId)
+{
+    $inv = Capsule::table('tblinvoices')->where('id', (int) $invoiceId)->first();
+    if (!$inv) {
+        return;
+    }
+
+    $subtotal = 0.0;
+    $taxable  = 0.0;
+    foreach (Capsule::table('tblinvoiceitems')->where('invoiceid', (int) $invoiceId)->get() as $it) {
+        $subtotal += (float) $it->amount;
+        if ((int) $it->taxed === 1) {
+            $taxable += (float) $it->amount;
+        }
+    }
+
+    $rate1 = (float) $inv->taxrate;
+    $rate2 = (float) $inv->taxrate2;
+
+    // Ο λογαριασμός δουλεύει με φόρο «Exclusive»: ο ΦΠΑ προστίθεται επάνω.
+    $tax  = round($taxable * $rate1 / 100, 2);
+    $tax2 = round($taxable * $rate2 / 100, 2);
+
+    $total = round($subtotal + $tax + $tax2 - (float) $inv->credit, 2);
+
+    Capsule::table('tblinvoices')->where('id', (int) $invoiceId)->update([
+        'subtotal' => number_format($subtotal, 2, '.', ''),
+        'tax'      => number_format($tax, 2, '.', ''),
+        'tax2'     => number_format($tax2, 2, '.', ''),
+        'total'    => number_format($total, 2, '.', ''),
+    ]);
+}
+
+/**
  * Συγχρονίζει τη γραμμή χρέωσης ενός τιμολογίου με τον επιλεγμένο τρόπο
  * πληρωμής. Πρώτα σβήνει ό,τι υπάρχει, μετά προσθέτει αν χρειάζεται — έτσι
  * η εναλλαγή μεταξύ μεθόδων δεν αφήνει ποτέ διπλές ή ξεχασμένες γραμμές.
  */
 function cnp_surcharge_sync($invoiceId, $gateway)
 {
-    require_once ROOTDIR . '/includes/invoicefunctions.php';
-
     $invoice = Capsule::table('tblinvoices')->where('id', (int) $invoiceId)->first();
     if (!$invoice) {
         return;
@@ -125,14 +163,14 @@ function cnp_surcharge_sync($invoiceId, $gateway)
 
     if (!$cfg) {
         if ($had) {
-            updateInvoiceTotal($invoiceId);
+            cnp_invoice_recalc($invoiceId);
         }
         return;
     }
 
     // Βάση = ό,τι θα εισπράξουμε στην πράξη: σύνολο μετά ΦΠΑ, μείον πίστωση,
     // χωρίς την προηγούμενη χρέωση (μόλις σβήστηκε).
-    updateInvoiceTotal($invoiceId);
+    cnp_invoice_recalc($invoiceId);
     $inv = Capsule::table('tblinvoices')->where('id', (int) $invoiceId)->first();
     $base = (float) $inv->total - (float) $inv->credit;
 
@@ -156,7 +194,7 @@ function cnp_surcharge_sync($invoiceId, $gateway)
         'notes'         => '',
     ]);
 
-    updateInvoiceTotal($invoiceId);
+    cnp_invoice_recalc($invoiceId);
 }
 
 /**
