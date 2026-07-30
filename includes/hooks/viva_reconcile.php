@@ -96,6 +96,7 @@ add_hook('AfterCronJob', 1, function () {
     if (!$params) {
         return;
     }
+    if (function_exists('cnp_beat')) { cnp_beat('viva_reconcile'); }
     try {
         Settle::reconcile($params);
     } catch (Throwable $e) {

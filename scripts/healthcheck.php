@@ -232,6 +232,49 @@ if (Capsule::schema()->hasTable('mod_viva_orders')) {
 }
 
 /* ------------------------------------------------------------------ */
+section('Παλμός κρίσιμων hooks — εκτελούνται όντως;');
+
+/*
+ * Ο έλεγχος αρχείων δείχνει ότι ο κώδικας ΥΠΑΡΧΕΙ. Εδώ φαίνεται αν ΤΡΕΧΕΙ.
+ * Μετά από αναβάθμιση, ένα hook που μετονομάστηκε σιωπά χωρίς κανένα σφάλμα.
+ */
+$hbFile = ROOTDIR . '/includes/hooks/cnp_heartbeat.php';
+if (!is_file($hbFile)) {
+    bad('Αρχείο παλμού — ΛΕΙΠΕΙ', 'includes/hooks/cnp_heartbeat.php');
+} elseif (!Capsule::schema()->hasTable('mod_cnp_heartbeat')) {
+    warn('Παλμοί', 'ο πίνακας δεν έχει δημιουργηθεί ακόμη — περίμενε μία επίσκεψη/cron');
+} else {
+    require_once $hbFile;
+    $beats = [];
+    foreach (Capsule::table('mod_cnp_heartbeat')->get() as $b) {
+        $beats[$b->hook] = $b;
+    }
+    $labels = [
+        'clientarea'      => 'Περιοχή πελάτη',
+        'cron'            => 'Cron',
+        'viva_reconcile'  => 'Συμφωνία πληρωμών Viva',
+        'cart_footer'     => 'Χρέωση PayPal στο ταμείο',
+        'invoice_created' => 'Χρέωση PayPal σε νέο τιμολόγιο',
+        'gateway_change'  => 'Αλλαγή τρόπου πληρωμής',
+        'invoice_paid'    => 'Εξόφληση τιμολογίου',
+    ];
+    foreach (CNP_HEARTBEAT_MAX_SILENCE as $hook => $maxHours) {
+        $lbl = $labels[$hook] ?? $hook;
+        if (!isset($beats[$hook])) {
+            warn($lbl, 'δεν έχει χτυπήσει ποτέ ακόμη');
+            continue;
+        }
+        $age = (time() - strtotime($beats[$hook]->last_at)) / 3600;
+        $when = $age < 1 ? round($age * 60) . ' λεπτά πριν' : round($age, 1) . ' ώρες πριν';
+        if ($age <= $maxHours) {
+            ok($lbl, $when);
+        } else {
+            bad($lbl . ' — ΣΙΩΠΑ', $when . ' (όριο ' . $maxHours . 'ω) · πιθανώς έσπασε το hook');
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 section('Cron');
 
 $cronLast = Capsule::table('tblconfiguration')->where('setting', 'lastCronInvocationTime')->value('value');

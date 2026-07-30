@@ -202,6 +202,7 @@ function cnp_surcharge_sync($invoiceId, $gateway)
  * hook ακριβώς γι' αυτόν τον σκοπό.
  */
 add_hook('InvoiceChangeGateway', 1, function ($vars) {
+    if (function_exists('cnp_beat')) { cnp_beat('gateway_change'); }
     if (!empty($vars['invoiceid'])) {
         cnp_surcharge_sync($vars['invoiceid'], (string) ($vars['paymentmethod'] ?? ''));
     }
@@ -212,6 +213,7 @@ add_hook('InvoiceChangeGateway', 1, function ($vars) {
  * Χωρίς αυτό, η χρέωση θα έμπαινε μόνο σε όσους αλλάζουν μέθοδο χειροκίνητα.
  */
 add_hook('InvoiceCreated', 1, function ($vars) {
+    if (function_exists('cnp_beat')) { cnp_beat('invoice_created'); }
     $invoiceId = (int) ($vars['invoiceid'] ?? 0);
     if (!$invoiceId) {
         return;
@@ -247,6 +249,7 @@ add_hook('ClientAreaFooterOutput', 1, function ($vars) {
     if (!$onCart) {
         return '';
     }
+    if (function_exists('cnp_beat')) { cnp_beat('cart_footer'); }
 
     $cfgJson = json_encode(CNP_SURCHARGE, JSON_UNESCAPED_UNICODE);
 
