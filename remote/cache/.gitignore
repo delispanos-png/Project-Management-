@@ -1,0 +1,3 @@
+# Παραγόμενα ZIP (cache 24h) — εκτός version control
+*.zip
+*.tmp

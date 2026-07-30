@@ -8,9 +8,11 @@
  */
 
 $lang = (($_GET['lang'] ?? '') === 'en') ? 'en' : 'el';
-$DL = 'https://remote.cloudon.gr/download/CloudOn-Remote.exe';
-$FIX = 'https://remote.cloudon.gr/download/fix-cloudon-remote.bat';
-$PHONE = '2152151661';
+$DL     = '/remote/pack.php?f=client';                                   // ZIP (καθαρό κατέβασμα)
+$DL_EXE = 'https://remote.cloudon.gr/download/CloudOn-Remote.exe';        // απευθείας .exe
+$FIX    = '/remote/pack.php?f=fix';
+$PHONE = '2107222560';          // για το tel: link (σκέτα ψηφία)
+$PHONE_TXT = '210 7222560';      // όπως εμφανίζεται
 $SUPPORT_URL = 'https://my.cloudon.gr/submitticket.php';
 
 $T = [
@@ -22,10 +24,11 @@ $T = [
     'h1b' => 'σαν να ήμασταν δίπλα σου.',
     'lead' => 'Κατέβασε το εργαλείο μας και ο τεχνικός θα συνδεθεί στον υπολογιστή σου για να λύσει το θέμα. Δεν χρειάζεται εγκατάσταση ούτε τεχνικές γνώσεις.',
     'dl' => 'Λήψη για Windows',
-    'dl_sub' => '23 MB · Δεν χρειάζεται εγκατάσταση',
+    'dl_alt' => 'ή κατέβασε απευθείας το .exe',
+    'dl_sub' => '23 MB · Αρχείο ZIP · Δεν χρειάζεται εγκατάσταση',
     'steps_h' => 'Τρία απλά βήματα',
     's1t' => 'Κατέβασε & άνοιξε',
-    's1p' => 'Πάτα το κουμπί λήψης. Μόλις κατέβει το αρχείο, κάνε διπλό κλικ πάνω του. Αν σε ρωτήσει ο υπολογιστής αν επιτρέπεις να τρέξει, πάτα «Ναι».',
+    's1p' => 'Πάτα το κουμπί λήψης. Κατεβαίνει ένα αρχείο <b>ZIP</b>: κάνε <b>διπλό κλικ</b> για να ανοίξει και μετά <b>διπλό κλικ στο πρόγραμμα</b> που είναι μέσα. Αν σε ρωτήσει ο υπολογιστής αν επιτρέπεις να τρέξει, πάτα «Ναι».',
     's2t' => 'Πες μας τους κωδικούς',
     's2p' => 'Θα δεις δύο αριθμούς: <b>Το ID σου</b> και έναν <b>Κωδικό</b>. Διάβασέ τους στον τεχνικό στο τηλέφωνο ή γράψ’ τους στο ticket.',
     's3t' => 'Έτοιμα!',
@@ -43,6 +46,15 @@ $T = [
     'contact_p' => 'Είμαστε εδώ για σένα.',
     'call' => 'Τηλεφώνησέ μας',
     'ticket' => 'Άνοιξε αίτημα',
+    'warn_h' => 'Θα σου βγάλουν τα Windows προειδοποίηση — είναι φυσιολογικό',
+    'warn_p' => 'Τα Windows εμφανίζουν προειδοποίηση σε <b>κάθε</b> πρόγραμμα που δεν κατεβαίνει από το Microsoft Store, ακόμη κι αν είναι απολύτως ασφαλές. Δεν σημαίνει ότι το αρχείο έχει ιό — σημαίνει απλώς ότι τα Windows δεν το έχουν ξαναδεί πολλές φορές.',
+    'warn_w1t' => '1. Κατά το κατέβασμα, ο browser λέει ότι «το αρχείο μπορεί να είναι επικίνδυνο»',
+    'warn_w1p' => 'Στη λίστα λήψεων (πάνω δεξιά στον browser) πάτα το <b>βελάκι ▾</b> ή τα <b>τρία τελεία</b> δίπλα στο αρχείο και επίλεξε <b>«Διατήρηση»</b> / <b>«Keep»</b>. Ο Chrome μπορεί να ζητήσει ακόμη μία επιβεβαίωση: <b>«Διατήρηση ούτως ή άλλως»</b>.',
+    'warn_w2t' => '2. Στο άνοιγμα: «Τα Windows προστάτευσαν τον υπολογιστή σας»',
+    'warn_w2p' => 'Πάτα <b>«Περισσότερες πληροφορίες»</b> και μετά εμφανίζεται το κουμπί <b>«Εκτέλεση οπωσδήποτε»</b>.',
+    'warn_w3t' => '3. «Θέλετε να επιτρέψετε σε αυτήν την εφαρμογή…;»',
+    'warn_w3p' => 'Πάτα <b>«Ναι»</b>. Είναι το κανονικό παράθυρο αδειών των Windows.',
+    'warn_note' => 'Το αρχείο κατεβαίνει πάντα από <b>δικό μας server</b> (remote.cloudon.gr) μέσω ασφαλούς σύνδεσης. Αν έχεις οποιαδήποτε αμφιβολία, πάρε μας τηλέφωνο πριν το τρέξεις.',
     'foot' => 'Χρειάζεσαι Windows. Για Mac ή κινητό, επικοινώνησε μαζί μας και θα σε καθοδηγήσουμε.',
   ],
   'en' => [
@@ -53,10 +65,11 @@ $T = [
     'h1b' => 'as if we were next to you.',
     'lead' => 'Download our tool and a technician will connect to your computer to fix the issue. No installation and no technical knowledge required.',
     'dl' => 'Download for Windows',
-    'dl_sub' => '23 MB · No installation needed',
+    'dl_alt' => 'or download the .exe directly',
+    'dl_sub' => '23 MB · ZIP file · No installation needed',
     'steps_h' => 'Three simple steps',
     's1t' => 'Download & open',
-    's1p' => 'Click the download button. When the file has downloaded, double-click it. If your computer asks whether to allow it to run, click “Yes”.',
+    's1p' => 'Click the download button. A <b>ZIP</b> file downloads: <b>double-click</b> to open it, then <b>double-click the program</b> inside. If your computer asks whether to allow it to run, click “Yes”.',
     's2t' => 'Tell us the codes',
     's2p' => 'You’ll see two numbers: <b>Your ID</b> and a <b>Password</b>. Read them to the technician on the phone, or write them in your ticket.',
     's3t' => 'That’s it!',
@@ -74,6 +87,15 @@ $T = [
     'contact_p' => 'We’re here for you.',
     'call' => 'Call us',
     'ticket' => 'Open a ticket',
+    'warn_h' => 'Windows will show a warning — that’s normal',
+    'warn_p' => 'Windows warns about <b>every</b> program that does not come from the Microsoft Store, even perfectly safe ones. It does not mean the file has a virus — only that Windows has not seen it many times yet.',
+    'warn_w1t' => '“Windows protected your PC”',
+    'warn_w1p' => 'Click <b>“More info”</b> and then <b>“Run anyway”</b>.',
+    'warn_w2t' => '“Do you want to allow this app…?”',
+    'warn_w2p' => 'Click <b>“Yes”</b>. This is the standard Windows permission dialog.',
+    'warn_w3t' => 'Your browser says the file “isn’t downloaded securely”',
+    'warn_w3p' => 'Click the arrow next to the file and choose <b>“Keep”</b> or <b>“Keep anyway”</b>.',
+    'warn_note' => 'The file always downloads from <b>our own server</b> (remote.cloudon.gr) over a secure connection. If you have any doubt, call us before running it.',
     'foot' => 'Windows required. For Mac or mobile, contact us and we’ll guide you.',
   ],
 ];
@@ -168,6 +190,19 @@ h2{font-size:clamp(21px,3.4vw,26px);color:var(--ink);margin:0 0 26px;text-align:
 .cbtn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .cbtn.primary:hover{background:var(--brand-d);color:#fff}
 
+/* προειδοποιήσεις Windows */
+.warn{background:#fff;border:1px solid var(--line);border-left:5px solid #eba63c;border-radius:16px;
+  padding:24px 26px;box-shadow:0 2px 10px rgba(16,35,61,.04)}
+.warn h2{text-align:left;font-size:20px;margin:0 0 10px;display:flex;align-items:center;gap:10px}
+.warn-lead{margin:0 0 18px;font-size:15px}
+.warn-list{display:grid;gap:12px}
+.warn-item{background:var(--bg);border-radius:12px;padding:14px 16px}
+.warn-item > b{display:block;color:var(--ink);font-size:14.5px;margin-bottom:5px}
+.warn-item span b{display:inline;color:var(--ink);font-weight:700}
+.warn-item span{font-size:14.5px}
+.warn-note{margin:18px 0 0;font-size:14px;color:var(--mut);border-top:1px solid var(--line);padding-top:14px}
+@media(max-width:620px){.warn{padding:20px 18px}.warn h2{font-size:18px}}
+
 footer{text-align:center;color:var(--mut);font-size:13.5px;padding:34px 20px 44px;border-top:1px solid var(--line);margin-top:38px;background:var(--card)}
 
 @media(max-width:620px){
@@ -198,7 +233,21 @@ footer{text-align:center;color:var(--mut);font-size:13.5px;padding:34px 20px 44p
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
     <?= $e($t('dl')) ?>
   </a>
-  <div class="dl-sub"><?= $e($t('dl_sub')) ?></div>
+  <div class="dl-sub"><?= $e($t('dl_sub')) ?><br>
+    <a href="<?= $e($DL_EXE) ?>" style="color:#7fd6ff;text-decoration:underline"><?= $e($t('dl_alt')) ?></a></div>
+</div></section>
+
+<section class="sec" style="padding-bottom:0"><div class="wrap">
+  <div class="warn">
+    <h2>⚠️ <?= $e($t('warn_h')) ?></h2>
+    <p class="warn-lead"><?= $t('warn_p') ?></p>
+    <div class="warn-list">
+      <?php foreach ([['warn_w1t','warn_w1p'], ['warn_w2t','warn_w2p'], ['warn_w3t','warn_w3p']] as [$a, $b]): ?>
+      <div class="warn-item"><b><?= $t($a) ?></b><span><?= $t($b) ?></span></div>
+      <?php endforeach; ?>
+    </div>
+    <p class="warn-note"><?= $t('warn_note') ?></p>
+  </div>
 </div></section>
 
 <section class="sec"><div class="wrap">
@@ -235,7 +284,7 @@ footer{text-align:center;color:var(--mut);font-size:13.5px;padding:34px 20px 44p
     <h2 style="margin-bottom:6px"><?= $e($t('contact_h')) ?></h2>
     <p style="margin:0"><?= $e($t('contact_p')) ?></p>
     <div class="contact-btns">
-      <a class="cbtn primary" href="tel:<?= $e($PHONE) ?>">📞 <?= $e($t('call')) ?> <?= $e($PHONE) ?></a>
+      <a class="cbtn primary" href="tel:<?= $e($PHONE) ?>">📞 <?= $e($t('call')) ?> <?= $e($PHONE_TXT) ?></a>
       <a class="cbtn" href="<?= $e($SUPPORT_URL) ?>">✉ <?= $e($t('ticket')) ?></a>
     </div>
   </div>
