@@ -15,10 +15,12 @@ require_once __DIR__ . '/../../../includes/gatewayfunctions.php';
 require_once __DIR__ . '/../../../includes/invoicefunctions.php';
 require_once __DIR__ . '/../vivapayments/lib/Db.php';
 require_once __DIR__ . '/../vivapayments/lib/Api.php';
+require_once __DIR__ . '/../vivapayments/lib/Settle.php';
 
 use CloudOn\Viva\Api as VivaApi;
 use CloudOn\Viva\ApiException as VivaApiException;
 use CloudOn\Viva\Db as VivaDb;
+use CloudOn\Viva\Settle as VivaSettle;
 use WHMCS\Database\Capsule;
 
 $gatewayModuleName = 'vivapayments';
@@ -51,54 +53,6 @@ function viva_bail($message, $invoiceId = 0)
         . '<p>Αν το ποσό χρεώθηκε, επικοινώνησε μαζί μας στο <b>210 7222560</b>.</p>'
         . '<p><a href="' . htmlspecialchars($back, ENT_QUOTES) . '">Επιστροφή στο τιμολόγιο</a></p></div>';
     exit;
-}
-
-/**
- * Καταχωρεί την πληρωμή στο τιμολόγιο, αν δεν έχει ήδη καταχωρηθεί.
- * Επιστρέφει true αν όντως έγινε τώρα η εξόφληση.
- */
-function viva_settle(array $order, array $tx, array $gatewayParams)
-{
-    $orderCode = $order['order_code'];
-    $transId   = (string) ($tx['transactionid'] ?? '');
-
-    if ($transId === '') {
-        return false;
-    }
-
-    // Ποσό: η Viva επιστρέφει δεκαδικά (π.χ. 30.5).
-    $paidCents = (int) round(((float) ($tx['amount'] ?? 0)) * 100);
-    if ($paidCents < (int) $order['amount_cents']) {
-        VivaDb::log('mismatch', 'Ποσό Viva ' . $paidCents . ' < αναμενόμενο ' . $order['amount_cents'],
-            (int) $order['invoice_id'], $orderCode);
-        return false;
-    }
-
-    if (!VivaDb::orderClaim($orderCode, $transId)) {
-        return false;   // κάποιος πρόλαβε — δεν ξαναπερνάμε πληρωμή
-    }
-
-    $invoiceId = checkCbInvoiceID((int) $order['invoice_id'], 'vivapayments');
-    checkCbTransID($transId);
-
-    // Αν το τιμολόγιο είναι σε άλλο νόμισμα (convertto), πιστώνουμε το
-    // υπόλοιπό του — έχουμε χρεώσει το ισοδύναμο συνολικό ποσό.
-    $amount = $paidCents / 100;
-    $inv = Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
-    if ($inv) {
-        $invCurrency = Capsule::table('tblcurrencies')->where('id', $inv->currency)->value('code');
-        if ($invCurrency && strtoupper($invCurrency) !== strtoupper($order['currency'])) {
-            $amount = (float) $inv->total - (float) $inv->credit;
-        }
-    }
-
-    logTransaction($gatewayParams['name'], $tx, 'Successful');
-    addInvoicePayment($invoiceId, $transId, $amount, 0, 'vivapayments');
-
-    VivaDb::log('paid', 'Εξόφληση τιμολογίου ' . $invoiceId . ' με συναλλαγή ' . $transId,
-        $invoiceId, $orderCode);
-
-    return true;
 }
 
 /* --------------------------------------------------------------------- */
@@ -148,7 +102,7 @@ if (isset($_GET['webhook'])) {
             $tx = $api->getTransaction($transId);
             if (($tx['statusid'] ?? '') === VivaApi::STATUS_PAID
                 && (string) ($tx['ordercode'] ?? '') === $orderCode) {
-                viva_settle($order, $tx, $gatewayParams);
+                VivaSettle::apply($order, $tx, $gatewayParams);
             } else {
                 VivaDb::log('webhook', 'Συναλλαγή σε κατάσταση ' . ($tx['statusid'] ?? '?'),
                     (int) $order['invoice_id'], $orderCode);
@@ -281,7 +235,7 @@ if (($tx['statusid'] ?? '') !== VivaApi::STATUS_PAID || (string) ($tx['ordercode
     exit;
 }
 
-viva_settle($order, $tx, $gatewayParams);
+VivaSettle::apply($order, $tx, $gatewayParams);
 
 header('Location: ' . $systemUrl . '/viewinvoice.php?id=' . $invoiceId . '&paymentsuccess=true');
 exit;

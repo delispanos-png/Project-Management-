@@ -251,6 +251,57 @@ class Api
     }
 
     /**
+     * Κατάσταση παραγγελίας. StateId: 0 εκκρεμεί, 1 έληξε, 2 ακυρώθηκε, 3 πληρώθηκε.
+     * Ζει μόνο στον παλιό host με Basic auth — στο api. απαντά 404.
+     */
+    public function orderInfo($orderCode)
+    {
+        $this->requireBasic();
+        [$code, $body] = $this->raw(
+            'GET',
+            $this->host('checkout') . '/api/orders/' . rawurlencode((string) $orderCode),
+            null,
+            ['Authorization: Basic ' . base64_encode($this->merchantId . ':' . $this->apiKey)]
+        );
+        $json = json_decode($body, true, 512, JSON_BIGINT_AS_STRING);
+        if ($code < 200 || $code >= 300 || !is_array($json)) {
+            throw new ApiException(self::describe($code, $body, 'Αποτυχία ανάκτησης παραγγελίας'));
+        }
+        return self::lowerKeys($json);
+    }
+
+    /**
+     * Οι συναλλαγές μιας παραγγελίας. Χρειάζεται όταν δεν έχουμε transactionId —
+     * π.χ. ο πελάτης πλήρωσε αλλά δεν επέστρεψε ποτέ στο site.
+     */
+    public function orderTransactions($orderCode)
+    {
+        $this->requireBasic();
+        [$code, $body] = $this->raw(
+            'GET',
+            $this->host('checkout') . '/api/transactions?ordercode=' . rawurlencode((string) $orderCode),
+            null,
+            ['Authorization: Basic ' . base64_encode($this->merchantId . ':' . $this->apiKey)]
+        );
+        $json = json_decode($body, true, 512, JSON_BIGINT_AS_STRING);
+        if ($code < 200 || $code >= 300 || !isset($json['Transactions'])) {
+            throw new ApiException(self::describe($code, $body, 'Αποτυχία ανάκτησης συναλλαγών παραγγελίας'));
+        }
+        $out = [];
+        foreach ((array) $json['Transactions'] as $t) {
+            $out[] = self::lowerKeys((array) $t);
+        }
+        return $out;
+    }
+
+    private function requireBasic()
+    {
+        if ($this->merchantId === '' || $this->apiKey === '') {
+            throw new ApiException('Χρειάζονται Merchant ID και API key από το portal της Viva.');
+        }
+    }
+
+    /**
      * Επιστροφή χρημάτων (ολική ή μερική).
      *
      * @param int $amountCents Ποσό σε λεπτά.
