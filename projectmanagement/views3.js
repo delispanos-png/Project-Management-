@@ -91,6 +91,50 @@ R.inbox = async function (openId) {
         title="Όριο ομάδας πελάτη — μήνας: ${dd.quota.used}/${dd.quota.quota}${dd.quota.email.q ? ' · email ' + dd.quota.email.u + '/' + dd.quota.email.q : ''}${dd.quota.phone.q ? ' · τηλ. ' + dd.quota.phone.u + '/' + dd.quota.phone.q : ''}">
         ${I.ticket} ${dd.quota.used}/${dd.quota.quota}${dd.quota.over ? ' ΥΠΕΡΒΑΣΗ' : ''}</span>` : ''}
     </div>
+    ${(() => {
+      /* ── Ταυτότητα πελάτη ──────────────────────────────────────────────
+         Χωρίς αυτό ο τεχνικός έβλεπε μόνο επωνυμία και κείμενο: δεν ήξερε
+         email, τηλέφωνο, ούτε σε ποια από τις υπηρεσίες αναφέρεται. ---- */
+      const c = dd.ctx;
+      if (!c) return '';
+      const rel = (c.services || []).find(s => s.related) || (c.domains || []).find(d => d.related);
+      const stCol = s => ({Active: '#16a26a', Suspended: '#e0a020', Pending: '#0097e4'}[s] || 'var(--mut)');
+      const chip = (ic, txt, href, title) => txt
+        ? `<a ${href ? `href="${href}"` : ''} class="tk-chip" title="${esc(title || txt)}"${href ? '' : ' style="cursor:default"'}>${ic} ${esc(txt)}</a>`
+        : '';
+      return `
+      <div class="tk-ctx">
+        <div class="tk-ctx-row">
+          <b style="font-size:13px;color:var(--ink)">${esc(c.company || c.name || '—')}</b>
+          ${c.company && c.name ? `<span class="mut" style="font-size:11.5px">${esc(c.name)}</span>` : ''}
+          ${c.guest ? '<span class="pill pill-warn" style="font-size:9.5px">εκτός λογαριασμού</span>' : ''}
+          ${c.contact ? `<span class="pill pill-info" style="font-size:9.5px" title="Έγραψε υπο-επαφή, όχι ο κάτοχος">επαφή: ${esc(c.contact.name)}</span>` : ''}
+          <span style="flex:1"></span>
+          ${c.openTickets > 1 ? `<span class="pill pill-mut" style="font-size:9.5px">${c.openTickets} ανοιχτά</span>` : ''}
+          ${c.unpaid > 0 ? `<span class="pill pill-warn" style="font-size:9.5px" title="Ανεξόφλητα τιμολόγια">οφειλή ${c.unpaid.toFixed(2)} €</span>` : ''}
+          ${c.id ? `<a class="tk-chip" href="/cloudonadminpanel/clientssummary.php?userid=${c.id}" target="_blank" title="Άνοιγμα στο WHMCS">WHMCS ↗</a>` : ''}
+        </div>
+        <div class="tk-ctx-row">
+          ${chip('✉', c.email, 'mailto:' + encodeURIComponent(c.email || ''))}
+          ${chip('☎', c.phone, 'tel:' + String(c.phone || '').replace(/[^0-9+]/g, ''))}
+          ${chip('⌖', c.ip, null, 'IP από την οποία γράφτηκε το ticket')}
+          ${c.since ? `<span class="tk-chip" style="cursor:default">πελάτης από ${esc(c.since)}</span>` : ''}
+        </div>
+        ${(c.services && c.services.length) ? `
+        <div class="tk-ctx-svc">
+          ${rel ? '' : '<div class="tk-ctx-warn">Δεν δηλώθηκε υπηρεσία — ρώτησε τον πελάτη ποια αφορά</div>'}
+          ${c.services.map(s => `
+            <div class="tk-svc ${s.related ? 'on' : ''}">
+              <span style="width:6px;height:6px;border-radius:50%;background:${stCol(s.status)};flex:none"></span>
+              <b style="font-size:11.5px">${esc(s.name)}</b>
+              ${s.domain ? `<span class="mut" style="font-size:11px">${esc(s.domain)}</span>` : ''}
+              ${s.ip ? `<span class="mut" style="font-size:11px">${esc(s.ip)}</span>` : ''}
+              <span class="mut" style="font-size:10.5px;margin-left:auto">${esc(s.status)}</span>
+              ${s.related ? '<span class="pill pill-info" style="font-size:9px">αυτή αφορά</span>' : ''}
+            </div>`).join('')}
+        </div>` : (c.guest ? '' : '<div class="tk-ctx-warn">Ο πελάτης δεν έχει ενεργές υπηρεσίες</div>')}
+      </div>`;
+    })()}
     ${(dd.suggest && (dd.suggest.kb.length || dd.suggest.similar.length)) ? `
     <div style="margin:9px 13px 0;padding:10px 13px;border-radius:11px;background:color-mix(in srgb, var(--warn) 9%, transparent);border:1px solid color-mix(in srgb, var(--warn) 30%, transparent)">
       <b style="font-size:12px;color:var(--ink)">${I.bulb} Το έχουμε ξαναδεί — πιθανές λύσεις:</b>

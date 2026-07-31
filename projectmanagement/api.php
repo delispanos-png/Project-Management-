@@ -2423,7 +2423,81 @@ case 'ticket':
         }
     }
     $statuses = Capsule::table('tblticketstatuses')->orderBy('sortorder')->pluck('title')->all();
-    out(['ticket' => ['id' => $tid, 'tid' => $tk->tid, 'title' => $tk->title,
+
+    /* ── Συμφραζόμενα πελάτη ──────────────────────────────────────────────
+       Χωρίς αυτά ο τεχνικός βλέπει μόνο επωνυμία και κείμενο: δεν ξέρει σε
+       ποια από τις υπηρεσίες του πελάτη αναφέρεται, ούτε πώς να τον βρει.
+       Τα μαζεύουμε εδώ ώστε να μη χρειάζεται να ανοίξει το WHMCS παράλληλα. */
+    $ctx = null;
+    if ((int) $tk->userid) {
+        $cl = Capsule::table('tblclients')->where('id', (int) $tk->userid)->first();
+        if ($cl) {
+            // Το πεδίο service κρατάει «S<id>» για υπηρεσία, «D<id>» για domain.
+            $relId = 0;
+            $relKind = '';
+            if (preg_match('/^([SD])(\d+)$/', (string) $tk->service, $m9)) {
+                $relKind = $m9[1];
+                $relId = (int) $m9[2];
+            }
+
+            $svc = [];
+            foreach (Capsule::table('tblhosting')->where('userid', $cl->id)
+                         ->orderByRaw("FIELD(domainstatus,'Active','Suspended','Pending','Terminated','Cancelled','Fraud')")
+                         ->orderBy('id', 'desc')->get() as $h9) {
+                $svc[] = [
+                    'id'      => (int) $h9->id,
+                    'name'    => (string) (Capsule::table('tblproducts')->where('id', $h9->packageid)->value('name') ?: '—'),
+                    'domain'  => (string) $h9->domain,
+                    'status'  => (string) $h9->domainstatus,
+                    'nextdue' => $h9->nextduedate && $h9->nextduedate !== '0000-00-00' ? $h9->nextduedate : null,
+                    'ip'      => (string) $h9->dedicatedip,
+                    'related' => ($relKind === 'S' && (int) $h9->id === $relId),
+                ];
+            }
+
+            $dom = [];
+            foreach (Capsule::table('tbldomains')->where('userid', $cl->id)
+                         ->orderBy('id', 'desc')->limit(20)->get() as $d9) {
+                $dom[] = ['id' => (int) $d9->id, 'domain' => (string) $d9->domain,
+                    'status' => (string) $d9->status, 'expiry' => $d9->expirydate,
+                    'related' => ($relKind === 'D' && (int) $d9->id === $relId)];
+            }
+
+            $ctx = [
+                'id'       => (int) $cl->id,
+                'name'     => trim($cl->firstname . ' ' . $cl->lastname),
+                'company'  => (string) $cl->companyname,
+                'email'    => (string) $cl->email,
+                'phone'    => (string) $cl->phonenumber,
+                'country'  => (string) $cl->country,
+                'city'     => (string) $cl->city,
+                'status'   => (string) $cl->status,
+                'since'    => substr((string) $cl->datecreated, 0, 10),
+                'ip'       => (string) ($tk->ipaddress ?? ''),
+                'services' => $svc,
+                'domains'  => $dom,
+                // Ο επικοινωνών μπορεί να είναι υπο-επαφή, όχι ο κάτοχος.
+                'contact'  => (int) $tk->contactid
+                    ? (function ($cid) {
+                        $c9 = Capsule::table('tblcontacts')->where('id', $cid)->first();
+                        return $c9 ? ['name' => trim($c9->firstname . ' ' . $c9->lastname), 'email' => $c9->email] : null;
+                    })((int) $tk->contactid)
+                    : null,
+                'openTickets' => (int) Capsule::table('tbltickets')->where('userid', $cl->id)
+                    ->whereNotIn('status', ['Closed'])->count(),
+                'unpaid' => (float) Capsule::table('tblinvoices')->where('userid', $cl->id)
+                    ->where('status', 'Unpaid')->sum('total'),
+            ];
+        }
+    } elseif ($tk->email || $tk->name) {
+        // Ticket από μη εγγεγραμμένο — ό,τι ξέρουμε είναι στο ίδιο το ticket.
+        $ctx = ['id' => null, 'name' => (string) $tk->name, 'email' => (string) $tk->email,
+            'ip' => (string) ($tk->ipaddress ?? ''), 'guest' => true,
+            'services' => [], 'domains' => []];
+    }
+
+    out(['ctx' => $ctx,
+        'ticket' => ['id' => $tid, 'tid' => $tk->tid, 'title' => $tk->title,
             'client' => $tk->userid ? clientLabel($tk->userid) : $tk->name, 'clientId' => (int) $tk->userid ?: null,
             'email' => $tk->email, 'status' => $tk->status, 'urgency' => $tk->urgency,
             'flag' => (int) $tk->flag ?: null, 'dept' => (int) $tk->did, 'slaDue' => $sla],

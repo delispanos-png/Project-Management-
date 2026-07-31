@@ -32,15 +32,20 @@
             </select>
         </div>
         {if $relatedservices}
+            {* Η επιλογή υπηρεσίας είναι υποχρεωτική: χωρίς αυτήν ο τεχνικός δεν
+               ξέρει σε ποιο από τα προϊόντα του πελάτη αναφέρεται το αίτημα και
+               χάνεται χρόνος σε διευκρινίσεις. Υποχρεωτική είναι η ΕΠΙΛΟΓΗ, όχι
+               η υπηρεσία — υπάρχει ρητή επιλογή για γενικά ερωτήματα. *}
             <div class="form-group col-sm-5">
-                <label for="inputRelatedService">{$LANG.relatedservice}</label>
-                <select name="relatedservice" id="inputRelatedService" class="form-control">
-                    <option value="">{$LANG.none}</option>
+                <label for="inputRelatedService">{$LANG.relatedservice} <span class="text-danger">*</span></label>
+                <select name="relatedservice" id="inputRelatedService" class="form-control" data-cnp-pick="1" data-cnp-msg="{$LANG.cnp_pick_service_err|escape:'html'}">
+                    <option value="" data-cnp-placeholder="1" selected="selected">{$LANG.cnp_pick_service}</option>
                     {foreach from=$relatedservices item=relatedservice}
                         <option value="{$relatedservice.id}">
                             {$relatedservice.name} ({$relatedservice.status})
                         </option>
                     {/foreach}
+                    <option value="">{$LANG.cnp_general_query}</option>
                 </select>
             </div>
         {/if}
@@ -108,3 +113,45 @@
         });
     </script>
 {/if}
+
+{* ── Φραγή υποβολής όσο δεν έχει επιλεγεί υπηρεσία ─────────────────────────
+   Δεν χρησιμοποιούμε HTML required: η επιλογή «γενικό ερώτημα» έχει κενή τιμή
+   (όπως την περιμένει το WHMCS) και θα κοβόταν άδικα. Ξεχωρίζουμε τη θέση.
+
+   ΠΡΟΣΟΧΗ: όλο το script είναι σε {literal} — χωρίς αυτό η Smarty ερμηνεύει
+   αγκύλες του JavaScript (π.χ. {block:'center'}) ως δικές της ετικέτες και
+   η σελίδα σκάει. Το μήνυμα έρχεται από data-attribute, όχι από {$LANG} εδώ. *}
+{literal}
+<script>
+(function () {
+  var sel = document.getElementById('inputRelatedService');
+  if (!sel || !sel.getAttribute('data-cnp-pick')) return;
+  var form = sel.form;
+  if (!form) return;
+
+  var msg = document.createElement('div');
+  msg.className = 'text-danger';
+  msg.style.cssText = 'display:none;font-size:12.5px;margin-top:4px';
+  msg.textContent = sel.getAttribute('data-cnp-msg') || 'Διάλεξε υπηρεσία.';
+  sel.parentNode.appendChild(msg);
+
+  function pending() {
+    var o = sel.options[sel.selectedIndex];
+    return !o || o.getAttribute('data-cnp-placeholder') === '1';
+  }
+  sel.addEventListener('change', function () {
+    if (!pending()) { msg.style.display = 'none'; sel.style.borderColor = ''; }
+  });
+  form.addEventListener('submit', function (e) {
+    if (pending()) {
+      e.preventDefault();
+      e.stopPropagation();
+      msg.style.display = '';
+      sel.style.borderColor = '#d9534f';
+      sel.focus();
+      if (sel.scrollIntoView) { sel.scrollIntoView(true); }
+    }
+  }, true);
+})();
+</script>
+{/literal}

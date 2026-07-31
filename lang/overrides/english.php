@@ -211,3 +211,7 @@ $_LANG['cnp_afm_notcompany']= "This VAT number belongs to an individual, not a b
 $_LANG['cnp_afm_err']     = "Could not retrieve details.";
 
 $_LANG["cnp_remote_nav"] = "Remote support";
+
+$_LANG["cnp_pick_service"]     = "— Select a service —";
+$_LANG["cnp_general_query"]    = "General enquiry (not about a specific service)";
+$_LANG["cnp_pick_service_err"] = "Please select which service this request is about, so we can help you faster.";
