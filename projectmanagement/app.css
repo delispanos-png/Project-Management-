@@ -1347,3 +1347,15 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .tk-chip{max-width:180px}
   .tk-svc span:nth-child(4){display:none}
 }
+
+/* ── Ενότητες ticket: Συνομιλία | Πληροφορίες ────────────────────────────
+   Πριν, όλα ήταν στοιβαγμένα πάνω από τη συνομιλία (κάρτα πελάτη, υπηρεσίες,
+   κατηγορία, εσωτερικά αρχεία) και της άφηναν λιγότερο από τη μισή οθόνη. */
+.tk-tabs{display:flex;gap:2px;margin:8px 13px 0;border-bottom:1px solid var(--line)}
+.tk-tab{background:none;border:0;border-bottom:2.5px solid transparent;padding:7px 12px;
+  font-size:12.5px;font-weight:700;color:var(--mut);cursor:pointer;display:flex;align-items:center;gap:5px}
+.tk-tab:hover{color:var(--ink)}
+.tk-tab.on{color:var(--brand);border-bottom-color:var(--brand)}
+.tk-pane[hidden]{display:none}
+#tkPaneInfo{padding-bottom:10px}
+@media (max-width:768px){ .tk-tabs{margin:6px 10px 0} .tk-tab{padding:7px 10px;font-size:12px} }

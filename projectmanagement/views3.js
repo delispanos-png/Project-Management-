@@ -91,6 +91,38 @@ R.inbox = async function (openId) {
         title="Όριο ομάδας πελάτη — μήνας: ${dd.quota.used}/${dd.quota.quota}${dd.quota.email.q ? ' · email ' + dd.quota.email.u + '/' + dd.quota.email.q : ''}${dd.quota.phone.q ? ' · τηλ. ' + dd.quota.phone.u + '/' + dd.quota.phone.q : ''}">
         ${I.ticket} ${dd.quota.used}/${dd.quota.quota}${dd.quota.over ? ' ΥΠΕΡΒΑΣΗ' : ''}</span>` : ''}
     </div>
+    <div class="tk-tabs">
+      <button class="tk-tab on" data-tkpane="chat">${I.chat || ''} Συνομιλία</button>
+      <button class="tk-tab" data-tkpane="info">${I.info || I.user || ''} Πληροφορίες${dd.ctx && dd.ctx.services && dd.ctx.services.length ? ` <span class="kb-n">${dd.ctx.services.length}</span>` : ''}</button>
+    </div>
+    <div class="tk-pane" id="tkPaneChat">
+    ${(dd.suggest && (dd.suggest.kb.length || dd.suggest.similar.length)) ? `
+    <div style="margin:9px 13px 0;padding:10px 13px;border-radius:11px;background:color-mix(in srgb, var(--warn) 9%, transparent);border:1px solid color-mix(in srgb, var(--warn) 30%, transparent)">
+      <b style="font-size:12px;color:var(--ink)">${I.bulb} Το έχουμε ξαναδεί — πιθανές λύσεις:</b>
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">
+        ${dd.suggest.kb.map(k => `
+          <details><summary style="cursor:pointer;font-size:12px"><b>${I.book} ${esc(k.title)}</b> <span class="mut">(τράπεζα λύσεων)</span></summary>
+            <div class="kb-sol" style="font-size:12px;padding:7px 9px" data-kbuse="${k.id}">${k.solution}</div></details>`).join('')}
+        ${dd.suggest.similar.map(x => `
+          <div style="font-size:12px;cursor:pointer" data-simgo="${x.id}">${I.ticket} <b>#${esc(x.tid)}</b> ${esc(x.title)}
+            <span class="mut">· ${esc(x.client || '')} · λύθηκε ${dShort(x.last)}</span> <span class="mut">→</span></div>`).join('')}
+      </div>
+    </div>` : ''}
+    <div class="ib-msgs" id="ibMsgs">
+      ${dd.conv.map(m => `<div class="ib-msg ${m.admin ? 'me' : ''}">
+        <div class="ib-msg-h">${esc(m.by || '—')}${m.admin ? ' <span class="pill pill-info" style="font-size:9px">team</span>' : ''}
+          <span class="mut">${tShort(m.at)}</span></div>
+        <div class="ib-msg-b">${esc(m.body).replace(/\n/g, '<br>')}</div>
+        ${(m.att || []).length ? `<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">${m.att.map(a =>
+          `<a class="pill pill-info" style="text-decoration:none" href="api.php?a=ticket_att&ticket=${id}&rid=${a.rid}&i=${a.i}">${I.clip} ${esc(a.name)}</a>`).join('')}</div>` : ''}</div>`).join('')}
+      ${dd.notes.length ? `<div class="ib-notes-sep">${I.lock} Εσωτερικές σημειώσεις — αόρατες στον πελάτη</div>` +
+        dd.notes.map(n => `<div class="ib-msg note ${n.byId === S.boot.me.id ? 'me' : ''}">
+          <div class="ib-msg-h">${esc(n.by)}${n.to !== null ? ` <span class="pill pill-warn" style="font-size:9px">προς: ${n.to === -1 ? 'Διαχειριστές' : esc(adminName(n.to))}</span>` : ''}
+            <span class="mut">${tShort(n.at)}</span></div>
+          <div class="ib-msg-b">${esc(n.body).replace(/\n/g, '<br>')}</div></div>`).join('') : ''}
+    </div>
+    </div>
+    <div class="tk-pane" id="tkPaneInfo" hidden>
     ${(() => {
       /* ── Ταυτότητα πελάτη σε ΜΙΑ γραμμή ────────────────────────────────
          Πρώτη εκδοχή έπιανε ~180px πάνω από τη συνομιλία και έσπρωχνε τα
@@ -113,10 +145,9 @@ R.inbox = async function (openId) {
             : (n ? '<span class="tk-chip warn" title="Ο πελάτης δεν δήλωσε υπηρεσία">χωρίς υπηρεσία</span>' : '')}
           ${c.unpaid > 0 ? `<span class="tk-chip warn">οφειλή ${c.unpaid.toFixed(2)} €</span>` : ''}
           <span style="flex:1"></span>
-          ${n ? `<button class="tk-more" id="tkCtxMore" aria-expanded="false" title="Όλες οι υπηρεσίες του πελάτη">${n} υπηρεσίες ▾</button>` : ''}
-          ${c.id ? `<a class="tk-chip" href="/cloudonadminpanel/clientssummary.php?userid=${c.id}" target="_blank" title="Καρτέλα στο WHMCS">↗</a>` : ''}
+                    ${c.id ? `<a class="tk-chip" href="/cloudonadminpanel/clientssummary.php?userid=${c.id}" target="_blank" title="Καρτέλα στο WHMCS">↗</a>` : ''}
         </div>
-        ${n ? `<div class="tk-ctx-svc" id="tkCtxSvc" hidden>
+        ${n ? `<div class="tk-ctx-svc" id="tkCtxSvc">
           ${c.services.map(s => `
             <div class="tk-svc ${s.related ? 'on' : ''}">
               <span style="width:6px;height:6px;border-radius:50%;background:${stCol(s.status)};flex:none"></span>
@@ -128,18 +159,6 @@ R.inbox = async function (openId) {
         </div>` : ''}
       </div>`;
     })()}
-    ${(dd.suggest && (dd.suggest.kb.length || dd.suggest.similar.length)) ? `
-    <div style="margin:9px 13px 0;padding:10px 13px;border-radius:11px;background:color-mix(in srgb, var(--warn) 9%, transparent);border:1px solid color-mix(in srgb, var(--warn) 30%, transparent)">
-      <b style="font-size:12px;color:var(--ink)">${I.bulb} Το έχουμε ξαναδεί — πιθανές λύσεις:</b>
-      <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">
-        ${dd.suggest.kb.map(k => `
-          <details><summary style="cursor:pointer;font-size:12px"><b>${I.book} ${esc(k.title)}</b> <span class="mut">(τράπεζα λύσεων)</span></summary>
-            <div class="kb-sol" style="font-size:12px;padding:7px 9px" data-kbuse="${k.id}">${k.solution}</div></details>`).join('')}
-        ${dd.suggest.similar.map(x => `
-          <div style="font-size:12px;cursor:pointer" data-simgo="${x.id}">${I.ticket} <b>#${esc(x.tid)}</b> ${esc(x.title)}
-            <span class="mut">· ${esc(x.client || '')} · λύθηκε ${dShort(x.last)}</span> <span class="mut">→</span></div>`).join('')}
-      </div>
-    </div>` : ''}
     ${(dd.class && (dd.class.area || dd.class.cause)) ? (() => {
       const A = (dd.cats.area || []).find(x => x.id === dd.class.area);
       const C = (dd.cats.cause || []).find(x => x.id === dd.class.cause);
@@ -152,20 +171,8 @@ R.inbox = async function (openId) {
         ${dd.class.note ? `<div class="sol-html" style="margin-top:6px;padding:9px 12px;background:var(--line);border-radius:9px">
           <b style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.3px">Λύση</b><div style="margin-top:3px">${dd.class.note}</div></div>` : ''}</div>`;
     })() : ''}
-    <div class="ib-msgs" id="ibMsgs">
-      ${dd.conv.map(m => `<div class="ib-msg ${m.admin ? 'me' : ''}">
-        <div class="ib-msg-h">${esc(m.by || '—')}${m.admin ? ' <span class="pill pill-info" style="font-size:9px">team</span>' : ''}
-          <span class="mut">${tShort(m.at)}</span></div>
-        <div class="ib-msg-b">${esc(m.body).replace(/\n/g, '<br>')}</div>
-        ${(m.att || []).length ? `<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">${m.att.map(a =>
-          `<a class="pill pill-info" style="text-decoration:none" href="api.php?a=ticket_att&ticket=${id}&rid=${a.rid}&i=${a.i}">${I.clip} ${esc(a.name)}</a>`).join('')}</div>` : ''}</div>`).join('')}
-      ${dd.notes.length ? `<div class="ib-notes-sep">${I.lock} Εσωτερικές σημειώσεις — αόρατες στον πελάτη</div>` +
-        dd.notes.map(n => `<div class="ib-msg note ${n.byId === S.boot.me.id ? 'me' : ''}">
-          <div class="ib-msg-h">${esc(n.by)}${n.to !== null ? ` <span class="pill pill-warn" style="font-size:9px">προς: ${n.to === -1 ? 'Διαχειριστές' : esc(adminName(n.to))}</span>` : ''}
-            <span class="mut">${tShort(n.at)}</span></div>
-          <div class="ib-msg-b">${esc(n.body).replace(/\n/g, '<br>')}</div></div>`).join('') : ''}
-    </div>
     <div class="card" style="margin:10px 13px 0"><div class="card-h" style="font-size:12px">${I.clip || I.download} Εσωτερικά αρχεία & βίντεο <span class="mut" style="font-weight:400;font-size:10.5px">— αόρατα στον πελάτη</span></div><div class="card-b" id="ibFilesBox"></div></div>
+    </div>
     <div class="ib-compose">
       <div class="ib-mode">
         ${S.boot.me.canReply ? `<button class="ib-mbtn on" data-m="reply">${I.send} Απάντηση στον πελάτη</button>` : ''}
@@ -249,15 +256,19 @@ R.inbox = async function (openId) {
     };
     $('#ibSend').onclick = send;
     $('#ibBody').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); };
-    // Άνοιγμα/κλείσιμο της λίστας υπηρεσιών· η επιλογή θυμάται ανά χρήστη.
-    { const _m = $('#tkCtxMore'), _sv = $('#tkCtxSvc');
-      if (_m && _sv) {
-        const KEY = 'cnp_tkctx_open';
-        const apply = on => { _sv.hidden = !on; _m.setAttribute('aria-expanded', on ? 'true' : 'false');
-          _m.textContent = _m.textContent.replace(/[▾▴]$/, on ? '▴' : '▾'); };
-        apply(localStorage.getItem(KEY) === '1');
-        _m.onclick = () => { const on = _sv.hidden; localStorage.setItem(KEY, on ? '1' : '0'); apply(on); };
-      } }
+    // Εναλλαγή ενοτήτων. Η συνομιλία είναι το κύριο· οι πληροφορίες αναφορά.
+    { const panes = {chat: $('#tkPaneChat'), info: $('#tkPaneInfo')};
+      const KEY = 'cnp_tkpane';
+      const show = which => {
+        Object.keys(panes).forEach(k => { if (panes[k]) panes[k].hidden = (k !== which); });
+        $$('.tk-tab').forEach(b => b.classList.toggle('on', b.dataset.tkpane === which));
+        localStorage.setItem(KEY, which);
+        // Η σύνθεση απάντησης ανήκει στη συνομιλία — κρύψ' τη μαζί της.
+        const comp = $('.ib-compose'); if (comp) comp.hidden = (which !== 'chat');
+      };
+      $$('.tk-tab').forEach(b => b.onclick = () => show(b.dataset.tkpane));
+      show(localStorage.getItem(KEY) === 'info' ? 'info' : 'chat');
+    }
     { const _bk = $('#ibBack'); if (_bk) _bk.onclick = () => { st.sel = null; const _ibx = $('.inbox'); if (_ibx) _ibx.classList.remove('has-sel'); document.body.classList.remove('detail-open'); conv.innerHTML = `<div class="empty" style="margin-top:80px"><div class="big">${I.ticket}</div>Διάλεξε ticket</div>`; }; }
     $('#ibStatus').onchange = async e => {
       await api('ticket_update', {ticket: id, status: e.target.value});
