@@ -3792,6 +3792,12 @@ case 'settings_get':
     }
     $vals['s3_secret_set'] = $vals['s3_secret'] !== '' ? '1' : '';   // δεν εκθέτουμε το secret
     $vals['s3_secret'] = '';
+    /* Το AI key είναι μυστικό όπως κάθε άλλο: δεν φεύγει ποτέ προς τον browser.
+       Στέλνουμε μόνο ένδειξη ότι υπάρχει και τα 4 τελευταία ψηφία, ώστε να
+       αναγνωρίζεται ποιο κλειδί είναι χωρίς να αποκαλύπτεται. */
+    $vals['ai_api_key_set']  = $vals['ai_api_key'] !== '' ? '1' : '';
+    $vals['ai_api_key_tail'] = $vals['ai_api_key'] !== '' ? mb_substr($vals['ai_api_key'], -4) : '';
+    $vals['ai_api_key'] = '';
     $sts = [];
     foreach (Db::statuses() as $s) {
         $cnt = Capsule::table('mod_cpm_tasks')->where('status_id', $s->id)->count();
@@ -3815,7 +3821,8 @@ case 'settings_save':
         if (!in_array($k, $allowed, true)) {
             continue;
         }
-        if ($k === 's3_secret' && trim((string) $v) === '') { continue; }   // κενό = κράτα το υπάρχον
+        // Κενό σε πεδίο μυστικού σημαίνει «μην αλλάξεις», όχι «σβήσε».
+        if (in_array($k, ['s3_secret', 'ai_api_key'], true) && trim((string) $v) === '') { continue; }
         $v = mb_substr(trim((string) $v), 0, 500);
         $ex = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', $k);
         if ($ex->exists()) {

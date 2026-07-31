@@ -470,7 +470,12 @@ R.settings = async function (sub) {
         ${onoff('request_form', 'Δημόσια φόρμα αιτημάτων', 'index.php?m=cloudonprojects&action=request → lead')}
       </div></div>
       <div class="card"><div class="card-h">${I.brain} AI βοηθός</div><div class="card-b">
-        ${txt('ai_api_key', 'Anthropic API key', 'Για ✨ AI απάντηση & σύνοψη στα tickets (console.anthropic.com)', '100%')}
+        <div class="set-row"><div><b>Anthropic API key</b><div class="mut" style="font-size:12px">
+          ${s.ai_api_key_set
+            ? `✓ Αποθηκευμένο <code>sk-ant-…${esc(s.ai_api_key_tail || '')}</code> — άφησέ το κενό για να μην αλλάξει`
+            : 'Δεν έχει οριστεί — για ✨ AI απάντηση &amp; σύνοψη στα tickets (console.anthropic.com)'}</div></div>
+          <input class="inp" type="password" data-set="ai_api_key" autocomplete="new-password"
+            placeholder="${s.ai_api_key_set ? '••••••••••••' : 'sk-ant-api03-…'}" style="width:280px"></div>
         <div class="set-row"><div><b>Μοντέλο αξιολόγησης βιογραφικών</b><div class="mut" style="font-size:12px">Προεπιλογή για μαζική αξιολόγηση CV. Ο υπεύθυνος μπορεί να διαλέξει αυστηρότερο ανά CV.</div></div>
           <select class="inp" data-set="cv_ai_model" style="width:auto">
             <option value="claude-haiku-4-5-20251001" ${!s.cv_ai_model || s.cv_ai_model === 'claude-haiku-4-5-20251001' ? 'selected' : ''}>Οικονομικό — Haiku</option>
