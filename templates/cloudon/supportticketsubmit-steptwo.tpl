@@ -135,6 +135,16 @@
   msg.textContent = sel.getAttribute('data-cnp-msg') || 'Διάλεξε υπηρεσία.';
   sel.parentNode.appendChild(msg);
 
+  /* Το WHMCS προσθέτει κλάση «disabled» στο κουμπί με το κλικ, ώστε να μη
+     γίνει διπλή υποβολή — αλλά ΔΕΝ την αφαιρεί ποτέ. Όταν εμείς μπλοκάρουμε
+     την υποβολή, το κουμπί έμενε νεκρό και ο πελάτης δεν μπορούσε να στείλει
+     ούτε αφού διόρθωνε το λάθος. */
+  function reenable() {
+    var b = form.querySelector('#openTicketSubmit') ||
+            form.querySelector('input[type=submit], button[type=submit]');
+    if (b) { b.classList.remove('disabled'); b.removeAttribute('disabled'); }
+  }
+
   function pending() {
     var o = sel.options[sel.selectedIndex];
     return !o || o.getAttribute('data-cnp-placeholder') === '1';
@@ -148,10 +158,15 @@
       e.stopPropagation();
       msg.style.display = '';
       sel.classList.add('cnp-invalid');
+      reenable();
       sel.focus();
       if (sel.scrollIntoView) { sel.scrollIntoView(true); }
     }
   }, true);
+
+  // Ίδιο πρόβλημα όταν μπλοκάρει η ενσωματωμένη επικύρωση του browser
+  // (π.χ. κενό υποχρεωτικό πεδίο): το κουμπί μένει «disabled».
+  form.addEventListener('invalid', reenable, true);
 })();
 </script>
 {/literal}
