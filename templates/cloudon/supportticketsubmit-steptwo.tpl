@@ -37,7 +37,7 @@
                χάνεται χρόνος σε διευκρινίσεις. Υποχρεωτική είναι η ΕΠΙΛΟΓΗ, όχι
                η υπηρεσία — υπάρχει ρητή επιλογή για γενικά ερωτήματα. *}
             <div class="form-group col-sm-5">
-                <label for="inputRelatedService">{$LANG.relatedservice} <span class="text-danger">*</span></label>
+                <label for="inputRelatedService">{$LANG.relatedservice} <span class="cnp-req" aria-hidden="true">*</span></label>
                 <select name="relatedservice" id="inputRelatedService" class="form-control" data-cnp-pick="1" data-cnp-msg="{$LANG.cnp_pick_service_err|escape:'html'}">
                     <option value="" data-cnp-placeholder="1" selected="selected">{$LANG.cnp_pick_service}</option>
                     {foreach from=$relatedservices item=relatedservice}
@@ -130,8 +130,8 @@
   if (!form) return;
 
   var msg = document.createElement('div');
-  msg.className = 'text-danger';
-  msg.style.cssText = 'display:none;font-size:12.5px;margin-top:4px';
+  msg.className = 'cnp-field-err';
+  msg.setAttribute('role', 'alert');
   msg.textContent = sel.getAttribute('data-cnp-msg') || 'Διάλεξε υπηρεσία.';
   sel.parentNode.appendChild(msg);
 
@@ -140,14 +140,14 @@
     return !o || o.getAttribute('data-cnp-placeholder') === '1';
   }
   sel.addEventListener('change', function () {
-    if (!pending()) { msg.style.display = 'none'; sel.style.borderColor = ''; }
+    if (!pending()) { msg.style.display = 'none'; sel.classList.remove('cnp-invalid'); }
   });
   form.addEventListener('submit', function (e) {
     if (pending()) {
       e.preventDefault();
       e.stopPropagation();
       msg.style.display = '';
-      sel.style.borderColor = '#d9534f';
+      sel.classList.add('cnp-invalid');
       sel.focus();
       if (sel.scrollIntoView) { sel.scrollIntoView(true); }
     }

@@ -1469,3 +1469,27 @@ li:nth-child(3) {
     font-family: system-ui, -apple-system, sans-serif;
 }
 @media (max-width: 768px) { .cnp-cart-badge { top: -5px; right: -8px; } }
+
+/* ── Μήνυμα επικύρωσης πεδίου ────────────────────────────────────────────
+   Το .text-danger του Bootstrap είναι σκούρο κόκκινο και χάνεται πάνω στο
+   σκούρο θέμα. Εδώ: φωτεινό κόκκινο σε ημιδιαφανές πλαίσιο, ώστε να
+   διαβάζεται και σε σκούρο και σε ανοιχτό φόντο. --------------------- */
+.cnp-field-err{
+    display:none;
+    margin-top:7px;
+    padding:7px 11px;
+    border-radius:8px;
+    font-size:13px;
+    font-weight:600;
+    line-height:1.45;
+    color:#ff8a8a;
+    background:rgba(229,62,62,.16);
+    border:1px solid rgba(229,62,62,.55);
+}
+.cnp-field-err::before{ content:"⚠ "; font-weight:700; }
+.cnp-req{ color:#ff7a7a; font-weight:700; margin-left:2px; }
+select.cnp-invalid,
+input.cnp-invalid{
+    border-color:#e53e3e !important;
+    box-shadow:0 0 0 3px rgba(229,62,62,.22) !important;
+}
