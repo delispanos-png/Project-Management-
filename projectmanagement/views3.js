@@ -92,47 +92,40 @@ R.inbox = async function (openId) {
         ${I.ticket} ${dd.quota.used}/${dd.quota.quota}${dd.quota.over ? ' ΥΠΕΡΒΑΣΗ' : ''}</span>` : ''}
     </div>
     ${(() => {
-      /* ── Ταυτότητα πελάτη ──────────────────────────────────────────────
-         Χωρίς αυτό ο τεχνικός έβλεπε μόνο επωνυμία και κείμενο: δεν ήξερε
-         email, τηλέφωνο, ούτε σε ποια από τις υπηρεσίες αναφέρεται. ---- */
+      /* ── Ταυτότητα πελάτη σε ΜΙΑ γραμμή ────────────────────────────────
+         Πρώτη εκδοχή έπιανε ~180px πάνω από τη συνομιλία και έσπρωχνε τα
+         μηνύματα εκτός οθόνης. Τώρα: μία γραμμή με τα απαραίτητα, και οι
+         υπηρεσίες ανοίγουν μόνο όταν τις ζητήσεις. -------------------- */
       const c = dd.ctx;
       if (!c) return '';
       const rel = (c.services || []).find(s => s.related) || (c.domains || []).find(d => d.related);
       const stCol = s => ({Active: '#16a26a', Suspended: '#e0a020', Pending: '#0097e4'}[s] || 'var(--mut)');
-      const chip = (ic, txt, href, title) => txt
-        ? `<a ${href ? `href="${href}"` : ''} class="tk-chip" title="${esc(title || txt)}"${href ? '' : ' style="cursor:default"'}>${ic} ${esc(txt)}</a>`
-        : '';
+      const n = (c.services || []).length;
       return `
-      <div class="tk-ctx">
-        <div class="tk-ctx-row">
-          <b style="font-size:13px;color:var(--ink)">${esc(c.company || c.name || '—')}</b>
-          ${c.company && c.name ? `<span class="mut" style="font-size:11.5px">${esc(c.name)}</span>` : ''}
-          ${c.guest ? '<span class="pill pill-warn" style="font-size:9.5px">εκτός λογαριασμού</span>' : ''}
-          ${c.contact ? `<span class="pill pill-info" style="font-size:9.5px" title="Έγραψε υπο-επαφή, όχι ο κάτοχος">επαφή: ${esc(c.contact.name)}</span>` : ''}
+      <div class="tk-ctx" id="tkCtx">
+        <div class="tk-ctx-line">
+          <b>${esc(c.company || c.name || '—')}</b>
+          ${c.email ? `<a class="tk-chip" href="mailto:${esc(c.email)}" title="${esc(c.email)}">✉ ${esc(c.email)}</a>` : ''}
+          ${c.phone ? `<a class="tk-chip" href="tel:${esc(String(c.phone).replace(/[^0-9+]/g, ''))}">☎ ${esc(c.phone)}</a>` : ''}
+          ${c.ip ? `<span class="tk-chip" title="IP από την οποία γράφτηκε">⌖ ${esc(c.ip)}</span>` : ''}
+          ${rel
+            ? `<span class="tk-chip on" title="Η υπηρεσία που δήλωσε ο πελάτης">${esc(rel.name || rel.domain)}</span>`
+            : (n ? '<span class="tk-chip warn" title="Ο πελάτης δεν δήλωσε υπηρεσία">χωρίς υπηρεσία</span>' : '')}
+          ${c.unpaid > 0 ? `<span class="tk-chip warn">οφειλή ${c.unpaid.toFixed(2)} €</span>` : ''}
           <span style="flex:1"></span>
-          ${c.openTickets > 1 ? `<span class="pill pill-mut" style="font-size:9.5px">${c.openTickets} ανοιχτά</span>` : ''}
-          ${c.unpaid > 0 ? `<span class="pill pill-warn" style="font-size:9.5px" title="Ανεξόφλητα τιμολόγια">οφειλή ${c.unpaid.toFixed(2)} €</span>` : ''}
-          ${c.id ? `<a class="tk-chip" href="/cloudonadminpanel/clientssummary.php?userid=${c.id}" target="_blank" title="Άνοιγμα στο WHMCS">WHMCS ↗</a>` : ''}
+          ${n ? `<button class="tk-more" id="tkCtxMore" aria-expanded="false" title="Όλες οι υπηρεσίες του πελάτη">${n} υπηρεσίες ▾</button>` : ''}
+          ${c.id ? `<a class="tk-chip" href="/cloudonadminpanel/clientssummary.php?userid=${c.id}" target="_blank" title="Καρτέλα στο WHMCS">↗</a>` : ''}
         </div>
-        <div class="tk-ctx-row">
-          ${chip('✉', c.email, 'mailto:' + encodeURIComponent(c.email || ''))}
-          ${chip('☎', c.phone, 'tel:' + String(c.phone || '').replace(/[^0-9+]/g, ''))}
-          ${chip('⌖', c.ip, null, 'IP από την οποία γράφτηκε το ticket')}
-          ${c.since ? `<span class="tk-chip" style="cursor:default">πελάτης από ${esc(c.since)}</span>` : ''}
-        </div>
-        ${(c.services && c.services.length) ? `
-        <div class="tk-ctx-svc">
-          ${rel ? '' : '<div class="tk-ctx-warn">Δεν δηλώθηκε υπηρεσία — ρώτησε τον πελάτη ποια αφορά</div>'}
+        ${n ? `<div class="tk-ctx-svc" id="tkCtxSvc" hidden>
           ${c.services.map(s => `
             <div class="tk-svc ${s.related ? 'on' : ''}">
               <span style="width:6px;height:6px;border-radius:50%;background:${stCol(s.status)};flex:none"></span>
-              <b style="font-size:11.5px">${esc(s.name)}</b>
-              ${s.domain ? `<span class="mut" style="font-size:11px">${esc(s.domain)}</span>` : ''}
-              ${s.ip ? `<span class="mut" style="font-size:11px">${esc(s.ip)}</span>` : ''}
-              <span class="mut" style="font-size:10.5px;margin-left:auto">${esc(s.status)}</span>
-              ${s.related ? '<span class="pill pill-info" style="font-size:9px">αυτή αφορά</span>' : ''}
+              <b>${esc(s.name)}</b>
+              ${s.domain ? `<span class="mut">${esc(s.domain)}</span>` : ''}
+              ${s.ip ? `<span class="mut">${esc(s.ip)}</span>` : ''}
+              <span class="mut" style="margin-left:auto">${esc(s.status)}</span>
             </div>`).join('')}
-        </div>` : (c.guest ? '' : '<div class="tk-ctx-warn">Ο πελάτης δεν έχει ενεργές υπηρεσίες</div>')}
+        </div>` : ''}
       </div>`;
     })()}
     ${(dd.suggest && (dd.suggest.kb.length || dd.suggest.similar.length)) ? `
@@ -256,6 +249,15 @@ R.inbox = async function (openId) {
     };
     $('#ibSend').onclick = send;
     $('#ibBody').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); };
+    // Άνοιγμα/κλείσιμο της λίστας υπηρεσιών· η επιλογή θυμάται ανά χρήστη.
+    { const _m = $('#tkCtxMore'), _sv = $('#tkCtxSvc');
+      if (_m && _sv) {
+        const KEY = 'cnp_tkctx_open';
+        const apply = on => { _sv.hidden = !on; _m.setAttribute('aria-expanded', on ? 'true' : 'false');
+          _m.textContent = _m.textContent.replace(/[▾▴]$/, on ? '▴' : '▾'); };
+        apply(localStorage.getItem(KEY) === '1');
+        _m.onclick = () => { const on = _sv.hidden; localStorage.setItem(KEY, on ? '1' : '0'); apply(on); };
+      } }
     { const _bk = $('#ibBack'); if (_bk) _bk.onclick = () => { st.sel = null; const _ibx = $('.inbox'); if (_ibx) _ibx.classList.remove('has-sel'); document.body.classList.remove('detail-open'); conv.innerHTML = `<div class="empty" style="margin-top:80px"><div class="big">${I.ticket}</div>Διάλεξε ticket</div>`; }; }
     $('#ibStatus').onchange = async e => {
       await api('ticket_update', {ticket: id, status: e.target.value});
