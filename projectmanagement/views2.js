@@ -1099,6 +1099,7 @@ R.paytrace = async function () {
         ${tile('overpaid', '↑', 'Υπερπληρωμένα', 'παραστατικά', '#e0a020')}
         ${tile('zombie', '👻', 'Ζόμπι συνδρομές', 'υπηρεσίες', 'var(--bad)')}
         ${tile('debt', '€', 'Πραγματικές οφειλές', 'πελάτες', '#e0a020')}
+        ${tile('legacy', '⌛', 'Πληρωμένα χωρίς αντιστοίχιση', 'παραστατικά', 'var(--mut)')}
       </div>
       <div id="ptAudList"></div>`;
 
@@ -1169,6 +1170,19 @@ R.paytrace = async function () {
           ${r.orphan ? '<div style="font-weight:600;font-size:10.5px">χωρίς παραστατικό</div>' : ''}</td></tr>
         ${pay ? `<tr><td colspan="7" style="padding:0 12px 8px 12px;font-size:11.5px" class="mut">${pay}</td></tr>` : ''}`;
       }).join('');
+    } else if (sec === 'legacy') {
+      title = 'Πληρωμένα χωρίς αντιστοίχιση πληρωμής';
+      hint = 'Παραστατικά σημασμένα «Paid» που δεν έχουν (ή έχουν λιγότερη) καταχωρημένη είσπραξη. ΔΕΝ είναι οφειλή — η πλατφόρμα δουλευόταν χειροκίνητα επί χρόνια. Μετριούνται ως εισπραγμένα στους άλλους ελέγχους· η λίστα υπάρχει για να τακτοποιηθούν σιγά σιγά, ξεκινώντας από τα πρόσφατα.';
+      head = th('Παραστατικό') + th('Πελάτης') + th('Ημερομηνία') + th('Εξοφλήθηκε') + th('Τρόπος') + th('Αξία') + th('Καταχωρημένα') + th('Λείπει');
+      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+        <td style="padding:7px 12px"><a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoice}" target="_blank" style="color:var(--brand)">${esc(r.num)}</a></td>
+        <td style="padding:7px 12px">${link(r.client, r.name)}</td>
+        <td style="padding:7px 12px">${esc(r.date)}</td>
+        <td style="padding:7px 12px">${esc(r.datepaid || '—')}</td>
+        <td style="padding:7px 12px" class="mut">${esc(r.method || '—')}</td>
+        <td style="padding:7px 12px">${money(r.gross)}</td>
+        <td style="padding:7px 12px">${r.paid ? money(r.paid) : '<span class="mut">—</span>'}</td>
+        <td style="padding:7px 12px;font-weight:700">${money(r.gap)}</td></tr>`).join('');
     } else {
       title = 'Πραγματικές οφειλές';
       hint = 'Τιμολογημένα μείον όσα εισπράχθηκαν πραγματικά — ανεξάρτητα από το πώς τα εμφανίζει το WHMCS.';
@@ -1236,7 +1250,8 @@ R.paytrace = async function () {
                 ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${r.ref}" target="_blank" style="color:var(--brand)">${esc(r.label)}</a>`
                 : esc(r.label)}</td>
             <td style="padding:7px 12px;text-align:right${r.kind === 'refund' ? ';color:#e0a020' : ''}">${r.debit ? money(r.debit) : ''}</td>
-            <td style="padding:7px 12px;text-align:right;color:#16a26a">${r.credit ? money(r.credit) : ''}</td>
+            <td style="padding:7px 12px;text-align:right;color:${r.kind === 'assumed' ? 'var(--mut)' : '#16a26a'}">${r.credit ? money(r.credit) : ''}${
+              r.kind === 'assumed' ? '<div style="font-size:10px">χωρίς παραστατικό πληρωμής</div>' : ''}</td>
             <td style="padding:7px 14px;text-align:right;font-weight:700;color:${r.balance > 0.005 ? 'var(--bad)' : (neg(r.balance) ? 'var(--brand)' : 'var(--mut)')}">${money(r.balance)}</td>
           </tr>`).join('')}
           </tbody>

@@ -93,6 +93,41 @@ function initials($name)
  * σημασμένο «Paid» χωρίς καταχωρημένη συναλλαγή.
  * Κοινό για οθόνη και CSV, με συγκεντρωτικά ερωτήματα (όχι βρόχος ανά πελάτη).
  */
+/**
+ * Παραστατικά σημασμένα «Paid» με λιγότερες (ή καθόλου) καταχωρημένες
+ * εισπράξεις. Επί χρόνια η πλατφόρμα δουλευόταν χειροκίνητα, οπότε η σήμανση
+ * «Paid» είναι η αλήθεια — η γραμμή πληρωμής απλώς δεν καταχωρήθηκε. Τα ποσά
+ * αυτά θεωρούνται εισπραγμένα, αλλιώς φουσκώνουν ψεύτικες οφειλές.
+ * Επιστρέφει ['byClient' => [uid => ποσό], 'rows' => [αναλυτικά]].
+ */
+function cnp_assumed_paid()
+{
+    static $cache = null;
+    if ($cache !== null) { return $cache; }
+
+    $alloc = [];
+    foreach (Capsule::table('tblaccounts')->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+        $alloc[(int) $r->invoiceid] = (float) $r->p;
+    }
+    $by = []; $rows = [];
+    foreach (Capsule::table('tblinvoices')->where('status', 'Paid')->orderBy('date', 'desc')
+                 ->get(['id', 'userid', 'invoicenum', 'date', 'datepaid', 'paymentmethod', 'subtotal', 'tax', 'tax2']) as $i) {
+        $gross = (float) $i->subtotal + (float) $i->tax + (float) $i->tax2;
+        $paid  = $alloc[(int) $i->id] ?? 0.0;
+        $gap = round($gross - $paid, 2);
+        if ($gap <= 0.005) { continue; }
+        $uid = (int) $i->userid;
+        $by[$uid] = ($by[$uid] ?? 0) + $gap;
+        $rows[] = ['invoice' => (int) $i->id, 'client' => $uid,
+            'num' => (string) ($i->invoicenum ?: $i->id), 'date' => substr((string) $i->date, 0, 10),
+            'datepaid' => substr((string) $i->datepaid, 0, 10), 'method' => (string) $i->paymentmethod,
+            'gross' => round($gross, 2), 'paid' => round($paid, 2), 'gap' => $gap];
+    }
+    $cache = ['byClient' => $by, 'rows' => $rows];
+    return $cache;
+}
+
 function cnp_book_gaps(array $ids)
 {
     if (!$ids) { return ['inv' => [], 'unalloc' => [], 'cancelled' => []]; }
@@ -115,6 +150,10 @@ function cnp_book_gaps(array $ids)
            Κρατάμε μόνο όσα έχουν κάποια είσπραξη που δεν συμφωνεί. */
         $unpaidLike = in_array($iv->status, ['Unpaid', 'Overdue', 'Collections', 'Payment Pending'], true);
         if ($unpaidLike && $paid <= 0.005) { continue; }
+        /* Σημασμένο «Paid» με λιγότερες εισπράξεις: θεωρείται εξοφλημένο (βλ.
+           cnp_assumed_paid) — ήταν ο τρόπος δουλειάς επί χρόνια. Δεν είναι
+           ασυμφωνία· φαίνεται χωριστά, ως πληροφορία. Υπερείσπραξη όμως ναι. */
+        if ($iv->status === 'Paid' && $d > 0) { continue; }
         $byClient[(int) $iv->userid][] = ['invoice' => (int) $iv->id,
             'num' => (string) ($iv->invoicenum ?: $iv->id), 'date' => substr((string) $iv->date, 0, 10),
             'status' => (string) $iv->status, 'gross' => round($gross, 2), 'paid' => round($paid, 2), 'diff' => $d,
@@ -5864,7 +5903,8 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
     if (!$FULL) { fail('forbidden', 403); }
     $sc = (string) ($_GET['section'] ?? '');
     $titles = ['mismatch' => 'asymfonia-vivlion', 'overpaid' => 'yperpliromena',
-               'zombie' => 'zombi-syndromes', 'debt' => 'ofeiles'];
+               'zombie' => 'zombi-syndromes', 'debt' => 'ofeiles',
+               'legacy' => 'pliromena-xoris-antistoixisi'];
     if (!isset($titles[$sc])) { fail('Άγνωστη ενότητα', 404); }
 
     // Ξαναχρησιμοποιούμε τον ίδιο υπολογισμό μέσω εσωτερικής κλήσης.
@@ -5879,6 +5919,10 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
                  ->selectRaw('userid, SUM(subtotal+tax+tax2) g')->groupBy('userid')->get() as $r) { $grossBy[(int) $r->userid] = (float) $r->g; }
     foreach (Capsule::table('tblaccounts')->where('gateway', '!=', '')->whereNotNull('gateway')
                  ->selectRaw('userid, SUM(amountin) p')->groupBy('userid')->get() as $r) { $paidBy[(int) $r->userid] = (float) $r->p; }
+    // Τα σημασμένα «Paid» χωρίς γραμμή πληρωμής μετρούν ως εισπραγμένα.
+    foreach (cnp_assumed_paid()['byClient'] as $uid => $amt) {
+        $paidBy[$uid] = ($paidBy[$uid] ?? 0) + $amt;
+    }
     foreach (Capsule::table('tblaccounts')->where('type', 'invoice_billing_adjustment_credit')
                  ->selectRaw('userid, SUM(amountin) a')->groupBy('userid')->get() as $r) { $adjBy[(int) $r->userid] = (float) $r->a; }
     foreach (Capsule::table('tblinvoices')->where('status', 'Unpaid')
@@ -5938,6 +5982,13 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
                     $n3($g), $n3($r->s), $r->c, $n3((float) $r->s - $g)], ';');
             }
         }
+    } elseif ($sc === 'legacy') {
+        fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Ημερομηνία', 'Ημ. εξόφλησης',
+            'Τρόπος πληρωμής', 'Αξία', 'Καταχωρημένες εισπράξεις', 'Λείπει'], ';');
+        foreach (cnp_assumed_paid()['rows'] as $r) {
+            fputcsv($f3, [$r['num'], $r['client'], $nm($r['client']), $r['date'], $r['datepaid'],
+                $r['method'], $n3($r['gross']), $n3($r['paid']), $n3($r['gap'])], ';');
+        }
     } elseif ($sc === 'zombie') {
         fputcsv($f3, ['Υπηρεσία', 'Domain', 'ID πελάτη', 'Πελάτης', 'Κατάσταση', 'Ποσό', 'Κύκλος', 'Συνδρομή',
             'Έγκυρη συνδρομή', 'Ημ. ακύρωσης', 'Πηγή ημερομηνίας', 'Πληρωμές συνδρομής',
@@ -5979,6 +6030,10 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     foreach (Capsule::table('tblaccounts')->where('gateway', '!=', '')->whereNotNull('gateway')
                  ->selectRaw('userid, SUM(amountin) - SUM(amountout) p')->groupBy('userid')->get() as $r) {
         $paidBy[(int) $r->userid] = (float) $r->p;
+    }
+    // Τα σημασμένα «Paid» χωρίς γραμμή πληρωμής μετρούν ως εισπραγμένα.
+    foreach (cnp_assumed_paid()['byClient'] as $uid => $amt) {
+        $paidBy[$uid] = ($paidBy[$uid] ?? 0) + $amt;
     }
     foreach (Capsule::table('tblaccounts')->where('type', 'invoice_billing_adjustment_credit')
                  ->selectRaw('userid, SUM(amountin) a')->groupBy('userid')->get() as $r) {
@@ -6054,7 +6109,18 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     }
     usort($debt, function ($a, $b) { return $b['balance'] <=> $a['balance']; });
 
+    /* ── 5. Σημασμένα «Paid» χωρίς αντιστοιχισμένη πληρωμή ─────────────────
+       Δεν είναι οφειλή — είναι κατάλοιπο της χειροκίνητης εποχής. Μπαίνει σε
+       δική του λίστα ώστε να διορθώνεται σιγά σιγά, χωρίς να μολύνει τα άλλα
+       νούμερα. Τα φρέσκα είναι τα ενδιαφέροντα· γι' αυτό πρώτα τα πρόσφατα. */
+    $legacy = [];
+    foreach (cnp_assumed_paid()['rows'] as $r) {
+        $r['name'] = $nameOf($r['client']);
+        $legacy[] = $r;
+    }
+
     $sum = [
+        'legacy'   => ['n' => count($legacy), 'sum' => round(array_sum(array_column($legacy, 'gap')), 2)],
         'mismatch' => ['n' => count($mismatch), 'sum' => round(array_sum(array_map('abs', array_column($mismatch, 'diff'))), 2)],
         'overpaid' => ['n' => count($overpaid), 'sum' => round(array_sum(array_column($overpaid, 'over')), 2)],
         'zombie'   => ['n' => count($zombie),   'sum' => round(array_sum(array_column($zombie, 'openAmt'))
@@ -6067,6 +6133,7 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     elseif ($sec === 'overpaid') { $data['rows'] = array_slice($overpaid, 0, 200); }
     elseif ($sec === 'zombie')   { $data['rows'] = $zombie; }
     elseif ($sec === 'debt')     { $data['rows'] = array_slice($debt, 0, 200); }
+    elseif ($sec === 'legacy')   { $data['rows'] = array_slice($legacy, 0, 300); }
     out($data);
 
 case 'pay_statement_csv':                // Η καρτέλα σε CSV για το λογιστήριο
@@ -6089,6 +6156,29 @@ case 'pay_statement_csv':                // Η καρτέλα σε CSV για τ
             'Πληρωμή ' . $a->gateway . ($iv ? ' — παρ. ' . ($iv->invoicenum ?: '#' . $iv->id) : ''),
             0.0, (float) $a->amountin, '', (string) $a->transid];
     }
+    // Επιστροφές: χρήματα που γύρισαν στον πελάτη — χρεώνουν ξανά τον λογαριασμό.
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid2)
+                 ->where('amountout', '>', 0)->where('refundid', '>', 0)->get() as $rf) {
+        $iv = $rf->invoiceid ? Capsule::table('tblinvoices')->where('id', $rf->invoiceid)->first() : null;
+        $ev2[] = [substr($rf->date, 0, 10),
+            'Επιστροφή χρημάτων' . ($iv ? ' — παρ. ' . ($iv->invoicenum ?: '#' . $iv->id) : ''),
+            (float) $rf->amountout, 0.0, '', (string) $rf->transid];
+    }
+    // Σημασμένα «Paid» χωρίς καταχωρημένη είσπραξη — θεωρούνται εξοφλημένα.
+    $alloc2 = [];
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid2)->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+        $alloc2[(int) $r->invoiceid] = (float) $r->p;
+    }
+    foreach (Capsule::table('tblinvoices')->where('userid', $cid2)->where('status', 'Paid')->get() as $i) {
+        $gap = round((float) ($i->subtotal + $i->tax + $i->tax2) - ($alloc2[(int) $i->id] ?? 0), 2);
+        if ($gap <= 0.005) { continue; }
+        $when = ($i->datepaid && strpos((string) $i->datepaid, '0000') !== 0) ? $i->datepaid : $i->date;
+        $ev2[] = [substr((string) $when, 0, 10),
+            'Εξόφληση χωρίς καταχωρημένη πληρωμή — παρ. ' . ($i->invoicenum ?: '#' . $i->id),
+            0.0, $gap, 'σημασμένο Paid', ''];
+    }
+
     usort($ev2, function ($x, $y) { $c = strcmp($x[0], $y[0]); return $c !== 0 ? $c : ($y[2] <=> $x[2]); });
 
     header('Content-Type: text/csv; charset=UTF-8');
@@ -6145,6 +6235,27 @@ case 'pay_statement':                    // Καρτέλα πελάτη: χρέ�
             'debit'  => $gross,
             'credit' => 0.0,
             'note'   => $i->status,
+        ];
+    }
+
+    /* Σημασμένο «Paid» χωρίς (πλήρη) καταχωρημένη είσπραξη: μπαίνει ως πίστωση,
+       αλλιώς η καρτέλα δείχνει οφειλή για κάτι που έχει εξοφληθεί. Φαίνεται ως
+       ξεχωριστή γραμμή, ώστε να είναι εμφανές ότι δεν υπάρχει παραστατικό
+       πληρωμής από πίσω. */
+    $allocIn = [];
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid)->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+        $allocIn[(int) $r->invoiceid] = (float) $r->p;
+    }
+    foreach (Capsule::table('tblinvoices')->where('userid', $cid)->where('status', 'Paid')->get() as $i) {
+        $gap = round((float) ($i->subtotal + $i->tax + $i->tax2) - ($allocIn[(int) $i->id] ?? 0), 2);
+        if ($gap <= 0.005) { continue; }
+        $when = ($i->datepaid && strpos((string) $i->datepaid, '0000') !== 0) ? $i->datepaid : $i->date;
+        $ev[] = [
+            'date' => $when, 'sort' => $when, 'kind' => 'assumed',
+            'label' => 'Εξόφληση χωρίς καταχωρημένη πληρωμή — παρ. ' . ($i->invoicenum ?: '#' . $i->id),
+            'ref' => (int) $i->id, 'num' => (string) ($i->invoicenum ?: ''),
+            'debit' => 0.0, 'credit' => $gap, 'note' => 'σημασμένο Paid',
         ];
     }
 
