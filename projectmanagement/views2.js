@@ -1020,9 +1020,10 @@ R.paytrace = async function () {
         <div style="font-size:25px;font-weight:800;color:var(--brand)">${money(d.total)}</div></div>
       <div class="card" style="padding:13px 15px;flex:2;min-width:220px">
         <div class="mut" style="font-size:11.5px;text-transform:uppercase;font-weight:700;margin-bottom:5px">Ανά πελάτη</div>
-        ${d.byClient.map(b => `<div style="display:flex;gap:8px;font-size:12.5px;margin-bottom:2px">
+        ${d.byClient.map(b => `<div style="display:flex;gap:8px;font-size:12.5px;margin-bottom:2px;align-items:center">
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.client)}</span>
-          <span class="mut">${b.n}×</span><b>${money(b.sum)}</b></div>`).join('')}
+          <span class="mut">${b.n}×</span><b>${money(b.sum)}</b>
+          ${b.id ? `<button class="btn btn-o btn-sm" data-stmt="${b.id}" style="padding:1px 7px;font-size:11px">καρτέλα</button>` : ''}</div>`).join('')}
       </div>
     </div>
 
@@ -1058,10 +1059,62 @@ R.paytrace = async function () {
         </tr>`).join('')}
         </tbody>
       </table></div>
-    </div>`;
+    </div>
+    <div id="ptStmt"></div>`;
   bind();
 
+  /* Καρτέλα πελάτη — η μόνη μορφή που διαβάζεται λογιστικά:
+     ΧΡΕΩΣΗ = αξία παραστατικού, ΠΙΣΤΩΣΗ = χρήματα που μπήκαν, τρέχον υπόλοιπο. */
+  async function statement(cid) {
+    const host = $('#ptStmt');
+    host.innerHTML = '<div class="skel" style="height:220px;margin-top:12px"></div>';
+    const st2 = await api('pay_statement', {client: cid}).catch(e => ({err: e.message}));
+    if (st2.err || !st2.rows) { host.innerHTML = `<div class="empty">${esc(st2.err || '—')}</div>`; return; }
+    const neg = v => v < -0.005;
+    host.innerHTML = `
+      <div class="card" style="margin-top:14px;padding:0;overflow:hidden">
+        <div class="card-h" style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <b>Καρτέλα — ${esc(st2.client.name)}</b>
+          <span class="mut" style="font-size:12px">${esc(st2.client.person)}</span>
+          <span style="flex:1"></span>
+          <span class="pill ${st2.balance > 0.005 ? 'pill-bad' : (neg(st2.balance) ? 'pill-info' : 'pill-mut')}">
+            ${st2.balance > 0.005 ? 'οφειλή ' + money(st2.balance)
+              : (neg(st2.balance) ? 'προπληρωμή ' + money(-st2.balance) : 'μηδενικό υπόλοιπο')}</span>
+          <a class="btn btn-o btn-sm" href="api.php?a=pay_statement_csv&client=${cid}">⤓ CSV</a>
+        </div>
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+          <thead><tr style="background:var(--bg2)">
+            <th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">Ημερομηνία</th>
+            <th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">Κίνηση</th>
+            <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">Χρέωση</th>
+            <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">Πίστωση</th>
+            <th style="text-align:right;padding:8px 14px;font-size:11px;text-transform:uppercase;color:var(--mut)">Υπόλοιπο</th>
+          </tr></thead>
+          <tbody>
+          ${st2.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+            <td style="padding:7px 12px;white-space:nowrap">${esc(String(r.date).slice(0, 10))}</td>
+            <td style="padding:7px 12px">${r.ref
+                ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${r.ref}" target="_blank" style="color:var(--brand)">${esc(r.label)}</a>`
+                : esc(r.label)}</td>
+            <td style="padding:7px 12px;text-align:right">${r.debit ? money(r.debit) : ''}</td>
+            <td style="padding:7px 12px;text-align:right;color:#16a26a">${r.credit ? money(r.credit) : ''}</td>
+            <td style="padding:7px 14px;text-align:right;font-weight:700;color:${r.balance > 0.005 ? 'var(--bad)' : (neg(r.balance) ? 'var(--brand)' : 'var(--mut)')}">${money(r.balance)}</td>
+          </tr>`).join('')}
+          </tbody>
+          <tfoot><tr style="border-top:2px solid var(--line);background:var(--bg2)">
+            <td colspan="2" style="padding:9px 12px;font-weight:700">ΣΥΝΟΛΑ</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:700">${money(st2.debit)}</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:700;color:#16a26a">${money(st2.credit)}</td>
+            <td style="padding:9px 14px;text-align:right;font-weight:800">${money(st2.balance)}</td>
+          </tr></tfoot>
+        </table></div>
+      </div>`;
+    host.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
   function bind() {
+    $$('[data-stmt]').forEach(b => b.onclick = () => statement(+b.dataset.stmt));
     const q = $('#ptQ'), go = $('#ptGo');
     if (!q) return;
     const grab = () => {

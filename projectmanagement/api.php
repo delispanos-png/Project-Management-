@@ -5707,6 +5707,125 @@ case 'cv_jobs':
         'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
+case 'pay_statement_csv':                // Η καρτέλα σε CSV για το λογιστήριο
+    if (!$FULL) { fail('forbidden', 403); }
+    $cid2 = (int) ($_GET['client'] ?? 0);
+    $cl2 = $cid2 ? Capsule::table('tblclients')->where('id', $cid2)->first() : null;
+    if (!$cl2) { fail('Ο πελάτης δεν βρέθηκε', 404); }
+
+    $ev2 = [];
+    foreach (Capsule::table('tblinvoices')->where('userid', $cid2)->whereNotIn('status', ['Draft'])->get() as $i) {
+        $gr = (float) ($i->subtotal + $i->tax + $i->tax2);
+        if ($i->status === 'Cancelled' || $gr <= 0) { continue; }
+        $ev2[] = [substr($i->date, 0, 10), 'Παραστατικό ' . ($i->invoicenum ?: '#' . $i->id), $gr, 0.0, $i->status, ''];
+    }
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid2)
+                 ->where('gateway', '!=', '')->whereNotNull('gateway')->get() as $a) {
+        if ((float) $a->amountin <= 0) { continue; }
+        $iv = $a->invoiceid ? Capsule::table('tblinvoices')->where('id', $a->invoiceid)->first() : null;
+        $ev2[] = [substr($a->date, 0, 10),
+            'Πληρωμή ' . $a->gateway . ($iv ? ' — παρ. ' . ($iv->invoicenum ?: '#' . $iv->id) : ''),
+            0.0, (float) $a->amountin, '', (string) $a->transid];
+    }
+    usort($ev2, function ($x, $y) { $c = strcmp($x[0], $y[0]); return $c !== 0 ? $c : ($y[2] <=> $x[2]); });
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="kartela-' . $cid2 . '-' . date('Y-m-d') . '.csv"');
+    $f2 = fopen('php://output', 'w');
+    fwrite($f2, "\xEF\xBB\xBF");
+    $n2 = function ($v) { return $v ? number_format((float) $v, 2, ',', '') : ''; };
+
+    fputcsv($f2, ['Καρτέλα πελάτη', trim(($cl2->companyname ?: ($cl2->firstname . ' ' . $cl2->lastname)))], ';');
+    fputcsv($f2, ['Υπεύθυνος', trim($cl2->firstname . ' ' . $cl2->lastname), 'Email', $cl2->email], ';');
+    fputcsv($f2, [], ';');
+    fputcsv($f2, ['Ημερομηνία', 'Κίνηση', 'Χρέωση', 'Πίστωση', 'Υπόλοιπο', 'Κατάσταση', 'Transaction ID'], ';');
+
+    $b2 = 0.0; $d2 = 0.0; $c2 = 0.0;
+    foreach ($ev2 as $e) {
+        $b2 += $e[2] - $e[3];
+        $d2 += $e[2];
+        $c2 += $e[3];
+        fputcsv($f2, [$e[0], $e[1], $n2($e[2]), $n2($e[3]), number_format($b2, 2, ',', ''), $e[4], $e[5]], ';');
+    }
+    fputcsv($f2, [], ';');
+    fputcsv($f2, ['ΣΥΝΟΛΑ', '', number_format($d2, 2, ',', ''), number_format($c2, 2, ',', ''),
+        number_format($b2, 2, ',', '')], ';');
+    fputcsv($f2, [$b2 > 0.005 ? 'ΟΦΕΙΛΗ ΠΕΛΑΤΗ' : ($b2 < -0.005 ? 'ΠΡΟΠΛΗΡΩΜΗ' : 'ΜΗΔΕΝΙΚΟ ΥΠΟΛΟΙΠΟ'), '', '', '',
+        number_format(abs($b2), 2, ',', '')], ';');
+    fclose($f2);
+    exit;
+
+case 'pay_statement':                    // Καρτέλα πελάτη: χρέωση / πίστωση / υπόλοιπο
+    /* Η μόνη μορφή που διαβάζεται λογιστικά. ΧΡΕΩΣΗ = αξία παραστατικού,
+       ΠΙΣΤΩΣΗ = πραγματικά χρήματα που μπήκαν. Οι εσωτερικές πιστώσεις ΔΕΝ
+       μετριούνται — δεν είναι νέα χρήματα, απλώς μετακινούν υπάρχοντα, και
+       αν τις μετρούσαμε θα διπλομετρούσαμε το ίδιο ποσό. */
+    if (!$FULL) { fail('forbidden', 403); }
+    $cid = (int) ($in['client'] ?? $_GET['client'] ?? 0);
+    if (!$cid) { fail('Δώσε πελάτη'); }
+
+    $cl = Capsule::table('tblclients')->where('id', $cid)->first();
+    if (!$cl) { fail('Ο πελάτης δεν βρέθηκε', 404); }
+
+    $ev = [];
+
+    foreach (Capsule::table('tblinvoices')->where('userid', $cid)
+                 ->whereNotIn('status', ['Draft'])->get() as $i) {
+        $gross = (float) ($i->subtotal + $i->tax + $i->tax2);
+        if ($i->status === 'Cancelled' || $gross <= 0) { continue; }
+        $ev[] = [
+            'date'   => $i->date,
+            'sort'   => substr($i->date, 0, 10) . ' 00:00:00',
+            'kind'   => 'invoice',
+            'label'  => 'Παραστατικό ' . ($i->invoicenum ?: '#' . $i->id),
+            'ref'    => (int) $i->id,
+            'num'    => (string) ($i->invoicenum ?: ''),
+            'debit'  => $gross,
+            'credit' => 0.0,
+            'note'   => $i->status,
+        ];
+    }
+
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid)
+                 ->where('gateway', '!=', '')->whereNotNull('gateway')->get() as $a) {
+        if ((float) $a->amountin <= 0) { continue; }
+        $inv = $a->invoiceid ? Capsule::table('tblinvoices')->where('id', $a->invoiceid)->first() : null;
+        $ev[] = [
+            'date'   => $a->date,
+            'sort'   => $a->date,
+            'kind'   => 'payment',
+            'label'  => 'Πληρωμή ' . $a->gateway . ($inv ? ' — παρ. ' . ($inv->invoicenum ?: '#' . $inv->id) : ''),
+            'ref'    => (int) $a->invoiceid,
+            'num'    => (string) ($inv->invoicenum ?? ''),
+            'debit'  => 0.0,
+            'credit' => (float) $a->amountin,
+            'note'   => (string) $a->transid,
+        ];
+    }
+
+    usort($ev, function ($x, $y) {
+        $c = strcmp($x['sort'], $y['sort']);
+        // Ίδια μέρα: πρώτα η χρέωση, μετά η πίστωση — έτσι διαβάζεται σωστά.
+        return $c !== 0 ? $c : ($y['debit'] <=> $x['debit']);
+    });
+
+    $bal = 0.0; $td = 0.0; $tc = 0.0;
+    foreach ($ev as $k => $e) {
+        $bal += $e['debit'] - $e['credit'];
+        $td += $e['debit'];
+        $tc += $e['credit'];
+        $ev[$k]['balance'] = round($bal, 2);
+    }
+
+    out([
+        'client'  => ['id' => $cid, 'name' => trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname))),
+                      'person' => trim($cl->firstname . ' ' . $cl->lastname), 'email' => $cl->email],
+        'rows'    => $ev,
+        'debit'   => round($td, 2),
+        'credit'  => round($tc, 2),
+        'balance' => round($bal, 2),
+    ]);
+
 case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σε CSV για το λογιστήριο
     if (!$FULL) { fail('forbidden', 403); }
     $qx  = trim((string) ($_GET['q'] ?? ''));
