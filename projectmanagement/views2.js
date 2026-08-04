@@ -989,9 +989,9 @@ R.paytrace = async function () {
     </div>`;
 
   if (!st.q) {
-    c.innerHTML = form + `<div class="empty" style="margin-top:40px"><div class="big">${I.coin || I.search || ''}</div>
-      Δώσε ένα email πληρωτή ή ένα transaction ID για να δεις πού πήγαν τα χρήματα.</div>`;
+    c.innerHTML = form + `<div id="ptAudit"><div class="skel" style="height:120px"></div></div>`;
     bind();
+    audit();
     return;
   }
 
@@ -1062,6 +1062,107 @@ R.paytrace = async function () {
     </div>
     <div id="ptStmt"></div>`;
   bind();
+
+  /* ── Οικονομικοί έλεγχοι ────────────────────────────────────────────────
+     Τέσσερα σημεία όπου τα χρήματα διαφεύγουν χωρίς να το προσέξει κανείς.
+     Κάθε πλακίδιο ανοίγει τη λίστα του. ---------------------------------- */
+  async function audit() {
+    const host = $('#ptAudit');
+    if (!host) return;
+    const a = await api('fin_audit', {}).catch(() => null);
+    if (!a) { host.innerHTML = ''; return; }
+    const S2 = a.summary;
+    const tile = (k, icon, title, sub, col) => `
+      <button class="card" data-aud="${k}" style="padding:14px 16px;flex:1;min-width:190px;text-align:left;
+        border:1px solid var(--line);cursor:pointer;background:var(--card)">
+        <div class="mut" style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px">${icon} ${title}</div>
+        <div style="font-size:26px;font-weight:800;color:${S2[k].n ? col : 'var(--mut)'};line-height:1.15;margin-top:3px">${S2[k].n}</div>
+        <div class="mut" style="font-size:11.5px">${sub} · ${money(S2[k].sum)}</div>
+      </button>`;
+
+    host.innerHTML = `
+      <div style="font-weight:700;font-size:13.5px;margin:4px 0 9px">Οικονομικοί έλεγχοι</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        ${tile('mismatch', '⚖', 'Ασυμφωνία βιβλίων', 'πελάτες', 'var(--bad)')}
+        ${tile('overpaid', '↑', 'Υπερπληρωμένα', 'παραστατικά', '#e0a020')}
+        ${tile('zombie', '👻', 'Ζόμπι συνδρομές', 'υπηρεσίες', 'var(--bad)')}
+        ${tile('debt', '€', 'Πραγματικές οφειλές', 'πελάτες', '#e0a020')}
+      </div>
+      <div id="ptAudList"></div>`;
+
+    $$('[data-aud]').forEach(b => b.onclick = () => audList(b.dataset.aud));
+  }
+
+  async function audList(sec) {
+    const host = $('#ptAudList');
+    host.innerHTML = '<div class="skel" style="height:180px"></div>';
+    const a = await api('fin_audit', {section: sec}).catch(() => null);
+    if (!a || !a.rows) { host.innerHTML = '<div class="empty">—</div>'; return; }
+
+    const link = (id, txt) => `<a href="/cloudonadminpanel/clientssummary.php?userid=${id}" target="_blank" style="color:var(--brand)">${esc(txt)}</a>`;
+    const th = h => `<th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">${h}</th>`;
+    let head = '', body = '', title = '', hint = '';
+
+    if (sec === 'mismatch') {
+      title = 'Ασυμφωνία βιβλίων';
+      hint = 'Ο ανεξάρτητος υπολογισμός (τιμολογημένα − εισπράξεις − πιστωτικά) δεν συμφωνεί με τα ανεξόφλητα που δηλώνει το WHMCS. Συνήθως σημαίνει παραστατικό σημασμένο «Paid» χωρίς πληρωμή.';
+      head = th('Πελάτης') + th('Υπολογισμός') + th('WHMCS') + th('Διαφορά');
+      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+        <td style="padding:7px 12px">${link(r.client, r.name)}</td>
+        <td style="padding:7px 12px">${money(r.mine)}</td>
+        <td style="padding:7px 12px">${money(r.whmcs)}</td>
+        <td style="padding:7px 12px;font-weight:700;color:var(--bad)">${money(r.diff)}</td></tr>`).join('');
+    } else if (sec === 'overpaid') {
+      title = 'Υπερπληρωμένα παραστατικά';
+      hint = 'Εισπράχθηκαν περισσότερα από την αξία του παραστατικού. Χρειάζεται επιστροφή ή σωστή πίστωση.';
+      head = th('Παραστατικό') + th('Πελάτης') + th('Αξία') + th('Εισπράχθηκαν') + th('Πληρωμές') + th('Διαφορά');
+      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+        <td style="padding:7px 12px"><a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoice}" target="_blank" style="color:var(--brand)">${esc(r.num)}</a></td>
+        <td style="padding:7px 12px">${link(r.client, r.name)}</td>
+        <td style="padding:7px 12px">${money(r.value)}</td>
+        <td style="padding:7px 12px">${money(r.paid)}</td>
+        <td style="padding:7px 12px">${r.n}×</td>
+        <td style="padding:7px 12px;font-weight:700;color:#e0a020">+${money(r.over)}</td></tr>`).join('');
+    } else if (sec === 'zombie') {
+      title = 'Ζόμπι συνδρομές';
+      hint = 'Ακυρωμένη ή τερματισμένη υπηρεσία που κρατά ενεργή συνδρομή PayPal. Αν χρεώνει ακόμη, εισπράττεις για υπηρεσία που δεν παρέχεις.';
+      head = th('Υπηρεσία') + th('Πελάτης') + th('Κατάσταση') + th('Ποσό') + th('Συνδρομή') + th('Τελευταία πληρωμή');
+      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+        <td style="padding:7px 12px">#${r.service}<div class="mut" style="font-size:11px">${esc(r.domain || '')}</div></td>
+        <td style="padding:7px 12px">${link(r.client, r.name)}</td>
+        <td style="padding:7px 12px"><span class="pill pill-bad" style="font-size:9.5px">${esc(r.status)}</span></td>
+        <td style="padding:7px 12px">${money(r.amount)}<span class="mut" style="font-size:11px">/${esc(r.cycle)}</span></td>
+        <td style="padding:7px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.sub)}</td>
+        <td style="padding:7px 12px">${r.lastPay ? esc(r.lastPay) + ' <span class="mut">' + money(r.lastAmt) + '</span>' : '<span class="mut">καμία</span>'}</td></tr>`).join('');
+    } else {
+      title = 'Πραγματικές οφειλές';
+      hint = 'Τιμολογημένα μείον όσα εισπράχθηκαν πραγματικά — ανεξάρτητα από το πώς τα εμφανίζει το WHMCS.';
+      head = th('Πελάτης') + th('Οφειλή') + th('Ανεξόφλητα κατά WHMCS');
+      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+        <td style="padding:7px 12px">${link(r.client, r.name)}</td>
+        <td style="padding:7px 12px;font-weight:700;color:var(--bad)">${money(r.balance)}</td>
+        <td style="padding:7px 12px">${money(r.unpaid)}</td></tr>`).join('');
+    }
+
+    host.innerHTML = `
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="card-h" style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <b>${title}</b><span class="mut" style="font-size:12px">${a.rows.length} εγγραφές</span>
+          <span style="flex:1"></span>
+          <a class="btn btn-o btn-sm" href="api.php?a=fin_audit_csv&section=${sec}">⤓ CSV</a>
+          <button class="btn btn-o btn-sm" id="ptAudX" title="Κλείσιμο" style="padding:2px 9px;font-size:15px">×</button>
+        </div>
+        <div class="mut" style="padding:9px 15px 0;font-size:12.5px;line-height:1.5">${hint}</div>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+            <thead><tr style="background:var(--bg2)">${head}</tr></thead>
+            <tbody>${body}</tbody>
+          </table></div>
+      </div>`;
+    const x = $('#ptAudX');
+    if (x) x.onclick = () => { host.innerHTML = ''; };
+    host.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
 
   /* Καρτέλα πελάτη — η μόνη μορφή που διαβάζεται λογιστικά:
      ΧΡΕΩΣΗ = αξία παραστατικού, ΠΙΣΤΩΣΗ = χρήματα που μπήκαν, τρέχον υπόλοιπο. */

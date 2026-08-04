@@ -5707,6 +5707,189 @@ case 'cv_jobs':
         'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
+case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για το λογιστήριο
+    if (!$FULL) { fail('forbidden', 403); }
+    $sc = (string) ($_GET['section'] ?? '');
+    $titles = ['mismatch' => 'asymfonia-vivlion', 'overpaid' => 'yperpliromena',
+               'zombie' => 'zombi-syndromes', 'debt' => 'ofeiles'];
+    if (!isset($titles[$sc])) { fail('Άγνωστη ενότητα', 404); }
+
+    // Ξαναχρησιμοποιούμε τον ίδιο υπολογισμό μέσω εσωτερικής κλήσης.
+    $_GET['section'] = $sc;
+    ob_start();
+    $keepOut = true;
+    // Δεν μπορούμε να καλέσουμε το case· επαναλαμβάνουμε μόνο ό,τι χρειάζεται.
+    ob_end_clean();
+
+    $grossBy = []; $paidBy = []; $adjBy = []; $unpaidBy = [];
+    foreach (Capsule::table('tblinvoices')->whereNotIn('status', ['Cancelled', 'Draft'])
+                 ->selectRaw('userid, SUM(subtotal+tax+tax2) g')->groupBy('userid')->get() as $r) { $grossBy[(int) $r->userid] = (float) $r->g; }
+    foreach (Capsule::table('tblaccounts')->where('gateway', '!=', '')->whereNotNull('gateway')
+                 ->selectRaw('userid, SUM(amountin) p')->groupBy('userid')->get() as $r) { $paidBy[(int) $r->userid] = (float) $r->p; }
+    foreach (Capsule::table('tblaccounts')->where('type', 'invoice_billing_adjustment_credit')
+                 ->selectRaw('userid, SUM(amountin) a')->groupBy('userid')->get() as $r) { $adjBy[(int) $r->userid] = (float) $r->a; }
+    foreach (Capsule::table('tblinvoices')->where('status', 'Unpaid')
+                 ->selectRaw('userid, SUM(total) u')->groupBy('userid')->get() as $r) { $unpaidBy[(int) $r->userid] = (float) $r->u; }
+
+    $nm = function ($id) {
+        $x = Capsule::table('tblclients')->where('id', $id)->first();
+        return $x ? trim(($x->companyname ?: ($x->firstname . ' ' . $x->lastname))) : '#' . $id;
+    };
+    $n3 = function ($v) { return number_format((float) $v, 2, ',', ''); };
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $titles[$sc] . '-' . date('Y-m-d') . '.csv"');
+    $f3 = fopen('php://output', 'w');
+    fwrite($f3, "\xEF\xBB\xBF");
+
+    if ($sc === 'mismatch') {
+        fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Υπολογισμός', 'Ανεξόφλητα WHMCS', 'Διαφορά'], ';');
+        foreach ($grossBy as $cid => $g) {
+            $mine = $g - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+            $wh = $unpaidBy[$cid] ?? 0;
+            if (abs($mine - $wh) > 1) { fputcsv($f3, [$cid, $nm($cid), $n3($mine), $n3($wh), $n3($mine - $wh)], ';'); }
+        }
+    } elseif ($sc === 'overpaid') {
+        fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Αξία', 'Εισπράχθηκαν', 'Πλήθος πληρωμών', 'Διαφορά'], ';');
+        foreach (Capsule::select('SELECT invoiceid, COUNT(*) c, SUM(amountin) s FROM tblaccounts
+                  WHERE gateway <> "" AND gateway IS NOT NULL AND amountin > 0 AND invoiceid > 0
+                  GROUP BY invoiceid HAVING c > 1') as $r) {
+            $i = Capsule::table('tblinvoices')->where('id', $r->invoiceid)->first();
+            if (!$i) { continue; }
+            $g = (float) ($i->subtotal + $i->tax + $i->tax2);
+            if ((float) $r->s > $g + 0.01) {
+                fputcsv($f3, [$i->invoicenum ?: '#' . $i->id, $i->userid, $nm((int) $i->userid),
+                    $n3($g), $n3($r->s), $r->c, $n3((float) $r->s - $g)], ';');
+            }
+        }
+    } elseif ($sc === 'zombie') {
+        fputcsv($f3, ['Υπηρεσία', 'Domain', 'ID πελάτη', 'Πελάτης', 'Κατάσταση', 'Ποσό', 'Κύκλος', 'Συνδρομή', 'Τελευταία πληρωμή'], ';');
+        foreach (Capsule::table('tblhosting')->whereNotNull('subscriptionid')->where('subscriptionid', '!=', '')
+                     ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
+            $last = Capsule::table('tblaccounts')->where('userid', $h->userid)->where('gateway', '!=', '')
+                ->whereNotNull('gateway')->orderBy('date', 'desc')->first();
+            fputcsv($f3, [$h->id, $h->domain, $h->userid, $nm((int) $h->userid), $h->domainstatus,
+                $n3($h->amount), $h->billingcycle, $h->subscriptionid,
+                $last ? substr($last->date, 0, 10) : ''], ';');
+        }
+    } else {
+        fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Οφειλή', 'Ανεξόφλητα WHMCS'], ';');
+        $d3 = [];
+        foreach (Capsule::table('tblclients')->where('status', 'Active')->pluck('id') as $cid) {
+            $cid = (int) $cid;
+            $b = ($grossBy[$cid] ?? 0) - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+            if ($b > 1) { $d3[] = [$cid, $nm($cid), $b, $unpaidBy[$cid] ?? 0]; }
+        }
+        usort($d3, function ($a, $b) { return $b[2] <=> $a[2]; });
+        foreach ($d3 as $r) { fputcsv($f3, [$r[0], $r[1], $n3($r[2]), $n3($r[3])], ';'); }
+    }
+    fclose($f3);
+    exit;
+
+case 'fin_audit':                        // Οικονομικοί έλεγχοι — τέσσερα σημεία κινδύνου
+    if (!$FULL) { fail('forbidden', 403); }
+    $sec = (string) ($in['section'] ?? $_GET['section'] ?? '');
+
+    /* Όλα με συγκεντρωτικά ερωτήματα, όχι βρόχους ανά πελάτη — αλλιώς η σελίδα
+       αργεί με μερικές χιλιάδες παραστατικά. */
+    $grossBy = []; $paidBy = []; $adjBy = []; $unpaidBy = [];
+    foreach (Capsule::table('tblinvoices')->whereNotIn('status', ['Cancelled', 'Draft'])
+                 ->selectRaw('userid, SUM(subtotal+tax+tax2) g')->groupBy('userid')->get() as $r) {
+        $grossBy[(int) $r->userid] = (float) $r->g;
+    }
+    foreach (Capsule::table('tblaccounts')->where('gateway', '!=', '')->whereNotNull('gateway')
+                 ->selectRaw('userid, SUM(amountin) p')->groupBy('userid')->get() as $r) {
+        $paidBy[(int) $r->userid] = (float) $r->p;
+    }
+    foreach (Capsule::table('tblaccounts')->where('type', 'invoice_billing_adjustment_credit')
+                 ->selectRaw('userid, SUM(amountin) a')->groupBy('userid')->get() as $r) {
+        $adjBy[(int) $r->userid] = (float) $r->a;
+    }
+    foreach (Capsule::table('tblinvoices')->where('status', 'Unpaid')
+                 ->selectRaw('userid, SUM(total) u')->groupBy('userid')->get() as $r) {
+        $unpaidBy[(int) $r->userid] = (float) $r->u;
+    }
+
+    $nameOf = function ($id) {
+        static $c = [];
+        if (!isset($c[$id])) {
+            $x = Capsule::table('tblclients')->where('id', $id)->first();
+            $c[$id] = $x ? trim(($x->companyname ?: ($x->firstname . ' ' . $x->lastname))) : '#' . $id;
+        }
+        return $c[$id];
+    };
+
+    // ── 1. Ασυμφωνία βιβλίων: ο δικός μας υπολογισμός vs τα ανεξόφλητα του WHMCS
+    $mismatch = [];
+    foreach ($grossBy as $cid => $g) {
+        $mine  = $g - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+        $whmcs = $unpaidBy[$cid] ?? 0;
+        if (abs($mine - $whmcs) > 1) {
+            $mismatch[] = ['client' => $cid, 'name' => $nameOf($cid),
+                'mine' => round($mine, 2), 'whmcs' => round($whmcs, 2), 'diff' => round($mine - $whmcs, 2)];
+        }
+    }
+    usort($mismatch, function ($a, $b) { return abs($b['diff']) <=> abs($a['diff']); });
+
+    // ── 2. Υπερπληρωμένα παραστατικά
+    $overpaid = [];
+    foreach (Capsule::select('SELECT invoiceid, COUNT(*) c, SUM(amountin) s FROM tblaccounts
+              WHERE gateway <> "" AND gateway IS NOT NULL AND amountin > 0 AND invoiceid > 0
+              GROUP BY invoiceid HAVING c > 1') as $r) {
+        $i = Capsule::table('tblinvoices')->where('id', $r->invoiceid)->first();
+        if (!$i) { continue; }
+        $g = (float) ($i->subtotal + $i->tax + $i->tax2);
+        if ((float) $r->s > $g + 0.01) {
+            $overpaid[] = ['invoice' => (int) $i->id, 'num' => (string) ($i->invoicenum ?: '#' . $i->id),
+                'client' => (int) $i->userid, 'name' => $nameOf((int) $i->userid),
+                'value' => round($g, 2), 'paid' => round((float) $r->s, 2),
+                'n' => (int) $r->c, 'over' => round((float) $r->s - $g, 2)];
+        }
+    }
+    usort($overpaid, function ($a, $b) { return $b['over'] <=> $a['over']; });
+
+    // ── 3. Ζόμπι συνδρομές: ενεργή συνδρομή σε νεκρή υπηρεσία
+    $zombie = [];
+    foreach (Capsule::table('tblhosting')->whereNotNull('subscriptionid')->where('subscriptionid', '!=', '')
+                 ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
+        $last = Capsule::table('tblaccounts')->where('userid', $h->userid)->where('gateway', '!=', '')
+            ->whereNotNull('gateway')->orderBy('date', 'desc')->first();
+        $zombie[] = ['service' => (int) $h->id, 'client' => (int) $h->userid, 'name' => $nameOf((int) $h->userid),
+            'domain' => (string) $h->domain, 'status' => (string) $h->domainstatus,
+            'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
+            'sub' => (string) $h->subscriptionid,
+            'lastPay' => $last ? substr($last->date, 0, 10) : null,
+            'lastAmt' => $last ? (float) $last->amountin : null];
+    }
+    usort($zombie, function ($a, $b) { return strcmp((string) $b['lastPay'], (string) $a['lastPay']); });
+
+    // ── 4. Πραγματικές οφειλές ενεργών πελατών
+    $debt = [];
+    $activeIds = Capsule::table('tblclients')->where('status', 'Active')->pluck('id')->all();
+    foreach ($activeIds as $cid) {
+        $cid = (int) $cid;
+        $bal = ($grossBy[$cid] ?? 0) - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+        if ($bal > 1) {
+            $debt[] = ['client' => $cid, 'name' => $nameOf($cid), 'balance' => round($bal, 2),
+                'unpaid' => round($unpaidBy[$cid] ?? 0, 2)];
+        }
+    }
+    usort($debt, function ($a, $b) { return $b['balance'] <=> $a['balance']; });
+
+    $sum = [
+        'mismatch' => ['n' => count($mismatch), 'sum' => round(array_sum(array_map('abs', array_column($mismatch, 'diff'))), 2)],
+        'overpaid' => ['n' => count($overpaid), 'sum' => round(array_sum(array_column($overpaid, 'over')), 2)],
+        'zombie'   => ['n' => count($zombie),   'sum' => round(array_sum(array_column($zombie, 'amount')), 2)],
+        'debt'     => ['n' => count($debt),     'sum' => round(array_sum(array_column($debt, 'balance')), 2)],
+    ];
+
+    $data = ['summary' => $sum];
+    if ($sec === 'mismatch') { $data['rows'] = array_slice($mismatch, 0, 200); }
+    elseif ($sec === 'overpaid') { $data['rows'] = array_slice($overpaid, 0, 200); }
+    elseif ($sec === 'zombie')   { $data['rows'] = $zombie; }
+    elseif ($sec === 'debt')     { $data['rows'] = array_slice($debt, 0, 200); }
+    out($data);
+
 case 'pay_statement_csv':                // Η καρτέλα σε CSV για το λογιστήριο
     if (!$FULL) { fail('forbidden', 403); }
     $cid2 = (int) ($_GET['client'] ?? 0);
