@@ -1023,7 +1023,7 @@ R.paytrace = async function () {
         ${d.byClient.map(b => `<div style="display:flex;gap:8px;font-size:12.5px;margin-bottom:2px;align-items:center">
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.client)}</span>
           <span class="mut">${b.n}×</span><b>${money(b.sum)}</b>
-          ${b.id ? `<button class="btn btn-o btn-sm" data-stmt="${b.id}" style="padding:1px 7px;font-size:11px">καρτέλα</button>` : ''}</div>`).join('')}
+          ${b.id ? `<button class="btn btn-p" data-stmt="${b.id}" style="padding:4px 12px;font-size:12px;font-weight:700;white-space:nowrap">${I.fileText || '▤'} Καρτέλα</button>` : ''}</div>`).join('')}
       </div>
     </div>
 
@@ -1081,6 +1081,8 @@ R.paytrace = async function () {
             ${st2.balance > 0.005 ? 'οφειλή ' + money(st2.balance)
               : (neg(st2.balance) ? 'προπληρωμή ' + money(-st2.balance) : 'μηδενικό υπόλοιπο')}</span>
           <a class="btn btn-o btn-sm" href="api.php?a=pay_statement_csv&client=${cid}">⤓ CSV</a>
+          <button class="btn btn-o btn-sm" id="ptStmtX" title="Κλείσιμο καρτέλας" aria-label="Κλείσιμο"
+            style="padding:2px 9px;font-size:15px;line-height:1.2">×</button>
         </div>
         <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
@@ -1110,6 +1112,8 @@ R.paytrace = async function () {
           </tr></tfoot>
         </table></div>
       </div>`;
+    const x = $('#ptStmtX');
+    if (x) x.onclick = () => { host.innerHTML = ''; };
     host.scrollIntoView({behavior: 'smooth', block: 'start'});
   }
 
