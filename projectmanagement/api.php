@@ -5646,6 +5646,86 @@ case 'cv_jobs':
         'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
+case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σε CSV για το λογιστήριο
+    if (!$FULL) { fail('forbidden', 403); }
+    $qx  = trim((string) ($_GET['q'] ?? ''));
+    $all = !empty($_GET['all']);
+    $from = trim((string) ($_GET['from'] ?? ''));
+    $to   = trim((string) ($_GET['to'] ?? ''));
+
+    // Μόνο πραγματικές εισπράξεις μέσω gateway — όχι εσωτερικές πιστώσεις.
+    $qb = Capsule::table('tblaccounts')->where('gateway', '!=', '')->whereNotNull('gateway');
+    if ($from !== '') { $qb->where('date', '>=', $from . ' 00:00:00'); }
+    if ($to !== '')   { $qb->where('date', '<=', $to . ' 23:59:59'); }
+    if (!$all && $qx !== '') {
+        $ids = [];
+        foreach (Capsule::table('tblgatewaylog')->where('data', 'like', '%' . $qx . '%')->limit(500)->get() as $g) {
+            if (preg_match('/(?:^|\n)\s*txn_id\s*=>\s*(\S+)/', (string) $g->data, $m)) { $ids[] = trim($m[1]); }
+        }
+        $qb->where(function ($w) use ($qx, $ids) {
+            $w->where('transid', 'like', '%' . $qx . '%')->orWhere('description', 'like', '%' . $qx . '%');
+            if ($ids) { $w->orWhereIn('transid', $ids); }
+        });
+    }
+
+    $rowsX = $qb->orderBy('date')->get();
+
+    // Μαζική ανάγνωση των IPN: το email του πληρωτή δεν υπάρχει πουθενά αλλού.
+    $payerOf = [];
+    $typeOf  = [];
+    foreach ($rowsX as $a) {
+        if (!$a->transid) { continue; }
+        $g = Capsule::table('tblgatewaylog')->where('data', 'like', '%' . $a->transid . '%')->first();
+        if (!$g) { continue; }
+        if (preg_match('/(?:^|\n)\s*payer_email\s*=>\s*([^\n]*)/', (string) $g->data, $m)) { $payerOf[$a->transid] = trim($m[1]); }
+        if (preg_match('/(?:^|\n)\s*txn_type\s*=>\s*([^\n]*)/', (string) $g->data, $m))    { $typeOf[$a->transid]  = trim($m[1]); }
+    }
+
+    $name = 'symfonia-pliromon-' . date('Y-m-d') . '.csv';
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $name . '"');
+
+    $fh = fopen('php://output', 'w');
+    fwrite($fh, "\xEF\xBB\xBF");            // BOM — αλλιώς το Excel δείχνει κινέζικα στα ελληνικά
+
+    $num = function ($v) { return number_format((float) $v, 2, ',', ''); };   // ελληνικό δεκαδικό
+    $types = ['subscr_payment' => 'Συνδρομή', 'web_accept' => 'Χειροκίνητη', 'express_checkout' => 'Express'];
+
+    fputcsv($fh, ['Ημερομηνία', 'Ώρα', 'Ποσό', 'Προμήθεια', 'Καθαρό', 'Τρόπος πληρωμής', 'Τύπος',
+        'Πληρωτής (email)', 'Transaction ID', 'ID πελάτη', 'Επωνυμία', 'Υπεύθυνος', 'Email πελάτη',
+        'Παραστατικό', 'Ημ. παραστατικού', 'Ποσό παραστατικού', 'Κατάσταση'], ';');
+
+    $tot = 0; $totFee = 0;
+    foreach ($rowsX as $a) {
+        $cl  = Capsule::table('tblclients')->where('id', $a->userid)->first();
+        $inv = $a->invoiceid ? Capsule::table('tblinvoices')->where('id', $a->invoiceid)->first() : null;
+        $tt  = $typeOf[$a->transid] ?? '';
+        $tot += (float) $a->amountin;
+        $totFee += (float) $a->fees;
+
+        fputcsv($fh, [
+            substr($a->date, 0, 10), substr($a->date, 11, 5),
+            $num($a->amountin), $num($a->fees), $num((float) $a->amountin - (float) $a->fees),
+            $a->gateway,
+            $types[$tt] ?? $tt,
+            $payerOf[$a->transid] ?? '',
+            $a->transid,
+            $a->userid,
+            $cl->companyname ?? '',
+            $cl ? trim($cl->firstname . ' ' . $cl->lastname) : '',
+            $cl->email ?? '',
+            $inv->invoicenum ?? '',
+            $inv ? substr($inv->date, 0, 10) : '',
+            $inv ? $num($inv->total) : '',
+            $inv->status ?? '',
+        ], ';');
+    }
+
+    fputcsv($fh, [], ';');
+    fputcsv($fh, ['ΣΥΝΟΛΟ', '', $num($tot), $num($totFee), $num($tot - $totFee)], ';');
+    fclose($fh);
+    exit;
+
 case 'pay_trace':                        // Συμφωνία πληρωμών: πού πήγε κάθε είσπραξη
     /* ΓΙΑΤΙ ΥΠΑΡΧΕΙ: ένας λογαριασμός PayPal μπορεί να πληρώνει ΠΟΛΛΟΥΣ πελάτες
        WHMCS, και ένας πελάτης να πληρώνεται από πολλά πρόσωπα. Η αντιστοίχιση

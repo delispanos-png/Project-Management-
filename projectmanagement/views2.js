@@ -973,6 +973,13 @@ R.paytrace = async function () {
         <input class="inp" id="ptQ" style="flex:1;min-width:260px"
           placeholder="email πληρωτή, transaction ID, ποσό ή όνομα…" value="${esc(st.q)}">
         <button class="btn btn-p" id="ptGo">${I.search || ''} Αναζήτηση</button>
+        <span style="width:1px;height:22px;background:var(--line)"></span>
+        <span class="mut" style="font-size:12px">Από</span>
+        <input class="inp" id="ptFrom" type="date" style="width:auto" value="${esc(st.from || '')}">
+        <span class="mut" style="font-size:12px">έως</span>
+        <input class="inp" id="ptTo" type="date" style="width:auto" value="${esc(st.to || '')}">
+        <button class="btn btn-o" id="ptCsv" title="Κατέβασμα για το λογιστήριο">${I.download || '⤓'} CSV</button>
+        <button class="btn btn-o" id="ptCsvAll" title="Όλες οι εισπράξεις, ανεξάρτητα από αναζήτηση">⤓ Όλα</button>
       </div>
       <div class="mut" style="font-size:12px;margin-top:7px">
         Ψάχνει σε όλους τους πελάτες μαζί — και μέσα στα IPN των gateway, εκεί όπου ζει το email του πληρωτή.
@@ -1049,9 +1056,27 @@ R.paytrace = async function () {
   function bind() {
     const q = $('#ptQ'), go = $('#ptGo');
     if (!q) return;
-    const run = () => { st.q = q.value.trim(); R.paytrace(); };
+    const grab = () => {
+      st.q = q.value.trim();
+      st.from = ($('#ptFrom') || {}).value || '';
+      st.to = ($('#ptTo') || {}).value || '';
+    };
+    const run = () => { grab(); R.paytrace(); };
     if (go) go.onclick = run;
     q.onkeydown = e => { if (e.key === 'Enter') run(); };
+
+    // Η λήψη γίνεται με απευθείας πλοήγηση: το αρχείο κατεβαίνει, η σελίδα μένει.
+    const dl = all => {
+      grab();
+      const p = new URLSearchParams({a: 'pay_trace_export'});
+      if (all) { p.set('all', '1'); } else if (st.q) { p.set('q', st.q); }
+      if (st.from) { p.set('from', st.from); }
+      if (st.to) { p.set('to', st.to); }
+      window.location = 'api.php?' + p.toString();
+    };
+    const b1 = $('#ptCsv'), b2 = $('#ptCsvAll');
+    if (b1) b1.onclick = () => dl(false);
+    if (b2) b2.onclick = () => dl(true);
     q.focus();
   }
 };
