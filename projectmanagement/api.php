@@ -86,6 +86,71 @@ function initials($name)
  * Χρησιμοποιείται και από την οθόνη και από το CSV — μία πηγή αλήθειας, αλλιώς
  * το λογιστήριο βλέπει άλλα νούμερα από την οθόνη.
  */
+/**
+ * Πού «σπάνε» τα βιβλία: ποια παραστατικά δείχνουν άλλα χρήματα από όσα
+ * καταχωρήθηκαν. Χωρίς αυτή την ανάλυση η «ασυμφωνία» είναι ένας αριθμός χωρίς
+ * αποδεικτικά — και μοιάζει με οφειλή, ενώ συνήθως είναι παλιό παραστατικό
+ * σημασμένο «Paid» χωρίς καταχωρημένη συναλλαγή.
+ * Κοινό για οθόνη και CSV, με συγκεντρωτικά ερωτήματα (όχι βρόχος ανά πελάτη).
+ */
+function cnp_book_gaps(array $ids)
+{
+    if (!$ids) { return ['inv' => [], 'unalloc' => [], 'cancelled' => []]; }
+
+    $allocated = [];
+    foreach (Capsule::table('tblaccounts')->whereIn('userid', $ids)->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+        $allocated[(int) $r->invoiceid] = (float) $r->p;
+    }
+
+    $byClient = [];
+    foreach (Capsule::table('tblinvoices')->whereIn('userid', $ids)->whereNotIn('status', ['Cancelled', 'Draft'])
+                 ->orderBy('date')->get(['id', 'userid', 'invoicenum', 'date', 'status', 'subtotal', 'tax', 'tax2']) as $iv) {
+        $gross = (float) $iv->subtotal + (float) $iv->tax + (float) $iv->tax2;
+        $paid  = $allocated[(int) $iv->id] ?? 0.0;
+        $d = round($gross - $paid, 2);
+        if (abs($d) < 0.01) { continue; }
+        /* Ανεξόφλητο παραστατικό χωρίς καμία πληρωμή ΔΕΝ είναι εύρημα — έτσι
+           ακριβώς πρέπει να είναι, και μετριέται ήδη στα ανεξόφλητα του WHMCS.
+           Κρατάμε μόνο όσα έχουν κάποια είσπραξη που δεν συμφωνεί. */
+        $unpaidLike = in_array($iv->status, ['Unpaid', 'Overdue', 'Collections', 'Payment Pending'], true);
+        if ($unpaidLike && $paid <= 0.005) { continue; }
+        $byClient[(int) $iv->userid][] = ['invoice' => (int) $iv->id,
+            'num' => (string) ($iv->invoicenum ?: $iv->id), 'date' => substr((string) $iv->date, 0, 10),
+            'status' => (string) $iv->status, 'gross' => round($gross, 2), 'paid' => round($paid, 2), 'diff' => $d,
+            'why' => $paid <= 0 ? 'χωρίς καμία εγγραφή πληρωμής'
+                : ($unpaidLike ? 'πληρωμένο κατά ένα μέρος, μετράει ολόκληρο ως ανεξόφλητο'
+                : ($d > 0 ? 'μερική πληρωμή' : 'εισπράχθηκαν περισσότερα'))];
+    }
+    foreach ($byClient as $cid => $rows) {
+        usort($rows, function ($a, $b) { return abs($b['diff']) <=> abs($a['diff']); });
+        $byClient[$cid] = $rows;
+    }
+
+    // Πληρωμές που δεν κούμπωσαν σε παραστατικό: μειώνουν τη διαφορά χωρίς να
+    // φαίνονται σε καμία γραμμή παραστατικού, οπότε πρέπει να δηλωθούν.
+    $unalloc = [];
+    foreach (Capsule::table('tblaccounts')->whereIn('userid', $ids)->where('invoiceid', 0)
+                 ->where('gateway', '!=', '')->whereNotNull('gateway')
+                 ->selectRaw('userid, SUM(amountin) - SUM(amountout) p')->groupBy('userid')->get() as $r) {
+        $unalloc[(int) $r->userid] = round((float) $r->p, 2);
+    }
+
+    /* Πληρωμές πάνω σε ΑΚΥΡΩΜΕΝΑ παραστατικά: το ακυρωμένο βγαίνει από τα
+       τιμολογημένα, η πληρωμή του όμως μένει στις εισπράξεις — και η διαφορά
+       εμφανίζεται χωρίς κανένα ένοχο παραστατικό να τη δικαιολογεί. */
+    $cancelled = [];
+    foreach (Capsule::table('tblaccounts')->whereIn('tblaccounts.userid', $ids)
+                 ->join('tblinvoices', 'tblinvoices.id', '=', 'tblaccounts.invoiceid')
+                 ->whereIn('tblinvoices.status', ['Cancelled', 'Draft'])
+                 ->selectRaw('tblaccounts.userid uid, SUM(tblaccounts.amountin) - SUM(tblaccounts.amountout) p, COUNT(*) n')
+                 ->groupBy('tblaccounts.userid')->get() as $r) {
+        $cancelled[(int) $r->uid] = ['sum' => round((float) $r->p, 2), 'n' => (int) $r->n];
+    }
+
+    return ['inv' => $byClient, 'unalloc' => $unalloc, 'cancelled' => $cancelled];
+}
+
 function cnp_zombies(callable $nameOf)
 {
     $out = [];
@@ -5831,11 +5896,34 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
     fwrite($f3, "\xEF\xBB\xBF");
 
     if ($sc === 'mismatch') {
-        fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Υπολογισμός', 'Ανεξόφλητα WHMCS', 'Διαφορά'], ';');
+        fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Διαφορά πελάτη', 'Παραστατικό', 'Ημερομηνία',
+            'Κατάσταση', 'Αξία', 'Εισπράχθηκαν', 'Διαφορά', 'Αιτία'], ';');
+        $mm = [];
         foreach ($grossBy as $cid => $g) {
             $mine = $g - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
             $wh = $unpaidBy[$cid] ?? 0;
-            if (abs($mine - $wh) > 1) { fputcsv($f3, [$cid, $nm($cid), $n3($mine), $n3($wh), $n3($mine - $wh)], ';'); }
+            if (abs($mine - $wh) > 1) { $mm[$cid] = round($mine - $wh, 2); }
+        }
+        uasort($mm, function ($a, $b) { return abs($b) <=> abs($a); });
+        $gaps = cnp_book_gaps(array_keys($mm));
+        foreach ($mm as $cid => $diff) {
+            $rows = $gaps['inv'][$cid] ?? [];
+            foreach ($rows as $x) {
+                fputcsv($f3, [$cid, $nm($cid), $n3($diff), $x['num'], $x['date'], $x['status'],
+                    $n3($x['gross']), $n3($x['paid']), $n3($x['diff']), $x['why']], ';');
+            }
+            // Αιτίες που δεν κρέμονται σε συγκεκριμένο παραστατικό
+            if (!empty($gaps['cancelled'][$cid]['sum'])) {
+                fputcsv($f3, [$cid, $nm($cid), $n3($diff), '', '', '', '', $n3($gaps['cancelled'][$cid]['sum']), '',
+                    'πληρωμές σε ' . $gaps['cancelled'][$cid]['n'] . ' ακυρωμένα παραστατικά'], ';');
+            }
+            if (!empty($gaps['unalloc'][$cid])) {
+                fputcsv($f3, [$cid, $nm($cid), $n3($diff), '', '', '', '', $n3($gaps['unalloc'][$cid]), '',
+                    'πληρωμές χωρίς παραστατικό'], ';');
+            }
+            if (!$rows && empty($gaps['cancelled'][$cid]['sum']) && empty($gaps['unalloc'][$cid])) {
+                fputcsv($f3, [$cid, $nm($cid), $n3($diff), '', '', '', '', '', '', 'χωρίς εντοπισμένη αιτία'], ';');
+            }
         }
     } elseif ($sc === 'overpaid') {
         fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Αξία', 'Εισπράχθηκαν', 'Πλήθος πληρωμών', 'Διαφορά'], ';');
@@ -5921,6 +6009,17 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
         }
     }
     usort($mismatch, function ($a, $b) { return abs($b['diff']) <=> abs($a['diff']); });
+
+    $gaps = cnp_book_gaps(array_column($mismatch, 'client'));
+    foreach ($mismatch as $k => $m) {
+        $rows = $gaps['inv'][$m['client']] ?? [];
+        $mismatch[$k]['bad']  = array_slice($rows, 0, 8);
+        $mismatch[$k]['badN'] = count($rows);
+        $mismatch[$k]['unalloc'] = $gaps['unalloc'][$m['client']] ?? 0;
+        $mismatch[$k]['onCancelled']  = $gaps['cancelled'][$m['client']]['sum'] ?? 0;
+        $mismatch[$k]['onCancelledN'] = $gaps['cancelled'][$m['client']]['n'] ?? 0;
+        $mismatch[$k]['oldest'] = $rows ? min(array_column($rows, 'date')) : null;
+    }
 
     // ── 2. Υπερπληρωμένα παραστατικά
     $overpaid = [];

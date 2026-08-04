@@ -1117,13 +1117,24 @@ R.paytrace = async function () {
 
     if (sec === 'mismatch') {
       title = 'Ασυμφωνία βιβλίων';
-      hint = 'Ο ανεξάρτητος υπολογισμός (τιμολογημένα − εισπράξεις − πιστωτικά) δεν συμφωνεί με τα ανεξόφλητα που δηλώνει το WHMCS. Συνήθως σημαίνει παραστατικό σημασμένο «Paid» χωρίς πληρωμή.';
-      head = th('Πελάτης') + th('Υπολογισμός') + th('WHMCS') + th('Διαφορά');
-      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+      hint = 'Ο ανεξάρτητος υπολογισμός (τιμολογημένα − εισπράξεις − πιστωτικά) δεν συμφωνεί με τα ανεξόφλητα που δηλώνει το WHMCS. Από κάτω φαίνεται ΠΟΙΑ παραστατικά τη φέρνουν — σχεδόν πάντα παλιά, σημασμένα «Paid» χωρίς καταχωρημένη συναλλαγή.';
+      head = th('Πελάτης') + th('Υπολογισμός') + th('WHMCS') + th('Διαφορά') + th('Από πού');
+      body = a.rows.map(r => {
+        const bad = (r.bad || []).map(x => `<span style="display:inline-block;margin:0 14px 3px 0">
+            <a href="/cloudonadminpanel/index.php/billing/invoice/${x.invoice}" target="_blank" style="color:var(--brand)">${esc(x.num)}</a>
+            <span class="mut">${esc(x.date)}</span> <b>${money(x.diff)}</b>
+            <span style="color:${x.diff > 0 ? 'var(--bad)' : '#e0a020'}">${esc(x.why)}</span></span>`).join('');
+        return `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
         <td style="padding:7px 12px">${money(r.mine)}</td>
         <td style="padding:7px 12px">${money(r.whmcs)}</td>
-        <td style="padding:7px 12px;font-weight:700;color:var(--bad)">${money(r.diff)}</td></tr>`).join('');
+        <td style="padding:7px 12px;font-weight:700;color:var(--bad)">${money(r.diff)}</td>
+        <td style="padding:7px 12px">${r.badN ? r.badN + (r.badN === 1 ? ' παραστατικό' : ' παραστατικά') : '<span class="mut">—</span>'}
+          ${r.oldest ? `<div class="mut" style="font-size:10.5px">παλαιότερο ${esc(r.oldest)}</div>` : ''}
+          ${r.unalloc ? `<div style="font-size:10.5px;color:#e0a020">${money(r.unalloc)} πληρωμές χωρίς παραστατικό</div>` : ''}
+          ${r.onCancelled ? `<div style="font-size:10.5px;color:#e0a020">${money(r.onCancelled)} σε ${r.onCancelledN} ακυρωμένα παραστατικά</div>` : ''}</td></tr>
+        ${bad ? `<tr><td colspan="5" style="padding:0 12px 8px 12px;font-size:11.5px" class="mut">${bad}${r.badN > (r.bad || []).length ? ` <span class="mut">…και ${r.badN - r.bad.length} ακόμη</span>` : ''}</td></tr>` : ''}`;
+      }).join('');
     } else if (sec === 'overpaid') {
       title = 'Υπερπληρωμένα παραστατικά';
       hint = 'Εισπράχθηκαν περισσότερα από την αξία του παραστατικού. Χρειάζεται επιστροφή ή σωστή πίστωση.';
