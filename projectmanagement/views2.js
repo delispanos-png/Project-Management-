@@ -966,6 +966,9 @@ R.paytrace = async function () {
   setTop('Συμφωνία πληρωμών', 'Πού πήγε κάθε είσπραξη — σε ποιον πελάτη και σε ποιο παραστατικό');
   const c = $('#content');
   const st = R.paytrace._s = R.paytrace._s || {q: ''};
+  // Ορίζεται ΠΡΙΝ από κάθε χρήση: οι έλεγχοι τρέχουν νωρίς και χωρίς αυτό
+  // πέφτουν σε «Cannot access before initialization».
+  const money = v => (v || 0).toFixed(2).replace('.', ',') + ' €';
 
   const form = `
     <div class="card" style="padding:13px 15px;margin-bottom:12px">
@@ -998,7 +1001,8 @@ R.paytrace = async function () {
   }
 
   c.innerHTML = form + auditBox + skel(3);
-  audit();
+  // ΟΧΙ audit() εδώ: θα έτρεχε παράλληλα με την αναζήτηση και όποιο απαντούσε
+  // δεύτερο θα έσβηνε το αποτέλεσμα του άλλου. Καλείται αφού χτιστεί η σελίδα.
   const d = await api('pay_trace', {q: st.q}).catch(e => ({err: e.message}));
   if (d.err || !d.rows) {
     c.innerHTML = form + auditBox + `<div class="empty" style="margin-top:30px">${esc(d.err || 'Καμία εγγραφή.')}</div>`;
@@ -1011,7 +1015,6 @@ R.paytrace = async function () {
     return;
   }
 
-  const money = v => (v || 0).toFixed(2).replace('.', ',') + ' €';
 
   c.innerHTML = form + auditBox + `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
@@ -1065,14 +1068,19 @@ R.paytrace = async function () {
     </div>
     <div id="ptStmt"></div>`;
   bind();
+  audit();
 
   /* ── Οικονομικοί έλεγχοι ────────────────────────────────────────────────
      Τέσσερα σημεία όπου τα χρήματα διαφεύγουν χωρίς να το προσέξει κανείς.
      Κάθε πλακίδιο ανοίγει τη λίστα του. ---------------------------------- */
   async function audit() {
+    if (!$('#ptAudit')) return;
+    const a = await api('fin_audit', {}).catch(() => null);
+    /* ΚΡΙΣΙΜΟ: ξαναβρίσκουμε το στοιχείο ΜΕΤΑ την αναμονή. Στη διαδρομή με
+       αναζήτηση, το περιεχόμενο της σελίδας ξαναχτίζεται όσο περιμένουμε —
+       το παλιό στοιχείο έχει αποσπαστεί και η εγγραφή σε αυτό χάνεται. */
     const host = $('#ptAudit');
     if (!host) return;
-    const a = await api('fin_audit', {}).catch(() => null);
     if (!a) { host.innerHTML = ''; return; }
     const S2 = a.summary;
     const tile = (k, icon, title, sub, col) => `
@@ -1129,14 +1137,18 @@ R.paytrace = async function () {
     } else if (sec === 'zombie') {
       title = 'Ζόμπι συνδρομές';
       hint = 'Ακυρωμένη ή τερματισμένη υπηρεσία που κρατά ενεργή συνδρομή PayPal. Αν χρεώνει ακόμη, εισπράττεις για υπηρεσία που δεν παρέχεις.';
-      head = th('Υπηρεσία') + th('Πελάτης') + th('Κατάσταση') + th('Ποσό') + th('Συνδρομή') + th('Τελευταία πληρωμή');
+      head = th('Υπηρεσία') + th('Πελάτης') + th('Κατάσταση') + th('Ποσό') + th('Συνδρομή') + th('Ημ. ακύρωσης') + th('Τελευταία πληρωμή');
       body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px">#${r.service}<div class="mut" style="font-size:11px">${esc(r.domain || '')}</div></td>
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
         <td style="padding:7px 12px"><span class="pill pill-bad" style="font-size:9.5px">${esc(r.status)}</span></td>
         <td style="padding:7px 12px">${money(r.amount)}<span class="mut" style="font-size:11px">/${esc(r.cycle)}</span></td>
         <td style="padding:7px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.sub)}</td>
-        <td style="padding:7px 12px">${r.lastPay ? esc(r.lastPay) + ' <span class="mut">' + money(r.lastAmt) + '</span>' : '<span class="mut">καμία</span>'}</td></tr>`).join('');
+        <td style="padding:7px 12px">${r.cancel ? esc(r.cancel) + `<div class="mut" style="font-size:10.5px">${esc(r.cancelSrc || '')}</div>` : '<span class="mut">άγνωστη</span>'}</td>
+        <td style="padding:7px 12px">${r.lastPay
+            ? esc(r.lastPay) + ' <span class="mut">' + money(r.lastAmt) + '</span>'
+              + (r.afterCancel ? '<div style="color:var(--bad);font-weight:700;font-size:10.5px">μετά την ακύρωση</div>' : '')
+            : '<span class="mut">καμία</span>'}</td></tr>`).join('');
     } else {
       title = 'Πραγματικές οφειλές';
       hint = 'Τιμολογημένα μείον όσα εισπράχθηκαν πραγματικά — ανεξάρτητα από το πώς τα εμφανίζει το WHMCS.';

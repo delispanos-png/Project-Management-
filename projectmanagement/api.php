@@ -5763,14 +5763,25 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
             }
         }
     } elseif ($sc === 'zombie') {
-        fputcsv($f3, ['Υπηρεσία', 'Domain', 'ID πελάτη', 'Πελάτης', 'Κατάσταση', 'Ποσό', 'Κύκλος', 'Συνδρομή', 'Τελευταία πληρωμή'], ';');
+        fputcsv($f3, ['Υπηρεσία', 'Domain', 'ID πελάτη', 'Πελάτης', 'Κατάσταση', 'Ποσό', 'Κύκλος', 'Συνδρομή',
+            'Ημ. ακύρωσης', 'Πηγή ημερομηνίας', 'Τελευταία πληρωμή', 'Ποσό', 'Πληρωμή μετά την ακύρωση'], ';');
         foreach (Capsule::table('tblhosting')->whereNotNull('subscriptionid')->where('subscriptionid', '!=', '')
                      ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
             $last = Capsule::table('tblaccounts')->where('userid', $h->userid)->where('gateway', '!=', '')
                 ->whereNotNull('gateway')->orderBy('date', 'desc')->first();
+            $term = (string) ($h->termination_date ?? '');
+            if ($term === '' || strpos($term, '0000') === 0) { $term = ''; }
+            $cr = Capsule::table('tblcancelrequests')->where('relid', $h->id)->orderBy('id', 'desc')->first();
+            $cancel = $term ?: ($cr ? substr((string) $cr->date, 0, 10) : '');
+            $src = $term ? 'τερματισμός' : ($cr ? 'αίτημα πελάτη' : 'τελευταία μεταβολή');
+            if (!$cancel && $h->lastupdate && strpos((string) $h->lastupdate, '0000') !== 0) {
+                $cancel = substr((string) $h->lastupdate, 0, 10);
+            }
+            $lp = $last ? substr($last->date, 0, 10) : '';
             fputcsv($f3, [$h->id, $h->domain, $h->userid, $nm((int) $h->userid), $h->domainstatus,
                 $n3($h->amount), $h->billingcycle, $h->subscriptionid,
-                $last ? substr($last->date, 0, 10) : ''], ';');
+                $cancel, $src, $lp, $last ? $n3($last->amountin) : '',
+                ($cancel && $lp && $lp > $cancel) ? 'ΝΑΙ' : ''], ';');
         }
     } else {
         fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Οφειλή', 'Ανεξόφλητα WHMCS'], ';');
@@ -5854,12 +5865,29 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
                  ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
         $last = Capsule::table('tblaccounts')->where('userid', $h->userid)->where('gateway', '!=', '')
             ->whereNotNull('gateway')->orderBy('date', 'desc')->first();
+        /* Ημερομηνία ακύρωσης: πρώτα το termination_date, αλλιώς το αίτημα του
+           πελάτη, αλλιώς η τελευταία μεταβολή της εγγραφής. Χωρίς αυτήν δεν
+           φαίνεται αν η πληρωμή ήρθε ΜΕΤΑ την ακύρωση — που είναι το κρίσιμο. */
+        $term = (string) ($h->termination_date ?? '');
+        if ($term === '' || strpos($term, '0000') === 0) { $term = ''; }
+        $cr = Capsule::table('tblcancelrequests')->where('relid', $h->id)->orderBy('id', 'desc')->first();
+        $cancel = $term ?: ($cr ? substr((string) $cr->date, 0, 10) : '');
+        $src = $term ? 'τερματισμός' : ($cr ? 'αίτημα πελάτη' : ($h->lastupdate ? 'τελευταία μεταβολή' : ''));
+        if (!$cancel && $h->lastupdate && strpos((string) $h->lastupdate, '0000') !== 0) {
+            $cancel = substr((string) $h->lastupdate, 0, 10);
+        }
+        $lp = $last ? substr($last->date, 0, 10) : null;
+
         $zombie[] = ['service' => (int) $h->id, 'client' => (int) $h->userid, 'name' => $nameOf((int) $h->userid),
             'domain' => (string) $h->domain, 'status' => (string) $h->domainstatus,
             'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
             'sub' => (string) $h->subscriptionid,
-            'lastPay' => $last ? substr($last->date, 0, 10) : null,
-            'lastAmt' => $last ? (float) $last->amountin : null];
+            'cancel' => $cancel ?: null,
+            'cancelSrc' => $src,
+            'lastPay' => $lp,
+            'lastAmt' => $last ? (float) $last->amountin : null,
+            // Πληρωμή μετά την ακύρωση = εισπράττεις για υπηρεσία που δεν παρέχεις
+            'afterCancel' => ($cancel && $lp && $lp > $cancel)];
     }
     usort($zombie, function ($a, $b) { return strcmp((string) $b['lastPay'], (string) $a['lastPay']); });
 
