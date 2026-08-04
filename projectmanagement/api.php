@@ -100,6 +100,48 @@ function initials($name)
  * αυτά θεωρούνται εισπραγμένα, αλλιώς φουσκώνουν ψεύτικες οφειλές.
  * Επιστρέφει ['byClient' => [uid => ποσό], 'rows' => [αναλυτικά]].
  */
+/**
+ * Πραγματικά ανοιχτά υπόλοιπα, υπολογισμένα ΑΝΑ ΠΑΡΑΣΤΑΤΙΚΟ.
+ *
+ * Τα συγκεντρωτικά ανά πελάτη («τιμολογημένα μείον εισπράξεις») βγάζουν λάθος
+ * όταν μια υπερπληρωμή γίνεται πίστωση και εξοφλεί άλλο παραστατικό: το ποσό
+ * μετριέται δύο φορές, μία ως πλεόνασμα κι άλλη μία ως ανεξόφλητο. Ανά
+ * παραστατικό το πλεόνασμα δεν διαρρέει (κόβεται στο μηδέν) και η πίστωση
+ * μετράει εκεί όπου εφαρμόστηκε.
+ *
+ * Ένα παραστατικό θεωρείται εξοφλημένο όταν: πληρωμές + εφαρμοσμένη πίστωση
+ * καλύπτουν την αξία, Ή όταν είναι σημασμένο «Paid» (η πλατφόρμα δουλευόταν
+ * χειροκίνητα επί χρόνια — η σήμανση είναι η αλήθεια).
+ */
+function cnp_receivables()
+{
+    static $cache = null;
+    if ($cache !== null) { return $cache; }
+
+    /* Μόνο οι πραγματικές επιστροφές (refundid > 0) μειώνουν τα εισπραγμένα.
+       Το tblaccounts κρατά και εγγραφές εξόδου που δεν είναι χρήματα πίσω
+       («Applied Debit Note for Late Fees»)· αν αφαιρεθούν, το παραστατικό
+       φαίνεται πιο ανοιχτό απ' όσο είναι. */
+    $alloc = [];
+    foreach (Capsule::table('tblaccounts')->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
+        $alloc[(int) $r->invoiceid] = (float) $r->p;
+    }
+    $open = [];
+    foreach (Capsule::table('tblinvoices')->whereNotIn('status', ['Cancelled', 'Draft'])
+                 ->get(['id', 'userid', 'status', 'subtotal', 'tax', 'tax2', 'credit']) as $i) {
+        if ($i->status === 'Paid' || $i->status === 'Refunded') { continue; }
+        $gross = (float) $i->subtotal + (float) $i->tax + (float) $i->tax2;
+        $rest = round($gross - ($alloc[(int) $i->id] ?? 0) - (float) $i->credit, 2);
+        if ($rest <= 0.005) { continue; }   // πλεόνασμα δεν διαρρέει σε άλλο παραστατικό
+        $uid = (int) $i->userid;
+        $open[$uid] = ($open[$uid] ?? 0) + $rest;
+    }
+    $cache = $open;
+    return $cache;
+}
+
 function cnp_assumed_paid()
 {
     static $cache = null;
@@ -107,14 +149,19 @@ function cnp_assumed_paid()
 
     $alloc = [];
     foreach (Capsule::table('tblaccounts')->where('invoiceid', '>', 0)
-                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
         $alloc[(int) $r->invoiceid] = (float) $r->p;
     }
     $by = []; $rows = [];
     foreach (Capsule::table('tblinvoices')->where('status', 'Paid')->orderBy('date', 'desc')
-                 ->get(['id', 'userid', 'invoicenum', 'date', 'datepaid', 'paymentmethod', 'subtotal', 'tax', 'tax2']) as $i) {
+                 ->get(['id', 'userid', 'invoicenum', 'date', 'datepaid', 'paymentmethod', 'subtotal', 'tax', 'tax2', 'credit']) as $i) {
         $gross = (float) $i->subtotal + (float) $i->tax + (float) $i->tax2;
-        $paid  = $alloc[(int) $i->id] ?? 0.0;
+        /* Η πίστωση που εφαρμόστηκε πάνω στο παραστατικό (tblinvoices.credit)
+           το εξοφλεί εξίσου με μια πληρωμή — απλώς δεν έχει δική της εγγραφή
+           στο tblaccounts. Χωρίς αυτήν, παραστατικά πληρωμένα με υπόλοιπο
+           πελάτη έμοιαζαν ασυμπλήρωτα. */
+        $paid  = ($alloc[(int) $i->id] ?? 0.0) + (float) $i->credit;
         $gap = round($gross - $paid, 2);
         if ($gap <= 0.005) { continue; }
         $uid = (int) $i->userid;
@@ -122,7 +169,8 @@ function cnp_assumed_paid()
         $rows[] = ['invoice' => (int) $i->id, 'client' => $uid,
             'num' => (string) ($i->invoicenum ?: $i->id), 'date' => substr((string) $i->date, 0, 10),
             'datepaid' => substr((string) $i->datepaid, 0, 10), 'method' => (string) $i->paymentmethod,
-            'gross' => round($gross, 2), 'paid' => round($paid, 2), 'gap' => $gap];
+            'gross' => round($gross, 2), 'paid' => round($paid, 2), 'credit' => round((float) $i->credit, 2),
+            'gap' => $gap];
     }
     $cache = ['byClient' => $by, 'rows' => $rows];
     return $cache;
@@ -134,15 +182,17 @@ function cnp_book_gaps(array $ids)
 
     $allocated = [];
     foreach (Capsule::table('tblaccounts')->whereIn('userid', $ids)->where('invoiceid', '>', 0)
-                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
         $allocated[(int) $r->invoiceid] = (float) $r->p;
     }
 
     $byClient = [];
     foreach (Capsule::table('tblinvoices')->whereIn('userid', $ids)->whereNotIn('status', ['Cancelled', 'Draft'])
-                 ->orderBy('date')->get(['id', 'userid', 'invoicenum', 'date', 'status', 'subtotal', 'tax', 'tax2']) as $iv) {
+                 ->orderBy('date')->get(['id', 'userid', 'invoicenum', 'date', 'status', 'subtotal', 'tax', 'tax2', 'credit']) as $iv) {
         $gross = (float) $iv->subtotal + (float) $iv->tax + (float) $iv->tax2;
-        $paid  = $allocated[(int) $iv->id] ?? 0.0;
+        // Η εφαρμοσμένη πίστωση εξοφλεί το παραστατικό, όπως και μια πληρωμή.
+        $paid  = ($allocated[(int) $iv->id] ?? 0.0) + (float) $iv->credit;
         $d = round($gross - $paid, 2);
         if (abs($d) < 0.01) { continue; }
         /* Ανεξόφλητο παραστατικό χωρίς καμία πληρωμή ΔΕΝ είναι εύρημα — έτσι
@@ -5943,8 +5993,9 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
         fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Διαφορά πελάτη', 'Παραστατικό', 'Ημερομηνία',
             'Κατάσταση', 'Αξία', 'Εισπράχθηκαν', 'Διαφορά', 'Αιτία'], ';');
         $mm = [];
+        $openBy = cnp_receivables();
         foreach ($grossBy as $cid => $g) {
-            $mine = $g - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+            $mine = round($openBy[$cid] ?? 0, 2);
             $wh = $unpaidBy[$cid] ?? 0;
             if (abs($mine - $wh) > 1) { $mm[$cid] = round($mine - $wh, 2); }
         }
@@ -5970,7 +6021,7 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
             }
         }
     } elseif ($sc === 'overpaid') {
-        fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Αξία', 'Εισπράχθηκαν', 'Πλήθος πληρωμών', 'Διαφορά'], ';');
+        fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Αξία', 'Εισπράχθηκαν', 'Πλήθος πληρωμών', 'Διαφορά', 'Τακτοποίηση'], ';');
         foreach (Capsule::select('SELECT invoiceid, COUNT(*) c, SUM(amountin) s FROM tblaccounts
                   WHERE gateway <> "" AND gateway IS NOT NULL AND amountin > 0 AND invoiceid > 0
                   GROUP BY invoiceid HAVING c > 1') as $r) {
@@ -5978,16 +6029,19 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
             if (!$i) { continue; }
             $g = (float) ($i->subtotal + $i->tax + $i->tax2);
             if ((float) $r->s > $g + 0.01) {
+                $cr = (float) Capsule::table('tblcredit')->where('clientid', $i->userid)->where('amount', '>', 0)
+                    ->where('description', 'like', '%Invoice #' . $i->id . ' Overpayment%')->sum('amount');
                 fputcsv($f3, [$i->invoicenum ?: '#' . $i->id, $i->userid, $nm((int) $i->userid),
-                    $n3($g), $n3($r->s), $r->c, $n3((float) $r->s - $g)], ';');
+                    $n3($g), $n3($r->s), $r->c, $n3((float) $r->s - $g),
+                    $cr > 0 ? 'μετατράπηκε σε πίστωση' : 'ΕΚΚΡΕΜΕΙ'], ';');
             }
         }
     } elseif ($sc === 'legacy') {
         fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Ημερομηνία', 'Ημ. εξόφλησης',
-            'Τρόπος πληρωμής', 'Αξία', 'Καταχωρημένες εισπράξεις', 'Λείπει'], ';');
+            'Τρόπος πληρωμής', 'Αξία', 'Εισπράξεις + πίστωση', 'Από αυτά πίστωση', 'Λείπει'], ';');
         foreach (cnp_assumed_paid()['rows'] as $r) {
             fputcsv($f3, [$r['num'], $r['client'], $nm($r['client']), $r['date'], $r['datepaid'],
-                $r['method'], $n3($r['gross']), $n3($r['paid']), $n3($r['gap'])], ';');
+                $r['method'], $n3($r['gross']), $n3($r['paid']), $n3($r['credit']), $n3($r['gap'])], ';');
         }
     } elseif ($sc === 'zombie') {
         fputcsv($f3, ['Υπηρεσία', 'Domain', 'ID πελάτη', 'Πελάτης', 'Κατάσταση', 'Ποσό', 'Κύκλος', 'Συνδρομή',
@@ -6003,9 +6057,10 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
     } else {
         fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Οφειλή', 'Ανεξόφλητα WHMCS'], ';');
         $d3 = [];
+        $openBy2 = cnp_receivables();
         foreach (Capsule::table('tblclients')->where('status', 'Active')->pluck('id') as $cid) {
             $cid = (int) $cid;
-            $b = ($grossBy[$cid] ?? 0) - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+            $b = round($openBy2[$cid] ?? 0, 2);
             if ($b > 1) { $d3[] = [$cid, $nm($cid), $b, $unpaidBy[$cid] ?? 0]; }
         }
         usort($d3, function ($a, $b) { return $b[2] <=> $a[2]; });
@@ -6055,8 +6110,9 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
 
     // ── 1. Ασυμφωνία βιβλίων: ο δικός μας υπολογισμός vs τα ανεξόφλητα του WHMCS
     $mismatch = [];
+    $openBy = cnp_receivables();
     foreach ($grossBy as $cid => $g) {
-        $mine  = $g - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+        $mine  = round($openBy[$cid] ?? 0, 2);
         $whmcs = $unpaidBy[$cid] ?? 0;
         if (abs($mine - $whmcs) > 1) {
             $mismatch[] = ['client' => $cid, 'name' => $nameOf($cid),
@@ -6085,13 +6141,24 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
         if (!$i) { continue; }
         $g = (float) ($i->subtotal + $i->tax + $i->tax2);
         if ((float) $r->s > $g + 0.01) {
+            /* Το WHMCS συνήθως μετατρέπει μόνο του το πλεόνασμα σε πίστωση
+               («Invoice #X Overpayment» στο tblcredit) και αυτή ξοδεύεται σε
+               επόμενα παραστατικά. Τότε δεν εκκρεμεί τίποτα — εκκρεμούν μόνο
+               όσα δεν τακτοποιήθηκαν ποτέ. */
+            $credited = (float) Capsule::table('tblcredit')->where('clientid', $i->userid)
+                ->where('amount', '>', 0)->where('description', 'like', '%Invoice #' . $i->id . ' Overpayment%')
+                ->sum('amount');
             $overpaid[] = ['invoice' => (int) $i->id, 'num' => (string) ($i->invoicenum ?: '#' . $i->id),
                 'client' => (int) $i->userid, 'name' => $nameOf((int) $i->userid),
                 'value' => round($g, 2), 'paid' => round((float) $r->s, 2),
-                'n' => (int) $r->c, 'over' => round((float) $r->s - $g, 2)];
+                'n' => (int) $r->c, 'over' => round((float) $r->s - $g, 2),
+                'credited' => round($credited, 2)];
         }
     }
-    usort($overpaid, function ($a, $b) { return $b['over'] <=> $a['over']; });
+    // Πρώτα όσα εκκρεμούν πραγματικά, μετά τα τακτοποιημένα.
+    usort($overpaid, function ($a, $b) {
+        return ($a['credited'] > 0) <=> ($b['credited'] > 0) ?: ($b['over'] <=> $a['over']);
+    });
 
     // ── 3. Ζόμπι συνδρομές: ενεργή συνδρομή σε νεκρή υπηρεσία
     $zombie = cnp_zombies($nameOf);
@@ -6101,7 +6168,7 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     $activeIds = Capsule::table('tblclients')->where('status', 'Active')->pluck('id')->all();
     foreach ($activeIds as $cid) {
         $cid = (int) $cid;
-        $bal = ($grossBy[$cid] ?? 0) - ($paidBy[$cid] ?? 0) - ($adjBy[$cid] ?? 0);
+        $bal = round($openBy[$cid] ?? 0, 2);
         if ($bal > 1) {
             $debt[] = ['client' => $cid, 'name' => $nameOf($cid), 'balance' => round($bal, 2),
                 'unpaid' => round($unpaidBy[$cid] ?? 0, 2)];
@@ -6122,7 +6189,8 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     $sum = [
         'legacy'   => ['n' => count($legacy), 'sum' => round(array_sum(array_column($legacy, 'gap')), 2)],
         'mismatch' => ['n' => count($mismatch), 'sum' => round(array_sum(array_map('abs', array_column($mismatch, 'diff'))), 2)],
-        'overpaid' => ['n' => count($overpaid), 'sum' => round(array_sum(array_column($overpaid, 'over')), 2)],
+        'overpaid' => ['n' => count(array_filter($overpaid, function ($o) { return $o['credited'] <= 0; })),
+                       'sum' => round(array_sum(array_column(array_filter($overpaid, function ($o) { return $o['credited'] <= 0; }), 'over')), 2)],
         'zombie'   => ['n' => count($zombie),   'sum' => round(array_sum(array_column($zombie, 'openAmt'))
                                                     + array_sum(array_column($zombie, 'orphan')), 2)],
         'debt'     => ['n' => count($debt),     'sum' => round(array_sum(array_column($debt, 'balance')), 2)],
@@ -6167,11 +6235,12 @@ case 'pay_statement_csv':                // Η καρτέλα σε CSV για τ
     // Σημασμένα «Paid» χωρίς καταχωρημένη είσπραξη — θεωρούνται εξοφλημένα.
     $alloc2 = [];
     foreach (Capsule::table('tblaccounts')->where('userid', $cid2)->where('invoiceid', '>', 0)
-                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
         $alloc2[(int) $r->invoiceid] = (float) $r->p;
     }
     foreach (Capsule::table('tblinvoices')->where('userid', $cid2)->where('status', 'Paid')->get() as $i) {
-        $gap = round((float) ($i->subtotal + $i->tax + $i->tax2) - ($alloc2[(int) $i->id] ?? 0), 2);
+        $gap = round((float) ($i->subtotal + $i->tax + $i->tax2) - ($alloc2[(int) $i->id] ?? 0) - (float) $i->credit, 2);
         if ($gap <= 0.005) { continue; }
         $when = ($i->datepaid && strpos((string) $i->datepaid, '0000') !== 0) ? $i->datepaid : $i->date;
         $ev2[] = [substr((string) $when, 0, 10),
@@ -6244,11 +6313,12 @@ case 'pay_statement':                    // Καρτέλα πελάτη: χρέ�
        πληρωμής από πίσω. */
     $allocIn = [];
     foreach (Capsule::table('tblaccounts')->where('userid', $cid)->where('invoiceid', '>', 0)
-                 ->selectRaw('invoiceid, SUM(amountin) - SUM(amountout) p')->groupBy('invoiceid')->get() as $r) {
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
         $allocIn[(int) $r->invoiceid] = (float) $r->p;
     }
     foreach (Capsule::table('tblinvoices')->where('userid', $cid)->where('status', 'Paid')->get() as $i) {
-        $gap = round((float) ($i->subtotal + $i->tax + $i->tax2) - ($allocIn[(int) $i->id] ?? 0), 2);
+        $gap = round((float) ($i->subtotal + $i->tax + $i->tax2) - ($allocIn[(int) $i->id] ?? 0) - (float) $i->credit, 2);
         if ($gap <= 0.005) { continue; }
         $when = ($i->datepaid && strpos((string) $i->datepaid, '0000') !== 0) ? $i->datepaid : $i->date;
         $ev[] = [

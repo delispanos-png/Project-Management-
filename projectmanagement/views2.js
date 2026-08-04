@@ -1138,15 +1138,18 @@ R.paytrace = async function () {
       }).join('');
     } else if (sec === 'overpaid') {
       title = 'Υπερπληρωμένα παραστατικά';
-      hint = 'Εισπράχθηκαν περισσότερα από την αξία του παραστατικού. Χρειάζεται επιστροφή ή σωστή πίστωση.';
-      head = th('Παραστατικό') + th('Πελάτης') + th('Αξία') + th('Εισπράχθηκαν') + th('Πληρωμές') + th('Διαφορά');
+      hint = 'Εισπράχθηκαν περισσότερα από την αξία του παραστατικού. Όσα το WHMCS μετέτρεψε μόνο του σε πίστωση δεν εκκρεμούν — το πλακίδιο μετράει μόνο τα ατακτοποίητα, που θέλουν επιστροφή ή πίστωση.';
+      head = th('Παραστατικό') + th('Πελάτης') + th('Αξία') + th('Εισπράχθηκαν') + th('Πληρωμές') + th('Διαφορά') + th('Τακτοποίηση');
       body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px"><a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoice}" target="_blank" style="color:var(--brand)">${esc(r.num)}</a></td>
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
         <td style="padding:7px 12px">${money(r.value)}</td>
         <td style="padding:7px 12px">${money(r.paid)}</td>
         <td style="padding:7px 12px">${r.n}×</td>
-        <td style="padding:7px 12px;font-weight:700;color:#e0a020">+${money(r.over)}</td></tr>`).join('');
+        <td style="padding:7px 12px;font-weight:700;color:${r.credited > 0 ? 'var(--mut)' : '#e0a020'}">+${money(r.over)}</td>
+        <td style="padding:7px 12px;font-size:11px">${r.credited > 0
+            ? '<span style="color:#16a26a">μετατράπηκε σε πίστωση</span>'
+            : '<span style="color:var(--bad);font-weight:700">εκκρεμεί</span>'}</td></tr>`).join('');
     } else if (sec === 'zombie') {
       title = 'Ζόμπι συνδρομές';
       hint = 'Ακυρωμένη ή τερματισμένη υπηρεσία που κρατά αναγνωριστικό συνδρομής. Το εύρημα δεν είναι η ίδια η συνδρομή — είναι τα χρήματα που ΕΙΣΠΡΑΧΘΗΚΑΝ μετά την ακύρωση και δεν επιστράφηκαν. Οι πληρωμές αντιστοιχίζονται στη συνδρομή μέσω του subscr_id στα IPN της PayPal.';
@@ -1172,8 +1175,8 @@ R.paytrace = async function () {
       }).join('');
     } else if (sec === 'legacy') {
       title = 'Πληρωμένα χωρίς αντιστοίχιση πληρωμής';
-      hint = 'Παραστατικά σημασμένα «Paid» που δεν έχουν (ή έχουν λιγότερη) καταχωρημένη είσπραξη. ΔΕΝ είναι οφειλή — η πλατφόρμα δουλευόταν χειροκίνητα επί χρόνια. Μετριούνται ως εισπραγμένα στους άλλους ελέγχους· η λίστα υπάρχει για να τακτοποιηθούν σιγά σιγά, ξεκινώντας από τα πρόσφατα.';
-      head = th('Παραστατικό') + th('Πελάτης') + th('Ημερομηνία') + th('Εξοφλήθηκε') + th('Τρόπος') + th('Αξία') + th('Καταχωρημένα') + th('Λείπει');
+      hint = 'Παραστατικά σημασμένα «Paid» που δεν έχουν (ή έχουν λιγότερη) καταχωρημένη είσπραξη — αφού μετρηθεί και η πίστωση που εφαρμόστηκε πάνω τους. ΔΕΝ είναι οφειλή — η πλατφόρμα δουλευόταν χειροκίνητα επί χρόνια. Μετριούνται ως εισπραγμένα στους άλλους ελέγχους· η λίστα υπάρχει για να τακτοποιηθούν σιγά σιγά, ξεκινώντας από τα πρόσφατα.';
+      head = th('Παραστατικό') + th('Πελάτης') + th('Ημερομηνία') + th('Εξοφλήθηκε') + th('Τρόπος') + th('Αξία') + th('Καταχωρημένα') + th('Πίστωση') + th('Λείπει');
       body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px"><a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoice}" target="_blank" style="color:var(--brand)">${esc(r.num)}</a></td>
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
@@ -1182,6 +1185,7 @@ R.paytrace = async function () {
         <td style="padding:7px 12px" class="mut">${esc(r.method || '—')}</td>
         <td style="padding:7px 12px">${money(r.gross)}</td>
         <td style="padding:7px 12px">${r.paid ? money(r.paid) : '<span class="mut">—</span>'}</td>
+        <td style="padding:7px 12px" class="mut">${r.credit ? money(r.credit) : '—'}</td>
         <td style="padding:7px 12px;font-weight:700">${money(r.gap)}</td></tr>`).join('');
     } else {
       title = 'Πραγματικές οφειλές';
