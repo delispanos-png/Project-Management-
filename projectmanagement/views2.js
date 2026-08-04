@@ -983,6 +983,7 @@ R.paytrace = async function () {
       </div>
       <div class="mut" style="font-size:12px;margin-top:7px">
         Ψάχνει σε όλους τους πελάτες μαζί — και μέσα στα IPN των gateway, εκεί όπου ζει το email του πληρωτή.
+        Η στήλη <b>«Εξοφλεί τελικά»</b> δείχνει πού κατέληξαν τα χρήματα όταν η είσπραξη δημιούργησε πίστωση.
       </div>
     </div>`;
 
@@ -1028,7 +1029,7 @@ R.paytrace = async function () {
       <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px">
         <thead><tr style="background:var(--bg2)">
-          ${['Ημερομηνία','Ποσό','Πληρωτής','Τύπος','Πελάτης WHMCS','Παραστατικό','Transaction ID']
+          ${['Ημερομηνία','Ποσό','Πληρωτής','Τύπος','Πελάτης WHMCS','Παραστατικό','Εξοφλεί τελικά','Transaction ID']
             .map(h => `<th style="text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">${h}</th>`).join('')}
         </tr></thead>
         <tbody>
@@ -1046,6 +1047,11 @@ R.paytrace = async function () {
             ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoiceId}" target="_blank" style="color:var(--brand)">${esc(r.invoice || '#' + r.invoiceId)}</a>
                <div class="mut" style="font-size:11px">${r.invTotal !== null ? money(r.invTotal) + ' · ' + esc(r.invStatus || '') : ''}</div>`
             : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px">${
+            (r.onward && r.onward.length)
+              ? r.onward.map(o => `<div style="white-space:nowrap"><a href="/cloudonadminpanel/index.php/billing/invoice/${o.invoice}" target="_blank" style="color:var(--brand)">${esc(o.num)}</a>
+                  <span class="mut" style="font-size:11px">${money(o.amount)}</span></div>`).join('')
+              : (r.invoice ? `<span class="mut" style="font-size:11.5px">το ίδιο</span>` : '<span class="mut">—</span>')}</td>
           <td style="padding:8px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.transid || '—')}</td>
         </tr>`).join('')}
         </tbody>

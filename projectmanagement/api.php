@@ -68,6 +68,67 @@ function initials($name)
  *
  * @return string|null 'ελληνικά', 'αγγλικά' ή null όταν δεν υπάρχει επαρκές δείγμα
  */
+/**
+ * Αλυσίδα πιστώσεων ενός πελάτη: πού κατέληξε κάθε υπερπληρωμή.
+ *
+ * ΓΙΑΤΙ ΧΡΕΙΑΖΕΤΑΙ: όταν ο πελάτης πληρώσει παραπάνω, το WHMCS κρατά το
+ * πλεόνασμα ως πίστωση και το εφαρμόζει σε ΕΠΟΜΕΝΑ παραστατικά. Έτσι μια
+ * είσπραξη μπορεί τελικά να εξοφλεί άλλο τιμολόγιο από εκείνο στο οποίο
+ * είναι καταχωρημένη — και χωρίς αυτή την αντιστοίχιση το λογιστήριο δεν
+ * μπορεί να κάνει ματς.
+ *
+ * Η κατανάλωση θεωρείται FIFO: η παλαιότερη πίστωση ξοδεύεται πρώτη.
+ *
+ * @return array [invoiceId πηγής => [['invoice'=>id, 'num'=>'2026…', 'amount'=>float], …]]
+ */
+function cnp_credit_chain($clientId)
+{
+    static $cache = [];
+    if (isset($cache[$clientId])) {
+        return $cache[$clientId];
+    }
+
+    $queue = [];      // [invoiceId πηγής, υπόλοιπο]
+    $out   = [];
+
+    foreach (Capsule::table('tblcredit')->where('clientid', (int) $clientId)->orderBy('id')->get() as $r) {
+        $amt = (float) $r->amount;
+
+        if ($amt > 0) {                       // υπερπληρωμή → μπαίνει στην ουρά
+            $src = (int) $r->relid;
+            if (!$src && preg_match('/Invoice #(\d+)/', (string) $r->description, $m)) { $src = (int) $m[1]; }
+            $queue[] = [$src, $amt];
+            continue;
+        }
+
+        // Αρνητικό: καταναλώνει πίστωση για κάποιο παραστατικό
+        $dst = (int) $r->relid;
+        if (!$dst && preg_match('/Invoice #(\d+)/', (string) $r->description, $m)) { $dst = (int) $m[1]; }
+        $need = -$amt;
+
+        while ($need > 0.001 && $queue) {
+            [$src, $left] = $queue[0];
+            $take = min($left, $need);
+            $need -= $take;
+            $queue[0][1] -= $take;
+            if ($queue[0][1] <= 0.001) { array_shift($queue); }
+
+            if ($src && $dst) {
+                $out[$src][] = ['invoice' => $dst, 'amount' => round($take, 2)];
+            }
+        }
+    }
+
+    // Συμπλήρωσε τους αριθμούς παραστατικών
+    foreach ($out as $src => $list) {
+        foreach ($list as $i => $x) {
+            $out[$src][$i]['num'] = (string) (Capsule::table('tblinvoices')->where('id', $x['invoice'])->value('invoicenum') ?: ('#' . $x['invoice']));
+        }
+    }
+
+    return $cache[$clientId] = $out;
+}
+
 function cnp_lang_hint($text)
 {
     $letters = preg_replace('/[^\p{L}]+/u', '', (string) $text);
@@ -5693,13 +5754,16 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
 
     fputcsv($fh, ['Ημερομηνία', 'Ώρα', 'Ποσό', 'Προμήθεια', 'Καθαρό', 'Τρόπος πληρωμής', 'Τύπος',
         'Πληρωτής (email)', 'Transaction ID', 'ID πελάτη', 'Επωνυμία', 'Υπεύθυνος', 'Email πελάτη',
-        'Παραστατικό', 'Ημ. παραστατικού', 'Ποσό παραστατικού', 'Κατάσταση'], ';');
+        'Παραστατικό', 'Ημ. παραστατικού', 'Ποσό παραστατικού', 'Κατάσταση',
+        'Πίστωση προς', 'Ποσό πίστωσης'], ';');
 
     $tot = 0; $totFee = 0;
     foreach ($rowsX as $a) {
         $cl  = Capsule::table('tblclients')->where('id', $a->userid)->first();
         $inv = $a->invoiceid ? Capsule::table('tblinvoices')->where('id', $a->invoiceid)->first() : null;
         $tt  = $typeOf[$a->transid] ?? '';
+        $onward = ($a->userid && $a->invoiceid)
+            ? (cnp_credit_chain((int) $a->userid)[(int) $a->invoiceid] ?? []) : [];
         $tot += (float) $a->amountin;
         $totFee += (float) $a->fees;
 
@@ -5718,6 +5782,8 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
             $inv ? substr($inv->date, 0, 10) : '',
             $inv ? $num($inv->total) : '',
             $inv->status ?? '',
+            implode(' + ', array_map(function ($x) { return $x['num']; }, $onward)),
+            implode(' + ', array_map(function ($x) use ($num) { return $num($x['amount']); }, $onward)),
         ], ';');
     }
 
@@ -5808,6 +5874,10 @@ case 'pay_trace':                        // Συμφωνία πληρωμών: �
             'invoice'  => $inv->invoicenum ?? null,
             'invTotal' => $inv ? (float) $inv->total : null,
             'invStatus' => $inv->status ?? null,
+            // Αν αυτή η είσπραξη δημιούργησε πίστωση, πού πήγε τελικά
+            'onward'   => ($a->userid && $a->invoiceid)
+                ? (cnp_credit_chain((int) $a->userid)[(int) $a->invoiceid] ?? [])
+                : [],
         ];
     }
 
