@@ -988,29 +988,32 @@ R.paytrace = async function () {
       </div>
     </div>`;
 
+  const auditBox = '<div id="ptAudit"><div class="skel" style="height:120px;margin-bottom:12px"></div></div>';
+
   if (!st.q) {
-    c.innerHTML = form + `<div id="ptAudit"><div class="skel" style="height:120px"></div></div>`;
+    c.innerHTML = form + auditBox;
     bind();
     audit();
     return;
   }
 
-  c.innerHTML = form + skel(3);
+  c.innerHTML = form + auditBox + skel(3);
+  audit();
   const d = await api('pay_trace', {q: st.q}).catch(e => ({err: e.message}));
   if (d.err || !d.rows) {
-    c.innerHTML = form + `<div class="empty" style="margin-top:30px">${esc(d.err || 'Καμία εγγραφή.')}</div>`;
-    bind();
+    c.innerHTML = form + auditBox + `<div class="empty" style="margin-top:30px">${esc(d.err || 'Καμία εγγραφή.')}</div>`;
+    bind(); audit();
     return;
   }
   if (!d.rows.length) {
-    c.innerHTML = form + `<div class="empty" style="margin-top:30px">Καμία πληρωμή δεν ταιριάζει με «${esc(st.q)}».</div>`;
-    bind();
+    c.innerHTML = form + auditBox + `<div class="empty" style="margin-top:30px">Καμία πληρωμή δεν ταιριάζει με «${esc(st.q)}».</div>`;
+    bind(); audit();
     return;
   }
 
   const money = v => (v || 0).toFixed(2).replace('.', ',') + ' €';
 
-  c.innerHTML = form + `
+  c.innerHTML = form + auditBox + `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <div class="card" style="padding:13px 15px;flex:1;min-width:150px">
         <div class="mut" style="font-size:11.5px;text-transform:uppercase;font-weight:700">Πληρωμές</div>
