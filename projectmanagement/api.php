@@ -5646,6 +5646,109 @@ case 'cv_jobs':
         'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
+case 'pay_trace':                        // Συμφωνία πληρωμών: πού πήγε κάθε είσπραξη
+    /* ΓΙΑΤΙ ΥΠΑΡΧΕΙ: ένας λογαριασμός PayPal μπορεί να πληρώνει ΠΟΛΛΟΥΣ πελάτες
+       WHMCS, και ένας πελάτης να πληρώνεται από πολλά πρόσωπα. Η αντιστοίχιση
+       είναι πολλά-προς-πολλά και χειροκίνητα παίρνει ώρες. */
+    if (!$FULL) { fail('forbidden', 403); }
+    $q = trim((string) ($in['q'] ?? $_GET['q'] ?? ''));
+    if (mb_strlen($q) < 3) { fail('Δώσε email πληρωτή, transaction ID, ποσό ή όνομα (3+ χαρακτήρες)'); }
+
+    $rows = [];
+    $seen = [];
+
+    // 1) Άμεση αναζήτηση στις κινήσεις (transid, περιγραφή)
+    $direct = Capsule::table('tblaccounts')
+        ->where(function ($w) use ($q) {
+            $w->where('transid', 'like', '%' . $q . '%')->orWhere('description', 'like', '%' . $q . '%');
+        })->orderBy('date', 'desc')->limit(200)->get();
+
+    // 2) Αναζήτηση στα logs των gateways — εκεί ζει το email του πληρωτή
+    $viaLog = [];
+    foreach (Capsule::table('tblgatewaylog')->where('data', 'like', '%' . $q . '%')
+                 ->orderBy('date', 'desc')->limit(300)->get() as $g) {
+        if (preg_match('/(?:^|\n)\s*txn_id\s*=>\s*(\S+)/', (string) $g->data, $m)) {
+            $viaLog[trim($m[1])] = $g;
+        }
+    }
+    if ($viaLog) {
+        foreach (Capsule::table('tblaccounts')->whereIn('transid', array_keys($viaLog))->get() as $a) {
+            $direct->push($a);
+        }
+    }
+
+    // 3) Αν μοιάζει με ποσό, ψάξε και με ποσό
+    if (preg_match('/^\d+([.,]\d{1,2})?$/', $q)) {
+        $amt = (float) str_replace(',', '.', $q);
+        foreach (Capsule::table('tblaccounts')->whereBetween('amountin', [$amt - 0.02, $amt + 0.02])
+                     ->orderBy('date', 'desc')->limit(100)->get() as $a) {
+            $direct->push($a);
+        }
+    }
+
+    foreach ($direct as $a) {
+        if (isset($seen[$a->id])) { continue; }
+        $seen[$a->id] = true;
+
+        $cl  = Capsule::table('tblclients')->where('id', $a->userid)->first();
+        $inv = $a->invoiceid ? Capsule::table('tblinvoices')->where('id', $a->invoiceid)->first() : null;
+
+        // Στοιχεία πληρωτή από το IPN — δείχνουν ΠΟΙΟΣ πλήρωσε στ' αλήθεια
+        $payer = null; $ptype = null;
+        if ($a->transid && isset($viaLog[$a->transid])) {
+            $g = $viaLog[$a->transid];
+        } else {
+            $g = $a->transid
+                ? Capsule::table('tblgatewaylog')->where('data', 'like', '%' . $a->transid . '%')->first()
+                : null;
+        }
+        if ($g) {
+            foreach (['payer_email', 'txn_type'] as $k) {
+                if (preg_match('/(?:^|\n)\s*' . $k . '\s*=>\s*([^\n]*)/', (string) $g->data, $m)) {
+                    if ($k === 'payer_email') { $payer = trim($m[1]); } else { $ptype = trim($m[1]); }
+                }
+            }
+        }
+
+        $rows[] = [
+            'id'       => (int) $a->id,
+            'date'     => $a->date,
+            'amount'   => (float) $a->amountin,
+            'fees'     => (float) $a->fees,
+            'gateway'  => (string) $a->gateway,
+            'transid'  => (string) $a->transid,
+            'kind'     => (string) $a->type,
+            'payer'    => $payer,
+            'ptype'    => $ptype,
+            'clientId' => (int) $a->userid ?: null,
+            'client'   => $cl ? trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname))) : null,
+            'person'   => $cl ? trim($cl->firstname . ' ' . $cl->lastname) : null,
+            'email'    => $cl->email ?? null,
+            'invoiceId' => (int) $a->invoiceid ?: null,
+            'invoice'  => $inv->invoicenum ?? null,
+            'invTotal' => $inv ? (float) $inv->total : null,
+            'invStatus' => $inv->status ?? null,
+        ];
+    }
+
+    usort($rows, function ($x, $y) { return strcmp($y['date'], $x['date']); });
+    $rows = array_slice($rows, 0, 150);
+
+    // Σύνοψη ανά πελάτη — η απάντηση στο «πού πήγαν τα λεφτά»
+    $byClient = [];
+    foreach ($rows as $r) {
+        $k = $r['clientId'] ?: 0;
+        if (!isset($byClient[$k])) {
+            $byClient[$k] = ['id' => $r['clientId'], 'client' => $r['client'] ?: '(χωρίς πελάτη)', 'n' => 0, 'sum' => 0.0];
+        }
+        $byClient[$k]['n']++;
+        $byClient[$k]['sum'] += $r['amount'];
+    }
+    usort($byClient, function ($x, $y) { return $y['sum'] <=> $x['sum']; });
+
+    out(['q' => $q, 'rows' => $rows, 'byClient' => array_values($byClient),
+         'total' => array_sum(array_column($rows, 'amount'))]);
+
 case 'cv_job_views':                     // επισκεψιμότητα αγγελιών (ανεξάρτητα από αιτήσεις)
     if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/JobViews.php';

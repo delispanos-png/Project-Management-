@@ -159,7 +159,7 @@ function renderShell() {
   }
   if (me.full) {
     nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
-      ['profit', I.coin, 'Κερδοφορία'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
+      ['profit', I.coin, 'Κερδοφορία'], ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
   }
   if (has('hr')) {
     nav.push(['Προσλήψεις', [['recruit', I.contact || I.users, 'Βιογραφικά']]]);

@@ -958,6 +958,104 @@ R.client360 = async function (cid) {
 };
 
 /* ═════════ ΚΕΡΔΟΦΟΡΙΑ ═════════ */
+/* ── Συμφωνία πληρωμών ─────────────────────────────────────────────────────
+   Ένας λογαριασμός PayPal μπορεί να πληρώνει πολλούς πελάτες WHMCS, και ένας
+   πελάτης να πληρώνεται από πολλά πρόσωπα. Χειροκίνητα η αντιστοίχιση παίρνει
+   ώρες· εδώ γίνεται με μία αναζήτηση. ------------------------------------ */
+R.paytrace = async function () {
+  setTop('Συμφωνία πληρωμών', 'Πού πήγε κάθε είσπραξη — σε ποιον πελάτη και σε ποιο παραστατικό');
+  const c = $('#content');
+  const st = R.paytrace._s = R.paytrace._s || {q: ''};
+
+  const form = `
+    <div class="card" style="padding:13px 15px;margin-bottom:12px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input class="inp" id="ptQ" style="flex:1;min-width:260px"
+          placeholder="email πληρωτή, transaction ID, ποσό ή όνομα…" value="${esc(st.q)}">
+        <button class="btn btn-p" id="ptGo">${I.search || ''} Αναζήτηση</button>
+      </div>
+      <div class="mut" style="font-size:12px;margin-top:7px">
+        Ψάχνει σε όλους τους πελάτες μαζί — και μέσα στα IPN των gateway, εκεί όπου ζει το email του πληρωτή.
+      </div>
+    </div>`;
+
+  if (!st.q) {
+    c.innerHTML = form + `<div class="empty" style="margin-top:40px"><div class="big">${I.coin || I.search || ''}</div>
+      Δώσε ένα email πληρωτή ή ένα transaction ID για να δεις πού πήγαν τα χρήματα.</div>`;
+    bind();
+    return;
+  }
+
+  c.innerHTML = form + skel(3);
+  const d = await api('pay_trace', {q: st.q}).catch(e => ({err: e.message}));
+  if (d.err || !d.rows) {
+    c.innerHTML = form + `<div class="empty" style="margin-top:30px">${esc(d.err || 'Καμία εγγραφή.')}</div>`;
+    bind();
+    return;
+  }
+  if (!d.rows.length) {
+    c.innerHTML = form + `<div class="empty" style="margin-top:30px">Καμία πληρωμή δεν ταιριάζει με «${esc(st.q)}».</div>`;
+    bind();
+    return;
+  }
+
+  const money = v => (v || 0).toFixed(2).replace('.', ',') + ' €';
+
+  c.innerHTML = form + `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div class="card" style="padding:13px 15px;flex:1;min-width:150px">
+        <div class="mut" style="font-size:11.5px;text-transform:uppercase;font-weight:700">Πληρωμές</div>
+        <div style="font-size:25px;font-weight:800">${d.rows.length}</div></div>
+      <div class="card" style="padding:13px 15px;flex:1;min-width:150px">
+        <div class="mut" style="font-size:11.5px;text-transform:uppercase;font-weight:700">Σύνολο</div>
+        <div style="font-size:25px;font-weight:800;color:var(--brand)">${money(d.total)}</div></div>
+      <div class="card" style="padding:13px 15px;flex:2;min-width:220px">
+        <div class="mut" style="font-size:11.5px;text-transform:uppercase;font-weight:700;margin-bottom:5px">Ανά πελάτη</div>
+        ${d.byClient.map(b => `<div style="display:flex;gap:8px;font-size:12.5px;margin-bottom:2px">
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.client)}</span>
+          <span class="mut">${b.n}×</span><b>${money(b.sum)}</b></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px">
+        <thead><tr style="background:var(--bg2)">
+          ${['Ημερομηνία','Ποσό','Πληρωτής','Τύπος','Πελάτης WHMCS','Παραστατικό','Transaction ID']
+            .map(h => `<th style="text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+        ${d.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+          <td style="padding:8px 12px;white-space:nowrap">${esc(String(r.date).slice(0, 16))}</td>
+          <td style="padding:8px 12px;font-weight:700;white-space:nowrap">${money(r.amount)}${r.fees ? `<span class="mut" style="font-weight:400;font-size:11px"> −${money(r.fees)}</span>` : ''}</td>
+          <td style="padding:8px 12px">${r.payer ? esc(r.payer) : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px"><span class="pill ${r.ptype === 'subscr_payment' ? 'pill-info' : 'pill-mut'}" style="font-size:9.5px">${
+            r.ptype === 'subscr_payment' ? 'συνδρομή' : (r.ptype === 'web_accept' ? 'χειροκίνητη' : esc(r.gateway || r.kind || '—'))}</span></td>
+          <td style="padding:8px 12px">${r.clientId
+            ? `<a href="/cloudonadminpanel/clientssummary.php?userid=${r.clientId}" target="_blank" style="color:var(--brand)">${esc(r.client)}</a>
+               <div class="mut" style="font-size:11px">${esc(r.person || '')}</div>`
+            : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px;white-space:nowrap">${r.invoiceId
+            ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoiceId}" target="_blank" style="color:var(--brand)">${esc(r.invoice || '#' + r.invoiceId)}</a>
+               <div class="mut" style="font-size:11px">${r.invTotal !== null ? money(r.invTotal) + ' · ' + esc(r.invStatus || '') : ''}</div>`
+            : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.transid || '—')}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+  bind();
+
+  function bind() {
+    const q = $('#ptQ'), go = $('#ptGo');
+    if (!q) return;
+    const run = () => { st.q = q.value.trim(); R.paytrace(); };
+    if (go) go.onclick = run;
+    q.onkeydown = e => { if (e.key === 'Enter') run(); };
+    q.focus();
+  }
+};
+
 R.profit = async function () {
   setTop('Κερδοφορία', 'Έσοδα − κόστος εργασίας − έξοδα, ανά πελάτη');
   const c = $('#content');
