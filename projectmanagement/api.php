@@ -5754,8 +5754,8 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
 
     fputcsv($fh, ['Ημερομηνία', 'Ώρα', 'Ποσό', 'Προμήθεια', 'Καθαρό', 'Τρόπος πληρωμής', 'Τύπος',
         'Πληρωτής (email)', 'Transaction ID', 'ID πελάτη', 'Επωνυμία', 'Υπεύθυνος', 'Email πελάτη',
-        'Παραστατικό', 'Ημ. παραστατικού', 'Ποσό παραστατικού', 'Κατάσταση',
-        'Πίστωση προς', 'Ποσό πίστωσης'], ';');
+        'Παραστατικό', 'Ημ. παραστατικού', 'Ποσό παραστατικού', 'Πίστωση στο παραστατικό',
+        'Υπόλοιπο', 'Κατάσταση', 'Υπερπληρωμή προς', 'Ποσό υπερπληρωμής'], ';');
 
     $tot = 0; $totFee = 0;
     foreach ($rowsX as $a) {
@@ -5780,6 +5780,8 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
             $cl->email ?? '',
             $inv->invoicenum ?? '',
             $inv ? substr($inv->date, 0, 10) : '',
+            $inv ? $num($inv->subtotal + $inv->tax + $inv->tax2) : '',
+            $inv ? $num($inv->credit) : '',
             $inv ? $num($inv->total) : '',
             $inv->status ?? '',
             implode(' + ', array_map(function ($x) { return $x['num']; }, $onward)),
@@ -5872,7 +5874,11 @@ case 'pay_trace':                        // Συμφωνία πληρωμών: �
             'email'    => $cl->email ?? null,
             'invoiceId' => (int) $a->invoiceid ?: null,
             'invoice'  => $inv->invoicenum ?? null,
-            'invTotal' => $inv ? (float) $inv->total : null,
+            // ΠΡΟΣΟΧΗ: το tblinvoices.total είναι το ΥΠΟΛΟΙΠΟ μετά την πίστωση,
+            // όχι το ποσό του παραστατικού. Το πραγματικό ποσό είναι subtotal+ΦΠΑ.
+            'invTotal' => $inv ? (float) ($inv->subtotal + $inv->tax + $inv->tax2) : null,
+            'invDue'   => $inv ? (float) $inv->total : null,
+            'invCredit' => $inv ? (float) $inv->credit : null,
             'invStatus' => $inv->status ?? null,
             // Αν αυτή η είσπραξη δημιούργησε πίστωση, πού πήγε τελικά
             'onward'   => ($a->userid && $a->invoiceid)
