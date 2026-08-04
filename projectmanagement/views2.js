@@ -1043,7 +1043,8 @@ R.paytrace = async function () {
         <tbody>
         ${d.rows.map(r => `<tr style="border-top:1px solid var(--line)">
           <td style="padding:8px 12px;white-space:nowrap">${esc(String(r.date).slice(0, 16))}</td>
-          <td style="padding:8px 12px;font-weight:700;white-space:nowrap">${money(r.amount)}${r.fees ? `<span class="mut" style="font-weight:400;font-size:11px"> −${money(r.fees)}</span>` : ''}</td>
+          <td style="padding:8px 12px;font-weight:700;white-space:nowrap">${r.refunded ? `<s style="opacity:.55">${money(r.amount)}</s>` : money(r.amount)}${r.fees ? `<span class="mut" style="font-weight:400;font-size:11px"> −${money(r.fees)}</span>` : ''}${
+            r.refunded ? '<div style="color:#16a26a;font-size:10.5px;font-weight:700">επιστράφηκε</div>' : ''}</td>
           <td style="padding:8px 12px">${r.payer ? esc(r.payer) : '<span class="mut">—</span>'}</td>
           <td style="padding:8px 12px"><span class="pill ${r.ptype === 'subscr_payment' ? 'pill-info' : 'pill-mut'}" style="font-size:9.5px">${
             r.ptype === 'subscr_payment' ? 'συνδρομή' : (r.ptype === 'web_accept' ? 'χειροκίνητη' : esc(r.gateway || r.kind || '—'))}</span></td>
@@ -1136,19 +1137,27 @@ R.paytrace = async function () {
         <td style="padding:7px 12px;font-weight:700;color:#e0a020">+${money(r.over)}</td></tr>`).join('');
     } else if (sec === 'zombie') {
       title = 'Ζόμπι συνδρομές';
-      hint = 'Ακυρωμένη ή τερματισμένη υπηρεσία που κρατά ενεργή συνδρομή PayPal. Αν χρεώνει ακόμη, εισπράττεις για υπηρεσία που δεν παρέχεις.';
-      head = th('Υπηρεσία') + th('Πελάτης') + th('Κατάσταση') + th('Ποσό') + th('Συνδρομή') + th('Ημ. ακύρωσης') + th('Τελευταία πληρωμή');
-      body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
+      hint = 'Ακυρωμένη ή τερματισμένη υπηρεσία που κρατά αναγνωριστικό συνδρομής. Το εύρημα δεν είναι η ίδια η συνδρομή — είναι τα χρήματα που ΕΙΣΠΡΑΧΘΗΚΑΝ μετά την ακύρωση και δεν επιστράφηκαν. Οι πληρωμές αντιστοιχίζονται στη συνδρομή μέσω του subscr_id στα IPN της PayPal.';
+      head = th('Υπηρεσία') + th('Πελάτης') + th('Ποσό') + th('Συνδρομή') + th('Ακύρωση') + th('Εισπράξεις') + th('Αχρεωστήτως');
+      body = a.rows.map(r => {
+        const bad = (r.openAmt || 0) + (r.orphan || 0);
+        const pay = (r.pays || []).map(p => `<span style="display:inline-block;margin:0 12px 3px 0;${p.refunded ? 'opacity:.55;text-decoration:line-through' : ''}">
+            ${esc(p.date)} <b>${money(p.amount)}</b>
+            ${p.refunded ? '<span style="color:#16a26a">επιστράφηκε</span>'
+              : p.invoice ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${p.invoice}" target="_blank" style="color:var(--brand)">παρ. ${p.invoice}</a>`
+              : '<span style="color:var(--bad);font-weight:700">χωρίς παραστατικό</span>'}</span>`).join('');
+        return `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px">#${r.service}<div class="mut" style="font-size:11px">${esc(r.domain || '')}</div></td>
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
-        <td style="padding:7px 12px"><span class="pill pill-bad" style="font-size:9.5px">${esc(r.status)}</span></td>
         <td style="padding:7px 12px">${money(r.amount)}<span class="mut" style="font-size:11px">/${esc(r.cycle)}</span></td>
-        <td style="padding:7px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.sub)}</td>
+        <td style="padding:7px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.sub)}
+          ${r.realSub ? '' : '<div class="mut" style="font-family:inherit;font-size:10.5px">κατάλοιπο, όχι συνδρομή PayPal</div>'}</td>
         <td style="padding:7px 12px">${r.cancel ? esc(r.cancel) + `<div class="mut" style="font-size:10.5px">${esc(r.cancelSrc || '')}</div>` : '<span class="mut">άγνωστη</span>'}</td>
-        <td style="padding:7px 12px">${r.lastPay
-            ? esc(r.lastPay) + ' <span class="mut">' + money(r.lastAmt) + '</span>'
-              + (r.afterCancel ? '<div style="color:var(--bad);font-weight:700;font-size:10.5px">μετά την ακύρωση</div>' : '')
-            : '<span class="mut">καμία</span>'}</td></tr>`).join('');
+        <td style="padding:7px 12px">${r.payN ? r.payN + '×' : '<span class="mut">—</span>'}</td>
+        <td style="padding:7px 12px;font-weight:700;color:${bad ? 'var(--bad)' : 'var(--mut)'}">${bad ? money(bad) : '—'}
+          ${r.orphan ? '<div style="font-weight:600;font-size:10.5px">χωρίς παραστατικό</div>' : ''}</td></tr>
+        ${pay ? `<tr><td colspan="7" style="padding:0 12px 8px 12px;font-size:11.5px" class="mut">${pay}</td></tr>` : ''}`;
+      }).join('');
     } else {
       title = 'Πραγματικές οφειλές';
       hint = 'Τιμολογημένα μείον όσα εισπράχθηκαν πραγματικά — ανεξάρτητα από το πώς τα εμφανίζει το WHMCS.';
@@ -1215,7 +1224,7 @@ R.paytrace = async function () {
             <td style="padding:7px 12px">${r.ref
                 ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${r.ref}" target="_blank" style="color:var(--brand)">${esc(r.label)}</a>`
                 : esc(r.label)}</td>
-            <td style="padding:7px 12px;text-align:right">${r.debit ? money(r.debit) : ''}</td>
+            <td style="padding:7px 12px;text-align:right${r.kind === 'refund' ? ';color:#e0a020' : ''}">${r.debit ? money(r.debit) : ''}</td>
             <td style="padding:7px 12px;text-align:right;color:#16a26a">${r.credit ? money(r.credit) : ''}</td>
             <td style="padding:7px 14px;text-align:right;font-weight:700;color:${r.balance > 0.005 ? 'var(--bad)' : (neg(r.balance) ? 'var(--brand)' : 'var(--mut)')}">${money(r.balance)}</td>
           </tr>`).join('')}

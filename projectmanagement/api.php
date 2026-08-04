@@ -81,6 +81,94 @@ function initials($name)
  *
  * @return array [invoiceId πηγής => [['invoice'=>id, 'num'=>'2026…', 'amount'=>float], …]]
  */
+/**
+ * Ζόμπι συνδρομές: ακυρωμένες υπηρεσίες που κρατούν αναγνωριστικό συνδρομής.
+ * Χρησιμοποιείται και από την οθόνη και από το CSV — μία πηγή αλήθειας, αλλιώς
+ * το λογιστήριο βλέπει άλλα νούμερα από την οθόνη.
+ */
+function cnp_zombies(callable $nameOf)
+{
+    $out = [];
+    foreach (Capsule::table('tblhosting')->whereNotNull('subscriptionid')->where('subscriptionid', '!=', '')
+                 ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
+        $sub = trim((string) $h->subscriptionid);
+
+        /* Ημερομηνία ακύρωσης: termination_date, αλλιώς αίτημα πελάτη, αλλιώς
+           τελευταία μεταβολή. Πολλές παλιές εγγραφές έχουν 0000-00-00 παντού,
+           οπότε μένει άγνωστη — και τότε δεν ισχυριζόμαστε τίποτα γι\' αυτήν. */
+        $term = (string) ($h->termination_date ?? '');
+        if ($term === '' || strpos($term, '0000') === 0) { $term = ''; }
+        $cr = Capsule::table('tblcancelrequests')->where('relid', $h->id)->orderBy('id', 'desc')->first();
+        $cancel = $term ?: ($cr ? substr((string) $cr->date, 0, 10) : '');
+        $src = $term ? 'τερματισμός' : ($cr ? 'αίτημα πελάτη' : '');
+        if (!$cancel && $h->lastupdate && strpos((string) $h->lastupdate, '0000') !== 0) {
+            $cancel = substr((string) $h->lastupdate, 0, 10);
+            $src = 'τελευταία μεταβολή';
+        }
+
+        /* Έγκυρο αναγνωριστικό συνδρομής; Οι συνδρομές PayPal είναι της μορφής
+           I-XXXXXXXXXXXX. Τετριμμένοι αριθμοί (π.χ. «108») είναι κατάλοιπα
+           παλιών εγγραφών — με LIKE στα IPN πιάνουν οτιδήποτε περιέχει τα
+           ψηφία και βγάζουν εντελώς πλασματικά ποσά. */
+        $realSub = (strlen($sub) >= 8 && !ctype_digit($sub));
+
+        $subTx = [];
+        if ($realSub) {
+            foreach (Capsule::table('tblgatewaylog')->where('data', 'like', '%' . $sub . '%')->get() as $g) {
+                if (preg_match('/(?:^|\n)\s*txn_id\s*=>\s*(\S+)/', (string) $g->data, $m)) { $subTx[] = trim($m[1]); }
+            }
+            $subTx = array_values(array_unique($subTx));
+        }
+
+        // Οι πληρωμές ΤΗΣ ΣΥΓΚΕΚΡΙΜΕΝΗΣ συνδρομής — όχι η τελευταία πληρωμή του
+        // πελάτη, που μπορεί να αφορά άλλη, ζωντανή υπηρεσία.
+        $pays = [];
+        if ($subTx) {
+            foreach (Capsule::table('tblaccounts')->whereIn('transid', $subTx)
+                         ->where('amountin', '>', 0)->orderBy('date')->get() as $pay) {
+                $pays[] = [
+                    'date'     => substr((string) $pay->date, 0, 10),
+                    'amount'   => (float) $pay->amountin,
+                    'transid'  => (string) $pay->transid,
+                    'invoice'  => (int) $pay->invoiceid,
+                    'refunded' => Capsule::table('tblaccounts')->where('refundid', $pay->id)->exists(),
+                ];
+            }
+        }
+
+        /* Το εύρημα δεν είναι «πλήρωσε κάποτε» — είναι «εισπράξαμε ΜΕΤΑ την
+           ακύρωση και δεν το επιστρέψαμε». Όταν η ημερομηνία ακύρωσης είναι
+           άγνωστη, κρατάμε ως ένδειξη τις ανεπίστρεπτες πληρωμές που δεν
+           κούμπωσαν σε κανένα παραστατικό. */
+        $openAmt = 0.0; $openN = 0; $orphan = 0.0;
+        foreach ($pays as $pp) {
+            if ($pp['refunded']) { continue; }
+            if ($cancel && $pp['date'] > $cancel) { $openAmt += $pp['amount']; $openN++; }
+            if (!$pp['invoice']) { $orphan += $pp['amount']; }
+        }
+        $last = $pays ? $pays[count($pays) - 1] : null;
+
+        $out[] = ['service' => (int) $h->id, 'client' => (int) $h->userid, 'name' => $nameOf((int) $h->userid),
+            'domain' => (string) $h->domain, 'status' => (string) $h->domainstatus,
+            'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
+            'sub' => $sub, 'realSub' => $realSub,
+            'cancel' => $cancel ?: null, 'cancelSrc' => $src,
+            'lastPay' => $last ? $last['date'] : null,
+            'lastAmt' => $last ? $last['amount'] : null,
+            'refunded' => $last ? (bool) $last['refunded'] : false,
+            'payN' => count($pays), 'openN' => $openN,
+            'openAmt' => round($openAmt, 2),   // εισπράξεις μετά την ακύρωση, χωρίς επιστροφή
+            'orphan' => round($orphan, 2),     // ανεπίστρεπτες πληρωμές χωρίς παραστατικό
+            'pays' => array_slice(array_reverse($pays), 0, 6),
+            'afterCancel' => ($openN > 0 || $orphan > 0)];
+    }
+    usort($out, function ($a, $b) {
+        return ($b['openAmt'] + $b['orphan']) <=> ($a['openAmt'] + $a['orphan'])
+            ?: strcmp((string) $b['lastPay'], (string) $a['lastPay']);
+    });
+    return $out;
+}
+
 function cnp_credit_chain($clientId)
 {
     static $cache = [];
@@ -5764,24 +5852,14 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
         }
     } elseif ($sc === 'zombie') {
         fputcsv($f3, ['Υπηρεσία', 'Domain', 'ID πελάτη', 'Πελάτης', 'Κατάσταση', 'Ποσό', 'Κύκλος', 'Συνδρομή',
-            'Ημ. ακύρωσης', 'Πηγή ημερομηνίας', 'Τελευταία πληρωμή', 'Ποσό', 'Πληρωμή μετά την ακύρωση'], ';');
-        foreach (Capsule::table('tblhosting')->whereNotNull('subscriptionid')->where('subscriptionid', '!=', '')
-                     ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
-            $last = Capsule::table('tblaccounts')->where('userid', $h->userid)->where('gateway', '!=', '')
-                ->whereNotNull('gateway')->orderBy('date', 'desc')->first();
-            $term = (string) ($h->termination_date ?? '');
-            if ($term === '' || strpos($term, '0000') === 0) { $term = ''; }
-            $cr = Capsule::table('tblcancelrequests')->where('relid', $h->id)->orderBy('id', 'desc')->first();
-            $cancel = $term ?: ($cr ? substr((string) $cr->date, 0, 10) : '');
-            $src = $term ? 'τερματισμός' : ($cr ? 'αίτημα πελάτη' : 'τελευταία μεταβολή');
-            if (!$cancel && $h->lastupdate && strpos((string) $h->lastupdate, '0000') !== 0) {
-                $cancel = substr((string) $h->lastupdate, 0, 10);
-            }
-            $lp = $last ? substr($last->date, 0, 10) : '';
-            fputcsv($f3, [$h->id, $h->domain, $h->userid, $nm((int) $h->userid), $h->domainstatus,
-                $n3($h->amount), $h->billingcycle, $h->subscriptionid,
-                $cancel, $src, $lp, $last ? $n3($last->amountin) : '',
-                ($cancel && $lp && $lp > $cancel) ? 'ΝΑΙ' : ''], ';');
+            'Έγκυρη συνδρομή', 'Ημ. ακύρωσης', 'Πηγή ημερομηνίας', 'Πληρωμές συνδρομής',
+            'Μετά την ακύρωση', 'Χωρίς παραστατικό', 'Αχρεωστήτως', 'Τελευταία πληρωμή', 'Ποσό'], ';');
+        foreach (cnp_zombies($nm) as $z) {
+            fputcsv($f3, [$z['service'], $z['domain'], $z['client'], $z['name'], $z['status'],
+                $n3($z['amount']), $z['cycle'], $z['sub'], $z['realSub'] ? 'ΝΑΙ' : 'κατάλοιπο',
+                $z['cancel'] ?: '', $z['cancelSrc'], $z['payN'],
+                $n3($z['openAmt']), $n3($z['orphan']), $n3($z['openAmt'] + $z['orphan']),
+                $z['lastPay'] ?: '', $z['lastAmt'] !== null ? $n3($z['lastAmt']) : ''], ';');
         }
     } else {
         fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Οφειλή', 'Ανεξόφλητα WHMCS'], ';');
@@ -5808,8 +5886,10 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
                  ->selectRaw('userid, SUM(subtotal+tax+tax2) g')->groupBy('userid')->get() as $r) {
         $grossBy[(int) $r->userid] = (float) $r->g;
     }
+    /* ΚΑΘΑΡΕΣ εισπράξεις: αφαιρούμε τις επιστροφές. Χωρίς αυτό ένα ποσό που
+       γύρισε πίσω στον πελάτη μετριέται σαν να το κρατήσαμε. */
     foreach (Capsule::table('tblaccounts')->where('gateway', '!=', '')->whereNotNull('gateway')
-                 ->selectRaw('userid, SUM(amountin) p')->groupBy('userid')->get() as $r) {
+                 ->selectRaw('userid, SUM(amountin) - SUM(amountout) p')->groupBy('userid')->get() as $r) {
         $paidBy[(int) $r->userid] = (float) $r->p;
     }
     foreach (Capsule::table('tblaccounts')->where('type', 'invoice_billing_adjustment_credit')
@@ -5860,36 +5940,7 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     usort($overpaid, function ($a, $b) { return $b['over'] <=> $a['over']; });
 
     // ── 3. Ζόμπι συνδρομές: ενεργή συνδρομή σε νεκρή υπηρεσία
-    $zombie = [];
-    foreach (Capsule::table('tblhosting')->whereNotNull('subscriptionid')->where('subscriptionid', '!=', '')
-                 ->whereIn('domainstatus', ['Cancelled', 'Terminated', 'Fraud'])->get() as $h) {
-        $last = Capsule::table('tblaccounts')->where('userid', $h->userid)->where('gateway', '!=', '')
-            ->whereNotNull('gateway')->orderBy('date', 'desc')->first();
-        /* Ημερομηνία ακύρωσης: πρώτα το termination_date, αλλιώς το αίτημα του
-           πελάτη, αλλιώς η τελευταία μεταβολή της εγγραφής. Χωρίς αυτήν δεν
-           φαίνεται αν η πληρωμή ήρθε ΜΕΤΑ την ακύρωση — που είναι το κρίσιμο. */
-        $term = (string) ($h->termination_date ?? '');
-        if ($term === '' || strpos($term, '0000') === 0) { $term = ''; }
-        $cr = Capsule::table('tblcancelrequests')->where('relid', $h->id)->orderBy('id', 'desc')->first();
-        $cancel = $term ?: ($cr ? substr((string) $cr->date, 0, 10) : '');
-        $src = $term ? 'τερματισμός' : ($cr ? 'αίτημα πελάτη' : ($h->lastupdate ? 'τελευταία μεταβολή' : ''));
-        if (!$cancel && $h->lastupdate && strpos((string) $h->lastupdate, '0000') !== 0) {
-            $cancel = substr((string) $h->lastupdate, 0, 10);
-        }
-        $lp = $last ? substr($last->date, 0, 10) : null;
-
-        $zombie[] = ['service' => (int) $h->id, 'client' => (int) $h->userid, 'name' => $nameOf((int) $h->userid),
-            'domain' => (string) $h->domain, 'status' => (string) $h->domainstatus,
-            'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
-            'sub' => (string) $h->subscriptionid,
-            'cancel' => $cancel ?: null,
-            'cancelSrc' => $src,
-            'lastPay' => $lp,
-            'lastAmt' => $last ? (float) $last->amountin : null,
-            // Πληρωμή μετά την ακύρωση = εισπράττεις για υπηρεσία που δεν παρέχεις
-            'afterCancel' => ($cancel && $lp && $lp > $cancel)];
-    }
-    usort($zombie, function ($a, $b) { return strcmp((string) $b['lastPay'], (string) $a['lastPay']); });
+    $zombie = cnp_zombies($nameOf);
 
     // ── 4. Πραγματικές οφειλές ενεργών πελατών
     $debt = [];
@@ -5907,7 +5958,8 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     $sum = [
         'mismatch' => ['n' => count($mismatch), 'sum' => round(array_sum(array_map('abs', array_column($mismatch, 'diff'))), 2)],
         'overpaid' => ['n' => count($overpaid), 'sum' => round(array_sum(array_column($overpaid, 'over')), 2)],
-        'zombie'   => ['n' => count($zombie),   'sum' => round(array_sum(array_column($zombie, 'amount')), 2)],
+        'zombie'   => ['n' => count($zombie),   'sum' => round(array_sum(array_column($zombie, 'openAmt'))
+                                                    + array_sum(array_column($zombie, 'orphan')), 2)],
         'debt'     => ['n' => count($debt),     'sum' => round(array_sum(array_column($debt, 'balance')), 2)],
     ];
 
@@ -6011,6 +6063,18 @@ case 'pay_statement':                    // Καρτέλα πελάτη: χρέ�
             'debit'  => 0.0,
             'credit' => (float) $a->amountin,
             'note'   => (string) $a->transid,
+        ];
+    }
+
+    // Επιστροφές: χρήματα που γύρισαν στον πελάτη — χρεώνουν ξανά τον λογαριασμό.
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid)
+                 ->where('amountout', '>', 0)->where('refundid', '>', 0)->get() as $rf) {
+        $iv = $rf->invoiceid ? Capsule::table('tblinvoices')->where('id', $rf->invoiceid)->first() : null;
+        $ev[] = [
+            'date' => $rf->date, 'sort' => $rf->date, 'kind' => 'refund',
+            'label' => 'Επιστροφή χρημάτων' . ($iv ? ' — παρ. ' . ($iv->invoicenum ?: '#' . $iv->id) : ''),
+            'ref' => (int) $rf->invoiceid, 'num' => (string) ($iv->invoicenum ?? ''),
+            'debit' => (float) $rf->amountout, 'credit' => 0.0, 'note' => (string) $rf->transid,
         ];
     }
 
@@ -6210,6 +6274,7 @@ case 'pay_trace':                        // Συμφωνία πληρωμών: �
             'invDue'   => $inv ? (float) $inv->total : null,
             'invCredit' => $inv ? (float) $inv->credit : null,
             'invStatus' => $inv->status ?? null,
+            'refunded' => (bool) Capsule::table('tblaccounts')->where('refundid', $a->id)->exists(),
             // Αν αυτή η είσπραξη δημιούργησε πίστωση, πού πήγε τελικά
             'onward'   => ($a->userid && $a->invoiceid)
                 ? (cnp_credit_chain((int) $a->userid)[(int) $a->invoiceid] ?? [])
