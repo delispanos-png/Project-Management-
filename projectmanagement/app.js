@@ -1318,10 +1318,28 @@ async function vMyDay() {
   const d = await api('myday');
   const mt = await api('my_todos').catch(() => ({todos: []}));
   const st = d.stats;
-  setTimeout(loadMyNext, 50);   // ▶ επόμενο ticket (lazy, μετά το render)
   const coachCol = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)'};
   const coach = d.coach || [];
+  const queue = d.queue || [];
+  const waitLbl = h => h >= 48 ? Math.floor(h / 24) + ' ημέρες' : (h >= 24 ? '1 ημέρα' : h + 'ω');
   c.innerHTML = `
+  ${queue.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--bad)">
+    <div class="card-h">${I.compass} Η σειρά της ημέρας
+      <span class="mut" style="font-weight:600;font-size:11.5px">— ξεκίνα από πάνω· πρώτα το SLA, μετά όποιος περιμένει περισσότερο</span>
+      <a data-goinbox style="margin-left:auto;font-size:11px;font-weight:600;color:var(--brand);cursor:pointer">όλα τα tickets →</a></div>
+    <div class="card-b" style="padding-top:6px">
+    ${queue.map((q, i) => `<div class="qrow" data-qtk="${q.id}">
+      <span class="qn">${i + 1}</span>
+      <span class="pill" style="background:${coachCol[q.lvl]}1e;color:${coachCol[q.lvl]};font-weight:700;flex:none">${esc(q.why)}</span>
+      <span class="qt">${esc(q.title)}
+        <span class="mut">#${esc(q.tid)}${q.client ? ' · ' + esc(q.client) : ''}${q.dept ? ' · ' + esc(q.dept) : ''}</span></span>
+      ${q.urgency === 'High' ? '<span class="pill pill-bad" style="flex:none">επείγον</span>' : ''}
+      ${q.assigned ? (q.mine ? '<span class="pill pill-info" style="flex:none">δικό μου</span>'
+                             : `<span class="pill pill-mut" style="flex:none">${esc(adminIni(q.assigned))}</span>`)
+                   : '<span class="pill pill-warn" style="flex:none">αζήτητο</span>'}
+      <span class="qw mut">${waitLbl(q.waitH)}</span>
+    </div>`).join('')}
+    </div></div>` : ''}
   ${coach.length ? `<div class="card coach" style="margin-bottom:14px"><div class="card-h">${I.compass} Καθοδήγηση για σένα</div>
     <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
     ${coach.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 11px;border-radius:10px;
@@ -1329,7 +1347,6 @@ async function vMyDay() {
       <span style="font-size:16px;line-height:1.4;flex:none">${x.icon}</span>
       <span style="font-size:13px;line-height:1.5">${esc(x.text)}</span></div>`).join('')}
     </div></div>` : ''}
-  <div class="card" id="myNext" style="display:none;margin-bottom:14px;border-left:4px solid var(--brand)"></div>
   <div class="grid g4" style="margin-bottom:16px">
     ${suStat(I.ticket, st.tickets, 'Tickets μου', st.tickets ? 'var(--brand)' : 'var(--ok)')}
     ${suStat(I.clock, st.nearSla, 'Κοντά σε SLA', st.nearSla ? 'var(--bad)' : 'var(--ok)')}
@@ -1377,28 +1394,11 @@ async function vMyDay() {
   $$('#content .trow[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
   $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
   $$('#content [data-gotodos]').forEach(a => a.onclick = () => go('todos'));
+  $$('#content [data-goinbox]').forEach(a => a.onclick = () => go('inbox'));
+  $$('#content [data-qtk]').forEach(r => r.onclick = () => go('inbox', r.dataset.qtk));
 }
 
 /* ═════════ CRM ═════════ */
-function loadMyNext() {
-  api('mynext').then(r => {
-    const el = $('#myNext'); if (!el || !r.next.length) return;
-    el.style.display = '';
-    el.innerHTML = `<div class="card-h">▶ Τι δουλεύω τώρα <span class="mut" style="margin-left:auto;font-size:11px;font-weight:400">κρισιμότητα · αναμονή · SLA</span></div>
-      <div class="card-b">${r.next.map((t, i) => `
-        <div class="nx-row" data-nxgo="${t.id}">
-          <b class="nx-rank" style="color:${i === 0 ? 'var(--bad)' : 'var(--mut)'}">${i + 1}</b>
-          <div class="nx-body">
-            <div class="nx-title">#${esc(t.tid)} — ${esc(t.title)}</div>
-            <div class="nx-meta">
-              <span class="mut">${esc(t.client || '—')}</span>
-              ${!t.mine ? '<span class="pill pill-warn">χωρίς ανάθεση</span>' : ''}
-              ${t.waiting ? '<span class="pill pill-bad">περιμένει</span>' : ''}</div>
-          </div>
-          <b class="nx-score" style="color:${t.score >= 45 ? 'var(--bad)' : 'var(--warn)'}">${t.score}</b></div>`).join('')}</div>`;
-    el.querySelectorAll('[data-nxgo]').forEach(x => x.onclick = () => go('inbox', +x.dataset.nxgo));
-  }).catch(() => {});
-}
 async function vCrm() {
   setTop('CRM', 'Pipeline πωλήσεων — στόχοι → επαφή → πελάτες');
   const c = $('#content');

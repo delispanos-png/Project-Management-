@@ -1194,6 +1194,90 @@ case 'myday':
         $notifs[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => $n->title, 'url' => $n->url,
             'read' => (bool) $n->is_read, 'at' => $n->created_at];
     }
+    /* ── 🧭 Η σειρά της ημέρας ────────────────────────────────────────────
+       Δεν είναι συμβουλή, είναι ουρά δουλειάς: ΠΟΙΟ ticket να πιάσεις τώρα και
+       γιατί. Η σειρά είναι σκόπιμα αυστηρή — πρώτα ό,τι έχει σπάσει SLA, μετά
+       όσα περιμένουν εμάς (από το πιο παλιό), μετά τα αζήτητα. Ο χρόνος
+       αναμονής μετριέται από το ΤΕΛΕΥΤΑΙΟ μήνυμα του πελάτη, όχι από το άνοιγμα
+       του ticket: αλλιώς ένα παλιό ticket που μόλις απαντήσαμε θα έδειχνε
+       επείγον. */
+    $queue = [];
+    $openTk = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])
+        ->get(['id', 'tid', 'did', 'userid', 'name', 'title', 'status', 'urgency', 'date', 'lastreply', 'flag']);
+    if (count($openTk)) {
+        $ids = $openTk->pluck('id')->all();
+
+        // Τελευταίο μήνυμα ανά ticket: δικό μας ή του πελάτη;
+        $lastMsg = [];
+        foreach (Capsule::table('tblticketreplies')->whereIn('tid', $ids)
+                     ->orderBy('id')->get(['tid', 'admin', 'date']) as $r) {
+            $lastMsg[(int) $r->tid] = ['byUs' => ($r->admin !== '' && $r->admin !== null), 'at' => $r->date];
+        }
+        $slaMap2 = [];
+        try {
+            if (Capsule::schema()->hasTable('mod_supportcontracts_tickets')) {
+                foreach (Capsule::table('mod_supportcontracts_tickets')->whereIn('ticketid', $ids)
+                             ->get(['ticketid', 'sla_due', 'first_response_at']) as $x) {
+                    $slaMap2[(int) $x->ticketid] = $x;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        $deps = [];
+        foreach (Capsule::table('tblticketdepartments')->get(['id', 'name']) as $dp) {
+            $deps[(int) $dp->id] = $dp->name;
+        }
+        $now = time();
+
+        foreach ($openTk as $tk) {
+            $lm = $lastMsg[(int) $tk->id] ?? null;
+            // Χωρίς απάντηση ακόμη = το αρχικό μήνυμα του πελάτη περιμένει.
+            $waitFrom = $lm ? $lm['at'] : $tk->date;
+            $waitingOnUs = $lm ? !$lm['byUs'] : true;
+            $waitH = max(0, (int) floor(($now - strtotime((string) $waitFrom)) / 3600));
+
+            $sla = $slaMap2[(int) $tk->id] ?? null;
+            $slaDue = ($sla && $sla->sla_due && !$sla->first_response_at) ? $sla->sla_due : null;
+            $slaLeftH = $slaDue ? (int) floor((strtotime($slaDue) - $now) / 3600) : null;
+
+            /* Βαθμίδα προτεραιότητας — μικρότερος αριθμός = πιάσ' το πρώτο.
+               Ένα ticket μπαίνει σε ΜΙΑ βαθμίδα, στη χειρότερη που το αφορά. */
+            if ($slaDue && $slaLeftH < 0) {
+                $rank = 1; $why = 'εκτός SLA'; $lvl = 'bad';
+            } elseif ($waitingOnUs && $waitH >= 24) {
+                $rank = 2; $why = 'περιμένει απάντηση'; $lvl = 'bad';
+            } elseif ($slaDue && $slaLeftH <= 4) {
+                $rank = 3; $why = 'SLA σε ' . max(0, $slaLeftH) . 'ω'; $lvl = 'warn';
+            } elseif ($waitingOnUs) {
+                $rank = 4; $why = 'περιμένει απάντηση'; $lvl = 'warn';
+            } elseif (!$tk->flag) {
+                $rank = 5; $why = 'χωρίς ανάθεση'; $lvl = 'tip';
+            } elseif ($waitH >= 72) {
+                /* Απαντήσαμε και σιωπή. Δεν είναι δική μας εκκρεμότητα, αλλά
+                   μετά από μέρες αξίζει υπενθύμιση ή κλείσιμο — μπαίνει τελευταίο. */
+                $rank = 6; $why = 'περιμένει τον πελάτη ' . (int) floor($waitH / 24) . ' ημέρες'; $lvl = 'tip';
+            } else {
+                continue;   // απαντήσαμε πρόσφατα — η μπάλα είναι στον πελάτη
+            }
+
+            $queue[] = [
+                'id' => (int) $tk->id, 'tid' => (string) $tk->tid,
+                'title' => (string) $tk->title, 'client' => (string) $tk->name,
+                'dept' => $deps[(int) $tk->did] ?? '',
+                'status' => (string) $tk->status, 'urgency' => (string) $tk->urgency,
+                'mine' => ((int) $tk->flag === $adminId), 'assigned' => (int) $tk->flag,
+                'waitH' => $waitH, 'slaLeftH' => $slaLeftH,
+                'rank' => $rank, 'why' => $why, 'lvl' => $lvl,
+            ];
+        }
+        /* Μέσα στην ίδια βαθμίδα: από το πιο παλιό προς το πιο καινούριο —
+           όποιος περιμένει περισσότερο, εξυπηρετείται πρώτος. */
+        usort($queue, function ($a, $b) {
+            return $a['rank'] <=> $b['rank'] ?: $b['waitH'] <=> $a['waitH'];
+        });
+        $queue = array_slice($queue, 0, 12);
+    }
+
     /* ── 🧭 Προσωπικός coach: συμβουλές/προειδοποιήσεις ανά χειριστή ── */
     $coach = [];
     $overdue = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
@@ -1250,6 +1334,7 @@ case 'myday':
     }
     $coach = array_slice($coach, 0, 6);
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
+        'queue' => $queue,
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday]]);
@@ -2677,12 +2762,21 @@ case 'tickets':
         }
     } catch (\Throwable $e) {
     }
-    // «περιμένει απάντηση»: τελευταίο reply όχι από admin
+    /* Ποιος περιμένει ποιον: αν το τελευταίο μήνυμα είναι του πελάτη περιμένει
+       ΕΜΑΣ· αν είναι δικό μας, η μπάλα πήγε στον πελάτη. Το δεύτερο δεν είναι
+       εκκρεμότητά μας — αλλά μετά από μέρες σιωπής θέλει υπενθύμιση, γι' αυτό
+       φαίνεται ξεχωριστά αντί να χαθεί. */
     $list = [];
     foreach ($rows as $tk) {
-        $lastAdmin = Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderBy('id', 'desc')->value('admin');
-        $waiting = ($lastAdmin === null || $lastAdmin === '');
+        $lastRep = Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderBy('id', 'desc')
+            ->first(['admin', 'date']);
+        $waiting = (!$lastRep || $lastRep->admin === null || $lastRep->admin === '');
+        $sinceTs = strtotime((string) (($lastRep ? $lastRep->date : null) ?: $tk->date));
+        $waitH = max(0, (int) floor((time() - $sinceTs) / 3600));
         if ($view === 'waiting' && !$waiting) {
+            continue;
+        }
+        if ($view === 'wclient' && $waiting) {
             continue;
         }
         $s = $slaMap[(int) $tk->id] ?? null;
@@ -2692,6 +2786,8 @@ case 'tickets':
             'last' => $tk->lastreply, 'age' => (int) floor((time() - strtotime($tk->date)) / 86400),
             'flag' => (int) $tk->flag ?: null, 'unread' => (bool) $tk->adminunread,
             'waiting' => $waiting,
+            'waitOn' => $waiting ? 'us' : 'client',
+            'waitH' => $waitH,
             'slaDue' => ($s && $s->sla_due && !$s->first_response_at) ? $s->sla_due : null,
             'area' => isset($classMap[(int) $tk->id]) ? (int) $classMap[(int) $tk->id]->area_id ?: null : null,
             'cause' => isset($classMap[(int) $tk->id]) ? (int) $classMap[(int) $tk->id]->cause_id ?: null : null];
@@ -3218,7 +3314,10 @@ case 'kb_draft':                        // AI προσχέδιο KB από κλ�
         'keywords' => mb_substr($draft['keywords'] ?? '', 0, 500),
         'solution' => mb_substr($draft['solution'] ?? '', 0, 60000)]]);
 
-case 'mynext':                          // ▶ «Τι δουλεύω τώρα» — προσωπικό top-3 (όλοι)
+case 'mynext':                          /* Προσωπικό top-3 με αριθμητικό σκορ.
+    Δεν το καλεί πλέον η «Η μέρα μου» — τη θέση του πήρε το 'queue' του myday,
+    που λέει ΓΙΑΤΙ προτεραιοποιείται κάτι αντί για αδιαφανή βαθμό. Μένει για
+    εξωτερικές κλήσεις/κινητό. */
     $now = time();
     $slaBy = [];
     try {

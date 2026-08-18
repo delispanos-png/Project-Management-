@@ -1258,14 +1258,6 @@ button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;f
 }
 
 /* ── «Τι δουλεύω τώρα» (myday): δομημένη γραμμή αντί για wrap χάος ── */
-.nx-row{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px dashed var(--line);cursor:pointer}
-.nx-row:last-child{border-bottom:0}
-.nx-rank{flex:none;width:22px;text-align:center;font-size:15px}
-.nx-body{flex:1;min-width:0}
-.nx-title{font-weight:700;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nx-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;font-size:11px}
-.nx-meta .pill{font-size:9.5px}
-.nx-score{flex:none;font-size:17px;font-variant-numeric:tabular-nums}
 
 /* ── με bottom tabs, το hamburger είναι περιττό (η πρόσβαση είναι από «Μενού» + edge-swipe) ── */
 @media (max-width:768px){
@@ -1399,3 +1391,17 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   background:#1f9d5714;border-radius:8px;padding:8px 11px;white-space:pre-wrap}
 .tcard-done{margin-top:6px;font-size:11.5px;color:#1f9d57;line-height:1.35;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* ── Η σειρά της ημέρας ─────────────────────────────────────────────────── */
+.qrow{display:flex;gap:9px;align-items:center;padding:8px 6px;border-radius:9px;cursor:pointer;
+  border-bottom:1px solid var(--line)}
+.qrow:last-child{border-bottom:none}
+.qrow:hover{background:var(--bg2)}
+.qn{flex:none;width:20px;text-align:center;font-weight:800;font-size:12px;color:var(--mut)}
+.qt{flex:1;min-width:0;font-size:13px;font-weight:600;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qt .mut{font-weight:400;font-size:11.5px}
+.qw{flex:none;font-size:11.5px;white-space:nowrap;font-weight:700}
+@media(max-width:768px){
+  .qrow{flex-wrap:wrap;gap:6px}
+  .qt{flex:1 1 100%;white-space:normal;order:3}
+}
