@@ -106,6 +106,20 @@ class Db
             });
         }
 
+        /* Παρακολούθηση προσφοράς: πότε στάλθηκε, αν απάντησαν, πότε ξαναχτυπάμε.
+           Τα δύο πρώτα έρχονται από το WHMCS quote όταν υπάρχει· εδώ κρατάμε και
+           όσα δόθηκαν εκτός συστήματος (τηλέφωνο, email με το χέρι). */
+        if (!$s->hasColumn('mod_cpm_offers', 'sent_at')) {
+            $s->table('mod_cpm_offers', function ($t) {
+                $t->date('sent_at')->nullable();            // πότε φύγει στον πελάτη
+                $t->date('replied_at')->nullable();         // πότε απάντησε
+                $t->string('reply', 12)->nullable();        // yes | no | thinking
+                $t->date('followup_date')->nullable();      // πότε ξαναχτυπάμε
+                $t->string('followup_note', 200)->nullable();
+                $t->date('followup_done_on')->nullable();   // πότε έγινε το τελευταίο follow-up
+            });
+        }
+
         if (!$s->hasColumn('mod_cpm_projects', 'manager_id')) {
             $s->table('mod_cpm_projects', function ($t) {
                 $t->integer('manager_id')->unsigned()->nullable();  // υπεύθυνος έργου (κλιμάκωση προθεσμιών)
@@ -1405,14 +1419,87 @@ class Db
      */
     public static function offers($clientid = 0)
     {
+        self::adoptQuotes();
+        self::syncOfferTracking();
         self::syncOfferStages();
         $q = Capsule::table('mod_cpm_offers as o')
             ->leftJoin('tblquotes as q', 'q.id', '=', 'o.quoteid')
-            ->select('o.*', 'q.stage as quote_stage', 'q.total as quote_total', 'q.validuntil as quote_validuntil');
+            ->select('o.*', 'q.stage as quote_stage', 'q.total as quote_total', 'q.validuntil as quote_validuntil',
+                'q.datesent as quote_sent', 'q.dateaccepted as quote_accepted');
         if ($clientid) {
             $q->where('o.clientid', (int) $clientid);
         }
         return $q->orderBy('o.id', 'desc')->get();
+    }
+
+    /**
+     * Υιοθετεί προσφορές του WHMCS που δεν έχουν καρτέλα εδώ.
+     *
+     * Οι πωλήσεις γράφονταν στο WHMCS (18 quotes) ενώ η οθόνη διάβαζε τον δικό
+     * μας πίνακα, που ήταν άδειος. Αντί να ζητάμε διπλοκαταχώρηση, το quote
+     * παραμένει η πηγή αλήθειας και εμείς κρατάμε από πάνω την παρακολούθηση.
+     * Ιδεμποτής: τρέχει όσες φορές θέλει χωρίς διπλοεγγραφές.
+     */
+    public static function adoptQuotes()
+    {
+        $known = Capsule::table('mod_cpm_offers')->whereNotNull('quoteid')->where('quoteid', '>', 0)
+            ->pluck('quoteid')->all();
+        $n = 0;
+        $q = Capsule::table('tblquotes');
+        if ($known) { $q->whereNotIn('id', $known); }
+        foreach ($q->get() as $qt) {
+            $sent = (string) $qt->datesent;
+            $sent = ($sent && strpos($sent, '0000') !== 0) ? substr($sent, 0, 10) : null;
+            $acc  = (string) $qt->dateaccepted;
+            $acc  = ($acc && strpos($acc, '0000') !== 0) ? substr($acc, 0, 10) : null;
+            Capsule::table('mod_cpm_offers')->insert([
+                'title' => (string) ($qt->subject ?: ('Προσφορά #' . $qt->id)),
+                'clientid' => (int) $qt->userid ?: null,
+                'quoteid' => (int) $qt->id,
+                'amount' => (float) $qt->total,
+                'stage' => self::stageFromQuote((string) $qt->stage) ?: 'new',
+                'sent_at' => $sent,
+                'replied_at' => $acc,
+                'reply' => $acc ? 'yes' : (in_array((string) $qt->stage, ['Lost', 'Dead'], true) ? 'no' : null),
+                'expected_close' => ($qt->validuntil && strpos((string) $qt->validuntil, '0000') !== 0)
+                    ? substr((string) $qt->validuntil, 0, 10) : null,
+                'created_at' => $qt->datecreated ?: date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /**
+     * Ό,τι ξέρει το WHMCS για τη μοίρα της προσφοράς, το περνά στην καρτέλα:
+     * ημερομηνία αποστολής και απάντησης. Δεν σβήνει ποτέ χειροκίνητη τιμή —
+     * μόνο συμπληρώνει ό,τι λείπει, γιατί πολλές προσφορές φεύγουν με το χέρι.
+     */
+    public static function syncOfferTracking()
+    {
+        $rows = Capsule::table('mod_cpm_offers as o')
+            ->join('tblquotes as q', 'q.id', '=', 'o.quoteid')
+            ->select('o.id', 'o.sent_at', 'o.replied_at', 'o.reply',
+                'q.datesent', 'q.dateaccepted', 'q.stage as qstage')->get();
+        foreach ($rows as $r) {
+            $upd = [];
+            $ds = (string) $r->datesent;
+            if (!$r->sent_at && $ds && strpos($ds, '0000') !== 0) {
+                $upd['sent_at'] = substr($ds, 0, 10);
+            }
+            $da = (string) $r->dateaccepted;
+            if (!$r->replied_at && $da && strpos($da, '0000') !== 0) {
+                $upd['replied_at'] = substr($da, 0, 10);
+                $upd['reply'] = 'yes';
+            }
+            if (!$r->reply && in_array((string) $r->qstage, ['Lost', 'Dead'], true)) {
+                $upd['reply'] = 'no';
+            }
+            if ($upd) {
+                Capsule::table('mod_cpm_offers')->where('id', $r->id)->update($upd);
+            }
+        }
     }
 
     /** Τραβά το στάδιο από τα δεμένα quotes (quote = πηγή αλήθειας). */

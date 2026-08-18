@@ -1408,12 +1408,14 @@ async function vMyDay() {
       if (x.days === 1) { return 'αύριο'; }
       return `σε ${x.days} ημέρες`;
     };
-    const ico = {project: I.folder, task: I.checkSquare, sla: I.clock};
+    const ico = {project: I.folder, task: I.checkSquare, sla: I.clock, offer: I.doc};
     return `<div class="card" style="margin-bottom:14px">
       <div class="card-h">${I.clock} Προθεσμίες
         <span class="mut" style="font-weight:600;font-size:11.5px">— πόσο κοντά είσαι· η μπάρα δείχνει τον χρόνο που πέρασε, όχι τη δουλειά που έγινε</span></div>
       <div class="card-b" style="padding-top:6px">
-      ${dl.map(x => `<div class="dlrow" ${x.kind === 'sla' ? `data-qtk="${x.id}"` : (x.kind === 'task' ? `data-dltask="${x.id}"` : `data-dlproj="${x.id}"`)}>
+      ${dl.map(x => `<div class="dlrow" ${x.kind === 'sla' ? `data-qtk="${x.id}"`
+        : x.kind === 'task' ? `data-dltask="${x.id}"`
+        : x.kind === 'offer' ? 'data-dloffer="1"' : `data-dlproj="${x.id}"`}>
         <span class="dlic" style="color:${col(x)}">${ico[x.kind] || ''}</span>
         <span class="dlt">${esc(x.title)}<span class="mut"> · ${esc(x.sub)}</span></span>
         <span class="dlbar">${x.pct === null ? '' : `<span style="width:${x.pct}%;background:${col(x)}"></span>`}</span>
@@ -1485,6 +1487,7 @@ async function vMyDay() {
   $$('#content [data-qtk]').forEach(r => r.onclick = () => go('inbox', r.dataset.qtk));
   $$('#content [data-dltask]').forEach(r => r.onclick = () => openTask(+r.dataset.dltask));
   $$('#content [data-dlproj]').forEach(r => r.onclick = () => go('board', +r.dataset.dlproj));
+  $$('#content [data-dloffer]').forEach(r => r.onclick = () => go('offers'));
 }
 
 /* ═════════ CRM ═════════ */

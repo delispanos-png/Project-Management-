@@ -1277,6 +1277,22 @@ case 'myday':
             'pct' => $pctFn($startTs, $dueTs), 'hours' => null];
     }
 
+    /* Follow-up προσφορών: η προθεσμία μιας πώλησης. Χωρίς αυτό η καταγραφή
+       γίνεται και μετά ξεχνιέται — που είναι ακριβώς το πρόβλημα που λύνουμε. */
+    foreach (Capsule::table('mod_cpm_offers')->whereNotNull('followup_date')
+                 ->where('followup_date', '!=', '0000-00-00')->get() as $of) {
+        if (!$FULL && (int) $of->assignee !== $adminId && (int) $of->created_by !== $adminId) { continue; }
+        if (in_array((string) $of->stage, ['accepted', 'lost'], true)) { continue; }
+        $dueTs = strtotime((string) $of->followup_date . ' 23:59:59');
+        $startTs = $of->sent_at ? strtotime((string) $of->sent_at) : strtotime((string) $of->created_at);
+        $dl[] = ['kind' => 'offer', 'id' => (int) $of->id, 'title' => (string) $of->title,
+            'sub' => 'Προσφορά' . ($of->clientid ? ' · ' . clientLabel((int) $of->clientid) : '')
+                . ($of->followup_note ? ' — ' . mb_substr((string) $of->followup_note, 0, 60) : ''),
+            'color' => '',
+            'due' => (string) $of->followup_date, 'days' => $daysLeft($dueTs),
+            'pct' => $pctFn($startTs, $dueTs), 'hours' => null];
+    }
+
     /* SLA πρώτης απάντησης: εδώ μετράνε ώρες, όχι ημέρες — γι' αυτό κρατάμε
        ξεχωριστό πεδίο και δεν το στρογγυλοποιούμε σε «0 ημέρες». */
     try {
@@ -2180,7 +2196,20 @@ case 'offers':
             'amount' => $o->amount !== null ? (float) $o->amount : null,
             'quote' => $o->quoteid ? (int) $o->quoteid : null, 'quoteStage' => $o->quote_stage,
             'assignee' => $o->assignee ? (int) $o->assignee : null,
-            'expected' => $o->expected_close, 'descr' => $o->descr, 'lead' => $o->lead_id ? (int) $o->lead_id : null];
+            'expected' => $o->expected_close, 'descr' => $o->descr, 'lead' => $o->lead_id ? (int) $o->lead_id : null,
+            /* Παρακολούθηση: πότε φύγε, αν απάντησαν, πότε ξαναχτυπάμε. Οι μέρες
+               υπολογίζονται εδώ ώστε η οθόνη να μη μαντεύει ζώνες ώρας. */
+            'sentAt' => $o->sent_at, 'repliedAt' => $o->replied_at, 'reply' => $o->reply,
+            // Αναμονή μετράει μόνο όσο δεν έχουμε απάντηση — «όχι» είναι κι αυτό απάντηση.
+            'waitDays' => ($o->sent_at && !$o->replied_at && !$o->reply)
+                ? (int) floor((strtotime('today') - strtotime((string) $o->sent_at)) / 86400) : null,
+            'followup' => $o->followup_date, 'followupNote' => $o->followup_note,
+            'followupIn' => $o->followup_date
+                ? (int) floor((strtotime((string) $o->followup_date) - strtotime('today')) / 86400) : null,
+            'validUntil' => ($o->quote_validuntil && strpos((string) $o->quote_validuntil, '0000') !== 0)
+                ? substr((string) $o->quote_validuntil, 0, 10) : null,
+            'validIn' => ($o->quote_validuntil && strpos((string) $o->quote_validuntil, '0000') !== 0)
+                ? (int) floor((strtotime((string) $o->quote_validuntil) - strtotime('today')) / 86400) : null];
     }
     out(['stages' => $stages, 'offers' => $offers]);
 
@@ -2219,6 +2248,35 @@ case 'save_offer':
         $data['created_by'] = $adminId;
     }
     out(['ok' => true, 'id' => Db::saveOffer($oid, $data)]);
+
+case 'offer_track':                      // αποστολή / απάντηση / επόμενο follow-up
+    $o = Db::offer((int) ($in['offer'] ?? 0));
+    if (!$o) {
+        fail('offer', 404);
+    }
+    $d = [];
+    foreach (['sent' => 'sent_at', 'replied' => 'replied_at', 'followup' => 'followup_date'] as $k => $col) {
+        if (array_key_exists($k, $in)) {
+            $d[$col] = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in[$k]) ? $in[$k] : null;
+        }
+    }
+    if (array_key_exists('reply', $in)) {
+        $d['reply'] = in_array($in['reply'], ['yes', 'no', 'thinking'], true) ? $in['reply'] : null;
+    }
+    if (array_key_exists('followupNote', $in)) {
+        $d['followup_note'] = mb_substr(trim((string) $in['followupNote']), 0, 200) ?: null;
+    }
+    /* «Έγινε το follow-up»: κρατάμε πότε έγινε και καθαρίζουμε την ημερομηνία,
+       ώστε να μη μένει για πάντα κόκκινο. Νέα ημερομηνία ορίζεται χωριστά. */
+    if (!empty($in['followupDone'])) {
+        $d['followup_done_on'] = date('Y-m-d');
+        $d['followup_date'] = null;
+    }
+    if ($d) {
+        $d['updated_at'] = date('Y-m-d H:i:s');
+        Capsule::table('mod_cpm_offers')->where('id', $o->id)->update($d);
+    }
+    out(['ok' => true]);
 
 case 'create_quote':
     $o = Db::offer((int) ($in['offer'] ?? 0));

@@ -446,7 +446,7 @@ R.offers = async function () {
 
   /* ── Κινητό: λίστα ανά στάδιο (το kanban 5 στηλών ήθελε ατέλειωτο swipe) ── */
   const MOB = matchMedia('(max-width:768px)').matches;
-  const st = R.offers._st = R.offers._st || {q: '', stage: '', closed: {}};
+  const st = R.offers._st = R.offers._st || {q: '', stage: '', closed: {}, tab: 'pipe'};
   const norm = s => String(s || '').toLowerCase()
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
@@ -485,6 +485,54 @@ R.offers = async function () {
         </div></div>`;
     }).join('');
 
+  /* Παρακολούθηση: η ζωή της προσφοράς μετά την αποστολή — πόσο περιμένουμε,
+     αν απάντησαν, πότε ξαναχτυπάμε. Το kanban δείχνει στάδιο, όχι χρόνο. */
+  const trackList = () => {
+    const rank = o => {
+      if (o.followupIn !== null && o.followupIn <= 0) { return 0; }            // follow-up σήμερα/χθες
+      if (o.reply === null && o.waitDays !== null && o.waitDays >= 7) { return 1; }
+      if (o.validIn !== null && o.validIn >= 0 && o.validIn <= 7 && !o.reply) { return 2; }
+      if (o.reply === null && o.sentAt) { return 3; }
+      if (!o.sentAt) { return 4; }
+      return 5;
+    };
+    const rows = shown.slice().sort((a, b) => rank(a) - rank(b)
+      || (b.waitDays || 0) - (a.waitDays || 0));
+    const th = t => `<th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--mut)">${t}</th>`;
+    const dLbl = (n, past, future) => n === 0 ? 'σήμερα' : (n < 0 ? Math.abs(n) + ' ημ. ' + past : future + ' ' + n + ' ημ.');
+    const replyPill = o => {
+      if (o.reply === 'yes') { return '<span class="pill pill-ok">απάντησαν: ναι</span>'; }
+      if (o.reply === 'no') { return '<span class="pill pill-bad">απάντησαν: όχι</span>'; }
+      if (o.reply === 'thinking') { return '<span class="pill pill-warn">το σκέφτονται</span>'; }
+      if (!o.sentAt) { return '<span class="mut">δεν στάλθηκε</span>'; }
+      return `<span class="pill pill-warn">αναμονή ${o.waitDays} ημ.</span>`;
+    };
+    return `<div class="card">
+      <div class="card-h">${I.clock} Παρακολούθηση προσφορών
+        <span class="mut" style="font-weight:600;font-size:11.5px">— πρώτα όσες θέλουν κίνηση σήμερα</span></div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">
+        <thead><tr style="border-bottom:1px solid var(--line)">
+          ${th('Προσφορά')}${th('Πελάτης')}${th('Αξία')}${th('Στάλθηκε')}${th('Απάντηση')}${th('Follow-up')}${th('Ισχύς')}${th('')}
+        </tr></thead><tbody>
+        ${rows.map(o => `<tr style="border-top:1px solid var(--line)">
+          <td style="padding:8px 12px"><b class="lb-title" data-offer="${o.id}">${esc(o.title)}</b>
+            ${o.quote ? `<span class="pill pill-info" style="margin-left:5px">Q${o.quote}</span>` : ''}</td>
+          <td style="padding:8px 12px">${esc(o.clientName || '—')}</td>
+          <td style="padding:8px 12px;white-space:nowrap">${o.value > 0 ? fmtEur(o.value) : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px;white-space:nowrap">${o.sentAt ? esc(dShort(o.sentAt)) : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px">${replyPill(o)}</td>
+          <td style="padding:8px 12px;white-space:nowrap">${o.followup
+            ? `<span style="color:${o.followupIn <= 0 ? 'var(--bad)' : (o.followupIn <= 2 ? 'var(--warn)' : 'inherit')};font-weight:700">${esc(dLbl(o.followupIn, 'πριν', 'σε'))}</span>
+               ${o.followupNote ? `<div class="mut" style="font-size:10.5px">${esc(o.followupNote)}</div>` : ''}`
+            : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px;white-space:nowrap">${o.validIn === null ? '<span class="mut">—</span>'
+            : `<span style="color:${o.validIn < 0 ? 'var(--mut)' : (o.validIn <= 7 ? 'var(--warn)' : 'inherit')}">${esc(dLbl(o.validIn, 'έληξε', 'σε'))}</span>`}</td>
+          <td style="padding:8px 12px;text-align:right"><button class="btn btn-sm btn-o" data-otrack="${o.id}">Καταγραφή</button></td>
+        </tr>`).join('')}
+        </tbody></table></div>
+      ${rows.length ? '' : '<div class="empty" style="padding:34px">Καμία προσφορά</div>'}</div>`;
+  };
+
   const listDesk = () => `<div class="kb" style="min-height:calc(100vh - 290px)">
     ${d.stages.map(sg => {
       const list = shown.filter(o => o.stage === sg.key);
@@ -517,8 +565,15 @@ R.offers = async function () {
           <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
     </div>` : ''}
   </div>
-  ${MOB ? listMob() : listDesk()}`;
+  <div style="display:flex;gap:7px;margin:0 0 12px">
+    <button class="btn btn-sm ${st.tab === 'pipe' ? 'btn-p' : 'btn-o'}" data-otab="pipe">${I.board} Pipeline</button>
+    <button class="btn btn-sm ${st.tab === 'track' ? 'btn-p' : 'btn-o'}" data-otab="track">${I.clock} Παρακολούθηση</button>
+  </div>
+  ${st.tab === 'track' ? trackList() : (MOB ? listMob() : listDesk())}`;
 
+  $$('[data-otab]').forEach(b => b.onclick = () => { st.tab = b.dataset.otab; R.offers(); });
+  $$('[data-otrack]').forEach(b => b.onclick = () => openTrack(d.offers.find(o => o.id === +b.dataset.otrack)));
+  $$('.lb-title[data-offer]').forEach(b => b.onclick = () => openOffer(d.offers.find(o => o.id === +b.dataset.offer), d));
   $('#newOffer').onclick = () => openOffer(null, d);
   const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
   let oqt;
@@ -540,6 +595,75 @@ R.offers = async function () {
     }, async el => { const dd = await api('offers'); openOffer(dd.offers.find(o => o.id === +el.dataset.offer), dd); });
   }
 };
+/* Καταγραφή παρακολούθησης: οι τρεις στιγμές που ξεχνιούνται — πότε έφυγε,
+   τι απάντησαν, πότε ξαναχτυπάμε. Χωριστά από τη φόρμα της προσφοράς, γιατί
+   γίνεται συχνά και θέλει να τελειώνει σε δέκα δευτερόλεπτα. */
+function openTrack(o) {
+  if (!o) { return; }
+  const ovl = document.createElement('div'); ovl.className = 'ovl show';
+  const d7 = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:520px;text-align:left" onclick="event.stopPropagation()">
+    <div style="padding:20px 22px">
+      <h2 style="margin:0 0 4px;font-size:16px;color:var(--ink)">${esc(o.title)}</h2>
+      <div class="mut" style="font-size:12px;margin-bottom:14px">${esc(o.clientName || '—')}${o.quote ? ' · Q' + o.quote : ''}</div>
+
+      <div class="frow">
+        <div><label class="lbl">Στάλθηκε στον πελάτη</label>
+          <input type="date" class="inp" id="tkSent" value="${o.sentAt || ''}"></div>
+        <div><label class="lbl">Απάντηση</label>
+          <select class="inp" id="tkReply">
+            <option value="">— καμία ακόμη —</option>
+            <option value="yes" ${o.reply === 'yes' ? 'selected' : ''}>Ναι — αποδέχτηκε</option>
+            <option value="thinking" ${o.reply === 'thinking' ? 'selected' : ''}>Το σκέφτεται</option>
+            <option value="no" ${o.reply === 'no' ? 'selected' : ''}>Όχι — απορρίφθηκε</option>
+          </select></div>
+      </div>
+      <div class="frow" style="margin-top:11px">
+        <div><label class="lbl">Ημ. απάντησης</label>
+          <input type="date" class="inp" id="tkRepl" value="${o.repliedAt || ''}"></div>
+        <div><label class="lbl">Επόμενο follow-up</label>
+          <input type="date" class="inp" id="tkFup" value="${o.followup || ''}"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-o" data-fup="${d7(2)}">σε 2 ημέρες</button>
+        <button class="btn btn-sm btn-o" data-fup="${d7(7)}">σε 1 εβδομάδα</button>
+        <button class="btn btn-sm btn-o" data-fup="${d7(30)}">σε 1 μήνα</button>
+        ${o.followup ? '<button class="btn btn-sm btn-o" id="tkDone" style="margin-left:auto">✔ Το έκανα</button>' : ''}
+      </div>
+      <label class="lbl" style="margin-top:11px">Σημείωση follow-up</label>
+      <input class="inp" id="tkNote" maxlength="200" value="${esc(o.followupNote || '')}" placeholder="π.χ. να ρωτήσω αν πέρασε από το ΔΣ">
+
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn btn-p" id="tkSave">Αποθήκευση</button>
+        <button class="btn btn-o" id="tkX">Άκυρο</button>
+      </div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const close = () => ovl.remove();
+  ovl.onclick = close;
+  $('#tkX', ovl).onclick = close;
+  $$('[data-fup]', ovl).forEach(b => b.onclick = () => { $('#tkFup', ovl).value = b.dataset.fup; });
+  /* Αν δηλωθεί απάντηση χωρίς ημερομηνία, βάζουμε σήμερα — αλλιώς μένει κενή
+     και δεν ξέρουμε πότε απάντησαν. */
+  $('#tkReply', ovl).onchange = () => {
+    if ($('#tkReply', ovl).value && !$('#tkRepl', ovl).value) { $('#tkRepl', ovl).value = today(); }
+  };
+  const done = $('#tkDone', ovl);
+  if (done) {
+    done.onclick = async () => {
+      await api('offer_track', {offer: o.id, followupDone: 1});
+      toast('Καταγράφηκε'); close(); R.offers();
+    };
+  }
+  $('#tkSave', ovl).onclick = async () => {
+    await api('offer_track', {offer: o.id,
+      sent: $('#tkSent', ovl).value || null, replied: $('#tkRepl', ovl).value || null,
+      reply: $('#tkReply', ovl).value || null, followup: $('#tkFup', ovl).value || null,
+      followupNote: $('#tkNote', ovl).value});
+    toast('Αποθηκεύτηκε ✓'); close(); R.offers();
+  };
+}
+
 function openOffer(o, d) {
   closeDrawer();
   const isNew = !o; o = o || {stage: 'new'};
