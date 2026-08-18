@@ -1392,3 +1392,23 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .ib-msg-b.md li{margin:2px 0}
 .ib-msg-b.md blockquote{margin:5px 0;padding:3px 10px;border-left:3px solid var(--line);color:var(--mut)}
 .ib-msg-b.md a{color:var(--brand)}
+
+/* ── Ολοκλήρωση εργασίας: διάλογος «δυο λόγια» ───────────────────────── */
+.done-box{position:fixed;z-index:52;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);
+  width:min(460px,94vw);background:var(--card);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 24px 60px #0b142533;padding:18px 20px;opacity:0;transition:opacity .16s,transform .16s}
+.done-box.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.done-h{font-weight:800;font-size:15px;color:#1f9d57;margin-bottom:2px}
+.done-t{font-size:13px;color:var(--mut);margin-bottom:13px;line-height:1.35}
+.done-box .lbl{display:block;margin-bottom:5px}
+.done-box textarea{width:100%;resize:vertical}
+.done-a{display:flex;gap:9px;justify-content:flex-end;margin-top:14px}
+.done-card{border-left:3px solid #1f9d57}
+.done-note{margin-top:6px;font-size:13px;line-height:1.45;color:var(--ink);
+  background:#1f9d5714;border-radius:8px;padding:8px 11px;white-space:pre-wrap}
+.tcard-done{margin-top:6px;font-size:11.5px;color:#1f9d57;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.strow{display:flex;gap:8px;align-items:center;padding:6px 0}
+.strow .st-c,.strow input[type=color]{width:44px;padding:2px;height:34px;flex:none;cursor:pointer}
+.strow .st-t,.strow .inp[id^=stNew]{flex:1;min-width:120px}
+.st-d{display:flex;gap:5px;align-items:center;font-size:12.5px;color:var(--mut);white-space:nowrap}

@@ -954,6 +954,38 @@ async function vBoard(arg) {
     if (r.ok) { toast('Δημιουργήθηκε'); vBoard(); }
   });
 }
+/* Διάλογος ολοκλήρωσης: δυο λόγια για το πώς έκλεισε η εργασία.
+   Επιστρέφει το κείμενο (μπορεί και κενό) ή null αν ακυρώθηκε. */
+function askDone(title) {
+  return new Promise(res => {
+    const ovl = document.createElement('div'); ovl.className = 'ovl';
+    const box = document.createElement('div'); box.className = 'done-box';
+    box.innerHTML = `
+      <div class="done-h">✔ Ολοκλήρωση</div>
+      <div class="done-t">${esc(title || '')}</div>
+      <label class="lbl">Δυο λόγια για το πώς έκλεισε <span class="mut">(προαιρετικό)</span></label>
+      <textarea class="inp" id="dnNote" rows="3" maxlength="500" placeholder="π.χ. Έγινε ρύθμιση DNS και επιβεβαιώθηκε με τον πελάτη"></textarea>
+      <div class="done-a">
+        <button class="btn btn-o" id="dnX">Άκυρο</button>
+        <button class="btn btn-ok" id="dnOk">Ολοκλήρωση</button>
+      </div>`;
+    document.body.append(ovl, box);
+    requestAnimationFrame(() => { ovl.classList.add('show'); box.classList.add('show'); });
+    const ta = box.querySelector('#dnNote');
+    ta.focus();
+    const close = v => { ovl.remove(); box.remove(); document.removeEventListener('keydown', key); res(v); };
+    const key = e => {
+      if (e.key === 'Escape') { close(null); }
+      // Ctrl/⌘+Enter κλείνει — το σκέτο Enter αφήνει να γράψεις δεύτερη γραμμή
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { close(ta.value.trim()); }
+    };
+    document.addEventListener('keydown', key);
+    box.querySelector('#dnOk').onclick = () => close(ta.value.trim());
+    box.querySelector('#dnX').onclick = () => close(null);
+    ovl.onclick = () => close(null);
+  });
+}
+
 function cardHtml(t) {
   const ty = t.type ? typeOf(t.type) : null;
   const over = t.due && t.due < today() && !t.done;
@@ -969,10 +1001,17 @@ function cardHtml(t) {
       ${t.check ? `<span class="${t.check[0] >= t.check[1] ? 'pill pill-ok' : ''}">☑ ${t.check[0]}/${t.check[1]}</span>` : ''}
       ${t.ticket ? '<span>' + I.ticket + ' </span>' : ''}
       ${t.blocked ? `<span class="pill pill-bad" title="Μπλοκάρεται από ${t.blocked} tasks">⛓ ${t.blocked}</span>` : ''}
-    </div></div>`;
+    </div>
+    ${t.done && t.doneNote ? `<div class="tcard-done" title="${esc(t.doneNote)}">✔ ${esc(t.doneNote)}</div>` : ''}</div>`;
 }
 dnd('.tcard', '.kb-col', async (card, col) => {
-  const r = await api('move_task', {task: +card.dataset.task, status: +col.dataset.status}).catch(() => ({ok: false}));
+  const st = +col.dataset.status;
+  let note = '';
+  if (S.boot.statuses.find(x => x.id === st && x.done)) {
+    note = await askDone(card.querySelector('.tcard-t')?.textContent || '');
+    if (note === null) { return; }          // άκυρο = η κάρτα μένει όπου ήταν
+  }
+  const r = await api('move_task', {task: +card.dataset.task, status: st, note}).catch(() => ({ok: false}));
   if (r.ok) {
     col.querySelector('.kb-cards').appendChild(card);
     $$('.kb-col').forEach(c => c.querySelector('.kb-n').textContent = c.querySelectorAll('.tcard').length);
@@ -993,10 +1032,16 @@ async function openTask(id) {
   <div class="drawer-h">
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
     <h2>${esc(t.title)}</h2>
+    <span class="pill" id="dStPill" style="background:${statusOf(t.status).color || '#8291a9'}22;color:${statusOf(t.status).color || '#8291a9'};font-weight:700">${esc(statusOf(t.status).title || '—')}</span>
     <button class="btn btn-sm ${d.watching ? 'btn-p' : 'btn-o'}" id="dWatch">${I.eye}${d.watchers || ''}</button>
     <button class="drawer-x" id="dX">✕</button>
   </div>
   <div class="drawer-b">
+    ${t.done ? `<div class="card done-card"><div class="card-b">
+      <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
+      ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
+      <button class="btn btn-sm btn-o" id="dReopen" style="margin-top:9px">↩ Ξανάνοιγμα</button>
+    </div></div>` : ''}
     ${d.ticket ? `<a class="card" style="display:flex;padding:11px 15px;gap:9px;align-items:center;cursor:pointer" data-ibgo="${d.ticket.id}">${I.ticket}
       <b>#${esc(d.ticket.tid)}</b> ${esc(d.ticket.title)} <span class="pill pill-info" style="margin-left:auto">${esc(d.ticket.status)}</span></a>` : ''}
     <div class="card"><div class="card-b">
@@ -1005,6 +1050,9 @@ async function openTask(id) {
       <div class="frow" style="margin-top:12px">
         <div><label class="lbl">Ανάθεση ${me.full ? '' : (I.lock)}</label>
           <select class="inp" id="fAssignee" ${me.full ? '' : 'disabled'}>${admOpts(t.assignee)}</select></div>
+        <div><label class="lbl">Κατάσταση</label>
+          <select class="inp" id="fStatus">${S.boot.statuses.map(st =>
+            `<option value="${st.id}" ${st.id === t.status ? 'selected' : ''}>${esc(st.title)}${st.done ? ' ✔' : ''}</option>`).join('')}</select></div>
         <div><label class="lbl">⚡ Η μπάλα σε</label><select class="inp" id="fBall">${admOpts(t.ball)}</select></div>
         <div><label class="lbl">Προτεραιότητα ${me.full ? '' : (I.lock)}</label>
           <select class="inp" id="fPrio" ${me.full ? '' : 'disabled'}>
@@ -1019,6 +1067,7 @@ async function openTask(id) {
       ${rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 120})}
       <div style="display:flex;gap:9px;margin-top:13px;align-items:center">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
+        ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
         <span class="mut" style="margin-left:auto;font-size:12px">${esc(d.project.name)}</span>
       </div>
@@ -1094,6 +1143,42 @@ async function openTask(id) {
       type: +$('#fType').value || 0, ball: +$('#fBall').value || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
+  };
+  /* Αλλαγή κατάστασης από μέσα στην εργασία, όπως στα tickets: ισχύει αμέσως,
+     δεν περιμένει «Αποθήκευση». Αν η νέα κατάσταση είναι τελική, ζητάει δυο
+     λόγια για το πώς έκλεισε. */
+  const stSel = $('#fStatus', dr); if (stSel) stSel.onchange = async () => {
+    const to = +stSel.value, prev = t.status;
+    const fin = S.boot.statuses.find(x => x.id === to && x.done);
+    let note = '';
+    if (fin) {
+      note = await askDone($('#fTitle').value || t.title);
+      if (note === null) { stSel.value = prev; return; }
+    }
+    const r = await api('move_task', {task: id, status: to, note}).catch(() => ({ok: false}));
+    if (!r.ok) { stSel.value = prev; toast(r.error || 'Δεν επιτρέπεται', true); return; }
+    toast('Κατάσταση: ' + (statusOf(to).title || '—'));
+    openTask(id);
+    if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+  };
+
+  /* Ολοκλήρωση με δυο λόγια. Στέλνει τη μετακίνηση στην «τελική» στήλη — έτσι
+     καθαρίζει και η μπάλα, και η εργασία φεύγει από «Η μέρα μου». */
+  const dn = $('#dDone', dr); if (dn) dn.onclick = async () => {
+    const fin = S.boot.statuses.find(x => x.done);
+    if (!fin) { toast('Δεν υπάρχει στήλη ολοκλήρωσης', true); return; }
+    const note = await askDone($('#fTitle').value || t.title);
+    if (note === null) { return; }
+    const r = await api('move_task', {task: id, status: fin.id, note}).catch(() => ({ok: false}));
+    if (!r.ok) { toast(r.error || 'Δεν επιτρέπεται', true); return; }
+    toast('Ολοκληρώθηκε'); closeDrawer();
+    if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); } else if (window.R && window.R[S.view]) { window.R[S.view](); }
+  };
+  const rop = $('#dReopen', dr); if (rop) rop.onclick = async () => {
+    const first = S.boot.statuses.find(x => !x.done);
+    if (!first) { return; }
+    await api('move_task', {task: id, status: first.id});
+    toast('Ξανάνοιξε'); openTask(id);
   };
   $('#dWatch', dr).onclick = async () => {
     const r = await api('watch', {task: id});

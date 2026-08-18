@@ -931,6 +931,9 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
         'done' => (bool) $t->completed_at,
+        'doneAt' => $t->completed_at,
+        'doneNote' => $t->completed_note ?? null,
+        'doneBy' => isset($t->completed_by) && $t->completed_by ? (int) $t->completed_by : null,
         'mins' => $minsMap !== null ? (int) ($minsMap[(int) $t->id] ?? 0) : null,
         'check' => $checkMap !== null ? ($checkMap[(int) $t->id] ?? null) : null,
     ];
@@ -1443,7 +1446,7 @@ case 'move_task':
             fail('Μπλοκάρεται από: ' . implode(', ', array_slice($bm[(int) $t->id], 0, 3)));
         }
     }
-    $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId);
+    $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId, (string) ($in['note'] ?? ''));
     if ($ok && !$FULL) {
         $st = Db::status((int) $in['status']);
         if ($st && $st->is_done) {
@@ -1452,7 +1455,9 @@ case 'move_task':
     }
     if ($ok) {
         $stN = Db::status((int) $in['status']);
-        Notify::watchers($t->id, $adminId, $t->title . ' → ' . ($stN->title ?? '?'), null);
+        $noteTxt = trim((string) ($in['note'] ?? ''));
+        Notify::watchers($t->id, $adminId, $t->title . ' → ' . ($stN->title ?? '?')
+            . ($noteTxt !== '' ? ' — ' . mb_substr($noteTxt, 0, 200) : ''), null);
     }
     out(['ok' => (bool) $ok]);
 

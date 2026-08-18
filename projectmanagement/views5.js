@@ -268,3 +268,77 @@ R.gantt = async function () {
     R.gantt();
   };
 };
+
+/* ═════════ ΡΥΘΜΙΣΕΙΣ — καταστάσεις εργασιών ═════════
+   Το μενού «Ρυθμίσεις» υπήρχε αλλά δεν είχε οθόνη και έπεφτε σιωπηλά στη
+   «Μέρα μου». Οι καταστάσεις είναι κοινές για όλα τα project: είναι οι στήλες
+   του board και ταυτόχρονα οι επιλογές κατάστασης μέσα στην εργασία. */
+R.settings = async function () {
+  setTop('Ρυθμίσεις', 'Καταστάσεις εργασιών — οι στήλες του board και οι επιλογές μέσα στην εργασία');
+  const c = $('#content');
+  if (!S.boot.me.full) {
+    c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>';
+    return;
+  }
+  c.innerHTML = '<div class="skel" style="height:220px"></div>';
+
+  const load = async () => {
+    const d = await api('settings_get').catch(() => null);
+    const sts = (d && d.statuses) || S.boot.statuses;
+    c.innerHTML = `
+      <div class="card" style="max-width:720px">
+        <div class="card-h">${I.checkSquare} Καταστάσεις εργασιών</div>
+        <div class="card-b">
+          <div class="mut" style="font-size:12.5px;margin-bottom:12px">
+            Η σειρά είναι και η σειρά των στηλών στο board. Όποια σημανθεί
+            <b>τελική</b> κλείνει την εργασία: ζητάει δυο λόγια για το πώς έκλεισε,
+            καθαρίζει τη «μπάλα» και η εργασία φεύγει από τα εκκρεμή σου.
+          </div>
+          <div id="stList">${sts.map(s => `
+            <div class="strow" data-st="${s.id}">
+              <input type="color" class="inp st-c" value="${esc(s.color || '#8291a9')}" title="Χρώμα">
+              <input class="inp st-t" value="${esc(s.title)}" maxlength="60">
+              <label class="st-d"><input type="checkbox" class="st-f" ${s.done ? 'checked' : ''}> τελική</label>
+              <span class="mut" style="font-size:11.5px;white-space:nowrap">${s.tasks != null ? s.tasks + ' εργ.' : ''}</span>
+              <button class="btn btn-sm btn-o st-save">Αποθήκευση</button>
+              <button class="btn btn-sm btn-o st-del" title="Διαγραφή">✕</button>
+            </div>`).join('')}</div>
+          <div class="strow" style="margin-top:12px;border-top:1px dashed var(--line);padding-top:12px">
+            <input type="color" class="inp" id="stNewC" value="#8291a9">
+            <input class="inp" id="stNewT" placeholder="Νέα κατάσταση… (π.χ. Σε αναμονή πελάτη)" maxlength="60">
+            <label class="st-d"><input type="checkbox" id="stNewF"> τελική</label>
+            <button class="btn btn-p" id="stAdd">Προσθήκη</button>
+          </div>
+        </div>
+      </div>`;
+
+    const refresh = async () => {
+      const b = await api('boot').catch(() => null);
+      if (b && b.statuses) { S.boot.statuses = b.statuses; }
+      load();
+    };
+
+    $$('#stList .strow').forEach(row => {
+      const id = +row.dataset.st;
+      row.querySelector('.st-save').onclick = async () => {
+        const r = await api('status_save', {id, title: row.querySelector('.st-t').value,
+          color: row.querySelector('.st-c').value, done: row.querySelector('.st-f').checked ? 1 : 0})
+          .catch(() => ({ok: false}));
+        if (r.ok) { toast('Αποθηκεύτηκε'); refresh(); } else { toast(r.error || 'Σφάλμα', true); }
+      };
+      row.querySelector('.st-del').onclick = async () => {
+        if (!await cnpConfirm('Να διαγραφεί η κατάσταση;', {ok: 'Διαγραφή', cancel: 'Άκυρο'})) { return; }
+        const r = await api('status_del', {id}).catch(e => ({ok: false, error: String(e)}));
+        if (r.ok) { toast('Διαγράφηκε'); refresh(); } else { toast(r.error || 'Δεν έγινε', true); }
+      };
+    });
+    $('#stAdd').onclick = async () => {
+      const t = $('#stNewT').value.trim();
+      if (!t) { toast('Δώσε όνομα', true); return; }
+      const r = await api('status_save', {id: 0, title: t, color: $('#stNewC').value,
+        done: $('#stNewF').checked ? 1 : 0}).catch(() => ({ok: false}));
+      if (r.ok) { toast('Προστέθηκε'); refresh(); } else { toast(r.error || 'Σφάλμα', true); }
+    };
+  };
+  load();
+};

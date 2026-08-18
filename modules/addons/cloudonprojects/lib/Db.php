@@ -106,6 +106,13 @@ class Db
             });
         }
 
+        if (!$s->hasColumn('mod_cpm_tasks', 'completed_note')) {
+            $s->table('mod_cpm_tasks', function ($t) {
+                $t->string('completed_note', 500)->nullable();          // δυο λόγια για το πώς έκλεισε
+                $t->integer('completed_by')->unsigned()->nullable();    // ποιος την έκλεισε
+            });
+        }
+
         if (!$s->hasColumn('mod_cpm_tasks', 'start_date')) {
             $s->table('mod_cpm_tasks', function ($t) {
                 $t->date('start_date')->nullable(); // Gantt: έναρξη εργασίας (μπάρα start→due)
@@ -943,7 +950,7 @@ class Db
             ->limit($limit)->get();
     }
 
-    public static function moveTask($id, $statusId, $adminId = null)
+    public static function moveTask($id, $statusId, $adminId = null, $note = null)
     {
         $t = self::task($id);
         if (!$t) { return false; }
@@ -951,15 +958,44 @@ class Db
         if (!$new) { return false; }
         $upd = ['status_id' => (int) $statusId, 'updated_at' => date('Y-m-d H:i:s')];
         $upd['completed_at'] = $new->is_done ? date('Y-m-d H:i:s') : null;
+        if ($new->is_done) {
+            $note = trim((string) $note);
+            if ($note !== '') { $upd['completed_note'] = mb_substr($note, 0, 500); }
+            $upd['completed_by'] = $adminId ? (int) $adminId : null;
+            /* Η «μπάλα» καθαρίζει: κλεισμένη εργασία δεν πρέπει να ζητάει
+               ενέργεια από κανέναν — αλλιώς μένει στο «Η μπάλα σε εμένα». */
+            $upd['action_user'] = null;
+        } else {
+            // Ξανάνοιξε: το σημείωμα ολοκλήρωσης δεν ισχύει πια.
+            $upd['completed_note'] = null;
+            $upd['completed_by'] = null;
+        }
         Capsule::table('mod_cpm_tasks')->where('id', (int) $id)->update($upd);
+        if ($new->is_done) { self::closeTodosFor($t); }
         $old = self::status($t->status_id);
-        self::logActivity($id, $adminId, 'status', ($old->title ?? '?') . ' → ' . $new->title);
+        self::logActivity($id, $adminId, 'status', ($old->title ?? '?') . ' → ' . $new->title
+            . (!empty($upd['completed_note']) ? ' — ' . $upd['completed_note'] : ''));
         // automations: task μπήκε σε status
         if (!class_exists(Auto::class)) {
             require_once __DIR__ . '/Auto.php';
         }
         Auto::run('task_status', ['taskId' => (int) $id, 'statusId' => (int) $statusId]);
         return true;
+    }
+
+    /**
+     * Κλείνει τα προσωπικά «θα κάνω» που είχαν φτιαχτεί από αυτή την εργασία
+     * (todo_seed τα δημιουργεί με τον ίδιο τίτλο). Χωρίς αυτό, η εργασία
+     * ολοκληρώνεται αλλά συνεχίζει να κρέμεται στο πλάνο του χρήστη.
+     */
+    public static function closeTodosFor($t)
+    {
+        $title = mb_strtolower(mb_substr((string) $t->title, 0, 300));
+        if ($title === '') { return; }
+        Capsule::table('mod_cpm_todos')
+            ->where('project_id', (int) $t->project_id)->where('done', 0)
+            ->whereRaw('LOWER(text) = ?', [$title])
+            ->update(['done' => 1, 'done_at' => date('Y-m-d H:i:s')]);
     }
 
     public static function deleteTask($id)
