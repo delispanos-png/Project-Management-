@@ -1188,8 +1188,16 @@ case 'myday':
     foreach ($rows as $tk) {
         $s = $slaMap[(int) $tk->id] ?? null;
         $due = ($s && $s->sla_due && !$s->first_response_at) ? $s->sla_due : null;
+        /* Ποιος περιμένει ποιον. Χωρίς αυτό ένα απαντημένο ticket μετριόταν ως
+           δική μας εκκρεμότητα επειδή απλώς ήταν παλιό. */
+        $lr = Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderBy('id', 'desc')
+            ->first(['admin', 'date']);
+        $onUs = (!$lr || $lr->admin === null || $lr->admin === '');
+        $sinceTs = strtotime((string) (($lr ? $lr->date : null) ?: $tk->date));
         $myTickets[] = ['id' => (int) $tk->id, 'tid' => $tk->tid, 'title' => $tk->title, 'status' => $tk->status,
             'urgency' => $tk->urgency, 'slaDue' => $due, 'over' => $due && strtotime($due) < time(),
+            'waitOn' => $onUs ? 'us' : 'client',
+            'waitDays' => (int) floor((time() - $sinceTs) / 86400),
             'age' => (int) floor((time() - strtotime($tk->date)) / 86400)];
     }
     usort($myTickets, function ($a, $b) {
@@ -1418,8 +1426,16 @@ case 'myday':
     $awaitingL = array_filter($myTickets, function ($t) {
         return in_array($t['status'], ['Open', 'Customer-Reply', 'In Progress'], true);
     });
-    $oldTkL = array_filter($myTickets, function ($t) { return $t['age'] >= 5; });
+    $oldTkL = array_filter($myTickets, function ($t) {
+        return $t['age'] >= 5 && $t['waitOn'] === 'us';
+    });
+    /* Απαντήσαμε και ο πελάτης σιωπά: δεν είναι εκκρεμότητά μας, αλλά μετά από
+       μέρες θέλει υπενθύμιση ή κλείσιμο — αλλιώς μένει ανοιχτό στο άπειρο. */
+    $silentL = array_filter($myTickets, function ($t) {
+        return $t['waitOn'] === 'client' && $t['waitDays'] >= 5;
+    });
     $slaOver = count($slaOverL); $awaiting = count($awaitingL); $oldTk = count($oldTkL);
+    $silent = count($silentL);
 
     // κανόνες (κρισιμότητα: bad → warn → tip → ok)
     if ($slaOver) {
@@ -1460,7 +1476,12 @@ case 'myday':
     }
     if ($oldTk && !$slaOver) {
         $coach[] = ['lvl' => 'tip', 'icon' => '📨', 'refs' => $kRef($oldTkL),
-            'text' => "$oldTk ticket" . ($oldTk > 1 ? 's ανοιχτά' : ' ανοιχτό') . " πάνω από 5 ημέρες. Δώσε ένα update ή κλείσ' το αν λύθηκε."];
+            'text' => "$oldTk ticket" . ($oldTk > 1 ? 's περιμένουν' : ' περιμένει') . " απάντησή σου πάνω από 5 ημέρες. Δώσε ένα update ή κλείσ' " . ($oldTk > 1 ? 'τα' : 'το') . ' αν λύθηκε.'];
+    }
+    if ($silent) {
+        $maxD = max(array_column($silentL, 'waitDays'));
+        $coach[] = ['lvl' => 'tip', 'icon' => '🔔', 'refs' => $kRef($silentL),
+            'text' => "$silent ticket" . ($silent > 1 ? 's περιμένουν' : ' περιμένει') . " τον πελάτη εδώ και $maxD ημέρες. Στείλε υπενθύμιση ή κλείσ' " . ($silent > 1 ? 'τα' : 'το') . '.'];
     }
     if (!$coach) {
         $coach[] = ['lvl' => 'ok', 'icon' => '👏', 'refs' => [],

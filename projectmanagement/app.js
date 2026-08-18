@@ -1468,7 +1468,10 @@ async function vMyDay() {
       <div class="card"><div class="card-h">${I.ticket} Τα tickets μου <span class="mut" style="font-weight:600">(${d.tickets.length})</span></div>
       ${d.tickets.length ? d.tickets.map(tk => `<a class="trow" data-ibgo="${tk.id}" style="color:inherit;cursor:pointer">
         <div style="flex:1"><b style="font-size:13px">#${esc(tk.tid)}</b> ${esc(tk.title)}
-          <div class="mut" style="font-size:11px">${esc(tk.status)} · ${tk.age} ημ.</div></div>
+          <div class="mut" style="font-size:11px">${esc(tk.status)} · ${tk.age} ημ.
+            ${tk.waitOn === 'us'
+              ? `<span class="pill pill-warn" style="font-size:9.5px">περιμένει εσένα${tk.waitDays ? ' · ' + tk.waitDays + 'η' : ''}</span>`
+              : `<span class="pill pill-mut" style="font-size:9.5px">περιμένει πελάτη${tk.waitDays ? ' · ' + tk.waitDays + 'η' : ''}</span>`}</div></div>
         ${tk.slaDue ? `<span class="pill ${tk.over ? 'pill-bad' : 'pill-warn'}">SLA ${tShort(tk.slaDue)}</span>` : ''}
       </a>`).join('') : '<div class="empty" style="padding:24px">Κανένα ανοιχτό δικό σου 🎉</div>'}</div>
     </div>
