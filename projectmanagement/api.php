@@ -1379,59 +1379,95 @@ case 'myday':
         $queue = array_slice($queue, 0, 12);
     }
 
-    /* ── 🧭 Προσωπικός coach: συμβουλές/προειδοποιήσεις ανά χειριστή ── */
+    /* ── 🧭 Προσωπικός coach: συμβουλές/προειδοποιήσεις ανά χειριστή ──
+       Κάθε γραμμή κουβαλά ΚΑΙ τα συγκεκριμένα αντικείμενα (refs), αλλιώς λέει
+       «1 ticket ανοιχτό πάνω από 5 ημέρες» και μένεις να το ψάχνεις. */
     $coach = [];
-    $overdue = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
-        ->whereNotNull('due_date')->where('due_date', '<', $today)->count();
-    $dueTod = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
-        ->where('due_date', $today)->count();
-    $wip = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->where('status_id', 2)->count();
-    $stale = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereIn('status_id', [2, 3])
-        ->where('updated_at', '<', date('Y-m-d', strtotime('-7 days')) . ' 23:59:59')->count();
-    $noDue = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
-        ->whereNull('due_date')->count();
+    $tRef = function ($rows) {
+        $out = [];
+        foreach (array_slice($rows, 0, 6) as $t) {
+            $out[] = ['kind' => 'task', 'id' => (int) $t->id, 'label' => mb_substr((string) $t->title, 0, 46)];
+        }
+        return $out;
+    };
+    $kRef = function ($list) {
+        $out = [];
+        foreach (array_slice(array_values($list), 0, 6) as $t) {
+            $out[] = ['kind' => 'ticket', 'id' => (int) $t['id'],
+                'label' => '#' . $t['tid'] . ' ' . mb_substr((string) $t['title'], 0, 40)];
+        }
+        return $out;
+    };
+    $myTasks = function () use ($adminId, $doneIds) {
+        return Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds);
+    };
+
+    $overdueR = $myTasks()->whereNotNull('due_date')->where('due_date', '<', $today)->get(['id', 'title'])->all();
+    $dueTodR  = $myTasks()->where('due_date', $today)->get(['id', 'title'])->all();
+    $wipR     = Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->where('status_id', 2)->get(['id', 'title'])->all();
+    $staleR   = Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereIn('status_id', [2, 3])
+        ->where('updated_at', '<', date('Y-m-d', strtotime('-7 days')) . ' 23:59:59')->get(['id', 'title'])->all();
+    $noDueR   = $myTasks()->whereNull('due_date')->get(['id', 'title'])->all();
+    $overdue = count($overdueR); $dueTod = count($dueTodR); $wip = count($wipR);
+    $stale = count($staleR); $noDue = count($noDueR);
+
     $run = Capsule::table('mod_cpm_timelogs')->where('admin_id', $adminId)->where('running', 1)
-        ->orderBy('started_at')->first(['started_at']);
-    $slaOver = count(array_filter($myTickets, function ($t) { return $t['over']; }));
-    $awaiting = count(array_filter($myTickets, function ($t) {
+        ->orderBy('started_at')->first(['started_at', 'task_id']);
+
+    $slaOverL = array_filter($myTickets, function ($t) { return $t['over']; });
+    $awaitingL = array_filter($myTickets, function ($t) {
         return in_array($t['status'], ['Open', 'Customer-Reply', 'In Progress'], true);
-    }));
-    $oldTk = count(array_filter($myTickets, function ($t) { return $t['age'] >= 5; }));
+    });
+    $oldTkL = array_filter($myTickets, function ($t) { return $t['age'] >= 5; });
+    $slaOver = count($slaOverL); $awaiting = count($awaitingL); $oldTk = count($oldTkL);
+
     // κανόνες (κρισιμότητα: bad → warn → tip → ok)
     if ($slaOver) {
-        $coach[] = ['lvl' => 'bad', 'icon' => '⏰', 'text' => "$slaOver ticket" . ($slaOver > 1 ? 's' : '') . " έχ" . ($slaOver > 1 ? 'ουν' : 'ει') . " ξεπεράσει το SLA — απάντησε άμεσα, προηγούνται όλων."];
+        $coach[] = ['lvl' => 'bad', 'icon' => '⏰', 'refs' => $kRef($slaOverL),
+            'text' => "$slaOver ticket" . ($slaOver > 1 ? 's' : '') . " έχ" . ($slaOver > 1 ? 'ουν' : 'ει') . " ξεπεράσει το SLA — απάντησε άμεσα, προηγούνται όλων."];
     }
     if ($overdue) {
-        $coach[] = ['lvl' => 'bad', 'icon' => '🔴', 'text' => "Έχεις $overdue εκπρόθεσμ" . ($overdue > 1 ? 'ες εργασίες' : 'η εργασία') . '. Ξεκίνα από ' . ($overdue > 1 ? 'αυτές ή επαναπρογραμμάτισέ τες' : 'αυτήν ή επαναπρογραμμάτισέ την') . ' ρεαλιστικά.'];
+        $coach[] = ['lvl' => 'bad', 'icon' => '🔴', 'refs' => $tRef($overdueR),
+            'text' => "Έχεις $overdue εκπρόθεσμ" . ($overdue > 1 ? 'ες εργασίες' : 'η εργασία') . '. Ξεκίνα από ' . ($overdue > 1 ? 'αυτές ή επαναπρογραμμάτισέ τες' : 'αυτήν ή επαναπρογραμμάτισέ την') . ' ρεαλιστικά.'];
     }
     if ($run && $run->started_at) {
         $h = floor((time() - strtotime($run->started_at)) / 3600);
         if ($h >= 3) {
-            $coach[] = ['lvl' => 'warn', 'icon' => '⏱', 'text' => "Χρονόμετρο τρέχει εδώ και ~{$h}ω — αν τελείωσες, σταμάτησέ το για σωστή χρέωση."];
+            $rt = $run->task_id ? Capsule::table('mod_cpm_tasks')->where('id', $run->task_id)->first(['id', 'title']) : null;
+            $coach[] = ['lvl' => 'warn', 'icon' => '⏱', 'refs' => $rt ? $tRef([$rt]) : [],
+                'text' => "Χρονόμετρο τρέχει εδώ και ~{$h}ω — αν τελείωσες, σταμάτησέ το για σωστή χρέωση."];
         }
     }
     if ($awaiting) {
-        $coach[] = ['lvl' => 'warn', 'icon' => '💬', 'text' => "$awaiting ticket" . ($awaiting > 1 ? 's περιμένουν' : ' περιμένει') . " απάντησή σου. Μια σύντομη ενημέρωση τώρα κρατά τον πελάτη ήσυχο."];
+        $coach[] = ['lvl' => 'warn', 'icon' => '💬', 'refs' => $kRef($awaitingL),
+            'text' => "$awaiting ticket" . ($awaiting > 1 ? 's περιμένουν' : ' περιμένει') . " απάντησή σου. Μια σύντομη ενημέρωση τώρα κρατά τον πελάτη ήσυχο."];
     }
     if ($stale) {
-        $coach[] = ['lvl' => 'warn', 'icon' => '🐌', 'text' => "$stale εργασί" . ($stale > 1 ? 'ες' : 'α') . " σε εξέλιξη χωρίς κίνηση >7 ημέρες. Δώσ' τους ώθηση ή γύρνα την μπάλα σε κάποιον."];
+        $coach[] = ['lvl' => 'warn', 'icon' => '🐌', 'refs' => $tRef($staleR),
+            'text' => "$stale εργασί" . ($stale > 1 ? 'ες' : 'α') . " σε εξέλιξη χωρίς κίνηση >7 ημέρες. Δώσ' τους ώθηση ή γύρνα την μπάλα σε κάποιον."];
     }
     if ($dueTod) {
-        $coach[] = ['lvl' => 'tip', 'icon' => '📌', 'text' => "$dueTod εργασί" . ($dueTod > 1 ? 'ες λήγουν' : 'α λήγει') . " σήμερα — κλείσ' " . ($dueTod > 1 ? 'τες' : 'την') . ' πριν το τέλος της ημέρας.'];
+        $coach[] = ['lvl' => 'tip', 'icon' => '📌', 'refs' => $tRef($dueTodR),
+            'text' => "$dueTod εργασί" . ($dueTod > 1 ? 'ες λήγουν' : 'α λήγει') . " σήμερα — κλείσ' " . ($dueTod > 1 ? 'τες' : 'την') . ' πριν το τέλος της ημέρας.'];
     }
     if ($wip > 5) {
-        $coach[] = ['lvl' => 'tip', 'icon' => '🎯', 'text' => "$wip εργασίες ταυτόχρονα «σε εξέλιξη». Ολοκλήρωσε 1-2 πριν ξεκινήσεις νέες — λιγότερα ανοιχτά = ταχύτερη ροή."];
+        $coach[] = ['lvl' => 'tip', 'icon' => '🎯', 'refs' => $tRef($wipR),
+            'text' => "$wip εργασίες ταυτόχρονα «σε εξέλιξη». Ολοκλήρωσε 1-2 πριν ξεκινήσεις νέες — λιγότερα ανοιχτά = ταχύτερη ροή."];
     }
     if ($noDue >= 3) {
-        $coach[] = ['lvl' => 'tip', 'icon' => '🗓', 'text' => "$noDue εργασίες σου χωρίς προθεσμία. Βάλε ημερομηνία-στόχο για να μη χαθούν."];
+        $coach[] = ['lvl' => 'tip', 'icon' => '🗓', 'refs' => $tRef($noDueR),
+            'text' => "$noDue εργασίες σου χωρίς προθεσμία. Βάλε ημερομηνία-στόχο για να μη χαθούν."];
     }
     if ($oldTk && !$slaOver) {
-        $coach[] = ['lvl' => 'tip', 'icon' => '📨', 'text' => "$oldTk ticket" . ($oldTk > 1 ? 's ανοιχτά' : ' ανοιχτό') . " πάνω από 5 ημέρες. Δώσε ένα update ή κλείσ' το αν λύθηκε."];
+        $coach[] = ['lvl' => 'tip', 'icon' => '📨', 'refs' => $kRef($oldTkL),
+            'text' => "$oldTk ticket" . ($oldTk > 1 ? 's ανοιχτά' : ' ανοιχτό') . " πάνω από 5 ημέρες. Δώσε ένα update ή κλείσ' το αν λύθηκε."];
     }
     if (!$coach) {
-        $coach[] = ['lvl' => 'ok', 'icon' => '👏', 'text' => 'Όλα υπό έλεγχο — καμία εκκρεμότητα εκτός χρονοδιαγράμματος. Συνέχισε έτσι!'];
+        $coach[] = ['lvl' => 'ok', 'icon' => '👏', 'refs' => [],
+            'text' => 'Όλα υπό έλεγχο — καμία εκκρεμότητα εκτός χρονοδιαγράμματος. Συνέχισε έτσι!'];
     } elseif (!$overdue && !$slaOver) {
-        $coach[] = ['lvl' => 'ok', 'icon' => '✅', 'text' => 'Κανένα εκπρόθεσμο ούτε παραβίαση SLA — καλή εικόνα, μείνε συνεπής.'];
+        $coach[] = ['lvl' => 'ok', 'icon' => '✅', 'refs' => [],
+            'text' => 'Κανένα εκπρόθεσμο ούτε παραβίαση SLA — καλή εικόνα, μείνε συνεπής.'];
     }
     $coach = array_slice($coach, 0, 6);
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,

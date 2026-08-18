@@ -1441,3 +1441,10 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .dlt{flex:1 1 60%}
   .dlbar{order:4;flex:1 1 100%;width:auto}
 }
+/* Τα συγκεκριμένα αντικείμενα κάθε γραμμής καθοδήγησης — κλικ σε πάει εκεί. */
+.crefs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.cref{display:inline-block;max-width:100%;padding:2px 9px;border-radius:99px;cursor:pointer;
+  background:var(--card);border:1px solid var(--line);color:var(--ink);
+  font-size:11.5px;font-weight:600;line-height:1.6;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cref:hover{border-color:var(--brand);color:var(--brand)}

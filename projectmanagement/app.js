@@ -1424,7 +1424,10 @@ async function vMyDay() {
     ${coach.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 11px;border-radius:10px;
       background:${coachCol[x.lvl]}14;border-left:3px solid ${coachCol[x.lvl]}">
       <span style="font-size:16px;line-height:1.4;flex:none">${x.icon}</span>
-      <span style="font-size:13px;line-height:1.5">${esc(x.text)}</span></div>`).join('')}
+      <span style="font-size:13px;line-height:1.5">${esc(x.text)}
+        ${(x.refs || []).length ? `<span class="crefs">${x.refs.map(r =>
+          `<a class="cref" ${r.kind === 'ticket' ? `data-qtk="${r.id}"` : `data-dltask="${r.id}"`}>${esc(r.label)}</a>`).join('')}</span>` : ''}
+      </span></div>`).join('')}
     </div></div>` : ''}
   <div class="grid g4" style="margin-bottom:16px">
     ${suStat(I.ticket, st.tickets, 'Tickets μου', st.tickets ? 'var(--brand)' : 'var(--ok)')}
