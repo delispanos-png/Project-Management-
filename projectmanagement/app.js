@@ -1129,20 +1129,22 @@ async function openTask(id) {
     <div class="card"><div class="card-h">${I.clip} Αρχεία</div><div class="card-b" id="dFiles">
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
 
-    <div class="card"><div class="card-h">${I.checkSquare} Checklist</div><div class="card-b" id="dCheck">
+    <div class="card"><div class="card-h">${I.checkSquare} Checklist
+      <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα της εργασίας· η πρόοδος φαίνεται στην κάρτα</span></div><div class="card-b" id="dCheck">
       ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${esc(it.title)}</span></div>`).join('')}
       <div style="display:flex;gap:8px;margin-top:9px">
         <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)"></div>
     </div></div>
 
-    <div class="card"><div class="card-h">${I.chat} Συνομιλία</div><div class="card-b">
+    <div class="card"><div class="card-h">${I.chat} Εσωτερική συνομιλία
+      <span class="mut" style="font-weight:600;font-size:11px">— μεταξύ μας· ο πελάτης δεν τη βλέπει</span></div><div class="card-b">
       <div id="dMsgs">${d.comments.map(cm => `<div class="msg ${cm.byId === me.id ? 'mine' : ''}">
         <div class="msg-h">${esc(cm.by)}${cm.to !== null ? ` <span class="pill pill-info">προς: ${cm.to === -1 ? 'Διαχειριστές' : esc(adminName(cm.to))}</span>` : ''}
           <span class="mut">${tShort(cm.at)}</span></div>
         <div class="msg-b">${esc(cm.body)}</div></div>`).join('') || '<div class="mut" style="font-size:12.5px">Καμία κουβέντα ακόμη.</div>'}</div>
       <div style="display:flex;gap:8px;margin-top:12px">
         <input class="inp" id="cmBody" placeholder="Γράψε μήνυμα… (Enter)" style="flex:1">
-        <select class="inp" id="cmTo" style="width:150px"><option value="">— απλό —</option>
+        <select class="inp" id="cmTo" style="width:180px" title="Σε ποιον στέλνει ειδοποίηση· «απλό» = μόνο σε όσους παρακολουθούν"><option value="">— χωρίς παραλήπτη —</option>
           <option value="-1">Διαχειριστές (όλοι)</option>
           ${S.boot.admins.filter(a => a.id !== me.id).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
       </div>
