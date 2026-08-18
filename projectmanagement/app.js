@@ -811,7 +811,10 @@ function cnpDialog(opts) {
       <div style="padding:20px 22px 18px">
         ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${o.title}</b>` : ''}
         ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap">${o.body}</div>` : ''}
-        ${o.input !== null ? `<input class="inp" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">` : ''}
+        ${o.input !== null ? (o.rows
+          ? `<textarea class="inp" id="cnpDlgIn" rows="${+o.rows}" maxlength="${+o.max || 2000}" placeholder="${esc(o.placeholder || '')}" style="margin-top:12px;width:100%;resize:vertical">${esc(o.input || '')}</textarea>`
+          : `<input class="inp" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
+        ${o.hint ? `<div class="mut" style="font-size:11.5px;margin-top:7px">${o.hint}</div>` : ''}
         <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>
           ${o.third ? `<button class="btn btn-o" id="cnpDlgTh" style="color:var(--bad)">${o.third}</button>` : ''}
@@ -824,7 +827,10 @@ function cnpDialog(opts) {
     const ok = () => done(o.input !== null ? (inp ? inp.value : '') : true);
     const onKey = e => {
       if (e.key === 'Escape') { e.stopPropagation(); done(o.input !== null ? null : false); }
-      if (e.key === 'Enter' && (!inp || document.activeElement === inp)) { e.preventDefault(); ok(); }
+      if (e.key === 'Enter' && (!inp || document.activeElement === inp)) {
+        if (o.rows && !(e.ctrlKey || e.metaKey)) { return; }   // πολυγραμμικό: Enter = νέα γραμμή
+        e.preventDefault(); ok();
+      }
     };
     document.addEventListener('keydown', onKey);
     ovl.querySelector('#cnpDlgOk').onclick = ok;
@@ -956,35 +962,14 @@ async function vBoard(arg) {
 }
 /* Διάλογος ολοκλήρωσης: δυο λόγια για το πώς έκλεισε η εργασία.
    Επιστρέφει το κείμενο (μπορεί και κενό) ή null αν ακυρώθηκε. */
-function askDone(title) {
-  return new Promise(res => {
-    const ovl = document.createElement('div'); ovl.className = 'ovl';
-    const box = document.createElement('div'); box.className = 'done-box';
-    box.innerHTML = `
-      <div class="done-h">✔ Ολοκλήρωση</div>
-      <div class="done-t">${esc(title || '')}</div>
-      <label class="lbl">Δυο λόγια για το πώς έκλεισε <span class="mut">(προαιρετικό)</span></label>
-      <textarea class="inp" id="dnNote" rows="3" maxlength="500" placeholder="π.χ. Έγινε ρύθμιση DNS και επιβεβαιώθηκε με τον πελάτη"></textarea>
-      <div class="done-a">
-        <button class="btn btn-o" id="dnX">Άκυρο</button>
-        <button class="btn btn-ok" id="dnOk">Ολοκλήρωση</button>
-      </div>`;
-    document.body.append(ovl, box);
-    requestAnimationFrame(() => { ovl.classList.add('show'); box.classList.add('show'); });
-    const ta = box.querySelector('#dnNote');
-    ta.focus();
-    const close = v => { ovl.remove(); box.remove(); document.removeEventListener('keydown', key); res(v); };
-    const key = e => {
-      if (e.key === 'Escape') { close(null); }
-      // Ctrl/⌘+Enter κλείνει — το σκέτο Enter αφήνει να γράψεις δεύτερη γραμμή
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { close(ta.value.trim()); }
-    };
-    document.addEventListener('keydown', key);
-    box.querySelector('#dnOk').onclick = () => close(ta.value.trim());
-    box.querySelector('#dnX').onclick = () => close(null);
-    ovl.onclick = () => close(null);
-  });
-}
+const askDone = title => cnpDialog({
+  title: '✔ Ολοκλήρωση',
+  body: title || '',
+  input: '', rows: 3, max: 500,
+  placeholder: 'π.χ. Έγινε ρύθμιση DNS και επιβεβαιώθηκε με τον πελάτη',
+  hint: 'Προαιρετικό — Ctrl+Enter για γρήγορο κλείσιμο',
+  ok: 'Ολοκλήρωση', cancel: 'Άκυρο',
+});
 
 function cardHtml(t) {
   const ty = t.type ? typeOf(t.type) : null;
@@ -1805,7 +1790,7 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-window.CNP = {S, api, esc, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, askDone, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */
