@@ -371,9 +371,23 @@ function cnp_credit_chain($clientId)
     return $cache[$clientId] = $out;
 }
 
+/**
+ * Γλώσσα του πελάτη, από το κείμενό του.
+ *
+ * Πριν μετρήσουμε γράμματα, πετάμε ό,τι είναι γλωσσικά ουδέτερο: emails, URLs,
+ * ετικέτες HTML, ονόματα αρχείων. Ένα ελληνικό μήνυμα γεμάτο συνδέσμους έβγαινε
+ * «μεικτό» και έχανε την ανίχνευση.
+ */
 function cnp_lang_hint($text)
 {
-    $letters = preg_replace('/[^\p{L}]+/u', '', (string) $text);
+    $t = (string) $text;
+    $t = preg_replace('/<[^>]{1,400}>/u', ' ', $t);                       // HTML
+    $t = preg_replace('/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/ui', ' ', $t);  // emails
+    $t = preg_replace('/\bhttps?:\/\/\S+/ui', ' ', $t);                 // σύνδεσμοι
+    $t = preg_replace('/\b[\w-]+\.(gr|com|net|org|eu|io|co)\b/ui', ' ', $t); // domains
+    $t = preg_replace('/\b[\w-]+\.(php|js|css|png|jpg|pdf|zip|log|conf)\b/ui', ' ', $t);
+
+    $letters = preg_replace('/[^\p{L}]+/u', '', $t);
     if ($letters === '') {
         return null;
     }
@@ -383,13 +397,33 @@ function cnp_lang_hint($text)
     if ($total < 12) {
         return null;   // πολύ μικρό δείγμα για ασφαλή κρίση
     }
-    if ($greek / $total > 0.30) {
+    /* Αρκετά ελληνικά γράμματα = ελληνικά. Καμία λατινογενής γλώσσα δεν γράφει
+       με ελληνικό αλφάβητο, οπότε η παρουσία τους είναι από μόνη της απόδειξη —
+       δεν χρειάζεται να είναι και πλειοψηφία. */
+    if ($greek >= 10 && $greek / $total > 0.15) {
         return 'ελληνικά';
     }
     if ($latin / $total > 0.85) {
         return 'αγγλικά (ή greeklish — κρίνε το από το νόημα)';
     }
     return null;
+}
+
+/**
+ * Το κείμενο του πελάτη πάνω στο οποίο κρίνεται η γλώσσα. Το τελευταίο μήνυμα
+ * μπορεί να είναι «ok, thanks» — πολύ μικρό για ασφαλή κρίση. Τότε μαζεύουμε
+ * και προηγούμενα δικά του μηνύματα, από το πιο πρόσφατο προς τα πίσω.
+ */
+function cnp_lang_sample(array $customerMsgs, $minLetters = 40)
+{
+    $out = '';
+    foreach (array_reverse($customerMsgs) as $m) {
+        $out .= ' ' . $m;
+        if (mb_strlen(preg_replace('/[^\p{L}]+/u', '', $out)) >= $minLetters) {
+            break;
+        }
+    }
+    return trim($out);
 }
 
 function cnp_words($text, $max = 40)
@@ -4459,13 +4493,14 @@ case 'ai_summary':
     /* Τελευταίο μήνυμα ΠΕΛΑΤΗ — αυτό ορίζει τη γλώσσα της απάντησης.
        Η συνομιλία μπορεί να αλλάξει γλώσσα στην πορεία, οπότε μετράει το
        τελευταίο που έγραψε ο ίδιος, όχι το αρχικό. */
-    $lastCust = (string) $tk3->message;
+    $custMsgs = [(string) $tk3->message];
     foreach (Capsule::table('tblticketreplies')->where('tid', $tid3)->orderBy('id')->get() as $r9) {
         if ($r9->admin === '' || $r9->admin === null) {
-            $lastCust = (string) $r9->message;
+            $custMsgs[] = (string) $r9->message;
         }
     }
-    $langHint = cnp_lang_hint($lastCust);
+    $lastCust = end($custMsgs);
+    $langHint = cnp_lang_hint(cnp_lang_sample($custMsgs));
 
     /* Προσχέδιο του χειριστή: τι θέλει να πει, με δυο λόγια. Όταν υπάρχει, το
        AI ΔΕΝ εφευρίσκει περιεχόμενο — διατυπώνει αυτό, σε σχέση με την ερώτηση
