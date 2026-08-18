@@ -1405,3 +1405,22 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .qrow{flex-wrap:wrap;gap:6px}
   .qt{flex:1 1 100%;white-space:normal;order:3}
 }
+/* ── Συνδεδεμένο ticket μέσα στην εργασία ───────────────────────────────── */
+.tkbox{border-left:3px solid var(--brand)}
+.tkbox .card-h{gap:8px;overflow:hidden}
+.tkmeta{display:flex;gap:9px;flex-wrap:wrap;align-items:center;font-size:12.5px;margin-bottom:11px}
+.tkthread{display:flex;flex-direction:column;gap:9px;max-height:340px;overflow-y:auto;
+  padding-right:4px}
+.tkmsg{border-radius:10px;padding:9px 12px;background:var(--bg2);border-left:3px solid var(--mut)}
+.tkmsg.us{border-left-color:var(--brand);background:#0097e40f}
+.tkmsg-h{display:flex;gap:9px;align-items:baseline;font-size:11.5px;margin-bottom:4px}
+.tkmsg-h .mut{margin-left:auto;font-size:11px}
+.tkmsg-b{font-size:12.5px;line-height:1.5;word-break:break-word;overflow-wrap:anywhere;
+  max-height:150px;overflow:hidden}
+.tkmsg.open .tkmsg-b{max-height:none}
+.tkmsg-b>*:first-child{margin-top:0}
+.tkmsg-b>*:last-child{margin-bottom:0}
+.tkmore{background:none;border:none;padding:3px 0 0;color:var(--brand);font-size:11.5px;
+  font-weight:700;cursor:pointer}
+.tkmsg-b img{max-width:100%}
+.tkmsg-b pre{overflow-x:auto}

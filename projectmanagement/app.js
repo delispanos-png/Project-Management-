@@ -870,6 +870,8 @@ document.addEventListener('click', e => {
   }
   const a = e.target.closest('[data-ibgo]');
   if (a) { e.preventDefault(); closeDrawer(); go('inbox', +a.dataset.ibgo); }
+  const c3 = e.target.closest('[data-c360]');
+  if (c3) { e.preventDefault(); closeDrawer(); go('client360', +c3.dataset.c360); }
 });
 function setTop(t, sub) {
   $('#topTitle').textContent = t;
@@ -1018,7 +1020,9 @@ async function openTask(id) {
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
     <h2>${esc(t.title)}</h2>
     <span class="pill" id="dStPill" style="background:${statusOf(t.status).color || '#8291a9'}22;color:${statusOf(t.status).color || '#8291a9'};font-weight:700">${esc(statusOf(t.status).title || '—')}</span>
-    <button class="btn btn-sm ${d.watching ? 'btn-p' : 'btn-o'}" id="dWatch">${I.eye}${d.watchers || ''}</button>
+    <button class="btn btn-sm ${d.watching ? 'btn-p' : 'btn-o'}" id="dWatch"
+      title="${d.watching ? 'Την παρακολουθείς — ειδοποιήσεις σε κάθε αλλαγή. Κλικ για διακοπή.' : 'Παρακολούθηση: ειδοποίηση σε κάθε αλλαγή αυτής της εργασίας.'}"
+      aria-label="Παρακολούθηση εργασίας">${I.eye}${d.watchers ? ' ' + d.watchers : ''}</button>
     <button class="drawer-x" id="dX">✕</button>
   </div>
   <div class="drawer-b">
@@ -1027,8 +1031,38 @@ async function openTask(id) {
       ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
       <button class="btn btn-sm btn-o" id="dReopen" style="margin-top:9px">↩ Ξανάνοιγμα</button>
     </div></div>` : ''}
-    ${d.ticket ? `<a class="card" style="display:flex;padding:11px 15px;gap:9px;align-items:center;cursor:pointer" data-ibgo="${d.ticket.id}">${I.ticket}
-      <b>#${esc(d.ticket.tid)}</b> ${esc(d.ticket.title)} <span class="pill pill-info" style="margin-left:auto">${esc(d.ticket.status)}</span></a>` : ''}
+    ${d.ticket ? (() => {
+      const tk = d.ticket;
+      const md = (window.CNP && window.CNP.mdToHtml) || (x => esc(x).replace(/\n/g, '<br>'));
+      const wl = h => h >= 48 ? Math.floor(h / 24) + ' ημέρες' : (h >= 24 ? '1 ημέρα' : h + 'ω');
+      return `<div class="card tkbox">
+        <div class="card-h">${I.ticket} <b>#${esc(tk.tid)}</b>
+          <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tk.title)}</span>
+          <span class="pill pill-info" style="margin-left:auto;flex:none">${esc(tk.status)}</span></div>
+        <div class="card-b">
+          <div class="tkmeta">
+            ${tk.client ? `<span>${I.user} ${esc(tk.client)}</span>` : ''}
+            ${tk.email ? `<span class="mut">${esc(tk.email)}</span>` : ''}
+            ${tk.dept ? `<span class="mut">${esc(tk.dept)}</span>` : ''}
+            ${tk.urgency === 'High' ? '<span class="pill pill-bad">επείγον</span>' : ''}
+            ${tk.status !== 'Closed' ? (tk.waitOn === 'us'
+              ? `<span class="pill pill-warn">περιμένει εμάς · ${wl(tk.waitH)}</span>`
+              : `<span class="pill pill-mut">περιμένει πελάτη · ${wl(tk.waitH)}</span>`) : ''}
+          </div>
+          <div class="tkthread">
+            ${(tk.msgs || []).map(m => `<div class="tkmsg ${m.us ? 'us' : ''}">
+              <div class="tkmsg-h"><b>${esc(m.by)}</b><span class="mut">${esc(tShort(m.at))}</span></div>
+              <div class="tkmsg-b">${md(m.body)}</div>
+              <button class="tkmore" type="button" hidden>περισσότερα ▾</button></div>`).join('')}
+          </div>
+          ${tk.total > (tk.msgs || []).length
+            ? `<div class="mut" style="font-size:11.5px;margin-top:6px">…και ${tk.total - tk.msgs.length} παλαιότερα μηνύματα</div>` : ''}
+          <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-p" data-ibgo="${tk.id}">${I.ticket} Άνοιγμα &amp; απάντηση</button>
+            ${tk.clientId ? `<button class="btn btn-sm btn-o" data-c360="${tk.clientId}">${I.user} Πελάτης 360°</button>` : ''}
+          </div>
+        </div></div>`;
+    })() : ''}
     <div class="card"><div class="card-b">
       <label class="lbl">Τίτλος</label>
       <input class="inp" id="fTitle" value="${esc(t.title)}">
@@ -1165,9 +1199,24 @@ async function openTask(id) {
     await api('move_task', {task: id, status: first.id});
     toast('Ξανάνοιξε'); openTask(id);
   };
+  /* Το «περισσότερα» εμφανίζεται μόνο όταν το μήνυμα ξεπερνά το ύψος — αλλιώς
+     θα ήταν κουμπί που δεν κάνει τίποτα. */
+  $$('.tkmsg', dr).forEach(m => {
+    const body = m.querySelector('.tkmsg-b'), btn = m.querySelector('.tkmore');
+    if (!body || !btn) { return; }
+    if (body.scrollHeight > body.clientHeight + 4) {
+      btn.hidden = false;
+      btn.onclick = () => {
+        const open = m.classList.toggle('open');
+        btn.textContent = open ? 'λιγότερα ▴' : 'περισσότερα ▾';
+      };
+    }
+  });
+
   $('#dWatch', dr).onclick = async () => {
     const r = await api('watch', {task: id});
-    toast(r.watching ? 'Παρακολουθείς το task' : 'Σταμάτησες την παρακολούθηση'); openTask(id);
+    toast(r.watching ? 'Θα ειδοποιείσαι σε κάθε αλλαγή αυτής της εργασίας'
+                     : 'Δεν θα ειδοποιείσαι πια για αυτή την εργασία'); openTask(id);
   };
   const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
   const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };

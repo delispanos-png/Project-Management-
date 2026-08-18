@@ -1108,11 +1108,45 @@ case 'task':
     foreach (Db::activity($t->id, 30) as $a) {
         $acts[] = ['action' => $a->action, 'detail' => $a->detail, 'by' => Db::adminName($a->admin_id), 'at' => $a->created_at];
     }
+    /* Ticket συνδεδεμένο με την εργασία: δεν αρκεί ο τίτλος. Ο χειριστής θέλει
+       να δει ΤΙ έγινε χωρίς να ψάξει ξανά το ticket στα Tickets — φέρνουμε
+       πελάτη, κατάσταση, ποιος περιμένει ποιον και τα τελευταία μηνύματα. */
     $ticket = null;
     if ($t->ticketid) {
-        $tk = Capsule::table('tbltickets')->where('id', $t->ticketid)->first(['tid', 'title', 'status']);
+        $tk = Capsule::table('tbltickets')->where('id', $t->ticketid)
+            ->first(['id', 'tid', 'did', 'userid', 'name', 'email', 'title', 'message', 'status', 'urgency', 'date', 'lastreply', 'flag']);
         if ($tk) {
-            $ticket = ['id' => (int) $t->ticketid, 'tid' => $tk->tid, 'title' => $tk->title, 'status' => $tk->status];
+            /* Τα emails φτάνουν με σωρούς κενών γραμμών και υπογραφές· χωρίς
+               καθάρισμα κάθε μήνυμα πιάνει μισή οθόνη από αέρα. */
+            $clean = function ($x) {
+                $x = preg_replace('/\r\n?/', "\n", (string) $x);
+                $x = preg_replace('/[ \t]+\n/', "\n", $x);
+                $x = preg_replace('/\n{3,}/', "\n\n", $x);
+                return trim($x);
+            };
+            $msgs = [];
+            $msgs[] = ['by' => ($tk->name ?: 'Πελάτης'), 'us' => false,
+                'at' => $tk->date, 'body' => $clean($tk->message)];
+            foreach (Capsule::table('tblticketreplies')->where('tid', $tk->id)->orderBy('id')
+                         ->get(['admin', 'name', 'date', 'message']) as $rp) {
+                $isUs = ($rp->admin !== '' && $rp->admin !== null);
+                $msgs[] = ['by' => $isUs ? $rp->admin : ($rp->name ?: ($tk->name ?: 'Πελάτης')),
+                    'us' => $isUs, 'at' => $rp->date, 'body' => $clean($rp->message)];
+            }
+            $lastM = end($msgs);
+            $waitH = max(0, (int) floor((time() - strtotime((string) $lastM['at'])) / 3600));
+            $dept = Capsule::table('tblticketdepartments')->where('id', $tk->did)->value('name');
+
+            $ticket = ['id' => (int) $t->ticketid, 'tid' => $tk->tid, 'title' => $tk->title,
+                'status' => $tk->status, 'urgency' => (string) $tk->urgency,
+                'client' => $tk->userid ? clientLabel((int) $tk->userid) : (string) $tk->name,
+                'clientId' => (int) $tk->userid, 'email' => (string) $tk->email,
+                'dept' => (string) $dept, 'opened' => $tk->date, 'lastreply' => $tk->lastreply,
+                'assigned' => (int) $tk->flag,
+                'waitOn' => $lastM['us'] ? 'client' : 'us', 'waitH' => $waitH,
+                'total' => count($msgs),
+                // Τα τελευταία 6 — αρκετά για εικόνα, χωρίς να γίνει σεντόνι.
+                'msgs' => array_slice($msgs, -6)];
         }
     }
     $proj = Db::project($t->project_id);
