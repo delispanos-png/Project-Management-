@@ -106,6 +106,27 @@ class Db
             });
         }
 
+        if (!$s->hasColumn('mod_cpm_projects', 'manager_id')) {
+            $s->table('mod_cpm_projects', function ($t) {
+                $t->integer('manager_id')->unsigned()->nullable();  // υπεύθυνος έργου (κλιμάκωση προθεσμιών)
+            });
+        }
+
+        /* Ποια ειδοποίηση προθεσμίας έχει ήδη σταλεί σε ποιον. Χωρίς αυτό ο
+           cron των 10΄ θα έστελνε την ίδια προειδοποίηση 144 φορές τη μέρα. */
+        if (!$s->hasTable('mod_cpm_deadline_alerts')) {
+            $s->create('mod_cpm_deadline_alerts', function ($t) {
+                $t->increments('id');
+                $t->string('kind', 12);            // task | project | sla
+                $t->integer('ref_id')->unsigned();
+                $t->string('level', 16);           // t-3 | t-1 | t0 | over
+                $t->integer('admin_id')->unsigned();
+                $t->date('sent_on');
+                $t->timestamp('created_at')->nullable();
+                $t->unique(['kind', 'ref_id', 'level', 'admin_id', 'sent_on'], 'cpm_dl_once');
+            });
+        }
+
         if (!$s->hasColumn('mod_cpm_tasks', 'completed_note')) {
             $s->table('mod_cpm_tasks', function ($t) {
                 $t->string('completed_note', 500)->nullable();          // δυο λόγια για το πώς έκλεισε

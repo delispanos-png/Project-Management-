@@ -2640,6 +2640,7 @@ case 'portfolio':
             'budget' => $p->budget !== null ? (float) $p->budget : null,
             'estHours' => $p->est_hours !== null ? (float) $p->est_hours : null,
             'start' => $p->start_date, 'due' => $p->due_date,
+            'manager' => isset($p->manager_id) && $p->manager_id ? (int) $p->manager_id : null,
             'offerId' => $p->offer_id ? (int) $p->offer_id : null,
             'spentMins' => $spentBy[(int) $p->id] ?? 0,
             'todos' => $todoBy[(int) $p->id] ?? null,
@@ -2676,6 +2677,8 @@ case 'save_project':
             ? round((float) str_replace(',', '.', (string) $in['budget']), 2) : null,
         'est_hours' => ($in['estHours'] ?? '') !== '' && $in['estHours'] !== null
             ? round((float) str_replace(',', '.', (string) $in['estHours']), 1) : null,
+        // Υπεύθυνος έργου: σε αυτόν κλιμακώνουν οι προθεσμίες που χάνονται.
+        'manager_id' => (int) ($in['manager'] ?? 0) ?: null,
         'start_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['start'] ?? '') ? $in['start'] : null,
         'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null];
     $pid = Db::saveProject($pid, $data);

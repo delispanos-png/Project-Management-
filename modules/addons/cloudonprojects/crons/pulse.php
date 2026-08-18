@@ -11,10 +11,12 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
 use WHMCS\Module\Addon\CloudonProjects\Auto;
+use WHMCS\Module\Addon\CloudonProjects\Deadlines;
 
 require_once __DIR__ . '/../lib/Db.php';
 require_once __DIR__ . '/../lib/Notify.php';
 require_once __DIR__ . '/../lib/Auto.php';
+require_once __DIR__ . '/../lib/Deadlines.php';
 
 /* SLA breaches → automations (μία φορά ανά ticket, dedupe στο Auto::once) */
 try {
@@ -73,4 +75,15 @@ try {
         echo count($expDue) . " expiry alerts\n";
     }
 } catch (\Throwable $e) {
+}
+
+/* ⏳ Προθεσμίες: προειδοποίηση πριν χαθούν και κλιμάκωση όταν χαθούν.
+   Dedupe μέσα στην Deadlines (unique index) — ασφαλές να τρέχει κάθε 10΄. */
+try {
+    $dlSent = Deadlines::run(getenv('CPM_DRY') ? true : false);
+    if ($dlSent) {
+        echo '[' . date('H:i:s') . "] προθεσμίες: $dlSent ειδοποιήσεις\n";
+    }
+} catch (\Throwable $e) {
+    echo '[' . date('H:i:s') . '] προθεσμίες ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
 }

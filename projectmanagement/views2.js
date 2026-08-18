@@ -1562,6 +1562,9 @@ R.projects = async function () {
         <div><label class="lbl">⏱ Εκτίμηση ωρών</label><input class="inp" id="pjEst" value="${p.estHours ?? ''}" placeholder="π.χ. 40"></div>
         <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="pjStart" value="${p.start || ''}"></div>
         <div><label class="lbl">Deadline</label><input type="date" class="inp" id="pjDue" value="${p.due || ''}"></div>
+        <div><label class="lbl">Υπεύθυνος έργου <span class="mut" style="font-weight:400">— σε αυτόν κλιμακώνουν οι χαμένες προθεσμίες</span></label>
+          <select class="inp" id="pjMgr"><option value="">— κανείς —</option>
+          ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === p.manager ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
       </div>
       ${p.id && p.kind === 'client' ? (() => {
         const cost = +S.boot.costPerHour || 0;
@@ -1695,6 +1698,7 @@ R.projects = async function () {
         pstatus: $('#pjPs').value, health: $('#pjH').value, visible: $('#pjVis').checked,
         kind: $('#pjKind').value, budget: $('#pjBud').value.trim(), estHours: $('#pjEst').value.trim(),
         start: $('#pjStart').value || null, due: $('#pjDue').value || null,
+        manager: +$('#pjMgr').value || 0,
         members: $$('.pjM:checked', dr).map(x => +x.value), teams: $$('.pjT:checked', dr).map(x => +x.value)});
       toast('Αποθηκεύτηκε'); closeDrawer();
       const b = await api('boot'); S.boot = b; R.projects();
