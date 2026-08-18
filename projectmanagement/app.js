@@ -1389,6 +1389,36 @@ async function vMyDay() {
       <span class="qw mut">${waitLbl(q.waitH)}</span>
     </div>`).join('')}
     </div></div>` : ''}
+  ${(() => {
+    const dl = d.deadlines || [];
+    if (!dl.length) { return ''; }
+    /* Χρώμα από το πόσο απομένει, όχι από το ποσοστό: μια εργασία με μεγάλο
+       ορίζοντα μπορεί να είναι στο 90% του χρόνου και να έχει άνεση εβδομάδων. */
+    const col = x => (x.days < 0 || (x.hours !== null && x.hours < 0)) ? 'var(--bad)'
+      : (x.hours !== null ? (x.hours <= 4 ? 'var(--bad)' : (x.hours <= 12 ? 'var(--warn)' : 'var(--brand)'))
+        : (x.days <= 1 ? 'var(--bad)' : (x.days <= 3 ? 'var(--warn)' : 'var(--brand)')));
+    const lbl = x => {
+      if (x.hours !== null) {
+        return x.hours < 0 ? `ξεπεράστηκε ${Math.abs(x.hours)}ω` : (x.hours <= 48 ? `σε ${x.hours}ω` : `σε ${Math.round(x.hours / 24)} ημέρες`);
+      }
+      if (x.days < 0) { return `εκπρόθεσμο ${Math.abs(x.days)} ${Math.abs(x.days) === 1 ? 'ημέρα' : 'ημέρες'}`; }
+      if (x.days === 0) { return 'λήγει σήμερα'; }
+      if (x.days === 1) { return 'αύριο'; }
+      return `σε ${x.days} ημέρες`;
+    };
+    const ico = {project: I.folder, task: I.checkSquare, sla: I.clock};
+    return `<div class="card" style="margin-bottom:14px">
+      <div class="card-h">${I.clock} Προθεσμίες
+        <span class="mut" style="font-weight:600;font-size:11.5px">— πόσο κοντά είσαι· η μπάρα δείχνει τον χρόνο που πέρασε, όχι τη δουλειά που έγινε</span></div>
+      <div class="card-b" style="padding-top:6px">
+      ${dl.map(x => `<div class="dlrow" ${x.kind === 'sla' ? `data-qtk="${x.id}"` : (x.kind === 'task' ? `data-dltask="${x.id}"` : `data-dlproj="${x.id}"`)}>
+        <span class="dlic" style="color:${col(x)}">${ico[x.kind] || ''}</span>
+        <span class="dlt">${esc(x.title)}<span class="mut"> · ${esc(x.sub)}</span></span>
+        <span class="dlbar">${x.pct === null ? '' : `<span style="width:${x.pct}%;background:${col(x)}"></span>`}</span>
+        <span class="dld" style="color:${col(x)}">${esc(lbl(x))}</span>
+      </div>`).join('')}
+      </div></div>`;
+  })()}
   ${coach.length ? `<div class="card coach" style="margin-bottom:14px"><div class="card-h">${I.compass} Καθοδήγηση για σένα</div>
     <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
     ${coach.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 11px;border-radius:10px;
@@ -1445,6 +1475,8 @@ async function vMyDay() {
   $$('#content [data-gotodos]').forEach(a => a.onclick = () => go('todos'));
   $$('#content [data-goinbox]').forEach(a => a.onclick = () => go('inbox'));
   $$('#content [data-qtk]').forEach(r => r.onclick = () => go('inbox', r.dataset.qtk));
+  $$('#content [data-dltask]').forEach(r => r.onclick = () => openTask(+r.dataset.dltask));
+  $$('#content [data-dlproj]').forEach(r => r.onclick = () => go('board', +r.dataset.dlproj));
 }
 
 /* ═════════ CRM ═════════ */

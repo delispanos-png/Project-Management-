@@ -1228,6 +1228,73 @@ case 'myday':
         $notifs[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => $n->title, 'url' => $n->url,
             'read' => (bool) $n->is_read, 'at' => $n->created_at];
     }
+    /* ── ⏳ Προθεσμίες: πόσο κοντά ή μακριά είμαι ──────────────────────────
+       Ενιαία εικόνα από τρεις πηγές που αλλιώς κοιτάς χωριστά: έργα, εργασίες
+       μου και SLA πρώτης απάντησης. Η μπάρα δείχνει πόσο του διαθέσιμου χρόνου
+       έχει καταναλωθεί (από την έναρξη ως την προθεσμία) — όχι πρόοδο δουλειάς. */
+    $dl = [];
+    $pctFn = function ($startTs, $dueTs) {
+        if (!$startTs || $dueTs <= $startTs) { return null; }
+        return max(0, min(100, (int) round((time() - $startTs) / ($dueTs - $startTs) * 100)));
+    };
+    $daysLeft = function ($dueTs) {
+        return (int) floor(($dueTs - strtotime('today')) / 86400);
+    };
+
+    foreach (Capsule::table('mod_cpm_projects')->whereNotNull('due_date')
+                 ->where('due_date', '!=', '0000-00-00')->get() as $pr) {
+        if (!Db::canSeeProject($adminId, (int) $pr->id)) { continue; }
+        if (in_array((string) $pr->status, ['archived', 'done'], true)) { continue; }
+        $dueTs = strtotime((string) $pr->due_date . ' 23:59:59');
+        $startTs = ($pr->start_date && strpos((string) $pr->start_date, '0000') !== 0)
+            ? strtotime((string) $pr->start_date) : strtotime((string) $pr->created_at);
+        $dl[] = ['kind' => 'project', 'id' => (int) $pr->id, 'title' => (string) $pr->name,
+            'sub' => 'Έργο', 'color' => (string) $pr->color,
+            'due' => (string) $pr->due_date, 'days' => $daysLeft($dueTs),
+            'pct' => $pctFn($startTs, $dueTs), 'hours' => null];
+    }
+
+    foreach (Capsule::table('mod_cpm_tasks')->whereNotNull('due_date')
+                 ->where('due_date', '!=', '0000-00-00')->whereNotIn('status_id', $doneIds)
+                 ->where(function ($w) use ($adminId) {
+                     $w->where('assignee', $adminId)->orWhere('action_user', $adminId);
+                 })->get() as $tsk) {
+        $dueTs = strtotime((string) $tsk->due_date . ' 23:59:59');
+        $startTs = ($tsk->start_date && strpos((string) $tsk->start_date, '0000') !== 0)
+            ? strtotime((string) $tsk->start_date) : strtotime((string) $tsk->created_at);
+        $pname = Capsule::table('mod_cpm_projects')->where('id', $tsk->project_id)->value('name');
+        $dl[] = ['kind' => 'task', 'id' => (int) $tsk->id, 'title' => (string) $tsk->title,
+            'sub' => $pname ?: 'Εργασία', 'color' => '',
+            'due' => (string) $tsk->due_date, 'days' => $daysLeft($dueTs),
+            'pct' => $pctFn($startTs, $dueTs), 'hours' => null];
+    }
+
+    /* SLA πρώτης απάντησης: εδώ μετράνε ώρες, όχι ημέρες — γι' αυτό κρατάμε
+       ξεχωριστό πεδίο και δεν το στρογγυλοποιούμε σε «0 ημέρες». */
+    try {
+        if (Capsule::schema()->hasTable('mod_supportcontracts_tickets')) {
+            foreach (Capsule::table('mod_supportcontracts_tickets')->whereNotNull('sla_due')
+                         ->whereNull('first_response_at')->get(['ticketid', 'sla_due']) as $sl) {
+                $tkS = Capsule::table('tbltickets')->where('id', $sl->ticketid)
+                    ->whereNotIn('status', ['Closed', 'Cancelled'])
+                    ->first(['id', 'tid', 'title', 'name', 'flag', 'date']);
+                if (!$tkS) { continue; }
+                if (!$FULL && (int) $tkS->flag !== $adminId && (int) $tkS->flag !== 0) { continue; }
+                $dueTs = strtotime((string) $sl->sla_due);
+                $dl[] = ['kind' => 'sla', 'id' => (int) $tkS->id, 'title' => (string) $tkS->title,
+                    'sub' => 'SLA · #' . $tkS->tid . ($tkS->name ? ' · ' . $tkS->name : ''), 'color' => '',
+                    'due' => (string) $sl->sla_due, 'days' => $daysLeft($dueTs),
+                    'pct' => $pctFn(strtotime((string) $tkS->date), $dueTs),
+                    'hours' => (int) round(($dueTs - time()) / 3600)];
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+
+    // Πιο επείγον πρώτα: τα εκπρόθεσμα στην κορυφή.
+    usort($dl, function ($a, $b) { return strcmp((string) $a['due'], (string) $b['due']); });
+    $dl = array_slice($dl, 0, 10);
+
     /* ── 🧭 Η σειρά της ημέρας ────────────────────────────────────────────
        Δεν είναι συμβουλή, είναι ουρά δουλειάς: ΠΟΙΟ ticket να πιάσεις τώρα και
        γιατί. Η σειρά είναι σκόπιμα αυστηρή — πρώτα ό,τι έχει σπάσει SLA, μετά
@@ -1368,7 +1435,7 @@ case 'myday':
     }
     $coach = array_slice($coach, 0, 6);
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
-        'queue' => $queue,
+        'queue' => $queue, 'deadlines' => $dl,
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday]]);
