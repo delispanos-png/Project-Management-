@@ -1183,6 +1183,15 @@ R.library = async function () {
   <div id="lbCats" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px"></div>
   <div id="lbBox">${'<div class="skel" style="height:70px;margin-bottom:10px"></div>'.repeat(3)}</div>`;
   const kindIco = {note: I.edit, link: I.link, file: I.download};
+  /* Η προεπισκόπηση ήταν το ίδιο το HTML κομμένο στα 66px: τίτλοι και λίστες
+     μισοφαίνονταν. Κρατάμε σκέτο κείμενο — η μορφοποίηση ανήκει στο άνοιγμα. */
+  const plain = (html, sep) => {
+    const t = document.createElement('div');
+    // Χωρίς διαχωριστή, ο τίτλος ενότητας κολλάει στην προηγούμενη πρόταση.
+    t.innerHTML = (html || '').replace(/<\/(p|h[1-6]|li|div|tr|blockquote)>/gi, sep === false ? ' ' : ' · ');
+    return (t.textContent || '').replace(/\s*·\s*(·\s*)+/g, ' · ')
+      .replace(/\s+/g, ' ').replace(/^\s*·\s*|\s*·\s*$/g, '').trim();
+  };
   const expBadge = it => {
     if (!it.expires) { return ''; }
     const d = it.expDays;
@@ -1201,13 +1210,15 @@ R.library = async function () {
     const rowHtml = it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line)">
       <span style="color:var(--brand);flex:none;margin-top:2px">${kindIco[it.kind] || I.book}</span>
       <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:13.5px">${esc(it.title)}</b>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+          <b class="lb-title" data-lbopen="${it.id}" style="font-size:13.5px">${esc(it.title)}</b>
           ${it.kind === 'file' ? `<span class="mut" style="font-size:10.5px">${esc(it.filename)} · ${_libSize(it.size)}</span>` : ''}
           ${expBadge(it)}
           ${it.shared ? `<span class="pill" style="background:var(--ok)1a;color:var(--ok);font-size:9px">${I.users} κοινό</span>` : ''}
           ${st.scope === 'shared' && !it.canEdit ? `<span class="mut" style="font-size:10px">· ${esc(it.ownerName)}</span>` : ''}</div>
-        ${it.kind === 'note' && it.body ? `<div class="mut" style="font-size:12px;margin-top:3px;max-height:66px;overflow:hidden">${it.body}</div>` : ''}
+        ${it.kind === 'note' && it.body ? `<div class="lb-prev">${esc(plain(it.body))}</div>` : ''}
         ${it.kind === 'link' && it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand);word-break:break-all">${esc(it.url)}</a>` : ''}
+        ${it.updated ? `<div class="mut" style="font-size:10.5px;margin-top:3px">ενημερώθηκε ${esc(dShort(it.updated))}</div>` : ''}
         ${it.tags ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${it.tags.split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
       </div>
       <div style="flex:none;display:flex;gap:3px">
@@ -1225,6 +1236,13 @@ R.library = async function () {
     box.innerHTML =
       (pinned.length ? `<div class="card" style="margin-bottom:12px"><div class="card-h">★ Καρφιτσωμένα</div><div class="card-b">${pinned.map(rowHtml).join('')}</div></div>` : '') +
       Object.entries(groups).map(([g, items]) => `<div class="card" style="margin-bottom:12px"><div class="card-h">${I.folder} ${esc(g)} <span class="kb-n" style="margin-left:auto">${items.length}</span></div><div class="card-b">${items.map(rowHtml).join('')}</div></div>`).join('');
+    $$('[data-lbopen]', box).forEach(b => b.onclick = () => {
+      const it = d.items.find(x => x.id === +b.dataset.lbopen);
+      if (!it) { return; }
+      if (it.kind === 'link' && it.url) { window.open(it.url, '_blank', 'noopener'); return; }
+      if (it.kind === 'file') { window.open('api.php?a=lib_get&id=' + it.id, '_blank'); return; }
+      openLibView(it);
+    });
     $$('[data-lbget]', box).forEach(b => b.onclick = () => window.open('api.php?a=lib_get&id=' + b.dataset.lbget, '_blank'));
     $$('[data-lbcopy]', box).forEach(b => b.onclick = async () => { await navigator.clipboard.writeText(b.dataset.lbcopy); toast('Αντιγράφηκε'); });
     $$('[data-lbcopyn]', box).forEach(b => b.onclick = async () => { const it = d.items.find(x => x.id === +b.dataset.lbcopyn); const tmp = document.createElement('div'); tmp.innerHTML = it.body || ''; await navigator.clipboard.writeText(tmp.textContent || ''); toast('Κείμενο αντιγράφηκε'); });
@@ -1247,6 +1265,45 @@ R.library = async function () {
   };
   $('#lbScope').onclick = e => { const b = e.target.closest('[data-scope]'); if (!b) { return; } st.scope = b.dataset.scope; st.cat = ''; load(); };
   $('#lbCats').onclick = e => { const b = e.target.closest('[data-cat]'); if (!b) { return; } st.cat = b.dataset.cat; load(); };
+  /* Ανάγνωση: εδώ το κείμενο έχει τη μορφοποίησή του ολόκληρη. Πριν, ο μόνος
+     τρόπος να διαβάσεις μια σημείωση ήταν να πατήσεις «επεξεργασία». */
+  function openLibView(it) {
+    const ovl = document.createElement('div'); ovl.className = 'ovl show';
+    ovl.innerHTML = `<div class="pal-box lb-read" onclick="event.stopPropagation()">
+      <div class="lb-read-h">
+        <b>${esc(it.title)}</b>
+        <span style="flex:1"></span>
+        ${it.canEdit ? `<button class="btn btn-sm btn-o" id="lvEdit">${I.edit} Επεξεργασία</button>` : ''}
+        <button class="btn btn-sm btn-o" id="lvCopy" title="αντιγραφή κειμένου">⧉</button>
+        <button class="drawer-x" id="lvX">✕</button>
+      </div>
+      <div class="lb-read-m">
+        ${it.category ? `<span class="pill">${esc(it.category)}</span>` : ''}
+        ${it.shared ? `<span class="pill" style="background:var(--ok)1a;color:var(--ok)">${I.users} κοινό</span>` : ''}
+        ${expBadge(it)}
+        ${it.updated ? `<span class="mut" style="font-size:11.5px">ενημερώθηκε ${esc(dShort(it.updated))}</span>` : ''}
+        ${(it.tags || '').split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9.5px">${esc(t.trim())}</span>`).join('')}
+      </div>
+      <div class="lb-doc">${it.body || '<span class="mut">Χωρίς κείμενο.</span>'}</div>
+      <div id="lvFiles" class="lb-read-f"></div>
+    </div>`;
+    document.body.appendChild(ovl);
+    const close = () => ovl.remove();
+    $('#lvX', ovl).onclick = close;
+    ovl.onclick = close;
+    document.addEventListener('keydown', function esc2(e) {
+      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc2); }
+    });
+    $('#lvCopy', ovl).onclick = async () => {
+      await navigator.clipboard.writeText(plain(it.body, false)); toast('Κείμενο αντιγράφηκε');
+    };
+    const ed = $('#lvEdit', ovl);
+    if (ed) { ed.onclick = () => { close(); openLibForm(it.kind, it); }; }
+    if (window.cnpAttachments) {
+      window.cnpAttachments($('#lvFiles', ovl), {module: 'library', refType: 'library', refId: it.id});
+    }
+  }
+
   function openLibForm(kind, item) {
     const isNew = !item;
     const ovl = document.createElement('div'); ovl.className = 'ovl show'; 
