@@ -1953,14 +1953,24 @@ case 'save_lead':
 case 'interaction':
     $leadId = (int) ($in['lead'] ?? 0) ?: null;
     $clientId = (int) ($in['client'] ?? 0) ?: null;
+    $offerId = (int) ($in['offer'] ?? 0) ?: null;
     $summary = mb_substr(trim($in['summary'] ?? ''), 0, 255);
-    if ((!$leadId && !$clientId) || $summary === '') {
+    if ((!$leadId && !$clientId && !$offerId) || $summary === '') {
         fail('input');
+    }
+    /* Η επικοινωνία μιας προσφοράς αφορά και τον πελάτη/lead της — τα γεμίζουμε
+       ώστε να φαίνεται και στο timeline του lead, όχι μόνο κάτω από την προσφορά. */
+    if ($offerId) {
+        $ofr = Db::offer($offerId);
+        if ($ofr) {
+            $clientId = $clientId ?: ((int) $ofr->clientid ?: null);
+            $leadId = $leadId ?: ((int) $ofr->lead_id ?: null);
+        }
     }
     if ($leadId && !$clientId) {
         $clientId = (int) (Db::lead($leadId)->clientid ?? 0) ?: null;
     }
-    Db::addInteraction(['lead_id' => $leadId, 'clientid' => $clientId,
+    Db::addInteraction(['lead_id' => $leadId, 'clientid' => $clientId, 'offer_id' => $offerId,
         'kind' => array_key_exists($in['kind'] ?? '', Db::interactionKinds()) ? $in['kind'] : 'note',
         'summary' => $summary, 'detail' => null, 'admin_id' => $adminId,
         'happened_at' => date('Y-m-d H:i:s'),
@@ -2208,6 +2218,12 @@ case 'offers':
                 ? (int) floor((strtotime((string) $o->followup_date) - strtotime('today')) / 86400) : null,
             'validUntil' => ($o->quote_validuntil && strpos((string) $o->quote_validuntil, '0000') !== 0)
                 ? substr((string) $o->quote_validuntil, 0, 10) : null,
+            // Η αλυσίδα: από ποιο lead ήρθε, σε ποιο έργο κατέληξε.
+            'project' => (int) (Capsule::table('mod_cpm_projects')->where('offer_id', $o->id)->value('id') ?: 0) ?: null,
+            'leadName' => $o->lead_id
+                ? (string) (Capsule::table('mod_cpm_leads')->where('id', $o->lead_id)->value('company')
+                    ?: Capsule::table('mod_cpm_leads')->where('id', $o->lead_id)->value('contact') ?: '')
+                : null,
             'validIn' => ($o->quote_validuntil && strpos((string) $o->quote_validuntil, '0000') !== 0)
                 ? (int) floor((strtotime((string) $o->quote_validuntil) - strtotime('today')) / 86400) : null];
     }
@@ -2277,6 +2293,33 @@ case 'offer_track':                      // αποστολή / απάντηση 
         Capsule::table('mod_cpm_offers')->where('id', $o->id)->update($d);
     }
     out(['ok' => true]);
+
+case 'offer_timeline':                   // επικοινωνίες + ορόσημα μιας προσφοράς
+    $o = Db::offer((int) ($_GET['offer'] ?? 0));
+    if (!$o) {
+        fail('offer', 404);
+    }
+    $ev = [];
+    foreach (Capsule::table('mod_cpm_interactions')->where('offer_id', $o->id)->get() as $i) {
+        $ev[] = ['type' => 'interaction', 'kind' => $i->kind, 'text' => $i->summary,
+            'by' => $i->admin_id ? Db::adminName((int) $i->admin_id) : null,
+            'at' => $i->happened_at ?: $i->created_at,
+            'fup' => $i->followup_date && !$i->followup_done ? $i->followup_date : null];
+    }
+    // Ορόσημα από την ίδια την προσφορά — για να διαβάζεται η ιστορία ολόκληρη.
+    if ($o->created_at) {
+        $ev[] = ['type' => 'milestone', 'kind' => 'new', 'text' => 'Δημιουργήθηκε η προσφορά', 'at' => $o->created_at];
+    }
+    if ($o->sent_at) {
+        $ev[] = ['type' => 'milestone', 'kind' => 'sent', 'text' => 'Στάλθηκε στον πελάτη', 'at' => $o->sent_at . ' 09:00:00'];
+    }
+    if ($o->replied_at) {
+        $lbl = ['yes' => 'Αποδέχτηκε', 'no' => 'Απέρριψε', 'thinking' => 'Το σκέφτεται'];
+        $ev[] = ['type' => 'milestone', 'kind' => 'reply',
+            'text' => ($lbl[(string) $o->reply] ?? 'Απάντησε'), 'at' => $o->replied_at . ' 09:00:00'];
+    }
+    usort($ev, function ($a, $b) { return strcmp((string) $b['at'], (string) $a['at']); });
+    out(['events' => array_slice($ev, 0, 60)]);
 
 case 'create_quote':
     $o = Db::offer((int) ($in['offer'] ?? 0));

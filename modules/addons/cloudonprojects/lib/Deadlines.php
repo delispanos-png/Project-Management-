@@ -34,7 +34,64 @@ class Deadlines
         $sent = 0;
         $sent += self::tasks($dry);
         $sent += self::projects($dry);
+        $sent += self::offers($dry);
         return $sent;
+    }
+
+    /**
+     * Προσφορά που λήγει χωρίς απάντηση. Είναι το πιο ακριβό «ξέχασμα» των
+     * πωλήσεων: η ισχύς περνά, ο πελάτης δεν απάντησε, και χάνεται η ευκαιρία
+     * να ξαναχτυπήσουμε όσο ήταν ζεστός.
+     */
+    private static function offers($dry)
+    {
+        $today = strtotime('today');
+        $n = 0;
+
+        $rows = Capsule::table('mod_cpm_offers as o')
+            ->leftJoin('tblquotes as q', 'q.id', '=', 'o.quoteid')
+            ->whereNotIn('o.stage', ['accepted', 'lost'])
+            ->select('o.*', 'q.validuntil')->get();
+
+        foreach ($rows as $o) {
+            if ($o->reply === 'yes' || $o->reply === 'no') {
+                continue;   // απαντήθηκε — δεν εκκρεμεί ειδοποίηση
+            }
+            /* Ισχύς από το WHMCS quote· αν η προσφορά δεν είναι δεμένη σε quote,
+               μετράει η δική της ημερομηνία-στόχος — αλλιώς οι χειροκίνητες
+               προσφορές δεν θα ειδοποιούσαν ποτέ. */
+            $valid = (string) ($o->validuntil ?: '');
+            if ($valid === '' || strpos($valid, '0000') === 0) {
+                $valid = (string) ($o->expected_close ?: '');
+            }
+            if ($valid === '' || strpos($valid, '0000') === 0) {
+                continue;   // χωρίς ημερομηνία δεν υπάρχει τι να λήξει
+            }
+            $days = (int) floor((strtotime(substr($valid, 0, 10)) - $today) / 86400);
+            $level = self::level($days);
+            if ($level === null || ($level === 'over' && $days < -3)) {
+                continue;   // μετά από 3 μέρες λήξης έχει ειπωθεί — δεν επαναλαμβάνουμε
+            }
+
+            $to = [];
+            if ($o->assignee) { $to[(int) $o->assignee] = 'assignee'; }
+            if ($o->created_by) { $to[(int) $o->created_by] = 'owner'; }
+            if (!$to) { continue; }
+
+            $what = $days < 0 ? 'έληξε χωρίς απάντηση' : self::phrase($days) . ' χωρίς απάντηση';
+            $line = 'Προσφορά «' . mb_substr((string) $o->title, 0, 60) . '» — ' . $what;
+            foreach ($to as $adminId => $role) {
+                if (!self::claim('offer', (int) $o->id, $level, (int) $adminId, $dry)) {
+                    continue;
+                }
+                if (!$dry) {
+                    Db::pushNotification((int) $adminId, $days < 0 ? 'overdue' : 'due',
+                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, '/project/#/offers');
+                }
+                $n++;
+            }
+        }
+        return $n;
     }
 
     /* ───────────────────────── Εργασίες ───────────────────────── */

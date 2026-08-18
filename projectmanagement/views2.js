@@ -516,7 +516,11 @@ R.offers = async function () {
         </tr></thead><tbody>
         ${rows.map(o => `<tr style="border-top:1px solid var(--line)">
           <td style="padding:8px 12px"><b class="lb-title" data-offer="${o.id}">${esc(o.title)}</b>
-            ${o.quote ? `<span class="pill pill-info" style="margin-left:5px">Q${o.quote}</span>` : ''}</td>
+            ${o.quote ? `<span class="pill pill-info" style="margin-left:5px">Q${o.quote}</span>` : ''}
+            <div class="mut" style="font-size:10.5px;margin-top:2px">
+              ${o.leadName ? `<span data-goleadof="${o.lead}" style="cursor:pointer;color:var(--brand)">από lead: ${esc(o.leadName)}</span>` : ''}
+              ${o.project ? `${o.leadName ? ' · ' : ''}<span data-goprojof="${o.project}" style="cursor:pointer;color:var(--brand)">→ έργο</span>` : ''}
+            </div></td>
           <td style="padding:8px 12px">${esc(o.clientName || '—')}</td>
           <td style="padding:8px 12px;white-space:nowrap">${o.value > 0 ? fmtEur(o.value) : '<span class="mut">—</span>'}</td>
           <td style="padding:8px 12px;white-space:nowrap">${o.sentAt ? esc(dShort(o.sentAt)) : '<span class="mut">—</span>'}</td>
@@ -573,6 +577,8 @@ R.offers = async function () {
 
   $$('[data-otab]').forEach(b => b.onclick = () => { st.tab = b.dataset.otab; R.offers(); });
   $$('[data-otrack]').forEach(b => b.onclick = () => openTrack(d.offers.find(o => o.id === +b.dataset.otrack)));
+  $$('[data-goleadof]').forEach(b => b.onclick = e => { e.stopPropagation(); go('crm'); });
+  $$('[data-goprojof]').forEach(b => b.onclick = e => { e.stopPropagation(); go('board', +b.dataset.goprojof); });
   $$('.lb-title[data-offer]').forEach(b => b.onclick = () => openOffer(d.offers.find(o => o.id === +b.dataset.offer), d));
   $('#newOffer').onclick = () => openOffer(null, d);
   const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
@@ -637,6 +643,18 @@ function openTrack(o) {
         <button class="btn btn-p" id="tkSave">Αποθήκευση</button>
         <button class="btn btn-o" id="tkX">Άκυρο</button>
       </div>
+
+      <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+        <div class="lbl" style="margin-bottom:7px">${I.chat} Επικοινωνίες</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <select class="inp" id="tkIKind" style="width:120px">
+            <option value="call">Τηλέφωνο</option><option value="email">Email</option>
+            <option value="meeting">Συνάντηση</option><option value="note">Σημείωση</option>
+          </select>
+          <input class="inp" id="tkISum" style="flex:1;min-width:150px" maxlength="255" placeholder="τι ειπώθηκε… (Enter)">
+        </div>
+        <div id="tkTl" style="margin-top:10px"><div class="mut" style="font-size:12px">Φόρτωση…</div></div>
+      </div>
     </div></div>`;
   document.body.appendChild(ovl);
   const close = () => ovl.remove();
@@ -655,6 +673,30 @@ function openTrack(o) {
       toast('Καταγράφηκε'); close(); R.offers();
     };
   }
+  /* Το νήμα της προσφοράς: κάθε επαφή με ημερομηνία, ώστε να θυμάσαι τι
+     ειπώθηκε πριν ξαναπάρεις τηλέφωνο. */
+  const kindLbl = {call: '📞', email: '✉️', meeting: '🤝', note: '📝',
+    new: '🆕', sent: '📤', reply: '💬'};
+  const loadTl = async () => {
+    const box = $('#tkTl', ovl); if (!box) { return; }
+    const t = await api('offer_timeline&offer=' + o.id).catch(() => ({events: []}));
+    box.innerHTML = t.events.length ? t.events.map(e => `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line)">
+      <span style="flex:none">${kindLbl[e.kind] || '•'}</span>
+      <span style="flex:1;font-size:12.5px;line-height:1.45">${esc(e.text)}
+        ${e.by ? `<span class="mut"> · ${esc(e.by)}</span>` : ''}
+        ${e.fup ? `<span class="pill pill-warn" style="font-size:9px">follow-up ${esc(dShort(e.fup))}</span>` : ''}</span>
+      <span class="mut" style="flex:none;font-size:11px">${esc(dShort(e.at))}</span></div>`).join('')
+      : '<div class="mut" style="font-size:12px">Καμία επικοινωνία ακόμη.</div>';
+  };
+  loadTl();
+  $('#tkISum', ovl).onkeydown = async e => {
+    if (e.key !== 'Enter') { return; }
+    const v = e.target.value.trim(); if (!v) { return; }
+    e.target.value = '';
+    await api('interaction', {offer: o.id, kind: $('#tkIKind', ovl).value, summary: v});
+    loadTl();
+  };
+
   $('#tkSave', ovl).onclick = async () => {
     await api('offer_track', {offer: o.id,
       sent: $('#tkSent', ovl).value || null, replied: $('#tkRepl', ovl).value || null,
