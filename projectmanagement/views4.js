@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
-const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, today, toast, setTop, go,
+const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, I, $, $$} = window.CNP;
 const R = window.R;
 
@@ -1218,7 +1218,7 @@ R.library = async function () {
           ${st.scope === 'shared' && !it.canEdit ? `<span class="mut" style="font-size:10px">· ${esc(it.ownerName)}</span>` : ''}</div>
         ${it.kind === 'note' && it.body ? `<div class="lb-prev">${esc(plain(it.body))}</div>` : ''}
         ${it.kind === 'link' && it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand);word-break:break-all">${esc(it.url)}</a>` : ''}
-        ${it.updated ? `<div class="mut" style="font-size:10.5px;margin-top:3px">ενημερώθηκε ${esc(dShort(it.updated))}</div>` : ''}
+        ${it.updated ? `<div class="mut" style="font-size:10.5px;margin-top:3px">ενημερώθηκε ${esc(dFull(it.updated))}</div>` : ''}
         ${it.tags ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${it.tags.split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
       </div>
       <div style="flex:none;display:flex;gap:3px">
@@ -1281,7 +1281,7 @@ R.library = async function () {
         ${it.category ? `<span class="pill">${esc(it.category)}</span>` : ''}
         ${it.shared ? `<span class="pill" style="background:var(--ok)1a;color:var(--ok)">${I.users} κοινό</span>` : ''}
         ${expBadge(it)}
-        ${it.updated ? `<span class="mut" style="font-size:11.5px">ενημερώθηκε ${esc(dShort(it.updated))}</span>` : ''}
+        ${it.updated ? `<span class="mut" style="font-size:11.5px">ενημερώθηκε ${esc(dFull(it.updated))}</span>` : ''}
         ${(it.tags || '').split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9.5px">${esc(t.trim())}</span>`).join('')}
       </div>
       <div class="lb-doc">${it.body || '<span class="mut">Χωρίς κείμενο.</span>'}</div>

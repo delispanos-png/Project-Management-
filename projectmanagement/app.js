@@ -8,6 +8,15 @@ const fmtMin = m => { m = +m || 0; const h = Math.floor(m / 60), r = m % 60; ret
 const fmtEur = v => (+v || 0).toLocaleString((window.CNP_LOCALE||'el-GR'), {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
 const dShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleDateString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit'}) : '';
 const tShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
+/* Πλήρης ημερομηνία, ΠΑΝΤΑ ηη/μμ/εεεε. Το ISO (2026-08-18) και η αμερικανική
+   σειρά δεν εμφανίζονται πουθενά στην εφαρμογή. */
+const dFull = d => {
+  if (!d) { return ''; }
+  const t = new Date(String(d).replace(' ', 'T'));
+  if (isNaN(t)) { return String(d); }
+  const p2 = n => String(n).padStart(2, '0');
+  return `${p2(t.getDate())}/${p2(t.getMonth() + 1)}/${t.getFullYear()}`;
+};
 const today = () => new Date().toISOString().slice(0, 10);
 
 const I = { // inline icons
@@ -1882,7 +1891,7 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-window.CNP = {S, api, esc, askDone, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, askDone, dFull, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */

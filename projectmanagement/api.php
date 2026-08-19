@@ -113,6 +113,18 @@ function initials($name)
  * καλύπτουν την αξία, Ή όταν είναι σημασμένο «Paid» (η πλατφόρμα δουλευόταν
  * χειροκίνητα επί χρόνια — η σήμανση είναι η αλήθεια).
  */
+/**
+ * Ημερομηνία για ανθρώπους: πάντα ηη/μμ/εεεε. Το ISO μένει μόνο στη βάση και
+ * στα ερωτήματα — ποτέ σε οθόνη ή σε CSV που ανοίγει το λογιστήριο.
+ */
+function cnp_d($v)
+{
+    $v = trim((string) $v);
+    if ($v === '' || strpos($v, '0000') === 0) { return ''; }
+    $ts = strtotime($v);
+    return $ts ? date('d/m/Y', $ts) : $v;
+}
+
 function cnp_receivables()
 {
     static $cache = null;
@@ -6427,7 +6439,7 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
         foreach ($mm as $cid => $diff) {
             $rows = $gaps['inv'][$cid] ?? [];
             foreach ($rows as $x) {
-                fputcsv($f3, [$cid, $nm($cid), $n3($diff), $x['num'], $x['date'], $x['status'],
+                fputcsv($f3, [$cid, $nm($cid), $n3($diff), $x['num'], cnp_d($x['date']), $x['status'],
                     $n3($x['gross']), $n3($x['paid']), $n3($x['diff']), $x['why']], ';');
             }
             // Αιτίες που δεν κρέμονται σε συγκεκριμένο παραστατικό
@@ -6463,7 +6475,7 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
         fputcsv($f3, ['Παραστατικό', 'ID πελάτη', 'Πελάτης', 'Ημερομηνία', 'Ημ. εξόφλησης',
             'Τρόπος πληρωμής', 'Αξία', 'Εισπράξεις + πίστωση', 'Από αυτά πίστωση', 'Λείπει'], ';');
         foreach (cnp_assumed_paid()['rows'] as $r) {
-            fputcsv($f3, [$r['num'], $r['client'], $nm($r['client']), $r['date'], $r['datepaid'],
+            fputcsv($f3, [$r['num'], $r['client'], $nm($r['client']), cnp_d($r['date']), cnp_d($r['datepaid']),
                 $r['method'], $n3($r['gross']), $n3($r['paid']), $n3($r['credit']), $n3($r['gap'])], ';');
         }
     } elseif ($sc === 'zombie') {
@@ -6473,9 +6485,9 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
         foreach (cnp_zombies($nm) as $z) {
             fputcsv($f3, [$z['service'], $z['domain'], $z['client'], $z['name'], $z['status'],
                 $n3($z['amount']), $z['cycle'], $z['sub'], $z['realSub'] ? 'ΝΑΙ' : 'κατάλοιπο',
-                $z['cancel'] ?: '', $z['cancelSrc'], $z['payN'],
+                cnp_d($z['cancel']), $z['cancelSrc'], $z['payN'],
                 $n3($z['openAmt']), $n3($z['orphan']), $n3($z['openAmt'] + $z['orphan']),
-                $z['lastPay'] ?: '', $z['lastAmt'] !== null ? $n3($z['lastAmt']) : ''], ';');
+                cnp_d($z['lastPay']), $z['lastAmt'] !== null ? $n3($z['lastAmt']) : ''], ';');
         }
     } else {
         fputcsv($f3, ['ID πελάτη', 'Πελάτης', 'Οφειλή', 'Ανεξόφλητα WHMCS'], ';');
@@ -6689,7 +6701,8 @@ case 'pay_statement_csv':                // Η καρτέλα σε CSV για τ
         $b2 += $e[2] - $e[3];
         $d2 += $e[2];
         $c2 += $e[3];
-        fputcsv($f2, [$e[0], $e[1], $n2($e[2]), $n2($e[3]), number_format($b2, 2, ',', ''), $e[4], $e[5]], ';');
+        // Ταξινομήσαμε με ISO· στην έξοδο γράφουμε ηη/μμ/εεεε.
+        fputcsv($f2, [cnp_d($e[0]), $e[1], $n2($e[2]), $n2($e[3]), number_format($b2, 2, ',', ''), $e[4], $e[5]], ';');
     }
     fputcsv($f2, [], ';');
     fputcsv($f2, ['ΣΥΝΟΛΑ', '', number_format($d2, 2, ',', ''), number_format($c2, 2, ',', ''),
@@ -6865,7 +6878,7 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
         $totFee += (float) $a->fees;
 
         fputcsv($fh, [
-            substr($a->date, 0, 10), substr($a->date, 11, 5),
+            cnp_d($a->date), substr($a->date, 11, 5),
             $num($a->amountin), $num($a->fees), $num((float) $a->amountin - (float) $a->fees),
             $a->gateway,
             $types[$tt] ?? $tt,
@@ -6876,7 +6889,7 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
             $cl ? trim($cl->firstname . ' ' . $cl->lastname) : '',
             $cl->email ?? '',
             $inv->invoicenum ?? '',
-            $inv ? substr($inv->date, 0, 10) : '',
+            $inv ? cnp_d($inv->date) : '',
             $inv ? $num($inv->subtotal + $inv->tax + $inv->tax2) : '',
             $inv ? $num($inv->credit) : '',
             $inv ? $num($inv->total) : '',

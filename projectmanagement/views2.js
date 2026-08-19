@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλα τα κυκλώματα) ═══════════ */
 'use strict';
-const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop,
+const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, today, toast, setTop,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
@@ -523,7 +523,7 @@ R.offers = async function () {
             </div></td>
           <td style="padding:8px 12px">${esc(o.clientName || '—')}</td>
           <td style="padding:8px 12px;white-space:nowrap">${o.value > 0 ? fmtEur(o.value) : '<span class="mut">—</span>'}</td>
-          <td style="padding:8px 12px;white-space:nowrap">${o.sentAt ? esc(dShort(o.sentAt)) : '<span class="mut">—</span>'}</td>
+          <td style="padding:8px 12px;white-space:nowrap">${o.sentAt ? esc(dFull(o.sentAt)) : '<span class="mut">—</span>'}</td>
           <td style="padding:8px 12px">${replyPill(o)}</td>
           <td style="padding:8px 12px;white-space:nowrap">${o.followup
             ? `<span style="color:${o.followupIn <= 0 ? 'var(--bad)' : (o.followupIn <= 2 ? 'var(--warn)' : 'inherit')};font-weight:700">${esc(dLbl(o.followupIn, 'πριν', 'σε'))}</span>
@@ -1289,7 +1289,7 @@ R.paytrace = async function () {
       body = a.rows.map(r => {
         const bad = (r.bad || []).map(x => `<span style="display:inline-block;margin:0 14px 3px 0">
             <a href="/cloudonadminpanel/index.php/billing/invoice/${x.invoice}" target="_blank" style="color:var(--brand)">${esc(x.num)}</a>
-            <span class="mut">${esc(x.date)}</span> <b>${money(x.diff)}</b>
+            <span class="mut">${esc(dFull(x.date))}</span> <b>${money(x.diff)}</b>
             <span style="color:${x.diff > 0 ? 'var(--bad)' : '#e0a020'}">${esc(x.why)}</span></span>`).join('');
         return `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
@@ -1297,7 +1297,7 @@ R.paytrace = async function () {
         <td style="padding:7px 12px">${money(r.whmcs)}</td>
         <td style="padding:7px 12px;font-weight:700;color:var(--bad)">${money(r.diff)}</td>
         <td style="padding:7px 12px">${r.badN ? r.badN + (r.badN === 1 ? ' παραστατικό' : ' παραστατικά') : '<span class="mut">—</span>'}
-          ${r.oldest ? `<div class="mut" style="font-size:10.5px">παλαιότερο ${esc(r.oldest)}</div>` : ''}
+          ${r.oldest ? `<div class="mut" style="font-size:10.5px">παλαιότερο ${esc(dFull(r.oldest))}</div>` : ''}
           ${r.unalloc ? `<div style="font-size:10.5px;color:#e0a020">${money(r.unalloc)} πληρωμές χωρίς παραστατικό</div>` : ''}
           ${r.onCancelled ? `<div style="font-size:10.5px;color:#e0a020">${money(r.onCancelled)} σε ${r.onCancelledN} ακυρωμένα παραστατικά</div>` : ''}</td></tr>
         ${bad ? `<tr><td colspan="5" style="padding:0 12px 8px 12px;font-size:11.5px" class="mut">${bad}${r.badN > (r.bad || []).length ? ` <span class="mut">…και ${r.badN - r.bad.length} ακόμη</span>` : ''}</td></tr>` : ''}`;
@@ -1323,7 +1323,7 @@ R.paytrace = async function () {
       body = a.rows.map(r => {
         const bad = (r.openAmt || 0) + (r.orphan || 0);
         const pay = (r.pays || []).map(p => `<span style="display:inline-block;margin:0 12px 3px 0;${p.refunded ? 'opacity:.55;text-decoration:line-through' : ''}">
-            ${esc(p.date)} <b>${money(p.amount)}</b>
+            ${esc(dFull(p.date))} <b>${money(p.amount)}</b>
             ${p.refunded ? '<span style="color:#16a26a">επιστράφηκε</span>'
               : p.invoice ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${p.invoice}" target="_blank" style="color:var(--brand)">παρ. ${p.invoice}</a>`
               : '<span style="color:var(--bad);font-weight:700">χωρίς παραστατικό</span>'}</span>`).join('');
@@ -1333,7 +1333,7 @@ R.paytrace = async function () {
         <td style="padding:7px 12px">${money(r.amount)}<span class="mut" style="font-size:11px">/${esc(r.cycle)}</span></td>
         <td style="padding:7px 12px;font-family:ui-monospace,monospace;font-size:11px">${esc(r.sub)}
           ${r.realSub ? '' : '<div class="mut" style="font-family:inherit;font-size:10.5px">κατάλοιπο, όχι συνδρομή PayPal</div>'}</td>
-        <td style="padding:7px 12px">${r.cancel ? esc(r.cancel) + `<div class="mut" style="font-size:10.5px">${esc(r.cancelSrc || '')}</div>` : '<span class="mut">άγνωστη</span>'}</td>
+        <td style="padding:7px 12px">${r.cancel ? esc(dFull(r.cancel)) + `<div class="mut" style="font-size:10.5px">${esc(r.cancelSrc || '')}</div>` : '<span class="mut">άγνωστη</span>'}</td>
         <td style="padding:7px 12px">${r.payN ? r.payN + '×' : '<span class="mut">—</span>'}</td>
         <td style="padding:7px 12px;font-weight:700;color:${bad ? 'var(--bad)' : 'var(--mut)'}">${bad ? money(bad) : '—'}
           ${r.orphan ? '<div style="font-weight:600;font-size:10.5px">χωρίς παραστατικό</div>' : ''}</td></tr>
@@ -1346,8 +1346,8 @@ R.paytrace = async function () {
       body = a.rows.map(r => `<tr style="border-top:1px solid var(--line)">
         <td style="padding:7px 12px"><a href="/cloudonadminpanel/index.php/billing/invoice/${r.invoice}" target="_blank" style="color:var(--brand)">${esc(r.num)}</a></td>
         <td style="padding:7px 12px">${link(r.client, r.name)}</td>
-        <td style="padding:7px 12px">${esc(r.date)}</td>
-        <td style="padding:7px 12px">${esc(r.datepaid || '—')}</td>
+        <td style="padding:7px 12px">${esc(dFull(r.date))}</td>
+        <td style="padding:7px 12px">${r.datepaid ? esc(dFull(r.datepaid)) : '—'}</td>
         <td style="padding:7px 12px" class="mut">${esc(r.method || '—')}</td>
         <td style="padding:7px 12px">${money(r.gross)}</td>
         <td style="padding:7px 12px">${r.paid ? money(r.paid) : '<span class="mut">—</span>'}</td>
@@ -1415,7 +1415,7 @@ R.paytrace = async function () {
           </tr></thead>
           <tbody>
           ${st2.rows.map(r => `<tr style="border-top:1px solid var(--line)">
-            <td style="padding:7px 12px;white-space:nowrap">${esc(String(r.date).slice(0, 10))}</td>
+            <td style="padding:7px 12px;white-space:nowrap">${esc(dFull(r.date))}</td>
             <td style="padding:7px 12px">${r.ref
                 ? `<a href="/cloudonadminpanel/index.php/billing/invoice/${r.ref}" target="_blank" style="color:var(--brand)">${esc(r.label)}</a>`
                 : esc(r.label)}</td>
