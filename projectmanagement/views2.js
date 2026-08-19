@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλα τα κυκλώματα) ═══════════ */
 'use strict';
-const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, today, toast, setTop,
+const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
@@ -660,11 +660,11 @@ function openTrack(o) {
   const close = () => ovl.remove();
   ovl.onclick = close;
   $('#tkX', ovl).onclick = close;
-  $$('[data-fup]', ovl).forEach(b => b.onclick = () => { $('#tkFup', ovl).value = b.dataset.fup; });
+  $$('[data-fup]', ovl).forEach(b => b.onclick = () => cnpSetDate($('#tkFup', ovl), b.dataset.fup));
   /* Αν δηλωθεί απάντηση χωρίς ημερομηνία, βάζουμε σήμερα — αλλιώς μένει κενή
      και δεν ξέρουμε πότε απάντησαν. */
   $('#tkReply', ovl).onchange = () => {
-    if ($('#tkReply', ovl).value && !$('#tkRepl', ovl).value) { $('#tkRepl', ovl).value = today(); }
+    if ($('#tkReply', ovl).value && !$('#tkRepl', ovl).value) { cnpSetDate($('#tkRepl', ovl), today()); }
   };
   const done = $('#tkDone', ovl);
   if (done) {

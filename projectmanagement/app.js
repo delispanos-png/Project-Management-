@@ -882,6 +882,62 @@ document.addEventListener('click', e => {
   const c3 = e.target.closest('[data-c360]');
   if (c3) { e.preventDefault(); closeDrawer(); go('client360', +c3.dataset.c360); }
 });
+/* ── Ημερομηνίες πάντα ηη/μμ/εεεε ──────────────────────────────────────────
+   Το native input[type=date] το ζωγραφίζει ο browser και ακολουθεί ΤΗ ΓΛΩΣΣΑ
+   ΤΟΥ BROWSER — ούτε το <html lang> ούτε τίποτα δικό μας το αλλάζει (το
+   επιβεβαιώσαμε: με locale el-GR έδειχνε πάλι mm/dd/yyyy).
+
+   Λύση: κρατάμε το ίδιο το input (άρα μένουν το ημερολόγιο, η ρόδα στο κινητό
+   και το .value σε ISO — καμία αλλαγή στον υπόλοιπο κώδικα), κάνουμε το κείμενό
+   του διαφανές και ζωγραφίζουμε από πάνω τη δική μας μορφή. */
+function cnpDateSkin(inp) {
+  if (inp.dataset.cnpDs) { return; }
+  inp.dataset.cnpDs = '1';
+  const wrap = document.createElement('span');
+  wrap.className = 'cnp-dw';
+  inp.parentNode.insertBefore(wrap, inp);
+  wrap.appendChild(inp);
+  const lbl = document.createElement('span');
+  lbl.className = 'cnp-dt';
+  wrap.appendChild(lbl);
+  const paint = () => {
+    const v = inp.value;
+    lbl.textContent = v ? dFull(v) : 'ηη/μμ/εεεε';
+    lbl.classList.toggle('empty', !v);
+  };
+  inp.addEventListener('input', paint);
+  inp.addEventListener('change', paint);
+  inp.addEventListener('blur', paint);
+  /* Ο κώδικας αλλάζει τιμές και προγραμματιστικά (π.χ. «σε 1 εβδομάδα»), οπότε
+     δεν αρκούν τα events του χρήστη. */
+  wrap._cnpPaint = paint;
+  paint();
+}
+/* ΠΡΟΣΟΧΗ: η ζωγραφική της ένδειξης είναι κι αυτή αλλαγή στο DOM. Αν ο
+   observer ζωγράφιζε σε κάθε μεταβολή, θα αυτοτροφοδοτούνταν σε ατέρμονο
+   βρόχο. Γι' αυτό εδώ γίνεται ΜΟΝΟ ντύσιμο των καινούριων πεδίων. */
+function cnpDatesScan() {
+  const fresh = document.querySelectorAll('input[type=date]:not([data-cnp-ds])');
+  if (!fresh.length) { return; }
+  fresh.forEach(cnpDateSkin);
+}
+let cnpDsQueued = false;
+new MutationObserver(() => {
+  if (cnpDsQueued) { return; }
+  cnpDsQueued = true;
+  requestAnimationFrame(() => { cnpDsQueued = false; cnpDatesScan(); });
+}).observe(document.documentElement, {childList: true, subtree: true});
+document.addEventListener('DOMContentLoaded', cnpDatesScan);
+setTimeout(cnpDatesScan, 300);
+
+/* Όταν ο κώδικας βάζει τιμή μόνος του (π.χ. «σε 1 εβδομάδα»), το input δεν
+   στέλνει event — το κάνουμε εμείς, ώστε να ενημερωθεί η ένδειξη. */
+function cnpSetDate(inp, iso) {
+  if (!inp) { return; }
+  inp.value = iso || '';
+  inp.dispatchEvent(new Event('change'));
+}
+
 function setTop(t, sub) {
   $('#topTitle').textContent = t;
   $('#topSub').textContent = sub || new Date().toLocaleDateString((window.CNP_LOCALE||'el-GR'), {weekday: 'long', day: 'numeric', month: 'long'});
@@ -1891,7 +1947,7 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-window.CNP = {S, api, esc, askDone, dFull, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */
