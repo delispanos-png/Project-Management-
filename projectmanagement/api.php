@@ -1625,6 +1625,121 @@ case 'crm_overview':
         'lostReasons' => array_slice(array_reverse($lostReasons), 0, 10)]);
 
 /* ================= KPI (διοίκηση) ================= */
+case 'perf':                             // 📊 Απόδοση χειριστών σε tickets & tasks
+    if (!$FULL) { fail('forbidden', 403); }
+    /* Τι μετράμε και γιατί ΑΥΤΟ:
+       - Οι απαντήσεις σε tickets είναι το πραγματικό σήμα δουλειάς. Η ανάθεση
+         (tblticketreplies→flag) είναι άχρηστη εδώ: 553 από 629 tickets είναι
+         χωρίς ανάθεση, ενώ κάποιος τα δούλεψε.
+       - Ο χρόνος πρώτης απάντησης δείχνει ανταπόκριση· κρατάμε ΔΙΑΜΕΣΟ, όχι μέσο
+         όρο, γιατί ένα ticket που έμεινε ένα Σαββατοκύριακο τραβάει τον μέσο.
+       - Τα timelogs ΔΕΝ μετρώνται: έχουν 2 εγγραφές συνολικά, οπότε θα έδειχναν
+         ψευδώς μηδενική απόδοση. */
+    $pf = in_array($_GET['p'] ?? 'month', ['week', 'month', 'q'], true) ? $_GET['p'] : 'month';
+    if ($pf === 'week')      { $pfFrom = date('Y-m-d', strtotime('monday this week')); }
+    elseif ($pf === 'month') { $pfFrom = date('Y-m-01'); }
+    else                     { $pfFrom = date('Y-m-d', strtotime('-90 days')); }
+    $pfTo = date('Y-m-d');
+    $fromTs = $pfFrom . ' 00:00:00';
+    $toTs = $pfTo . ' 23:59:59';
+    $doneIdsP = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+
+    /* Οι απαντήσεις κρατούν ΟΝΟΜΑ, όχι id — και άλλοτε username. Χτίζουμε
+       αντιστοίχιση και για τα δύο, αλλιώς χάνονται δεκάδες απαντήσεις. */
+    $people = [];
+    foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'firstname', 'lastname', 'username']) as $a) {
+        $nm = trim($a->firstname . ' ' . $a->lastname);
+        if (preg_match('/\b(bot|debug|good ?day|chat ?bot)\b/i', $nm . ' ' . $a->username)) { continue; }
+        $people[(int) $a->id] = ['name' => $nm ?: $a->username,
+            'keys' => array_values(array_unique(array_filter([$nm, (string) $a->username])))];
+    }
+    $keyToId = [];
+    foreach ($people as $aid => $p) {
+        foreach ($p['keys'] as $k) { $keyToId[mb_strtolower($k)] = $aid; }
+    }
+
+    // Απαντήσεις περιόδου, ανά χειριστή και ανά ημέρα
+    $repl = []; $byDay = []; $touched = [];
+    foreach (Capsule::table('tblticketreplies')->where('admin', '!=', '')->whereNotNull('admin')
+                 ->whereBetween('date', [$fromTs, $toTs])->get(['tid', 'admin', 'date']) as $rp) {
+        $aid = $keyToId[mb_strtolower(trim((string) $rp->admin))] ?? 0;
+        if (!$aid) { continue; }
+        $repl[$aid] = ($repl[$aid] ?? 0) + 1;
+        $d = substr((string) $rp->date, 0, 10);
+        $byDay[$aid][$d] = ($byDay[$aid][$d] ?? 0) + 1;
+        $touched[$aid][(int) $rp->tid] = true;
+    }
+
+    /* Χρόνος πρώτης απάντησης: για κάθε ticket της περιόδου, η πρώτη απάντηση
+       διαχειριστή. Χρεώνεται σε αυτόν που απάντησε πρώτος. */
+    $frt = [];
+    foreach (Capsule::table('tbltickets')->whereBetween('date', [$fromTs, $toTs])
+                 ->get(['id', 'date']) as $tk) {
+        $first = Capsule::table('tblticketreplies')->where('tid', $tk->id)
+            ->where('admin', '!=', '')->whereNotNull('admin')->orderBy('id')->first(['admin', 'date']);
+        if (!$first) { continue; }
+        $aid = $keyToId[mb_strtolower(trim((string) $first->admin))] ?? 0;
+        if (!$aid) { continue; }
+        $mins = (int) round((strtotime((string) $first->date) - strtotime((string) $tk->date)) / 60);
+        if ($mins < 0) { continue; }
+        $frt[$aid][] = $mins;
+    }
+    $median = function (array $v) {
+        if (!$v) { return null; }
+        sort($v);
+        $n = count($v);
+        return (int) ($n % 2 ? $v[intdiv($n, 2)] : round(($v[$n / 2 - 1] + $v[$n / 2]) / 2));
+    };
+
+    $rows = [];
+    foreach ($people as $aid => $p) {
+        $tasksDone = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
+            ->whereBetween('completed_at', [$fromTs, $toTs])->get(['due_date', 'completed_at']);
+        $onT = 0; $late = 0;
+        foreach ($tasksDone as $t) {
+            if (!$t->due_date || strpos((string) $t->due_date, '0000') === 0) { continue; }
+            if (substr((string) $t->completed_at, 0, 10) <= $t->due_date) { $onT++; } else { $late++; }
+        }
+        $openT = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
+            ->whereNotIn('status_id', $doneIdsP)->count();
+        $overdueT = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
+            ->whereNotIn('status_id', $doneIdsP)->whereNotNull('due_date')
+            ->where('due_date', '!=', '0000-00-00')->where('due_date', '<', $pfTo)->count();
+        $ballT = (int) Capsule::table('mod_cpm_tasks')->where('action_user', $aid)
+            ->whereNotIn('status_id', $doneIdsP)->count();
+        $tkOpenNow = (int) Capsule::table('tbltickets')->where('flag', $aid)
+            ->whereNotIn('status', ['Closed', 'Cancelled'])->count();
+
+        $r = ['id' => $aid, 'name' => $p['name'],
+            'replies' => (int) ($repl[$aid] ?? 0),
+            'tickets' => isset($touched[$aid]) ? count($touched[$aid]) : 0,
+            'frtMed' => $median($frt[$aid] ?? []),
+            'frtN' => count($frt[$aid] ?? []),
+            'tasksDone' => count($tasksDone), 'onTime' => $onT, 'late' => $late,
+            'onTimePct' => ($onT + $late) ? (int) round($onT / ($onT + $late) * 100) : null,
+            'openTasks' => $openT, 'overdueTasks' => $overdueT, 'ball' => $ballT,
+            'ticketsOpenNow' => $tkOpenNow,
+            'days' => $byDay[$aid] ?? []];
+        // Κρύβουμε όσους δεν έχουν καμία δραστηριότητα ΚΑΙ καμία εκκρεμότητα.
+        if (!$r['replies'] && !$r['tasksDone'] && !$openT && !$tkOpenNow) { continue; }
+        $rows[] = $r;
+    }
+    usort($rows, function ($a, $b) { return $b['replies'] <=> $a['replies'] ?: $b['tasksDone'] <=> $a['tasksDone']; });
+
+    $days = [];
+    for ($x = strtotime($pfFrom); $x <= strtotime($pfTo); $x += 86400) { $days[] = date('Y-m-d', $x); }
+
+    out(['period' => $pf, 'from' => $pfFrom, 'to' => $pfTo, 'days' => $days, 'rows' => $rows,
+        'totals' => [
+            'replies' => array_sum(array_column($rows, 'replies')),
+            'tasksDone' => array_sum(array_column($rows, 'tasksDone')),
+            'people' => count($rows),
+        ],
+        // Λέμε ρητά τι ΔΕΝ μετράει, ώστε να μη διαβαστεί λάθος.
+        'note' => 'Οι απαντήσεις αντιστοιχίζονται με βάση το όνομα/username του χειριστή. '
+            . 'Ο καταγεγραμμένος χρόνος δεν μετράται — υπάρχουν μόλις '
+            . (int) Capsule::table('mod_cpm_timelogs')->count() . ' εγγραφές χρόνου συνολικά.']);
+
 case 'kpi':
     if (!$FULL) {
         fail('forbidden', 403);

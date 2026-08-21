@@ -1517,3 +1517,14 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
    διάταξη της γραμμής. Με φόντο και εσοχή, ο ίδιος κατάλογος φαινόταν σαν δύο
    διαφορετικές οθόνες ανά πελάτη. */
 .susp-row.exempt .susp-t{text-decoration:none}
+/* ── Απόδοση χειριστών ──────────────────────────────────────────────────── */
+.pf-card{margin-bottom:11px}
+.pf-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:9px}
+.pf-m{background:var(--bg2);border-radius:10px;padding:9px 11px}
+.pf-m b{display:block;font-size:19px;font-weight:800;color:var(--ink);line-height:1.15}
+.pf-m span{display:block;font-size:11.5px;font-weight:700;color:var(--mut);margin-top:2px}
+.pf-m i{display:block;font-size:10.5px;color:var(--mut);font-style:normal;margin-top:3px;line-height:1.35}
+.pf-spark{display:flex;align-items:flex-end;gap:2px;height:28px;flex:none}
+.pf-spark>i{width:5px;background:var(--brand);border-radius:2px 2px 0 0;min-height:2px;opacity:.85}
+@media(max-width:768px){.pf-spark{flex:1 1 100%;justify-content:flex-start}}

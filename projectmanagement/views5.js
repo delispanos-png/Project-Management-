@@ -555,3 +555,65 @@ function openNotice(cid, g, done) {
   };
   compose('template');
 }
+
+/* ═════════ 📊 ΑΠΟΔΟΣΗ ΧΕΙΡΙΣΤΩΝ ═════════
+   Πόσο δουλεύει ο καθένας σε tickets και tasks. Το «πόσο» μετριέται από τα
+   ίχνη που όντως υπάρχουν: απαντήσεις σε tickets, χρόνος πρώτης απάντησης,
+   ολοκληρωμένες εργασίες και συνέπεια στις προθεσμίες. */
+R.perf = async function () {
+  setTop('Απόδοση χειριστών', 'Tickets & tasks ανά άτομο — τι έγινε στην περίοδο');
+  const c = $('#content');
+  if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
+  const st = R.perf._s = R.perf._s || {p: 'month'};
+  c.innerHTML = '<div class="skel" style="height:240px"></div>';
+
+  const load = async () => {
+    const d = await api('perf&p=' + st.p).catch(() => null);
+    if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
+    const per = [['week', 'Εβδομάδα'], ['month', 'Μήνας'], ['q', '90 ημέρες']];
+    const dur = m => m === null ? '—' : (m < 90 ? m + '΄' : (m < 2880 ? Math.round(m / 60) + 'ω' : Math.round(m / 1440) + ' ημ.'));
+
+    /* Ραβδόγραμμα ανά ημέρα: δείχνει ΡΥΘΜΟ, όχι μόνο σύνολο — ποιος δουλεύει
+       σταθερά και ποιος σε εκρήξεις. Κοινή κλίμακα για να συγκρίνονται. */
+    const peak = Math.max(1, ...d.rows.map(r => Math.max(0, ...Object.values(r.days || {}))));
+    const spark = r => `<div class="pf-spark" title="Απαντήσεις ανά ημέρα">${d.days.map(x => {
+      const v = (r.days || {})[x] || 0;
+      const h = v ? Math.max(3, Math.round(v / peak * 26)) : 0;
+      return `<i style="height:${h}px" title="${esc(dFull(x))}: ${v}"></i>`;
+    }).join('')}</div>`;
+
+    c.innerHTML = `
+      <div class="card" style="margin-bottom:13px"><div class="card-b" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${per.map(([k, l]) => `<button class="btn btn-sm ${st.p === k ? 'btn-p' : 'btn-o'}" data-pp="${k}">${l}</button>`).join('')}
+        <span class="mut" style="font-size:12px">${esc(dFull(d.from))} – ${esc(dFull(d.to))}</span>
+        <span style="flex:1"></span>
+        <span class="mut" style="font-size:12px">${d.totals.replies} απαντήσεις · ${d.totals.tasksDone} εργασίες</span>
+      </div></div>
+
+      ${d.rows.map(r => `<div class="card pf-card">
+        <div class="card-b">
+          <div class="pf-h">
+            <span class="ava" style="width:32px;height:32px;font-size:12px">${esc(adminIni(r.id))}</span>
+            <b style="font-size:14.5px">${esc(r.name)}</b>
+            ${r.overdueTasks ? `<span class="pill pill-bad">${r.overdueTasks} εκπρόθεσμες</span>` : ''}
+            ${r.ball ? `<span class="pill pill-warn">⚡ ${r.ball} στη μπάλα του</span>` : ''}
+            <span style="flex:1"></span>
+            ${spark(r)}
+          </div>
+          <div class="pf-grid">
+            ${[['Απαντήσεις', r.replies, 'σε tickets μέσα στην περίοδο'],
+               ['Tickets', r.tickets, 'διαφορετικά tickets που άγγιξε'],
+               ['1η απάντηση', dur(r.frtMed), r.frtN ? 'διάμεσος σε ' + r.frtN + ' tickets' : 'χωρίς δείγμα'],
+               ['Εργασίες', r.tasksDone, 'ολοκληρώθηκαν στην περίοδο'],
+               ['Στην ώρα τους', r.onTimePct === null ? '—' : r.onTimePct + '%', r.onTimePct === null ? 'χωρίς προθεσμίες' : r.onTime + ' στην ώρα · ' + r.late + ' αργά'],
+               ['Ανοιχτά τώρα', r.openTasks + r.ticketsOpenNow, r.openTasks + ' εργασίες · ' + r.ticketsOpenNow + ' tickets']]
+              .map(([k, v, sub]) => `<div class="pf-m"><b>${esc(String(v))}</b><span>${k}</span><i>${esc(sub)}</i></div>`).join('')}
+          </div>
+        </div></div>`).join('')}
+      ${d.rows.length ? '' : '<div class="empty" style="padding:44px">Καμία δραστηριότητα στην περίοδο</div>'}
+      <div class="mut" style="font-size:11.5px;padding:4px 2px">${esc(d.note)}</div>`;
+
+    $$('[data-pp]').forEach(b => b.onclick = () => { st.p = b.dataset.pp; load(); });
+  };
+  load();
+};
