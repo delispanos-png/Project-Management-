@@ -1500,3 +1500,5 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .susp-row:last-child{border-bottom:none}
 .susp-t{flex:1;min-width:180px;font-size:13px;font-weight:600;line-height:1.35}
 .susp-t .mut{display:block;font-weight:400;font-size:11px}
+.susp-row.done{opacity:.55}
+.susp-row.done .susp-t{text-decoration:line-through}

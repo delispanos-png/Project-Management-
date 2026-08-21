@@ -276,14 +276,14 @@ R.gantt = async function () {
    Μέχρι να ολοκληρωθεί η μετάβαση, η απόφαση παίρνεται εδώ — ανά ΠΕΛΑΤΗ, με τα
    πραγματικά ανοιχτά ποσά, και μένει ίχνος ποιος έκανε τι. */
 R.suspend = async function () {
-  setTop('Αναστολές', 'Μηχανήματα που έπρεπε να έχουν κλείσει — απόφαση με το χέρι');
+  setTop('Αναστολές', 'Υπηρεσίες που πρέπει να πέσουν — η ενέργεια αναγνωρίζεται από το WHMCS');
   const c = $('#content');
   if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
   c.innerHTML = '<div class="skel" style="height:220px"></div>';
-  const st = R.suspend._s = R.suspend._s || {open: {}, machines: true, ripe: true};
+  const st = R.suspend._s = R.suspend._s || {open: {}, machines: false, ripe: true};
 
   const load = async () => {
-    const d = await api('suspend_queue&all=' + (st.machines ? '0' : '1') + '&ripe=' + (st.ripe ? '1' : '0')).catch(() => null);
+    const d = await api('suspend_queue&machines=' + (st.machines ? '1' : '0') + '&ripe=' + (st.ripe ? '1' : '0')).catch(() => null);
     if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
 
     // ομαδοποίηση ανά πελάτη — η οφειλή είναι του πελάτη, όχι της κάθε υπηρεσίας
@@ -299,23 +299,27 @@ R.suspend = async function () {
     const badge = r => r.auto
       ? `<span class="pill pill-info" title="Το module ${esc(r.module)} εκτελεί την αναστολή">αυτόματο · ${esc(r.module)}</span>`
       : '<span class="pill pill-mut" title="Δεν υπάρχει module — γίνεται με το χέρι">χειροκίνητο</span>';
-    const doneBadge = x => x
-      ? `<span class="pill ${x.action === 'suspended' ? 'pill-bad' : (x.action === 'paid' ? 'pill-ok' : 'pill-warn')}">
-           ${x.action === 'suspended' ? 'ανεστάλη' : (x.action === 'paid' ? 'πληρώθηκε' : 'παραλείφθηκε')} · ${esc(x.by)}</span>` : '';
+    /* Η κατάσταση έρχεται από το WHMCS — αν την άλλαξες εκεί, φαίνεται εδώ. */
+    const stateBadge = r => r.state === 'terminated'
+      ? '<span class="pill pill-mut">✔ τερματίστηκε</span>'
+      : (r.state === 'suspended' ? '<span class="pill pill-bad">✔ σε αναστολή</span>'
+        : '<span class="pill pill-warn">εκκρεμεί</span>');
+    const noteBadge = x => x
+      ? `<span class="pill pill-info" title="${esc(x.note || '')}">${x.action === 'paid' ? 'πληρώθηκε' : 'εξαίρεση'} · ${esc(x.by)}</span>` : '';
 
     c.innerHTML = `
       <div class="grid g4" style="margin-bottom:14px">
         ${suStat(I.users, d.sum.clients, 'πελάτες', d.sum.clients ? 'var(--bad)' : 'var(--ok)')}
         ${suStat(I.coin, fmtEur(d.sum.debt), 'ληξιπρόθεσμα', 'var(--bad)')}
-        ${suStat(I.box || I.folder, d.sum.services, st.machines ? 'μηχανήματα προς κλείσιμο' : 'υπηρεσίες', '#e0a020')}
-        ${suStat(I.bolt || I.zap, d.sum.auto, 'με αυτόματο module', 'var(--brand)')}
+        ${suStat(I.alert, d.sum.pending, 'εκκρεμούν', d.sum.pending ? '#e0a020' : 'var(--ok)')}
+        ${suStat(I.check || I.checkSquare, d.sum.done, 'έγιναν (από WHMCS)', 'var(--ok)')}
       </div>
       <div class="card" style="margin-bottom:12px"><div class="card-b">
         <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px">
-          <button class="btn btn-sm ${st.machines ? 'btn-p' : 'btn-o'}" data-sfm>${st.machines ? '🖥 Μόνο μηχανήματα' : '🖥 Όλες οι υπηρεσίες'}</button>
+          <button class="btn btn-sm ${st.machines ? 'btn-p' : 'btn-o'}" data-sfm>🖥 ${st.machines ? 'Μόνο μηχανήματα' : 'Όλες οι υπηρεσίες'}</button>
           <button class="btn btn-sm ${st.ripe ? 'btn-p' : 'btn-o'}" data-sfr>${st.ripe ? '⚠ Πέρασαν το όριο' : '⚠ Όλες οι καθυστερήσεις'}</button>
           <span class="mut" style="font-size:11.5px;align-self:center">
-            ${st.machines ? 'Domains, DID, άδειες και συμβόλαια δεν εμφανίζονται — δεν σβήνονται.' : 'Εμφανίζονται τα πάντα.'}
+            ${st.machines ? 'Domains, DID, άδειες και συμβόλαια δεν εμφανίζονται.' : 'Όλα όσα πρέπει να πέσουν. Άλλαξε την κατάσταση στο WHMCS και ενημερώνεται μόνο του.'}
           </span>
         </div>
         <div class="mut" style="font-size:12px;line-height:1.5">
@@ -342,18 +346,19 @@ R.suspend = async function () {
             </div>
             <div class="mut" style="font-size:11.5px;margin-bottom:9px">Ληξιπρόθεσμα:
               ${g.invs.map(i => `<a href="/cloudonadminpanel/index.php/billing/invoice/${i.id}" target="_blank" style="color:var(--brand);margin-right:9px">${esc(i.num)} · ${fmtEur(i.open)} · ${i.days} ημ.${i.badDue ? ' ⚠' : ''}</a>`).join('')}</div>
-            ${g.svc.map(r => `<div class="susp-row">
+            ${g.svc.map(r => `<div class="susp-row ${r.state !== 'pending' ? 'done' : ''}">
               <span class="susp-t">${esc(r.domain || r.product)}
                 <span class="mut">${esc(r.product)}${r.ip ? ' · ' + esc(r.ip) : ''} · ${fmtEur(r.amount)}/${esc(r.cycle)}</span></span>
+              ${r.machine ? '<span class="pill pill-mut" title="Μηχάνημα — σβήνει">🖥</span>' : ''}
               ${badge(r)}
-              <span class="pill ${r.status === 'Suspended' ? 'pill-bad' : 'pill-ok'}">${r.status === 'Suspended' ? 'σε αναστολή' : 'ενεργή'}</span>
-              ${doneBadge(r.done)}
+              ${stateBadge(r)}
+              ${noteBadge(r.done)}
               <span style="flex:1"></span>
+              <a class="btn btn-sm ${r.state === 'pending' ? 'btn-p' : 'btn-o'}" href="${esc(r.adminUrl)}" target="_blank"
+                 title="Άνοιγμα στο WHMCS — άλλαξε εκεί την κατάσταση">${r.state === 'pending' ? 'Άνοιγμα στο WHMCS ↗' : 'WHMCS ↗'}</a>
               ${r.done
                 ? `<button class="btn btn-sm btn-o" data-sclear="${r.service}">αναίρεση</button>`
-                : `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="suspended">Ανεστάλη</button>
-                   <button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="paid">Πληρώθηκε</button>
-                   <button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped">Παράλειψη</button>`}
+                : `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped" title="Δεν θα πέσει — π.χ. δώσαμε παράταση">Εξαίρεση</button>`}
             </div>`).join('')}
           </div></div>`).join('')}
       ${groups.length ? '' : `<div class="empty" style="padding:44px">${st.ripe ? 'Κανένα μηχάνημα δεν έχει περάσει το όριο 🎉' : 'Καμία ληξιπρόθεσμη οφειλή 🎉'}</div>`}`;
@@ -367,8 +372,8 @@ R.suspend = async function () {
       h.querySelector('.kb-gchev').classList.toggle('open', !!st.open[k]);
     });
     $$('[data-smark]').forEach(b => b.onclick = async () => {
-      const note = await cnpPrompt('Σημείωση (προαιρετικά) — τι έγινε;',
-        {title: '🛑 Καταγραφή ενέργειας', ok: 'Καταγραφή', placeholder: 'π.χ. σβήστηκε το VM στο Hetzner'});
+      const note = await cnpPrompt('Γιατί εξαιρείται;',
+        {title: 'Εξαίρεση από τις αναστολές', ok: 'Καταγραφή', placeholder: 'π.χ. δώσαμε παράταση ως 30/08'});
       if (note === null) { return; }
       await api('suspend_mark', {service: +b.dataset.smark, action: b.dataset.act, note});
       toast('Καταγράφηκε'); load();

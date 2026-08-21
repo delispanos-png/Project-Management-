@@ -6446,12 +6446,24 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
         if ((string) $p->ptype === 'server') { return true; }
         return (bool) preg_match('/\b(vps|server|proxmox|dedicated)\b/i', (string) $p->pname);
     };
-    $onlyMachines = ($_GET['all'] ?? '') !== '1';
+    $onlyMachines = ($_GET['machines'] ?? '') === '1';
     $onlyRipe = ($_GET['ripe'] ?? '1') === '1';
+
+    /* Η ενέργεια αναγνωρίζεται από την ΚΑΤΑΣΤΑΣΗ ΤΗΣ ΥΠΗΡΕΣΙΑΣ στο WHMCS. Ό,τι
+       αλλάξεις εκεί φαίνεται εδώ αμέσως — καμία διπλή καταχώρηση. Η χειροκίνητη
+       σήμανση μένει μόνο για αποφάσεις που δεν αποτυπώνονται σε status
+       (π.χ. «δώσαμε παράταση»). */
+    $stateOf = function ($st) {
+        if (in_array($st, ['Terminated', 'Cancelled', 'Fraud'], true)) { return 'terminated'; }
+        if ($st === 'Suspended') { return 'suspended'; }
+        return 'pending';
+    };
 
     $rows = [];
     foreach (Capsule::table('tblhosting as h')->join('tblproducts as p', 'p.id', '=', 'h.packageid')
                  ->whereIn('h.userid', array_keys($debt))
+                 /* Τερματισμένες/ακυρωμένες ΔΕΝ μπαίνουν: είναι ιστορικό, όχι απόφαση.
+                    Μένουν οι ενεργές (εκκρεμούν) και οι ανεσταλμένες (έγιναν). */
                  ->whereIn('h.domainstatus', ['Active', 'Suspended'])
                  ->get(['h.id', 'h.userid', 'h.domain', 'h.domainstatus', 'h.amount', 'h.billingcycle',
                      'h.nextduedate', 'h.dedicatedip', 'p.name as pname', 'p.servertype', 'p.type as ptype']) as $h) {
@@ -6466,6 +6478,8 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'domain' => (string) $h->domain, 'product' => (string) $h->pname,
             'status' => (string) $h->domainstatus,
             'module' => (string) $h->servertype, 'auto' => $auto, 'machine' => $machine,
+            'state' => $stateOf((string) $h->domainstatus),
+            'adminUrl' => '/cloudonadminpanel/clientsservices.php?userid=' . $cid . '&id=' . (int) $h->id,
             'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
             'ip' => (string) $h->dedicatedip,
             'debt' => round($d['open'], 2), 'days' => $d['days'], 'badDue' => !empty($d['badDue']),
@@ -6476,7 +6490,10 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
     }
     /* Πρώτα όσες «ώριμασαν» και χρωστούν περισσότερα — αυτές θέλουν απόφαση. */
     usort($rows, function ($a, $b) {
-        return ($b['ripe'] <=> $a['ripe']) ?: ($b['debt'] <=> $a['debt']) ?: ($b['days'] <=> $a['days']);
+        // Εκκρεμή πρώτα — αυτά θέλουν ενέργεια· τα τελειωμένα πάνε κάτω.
+        $pa = $a['state'] === 'pending' ? 0 : 1;
+        $pb = $b['state'] === 'pending' ? 0 : 1;
+        return ($pa <=> $pb) ?: ($b['ripe'] <=> $a['ripe']) ?: ($b['debt'] <=> $a['debt']) ?: ($b['days'] <=> $a['days']);
     });
 
     $shownClients = array_unique(array_column($rows, 'client'));
@@ -6488,6 +6505,8 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             // Οφειλή μόνο των πελατών που εμφανίζονται, χωρίς διπλομέτρηση.
             'debt' => round(array_sum(array_map(function ($c) use ($debt) { return $debt[$c]['open']; }, $shownClients)), 2),
             'auto' => count(array_filter($rows, function ($r) { return $r['auto']; })),
+            'pending' => count(array_filter($rows, function ($r) { return $r['state'] === 'pending'; })),
+            'done' => count(array_filter($rows, function ($r) { return $r['state'] !== 'pending'; })),
             'allDebt' => round(array_sum(array_column($debt, 'open')), 2),
             'allClients' => count($debt),
         ]]);
