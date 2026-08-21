@@ -6517,6 +6517,79 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'allClients' => count($debt),
         ]]);
 
+case 'suspend_do':                       // εκτέλεση αναστολής / σήμανση / επαναφορά
+    /* Εκτελεί πραγματική διακοπή υπηρεσίας πελάτη. Η οθόνη είναι ορατή μόνο σε
+       διαχειριστές πλήρους πρόσβασης· εδώ κρατάμε δικλείδες ως δίχτυ, όχι ως
+       εμπόδιο: έλεγχος οφειλής ξανά στον server, αιτιολογία σε κάθε ενέργεια,
+       και καταγραφή στο ημερολόγιο του WHMCS. */
+    if (!$FULL) { fail('forbidden', 403); }
+    $sid = (int) ($in['service'] ?? 0);
+    $h = $sid ? Capsule::table('tblhosting')->where('id', $sid)->first() : null;
+    if (!$h) { fail('service', 404); }
+    $act = (string) ($in['do'] ?? 'suspend');
+
+    // Ληξιπρόθεσμο υπόλοιπο του πελάτη — ίδιος υπολογισμός με την οθόνη.
+    $alloc3 = [];
+    foreach (Capsule::table('tblaccounts')->where('userid', $h->userid)->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
+        $alloc3[(int) $r->invoiceid] = (float) $r->p;
+    }
+    $owed = 0.0;
+    foreach (Capsule::table('tblinvoices')->where('userid', $h->userid)
+                 ->whereIn('status', ['Unpaid', 'Overdue', 'Payment Pending'])->get() as $iv) {
+        $due = (string) $iv->duedate;
+        if ($due === '' || strpos($due, '0000') === 0) { continue; }
+        if ((int) substr($due, 0, 4) < 2000) { $due = (string) $iv->date; }
+        if (strtotime($due) >= strtotime('today')) { continue; }
+        $owed += round((float) $iv->subtotal + (float) $iv->tax + (float) $iv->tax2
+            - ($alloc3[(int) $iv->id] ?? 0) - (float) $iv->credit, 2);
+    }
+    $svcLabel = ($h->domain ?: ('#' . $sid));
+
+    if ($act === 'unsuspend') {
+        $r = localAPI('ModuleUnsuspend', ['accountid' => $sid], 'pdelis');
+        if (($r['result'] ?? '') !== 'success') {
+            // Χωρίς module (ή αποτυχία): μόνο συγχρονισμός κατάστασης.
+            Capsule::table('tblhosting')->where('id', $sid)->update(['domainstatus' => 'Active']);
+        }
+        Capsule::table('mod_cpm_suspend_actions')->where('service_id', $sid)->delete();
+        logActivity('CloudOn PM: επαναφορά υπηρεσίας ' . $svcLabel . ' (#' . $sid . ') από ' . Db::adminName($adminId));
+        out(['ok' => true, 'status' => 'Active']);
+    }
+
+    /* Δίχτυ: η οθόνη αφορά οφειλές. Αν ο πελάτης δεν χρωστά, η αναστολή δεν
+       γίνεται από εδώ — για οτιδήποτε άλλο (π.χ. κατάχρηση) υπάρχει το WHMCS. */
+    if ($owed <= 0.5) {
+        fail('Ο πελάτης δεν έχει ληξιπρόθεσμη οφειλή — η αναστολή δεν γίνεται από αυτή την οθόνη.');
+    }
+
+    $reason = mb_substr(trim((string) ($in['reason'] ?? '')), 0, 190)
+        ?: ('Ληξιπρόθεσμη οφειλή ' . number_format($owed, 2, ',', '.') . ' €');
+
+    if (($in['mode'] ?? '') === 'module') {
+        // Το WHMCS καλεί το module (Hetzner powerOff) ΚΑΙ αλλάζει κατάσταση.
+        $r = localAPI('ModuleSuspend', ['accountid' => $sid, 'suspendreason' => $reason], 'pdelis');
+        if (($r['result'] ?? '') !== 'success') {
+            fail('Το module απέτυχε: ' . ($r['message'] ?? 'άγνωστο σφάλμα'));
+        }
+        $note = 'Αναστολή μέσω module';
+    } else {
+        /* Χειροκίνητη: τη διακοπή την έκανε ο χειριστής αλλού (Proxmox, 3CX,
+           τηλεπικοινωνίες). Εδώ συγχρονίζουμε μόνο την κατάσταση. */
+        Capsule::table('tblhosting')->where('id', $sid)->update(['domainstatus' => 'Suspended']);
+        $note = 'Χειροκίνητη αναστολή';
+    }
+    logActivity('CloudOn PM: ' . $note . ' — ' . $svcLabel . ' (#' . $sid . ') από '
+        . Db::adminName($adminId) . ' — ' . $reason);
+
+    Capsule::table('mod_cpm_suspend_actions')->where('service_id', $sid)->delete();
+    Capsule::table('mod_cpm_suspend_actions')->insert([
+        'service_id' => $sid, 'admin_id' => $adminId, 'action' => 'suspended',
+        'note' => mb_substr($note . ' — ' . $reason, 0, 200), 'created_at' => date('Y-m-d H:i:s'),
+    ]);
+    out(['ok' => true, 'status' => 'Suspended']);
+
 case 'suspend_notice':                   // σύνθεση ειδοποίησης προς τον πελάτη
     if (!$FULL) { fail('forbidden', 403); }
     $cid = (int) ($in['client'] ?? 0);

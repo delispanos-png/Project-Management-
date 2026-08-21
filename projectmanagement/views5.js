@@ -292,9 +292,9 @@ R.suspend = async function () {
       (by[r.client] = by[r.client] || {name: r.name, debt: r.debt, days: r.days, ripe: r.ripe,
         invs: r.invs, badDue: r.badDue, notified: r.notified, svc: []}).svc.push(r);
     });
+    /* Κλειστά εξ ορισμού: η λίστα διαβάζεται σαν σύνοψη ανά πελάτη και ανοίγεις
+       μόνο όποιον κοιτάς. Ανοιχτά όλα, γίνεται σεντόνι εκατοντάδων γραμμών. */
     const groups = Object.entries(by).sort((a, b) => b[1].debt - a[1].debt);
-    // Με λίγες ομάδες δεν έχει νόημα να τις ανοίγεις μία-μία.
-    if (groups.length <= 8) { groups.forEach(([cid]) => { if (st.open[cid] === undefined) { st.open[cid] = true; } }); }
 
     const badge = r => r.auto
       ? `<span class="pill pill-info" title="Το module ${esc(r.module)} εκτελεί την αναστολή">αυτόματο · ${esc(r.module)}</span>`
@@ -318,6 +318,7 @@ R.suspend = async function () {
         <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px">
           <button class="btn btn-sm ${st.machines ? 'btn-p' : 'btn-o'}" data-sfm>🖥 ${st.machines ? 'Μόνο μηχανήματα' : 'Όλες οι υπηρεσίες'}</button>
           <button class="btn btn-sm ${st.ripe ? 'btn-p' : 'btn-o'}" data-sfr>${st.ripe ? '⚠ Πέρασαν το όριο' : '⚠ Όλες οι καθυστερήσεις'}</button>
+          <button class="btn btn-sm btn-o" data-sexp>${Object.values(st.open).some(Boolean) ? '⊟ Κλείσιμο όλων' : '⊞ Άνοιγμα όλων'}</button>
           <span class="mut" style="font-size:11.5px;align-self:center">
             ${st.machines ? 'Domains, DID, άδειες και συμβόλαια δεν εμφανίζονται.' : 'Όλα όσα πρέπει να πέσουν. Άλλαξε την κατάσταση στο WHMCS και ενημερώνεται μόνο του.'}
           </span>
@@ -331,10 +332,16 @@ R.suspend = async function () {
       ${groups.map(([cid, g]) => `
         <div class="card" style="margin-bottom:12px;border-left:4px solid ${g.ripe ? 'var(--bad)' : '#e0a020'}">
           <div class="card-h susp-h" data-sg="${cid}">
-            <a href="/cloudonadminpanel/clientssummary.php?userid=${cid}" target="_blank" style="color:var(--brand)">${esc(g.name)}</a>
+            <b style="color:var(--ink)">${esc(g.name)}</b>
+            <a href="/cloudonadminpanel/clientssummary.php?userid=${cid}" target="_blank"
+               class="mut" style="text-decoration:none;flex:none" title="Άνοιγμα πελάτη στο WHMCS">↗</a>
             <span class="pill ${g.ripe ? 'pill-bad' : 'pill-warn'}">${g.days} ημέρες</span>
             <b style="color:var(--bad)">${fmtEur(g.debt)}</b>
-            <span class="mut" style="font-size:11.5px">${g.svc.length} υπηρεσίες · ${g.svc.filter(x => x.auto).length} αυτόματες</span>
+            <span class="mut" style="font-size:11.5px">${g.svc.length} υπηρεσίες${(() => {
+              const p = g.svc.filter(x => x.state === 'pending').length;
+              const d = g.svc.length - p;
+              return d ? ` · ${p} εκκρεμούν · ${d} έγιναν` : '';
+            })()}</span>
             ${g.badDue ? '<span class="pill pill-warn" title="Παραστατικό με λανθασμένο έτος στην ημ. λήξης — διόρθωσέ το στο WHMCS">λάθος ημ. λήξης</span>' : ''}
             <span style="flex:1"></span>
             ${g.notified ? `<span class="pill pill-ok" title="Ειδοποιήθηκε ${esc(dFull(g.notified.at))} από ${esc(g.notified.by)}${g.notified.date ? ' — αναστολή ' + esc(dFull(g.notified.date)) : ''}">✉ ειδοποιήθηκε</span>` : ''}
@@ -356,11 +363,19 @@ R.suspend = async function () {
               ${stateBadge(r)}
               ${noteBadge(r.done)}
               <span style="flex:1"></span>
-              <a class="btn btn-sm ${r.state === 'pending' ? 'btn-p' : 'btn-o'}" href="${esc(r.adminUrl)}" target="_blank"
-                 title="Άνοιγμα στο WHMCS — άλλαξε εκεί την κατάσταση">${r.state === 'pending' ? 'Άνοιγμα στο WHMCS ↗' : 'WHMCS ↗'}</a>
+              ${r.state === 'pending' ? (r.auto
+                /* Με module: το WHMCS εκτελεί την πραγματική διακοπή (Hetzner powerOff). */
+                ? `<button class="btn btn-sm btn-danger" data-sdo="${r.service}" data-mode="module"
+                     title="Εκτελεί τώρα την αναστολή μέσω ${esc(r.module)}">⏻ Αναστολή τώρα</button>`
+                /* Χωρίς module: τη διακοπή την κάνεις αλλού και σημαίνεις εδώ. */
+                : `<button class="btn btn-sm btn-o" data-sdo="${r.service}" data-mode="manual"
+                     title="Την έκοψες αλλού; Σήμανε την υπηρεσία ως ανεσταλμένη στο WHMCS">✔ Έγινε — σήμανση</button>`)
+                : `<button class="btn btn-sm btn-o" data-sundo="${r.service}" title="Επαναφορά σε ενεργή">↻ Επαναφορά</button>`}
+              <a class="btn btn-sm btn-o" href="${esc(r.adminUrl)}" target="_blank" title="Άνοιγμα στο WHMCS">↗</a>
               ${r.done
                 ? `<button class="btn btn-sm btn-o" data-sclear="${r.service}">αναίρεση</button>`
-                : `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped" title="Δεν θα πέσει — π.χ. δώσαμε παράταση">Εξαίρεση</button>`}
+                : (r.state === 'pending'
+                  ? `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped" title="Δεν θα πέσει — π.χ. δώσαμε παράταση">Εξαίρεση</button>` : '')}
             </div>`).join('')}
           </div></div>`).join('')}
       ${groups.length ? '' : `<div class="empty" style="padding:44px">${st.ripe ? 'Κανένα μηχάνημα δεν έχει περάσει το όριο 🎉' : 'Καμία ληξιπρόθεσμη οφειλή 🎉'}</div>`}`;
@@ -370,6 +385,15 @@ R.suspend = async function () {
       const cid = +b.dataset.snotify;
       openNotice(cid, by[cid], load);
     });
+    const ex = $('[data-sexp]');
+    if (ex) {
+      ex.onclick = () => {
+        const anyOpen = Object.values(st.open).some(Boolean);
+        st.open = {};
+        if (!anyOpen) { groups.forEach(([cid]) => { st.open[cid] = true; }); }
+        load();
+      };
+    }
     const fm = $('[data-sfm]'); if (fm) { fm.onclick = () => { st.machines = !st.machines; load(); }; }
     const fr = $('[data-sfr]'); if (fr) { fr.onclick = () => { st.ripe = !st.ripe; load(); }; }
     $$('.susp-h').forEach(h => h.onclick = e => {
@@ -377,6 +401,41 @@ R.suspend = async function () {
       const k = h.dataset.sg; st.open[k] = !st.open[k];
       h.nextElementSibling.style.display = st.open[k] ? '' : 'none';
       h.querySelector('.kb-gchev').classList.toggle('open', !!st.open[k]);
+    });
+    /* Πραγματική διακοπή υπηρεσίας πελάτη: πάντα με επιβεβαίωση που ονομάζει
+       ΤΙ θα συμβεί και σε ΠΟΙΟΝ. Δεν αρκεί ένα κλικ. */
+    $$('[data-sdo]').forEach(b => b.onclick = async () => {
+      const sid = +b.dataset.sdo, mode = b.dataset.mode;
+      const r = d.rows.find(x => x.service === sid);
+      const what = r.domain || r.product;
+      const msg = mode === 'module'
+        ? `Θα ανασταλεί ΤΩΡΑ η υπηρεσία «${what}»${r.ip ? ' (' + r.ip + ')' : ''} του πελάτη ${r.name.trim()}.\n\n`
+          /* Η διατύπωση ακολουθεί το είδος: «σβήνει το μηχάνημα» ισχύει για VM,
+             όχι για SSL ή λογαριασμό φιλοξενίας. */
+          + (r.machine
+            ? `Το module ${r.module} θα σβήσει το μηχάνημα — ο πελάτης θα έχει διακοπή.`
+            : `Το module ${r.module} θα εκτελέσει την αναστολή — η υπηρεσία θα πάψει να λειτουργεί για τον πελάτη.`)
+        : `Σήμανση της υπηρεσίας «${what}» του πελάτη ${r.name} ως ανεσταλμένης στο WHMCS.\n\n`
+          + `Η πραγματική διακοπή γίνεται από εσένα εκτός συστήματος — εδώ μόνο ενημερώνεται η κατάσταση.`;
+      if (!await cnpConfirm(msg, {title: mode === 'module' ? '⏻ Αναστολή υπηρεσίας' : '✔ Σήμανση αναστολής',
+        ok: mode === 'module' ? 'Ναι, αναστολή' : 'Ναι, σήμανση', cancel: 'Άκυρο', danger: mode === 'module'})) { return; }
+      const reason = await cnpPrompt('Αιτιολογία (μπαίνει στο ιστορικό και στο WHMCS):',
+        {title: 'Αιτιολογία', ok: 'Εκτέλεση', input: '', placeholder: 'π.χ. ληξιπρόθεσμη οφειλή, ειδοποιήθηκε 21/08'});
+      if (reason === null) { return; }
+      b.disabled = true; b.textContent = '…';
+      const res = await api('suspend_do', {service: sid, mode, reason}).catch(e => ({err: e.message}));
+      if (res.err) { toast(res.err, true); load(); return; }
+      toast(mode === 'module' ? 'Η υπηρεσία ανεστάλη' : 'Σημάνθηκε ως ανεσταλμένη');
+      load();
+    });
+    $$('[data-sundo]').forEach(b => b.onclick = async () => {
+      const sid = +b.dataset.sundo;
+      const r = d.rows.find(x => x.service === sid);
+      if (!await cnpConfirm(`Επαναφορά της «${r.domain || r.product}» (${r.name}) σε ενεργή;`,
+        {title: '↻ Επαναφορά', ok: 'Ναι, επαναφορά', cancel: 'Άκυρο'})) { return; }
+      const res = await api('suspend_do', {service: sid, do: 'unsuspend'}).catch(e => ({err: e.message}));
+      if (res.err) { toast(res.err, true); return; }
+      toast('Επανήλθε σε ενεργή'); load();
     });
     $$('[data-smark]').forEach(b => b.onclick = async () => {
       const note = await cnpPrompt('Γιατί εξαιρείται;',
