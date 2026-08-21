@@ -299,20 +299,28 @@ R.suspend = async function () {
     const badge = r => r.auto
       ? `<span class="pill pill-info" title="Το module ${esc(r.module)} εκτελεί την αναστολή">αυτόματο · ${esc(r.module)}</span>`
       : '<span class="pill pill-mut" title="Δεν υπάρχει module — γίνεται με το χέρι">χειροκίνητο</span>';
-    /* Η κατάσταση έρχεται από το WHMCS — αν την άλλαξες εκεί, φαίνεται εδώ. */
-    const stateBadge = r => r.state === 'terminated'
-      ? '<span class="pill pill-mut">✔ τερματίστηκε</span>'
-      : (r.state === 'suspended' ? '<span class="pill pill-bad">✔ σε αναστολή</span>'
-        : '<span class="pill pill-warn">εκκρεμεί</span>');
+    /* Η κατάσταση είναι ΑΚΡΙΒΩΣ αυτή του WHMCS — η οθόνη τη δείχνει, δεν την
+       αλλάζει. Δίπλα φαίνεται και η ωμή τιμή, για να μην υπάρχει αμφιβολία. */
+    const stateBadge = r => {
+      const raw = `<span class="mut" style="font-size:10.5px">WHMCS: ${esc(r.whmcsStatus)}</span>`;
+      if (r.state === 'exempt') {
+        return `<span class="pill pill-info" title="Override Auto-Suspend στο WHMCS — δεν αναστέλλεται">
+          🛡 εξαιρείται${r.exempt && r.exempt !== '∞' ? ' ως ' + esc(dFull(r.exempt)) : ''}</span> ${raw}`;
+      }
+      if (r.state === 'terminated') { return `<span class="pill pill-mut">τερματίστηκε</span> ${raw}`; }
+      if (r.state === 'suspended') { return `<span class="pill pill-bad">σε αναστολή</span> ${raw}`; }
+      return `<span class="pill pill-warn">εκκρεμεί</span> ${raw}`;
+    };
     const noteBadge = x => x
       ? `<span class="pill pill-info" title="${esc(x.note || '')}">${x.action === 'paid' ? 'πληρώθηκε' : 'εξαίρεση'} · ${esc(x.by)}</span>` : '';
 
     c.innerHTML = `
-      <div class="grid g4" style="margin-bottom:14px">
+      <div class="grid g4" style="--n:5" style="margin-bottom:14px">
         ${suStat(I.users, d.sum.clients, 'πελάτες', d.sum.clients ? 'var(--bad)' : 'var(--ok)')}
         ${suStat(I.coin, fmtEur(d.sum.debt), 'ληξιπρόθεσμα', 'var(--bad)')}
         ${suStat(I.alert, d.sum.pending, 'εκκρεμούν', d.sum.pending ? '#e0a020' : 'var(--ok)')}
-        ${suStat(I.check || I.checkSquare, d.sum.done, 'έγιναν (από WHMCS)', 'var(--ok)')}
+        ${suStat(I.check || I.checkSquare, d.sum.done, 'σε αναστολή', 'var(--ok)')}
+        ${suStat(I.lock || I.eye, d.sum.exempt, 'εξαιρούνται (WHMCS)', 'var(--brand)')}
       </div>
       <div class="card" style="margin-bottom:12px"><div class="card-b">
         <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px">
@@ -337,10 +345,12 @@ R.suspend = async function () {
                class="mut" style="text-decoration:none;flex:none" title="Άνοιγμα πελάτη στο WHMCS">↗</a>
             <span class="pill ${g.ripe ? 'pill-bad' : 'pill-warn'}">${g.days} ημέρες</span>
             <b style="color:var(--bad)">${fmtEur(g.debt)}</b>
-            <span class="mut" style="font-size:11.5px">${g.svc.length} υπηρεσίες${(() => {
+            <span class="mut" style="font-size:11.5px">${(() => {
               const p = g.svc.filter(x => x.state === 'pending').length;
-              const d = g.svc.length - p;
-              return d ? ` · ${p} εκκρεμούν · ${d} έγιναν` : '';
+              const e = g.svc.filter(x => x.state === 'exempt').length;
+              const s2 = g.svc.length - p - e;
+              return [`${g.svc.length} υπηρεσίες`, p ? `${p} εκκρεμούν` : '',
+                e ? `${e} εξαιρούνται` : '', s2 ? `${s2} σε αναστολή` : ''].filter(Boolean).join(' · ');
             })()}</span>
             ${g.badDue ? '<span class="pill pill-warn" title="Παραστατικό με λανθασμένο έτος στην ημ. λήξης — διόρθωσέ το στο WHMCS">λάθος ημ. λήξης</span>' : ''}
             <span style="flex:1"></span>
@@ -355,7 +365,7 @@ R.suspend = async function () {
             </div>
             <div class="mut" style="font-size:11.5px;margin-bottom:9px">Ληξιπρόθεσμα:
               ${g.invs.map(i => `<a href="/cloudonadminpanel/index.php/billing/invoice/${i.id}" target="_blank" style="color:var(--brand);margin-right:9px">${esc(i.num)} · ${fmtEur(i.open)} · ${i.days} ημ.${i.badDue ? ' ⚠' : ''}</a>`).join('')}</div>
-            ${g.svc.map(r => `<div class="susp-row ${r.state !== 'pending' ? 'done' : ''}">
+            ${g.svc.map(r => `<div class="susp-row ${r.state === 'exempt' ? 'exempt' : (r.state !== 'pending' ? 'done' : '')}">
               <span class="susp-t">${esc(r.domain || r.product)}
                 <span class="mut">${esc(r.product)}${r.ip ? ' · ' + esc(r.ip) : ''} · ${fmtEur(r.amount)}/${esc(r.cycle)}</span></span>
               ${r.machine ? '<span class="pill pill-mut" title="Μηχάνημα — σβήνει">🖥</span>' : ''}
@@ -363,15 +373,17 @@ R.suspend = async function () {
               ${stateBadge(r)}
               ${noteBadge(r.done)}
               <span style="flex:1"></span>
-              ${r.state === 'pending' ? (r.auto
-                /* Με module: το WHMCS εκτελεί την πραγματική διακοπή (Hetzner powerOff). */
+              ${r.state === 'pending' && r.auto
+                /* Μόνο μέσω module: το WHMCS εκτελεί τη διακοπή και ενημερώνει
+                   κατάσταση, τιμολόγηση και ιστορικό. Δεν γράφουμε εμείς status. */
                 ? `<button class="btn btn-sm btn-danger" data-sdo="${r.service}" data-mode="module"
-                     title="Εκτελεί τώρα την αναστολή μέσω ${esc(r.module)}">⏻ Αναστολή τώρα</button>`
-                /* Χωρίς module: τη διακοπή την κάνεις αλλού και σημαίνεις εδώ. */
-                : `<button class="btn btn-sm btn-o" data-sdo="${r.service}" data-mode="manual"
-                     title="Την έκοψες αλλού; Σήμανε την υπηρεσία ως ανεσταλμένη στο WHMCS">✔ Έγινε — σήμανση</button>`)
-                : `<button class="btn btn-sm btn-o" data-sundo="${r.service}" title="Επαναφορά σε ενεργή">↻ Επαναφορά</button>`}
-              <a class="btn btn-sm btn-o" href="${esc(r.adminUrl)}" target="_blank" title="Άνοιγμα στο WHMCS">↗</a>
+                     title="Εκτελεί την αναστολή μέσω ${esc(r.module)} — από το WHMCS">⏻ Αναστολή τώρα</button>` : ''}
+              ${r.state === 'suspended' && r.auto
+                ? `<button class="btn btn-sm btn-o" data-sundo="${r.service}" title="Επαναφορά μέσω ${esc(r.module)}">↻ Επαναφορά</button>` : ''}
+              <a class="btn btn-sm ${r.state === 'pending' && !r.auto ? 'btn-p' : 'btn-o'}"
+                 href="${esc(r.adminUrl)}" target="_blank"
+                 title="${r.state === 'pending' && !r.auto ? 'Δεν έχει module — η αλλαγή κατάστασης γίνεται στο WHMCS' : 'Άνοιγμα στο WHMCS'}"
+                 >${r.state === 'pending' && !r.auto ? 'Αλλαγή στο WHMCS ↗' : '↗'}</a>
               ${r.done
                 ? `<button class="btn btn-sm btn-o" data-sclear="${r.service}">αναίρεση</button>`
                 : (r.state === 'pending'
@@ -408,17 +420,15 @@ R.suspend = async function () {
       const sid = +b.dataset.sdo, mode = b.dataset.mode;
       const r = d.rows.find(x => x.service === sid);
       const what = r.domain || r.product;
-      const msg = mode === 'module'
-        ? `Θα ανασταλεί ΤΩΡΑ η υπηρεσία «${what}»${r.ip ? ' (' + r.ip + ')' : ''} του πελάτη ${r.name.trim()}.\n\n`
-          /* Η διατύπωση ακολουθεί το είδος: «σβήνει το μηχάνημα» ισχύει για VM,
-             όχι για SSL ή λογαριασμό φιλοξενίας. */
-          + (r.machine
-            ? `Το module ${r.module} θα σβήσει το μηχάνημα — ο πελάτης θα έχει διακοπή.`
-            : `Το module ${r.module} θα εκτελέσει την αναστολή — η υπηρεσία θα πάψει να λειτουργεί για τον πελάτη.`)
-        : `Σήμανση της υπηρεσίας «${what}» του πελάτη ${r.name} ως ανεσταλμένης στο WHMCS.\n\n`
-          + `Η πραγματική διακοπή γίνεται από εσένα εκτός συστήματος — εδώ μόνο ενημερώνεται η κατάσταση.`;
-      if (!await cnpConfirm(msg, {title: mode === 'module' ? '⏻ Αναστολή υπηρεσίας' : '✔ Σήμανση αναστολής',
-        ok: mode === 'module' ? 'Ναι, αναστολή' : 'Ναι, σήμανση', cancel: 'Άκυρο', danger: mode === 'module'})) { return; }
+      /* Η διατύπωση ακολουθεί το είδος: «σβήνει το μηχάνημα» ισχύει για VM,
+         όχι για SSL ή λογαριασμό φιλοξενίας. */
+      const msg = `Θα ανασταλεί ΤΩΡΑ η υπηρεσία «${what}»${r.ip ? ' (' + r.ip + ')' : ''} του πελάτη ${r.name.trim()}.\n\n`
+        + (r.machine
+          ? `Το module ${r.module} θα σβήσει το μηχάνημα — ο πελάτης θα έχει διακοπή.`
+          : `Το module ${r.module} θα εκτελέσει την αναστολή — η υπηρεσία θα πάψει να λειτουργεί για τον πελάτη.`)
+        + `\n\nΗ ενέργεια γίνεται μέσω WHMCS, όπως αν πατούσες Suspend εκεί.`;
+      if (!await cnpConfirm(msg, {title: '⏻ Αναστολή υπηρεσίας',
+        ok: 'Ναι, αναστολή', cancel: 'Άκυρο', danger: true})) { return; }
       const reason = await cnpPrompt('Αιτιολογία (μπαίνει στο ιστορικό και στο WHMCS):',
         {title: 'Αιτιολογία', ok: 'Εκτέλεση', input: '', placeholder: 'π.χ. ληξιπρόθεσμη οφειλή, ειδοποιήθηκε 21/08'});
       if (reason === null) { return; }

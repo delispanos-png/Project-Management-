@@ -1511,3 +1511,7 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .nt-s{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:12.5px;cursor:pointer}
 .nt-s.off{opacity:.55}
 .nt-s .mut{font-size:11px}
+/* Εξαιρεμένη από το WHMCS: ξεχωρίζει, αλλά ΔΕΝ είναι «τελειωμένη» — χωρίς
+   διαγράμμιση, γιατί δεν έγινε καμία ενέργεια πάνω της. */
+.susp-row.exempt{opacity:.8;background:#0097e40a;border-radius:8px;padding-left:6px;padding-right:6px}
+.susp-row.exempt .susp-t{text-decoration:none}

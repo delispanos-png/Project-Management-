@@ -6458,6 +6458,15 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
        αλλάξεις εκεί φαίνεται εδώ αμέσως — καμία διπλή καταχώρηση. Η χειροκίνητη
        σήμανση μένει μόνο για αποφάσεις που δεν αποτυπώνονται σε status
        (π.χ. «δώσαμε παράταση»). */
+    /* Το WHMCS έχει ρητή εξαίρεση ανά υπηρεσία: «Override Auto-Suspend — Do not
+       suspend until». Είναι απόφαση που έχει ήδη παρθεί και ΔΕΝ την αγνοούμε:
+       τέτοιες υπηρεσίες δεν εκκρεμούν και δεν προσφέρουμε κουμπί αναστολής. */
+    $exemptOf = function ($h) {
+        if (empty($h->overideautosuspend)) { return null; }
+        $until = (string) ($h->overidesuspenduntil ?? '');
+        if ($until === '' || strpos($until, '0000') === 0) { return '∞'; }
+        return (strtotime($until) >= strtotime('today')) ? $until : null;
+    };
     $stateOf = function ($st) {
         if (in_array($st, ['Terminated', 'Cancelled', 'Fraud'], true)) { return 'terminated'; }
         if ($st === 'Suspended') { return 'suspended'; }
@@ -6471,7 +6480,8 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
                     Μένουν οι ενεργές (εκκρεμούν) και οι ανεσταλμένες (έγιναν). */
                  ->whereIn('h.domainstatus', ['Active', 'Suspended'])
                  ->get(['h.id', 'h.userid', 'h.domain', 'h.domainstatus', 'h.amount', 'h.billingcycle',
-                     'h.nextduedate', 'h.dedicatedip', 'p.name as pname', 'p.servertype', 'p.type as ptype']) as $h) {
+                     'h.nextduedate', 'h.dedicatedip', 'h.overideautosuspend', 'h.overidesuspenduntil',
+                     'p.name as pname', 'p.servertype', 'p.type as ptype']) as $h) {
         $cid = (int) $h->userid;
         $d = $debt[$cid];
         $machine = $isMachine($h);
@@ -6483,7 +6493,9 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'domain' => (string) $h->domain, 'product' => (string) $h->pname,
             'status' => (string) $h->domainstatus,
             'module' => (string) $h->servertype, 'auto' => $auto, 'machine' => $machine,
-            'state' => $stateOf((string) $h->domainstatus),
+            'state' => $exemptOf($h) ? 'exempt' : $stateOf((string) $h->domainstatus),
+            'exempt' => $exemptOf($h),
+            'whmcsStatus' => (string) $h->domainstatus,
             'adminUrl' => '/cloudonadminpanel/clientsservices.php?userid=' . $cid . '&id=' . (int) $h->id,
             'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
             'ip' => (string) $h->dedicatedip,
@@ -6512,7 +6524,8 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'debt' => round(array_sum(array_map(function ($c) use ($debt) { return $debt[$c]['open']; }, $shownClients)), 2),
             'auto' => count(array_filter($rows, function ($r) { return $r['auto']; })),
             'pending' => count(array_filter($rows, function ($r) { return $r['state'] === 'pending'; })),
-            'done' => count(array_filter($rows, function ($r) { return $r['state'] !== 'pending'; })),
+            'done' => count(array_filter($rows, function ($r) { return $r['state'] === 'suspended' || $r['state'] === 'terminated'; })),
+            'exempt' => count(array_filter($rows, function ($r) { return $r['state'] === 'exempt'; })),
             'allDebt' => round(array_sum(array_column($debt, 'open')), 2),
             'allClients' => count($debt),
         ]]);
@@ -6548,10 +6561,11 @@ case 'suspend_do':                       // εκτέλεση αναστολής 
     $svcLabel = ($h->domain ?: ('#' . $sid));
 
     if ($act === 'unsuspend') {
+        // Και εδώ μόνο μέσω WHMCS — καμία απευθείας εγγραφή κατάστασης.
         $r = localAPI('ModuleUnsuspend', ['accountid' => $sid], 'pdelis');
         if (($r['result'] ?? '') !== 'success') {
-            // Χωρίς module (ή αποτυχία): μόνο συγχρονισμός κατάστασης.
-            Capsule::table('tblhosting')->where('id', $sid)->update(['domainstatus' => 'Active']);
+            fail('Η επαναφορά απέτυχε: ' . ($r['message'] ?? 'άγνωστο σφάλμα')
+                . ' — κάν\' την από το WHMCS.');
         }
         Capsule::table('mod_cpm_suspend_actions')->where('service_id', $sid)->delete();
         logActivity('CloudOn PM: επαναφορά υπηρεσίας ' . $svcLabel . ' (#' . $sid . ') από ' . Db::adminName($adminId));
@@ -6567,19 +6581,29 @@ case 'suspend_do':                       // εκτέλεση αναστολής 
     $reason = mb_substr(trim((string) ($in['reason'] ?? '')), 0, 190)
         ?: ('Ληξιπρόθεσμη οφειλή ' . number_format($owed, 2, ',', '.') . ' €');
 
-    if (($in['mode'] ?? '') === 'module') {
-        // Το WHMCS καλεί το module (Hetzner powerOff) ΚΑΙ αλλάζει κατάσταση.
-        $r = localAPI('ModuleSuspend', ['accountid' => $sid, 'suspendreason' => $reason], 'pdelis');
-        if (($r['result'] ?? '') !== 'success') {
-            fail('Το module απέτυχε: ' . ($r['message'] ?? 'άγνωστο σφάλμα'));
+    /* Ρητή εξαίρεση στο WHMCS («Do not suspend until») = απόφαση που έχει ήδη
+       παρθεί. Δεν την παρακάμπτουμε από εδώ. */
+    if (!empty($h->overideautosuspend)) {
+        $u = (string) ($h->overidesuspenduntil ?? '');
+        if ($u === '' || strpos($u, '0000') === 0 || strtotime($u) >= strtotime('today')) {
+            fail('Η υπηρεσία έχει εξαίρεση στο WHMCS («Do not suspend until»'
+                . ($u ? ' ' . cnp_d($u) : '') . '). Αν πρέπει να ανασταλεί, αφαίρεσε πρώτα την εξαίρεση στο WHMCS.');
         }
-        $note = 'Αναστολή μέσω module';
-    } else {
-        /* Χειροκίνητη: τη διακοπή την έκανε ο χειριστής αλλού (Proxmox, 3CX,
-           τηλεπικοινωνίες). Εδώ συγχρονίζουμε μόνο την κατάσταση. */
-        Capsule::table('tblhosting')->where('id', $sid)->update(['domainstatus' => 'Suspended']);
-        $note = 'Χειροκίνητη αναστολή';
     }
+
+    /* ΜΟΝΟ μέσω WHMCS. Δεν γράφουμε ποτέ εμείς το domainstatus: η κατάσταση
+       επηρεάζει τιμολόγηση και ανανεώσεις, και μια απευθείας εγγραφή στη βάση
+       παρακάμπτει όσα κάνει το WHMCS (module, ειδοποιήσεις, ιστορικό). Η οθόνη
+       ΔΕΙΧΝΕΙ την κατάσταση· δεν την επινοεί. */
+    if (($in['mode'] ?? '') !== 'module' || (string) $h->servertype === '') {
+        fail('Η υπηρεσία δεν έχει module. Η αναστολή γίνεται από το WHMCS — '
+            . 'άνοιξέ την με το ↗ και άλλαξε εκεί την κατάσταση.');
+    }
+    $r = localAPI('ModuleSuspend', ['accountid' => $sid, 'suspendreason' => $reason], 'pdelis');
+    if (($r['result'] ?? '') !== 'success') {
+        fail('Το module απέτυχε: ' . ($r['message'] ?? 'άγνωστο σφάλμα'));
+    }
+    $note = 'Αναστολή μέσω module';
     logActivity('CloudOn PM: ' . $note . ' — ' . $svcLabel . ' (#' . $sid . ') από '
         . Db::adminName($adminId) . ' — ' . $reason);
 
