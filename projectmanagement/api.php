@@ -1625,6 +1625,45 @@ case 'crm_overview':
         'lostReasons' => array_slice(array_reverse($lostReasons), 0, 10)]);
 
 /* ================= KPI (διοίκηση) ================= */
+case 'ticket_refer':                     // ↩ Παραπομπή σε παλιό αίτημα του ίδιου πελάτη
+    /* Στόχος: να μάθει ο πελάτης πού να κοιτάξει πριν ξαναρωτήσει. Το κείμενο
+       ΔΕΝ στέλνεται — μπαίνει στο πεδίο απάντησης για έλεγχο, γιατί η
+       παραπομπή είναι εύκολο να φανεί απορριπτική αν δεν διαβαστεί πρώτα. */
+    $tid5 = (int) ($in['ticket'] ?? 0);
+    $old5 = (int) ($in['ref'] ?? 0);
+    $cur = Capsule::table('tbltickets')->where('id', $tid5)->first(['id', 'userid', 'message', 'title']);
+    $ref = Capsule::table('tbltickets')->where('id', $old5)->first(['id', 'tid', 'title', 'date', 'lastreply', 'userid']);
+    if (!$cur || !$ref) { fail('ticket', 404); }
+
+    $sol5 = (string) Capsule::table('tblticketreplies')->where('tid', $ref->id)
+        ->where('admin', '!=', '')->whereNotNull('admin')->orderBy('id', 'desc')->value('message');
+    $sol5 = trim(strip_tags($sol5));
+
+    // Γλώσσα από τα μηνύματα του πελάτη στο ΤΡΕΧΟΝ αίτημα.
+    $cust5 = [(string) $cur->message];
+    foreach (Capsule::table('tblticketreplies')->where('tid', $tid5)->orderBy('id')->get(['admin', 'message']) as $r5) {
+        if ($r5->admin === '' || $r5->admin === null) { $cust5[] = (string) $r5->message; }
+    }
+    $el5 = (cnp_lang_hint(cnp_lang_sample($cust5)) === 'ελληνικά');
+
+    $when = cnp_d($ref->date);
+    if ($el5) {
+        $body5 = "Καλησπέρα σας,\n\n"
+            . "Το ίδιο θέμα το είχαμε δει και στο αίτημα #" . $ref->tid . " («" . $ref->title . "»), "
+            . "στις " . $when . ".\n\n"
+            . ($sol5 !== '' ? "Τι είχε λύσει το θέμα τότε:\n\n" . mb_substr($sol5, 0, 1200) . "\n\n" : '')
+            . "Δοκιμάστε τα ίδια βήματα και πείτε μας αν το θέμα παραμένει — αν ναι, "
+            . "συνεχίζουμε εδώ.\n";
+    } else {
+        $body5 = "Hello,\n\n"
+            . "We have seen the same issue before, in ticket #" . $ref->tid . " (\"" . $ref->title . "\") "
+            . "on " . $when . ".\n\n"
+            . ($sol5 !== '' ? "What resolved it then:\n\n" . mb_substr($sol5, 0, 1200) . "\n\n" : '')
+            . "Please try the same steps and let us know if the issue persists — if so, we continue here.\n";
+    }
+    out(['body' => $body5, 'ref' => ['tid' => $ref->tid, 'title' => $ref->title, 'date' => $when],
+        'sameClient' => ((int) $ref->userid === (int) $cur->userid)]);
+
 case 'perf':                             // 📊 Απόδοση χειριστών σε tickets & tasks
     if (!$FULL) { fail('forbidden', 403); }
     /* Τι μετράμε και γιατί ΑΥΤΟ:
@@ -3233,7 +3272,7 @@ case 'ticket':
     } catch (\Throwable $e) {
     }
     // 💡 αυτόματες προτάσεις: KB λύσεις + παρόμοια tickets που λύθηκαν
-    $suggest = ['kb' => [], 'similar' => []];
+    $suggest = ['kb' => [], 'similar' => [], 'repeat' => 0];
     try {
         $tw0 = cnp_words($tk->title . ' ' . mb_substr($tk->message, 0, 600));
         if ($tw0) {
@@ -3246,18 +3285,32 @@ case 'ticket':
             }
             usort($suggest['kb'], function ($a, $b) { return $b['score'] <=> $a['score']; });
             $suggest['kb'] = array_slice($suggest['kb'], 0, 3);
+            /* Ταιριάζουμε τίτλο ΚΑΙ σώμα του παλιού αιτήματος: ο ίδιος πελάτης
+               σπάνια γράφει τον ίδιο τίτλο δύο φορές, αλλά περιγράφει το ίδιο
+               πρόβλημα. Με μόνο τον τίτλο χάναμε τις επαναλήψεις. */
             foreach (Capsule::table('tbltickets')->where('id', '!=', $tid)
                 ->where('status', 'Closed')->orderBy('lastreply', 'desc')
-                ->limit(300)->get(['id', 'tid', 'title', 'userid', 'name', 'lastreply']) as $t9) {
-                $sc = cnp_overlap($tw0, cnp_words($t9->title));
-                if ($sc > 0) {
-                    $suggest['similar'][] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
-                        'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
-                        'last' => substr($t9->lastreply, 0, 10), 'score' => $sc];
-                }
+                ->limit(300)->get(['id', 'tid', 'title', 'message', 'userid', 'name', 'lastreply']) as $t9) {
+                $same = ($tk->userid && (int) $t9->userid === (int) $tk->userid);
+                $sc = cnp_overlap($tw0, cnp_words($t9->title . ' ' . mb_substr((string) $t9->message, 0, 400)));
+                if ($sc <= 0) { continue; }
+                /* Η λύση είναι η τελευταία ΔΙΚΗ ΜΑΣ απάντηση: εκεί καταλήγει
+                   πάντα το «τι κάναμε». */
+                $sol = (string) Capsule::table('tblticketreplies')->where('tid', $t9->id)
+                    ->where('admin', '!=', '')->whereNotNull('admin')->orderBy('id', 'desc')->value('message');
+                $suggest['similar'][] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
+                    'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
+                    'same' => $same, 'last' => substr($t9->lastreply, 0, 10),
+                    'solution' => $sol ? mb_substr(trim(preg_replace('/\s+/u', ' ', strip_tags($sol))), 0, 700) : null,
+                    'score' => $sc];
             }
-            usort($suggest['similar'], function ($a, $b) { return $b['score'] <=> $a['score']; });
-            $suggest['similar'] = array_slice($suggest['similar'], 0, 3);
+            /* Ο ΙΔΙΟΣ πελάτης που ξαναρωτά προηγείται πάντα: εκεί έχει νόημα η
+               παραπομπή «το έχετε ξαναρωτήσει, δείτε τι κάναμε». */
+            usort($suggest['similar'], function ($a, $b) {
+                return ($b['same'] <=> $a['same']) ?: ($b['score'] <=> $a['score']);
+            });
+            $suggest['similar'] = array_slice($suggest['similar'], 0, 4);
+            $suggest['repeat'] = count(array_filter($suggest['similar'], function ($x) { return $x['same']; }));
         }
     } catch (\Throwable $e) {
     }
