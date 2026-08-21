@@ -444,13 +444,27 @@ function cnp_words($text, $max = 40)
     $t = strtr($t, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ό' => 'ο', 'ύ' => 'υ', 'ώ' => 'ω',
         'ϊ' => 'ι', 'ϋ' => 'υ', 'ΐ' => 'ι', 'ΰ' => 'υ', 'ς' => 'σ']);
     preg_match_all('/[a-zα-ω0-9]{3,}/u', $t, $m);
-    $stop = ['και', 'για', 'την', 'τον', 'της', 'του', 'των', 'στο', 'στη', 'στον', 'στην', 'που', 'απο', 'από',
-        'δεν', 'εχω', 'εχει', 'ενα', 'μια', 'εναν', 'ειναι', 'οτι', 'αλλα', 'μου', 'σας', 'μας', 'the', 'and',
-        'for', 'with', 'have', 'has', 'this', 'that', 'not', 'you', 'προβλημα', 'θεμα', 'παρακαλω', 'καλημερα',
-        'καλησπερα', 'ευχαριστω', 'ευχαριστουμε'];
+    /* ΠΡΟΣΟΧΗ: η λίστα περνά από την ΙΔΙΑ κανονικοποίηση με το κείμενο. Αλλιώς
+       λέξεις σαν «της», «σας», «μας» γίνονται «τησ», «σασ», «μασ» στο κείμενο
+       και δεν ταιριάζουν ποτέ με τη λίστα — μετρώνταν ως ουσιαστικές λέξεις και
+       μόλυναν κάθε σύγκριση ομοιότητας. */
+    $stop = ['και', 'για', 'την', 'τον', 'της', 'του', 'των', 'στο', 'στη', 'στον', 'στην', 'στις', 'στους',
+        'που', 'απο', 'από', 'δεν', 'εχω', 'εχει', 'ενα', 'μια', 'εναν', 'ειναι', 'οτι', 'αλλα', 'μου', 'σας',
+        'μας', 'τους', 'τις', 'τη', 'το', 'οι', 'με', 'σε', 'ως', 'αν', 'θα', 'να', 'κατα', 'μετα', 'προσ',
+        'ολα', 'ολο', 'οταν', 'οπωσ', 'καθε', 'ή', 'the', 'and', 'for', 'with', 'have', 'has', 'this', 'that',
+        'not', 'you', 'your', 'are', 'was', 'from', 'can', 'will', 'please', 'hello', 'thanks', 'regards',
+        'προβλημα', 'θεμα', 'παρακαλω', 'καλημερα', 'καλησπερα', 'ευχαριστω', 'ευχαριστουμε', 'εταιρειασ',
+        /* Θόρυβος από συνδέσμους και υπογραφές: υπάρχει σε κάθε μήνυμα και σε
+           κάθε άρθρο, οπότε ταίριαζε άσχετα θέματα μεταξύ τους. */
+        'https', 'http', 'www', 'com', 'net', 'org', 'gov', 'mailto', 'html', 'php', 'aspx', 'jpg', 'png',
+        'cloudon', 'support', 'team', 'mail', 'email'];
+    $stop = array_flip(array_map(function ($w) {
+        return strtr($w, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ό' => 'ο', 'ύ' => 'υ', 'ώ' => 'ω',
+            'ϊ' => 'ι', 'ϋ' => 'υ', 'ΐ' => 'ι', 'ΰ' => 'υ', 'ς' => 'σ']);
+    }, $stop));
     $out = [];
     foreach ($m[0] as $w) {
-        if (!in_array($w, $stop, true)) {
+        if (!isset($stop[$w])) {
             $out[$w] = true;
         }
         if (count($out) >= $max) {
@@ -964,6 +978,75 @@ function cnp_overlap(array $a, array $b)
     }
     $n = count(array_intersect($a, $b));
     return $n >= 2 ? $n : ($n === 1 && count($a) <= 4 ? 1 : 0);
+}
+
+/**
+ * Άρθρα γνώσης που ταιριάζουν σε ένα κείμενο — με ζύγιση σπανιότητας.
+ *
+ * Το απλό «πόσες κοινές λέξεις» έβγαζε θόρυβο: μια λέξη σαν «data» ή «σύστημα»
+ * υπάρχει στα μισά άρθρα και ταίριαζε τα πάντα με τα πάντα («test» → «Λίστα
+ * Self Test»). Εδώ κάθε λέξη ζυγίζεται με το πόσο σπάνια είναι στη βάση (IDF):
+ * το «rdns» μετράει πολύ, το «σύστημα» σχεδόν καθόλου.
+ *
+ * Ψάχνει και μέσα στη ΛΥΣΗ, όχι μόνο σε τίτλο/λέξεις-κλειδιά — εκεί κρύβεται
+ * το μεγαλύτερο μέρος της γνώσης.
+ *
+ * Καλύτερα τίποτα παρά λάθος άρθρο: κάτω από το κατώφλι δεν επιστρέφεται τίποτα.
+ */
+function cnp_kb_suggest($text, $limit = 3, $floor = 3.0)
+{
+    static $idf = null, $docs = null;
+
+    $tw = cnp_words($text, 60);
+    if (!$tw) {
+        return [];
+    }
+
+    if ($docs === null) {
+        $docs = [];
+        $df = [];
+        foreach (Capsule::table('mod_cpm_kb')->get(['id', 'title', 'keywords', 'tags', 'solution']) as $k) {
+            // Τίτλος και λέξεις-κλειδιά μετρούν διπλά: εκεί είναι η ουσία του άρθρου.
+            $head = cnp_words($k->title . ' ' . $k->keywords . ' ' . $k->tags, 60);
+            $body = cnp_words(mb_substr(strip_tags((string) $k->solution), 0, 4000), 120);
+            $docs[] = ['id' => (int) $k->id, 'title' => $k->title, 'solution' => $k->solution,
+                'head' => array_flip($head), 'body' => array_flip($body)];
+            foreach (array_unique(array_merge($head, $body)) as $w) {
+                $df[$w] = ($df[$w] ?? 0) + 1;
+            }
+        }
+        $n = max(1, count($docs));
+        $idf = [];
+        foreach ($df as $w => $c) {
+            $idf[$w] = log(1 + $n / $c);   // σπάνια λέξη → μεγάλο βάρος
+        }
+    }
+    if (!$docs) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($docs as $d) {
+        $sc = 0.0; $hits = []; $headHits = 0;
+        foreach ($tw as $w) {
+            /* Σκέτα νούμερα δεν είναι γνώση: οι οκτάδες μιας IP (128, 140, 119)
+               είναι σπανιότατες, άρα έπαιρναν τεράστιο βάρος και ταίριαζαν
+               αίτημα rDNS με άρθρο τιμολογιακής πολιτικής. */
+            if (ctype_digit($w)) { continue; }
+            $iw = $idf[$w] ?? 0;
+            if ($iw <= 0) { continue; }
+            if (isset($d['head'][$w]))      { $sc += $iw * 2.0; $hits[] = $w; $headHits++; }
+            elseif (isset($d['body'][$w]))  { $sc += $iw * 0.6; $hits[] = $w; }
+        }
+        /* Απαιτούμε τουλάχιστον μία λέξη στον ΤΙΤΛΟ ή στις λέξεις-κλειδιά: μόνο
+           με λέξεις από το σώμα, το ταίριασμα είναι σύμπτωση, όχι θέμα. */
+        if ($sc >= $floor && count($hits) >= 2 && $headHits >= 1) {
+            $out[] = ['id' => $d['id'], 'title' => $d['title'], 'solution' => $d['solution'],
+                'score' => round($sc, 1), 'words' => array_slice(array_unique($hits), 0, 6)];
+        }
+    }
+    usort($out, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    return array_slice($out, 0, $limit);
 }
 
 function taskDto($t, $minsMap = null, $checkMap = null)
@@ -3276,15 +3359,10 @@ case 'ticket':
     try {
         $tw0 = cnp_words($tk->title . ' ' . mb_substr($tk->message, 0, 600));
         if ($tw0) {
-            foreach (Capsule::table('mod_cpm_kb')->get() as $k9) {
-                $sc = cnp_overlap($tw0, cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags));
-                if ($sc > 0) {
-                    $suggest['kb'][] = ['id' => (int) $k9->id, 'title' => $k9->title,
-                        'solution' => $k9->solution, 'score' => $sc];
-                }
-            }
-            usort($suggest['kb'], function ($a, $b) { return $b['score'] <=> $a['score']; });
-            $suggest['kb'] = array_slice($suggest['kb'], 0, 3);
+            /* Ζυγισμένο ταίριασμα (βλ. cnp_kb_suggest): σπάνιες λέξεις μετράνε,
+               κοινές όχι· ψάχνει και στο σώμα της λύσης· κάτω από το κατώφλι
+               δεν προτείνει τίποτα, γιατί λάθος άρθρο είναι χειρότερο από κανένα. */
+            $suggest['kb'] = cnp_kb_suggest($tk->title . ' ' . mb_substr($tk->message, 0, 800), 3);
             /* Ταιριάζουμε τίτλο ΚΑΙ σώμα του παλιού αιτήματος: ο ίδιος πελάτης
                σπάνια γράφει τον ίδιο τίτλο δύο φορές, αλλά περιγράφει το ίδιο
                πρόβλημα. Με μόνο τον τίτλο χάναμε τις επαναλήψεις. */
@@ -5009,11 +5087,11 @@ case 'ai_summary':
         try {
             $tw3 = cnp_words($tk3->title . ' ' . mb_substr($tk3->message, 0, 600));
             $kbCtx = [];
-            foreach (Capsule::table('mod_cpm_kb')->get() as $k9) {
-                $sc = cnp_overlap($tw3, cnp_words($k9->title . ' ' . $k9->keywords . ' ' . $k9->tags));
-                if ($sc > 0) {
-                    $kbCtx[] = [$sc, "ΛΥΣΗ ΑΠΟ ΤΗ ΒΑΣΗ ΓΝΩΣΗΣ «{$k9->title}»:\n" . mb_substr($k9->solution, 0, 800)];
-                }
+            /* Ίδιο ζυγισμένο ταίριασμα με την οθόνη: αν το AI τροφοδοτηθεί με
+               άσχετο άρθρο, γράφει με σιγουριά λάθος οδηγίες. */
+            foreach (cnp_kb_suggest($tk3->title . ' ' . mb_substr($tk3->message, 0, 800), 3) as $k9) {
+                $kbCtx[] = [$k9['score'], "ΛΥΣΗ ΑΠΟ ΤΗ ΒΑΣΗ ΓΝΩΣΗΣ «{$k9['title']}»:\n"
+                    . mb_substr((string) $k9['solution'], 0, 800)];
             }
             usort($kbCtx, function ($a, $b) { return $b[0] <=> $a[0]; });
             foreach (array_slice($kbCtx, 0, 2) as $x) {
