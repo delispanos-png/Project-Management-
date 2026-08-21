@@ -8,6 +8,7 @@
 require_once __DIR__ . '/boot.php';
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudonProjects\Auto;
 use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Time;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
@@ -4664,6 +4665,17 @@ case 'ticket_update':
     }
     $uname = Capsule::table('tbladmins')->where('id', $adminId)->value('username');
     $r = localAPI('UpdateTicket', $upd, $uname);
+    /* Ο trigger ticket_status ήταν τεκμηριωμένος αλλά δεν πυροδοτούνταν ΠΟΤΕ —
+       όποιος έφτιαχνε κανόνα πάνω του δεν θα καταλάβαινε γιατί δεν τρέχει. */
+    if (($r['result'] ?? '') === 'success' && isset($upd['status'])) {
+        if (!class_exists(Auto::class)) {
+            require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Auto.php';
+        }
+        try {
+            Auto::run('ticket_status', ['ticketId' => $tid, 'status' => (string) $upd['status']]);
+        } catch (\Throwable $e) {
+        }
+    }
     out(['ok' => ($r['result'] ?? '') === 'success', 'msg' => $r['message'] ?? null]);
 
 case 'ticket_note':
@@ -4993,6 +5005,69 @@ case 'autos':
     out(['autos' => $rows,
         'ticketStatuses' => Capsule::table('tblticketstatuses')->orderBy('sortorder')->pluck('title')->all(),
         'leadStages' => $stagesL]);
+
+case 'auto_recipes':                     // 🍳 Έτοιμοι κανόνες — ένα κλικ αντί για συμπλήρωση πεδίων
+    if (!$FULL) { fail('forbidden', 403); }
+    /* Η μηχανή automations υπάρχει από καιρό αλλά έχει 0 κανόνες: για να
+       φτιάξεις έναν, πρέπει να ξέρεις ποιοι triggers υπάρχουν και τι δέχεται
+       κάθε πεδίο. Οι συνταγές είναι οι περιπτώσεις που ζητήθηκαν στην πράξη,
+       έτοιμες να ενεργοποιηθούν. */
+    $me9 = $adminId;
+    $doneSt = (int) (Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id') ?: 0);
+    $recipes = [
+        ['key' => 'sla_notify', 'name' => 'Παραβίαση SLA → ειδοποίηση διαχειριστών',
+         'why' => 'Το SLA περνά σιωπηλά· κάποιος πρέπει να το μάθει τη στιγμή που συμβαίνει.',
+         'trigger' => 'sla_breach', 'tvalue' => '', 'action' => 'notify', 'avalue' => '-1'],
+        ['key' => 'sla_escalate', 'name' => 'Παραβίαση SLA → προτεραιότητα High',
+         'why' => 'Ανεβάζει το ticket στην κορυφή της ουράς, χωρίς να το θυμηθεί κανείς.',
+         'trigger' => 'sla_breach', 'tvalue' => '', 'action' => 'escalate', 'avalue' => ''],
+        ['key' => 'closed_kb', 'name' => 'Ticket κλειστό → ειδοποίηση για καταγραφή λύσης',
+         'why' => 'Η γνώση χάνεται τη στιγμή που κλείνει το ticket, αν δεν γραφτεί αμέσως.',
+         'trigger' => 'ticket_status', 'tvalue' => 'Closed', 'action' => 'notify', 'avalue' => (string) $me9],
+        ['key' => 'task_done_ball', 'name' => 'Εργασία «Ολοκληρώθηκε» → ειδοποίηση σε εμένα',
+         'why' => 'Μαθαίνεις ότι τελείωσε χωρίς να ρωτάς.',
+         'trigger' => 'task_status', 'tvalue' => (string) $doneSt, 'action' => 'notify', 'avalue' => (string) $me9],
+        ['key' => 'lead_won', 'name' => 'Lead «Κερδισμένο» → ειδοποίηση διαχειριστών',
+         'why' => 'Η κερδισμένη πώληση θέλει άμεσα επόμενα βήματα (προσφορά → έργο).',
+         'trigger' => 'lead_stage', 'tvalue' => 'won', 'action' => 'notify', 'avalue' => '-1'],
+    ];
+    // Ποιες είναι ήδη εγκατεστημένες — ίδιος trigger+tvalue+action+avalue.
+    $have = [];
+    foreach (Capsule::table('mod_cpm_automations')->get() as $a) {
+        $have[$a->trigger . '|' . $a->tvalue . '|' . $a->action . '|' . $a->avalue] = (int) $a->id;
+    }
+    foreach ($recipes as &$rc) {
+        $k = $rc['trigger'] . '|' . $rc['tvalue'] . '|' . $rc['action'] . '|' . $rc['avalue'];
+        $rc['installed'] = $have[$k] ?? 0;
+    }
+    unset($rc);
+    out(['recipes' => $recipes]);
+
+case 'auto_recipe_add':
+    if (!$FULL) { fail('forbidden', 403); }
+    $k9 = (string) ($in['key'] ?? '');
+    $doneSt2 = (int) (Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id') ?: 0);
+    $all9 = [
+        'sla_notify'    => ['Παραβίαση SLA → ειδοποίηση διαχειριστών', 'sla_breach', '', 'notify', '-1'],
+        'sla_escalate'  => ['Παραβίαση SLA → προτεραιότητα High', 'sla_breach', '', 'escalate', ''],
+        'closed_kb'     => ['Ticket κλειστό → ειδοποίηση για καταγραφή λύσης', 'ticket_status', 'Closed', 'notify', (string) $adminId],
+        'task_done_ball' => ['Εργασία «Ολοκληρώθηκε» → ειδοποίηση σε εμένα', 'task_status', (string) $doneSt2, 'notify', (string) $adminId],
+        'lead_won'      => ['Lead «Κερδισμένο» → ειδοποίηση διαχειριστών', 'lead_stage', 'won', 'notify', '-1'],
+    ];
+    if (!isset($all9[$k9])) { fail('Άγνωστη συνταγή'); }
+    [$nm9, $tr9, $tv9, $ac9, $av9] = $all9[$k9];
+    $exists = Capsule::table('mod_cpm_automations')->where('trigger', $tr9)->where('tvalue', $tv9)
+        ->where('action', $ac9)->where('avalue', $av9)->first(['id']);
+    if ($exists) {
+        Capsule::table('mod_cpm_automations')->where('id', $exists->id)->update(['active' => 1]);
+        out(['ok' => true, 'id' => (int) $exists->id, 'existed' => true]);
+    }
+    $id9 = Capsule::table('mod_cpm_automations')->insertGetId([
+        'name' => $nm9, 'trigger' => $tr9, 'tvalue' => $tv9, 'action' => $ac9, 'avalue' => $av9,
+        'active' => 1, 'created_at' => date('Y-m-d H:i:s'),
+    ]);
+    logActivity('CloudOn PM: ενεργοποιήθηκε automation «' . $nm9 . '» από ' . Db::adminName($adminId));
+    out(['ok' => true, 'id' => (int) $id9]);
 
 case 'auto_save':
     if (!$FULL) {
