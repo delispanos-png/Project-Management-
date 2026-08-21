@@ -12,11 +12,13 @@ use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
 use WHMCS\Module\Addon\CloudonProjects\Auto;
 use WHMCS\Module\Addon\CloudonProjects\Deadlines;
+use WHMCS\Module\Addon\CloudonProjects\TicketIdle;
 
 require_once __DIR__ . '/../lib/Db.php';
 require_once __DIR__ . '/../lib/Notify.php';
 require_once __DIR__ . '/../lib/Auto.php';
 require_once __DIR__ . '/../lib/Deadlines.php';
+require_once __DIR__ . '/../lib/TicketIdle.php';
 
 /* SLA breaches → automations (μία φορά ανά ticket, dedupe στο Auto::once) */
 try {
@@ -86,4 +88,19 @@ try {
     }
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] προθεσμίες ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
+}
+
+/* 🔕 Tickets που περιμένουν τον πελάτη: υπενθύμιση και μετά αυτόματο κλείσιμο.
+   Στέλνει μηνύματα σε πελάτες — τρέχει ΜΟΝΟ αν έχει ενεργοποιηθεί ρητά η
+   ρύθμιση `ticket_autoclose` του addon. */
+try {
+    if (TicketIdle::enabled()) {
+        $ti = TicketIdle::run(getenv('CPM_DRY') ? true : false);
+        if ($ti['warned'] || $ti['closed']) {
+            echo '[' . date('H:i:s') . '] tickets: ' . count($ti['warned']) . ' υπενθυμίσεις, '
+                . count($ti['closed']) . " κλεισίματα\n";
+        }
+    }
+} catch (\Throwable $e) {
+    echo '[' . date('H:i:s') . '] ticket autoclose ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
 }
