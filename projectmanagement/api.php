@@ -6384,6 +6384,107 @@ case 'cv_jobs':
         'customImages' => cnp_cv_job_custom_list(),
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
+case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφιες για αναστολή
+    if (!$FULL) { fail('forbidden', 403); }
+    /* Ο αυτοματισμός του WHMCS εκτελείται μόνο όπου υπάρχει server module — 15%
+       των υπηρεσιών — οπότε τιμωρεί άνισα όποιον τυχαίνει να είναι στη Hetzner.
+       Μέχρι να ολοκληρωθεί η μετάβαση, η απόφαση παίρνεται εδώ, με τα σωστά
+       νούμερα: πραγματικά ανοιχτά ΑΝΑ ΠΑΡΑΣΤΑΤΙΚΟ, όχι το total του WHMCS που
+       δεν μειώνεται στις μερικές πληρωμές. */
+    $graceDays = (int) (Capsule::table('tblconfiguration')->where('setting', 'AutoSuspensionDays')->value('value') ?: 10);
+    $today0 = strtotime('today');
+
+    // Ανοιχτά ανά παραστατικό, μόνο για ληξιπρόθεσμα
+    $alloc = [];
+    foreach (Capsule::table('tblaccounts')->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
+        $alloc[(int) $r->invoiceid] = (float) $r->p;
+    }
+    $debt = [];   // clientId => ['open'=>, 'days'=>, 'invs'=>[]]
+    foreach (Capsule::table('tblinvoices')->whereIn('status', ['Unpaid', 'Overdue', 'Payment Pending'])
+                 ->get(['id', 'userid', 'invoicenum', 'date', 'duedate', 'status', 'subtotal', 'tax', 'tax2', 'credit']) as $iv) {
+        $due = (string) $iv->duedate;
+        if ($due === '' || strpos($due, '0000') === 0) { continue; }
+        /* Υπάρχουν παραστατικά με πληκτρολογημένο λάθος έτος (π.χ. 0026-06-17).
+           Χωρίς έλεγχο βγάζουν «730.549 ημέρες καθυστέρηση» και εκτοξεύουν τον
+           πελάτη στην κορυφή. Πέφτουμε στην ημερομηνία έκδοσης και το σημαίνουμε
+           ως λάθος δεδομένο, για να διορθωθεί στο WHMCS. */
+        $badDue = false;
+        if ((int) substr($due, 0, 4) < 2000) {
+            $badDue = true;
+            $due = (string) $iv->date;
+            if ($due === '' || strpos($due, '0000') === 0) { continue; }
+        }
+        if (strtotime($due) >= $today0) { continue; }
+        $open = round((float) $iv->subtotal + (float) $iv->tax + (float) $iv->tax2
+            - ($alloc[(int) $iv->id] ?? 0) - (float) $iv->credit, 2);
+        if ($open <= 0.5) { continue; }   // ουσιαστικά εξοφλημένο — δεν κόβουμε για σεντ
+        $d = (int) floor(($today0 - strtotime($due)) / 86400);
+        $cid = (int) $iv->userid;
+        if (!isset($debt[$cid])) { $debt[$cid] = ['open' => 0, 'days' => 0, 'invs' => [], 'badDue' => false]; }
+        $debt[$cid]['open'] += $open;
+        $debt[$cid]['days'] = max($debt[$cid]['days'], $d);
+        $debt[$cid]['invs'][] = ['id' => (int) $iv->id, 'num' => (string) ($iv->invoicenum ?: $iv->id),
+            'due' => $due, 'days' => $d, 'open' => $open, 'badDue' => $badDue];
+        if ($badDue) { $debt[$cid]['badDue'] = true; }
+    }
+    if (!$debt) { out(['rows' => [], 'grace' => $graceDays, 'sum' => ['clients' => 0, 'services' => 0, 'debt' => 0, 'auto' => 0]]); }
+
+    $handled = [];
+    foreach (Capsule::table('mod_cpm_suspend_actions')->orderBy('id')->get() as $a) {
+        $handled[(int) $a->service_id] = ['action' => $a->action, 'note' => $a->note,
+            'by' => Db::adminName((int) $a->admin_id), 'at' => $a->created_at];
+    }
+
+    $rows = [];
+    foreach (Capsule::table('tblhosting as h')->join('tblproducts as p', 'p.id', '=', 'h.packageid')
+                 ->whereIn('h.userid', array_keys($debt))
+                 ->whereIn('h.domainstatus', ['Active', 'Suspended'])
+                 ->get(['h.id', 'h.userid', 'h.domain', 'h.domainstatus', 'h.amount', 'h.billingcycle',
+                     'h.nextduedate', 'h.dedicatedip', 'p.name as pname', 'p.servertype']) as $h) {
+        $cid = (int) $h->userid;
+        $d = $debt[$cid];
+        $auto = ((string) $h->servertype !== '');
+        $rows[] = [
+            'service' => (int) $h->id, 'client' => $cid, 'name' => clientLabel($cid),
+            'domain' => (string) $h->domain, 'product' => (string) $h->pname,
+            'status' => (string) $h->domainstatus,
+            'module' => (string) $h->servertype, 'auto' => $auto,
+            'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
+            'ip' => (string) $h->dedicatedip,
+            'debt' => round($d['open'], 2), 'days' => $d['days'], 'badDue' => !empty($d['badDue']),
+            'ripe' => $d['days'] >= $graceDays,
+            'invs' => array_slice($d['invs'], 0, 4),
+            'done' => $handled[(int) $h->id] ?? null,
+        ];
+    }
+    /* Πρώτα όσες «ώριμασαν» και χρωστούν περισσότερα — αυτές θέλουν απόφαση. */
+    usort($rows, function ($a, $b) {
+        return ($b['ripe'] <=> $a['ripe']) ?: ($b['debt'] <=> $a['debt']) ?: ($b['days'] <=> $a['days']);
+    });
+
+    out(['rows' => $rows, 'grace' => $graceDays, 'sum' => [
+        'clients' => count($debt),
+        'services' => count($rows),
+        'debt' => round(array_sum(array_column($debt, 'open')), 2),
+        'auto' => count(array_filter($rows, function ($r) { return $r['auto']; })),
+    ]]);
+
+case 'suspend_mark':                     // καταγραφή τι κάναμε χειροκίνητα
+    if (!$FULL) { fail('forbidden', 403); }
+    $sid = (int) ($in['service'] ?? 0);
+    if (!$sid) { fail('service'); }
+    $act = in_array($in['action'] ?? '', ['suspended', 'skipped', 'paid'], true) ? $in['action'] : 'skipped';
+    Capsule::table('mod_cpm_suspend_actions')->where('service_id', $sid)->delete();
+    if (!empty($in['clear'])) { out(['ok' => true]); }
+    Capsule::table('mod_cpm_suspend_actions')->insert([
+        'service_id' => $sid, 'admin_id' => $adminId, 'action' => $act,
+        'note' => mb_substr(trim((string) ($in['note'] ?? '')), 0, 200) ?: null,
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+    out(['ok' => true]);
+
 case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για το λογιστήριο
     if (!$FULL) { fail('forbidden', 403); }
     $sc = (string) ($_GET['section'] ?? '');

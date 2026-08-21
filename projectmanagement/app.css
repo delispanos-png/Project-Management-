@@ -1494,3 +1494,9 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   pointer-events:none;font-size:13.5px;color:var(--ink);line-height:1;
   font-variant-numeric:tabular-nums}
 .cnp-dt.empty{color:var(--mut)}
+/* ── Αναστολές ──────────────────────────────────────────────────────────── */
+.susp-h{display:flex;gap:9px;align-items:center;cursor:pointer;flex-wrap:wrap}
+.susp-row{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+.susp-row:last-child{border-bottom:none}
+.susp-t{flex:1;min-width:180px;font-size:13px;font-weight:600;line-height:1.35}
+.susp-t .mut{display:block;font-weight:400;font-size:11px}

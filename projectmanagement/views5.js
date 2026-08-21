@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, dShort, today, toast, setTop, openTask, adminIni, adminName, I, go, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, dShort, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -269,3 +269,96 @@ R.gantt = async function () {
   };
 };
 
+
+/* ═════════ 🛑 ΑΝΑΣΤΟΛΕΣ — υπηρεσίες με ληξιπρόθεσμες οφειλές ═════════
+   Ο αυτοματισμός του WHMCS εκτελείται μόνο όπου υπάρχει server module (15% των
+   υπηρεσιών), οπότε τιμωρεί άνισα όποιον τυχαίνει να φιλοξενείται στη Hetzner.
+   Μέχρι να ολοκληρωθεί η μετάβαση, η απόφαση παίρνεται εδώ — ανά ΠΕΛΑΤΗ, με τα
+   πραγματικά ανοιχτά ποσά, και μένει ίχνος ποιος έκανε τι. */
+R.suspend = async function () {
+  setTop('Αναστολές', 'Υπηρεσίες με ληξιπρόθεσμη οφειλή — χειροκίνητη απόφαση');
+  const c = $('#content');
+  if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
+  c.innerHTML = '<div class="skel" style="height:220px"></div>';
+  const st = R.suspend._s = R.suspend._s || {open: {}, hideDone: true};
+
+  const load = async () => {
+    const d = await api('suspend_queue').catch(() => null);
+    if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
+
+    // ομαδοποίηση ανά πελάτη — η οφειλή είναι του πελάτη, όχι της κάθε υπηρεσίας
+    const by = {};
+    d.rows.forEach(r => {
+      (by[r.client] = by[r.client] || {name: r.name, debt: r.debt, days: r.days, ripe: r.ripe,
+        invs: r.invs, badDue: r.badDue, svc: []}).svc.push(r);
+    });
+    const groups = Object.entries(by).sort((a, b) => b[1].debt - a[1].debt);
+
+    const badge = r => r.auto
+      ? `<span class="pill pill-info" title="Το module ${esc(r.module)} εκτελεί την αναστολή">αυτόματο · ${esc(r.module)}</span>`
+      : '<span class="pill pill-mut" title="Δεν υπάρχει module — γίνεται με το χέρι">χειροκίνητο</span>';
+    const doneBadge = x => x
+      ? `<span class="pill ${x.action === 'suspended' ? 'pill-bad' : (x.action === 'paid' ? 'pill-ok' : 'pill-warn')}">
+           ${x.action === 'suspended' ? 'ανεστάλη' : (x.action === 'paid' ? 'πληρώθηκε' : 'παραλείφθηκε')} · ${esc(x.by)}</span>` : '';
+
+    c.innerHTML = `
+      <div class="grid g4" style="margin-bottom:14px">
+        ${suStat(I.users, d.sum.clients, 'πελάτες με οφειλή', d.sum.clients ? 'var(--bad)' : 'var(--ok)')}
+        ${suStat(I.coin, fmtEur(d.sum.debt), 'ληξιπρόθεσμα', 'var(--bad)')}
+        ${suStat(I.box || I.folder, d.sum.services, 'υπηρεσίες σε κίνδυνο', '#e0a020')}
+        ${suStat(I.bolt || I.zap, d.sum.auto, 'με αυτόματο module', 'var(--brand)')}
+      </div>
+      <div class="card" style="margin-bottom:12px"><div class="card-b" style="font-size:12.5px;line-height:1.55" class="mut">
+        Το όριο του WHMCS είναι <b>${d.grace} ημέρες</b> μετά τη λήξη. Με <span class="pill pill-bad">⚠</span> όσοι το έχουν ξεπεράσει.
+        Τα ποσά είναι τα <b>πραγματικά ανοιχτά ανά παραστατικό</b> — όχι το «Unpaid» του WHMCS, που δεν μειώνεται στις μερικές πληρωμές.
+      </div></div>
+      ${groups.map(([cid, g]) => `
+        <div class="card" style="margin-bottom:12px;border-left:4px solid ${g.ripe ? 'var(--bad)' : '#e0a020'}">
+          <div class="card-h susp-h" data-sg="${cid}">
+            <a href="/cloudonadminpanel/clientssummary.php?userid=${cid}" target="_blank" style="color:var(--brand)">${esc(g.name)}</a>
+            <span class="pill ${g.ripe ? 'pill-bad' : 'pill-warn'}">${g.days} ημέρες</span>
+            <b style="color:var(--bad)">${fmtEur(g.debt)}</b>
+            <span class="mut" style="font-size:11.5px">${g.svc.length} υπηρεσίες · ${g.svc.filter(x => x.auto).length} αυτόματες</span>
+            ${g.badDue ? '<span class="pill pill-warn" title="Παραστατικό με λανθασμένο έτος στην ημ. λήξης — διόρθωσέ το στο WHMCS">λάθος ημ. λήξης</span>' : ''}
+            <span style="flex:1"></span>
+            <span class="kb-gchev ${st.open[cid] ? 'open' : ''}">${I.chev}</span>
+          </div>
+          <div class="card-b" ${st.open[cid] ? '' : 'style="display:none"'}>
+            <div class="mut" style="font-size:11.5px;margin-bottom:9px">Ληξιπρόθεσμα:
+              ${g.invs.map(i => `<a href="/cloudonadminpanel/index.php/billing/invoice/${i.id}" target="_blank" style="color:var(--brand);margin-right:9px">${esc(i.num)} · ${fmtEur(i.open)} · ${i.days} ημ.${i.badDue ? ' ⚠' : ''}</a>`).join('')}</div>
+            ${g.svc.map(r => `<div class="susp-row">
+              <span class="susp-t">${esc(r.domain || r.product)}
+                <span class="mut">${esc(r.product)}${r.ip ? ' · ' + esc(r.ip) : ''} · ${fmtEur(r.amount)}/${esc(r.cycle)}</span></span>
+              ${badge(r)}
+              <span class="pill ${r.status === 'Suspended' ? 'pill-bad' : 'pill-ok'}">${r.status === 'Suspended' ? 'σε αναστολή' : 'ενεργή'}</span>
+              ${doneBadge(r.done)}
+              <span style="flex:1"></span>
+              ${r.done
+                ? `<button class="btn btn-sm btn-o" data-sclear="${r.service}">αναίρεση</button>`
+                : `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="suspended">Ανεστάλη</button>
+                   <button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="paid">Πληρώθηκε</button>
+                   <button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped">Παράλειψη</button>`}
+            </div>`).join('')}
+          </div></div>`).join('')}
+      ${groups.length ? '' : '<div class="empty" style="padding:44px">Κανένας πελάτης με ληξιπρόθεσμη οφειλή 🎉</div>'}`;
+
+    $$('.susp-h').forEach(h => h.onclick = e => {
+      if (e.target.closest('a')) { return; }
+      const k = h.dataset.sg; st.open[k] = !st.open[k];
+      h.nextElementSibling.style.display = st.open[k] ? '' : 'none';
+      h.querySelector('.kb-gchev').classList.toggle('open', !!st.open[k]);
+    });
+    $$('[data-smark]').forEach(b => b.onclick = async () => {
+      const note = await cnpPrompt('Σημείωση (προαιρετικά) — τι έγινε;',
+        {title: '🛑 Καταγραφή ενέργειας', ok: 'Καταγραφή', placeholder: 'π.χ. σβήστηκε το VM στο Hetzner'});
+      if (note === null) { return; }
+      await api('suspend_mark', {service: +b.dataset.smark, action: b.dataset.act, note});
+      toast('Καταγράφηκε'); load();
+    });
+    $$('[data-sclear]').forEach(b => b.onclick = async () => {
+      await api('suspend_mark', {service: +b.dataset.sclear, clear: 1});
+      toast('Αναιρέθηκε'); load();
+    });
+  };
+  load();
+};

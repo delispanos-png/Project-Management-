@@ -168,7 +168,8 @@ function renderShell() {
   }
   if (me.full) {
     nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
-      ['profit', I.coin, 'Κερδοφορία'], ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
+      ['profit', I.coin, 'Κερδοφορία'], ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'],
+      ['suspend', I.alert, 'Αναστολές'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
   }
   if (has('hr')) {
     nav.push(['Προσλήψεις', [['recruit', I.contact || I.users, 'Βιογραφικά']]]);
@@ -227,7 +228,7 @@ function renderShell() {
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
-        teams: 'Ομάδες', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+        teams: 'Ομάδες', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));

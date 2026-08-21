@@ -106,6 +106,20 @@ class Db
             });
         }
 
+        /* Τι αποφασίσαμε χειροκίνητα για κάθε υπηρεσία με ληξιπρόθεσμη οφειλή.
+           Όσο ο αυτοματισμός καλύπτει μόνο ένα μέρος των υπηρεσιών, η απόφαση
+           παίρνεται από άνθρωπο και πρέπει να μένει ίχνος ποιος και πότε. */
+        if (!$s->hasTable('mod_cpm_suspend_actions')) {
+            $s->create('mod_cpm_suspend_actions', function ($t) {
+                $t->increments('id');
+                $t->integer('service_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned();
+                $t->string('action', 12);          // suspended | skipped | paid
+                $t->string('note', 200)->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
         /* Επικοινωνία δεμένη σε ΠΡΟΣΦΟΡΑ, όχι μόνο σε lead/πελάτη: το νήμα
            «τηλεφώνησα → έστειλα → ξαναμίλησα» ανήκει στη συγκεκριμένη προσφορά. */
         if (!$s->hasColumn('mod_cpm_interactions', 'offer_id')) {
