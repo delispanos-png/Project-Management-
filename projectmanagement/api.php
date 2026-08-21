@@ -6431,6 +6431,11 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
     }
     if (!$debt) { out(['rows' => [], 'grace' => $graceDays, 'sum' => ['clients' => 0, 'services' => 0, 'debt' => 0, 'auto' => 0]]); }
 
+    $notified = [];
+    foreach (Capsule::table('mod_cpm_suspend_notices')->orderBy('id')->get() as $n) {
+        $notified[(int) $n->client_id] = ['at' => $n->created_at, 'date' => $n->suspend_date,
+            'ticket' => (int) $n->ticket_id, 'by' => Db::adminName((int) $n->admin_id)];
+    }
     $handled = [];
     foreach (Capsule::table('mod_cpm_suspend_actions')->orderBy('id')->get() as $a) {
         $handled[(int) $a->service_id] = ['action' => $a->action, 'note' => $a->note,
@@ -6485,6 +6490,7 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'debt' => round($d['open'], 2), 'days' => $d['days'], 'badDue' => !empty($d['badDue']),
             'ripe' => $d['days'] >= $graceDays,
             'invs' => array_slice($d['invs'], 0, 4),
+            'notified' => $notified[$cid] ?? null,
             'done' => $handled[(int) $h->id] ?? null,
         ];
     }
@@ -6510,6 +6516,188 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'allDebt' => round(array_sum(array_column($debt, 'open')), 2),
             'allClients' => count($debt),
         ]]);
+
+case 'suspend_notice':                   // σύνθεση ειδοποίησης προς τον πελάτη
+    if (!$FULL) { fail('forbidden', 403); }
+    $cid = (int) ($in['client'] ?? 0);
+    $cl = $cid ? Capsule::table('tblclients')->where('id', $cid)->first() : null;
+    if (!$cl) { fail('client', 404); }
+    $svcIds = array_map('intval', (array) ($in['services'] ?? []));
+    if (!$svcIds) { fail('Δεν επιλέχθηκε υπηρεσία'); }
+    $when = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['date'] ?? '')) ? $in['date'] : date('Y-m-d', strtotime('+5 days'));
+
+    /* Γλώσσα: ό,τι δηλώνει ο πελάτης· αλλιώς από τη χώρα. Ο χειριστής μπορεί να
+       την αλλάξει από τον διάλογο — δεν μαντεύουμε πάνω στο λάθος. */
+    $lang = in_array($in['lang'] ?? '', ['el', 'en'], true) ? $in['lang']
+        : ((strtolower((string) $cl->language) === 'greek' || strtoupper((string) $cl->country) === 'GR') ? 'el' : 'en');
+
+    $svcs = [];
+    foreach (Capsule::table('tblhosting as h')->join('tblproducts as p', 'p.id', '=', 'h.packageid')
+                 ->whereIn('h.id', $svcIds)->where('h.userid', $cid)
+                 ->get(['h.id', 'h.domain', 'h.dedicatedip', 'h.amount', 'h.billingcycle', 'p.name as pname']) as $h) {
+        $svcs[] = ['id' => (int) $h->id, 'label' => (string) ($h->domain ?: $h->pname),
+            'product' => (string) $h->pname, 'ip' => (string) $h->dedicatedip];
+    }
+    if (!$svcs) { fail('Οι υπηρεσίες δεν ανήκουν σε αυτόν τον πελάτη'); }
+
+    // Τα ληξιπρόθεσμα — η αιτία, με ονόματα και ποσά
+    $alloc2 = [];
+    foreach (Capsule::table('tblaccounts')->where('userid', $cid)->where('invoiceid', '>', 0)
+                 ->selectRaw('invoiceid, SUM(amountin) - SUM(CASE WHEN refundid > 0 THEN amountout ELSE 0 END) p')
+                 ->groupBy('invoiceid')->get() as $r) {
+        $alloc2[(int) $r->invoiceid] = (float) $r->p;
+    }
+    $invs = []; $total = 0.0;
+    foreach (Capsule::table('tblinvoices')->where('userid', $cid)
+                 ->whereIn('status', ['Unpaid', 'Overdue', 'Payment Pending'])->orderBy('duedate')->get() as $iv) {
+        $due = (string) $iv->duedate;
+        if ($due === '' || strpos($due, '0000') === 0) { continue; }
+        if ((int) substr($due, 0, 4) < 2000) { $due = (string) $iv->date; }
+        if (strtotime($due) >= strtotime('today')) { continue; }
+        $open = round((float) $iv->subtotal + (float) $iv->tax + (float) $iv->tax2
+            - ($alloc2[(int) $iv->id] ?? 0) - (float) $iv->credit, 2);
+        if ($open <= 0.5) { continue; }
+        $total += $open;
+        $gross = round((float) $iv->subtotal + (float) $iv->tax + (float) $iv->tax2, 2);
+        $paid = round(($alloc2[(int) $iv->id] ?? 0) + (float) $iv->credit, 2);
+        $invs[] = ['num' => (string) ($iv->invoicenum ?: $iv->id),
+            'issued' => cnp_d($iv->date), 'due' => cnp_d($due),
+            'gross' => $gross, 'paid' => $paid, 'open' => $open,
+            'days' => (int) floor((strtotime('today') - strtotime($due)) / 86400)];
+    }
+
+    $money = function ($v) { return number_format((float) $v, 2, ',', '.') . ' €'; };
+    $name = trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname)));
+    $svcList = '';
+    foreach ($svcs as $x) {
+        $svcList .= '- ' . $x['label'] . ' (' . $x['product'] . ($x['ip'] ? ', ' . $x['ip'] : '') . ")\n";
+    }
+    /* Πλήρης ανάλυση ανά παραστατικό: έκδοση, λήξη, καθυστέρηση, αξία, τι έχει
+       πληρωθεί και τι μένει. Ο πελάτης πρέπει να μπορεί να το ελέγξει γραμμή
+       γραμμή χωρίς να μπει στον λογαριασμό του. */
+    $invList = ''; $i9 = 0;
+    foreach ($invs as $x) {
+        $i9++;
+        if ($lang === 'el') {
+            $invList .= $i9 . ') Παραστατικό ' . $x['num'] . "\n"
+                . '   Έκδοση: ' . $x['issued'] . ' · Λήξη: ' . $x['due']
+                . ' · Καθυστέρηση: ' . $x['days'] . ($x['days'] === 1 ? ' ημέρα' : ' ημέρες') . "\n"
+                . '   Αξία: ' . $money($x['gross'])
+                . ($x['paid'] > 0.005 ? ' · Έχουν εξοφληθεί: ' . $money($x['paid']) : '')
+                . ' · Υπόλοιπο: ' . $money($x['open']) . "\n";
+        } else {
+            $invList .= $i9 . ') Invoice ' . $x['num'] . "\n"
+                . '   Issued: ' . $x['issued'] . ' · Due: ' . $x['due']
+                . ' · Overdue by: ' . $x['days'] . ($x['days'] === 1 ? ' day' : ' days') . "\n"
+                . '   Amount: ' . $money($x['gross'])
+                . ($x['paid'] > 0.005 ? ' · Paid so far: ' . $money($x['paid']) : '')
+                . ' · Outstanding: ' . $money($x['open']) . "\n";
+        }
+    }
+    $invList .= ($lang === 'el' ? '   ΣΥΝΟΛΟ ΟΦΕΙΛΗΣ: ' : '   TOTAL OUTSTANDING: ') . $money($total) . "\n";
+
+    /* Πάγιο κείμενο: η δομή που ζητήθηκε — μήνυμα, μετά οι υπηρεσίες, μετά ο
+       λόγος. Το ίδιο σκελετό ακολουθεί και η εκδοχή του AI. */
+    if ($lang === 'el') {
+        $subject = 'Ειδοποίηση αναστολής υπηρεσιών — ' . cnp_d($when);
+        $body = "Αγαπητοί συνεργάτες,\n\n"
+            . "Στον λογαριασμό σας υπάρχει ληξιπρόθεσμο υπόλοιπο " . $money($total) . ". "
+            . "Εφόσον δεν εξοφληθεί, οι παρακάτω υπηρεσίες θα τεθούν σε αναστολή στις "
+            . cnp_d($when) . ".\n\n"
+            . "ΥΠΗΡΕΣΙΕΣ ΠΟΥ ΑΦΟΡΑ\n" . $svcList . "\n"
+            . "ΑΝΑΛΥΣΗ ΛΗΞΙΠΡΟΘΕΣΜΩΝ ΠΑΡΑΣΤΑΤΙΚΩΝ\n" . $invList . "\n"
+            . "Η αναστολή διακόπτει τη λειτουργία των παραπάνω υπηρεσιών μέχρι την εξόφληση. "
+            . "Μπορείτε να δείτε και να εξοφλήσετε τα παραστατικά από τον λογαριασμό σας στο "
+            . "https://my.cloudon.gr\n\n"
+            . "Αν η πληρωμή έχει ήδη γίνει, παρακαλούμε αγνοήστε το μήνυμα ή στείλτε μας το αποδεικτικό "
+            . "για να το αντιστοιχίσουμε.\n";
+    } else {
+        $subject = 'Service suspension notice — ' . cnp_d($when);
+        $body = "Dear partners,\n\n"
+            . "Your account has an overdue balance of " . $money($total) . ". "
+            . "Unless it is settled, the following services will be suspended on " . cnp_d($when) . ".\n\n"
+            . "SERVICES AFFECTED\n" . $svcList . "\n"
+            . "OVERDUE INVOICES — BREAKDOWN\n" . $invList . "\n"
+            . "Suspension stops the above services until payment is received. "
+            . "You can review and pay your invoices at https://my.cloudon.gr\n\n"
+            . "If payment has already been made, please ignore this message or send us the receipt "
+            . "so we can allocate it.\n";
+    }
+
+    // ✨ AI: ίδια γεγονότα, καλύτερη διατύπωση — ποτέ δικά του νούμερα
+    if (($in['mode'] ?? '') === 'ai') {
+        $key = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'ai_api_key')->value('value') ?: '');
+        if ($key === '') { fail('Δεν έχει οριστεί AI API key — βάλ\' το στις Ρυθμίσεις'); }
+        $draft = trim((string) ($in['draft'] ?? ''));
+        $prompt = "Είσαι υπεύθυνος λογιστηρίου ελληνικής εταιρείας IT/hosting (CloudOn). Γράψε ένα "
+            . "ευγενικό αλλά σαφές μήνυμα προς πελάτη για επικείμενη αναστολή υπηρεσιών λόγω "
+            . "ληξιπρόθεσμης οφειλής.\n\n"
+            . "ΓΛΩΣΣΑ: " . ($lang === 'el' ? 'ελληνικά' : 'αγγλικά') . " — αποκλειστικά.\n\n"
+            . "ΚΑΝΟΝΕΣ — ΚΡΙΣΙΜΟ:\n"
+            . "- Χρησιμοποίησε ΑΚΡΙΒΩΣ τα ποσά, τις ημερομηνίες και τα ονόματα που δίνονται. Μην "
+            . "στρογγυλοποιήσεις, μην προσθέσεις δικά σου νούμερα, μην υποσχεθείς εκπτώσεις ή διακανονισμούς.\n"
+            . "- Κράτα τη δομή: σύντομο μήνυμα, μετά ΥΠΗΡΕΣΙΕΣ ΠΟΥ ΑΦΟΡΑ, μετά η ΑΝΑΛΥΣΗ των παραστατικών.\n"
+            . "- Η ανάλυση των παραστατικών αντιγράφεται ΑΥΤΟΥΣΙΑ όπως σου δίνεται: κάθε "
+            . "παραστατικό με έκδοση, λήξη, ΗΜΕΡΕΣ ΚΑΘΥΣΤΕΡΗΣΗΣ, αξία, εξοφλημένα και υπόλοιπο. "
+            . "Μην τη συνοψίσεις και μην παραλείψεις τις ημέρες.\n"
+            . "- ΜΗΝ γράψεις θέμα/Subject μέσα στο κείμενο — το θέμα είναι ξεχωριστό πεδίο.\n"
+            . "- ΜΗΝ κλείσεις με υπογραφή («Με εκτίμηση», «CloudOn» κ.λπ.) — μπαίνει αυτόματα.\n"
+            . "- Χωρίς placeholders και χωρίς markdown (**), σκέτο κείμενο.\n"
+            . "- Τόνος: επαγγελματικός, χωρίς απειλές· είναι συνεργάτης, όχι οφειλέτης προς δίωξη.\n\n"
+            . ($draft !== '' ? "ΤΙ ΘΕΛΕΙ ΝΑ ΠΕΙ Ο ΣΥΝΑΔΕΛΦΟΣ (πες το αυτό, μη προσθέσεις άλλα):\n" . mb_substr($draft, 0, 1500) . "\n\n" : '')
+            . "ΠΕΛΑΤΗΣ: " . $name . "\n"
+            . "ΗΜΕΡΟΜΗΝΙΑ ΑΝΑΣΤΟΛΗΣ: " . cnp_d($when) . "\n"
+            . "ΣΥΝΟΛΙΚΗ ΛΗΞΙΠΡΟΘΕΣΜΗ ΟΦΕΙΛΗ: " . $money($total) . "\n\n"
+            . "ΥΠΗΡΕΣΙΕΣ:\n" . $svcList . "\nΠΑΡΑΣΤΑΤΙΚΑ:\n" . $invList . "\nΜΗΝΥΜΑ:";
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+            CURLOPT_POSTFIELDS => json_encode([
+                'model' => 'claude-haiku-4-5-20251001', 'max_tokens' => 1200,
+                'messages' => [['role' => 'user', 'content' => $prompt]],
+            ]),
+        ]);
+        $resp = curl_exec($ch);
+        curl_close($ch);
+        $j = json_decode((string) $resp, true);
+        $txt = $j['content'][0]['text'] ?? '';
+        if (trim($txt) !== '') {
+            // Δίχτυ: αν παρ' όλα αυτά βάλει θέμα ή υπογραφή, τα κόβουμε.
+            $txt = preg_replace('/^\s*(Θέμα|Subject)\s*:.*\R+/ui', '', trim($txt));
+            $txt = preg_replace('/\R+\s*(Με εκτίμηση|Με τιμή|Best regards|Kind regards|Sincerely)\s*,?\s*\R.*$/ui', '', $txt);
+            $body = trim($txt) . "\n";
+        }
+    }
+
+    out(['subject' => $subject, 'body' => $body, 'lang' => $lang,
+        'total' => round($total, 2), 'services' => $svcs, 'invoices' => $invs,
+        'email' => (string) $cl->email, 'name' => $name]);
+
+case 'suspend_notice_send':              // αποστολή ως ticket (μένει ίχνος, απαντά ο πελάτης)
+    if (!$FULL) { fail('forbidden', 403); }
+    $cid = (int) ($in['client'] ?? 0);
+    $cl = $cid ? Capsule::table('tblclients')->where('id', $cid)->first() : null;
+    if (!$cl) { fail('client', 404); }
+    $subject = mb_substr(trim((string) ($in['subject'] ?? '')), 0, 200);
+    $body = trim((string) ($in['body'] ?? ''));
+    if ($subject === '' || $body === '') { fail('Λείπει θέμα ή κείμενο'); }
+
+    $dept = (int) (Capsule::table('tblticketdepartments')->where('name', 'like', '%Accounting%')->value('id')
+        ?: Capsule::table('tblticketdepartments')->orderBy('order')->value('id'));
+    $r = localAPI('OpenTicket', ['deptid' => $dept, 'clientid' => $cid, 'subject' => $subject,
+        'message' => $body, 'priority' => 'Medium', 'markdown' => false], 'pdelis');
+    if (($r['result'] ?? '') !== 'success') { fail($r['message'] ?? 'Αποτυχία δημιουργίας ticket'); }
+
+    Capsule::table('mod_cpm_suspend_notices')->insert([
+        'client_id' => $cid, 'ticket_id' => (int) ($r['id'] ?? 0),
+        'services' => implode(',', array_map('intval', (array) ($in['services'] ?? []))),
+        'suspend_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['date'] ?? '')) ? $in['date'] : null,
+        'admin_id' => $adminId, 'created_at' => date('Y-m-d H:i:s'),
+    ]);
+    logActivity('CloudOn PM: ειδοποίηση αναστολής προς πελάτη ' . $cid . ' — ticket ' . ($r['tid'] ?? ''));
+    out(['ok' => true, 'ticket' => (int) ($r['id'] ?? 0), 'tid' => (string) ($r['tid'] ?? '')]);
 
 case 'suspend_mark':                     // καταγραφή τι κάναμε χειροκίνητα
     if (!$FULL) { fail('forbidden', 403); }

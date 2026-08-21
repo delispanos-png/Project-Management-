@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, suStat, dShort, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, I, go, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -290,7 +290,7 @@ R.suspend = async function () {
     const by = {};
     d.rows.forEach(r => {
       (by[r.client] = by[r.client] || {name: r.name, debt: r.debt, days: r.days, ripe: r.ripe,
-        invs: r.invs, badDue: r.badDue, svc: []}).svc.push(r);
+        invs: r.invs, badDue: r.badDue, notified: r.notified, svc: []}).svc.push(r);
     });
     const groups = Object.entries(by).sort((a, b) => b[1].debt - a[1].debt);
     // Με λίγες ομάδες δεν έχει νόημα να τις ανοίγεις μία-μία.
@@ -337,6 +337,8 @@ R.suspend = async function () {
             <span class="mut" style="font-size:11.5px">${g.svc.length} υπηρεσίες · ${g.svc.filter(x => x.auto).length} αυτόματες</span>
             ${g.badDue ? '<span class="pill pill-warn" title="Παραστατικό με λανθασμένο έτος στην ημ. λήξης — διόρθωσέ το στο WHMCS">λάθος ημ. λήξης</span>' : ''}
             <span style="flex:1"></span>
+            ${g.notified ? `<span class="pill pill-ok" title="Ειδοποιήθηκε ${esc(dFull(g.notified.at))} από ${esc(g.notified.by)}${g.notified.date ? ' — αναστολή ' + esc(dFull(g.notified.date)) : ''}">✉ ειδοποιήθηκε</span>` : ''}
+            <button class="btn btn-sm ${g.notified ? 'btn-o' : 'btn-p'}" data-snotify="${cid}">✉ Ειδοποίηση πελάτη</button>
             <span class="kb-gchev ${st.open[cid] ? 'open' : ''}">${I.chev}</span>
           </div>
           <div class="card-b" ${st.open[cid] ? '' : 'style="display:none"'}>
@@ -363,6 +365,11 @@ R.suspend = async function () {
           </div></div>`).join('')}
       ${groups.length ? '' : `<div class="empty" style="padding:44px">${st.ripe ? 'Κανένα μηχάνημα δεν έχει περάσει το όριο 🎉' : 'Καμία ληξιπρόθεσμη οφειλή 🎉'}</div>`}`;
 
+    $$('[data-snotify]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const cid = +b.dataset.snotify;
+      openNotice(cid, by[cid], load);
+    });
     const fm = $('[data-sfm]'); if (fm) { fm.onclick = () => { st.machines = !st.machines; load(); }; }
     const fr = $('[data-sfr]'); if (fr) { fr.onclick = () => { st.ripe = !st.ripe; load(); }; }
     $$('.susp-h').forEach(h => h.onclick = e => {
@@ -385,3 +392,97 @@ R.suspend = async function () {
   };
   load();
 };
+
+/* Ειδοποίηση πελάτη για επικείμενη αναστολή.
+   Στέλνεται ως ticket στο Λογιστήριο: ο πελάτης το λαμβάνει με email, μπορεί να
+   απαντήσει, και μένει ίχνος — σε αντίθεση με ένα σκέτο email που χάνεται. */
+function openNotice(cid, g, done) {
+  const ovl = document.createElement('div'); ovl.className = 'ovl show';
+  const d5 = (() => { const x = new Date(); x.setDate(x.getDate() + 5); return x.toISOString().slice(0, 10); })();
+  const pend = g.svc.filter(x => x.state === 'pending');
+  ovl.innerHTML = `<div class="pal-box nt-box" onclick="event.stopPropagation()">
+    <div class="nt-h"><b>✉ Ειδοποίηση αναστολής</b>
+      <span class="mut">${esc(g.name)}</span><span style="flex:1"></span>
+      <button class="drawer-x" id="ntX">✕</button></div>
+    <div class="nt-b">
+      <div class="frow">
+        <div><label class="lbl">Θα ανασταλούν στις</label><input type="date" class="inp" id="ntDate" value="${d5}"></div>
+        <div><label class="lbl">Γλώσσα</label><select class="inp" id="ntLang">
+          <option value="">— αυτόματα από τον πελάτη —</option>
+          <option value="el">Ελληνικά</option><option value="en">English</option></select></div>
+      </div>
+
+      <label class="lbl" style="margin-top:12px">Υπηρεσίες που θα αναφερθούν <span class="mut">(${pend.length} εκκρεμείς)</span></label>
+      <div class="nt-svc">
+        ${g.svc.map(x => `<label class="nt-s ${x.state !== 'pending' ? 'off' : ''}">
+          <input type="checkbox" class="ntS" value="${x.service}" ${x.state === 'pending' ? 'checked' : ''}>
+          <span>${esc(x.domain || x.product)} <span class="mut">${esc(x.product)}</span></span>
+          ${x.state !== 'pending' ? '<span class="pill pill-mut">ήδη σε αναστολή</span>' : ''}</label>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn btn-sm btn-o" id="ntAll">Όλες</button>
+        <button class="btn btn-sm btn-o" id="ntNone">Καμία</button>
+      </div>
+
+      <label class="lbl" style="margin-top:14px">Κείμενο</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px">
+        <button class="btn btn-sm btn-p" id="ntTpl">📄 Πάγιο κείμενο</button>
+        <button class="btn btn-sm btn-o" id="ntAi">✨ Με AI</button>
+        <span class="mut" style="font-size:11.5px;align-self:center">Το AI κρατά ακριβώς τα ποσά και τις ημερομηνίες.</span>
+      </div>
+      <input class="inp" id="ntSubj" placeholder="Θέμα" style="margin-bottom:7px">
+      <textarea class="inp" id="ntBody" rows="14" style="width:100%;resize:vertical;font-family:inherit"
+        placeholder="Πάτα «Πάγιο κείμενο» ή «Με AI» για να συνταχθεί…"></textarea>
+      <div class="mut" style="font-size:11.5px;margin-top:6px" id="ntInfo"></div>
+    </div>
+    <div class="nt-f">
+      <button class="btn btn-o" id="ntCopy">⧉ Αντιγραφή</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-o" id="ntCancel">Άκυρο</button>
+      <button class="btn btn-p" id="ntSend" disabled>Αποστολή ως ticket</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const close = () => ovl.remove();
+  $('#ntX', ovl).onclick = close; $('#ntCancel', ovl).onclick = close; ovl.onclick = close;
+  $('#ntAll', ovl).onclick = () => $$('.ntS', ovl).forEach(x => x.checked = true);
+  $('#ntNone', ovl).onclick = () => $$('.ntS', ovl).forEach(x => x.checked = false);
+
+  const picked = () => $$('.ntS', ovl).filter(x => x.checked).map(x => +x.value);
+  const compose = async mode => {
+    const ids = picked();
+    if (!ids.length) { toast('Διάλεξε τουλάχιστον μία υπηρεσία', true); return; }
+    let draft = '';
+    if (mode === 'ai') {
+      draft = await cnpDialog({title: '✨ AI', body: 'Θέλεις να προσθέσεις κάτι δικό σου; (προαιρετικό)',
+        input: $('#ntBody', ovl).value.trim(), rows: 4, max: 1500, ok: 'Σύνταξη', cancel: 'Άκυρο',
+        placeholder: 'π.χ. να αναφέρω ότι μιλήσαμε τηλεφωνικά και ζήτησαν παράταση'});
+      if (draft === null) { return; }
+    }
+    $('#ntBody', ovl).value = 'Σύνταξη…';
+    const r = await api('suspend_notice', {client: cid, services: ids, date: $('#ntDate', ovl).value,
+      lang: $('#ntLang', ovl).value, mode, draft}).catch(e => ({err: e.message}));
+    if (r.err) { $('#ntBody', ovl).value = ''; toast(r.err, true); return; }
+    $('#ntSubj', ovl).value = r.subject;
+    $('#ntBody', ovl).value = r.body;
+    $('#ntInfo', ovl).textContent = `Θα σταλεί στο ${r.email} · συνολική οφειλή ${fmtEur(r.total)} · ${r.services.length} υπηρεσίες`;
+    $('#ntSend', ovl).disabled = false;
+  };
+  $('#ntTpl', ovl).onclick = () => compose('template');
+  $('#ntAi', ovl).onclick = () => compose('ai');
+  $('#ntCopy', ovl).onclick = async () => {
+    await navigator.clipboard.writeText($('#ntSubj', ovl).value + '\n\n' + $('#ntBody', ovl).value);
+    toast('Αντιγράφηκε');
+  };
+  $('#ntSend', ovl).onclick = async () => {
+    /* Φεύγει προς πελάτη — επιβεβαίωση, όχι κατά λάθος κλικ. */
+    if (!await cnpConfirm(`Να σταλεί στον πελάτη «${g.name}»; Θα δημιουργηθεί ticket και θα λάβει email.`,
+      {ok: 'Αποστολή', cancel: 'Όχι'})) { return; }
+    const r = await api('suspend_notice_send', {client: cid, services: picked(),
+      date: $('#ntDate', ovl).value, subject: $('#ntSubj', ovl).value, body: $('#ntBody', ovl).value})
+      .catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast('Στάλθηκε — ticket #' + (r.tid || r.ticket));
+    close(); done && done();
+  };
+  compose('template');
+}

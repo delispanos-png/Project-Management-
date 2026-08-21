@@ -106,6 +106,21 @@ class Db
             });
         }
 
+        /* Ειδοποιήσεις αναστολής που έχουν σταλεί: ποιος πελάτης, ποιες υπηρεσίες,
+           για ποια ημερομηνία και με ποιο ticket. Χωρίς αυτό δεν ξέρεις αν ο
+           πελάτης προειδοποιήθηκε πριν του κόψεις υπηρεσία. */
+        if (!$s->hasTable('mod_cpm_suspend_notices')) {
+            $s->create('mod_cpm_suspend_notices', function ($t) {
+                $t->increments('id');
+                $t->integer('client_id')->unsigned()->index();
+                $t->integer('ticket_id')->unsigned()->nullable();
+                $t->string('services', 500)->nullable();
+                $t->date('suspend_date')->nullable();
+                $t->integer('admin_id')->unsigned();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
         /* Τι αποφασίσαμε χειροκίνητα για κάθε υπηρεσία με ληξιπρόθεσμη οφειλή.
            Όσο ο αυτοματισμός καλύπτει μόνο ένα μέρος των υπηρεσιών, η απόφαση
            παίρνεται από άνθρωπο και πρέπει να μένει ίχνος ποιος και πότε. */
