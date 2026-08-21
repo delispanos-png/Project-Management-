@@ -582,6 +582,26 @@ R.perf = async function () {
       return `<i style="height:${h}px" title="${esc(dFull(x))}: ${v}"></i>`;
     }).join('')}</div>`;
 
+    /* Ανάλυση ανά ημέρα με φατσούλες: μια ματιά και ξέρεις πώς πήγε η κάθε μέρα.
+       Η βαθμίδα βγαίνει από απαντήσεις + ολοκληρωμένες εργασίες μαζί, γιατί
+       άλλος δουλεύει tickets και άλλος tasks — δεν είναι δίκαιο να μετράει μόνο
+       το ένα. Το Σαββατοκύριακο δεν «κατηγορείται» για μηδέν. */
+    const WD = ['Κυρ', 'Δευ', 'Τρι', 'Τετ', 'Πεμ', 'Παρ', 'Σαβ'];
+    const last7 = d.days.slice(-7);
+    const face = n => n === 0 ? '😴' : (n <= 2 ? '🙂' : (n <= 5 ? '💪' : '🔥'));
+    const dayStrip = r => `<div class="pf-days">${last7.map(x => {
+      const rep = (r.days || {})[x] || 0;
+      const tsk = (r.daysTasks || {})[x] || 0;
+      const n = rep + tsk;
+      const dt = new Date(x + 'T12:00:00');
+      const wknd = dt.getDay() === 0 || dt.getDay() === 6;
+      const tip = `${dFull(x)} — ${rep} απαντήσεις, ${tsk} εργασίες`;
+      return `<div class="pf-day ${n ? 'on' : ''} ${wknd ? 'wk' : ''}" title="${esc(tip)}">
+        <span class="pf-face">${wknd && !n ? '·' : face(n)}</span>
+        <span class="pf-wd">${WD[dt.getDay()]}</span>
+        <span class="pf-n">${n || ''}</span></div>`;
+    }).join('')}</div>`;
+
     c.innerHTML = `
       <div class="card" style="margin-bottom:13px"><div class="card-b" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         ${per.map(([k, l]) => `<button class="btn btn-sm ${st.p === k ? 'btn-p' : 'btn-o'}" data-pp="${k}">${l}</button>`).join('')}
@@ -600,6 +620,7 @@ R.perf = async function () {
             <span style="flex:1"></span>
             ${spark(r)}
           </div>
+          ${dayStrip(r)}
           <div class="pf-grid">
             ${[['Απαντήσεις', r.replies, 'σε tickets μέσα στην περίοδο'],
                ['Tickets', r.tickets, 'διαφορετικά tickets που άγγιξε'],

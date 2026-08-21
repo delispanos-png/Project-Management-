@@ -1695,8 +1695,11 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
     foreach ($people as $aid => $p) {
         $tasksDone = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
             ->whereBetween('completed_at', [$fromTs, $toTs])->get(['due_date', 'completed_at']);
-        $onT = 0; $late = 0;
+        $onT = 0; $late = 0; $tDay = [];
         foreach ($tasksDone as $t) {
+            // Ολοκληρώσεις ανά ημέρα — μαζί με τις απαντήσεις δίνουν την εικόνα της μέρας.
+            $dd = substr((string) $t->completed_at, 0, 10);
+            $tDay[$dd] = ($tDay[$dd] ?? 0) + 1;
             if (!$t->due_date || strpos((string) $t->due_date, '0000') === 0) { continue; }
             if (substr((string) $t->completed_at, 0, 10) <= $t->due_date) { $onT++; } else { $late++; }
         }
@@ -1719,7 +1722,7 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
             'onTimePct' => ($onT + $late) ? (int) round($onT / ($onT + $late) * 100) : null,
             'openTasks' => $openT, 'overdueTasks' => $overdueT, 'ball' => $ballT,
             'ticketsOpenNow' => $tkOpenNow,
-            'days' => $byDay[$aid] ?? []];
+            'days' => $byDay[$aid] ?? [], 'daysTasks' => $tDay];
         // Κρύβουμε όσους δεν έχουν καμία δραστηριότητα ΚΑΙ καμία εκκρεμότητα.
         if (!$r['replies'] && !$r['tasksDone'] && !$openT && !$tkOpenNow) { continue; }
         $rows[] = $r;
