@@ -6437,20 +6437,35 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
             'by' => Db::adminName((int) $a->admin_id), 'at' => $a->created_at];
     }
 
+    /* Τι είναι «μηχάνημα»: ό,τι μπορείς πραγματικά να σβήσεις. Το WHMCS το λέει
+       με type=server· προσθέτουμε όσα διαχειρίζεται module μηχανών και όσα
+       ονομάζονται VPS/Proxmox αλλά έχουν λάθος type. DID, άδειες, domains και
+       συμβόλαια υποστήριξης ΔΕΝ είναι μηχανήματα και δεν έχουν θέση εδώ. */
+    $isMachine = function ($p) {
+        if (in_array((string) $p->servertype, ['hetznercloud', 'scaleway'], true)) { return true; }
+        if ((string) $p->ptype === 'server') { return true; }
+        return (bool) preg_match('/\b(vps|server|proxmox|dedicated)\b/i', (string) $p->pname);
+    };
+    $onlyMachines = ($_GET['all'] ?? '') !== '1';
+    $onlyRipe = ($_GET['ripe'] ?? '1') === '1';
+
     $rows = [];
     foreach (Capsule::table('tblhosting as h')->join('tblproducts as p', 'p.id', '=', 'h.packageid')
                  ->whereIn('h.userid', array_keys($debt))
                  ->whereIn('h.domainstatus', ['Active', 'Suspended'])
                  ->get(['h.id', 'h.userid', 'h.domain', 'h.domainstatus', 'h.amount', 'h.billingcycle',
-                     'h.nextduedate', 'h.dedicatedip', 'p.name as pname', 'p.servertype']) as $h) {
+                     'h.nextduedate', 'h.dedicatedip', 'p.name as pname', 'p.servertype', 'p.type as ptype']) as $h) {
         $cid = (int) $h->userid;
         $d = $debt[$cid];
+        $machine = $isMachine($h);
+        if ($onlyMachines && !$machine) { continue; }
+        if ($onlyRipe && $d['days'] < $graceDays) { continue; }
         $auto = ((string) $h->servertype !== '');
         $rows[] = [
             'service' => (int) $h->id, 'client' => $cid, 'name' => clientLabel($cid),
             'domain' => (string) $h->domain, 'product' => (string) $h->pname,
             'status' => (string) $h->domainstatus,
-            'module' => (string) $h->servertype, 'auto' => $auto,
+            'module' => (string) $h->servertype, 'auto' => $auto, 'machine' => $machine,
             'amount' => (float) $h->amount, 'cycle' => (string) $h->billingcycle,
             'ip' => (string) $h->dedicatedip,
             'debt' => round($d['open'], 2), 'days' => $d['days'], 'badDue' => !empty($d['badDue']),
@@ -6464,12 +6479,18 @@ case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφ
         return ($b['ripe'] <=> $a['ripe']) ?: ($b['debt'] <=> $a['debt']) ?: ($b['days'] <=> $a['days']);
     });
 
-    out(['rows' => $rows, 'grace' => $graceDays, 'sum' => [
-        'clients' => count($debt),
-        'services' => count($rows),
-        'debt' => round(array_sum(array_column($debt, 'open')), 2),
-        'auto' => count(array_filter($rows, function ($r) { return $r['auto']; })),
-    ]]);
+    $shownClients = array_unique(array_column($rows, 'client'));
+    out(['rows' => $rows, 'grace' => $graceDays,
+        'filters' => ['machines' => $onlyMachines, 'ripe' => $onlyRipe],
+        'sum' => [
+            'clients' => count($shownClients),
+            'services' => count($rows),
+            // Οφειλή μόνο των πελατών που εμφανίζονται, χωρίς διπλομέτρηση.
+            'debt' => round(array_sum(array_map(function ($c) use ($debt) { return $debt[$c]['open']; }, $shownClients)), 2),
+            'auto' => count(array_filter($rows, function ($r) { return $r['auto']; })),
+            'allDebt' => round(array_sum(array_column($debt, 'open')), 2),
+            'allClients' => count($debt),
+        ]]);
 
 case 'suspend_mark':                     // καταγραφή τι κάναμε χειροκίνητα
     if (!$FULL) { fail('forbidden', 403); }
