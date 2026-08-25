@@ -55,7 +55,7 @@ function quickNew() {
             return (cli.length ? `<optgroup label="Έργα πελατών">${cli.map(opt).join('')}</optgroup>` : '')
               + (ops.length ? `<optgroup label="Λειτουργικά">${ops.map(opt).join('')}</optgroup>` : '');
           })()}</select></div>
-        <div style="flex:1;min-width:170px"><label class="lbl">Ποια ομάδα το εκτελεί</label>
+        <div style="flex:1;min-width:170px"><label class="lbl">Σε ποια ομάδα ανήκει</label>
           <select class="inp" id="qnU"><option value="">— αυτόματα —</option>
             ${(S.boot.depts || []).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
         <button class="btn btn-p" id="qnGo" style="align-self:flex-end">Δημιουργία</button>

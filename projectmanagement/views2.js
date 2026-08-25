@@ -764,21 +764,50 @@ function openOffer(o, d) {
   };
 }
 window.CNP.clientAuto = clientAuto;   // το χρησιμοποιεί και το R.remotebook (app.js)
-function clientAuto(inpId, listId, hidId) {
+/* Το datalist δίνει προτάσεις αλλά δέχεται και ελεύθερο κείμενο: αν ο χρήστης
+   δεν επιλέξει, το id μένει κενό και το έργο αποθηκεύεται χωρίς πελάτη — σιωπηλά.
+   Γι' αυτό (α) δείχνουμε την κατάσταση σύνδεσης και (β) στο blur δενόμαστε μόνοι
+   μας όταν το κείμενο ταιριάζει σε ακριβώς έναν πελάτη. */
+function clientAuto(inpId, listId, hidId, statusId) {
   const inp = $('#' + inpId), dl = $('#' + listId), hid = $('#' + hidId);
   if (!inp) return;
-  let t;
+  const stEl = statusId ? $('#' + statusId) : null;
+  let t, last = [];
+  const paint = () => {
+    if (!stEl) return;
+    if (hid.value) {
+      stEl.innerHTML = `<span style="color:var(--ok)">✓ δέθηκε με τον πελάτη #${hid.value}</span>`;
+    } else if (inp.value.trim()) {
+      stEl.innerHTML = '<span style="color:var(--bad)">⚠ δεν έχει επιλεγεί πελάτης — διάλεξε από τη λίστα</span>';
+    } else {
+      stEl.innerHTML = '';
+    }
+  };
   inp.addEventListener('input', () => {
     const m = inp.value.match(/\(#(\d+)\)\s*$/);
     hid.value = m ? m[1] : '';
+    paint();
     clearTimeout(t);
     const q = inp.value.trim();
     if (q.length < 2 || m) return;
     t = setTimeout(async () => {
       const r = await api('client_search&q=' + encodeURIComponent(q));
-      dl.innerHTML = r.results.map(x => `<option value="${esc(x.label)}">`).join('');
+      last = r.results || [];
+      dl.innerHTML = last.map(x => `<option value="${esc(x.label)}">`).join('');
     }, 250);
   });
+  inp.addEventListener('blur', () => setTimeout(() => {
+    if (hid.value || !inp.value.trim()) { paint(); return; }
+    const q = inp.value.trim().toLowerCase();
+    const exact = last.filter(x => String(x.label).toLowerCase().startsWith(q));
+    if (exact.length === 1) { inp.value = exact[0].label; hid.value = String(exact[0].id ?? '').replace(/\D/g, ''); }
+    if (!hid.value) {
+      const m2 = inp.value.match(/\(#(\d+)\)\s*$/);
+      if (m2) hid.value = m2[1];
+    }
+    paint();
+  }, 150));
+  paint();
 }
 
 /* ═════════ ΕΠΑΦΕΣ ═════════ */
@@ -1762,13 +1791,13 @@ R.projects = async function () {
     <div class="drawer-b"><div class="card"><div class="card-b">
       <label class="lbl">Όνομα</label><input class="inp" id="pjName" value="${esc(p.name || '')}">
       <div class="frow" style="margin-top:11px">
-        <div><label class="lbl">Πελάτης</label><input class="inp" id="pjCli" list="pjCliL" autocomplete="off"
+        <div><label class="lbl">Πελάτης <span class="mut" style="font-weight:400">— γράψε και <b>διάλεξε</b> από τη λίστα</span></label>
+          <input class="inp" id="pjCli" list="pjCliL" autocomplete="off" placeholder="όνομα, επωνυμία ή email…"
           value="${esc(p.clientName ? p.clientName + ' (#' + p.client + ')' : '')}"><datalist id="pjCliL"></datalist>
-          <input type="hidden" id="pjCliId" value="${p.client || ''}"></div>
-        <div><label class="lbl">Τμήμα (auto-tasks)</label><select class="inp" id="pjDept"><option value="">—</option>
-          ${d.depts.map(dp => `<option value="${dp.id}" ${dp.id === p.dept ? 'selected' : ''}>${esc(dp.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Γονικό</label><select class="inp" id="pjPar"><option value="">— κορυφαίο —</option>
-          ${roots.filter(r => r.id !== p.id).map(r => `<option value="${r.id}" ${r.id === p.parent ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></div>
+          <input type="hidden" id="pjCliId" value="${p.client || ''}">
+          <div id="pjCliS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
+        <div><label class="lbl">Υπο-έργο του</label><select class="inp" id="pjPar"><option value="">— αυτοτελές έργο —</option>
+          ${clientPjs.filter(r => r.id !== p.id).map(r => `<option value="${r.id}" ${r.id === p.parent ? 'selected' : ''}>${esc(r.name)}${r.clientName ? ' — ' + esc(r.clientName) : ''}</option>`).join('')}</select></div>
         <div><label class="lbl">Χρώμα</label><input class="inp" type="color" id="pjColor" value="${p.color || '#0090dd'}" style="height:40px;padding:4px"></div>
         <div><label class="lbl">Κατάσταση</label><select class="inp" id="pjPs"><option value="">—</option>
           ${Object.entries(psL).map(([k, v]) => `<option value="${k}" ${k === p.pstatus ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
@@ -1777,8 +1806,11 @@ R.projects = async function () {
           <option value="yellow" ${p.health === 'yellow' ? 'selected' : ''}>🟡 Προσοχή</option>
           <option value="red" ${p.health === 'red' ? 'selected' : ''}>🔴 Πρόβλημα</option></select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="pjKind">
-          <option value="dept" ${p.kind !== 'client' ? 'selected' : ''}>Λειτουργικό (τμήμα)</option>
-          <option value="client" ${p.kind === 'client' ? 'selected' : ''}>Έργο πελάτη</option></select></div>
+          <option value="client" ${p.kind !== 'dept' ? 'selected' : ''}>Έργο πελάτη</option>
+          <option value="dept" ${p.kind === 'dept' ? 'selected' : ''}>Ουρά ομάδας (παλαιό)</option></select></div>
+        ${p.kind === 'dept' ? `<div><label class="lbl">Τροφοδοτείται από</label><select class="inp" id="pjDept"><option value="">—</option>
+          ${d.depts.map(dp => `<option value="${dp.id}" ${dp.id === p.dept ? 'selected' : ''}>${esc(dp.name)}</option>`).join('')}</select>
+          <div class="mut" style="font-size:11px;margin-top:3px">Τα tickets αυτής της ομάδας γίνονται εργασίες εδώ.</div></div>` : ''}
         <div><label class="lbl">${I.coin} Budget €</label><input class="inp" id="pjBud" value="${p.budget ?? ''}" placeholder="π.χ. 3000"></div>
         <div><label class="lbl">⏱ Εκτίμηση ωρών</label><input class="inp" id="pjEst" value="${p.estHours ?? ''}" placeholder="π.χ. 40"></div>
         <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="pjStart" value="${p.start || ''}"></div>
@@ -1807,7 +1839,10 @@ R.projects = async function () {
       <div style="display:flex;gap:10px;flex-wrap:wrap">${d.teams.map(t =>
         `<label style="font-size:12.5px;display:flex;gap:4px"><input type="checkbox" class="pjT" value="${t.id}"
           ${p.teams.includes(t.id) ? 'checked' : ''}> <span class="dot" style="background:${t.color}"></span>${esc(t.name)}</label>`).join('') || '<span class="mut">—</span>'}</div>
-      <div style="margin-top:14px"><button class="btn btn-p" id="pjSave">Αποθήκευση</button></div>
+      <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
+        <button class="btn btn-p" id="pjSave">Αποθήκευση</button>
+        ${p.id ? `<button class="btn btn-o" id="pjArch">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button>
+          <button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
     </div></div>
     ${p.id ? `<div class="card"><div class="card-h">${I.clipboard} Τι περιλαμβάνει το έργο — παραδοτέα</div>
       <div class="card-b" id="pjTodos"><div class="skel" style="height:50px"></div></div></div>` : ''}
@@ -1816,7 +1851,7 @@ R.projects = async function () {
     document.body.append(ovl, dr);
     requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
     $('#dX').onclick = () => cnpAskClose(dr);
-    clientAuto('pjCli', 'pjCliL', 'pjCliId');
+    clientAuto('pjCli', 'pjCliL', 'pjCliId', 'pjCliS');
     const loadTodos = async () => {
       const box = $('#pjTodos', dr); if (!box) return;
       const dd = await api('ptodos&project=' + p.id);
@@ -1913,9 +1948,39 @@ R.projects = async function () {
       }
     };
     loadShare();
+    const arb = $('#pjArch', dr);
+    if (arb) arb.onclick = async () => {
+      await api('archive_project', {id: p.id});
+      toast(p.archived ? 'Επανήλθε' : 'Αρχειοθετήθηκε'); closeDrawer(); R.projects();
+    };
+    /* Η διαγραφή παίρνει μαζί εργασίες, χρόνο, σχόλια και ιστορικό. Δεύτερη
+       επιβεβαίωση όταν υπάρχουν εργασίες — το API αρνείται χωρίς αυτήν. */
+    const dlb = $('#pjDel', dr);
+    if (dlb) dlb.onclick = async () => {
+      const n = p.total || 0;
+      const msg = n
+        ? `Διαγραφή του «${p.name}»; Θα σβηστούν και οι ${n} εργασίες του μαζί με τον χρόνο, τα σχόλια και το ιστορικό τους. Δεν αναιρείται.`
+        : `Διαγραφή του «${p.name}»; Δεν αναιρείται.`;
+      if (!(await cnpConfirm(msg, {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
+      if (n && !(await cnpConfirm(`Επιβεβαίωσε ξανά: ${n} εργασίες θα χαθούν οριστικά.`,
+        {danger: true, ok: 'Ναι, διάγραψέ το'}))) return;
+      await api('project_delete', {id: p.id, withTasks: n ? 1 : 0})
+        .then(async r => { toast(`Διαγράφηκε${r.tasks ? ' μαζί με ' + r.tasks + ' εργασίες' : ''}`);
+          closeDrawer(); S.boot = await api('boot'); R.projects(); })
+        .catch(e => toast(e.message, true));
+    };
     $('#pjSave', dr).onclick = async () => {
-      await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: +$('#pjCliId').value || 0,
-        dept: +$('#pjDept').value || 0, parent: +$('#pjPar').value || 0, color: $('#pjColor').value,
+      const kind = $('#pjKind').value, cid = +$('#pjCliId').value || 0;
+      /* Έργο πελάτη χωρίς πελάτη είναι αόρατο: δεν βγαίνει στην καρτέλα του,
+         δεν χρεώνεται πουθενά. Το μπλοκάρουμε αντί να αποθηκευτεί μισό. */
+      if (kind === 'client' && !cid) {
+        toast('Διάλεξε πελάτη από τη λίστα — δεν αρκεί να γράψεις το όνομα', true);
+        $('#pjCli').focus(); return;
+      }
+      await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: cid,
+        // Έργο πελάτη δεν ανήκει σε ομάδα — το department κρέμεται στις εργασίες.
+        dept: kind === 'client' ? 0 : ($('#pjDept') ? +$('#pjDept').value || 0 : (p.dept || 0)),
+        parent: +$('#pjPar').value || 0, color: $('#pjColor').value,
         pstatus: $('#pjPs').value, health: $('#pjH').value, visible: $('#pjVis').checked,
         kind: $('#pjKind').value, budget: $('#pjBud').value.trim(), estHours: $('#pjEst').value.trim(),
         start: $('#pjStart').value || null, due: $('#pjDue').value || null,

@@ -1086,8 +1086,17 @@ function cnp_depts()
     $i = 0;
     foreach (Capsule::table('tblticketdepartments')->orderBy('order')->orderBy('id')
                  ->get(['id', 'name', 'email', 'hidden']) as $d) {
+        /* Ποιοι χειριστές ανήκουν σε αυτή την ομάδα — από το WHMCS
+           (`tbladmins.supportdepts`). Η ομάδα δεν εκτελεί· εκτελεί ο άνθρωπός
+           της, οπότε η ανάθεση πρέπει να προτείνει αυτούς πρώτους. */
+        $mem = [];
+        foreach (Capsule::table('tbladmins')->where('disabled', 0)
+                     ->get(['id', 'supportdepts']) as $a) {
+            $ds = array_filter(array_map('intval', explode(',', (string) $a->supportdepts)));
+            if (in_array((int) $d->id, $ds, true)) { $mem[] = (int) $a->id; }
+        }
         $cache[] = ['id' => (int) $d->id, 'name' => $d->name, 'email' => (string) $d->email,
-            'hidden' => (bool) $d->hidden, 'color' => $pal[$i % count($pal)],
+            'hidden' => (bool) $d->hidden, 'color' => $pal[$i % count($pal)], 'members' => $mem,
             /* Δύο γράμματα: «Support» και «Sales» θα ήταν και τα δύο «S». */
             'icon' => mb_strtoupper(mb_substr(preg_replace('/\s+/u', '', trim($d->name)), 0, 2))];
         $i++;
@@ -3373,6 +3382,39 @@ case 'archive_project':
         Db::saveProject($p->id, ['status' => $p->status === 'archived' ? 'active' : 'archived']);
     }
     out(['ok' => (bool) $p]);
+
+case 'project_delete':
+    if (!$FULL) { fail('forbidden', 403); }
+    $p = Db::project((int) ($in['id'] ?? 0));
+    if (!$p) { fail('project', 404); }
+    $tIds = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->pluck('id')->all();
+    /* Χωρίς ρητή επιβεβαίωση δεν σβήνουμε έργο που έχει εργασίες — η διαγραφή
+       παίρνει μαζί χρόνο, σχόλια, checklists και ιστορικό. */
+    if ($tIds && empty($in['withTasks'])) {
+        fail('Το έργο έχει ' . count($tIds) . ' εργασίες', 409);
+    }
+    foreach (['mod_cpm_activity', 'mod_cpm_comments', 'mod_cpm_checklist', 'mod_cpm_timelogs',
+                 'mod_cpm_watchers', 'mod_cpm_deps', 'mod_cpm_task_deps', 'mod_cpm_ticket_idle'] as $tb) {
+        if ($tIds && Capsule::schema()->hasTable($tb)) {
+            $col = Capsule::schema()->hasColumn($tb, 'task_id') ? 'task_id'
+                : (Capsule::schema()->hasColumn($tb, 'tid') ? 'tid' : null);
+            if ($col) { Capsule::table($tb)->whereIn($col, $tIds)->delete(); }
+        }
+    }
+    foreach (['mod_cpm_expenses', 'mod_cpm_fields', 'mod_cpm_project_members', 'mod_cpm_project_shares',
+                 'mod_cpm_project_teams', 'mod_cpm_project_todos', 'mod_cpm_recurring',
+                 'mod_cpm_share_comments', 'mod_cpm_snapshots', 'mod_cpm_todos', 'mod_cpm_worknote'] as $tb) {
+        if (Capsule::schema()->hasTable($tb)) {
+            Capsule::table($tb)->where('project_id', $p->id)->delete();
+        }
+    }
+    Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->delete();
+    /* Υπο-έργα ανεβαίνουν ένα επίπεδο αντί να μείνουν ορφανά. */
+    Capsule::table('mod_cpm_projects')->where('parent_id', $p->id)
+        ->update(['parent_id' => $p->parent_id ? (int) $p->parent_id : null]);
+    Capsule::table('mod_cpm_projects')->where('id', $p->id)->delete();
+    logActivity('CloudOn PM: διαγραφή έργου «' . $p->name . '» (' . count($tIds) . ' εργασίες) από admin ' . $adminId);
+    out(['ok' => true, 'tasks' => count($tIds)]);
 
 case 'recurring':
     if (!$FULL) {

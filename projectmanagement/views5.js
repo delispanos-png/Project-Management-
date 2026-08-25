@@ -644,7 +644,7 @@ R.perf = async function () {
    κάθε εργασία του ανατίθεται σε μία ομάδα. Εδώ βλέπεις το φορτίο κάθε ομάδας
    και μπαίνεις μέσα της για να δεις ποιον πελάτη και ποιο έργο κρατάει πίσω. */
 R.units = async function () {
-  setTop('Departments', 'Οι ομάδες που εκτελούν τις εργασίες');
+  setTop('Departments', 'Σε ποια ομάδα ανήκει κάθε εργασία');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:260px"></div>';
   const d = await api('depts_load');
@@ -669,7 +669,8 @@ R.units = async function () {
   c.innerHTML = `
     <div class="card"><div class="card-b" style="font-size:12.5px;color:var(--mut);padding:12px 16px;line-height:1.6">
       Κάθε <b>department</b> είναι μια ομάδα εξειδικευμένων ανθρώπων — η ίδια που επιλέγει ο πελάτης
-      όταν ανοίγει ticket. Το <b>έργο</b> ανήκει στον πελάτη· οι εργασίες του ανατίθενται σε ομάδες.
+      όταν ανοίγει ticket. Το <b>έργο</b> ανήκει στον πελάτη· κάθε εργασία του ανήκει σε μία ομάδα
+      και <b>την εκτελεί ένας άνθρωπος</b> αυτής της ομάδας.
       Το έργο παραδίδεται όταν κλείσουν οι εργασίες <b>όλων</b> των ομάδων που το αγγίζουν.
     </div></div>
     ${d.orphan ? `<div class="card"><div class="card-b"><span class="pill pill-warn">⚠ ${d.orphan} εργασίες χωρίς ομάδα</span>

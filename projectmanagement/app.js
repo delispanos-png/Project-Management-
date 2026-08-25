@@ -1023,7 +1023,7 @@ async function vBoard(arg) {
       <div class="kb-h" style="border-color:${st.color}">${esc(st.title)}<span class="kb-n">${col.tasks.length}</span></div>
       <div class="kb-cards">${col.tasks.map(cardHtml).join('')}</div>
       <div class="kb-add"><input placeholder="+ Νέο task… (Enter)" data-status="${st.id}">
-        ${(S.boot.depts || []).length ? `<select class="kb-add-u" title="Ομάδα που θα την εκτελέσει">
+        ${(S.boot.depts || []).length ? `<select class="kb-add-u" title="Ομάδα στην οποία θα ανήκει">
           <option value="">department: αυτόματα</option>
           ${S.boot.depts.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>` : ''}</div>
     </div>`;
@@ -1123,7 +1123,20 @@ async function openTask(id) {
   const t = d.task, me = S.boot.me;
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
-  const admOpts = sel => '<option value="">— κανείς —</option>' + S.boot.admins.map(a => `<option value="${a.id}" ${a.id === +sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+  /* Η ομάδα δεν εκτελεί — εκτελεί ο άνθρωπός της. Όταν η εργασία ανήκει σε
+     department, φέρνουμε πρώτα τα μέλη του· οι υπόλοιποι μένουν διαθέσιμοι. */
+  const admOpts = (sel, didFor) => {
+    const dep = didFor ? (d.depts || []).find(x => x.id === +didFor) : null;
+    const mem = dep ? (dep.members || []) : [];
+    const opt = a => `<option value="${a.id}" ${a.id === +sel ? 'selected' : ''}>${esc(a.name)}</option>`;
+    const head = '<option value="">— κανείς —</option>';
+    if (!mem.length) { return head + S.boot.admins.map(opt).join(''); }
+    const inD = S.boot.admins.filter(a => mem.includes(a.id));
+    const out = S.boot.admins.filter(a => !mem.includes(a.id));
+    return head
+      + `<optgroup label="${esc(dep.name)}">${inD.map(opt).join('')}</optgroup>`
+      + (out.length ? `<optgroup label="Εκτός ομάδας">${out.map(opt).join('')}</optgroup>` : '');
+  };
   dr.innerHTML = `
   <div class="drawer-h">
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
@@ -1176,18 +1189,19 @@ async function openTask(id) {
       <label class="lbl">Τίτλος</label>
       <input class="inp" id="fTitle" value="${esc(t.title)}">
       <div class="frow" style="margin-top:12px">
-        <div><label class="lbl">Ανάθεση ${me.full ? '' : (I.lock)}</label>
-          <select class="inp" id="fAssignee" ${me.full ? '' : 'disabled'}>${admOpts(t.assignee)}</select></div>
+        <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span> ${me.full ? '' : (I.lock)}</label>
+          <select class="inp" id="fAssignee" ${me.full ? '' : 'disabled'}>${admOpts(t.assignee, t.dept)}</select></div>
         <div><label class="lbl">Κατάσταση</label>
           <select class="inp" id="fStatus">${S.boot.statuses.map(st =>
             `<option value="${st.id}" ${st.id === t.status ? 'selected' : ''}>${esc(st.title)}${st.done ? ' ✔' : ''}</option>`).join('')}</select></div>
-        <div><label class="lbl">⚡ Η μπάλα σε</label><select class="inp" id="fBall">${admOpts(t.ball)}</select></div>
+        <div><label class="lbl">⚡ Η μπάλα σε</label><select class="inp" id="fBall">${admOpts(t.ball, t.dept)}</select></div>
         <div><label class="lbl">Προτεραιότητα ${me.full ? '' : (I.lock)}</label>
           <select class="inp" id="fPrio" ${me.full ? '' : 'disabled'}>
             ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Department που την εκτελεί</label><select class="inp" id="fDept"><option value="">— χωρίς ομάδα —</option>
+        <div><label class="lbl">Department <span class="mut" style="font-weight:400">— η ομάδα στην οποία ανήκει</span></label>
+          <select class="inp" id="fDept"><option value="">— χωρίς ομάδα —</option>
           ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
         <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
@@ -1203,7 +1217,7 @@ async function openTask(id) {
           ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
              title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
           <a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>
-          ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Ουρά της ομάδας">${esc(u.name)}</a>` : ''; })()}
+          ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες της ομάδας">${esc(u.name)}</a>` : ''; })()}
         </span>
       </div>
     </div></div>
@@ -1274,7 +1288,17 @@ async function openTask(id) {
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
   $('#dX').onclick = () => cnpAskClose(dr);
-  /* Τα «ψίχουλα» (πελάτης / έργο / τμήμα) βγάζουν εκτός εργασίας — αν έμενε
+  /* Αλλάζεις ομάδα → αλλάζουν και οι υποψήφιοι για ανάθεση. */
+  const fDep = $('#fDept', dr);
+  if (fDep) fDep.onchange = () => {
+    ['fAssignee', 'fBall'].forEach(id => {
+      const el = $('#' + id, dr); if (!el) { return; }
+      const keep = el.value;
+      el.innerHTML = admOpts(keep, +fDep.value || 0);
+      el.value = keep;
+    });
+  };
+  /* Τα «ψίχουλα» (πελάτης / έργο / ομάδα) βγάζουν εκτός εργασίας — αν έμενε
      ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
   $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
   $('#dSave', dr).onclick = async () => {
