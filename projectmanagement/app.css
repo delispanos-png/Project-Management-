@@ -186,7 +186,7 @@ html[data-theme="dark"] .kb-col{background:#ffffff08}
 .ball{background:#eba63c26;color:#a8720e;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800}
 .ball.me{background:#e2515f26;color:#c33240;animation:pulse 2s infinite}
 @keyframes pulse{50%{opacity:.5}}
-.kb-add{margin:2px 10px 12px;display:flex}
+.kb-add{margin:2px 10px 12px;display:flex;flex-wrap:wrap}
 .kb-add input{flex:1;border:1.5px dashed #b9c6d8;border-radius:10px;background:transparent;padding:7px 12px;
   font-size:12.5px;color:var(--txt);font-family:inherit;transition:all .15s}
 html[data-theme="dark"] .kb-add input{border-color:#31435f}
@@ -1571,3 +1571,6 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .pj-cgrp a{color:var(--ink);text-decoration:none}
 .pj-cgrp a:hover{color:var(--acc)}
 .pj-cgrp .kb-n{margin-left:8px}
+.kb-add-u{flex:0 0 100%;margin-top:5px;border:1px solid var(--line);border-radius:7px;background:transparent;
+  color:var(--mut);font-size:11px;padding:3px 5px;cursor:pointer}
+.kb-add-u:focus{outline:none;border-color:var(--acc);color:var(--ink)}

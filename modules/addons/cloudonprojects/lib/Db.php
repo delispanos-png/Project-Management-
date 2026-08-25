@@ -185,47 +185,43 @@ class Db
             });
         }
 
-        /* ── Τμήματα εργασίας (units) ────────────────────────────────────────
-           Το έργο ανήκει στον ΠΕΛΑΤΗ· η κάθε εργασία του εκτελείται από ένα
-           ΤΜΗΜΑ. Ένα site παραδίδεται όταν κλείσουν οι εργασίες του σε
-           e-commerce, λογιστήριο, R&D κ.λπ. — γι' αυτό το τμήμα κρέμεται στην
-           εργασία, όχι στο έργο. Το `whmcs_did` γεφυρώνει όσα τμήματα έχουν
-           αντίστοιχο ticket department, ώστε ένα ticket να πέφτει μόνο του
-           στο σωστό τμήμα. */
-        if (!$s->hasTable('mod_cpm_units')) {
-            $s->create('mod_cpm_units', function ($t) {
-                $t->increments('id');
-                $t->string('name', 80);
-                $t->string('color', 7)->default('#0090dd');
-                $t->string('icon', 8)->nullable();
-                $t->integer('whmcs_did')->unsigned()->nullable(); // tblticketdepartments.id
-                $t->integer('lead_id')->unsigned()->nullable();   // υπεύθυνος τμήματος
-                $t->integer('sort')->default(0);
-                $t->tinyInteger('active')->default(1);
-            });
-            $seed = [
-                ['Υποστήριξη', '#0090dd', 'S', 2, 10],
-                ['Λογιστήριο', '#f0a52a', 'A', 3, 20],
-                ['Πωλήσεις', '#7b5cd6', 'P', 1, 30],
-                ['E-commerce', '#20a97a', 'E', null, 40],
-                ['Υποδομές', '#e2555f', 'I', null, 50],
-                ['R&D', '#00b4c8', 'R', null, 60],
-            ];
-            foreach ($seed as $u) {
-                Capsule::table('mod_cpm_units')->insert(['name' => $u[0], 'color' => $u[1],
-                    'icon' => $u[2], 'whmcs_did' => $u[3], 'sort' => $u[4]]);
-            }
-        }
-        if (!$s->hasColumn('mod_cpm_tasks', 'unit_id')) {
+        /* ── Τμήμα ανά εργασία ───────────────────────────────────────────────
+           Το έργο ανήκει στον ΠΕΛΑΤΗ· η κάθε εργασία του ανατίθεται σε ένα
+           DEPARTMENT — μια ομάδα εξειδικευμένων ανθρώπων. Τα departments είναι
+           αυτά του WHMCS (`tblticketdepartments`), τα ίδια που βλέπει ο πελάτης
+           όταν ανοίγει ticket· δεν κρατάμε δεύτερο μητρώο.
+
+           Ιστορικό: τον Αύγουστο 2026 δοκιμάστηκε ξεχωριστός πίνακας
+           `mod_cpm_units`. Ήταν διπλοεγγραφή — καταργήθηκε την ίδια μέρα και οι
+           αναθέσεις μεταφέρθηκαν στο `dept_id`. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'dept_id')) {
             $s->table('mod_cpm_tasks', function ($t) {
-                $t->integer('unit_id')->unsigned()->nullable(); // ποιο τμήμα εκτελεί
+                $t->integer('dept_id')->unsigned()->nullable(); // tblticketdepartments.id
             });
-            /* Οι υπάρχουσες εργασίες κληρονομούν το τμήμα του project τους. */
-            foreach (Capsule::table('mod_cpm_projects')->whereNotNull('deptid')->get(['id', 'deptid']) as $p) {
-                $uid = Capsule::table('mod_cpm_units')->where('whmcs_did', $p->deptid)->value('id');
-                if ($uid) {
-                    Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)
-                        ->whereNull('unit_id')->update(['unit_id' => (int) $uid]);
+        }
+        if ($s->hasTable('mod_cpm_units')) {
+            if ($s->hasColumn('mod_cpm_tasks', 'unit_id')) {
+                foreach (Capsule::table('mod_cpm_units')->whereNotNull('whmcs_did')
+                             ->get(['id', 'whmcs_did']) as $u) {
+                    Capsule::table('mod_cpm_tasks')->where('unit_id', $u->id)
+                        ->whereNull('dept_id')->update(['dept_id' => (int) $u->whmcs_did]);
+                }
+                $s->table('mod_cpm_tasks', function ($t) { $t->dropColumn('unit_id'); });
+            }
+            $s->drop('mod_cpm_units');
+        }
+        /* Όσες εργασίες δεν έχουν ακόμη department το παίρνουν από το ticket
+           τους ή από το project τους. */
+        if (Capsule::table('mod_cpm_tasks')->whereNull('dept_id')->exists()) {
+            foreach (Capsule::table('mod_cpm_tasks')->whereNull('dept_id')
+                         ->get(['id', 'ticketid', 'project_id']) as $t) {
+                $did = $t->ticketid
+                    ? Capsule::table('tbltickets')->where('id', $t->ticketid)->value('did') : null;
+                if (!$did && $t->project_id) {
+                    $did = Capsule::table('mod_cpm_projects')->where('id', $t->project_id)->value('deptid');
+                }
+                if ($did) {
+                    Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['dept_id' => (int) $did]);
                 }
             }
         }
@@ -1010,10 +1006,10 @@ class Db
         }
         $data['created_at'] = $now;
         $data['created_by'] = $adminId ? (int) $adminId : null;
-        /* Κάθε εργασία χρεώνεται σε ένα τμήμα. Αν δεν δηλώθηκε, τη βγάζουμε από
-           το ticket που τη γέννησε — αλλιώς από το τμήμα του project. Χωρίς
-           αυτό οι εργασίες μένουν «ορφανές» και δεν τις μετράει κανείς. */
-        if (empty($data['unit_id']) && Capsule::schema()->hasTable('mod_cpm_units')) {
+        /* Κάθε εργασία ανατίθεται σε ένα department. Αν δεν δηλώθηκε, τη
+           βγάζουμε από το ticket που τη γέννησε — αλλιώς από το department του
+           project. Χωρίς αυτό μένει «αζήτητη» και δεν τη μετράει καμία ομάδα. */
+        if (empty($data['dept_id'])) {
             $did = null;
             if (!empty($data['ticketid'])) {
                 $did = Capsule::table('tbltickets')->where('id', (int) $data['ticketid'])->value('did');
@@ -1021,10 +1017,7 @@ class Db
             if (!$did && !empty($data['project_id'])) {
                 $did = Capsule::table('mod_cpm_projects')->where('id', (int) $data['project_id'])->value('deptid');
             }
-            if ($did) {
-                $uid = Capsule::table('mod_cpm_units')->where('whmcs_did', (int) $did)->where('active', 1)->value('id');
-                if ($uid) { $data['unit_id'] = (int) $uid; }
-            }
+            if ($did) { $data['dept_id'] = (int) $did; }
         }
         if (empty($data['sort'])) {
             $data['sort'] = 1 + (int) Capsule::table('mod_cpm_tasks')

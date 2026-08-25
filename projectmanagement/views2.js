@@ -1043,7 +1043,7 @@ R.client360 = async function (cid) {
             <td style="width:110px" class="${p.due && p.due < today() ? 'pill pill-bad' : 'mut'}">${p.due ? dShort(p.due) : '—'}</td>
           </tr>`).join('')}</tbody></table>`
             : `<div class="empty" style="padding:16px">Κανένα έργο για αυτόν τον πελάτη.
-               <div class="mut" style="font-size:11.5px;margin-top:5px">Φτιάξε ένα και μοίρασε τις εργασίες του στα τμήματα.</div></div>`}
+               <div class="mut" style="font-size:11.5px;margin-top:5px">Φτιάξε ένα και μοίρασε τις εργασίες του στις ομάδες.</div></div>`}
           ${d.full ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
         </div></div>
 
@@ -1051,7 +1051,7 @@ R.client360 = async function (cid) {
         <div class="card-b"><table class="tbl"><tbody>${d.openTasks.map(t => `<tr>
           <td><a href="javascript:" data-c3task="${t.id}" style="font-weight:600">${esc(t.title)}</a>
             <div class="mut" style="font-size:11px">${esc(t.project || '—')}
-              ${t.dept ? `· <a href="#/unit/${t.unitId}">${esc(t.dept)}</a>` : '<span class="pill pill-warn" style="padding:0 5px">χωρίς τμήμα</span>'}</div></td>
+              ${t.dept ? `· <a href="#/unit/${t.deptId}">${esc(t.dept)}</a>` : '<span class="pill pill-warn" style="padding:0 5px">χωρίς ομάδα</span>'}</div></td>
           <td style="width:130px">${esc(t.assignee || '—')}</td>
           <td style="width:110px" class="${t.due && t.due < today() ? 'pill pill-bad' : 'mut'}">${t.due ? dShort(t.due) : '—'}</td>
         </tr>`).join('')}</tbody></table></div></div>` : ''}
@@ -1734,7 +1734,7 @@ R.projects = async function () {
         'Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά.')
       + group('ops', I.building, 'Λειτουργικά projects', 'τμήματα & καθημερινή λειτουργία (tickets)', opsList,
         'Κανένα λειτουργικό project.')
-    : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">ένας πελάτης → τα έργα του → οι εργασίες τους στα τμήματα</span></div>
+    : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">ένας πελάτης → τα έργα του → οι εργασίες τους στις ομάδες</span></div>
     <table class="tbl"><thead><tr>
     <th>Έργο</th><th>Πελάτης</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Παραδοτέα</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
     <tbody>${cliList.length ? byClient(cliList) : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>

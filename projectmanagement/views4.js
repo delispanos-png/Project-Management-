@@ -47,16 +47,25 @@ function quickNew() {
   ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:520px" onclick="event.stopPropagation()">
     <div style="padding:16px 18px">
       <input class="inp" id="qnT" placeholder="Τι πρέπει να γίνει; (Enter)" style="font-size:15px;margin-bottom:10px">
-      <div style="display:flex;gap:8px">
-        <select class="inp" id="qnP" style="flex:1">${S.boot.projects.map(p =>
-          `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-        <button class="btn btn-p" id="qnGo">Δημιουργία</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:190px"><label class="lbl">Σε ποιο έργο</label>
+          <select class="inp" id="qnP">${(() => {
+            const cli = S.boot.projects.filter(p => p.clientName), ops = S.boot.projects.filter(p => !p.clientName);
+            const opt = p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
+            return (cli.length ? `<optgroup label="Έργα πελατών">${cli.map(opt).join('')}</optgroup>` : '')
+              + (ops.length ? `<optgroup label="Λειτουργικά">${ops.map(opt).join('')}</optgroup>` : '');
+          })()}</select></div>
+        <div style="flex:1;min-width:170px"><label class="lbl">Ποια ομάδα το εκτελεί</label>
+          <select class="inp" id="qnU"><option value="">— αυτόματα —</option>
+            ${(S.boot.depts || []).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
+        <button class="btn btn-p" id="qnGo" style="align-self:flex-end">Δημιουργία</button>
       </div></div></div>`;
   document.body.appendChild(ovl);
   const inp = $('#qnT'); inp.focus();
   const create = async () => {
     if (!inp.value.trim()) return;
-    const r = await api('quick_task', {project: +$('#qnP').value, title: inp.value.trim(), status: 0});
+    const r = await api('quick_task', {project: +$('#qnP').value, dept: +$('#qnU').value || 0,
+      title: inp.value.trim(), status: 0});
     ovl.remove(); toast('Δημιουργήθηκε');
     openTask(r.id);
   };

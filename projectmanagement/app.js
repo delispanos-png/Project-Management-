@@ -161,7 +161,7 @@ function renderShell() {
   }
   if (has('projects')) {
     nav.push(['Έργα', [['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'], ['list', I.list, 'Λίστα tasks'],
-      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Τμήματα']]]);
+      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Departments']]]);
   }
   if (has('sales')) {
     nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
@@ -228,7 +228,7 @@ function renderShell() {
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
-        units: 'Τμήματα', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+        units: 'Depts', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
@@ -1022,13 +1022,22 @@ async function vBoard(arg) {
     return `<div class="kb-col" data-status="${st.id}">
       <div class="kb-h" style="border-color:${st.color}">${esc(st.title)}<span class="kb-n">${col.tasks.length}</span></div>
       <div class="kb-cards">${col.tasks.map(cardHtml).join('')}</div>
-      <div class="kb-add"><input placeholder="+ Νέο task… (Enter)" data-status="${st.id}"></div>
+      <div class="kb-add"><input placeholder="+ Νέο task… (Enter)" data-status="${st.id}">
+        ${(S.boot.depts || []).length ? `<select class="kb-add-u" title="Ομάδα που θα την εκτελέσει">
+          <option value="">department: αυτόματα</option>
+          ${S.boot.depts.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>` : ''}</div>
     </div>`;
   }).join('');
-  $$('.kb-add input', kb).forEach(inp => inp.onkeydown = async e => {
-    if (e.key !== 'Enter' || !inp.value.trim()) return;
-    const r = await api('quick_task', {project: S.project, status: +inp.dataset.status, title: inp.value.trim()});
-    if (r.ok) { toast('Δημιουργήθηκε'); vBoard(); }
+  /* Νέα εργασία κατευθείαν στη στήλη. Την ομάδα τη διαλέγεις εδώ: σε έργο
+     πελάτη δεν υπάρχει τι να κληρονομήσει, οπότε αλλιώς θα έμενε αζήτητη. */
+  $$('.kb-add', kb).forEach(box => {
+    const inp = box.querySelector('input'), sel = box.querySelector('select');
+    inp.onkeydown = async e => {
+      if (e.key !== 'Enter' || !inp.value.trim()) return;
+      const r = await api('quick_task', {project: S.project, status: +inp.dataset.status,
+        dept: sel ? +sel.value || 0 : 0, title: inp.value.trim()});
+      if (r.ok) { toast('Δημιουργήθηκε'); vBoard(); }
+    };
   });
 }
 /* Διάλογος ολοκλήρωσης: δυο λόγια για το πώς έκλεισε η εργασία.
@@ -1046,17 +1055,17 @@ const askDone = title => cnpDialog({
    Χωρίς αυτό, το board είναι μια στοίβα εργασιών χωρίς παραλήπτη. */
 function boardHead(m) {
   const h = $('#kbHead'); if (!h) return;
-  const uOf = id => (S.boot.units || []).find(u => u.id === id);
-  const tot = m.unitSplit.reduce((a, x) => a + x.total, 0);
-  const dn = m.unitSplit.reduce((a, x) => a + x.done, 0);
-  const chips = m.unitSplit.map(x => {
-    const u = uOf(x.unit);
+  const uOf = id => (S.boot.depts || []).find(u => u.id === id);
+  const tot = m.deptSplit.reduce((a, x) => a + x.total, 0);
+  const dn = m.deptSplit.reduce((a, x) => a + x.done, 0);
+  const chips = m.deptSplit.map(x => {
+    const u = uOf(x.dept);
     const left = x.total - x.done;
     return `<a class="us-chip ${left ? (x.late ? 'late' : '') : 'done'}"
       href="${u ? '#/unit/' + u.id : 'javascript:'}"
-      title="${u ? esc(u.name) : 'Χωρίς τμήμα'}: ${x.done}/${x.total} ολοκληρωμένες${x.late ? ' — ' + x.late + ' εκπρόθεσμες' : ''}">
-      <i style="background:${u ? u.color : '#8595ac'}">${esc(u ? (u.icon || u.name.slice(0, 1)) : '?')}</i>
-      ${esc(u ? u.name : 'Χωρίς τμήμα')} <b>${x.done}/${x.total}</b>
+      title="${u ? esc(u.name) : 'Χωρίς ομάδα'}: ${x.done}/${x.total} ολοκληρωμένες${x.late ? ' — ' + x.late + ' εκπρόθεσμες' : ''}">
+      <i style="background:${u ? u.color : '#8595ac'}">${esc(u ? u.icon : '?')}</i>
+      ${esc(u ? u.name : 'Χωρίς ομάδα')} <b>${x.done}/${x.total}</b>
       ${x.late ? `<span class="pill pill-bad" style="padding:0 5px">${x.late}</span>` : ''}</a>`;
   }).join('');
   h.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="card-b" style="padding:11px 15px;display:flex;flex-direction:column;gap:9px">
@@ -1178,8 +1187,8 @@ async function openTask(id) {
             ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Τμήμα που την εκτελεί</label><select class="inp" id="fUnit"><option value="">— χωρίς τμήμα —</option>
-          ${(d.units || []).map(u => `<option value="${u.id}" ${u.id === t.unit ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Department που την εκτελεί</label><select class="inp" id="fDept"><option value="">— χωρίς ομάδα —</option>
+          ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
         <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
         <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
@@ -1194,7 +1203,7 @@ async function openTask(id) {
           ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
              title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
           <a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>
-          ${(() => { const u = (d.units || []).find(x => x.id === t.unit); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Ουρά τμήματος">${esc(u.name)}</a>` : ''; })()}
+          ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Ουρά της ομάδας">${esc(u.name)}</a>` : ''; })()}
         </span>
       </div>
     </div></div>
@@ -1272,7 +1281,7 @@ async function openTask(id) {
     await api('save_task', {task: id, title: $('#fTitle').value, descr: rteVal('fDescr'),
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
       type: +$('#fType').value || 0, ball: +$('#fBall').value || 0,
-      unit: +(($('#fUnit') || {}).value) || 0,
+      dept: +(($('#fDept') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
