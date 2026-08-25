@@ -638,3 +638,81 @@ R.perf = async function () {
   };
   load();
 };
+
+/* ═══════════ Τμήματα εργασίας ═══════════
+   Το έργο ανήκει στον πελάτη· η κάθε εργασία του εκτελείται από ένα τμήμα.
+   Εδώ βλέπεις το φορτίο ΑΝΑ ΤΜΗΜΑ και μπαίνεις μέσα του για να δεις ποιον
+   πελάτη και ποιο έργο κρατάει πίσω. */
+R.units = async function () {
+  setTop('Τμήματα', 'Ποιο τμήμα κρατάει πίσω ποιο έργο');
+  const c = $('#content');
+  c.innerHTML = '<div class="skel" style="height:260px"></div>';
+  const d = await api('units');
+  const tile = u => {
+    const pct = u.total ? Math.round((u.total - u.open) / u.total * 100) : 100;
+    return `<a class="un-card" href="#/unit/${u.id}" style="--uc:${u.color}">
+      <div class="un-top">
+        <span class="un-badge" style="background:${u.color}">${esc(u.icon || u.name.slice(0, 1))}</span>
+        <span class="un-name">${esc(u.name)}${u.active ? '' : ' <span class="pill pill-mut">ανενεργό</span>'}</span>
+        ${u.late ? `<span class="pill pill-bad">${u.late} εκπρόθεσμες</span>` : ''}
+      </div>
+      <div class="un-nums">
+        <span><b>${u.open}</b><small>ανοιχτές</small></span>
+        <span><b>${u.projects}</b><small>έργα</small></span>
+        <span><b>${u.clients}</b><small>πελάτες</small></span>
+      </div>
+      <div class="bar"><span class="${u.total ? 'ok' : ''}" style="width:${u.total ? pct : 0}%"></span></div>
+      <small class="mut">${u.total ? `${u.total - u.open}/${u.total} ολοκληρωμένες` : 'καμία εργασία ακόμη'}${u.leadName ? ' · υπεύθυνος: ' + esc(u.leadName) : ''}</small>
+    </a>`;
+  };
+  c.innerHTML = `
+    <div class="card"><div class="card-b" style="font-size:12.5px;color:var(--mut);padding:12px 16px">
+      Κάθε <b>έργο ανήκει σε πελάτη</b>· οι εργασίες του μοιράζονται στα τμήματα.
+      Το έργο παραδίδεται όταν κλείσουν οι εργασίες <b>όλων</b> των τμημάτων που το αγγίζουν.
+    </div></div>
+    ${d.orphan ? `<div class="card"><div class="card-b"><span class="pill pill-warn">⚠ ${d.orphan} εργασίες χωρίς τμήμα</span>
+      <span class="mut" style="font-size:12px;margin-left:8px">Δεν τις χρεώνεται κανένα τμήμα — άνοιξέ τες και όρισε τμήμα.</span></div></div>` : ''}
+    <div class="un-grid">${d.units.map(tile).join('')}</div>
+    ${d.canManage ? `<div style="margin-top:12px"><button class="btn btn-o btn-sm" id="unNew">${I.plus} Νέο τμήμα</button></div>` : ''}`;
+  if (d.canManage) {
+    $('#unNew').onclick = async () => {
+      const name = await cnpPrompt('Νέο τμήμα', 'Όνομα τμήματος (π.χ. E-commerce, R&D)');
+      if (!name) return;
+      await api('unit_save', {name});
+      toast('Το τμήμα δημιουργήθηκε');
+      R.units();
+    };
+  }
+};
+
+R.unit = async function (id) {
+  const c = $('#content');
+  c.innerHTML = '<div class="skel" style="height:300px"></div>';
+  const d = await api('unit&id=' + (+id || 0));
+  setTop(d.unit.name, `${d.open} ανοιχτές εργασίες${d.unit.lead ? ' · υπεύθυνος: ' + d.unit.lead : ''}`);
+  const prioT = ['', '⬆', '🔥'];
+  const grp = g => `<div class="card">
+    <div class="card-h" style="gap:8px">
+      <span class="dot" style="background:${g.color || d.unit.color};width:10px;height:10px"></span>
+      <a href="#/board/${g.projectId}" style="font-weight:700">${esc(g.project)}</a>
+      ${g.clientId ? `<a class="pill pill-info" href="#/client360/${g.clientId}" title="Καρτέλα πελάτη">${I.user} ${esc(g.client)}</a>`
+        : '<span class="pill pill-mut">λειτουργικό</span>'}
+      ${g.projectDue ? `<span class="pill ${g.projectDue < today() ? 'pill-bad' : 'pill-mut'}">παράδοση ${dShort(g.projectDue)}</span>` : ''}
+      <span class="kb-n" style="margin-left:auto">${g.tasks.length}</span>
+    </div>
+    <table class="tbl"><tbody>
+      ${g.tasks.map(t => `<tr>
+        <td><a href="javascript:" data-task="${t.id}" style="font-weight:600">${prioT[t.prio] || ''} ${esc(t.title)}</a>
+          ${t.ticket ? `<a class="pill pill-mut" href="#/inbox/${t.ticket}" title="Από ticket">${I.ticket}</a>` : ''}</td>
+        <td style="width:120px"><span class="pill pill-mut">${esc(t.status)}</span></td>
+        <td style="width:130px">${esc(t.assignee || '—')}</td>
+        <td style="width:110px" class="${t.due && t.due < today() ? 'pill pill-bad' : 'mut'}">${t.due ? dShort(t.due) : '—'}</td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  c.innerHTML = `<div class="card"><div class="card-b" style="display:flex;gap:9px;align-items:center;padding:11px 16px">
+      <a class="btn btn-sm btn-o" href="#/units">← Όλα τα τμήματα</a>
+      <span class="mut" style="font-size:12.5px">Ομαδοποίηση ανά πελάτη &amp; έργο — τα έργα πελατών πρώτα.</span></div></div>
+    ${d.groups.length ? d.groups.map(grp).join('')
+      : '<div class="card"><div class="card-b empty">Καμία ανοιχτή εργασία σε αυτό το τμήμα 🎉</div></div>'}`;
+  $$('[data-task]').forEach(a => a.onclick = () => openTask(+a.dataset.task));
+};

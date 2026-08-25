@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλα τα κυκλώματα) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -1032,6 +1032,38 @@ R.client360 = async function (cid) {
       ${d.summary.scBalance !== null ? `<div class="stat ${d.summary.scBalance > 0 ? 'ok' : 'bad'}"><b>${fmtMin(d.summary.scBalance)}</b><small>Υπόλοιπο προαγοράς</small></div>` : ''}
     </div>
     <div class="grid g2" style="margin-bottom:14px">
+      <div class="card"><div class="card-h">${I.rocket} Έργα του πελάτη <span class="kb-n" style="margin-left:auto">${d.projects.length}</span></div>
+        <div class="card-b">
+          ${d.projects.length ? `<table class="tbl"><tbody>${d.projects.map(p => `<tr>
+            <td><span class="dot" style="background:${p.color};width:9px;height:9px;margin-right:7px"></span>
+              <a href="#/board/${p.id}" style="font-weight:700">${esc(p.name)}</a>
+              ${p.manager ? `<span class="mut" style="font-size:11px"> · ${esc(p.manager)}</span>` : ''}</td>
+            <td style="width:150px"><div class="bar"><span class="ok" style="width:${p.tasks ? Math.round((p.tasks - p.open) / p.tasks * 100) : 0}%"></span></div>
+              <small class="mut">${p.tasks - p.open}/${p.tasks} εργασίες</small></td>
+            <td style="width:110px" class="${p.due && p.due < today() ? 'pill pill-bad' : 'mut'}">${p.due ? dShort(p.due) : '—'}</td>
+          </tr>`).join('')}</tbody></table>`
+            : `<div class="empty" style="padding:16px">Κανένα έργο για αυτόν τον πελάτη.
+               <div class="mut" style="font-size:11.5px;margin-top:5px">Φτιάξε ένα και μοίρασε τις εργασίες του στα τμήματα.</div></div>`}
+          ${d.full ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
+        </div></div>
+
+      ${d.openTasks.length ? `<div class="card"><div class="card-h">${I.list} Ανοιχτές εργασίες <span class="kb-n" style="margin-left:auto">${d.openTasks.length}</span></div>
+        <div class="card-b"><table class="tbl"><tbody>${d.openTasks.map(t => `<tr>
+          <td><a href="javascript:" data-c3task="${t.id}" style="font-weight:600">${esc(t.title)}</a>
+            <div class="mut" style="font-size:11px">${esc(t.project || '—')}
+              ${t.dept ? `· <a href="#/unit/${t.unitId}">${esc(t.dept)}</a>` : '<span class="pill pill-warn" style="padding:0 5px">χωρίς τμήμα</span>'}</div></td>
+          <td style="width:130px">${esc(t.assignee || '—')}</td>
+          <td style="width:110px" class="${t.due && t.due < today() ? 'pill pill-bad' : 'mut'}">${t.due ? dShort(t.due) : '—'}</td>
+        </tr>`).join('')}</tbody></table></div></div>` : ''}
+
+      ${d.openTicketList.length ? `<div class="card"><div class="card-h">${I.ticket} Ανοιχτά tickets <span class="kb-n" style="margin-left:auto">${d.openTicketList.length}</span></div>
+        <div class="card-b"><table class="tbl"><tbody>${d.openTicketList.map(t => `<tr>
+          <td><a href="#/inbox/${t.id}" style="font-weight:600">${esc(t.title)}</a>
+            <div class="mut" style="font-size:11px">#${esc(String(t.tid))}${t.dept ? ' · ' + esc(t.dept) : ''}</div></td>
+          <td style="width:110px"><span class="pill pill-mut">${esc(t.status)}</span></td>
+          <td style="width:120px" class="mut">${t.last ? dShort(t.last) : '—'}</td>
+        </tr>`).join('')}</tbody></table></div></div>` : ''}
+
       <div class="card"><div class="card-h">${I.box} Υπηρεσίες & προγράμματα <span class="kb-n" style="margin-left:auto">${d.services.length}</span></div>
         <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
           ${d.services.length ? d.services.map(sv => {
@@ -1090,6 +1122,9 @@ R.client360 = async function (cid) {
       }).join('') || '<div class="empty">Καμία δραστηριότητα</div>'}
     </div></div>`;
     $$('#c3Res [data-m]').forEach(b => b.onclick = () => show(id, +b.dataset.m));
+    $$('#c3Res [data-c3task]').forEach(a => a.onclick = () => openTask(+a.dataset.c3task));
+    const npj = $('#c3NewPj');
+    if (npj) npj.onclick = () => { R.projects._pre = {client: id, clientName: d.client.name}; go('projects'); };
     const rtb = $('#c3Rt');
     if (rtb) rtb.onclick = () => window.CNP.startRemote(id, d.client.name, 0, {email: d.client.email || ''});
     const pkSel = $('#c3Pk');
@@ -1661,6 +1696,26 @@ R.projects = async function () {
         ${cards.length ? cards.join('') : `<div class="mut" style="font-size:12.5px;padding:4px 2px">${emptyTxt}</div>`}
       </div></div>`;
 
+  /* Ένας πελάτης → τα έργα του. Η ιεραρχία φαίνεται στον ίδιο πίνακα, με
+     γραμμή-κεφαλίδα ανά πελάτη που οδηγεί στην καρτέλα του. */
+  const byClient = list => {
+    const m = new Map();
+    list.forEach(p => {
+      const k = p.client || 0;
+      if (!m.has(k)) m.set(k, {name: p.clientName || '— χωρίς πελάτη —', items: []});
+      m.get(k).items.push(p);
+    });
+    return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, 'el'))
+      .map(([cid, g]) => {
+        const tot = g.items.reduce((a, x) => a + x.total, 0);
+        const dn = g.items.reduce((a, x) => a + x.done, 0);
+        return `<tr class="pj-cgrp"><td colspan="${d.canManage ? 9 : 8}">
+          ${cid ? `<a href="#/client360/${cid}">${I.user} ${esc(g.name)}</a>` : `<span>${esc(g.name)}</span>`}
+          <span class="kb-n">${g.items.length} έργα</span>
+          <span class="mut" style="font-weight:400;font-size:11.5px">· ${dn}/${tot} εργασίες</span></td></tr>`
+          + g.items.map(cRow).join('');
+      }).join('');
+  };
   const cliList = clientPjs.filter(hit);
   const opsList = [];
   roots.filter(hit).forEach(p => { opsList.push(pjCard(p, 0)); kids(p.id).filter(hit).forEach(k => opsList.push(pjCard(k, 1))); });
@@ -1679,10 +1734,10 @@ R.projects = async function () {
         'Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά.')
       + group('ops', I.building, 'Λειτουργικά projects', 'τμήματα & καθημερινή λειτουργία (tickets)', opsList,
         'Κανένα λειτουργικό project.')
-    : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">σχεδιασμένα για συγκεκριμένη απαίτηση — με budget, εκτίμηση & deadline</span></div>
+    : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">ένας πελάτης → τα έργα του → οι εργασίες τους στα τμήματα</span></div>
     <table class="tbl"><thead><tr>
     <th>Έργο</th><th>Πελάτης</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Παραδοτέα</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
-    <tbody>${cliList.length ? cliList.map(cRow).join('') : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>
+    <tbody>${cliList.length ? byClient(cliList) : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>
   <div class="card"><div class="card-h">${I.building} Λειτουργικά projects <span class="mut" style="font-weight:400;font-size:11.5px">τμήματα & καθημερινή λειτουργία (tickets)</span></div>
     <table class="tbl"><thead><tr>
     <th>Project</th><th>Πελάτης</th><th>Κατάσταση</th><th>Ανοιχτά</th><th>Πρόοδος</th><th>Τάση 7ημ</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
@@ -1871,6 +1926,12 @@ R.projects = async function () {
     };
   };
   $('#prNew').onclick = () => openProj(null);
+  /* Έρχεσαι από την καρτέλα πελάτη με «Νέο έργο» — ο πελάτης είναι ήδη γνωστός. */
+  if (R.projects._pre) {
+    const pre = R.projects._pre; R.projects._pre = null;
+    openProj({visible: true, members: [], teams: [], kind: 'client',
+      client: pre.client, clientName: pre.clientName});
+  }
   $$('[data-edit]').forEach(b => b.onclick = () => openProj(d.projects.find(p => p.id === +b.dataset.edit)));
   $$('[data-arch]').forEach(b => b.onclick = async () => {
     await api('archive_project', {id: +b.dataset.arch}); R.projects();

@@ -1060,6 +1060,7 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'type' => $t->type_id ? (int) $t->type_id : null,
         'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
+        'unit' => isset($t->unit_id) && $t->unit_id ? (int) $t->unit_id : null,
         'done' => (bool) $t->completed_at,
         'doneAt' => $t->completed_at,
         'doneNote' => $t->completed_note ?? null,
@@ -1068,8 +1069,45 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'check' => $checkMap !== null ? ($checkMap[(int) $t->id] ?? null) : null,
     ];
 }
+/* ───────── Τμήματα εργασίας (units) ─────────
+   Το έργο ανήκει στον πελάτη· η κάθε εργασία του εκτελείται από ένα τμήμα.
+   Ένα site παραδίδεται όταν κλείσουν οι εργασίες του σε e-commerce, λογιστήριο,
+   υποδομές κ.λπ. — γι' αυτό μετράμε πρόοδο ΑΝΑ ΤΜΗΜΑ μέσα στο έργο. */
+function cnp_units($activeOnly = true)
+{
+    $q = Capsule::table('mod_cpm_units')->orderBy('sort')->orderBy('id');
+    if ($activeOnly) {
+        $q->where('active', 1);
+    }
+    $out = [];
+    foreach ($q->get() as $u) {
+        $out[] = ['id' => (int) $u->id, 'name' => $u->name, 'color' => $u->color,
+            'icon' => $u->icon, 'did' => $u->whmcs_did ? (int) $u->whmcs_did : null,
+            'lead' => $u->lead_id ? (int) $u->lead_id : null, 'active' => (bool) $u->active];
+    }
+    return $out;
+}
+/** Πρόοδος ανά τμήμα για ένα σύνολο εργασιών — «τι λείπει για να παραδοθεί». */
+function cnp_unit_split($taskQuery, array $doneIds)
+{
+    $rows = [];
+    foreach ((clone $taskQuery)->get(['unit_id', 'status_id', 'due_date', 'completed_at']) as $t) {
+        $k = $t->unit_id ? (int) $t->unit_id : 0;
+        if (!isset($rows[$k])) {
+            $rows[$k] = ['unit' => $k ?: null, 'total' => 0, 'done' => 0, 'late' => 0];
+        }
+        $rows[$k]['total']++;
+        if (in_array((int) $t->status_id, $doneIds, true) || $t->completed_at) {
+            $rows[$k]['done']++;
+        } elseif ($t->due_date && $t->due_date < date('Y-m-d')) {
+            $rows[$k]['late']++;
+        }
+    }
+    return array_values($rows);
+}
 function clientLabel($cid)
 {
+
     if (!$cid) {
         return null;
     }
@@ -1149,6 +1187,7 @@ case 'boot':
             'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
             'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
+        'units' => cnp_units(),
         'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
             ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0)) : 0,
         'meetLink' => Db::pref($adminId, 'meet_link', ''),
@@ -1157,6 +1196,96 @@ case 'boot':
         'unread' => Db::unreadCount($adminId)]);
 
 /* ================= BOARD ================= */
+/* ================= ΤΜΗΜΑΤΑ (units) ================= */
+case 'units':
+    $doneU = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $list = [];
+    foreach (cnp_units(false) as $u) {
+        $base = Capsule::table('mod_cpm_tasks as t')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->where('t.unit_id', $u['id']);
+        $open = (clone $base)->whereNotIn('t.status_id', $doneU);
+        $u['total'] = (int) (clone $base)->count();
+        $u['open'] = (int) (clone $open)->count();
+        $u['late'] = (int) (clone $open)->whereNotNull('t.due_date')
+            ->where('t.due_date', '<', date('Y-m-d'))->count();
+        $u['clients'] = (int) (clone $open)->whereNotNull('p.clientid')
+            ->distinct()->count('p.clientid');
+        $u['projects'] = (int) (clone $open)->whereNotNull('t.project_id')
+            ->distinct()->count('t.project_id');
+        $u['leadName'] = $u['lead'] ? Db::adminName($u['lead']) : null;
+        $list[] = $u;
+    }
+    /* Εργασίες χωρίς τμήμα — ορφανές, δεν τις χρεώνεται κανείς. */
+    $orphan = (int) Capsule::table('mod_cpm_tasks')->whereNull('unit_id')
+        ->whereNotIn('status_id', $doneU)->count();
+    $uAdm = [];
+    foreach (Db::admins() as $a) {
+        $uAdm[] = ['id' => (int) $a->id, 'name' => trim($a->firstname . ' ' . $a->lastname)];
+    }
+    out(['units' => $list, 'orphan' => $orphan, 'canManage' => $FULL, 'admins' => $uAdm]);
+
+case 'unit_save':
+    if (!$FULL) { fail('perm', 403); }
+    $uid = (int) ($in['id'] ?? 0);
+    $name = mb_substr(trim((string) ($in['name'] ?? '')), 0, 80);
+    if ($name === '') { fail('name'); }
+    $row = ['name' => $name,
+        'color' => preg_match('/^#[0-9a-f]{6}$/i', (string) ($in['color'] ?? '')) ? $in['color'] : '#0090dd',
+        'icon' => mb_substr(trim((string) ($in['icon'] ?? '')), 0, 4) ?: null,
+        'whmcs_did' => (int) ($in['did'] ?? 0) ?: null,
+        'lead_id' => (int) ($in['lead'] ?? 0) ?: null,
+        'sort' => (int) ($in['sort'] ?? 0),
+        'active' => empty($in['off']) ? 1 : 0];
+    if ($uid) {
+        Capsule::table('mod_cpm_units')->where('id', $uid)->update($row);
+    } else {
+        $uid = (int) Capsule::table('mod_cpm_units')->insertGetId($row);
+    }
+    out(['ok' => true, 'id' => $uid]);
+
+case 'unit':                              // οθόνη τμήματος: τι χρωστάει, ανά πελάτη/έργο
+    $uid = (int) ($_GET['id'] ?? 0);
+    $u = Capsule::table('mod_cpm_units')->where('id', $uid)->first();
+    if (!$u) { fail('unit', 404); }
+    $doneU = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $stName = Capsule::table('mod_cpm_statuses')->pluck('title', 'id')->all();
+    $groups = [];
+    $rows = Capsule::table('mod_cpm_tasks as t')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->where('t.unit_id', $uid)->whereNotIn('t.status_id', $doneU)
+        ->orderByRaw('t.due_date IS NULL, t.due_date')->orderByDesc('t.priority')
+        ->get(['t.id', 't.title', 't.status_id', 't.priority', 't.assignee', 't.due_date',
+            't.ticketid', 'p.id as pid', 'p.name as pname', 'p.color as pcolor',
+            'p.clientid', 'p.kind', 'p.due_date as pdue']);
+    foreach ($rows as $t) {
+        $key = $t->clientid ? 'c' . (int) $t->clientid : ($t->pid ? 'p' . (int) $t->pid : 'x');
+        if (!isset($groups[$key])) {
+            $groups[$key] = ['clientId' => $t->clientid ? (int) $t->clientid : null,
+                'client' => $t->clientid ? clientLabel((int) $t->clientid) : null,
+                'projectId' => $t->pid ? (int) $t->pid : null,
+                'project' => (string) $t->pname, 'color' => (string) $t->pcolor,
+                'kind' => (string) $t->kind, 'projectDue' => $t->pdue, 'tasks' => []];
+        }
+        $groups[$key]['tasks'][] = ['id' => (int) $t->id, 'title' => $t->title,
+            'status' => (string) ($stName[(int) $t->status_id] ?? ''),
+            'prio' => (int) $t->priority, 'due' => $t->due_date,
+            'assignee' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
+            'ticket' => $t->ticketid ? (int) $t->ticketid : null];
+    }
+    /* Έργα πελατών πρώτα — εκεί υπάρχει παράδοση και deadline. */
+    $groups = array_values($groups);
+    usort($groups, function ($a, $b) {
+        if (($a['clientId'] ? 0 : 1) !== ($b['clientId'] ? 0 : 1)) {
+            return ($a['clientId'] ? 0 : 1) - ($b['clientId'] ? 0 : 1);
+        }
+        return strcmp((string) $a['projectDue'], (string) $b['projectDue']);
+    });
+    out(['unit' => ['id' => (int) $u->id, 'name' => $u->name, 'color' => $u->color,
+        'icon' => $u->icon, 'lead' => $u->lead_id ? Db::adminName((int) $u->lead_id) : null],
+        'groups' => $groups,
+        'open' => array_sum(array_map(function ($g) { return count($g['tasks']); }, $groups))]);
+
 case 'board':
     $pid = (int) ($_GET['project'] ?? 0);
     if (!$pid || !Db::canSeeProject($adminId, $pid)) {
@@ -1177,7 +1306,18 @@ case 'board':
         }
         $cols[] = ['status' => (int) $s->id, 'tasks' => $cards];
     }
-    out(['columns' => $cols]);
+    /* Κεφαλίδα έργου: σε ΠΟΙΟΝ παραδίδεται και ΠΟΙΑ ΤΜΗΜΑΤΑ το κρατάνε πίσω. */
+    $pj = Db::project($pid);
+    $doneB = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $split = cnp_unit_split(Capsule::table('mod_cpm_tasks')->where('project_id', $pid), $doneB);
+    usort($split, function ($a, $b) { return ($b['total'] - $b['done']) - ($a['total'] - $a['done']); });
+    out(['columns' => $cols,
+        'meta' => ['id' => $pid, 'name' => $pj->name, 'kind' => (string) $pj->kind,
+            'pstatus' => (string) $pj->pstatus, 'due' => $pj->due_date, 'health' => $pj->health,
+            'clientId' => $pj->clientid ? (int) $pj->clientid : null,
+            'client' => $pj->clientid ? clientLabel((int) $pj->clientid) : null,
+            'manager' => $pj->manager_id ? Db::adminName((int) $pj->manager_id) : null,
+            'unitSplit' => $split]]);
 
 /* ================= TASK (drawer) ================= */
 case 'task':
@@ -1252,8 +1392,16 @@ case 'task':
         $deps[] = ['depId' => (int) $dp->dep_id, 'id' => (int) $dp->id, 'title' => $dp->title,
             'done' => (bool) $dp->completed_at];
     }
+    /* Από την εργασία πρέπει να γυρνάς στον πελάτη — είτε μέσω του έργου του
+       είτε μέσω του ticket από το οποίο γεννήθηκε. */
+    $ownerId = $proj->clientid ? (int) $proj->clientid : (int) ($ticket['clientId'] ?? 0);
     out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
-        'project' => ['id' => (int) $proj->id, 'name' => $proj->name, 'color' => $proj->color],
+        'units' => cnp_units(),
+        'owner' => $ownerId ? ['id' => $ownerId, 'name' => clientLabel($ownerId),
+            'via' => $proj->clientid ? 'project' : 'ticket'] : null,
+        'project' => ['id' => (int) $proj->id, 'name' => $proj->name, 'color' => $proj->color,
+            'kind' => (string) $proj->kind, 'pstatus' => (string) $proj->pstatus,
+            'due' => $proj->due_date, 'clientId' => $proj->clientid ? (int) $proj->clientid : null],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
         'check' => $check, 'activity' => $acts, 'ticket' => $ticket,
         'watching' => in_array($adminId, Db::watcherIds($t->id), true),
@@ -2039,6 +2187,9 @@ case 'save_task':
     }
     if (array_key_exists('type', $in)) {
         $data['type_id'] = (int) $in['type'] ?: null;
+    }
+    if (array_key_exists('unit', $in)) {
+        $data['unit_id'] = (int) $in['unit'] ?: null;
     }
     if (array_key_exists('est', $in)) {
         $data['estimate_minutes'] = (int) $in['est'] ?: null;
@@ -2877,6 +3028,54 @@ case 'client360':
             'openTickets' => Capsule::table('tbltickets')->where('userid', $cid)->whereNotIn('status', ['Closed', 'Cancelled'])->count(),
             'scBalance' => $scBal !== null ? (int) $scBal : null,
         ],
+        /* Δομημένη πλοήγηση, όχι μόνο μετρητές: από τον πελάτη πρέπει να φτάνεις
+           στα έργα του, στις εργασίες τους και στα tickets του — και αντίστροφα.
+           Το χρονολόγιο δείχνει «τι έγινε πότε»· αυτά δείχνουν «τι υπάρχει». */
+        'projects' => (function () use ($cid, $doneIds) {
+            $out = [];
+            foreach (Capsule::table('mod_cpm_projects')->where('clientid', $cid)
+                         ->orderByDesc('id')->get(['id', 'name', 'color', 'status', 'deptid', 'due_date', 'manager_id']) as $p) {
+                $tot = (int) Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->count();
+                $open = (int) Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)
+                    ->whereNotIn('status_id', $doneIds)->count();
+                $out[] = ['id' => (int) $p->id, 'name' => $p->name, 'color' => $p->color,
+                    'archived' => $p->status === 'archived',
+                    'dept' => $p->deptid ? (string) Capsule::table('tblticketdepartments')->where('id', $p->deptid)->value('name') : null,
+                    'deptId' => $p->deptid ? (int) $p->deptid : null,
+                    'manager' => $p->manager_id ? Db::adminName((int) $p->manager_id) : null,
+                    'due' => ($p->due_date && strpos((string) $p->due_date, '0000') !== 0) ? $p->due_date : null,
+                    'tasks' => $tot, 'open' => $open];
+            }
+            return $out;
+        })(),
+        'openTasks' => (function () use ($cid, $doneIds) {
+            $out = [];
+            foreach (Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+                         ->where('p.clientid', $cid)->whereNotIn('t.status_id', $doneIds)
+                         ->orderBy('t.due_date')->limit(25)
+                         ->get(['t.id', 't.title', 't.due_date', 't.assignee', 't.ticketid', 't.unit_id',
+                             'p.name as pname', 'p.id as pid']) as $t) {
+                $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'project' => $t->pname,
+                    'projectId' => (int) $t->pid, 'ticket' => $t->ticketid ? (int) $t->ticketid : null,
+                    'unitId' => $t->unit_id ? (int) $t->unit_id : null,
+                    'dept' => $t->unit_id ? (string) Capsule::table('mod_cpm_units')
+                        ->where('id', $t->unit_id)->value('name') : null,
+                    'assignee' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
+                    'due' => ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? $t->due_date : null];
+            }
+            return $out;
+        })(),
+        'openTicketList' => (function () use ($cid) {
+            $out = [];
+            foreach (Capsule::table('tbltickets')->where('userid', $cid)
+                         ->whereNotIn('status', ['Closed', 'Cancelled'])->orderByDesc('lastreply')->limit(25)
+                         ->get(['id', 'tid', 'title', 'status', 'did', 'lastreply']) as $t) {
+                $out[] = ['id' => (int) $t->id, 'tid' => $t->tid, 'title' => $t->title, 'status' => $t->status,
+                    'dept' => (string) Capsule::table('tblticketdepartments')->where('id', $t->did)->value('name'),
+                    'last' => $t->lastreply];
+            }
+            return $out;
+        })(),
         'months' => $months,
         'timeline' => Db::clientTimeline($cid, date('Y-m-d', strtotime('-' . $months . ' months')))]);
 

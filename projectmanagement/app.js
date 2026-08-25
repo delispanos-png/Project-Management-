@@ -161,7 +161,7 @@ function renderShell() {
   }
   if (has('projects')) {
     nav.push(['Έργα', [['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'], ['list', I.list, 'Λίστα tasks'],
-      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects']]]);
+      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Τμήματα']]]);
   }
   if (has('sales')) {
     nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
@@ -228,7 +228,7 @@ function renderShell() {
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
-        teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+        units: 'Τμήματα', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
@@ -945,6 +945,7 @@ function setTop(t, sub) {
 }
 function go(view, arg) {
   S.view = view;
+  S.viewArg = arg ? String(arg) : '';
   location.hash = '#/' + view + (arg ? '/' + arg : '');
   $$('.sitem').forEach(b => b.classList.toggle('on', b.dataset.nav === view));
   $$('#tabBar [data-tab]').forEach(b => {
@@ -1010,10 +1011,12 @@ async function vBoard(arg) {
     <select class="inp" id="projSel" style="max-width:340px">
       ${S.boot.projects.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`).join('')}
     </select><div style="flex:1"></div></div>
+    <div id="kbHead"></div>
     <div class="kb" id="kb">${S.boot.statuses.map(() => '<div class="skel" style="flex:1;min-height:300px"></div>').join('')}</div>`;
   $('#projSel').onchange = e => { S.project = +e.target.value; vBoard(); };
   const d = await api('board&project=' + S.project);
   const kb = $('#kb'); if (!kb) return;
+  if (d.meta) { boardHead(d.meta); }
   kb.innerHTML = d.columns.map(col => {
     const st = statusOf(col.status);
     return `<div class="kb-col" data-status="${st.id}">
@@ -1038,6 +1041,37 @@ const askDone = title => cnpDialog({
   hint: 'Προαιρετικό — Ctrl+Enter για γρήγορο κλείσιμο',
   ok: 'Ολοκλήρωση', cancel: 'Άκυρο',
 });
+
+/* Κεφαλίδα έργου: ΣΕ ΠΟΙΟΝ παραδίδεται και ΠΟΙΑ ΤΜΗΜΑΤΑ το κρατάνε πίσω.
+   Χωρίς αυτό, το board είναι μια στοίβα εργασιών χωρίς παραλήπτη. */
+function boardHead(m) {
+  const h = $('#kbHead'); if (!h) return;
+  const uOf = id => (S.boot.units || []).find(u => u.id === id);
+  const tot = m.unitSplit.reduce((a, x) => a + x.total, 0);
+  const dn = m.unitSplit.reduce((a, x) => a + x.done, 0);
+  const chips = m.unitSplit.map(x => {
+    const u = uOf(x.unit);
+    const left = x.total - x.done;
+    return `<a class="us-chip ${left ? (x.late ? 'late' : '') : 'done'}"
+      href="${u ? '#/unit/' + u.id : 'javascript:'}"
+      title="${u ? esc(u.name) : 'Χωρίς τμήμα'}: ${x.done}/${x.total} ολοκληρωμένες${x.late ? ' — ' + x.late + ' εκπρόθεσμες' : ''}">
+      <i style="background:${u ? u.color : '#8595ac'}">${esc(u ? (u.icon || u.name.slice(0, 1)) : '?')}</i>
+      ${esc(u ? u.name : 'Χωρίς τμήμα')} <b>${x.done}/${x.total}</b>
+      ${x.late ? `<span class="pill pill-bad" style="padding:0 5px">${x.late}</span>` : ''}</a>`;
+  }).join('');
+  h.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="card-b" style="padding:11px 15px;display:flex;flex-direction:column;gap:9px">
+    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+      ${m.clientId
+        ? `<a class="pill pill-info" href="#/client360/${m.clientId}" title="Καρτέλα πελάτη">${I.user} ${esc(m.client)}</a>`
+        : '<span class="pill pill-mut">Λειτουργικό project — χωρίς πελάτη</span>'}
+      ${m.manager ? `<span class="pill pill-mut">Υπεύθυνος: ${esc(m.manager)}</span>` : ''}
+      ${m.due ? `<span class="pill ${m.due < today() && m.pstatus !== 'done' ? 'pill-bad' : 'pill-mut'}">${I.cal} Παράδοση ${dShort(m.due)}</span>` : ''}
+      <span style="flex:1"></span>
+      <b style="font-variant-numeric:tabular-nums">${dn}/${tot}</b><small class="mut">εργασίες</small>
+    </div>
+    ${chips ? `<div class="us-strip">${chips}</div>` : ''}
+  </div></div>`;
+}
 
 function cardHtml(t) {
   const ty = t.type ? typeOf(t.type) : null;
@@ -1144,6 +1178,8 @@ async function openTask(id) {
             ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Τμήμα που την εκτελεί</label><select class="inp" id="fUnit"><option value="">— χωρίς τμήμα —</option>
+          ${(d.units || []).map(u => `<option value="${u.id}" ${u.id === t.unit ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
         <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
         <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
@@ -1154,7 +1190,12 @@ async function openTask(id) {
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
-        <span class="mut" style="margin-left:auto;font-size:12px">${esc(d.project.name)}</span>
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+          ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
+             title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
+          <a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>
+          ${(() => { const u = (d.units || []).find(x => x.id === t.unit); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Ουρά τμήματος">${esc(u.name)}</a>` : ''; })()}
+        </span>
       </div>
     </div></div>
 
@@ -1224,10 +1265,14 @@ async function openTask(id) {
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
   $('#dX').onclick = () => cnpAskClose(dr);
+  /* Τα «ψίχουλα» (πελάτης / έργο / τμήμα) βγάζουν εκτός εργασίας — αν έμενε
+     ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
+  $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
   $('#dSave', dr).onclick = async () => {
     await api('save_task', {task: id, title: $('#fTitle').value, descr: rteVal('fDescr'),
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
       type: +$('#fType').value || 0, ball: +$('#fBall').value || 0,
+      unit: +(($('#fUnit') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
@@ -1974,7 +2019,8 @@ window.CNP = {S, api, esc, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, 
   }
   window.addEventListener('hashchange', () => {
     const h = location.hash.match(/^#\/(\w+)(?:\/(\d+))?/);
-    if (h && h[1] !== S.view) go(h[1], h[2]);
+    /* Και ίδια οθόνη με άλλο id είναι νέα πλοήγηση (πελάτης → έργο → τμήμα). */
+    if (h && (h[1] !== S.view || (h[2] || '') !== (S.viewArg || ''))) go(h[1], h[2]);
   });
   document.getElementById('remoteChip').onclick = stopRemote;
   remoteRefresh();
