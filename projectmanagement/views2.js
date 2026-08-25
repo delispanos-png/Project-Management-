@@ -764,49 +764,115 @@ function openOffer(o, d) {
   };
 }
 window.CNP.clientAuto = clientAuto;   // το χρησιμοποιεί και το R.remotebook (app.js)
-/* Το datalist δίνει προτάσεις αλλά δέχεται και ελεύθερο κείμενο: αν ο χρήστης
-   δεν επιλέξει, το id μένει κενό και το έργο αποθηκεύεται χωρίς πελάτη — σιωπηλά.
-   Γι' αυτό (α) δείχνουμε την κατάσταση σύνδεσης και (β) στο blur δενόμαστε μόνοι
-   μας όταν το κείμενο ταιριάζει σε ακριβώς έναν πελάτη. */
+/* ── Επιλογή πελάτη ────────────────────────────────────────────────────────
+   Το `<datalist>` δέχεται και ελεύθερο κείμενο: αν ο χρήστης έγραφε όνομα
+   χωρίς να επιλέξει, το id έμενε κενό και η εγγραφή αποθηκευόταν σιωπηλά
+   χωρίς πελάτη. Εδώ η τιμή ορίζεται ΜΟΝΟ με επιλογή από τη λίστα — γραφή
+   χωρίς επιλογή δεν παράγει ποτέ πελάτη, και φαίνεται ότι δεν παράγει.
+   Ίδια υπογραφή με πριν, ώστε να διορθωθούν και τα έξι σημεία που την καλούν. */
 function clientAuto(inpId, listId, hidId, statusId) {
-  const inp = $('#' + inpId), dl = $('#' + listId), hid = $('#' + hidId);
-  if (!inp) return;
+  const inp = $('#' + inpId), hid = $('#' + hidId);
+  if (!inp || !hid || inp.dataset.cpick) return;
+  inp.dataset.cpick = '1';
+  const dl = listId ? $('#' + listId) : null;
+  if (dl) dl.remove();                      // το datalist ήταν η αιτία
+  inp.removeAttribute('list');
+  inp.setAttribute('autocomplete', 'off');
+  inp.setAttribute('role', 'combobox');
+  inp.setAttribute('aria-expanded', 'false');
   const stEl = statusId ? $('#' + statusId) : null;
-  let t, last = [];
+
+  const wrap = document.createElement('div');
+  wrap.className = 'cpick';
+  inp.parentNode.insertBefore(wrap, inp);
+  wrap.appendChild(inp);
+  const panel = document.createElement('div');
+  panel.className = 'cpick-panel';
+  panel.hidden = true;
+  wrap.appendChild(panel);
+  const clr = document.createElement('button');
+  clr.type = 'button'; clr.className = 'cpick-x'; clr.textContent = '✕';
+  clr.title = 'Καθάρισε τον πελάτη'; clr.hidden = true;
+  wrap.appendChild(clr);
+
+  let rows = [], cur = -1, t, seq = 0;
   const paint = () => {
+    const on = !!hid.value;
+    inp.classList.toggle('cpick-ok', on);
+    inp.classList.toggle('cpick-bad', !on && !!inp.value.trim());
+    clr.hidden = !on;
     if (!stEl) return;
-    if (hid.value) {
-      stEl.innerHTML = `<span style="color:var(--ok)">✓ δέθηκε με τον πελάτη #${hid.value}</span>`;
-    } else if (inp.value.trim()) {
-      stEl.innerHTML = '<span style="color:var(--bad)">⚠ δεν έχει επιλεγεί πελάτης — διάλεξε από τη λίστα</span>';
-    } else {
-      stEl.innerHTML = '';
-    }
+    stEl.innerHTML = on
+      ? `<span style="color:var(--ok)">✓ ${esc(inp.value)}</span>`
+      : (inp.value.trim()
+        ? '<span style="color:var(--bad)">⚠ διάλεξε πελάτη από τη λίστα — δεν αρκεί να γράψεις το όνομα</span>'
+        : '');
   };
+  const close = () => { panel.hidden = true; cur = -1; inp.setAttribute('aria-expanded', 'false'); };
+  const pick = i => {
+    const r = rows[i]; if (!r) return;
+    hid.value = String(r.id);
+    inp.value = r.label || (r.name + ' (#' + r.id + ')');
+    close(); paint();
+    inp.dispatchEvent(new CustomEvent('cpick', {detail: r, bubbles: true}));
+  };
+  const draw = () => {
+    if (!rows.length) {
+      panel.innerHTML = '<div class="cpick-empty">Κανένας πελάτης δεν ταιριάζει</div>';
+    } else {
+      panel.innerHTML = rows.map((r, i) => `<div class="cpick-row ${i === cur ? 'on' : ''}" data-i="${i}">
+        <b>${esc(r.name || r.label)}</b>
+        <span class="mut">#${r.id}${r.email ? ' · ' + esc(r.email) : ''}</span>
+        ${r.status && r.status !== 'Active' ? `<span class="pill pill-mut">${esc(r.status)}</span>` : ''}
+      </div>`).join('');
+      $$('.cpick-row', panel).forEach(el =>
+        el.addEventListener('mousedown', e => { e.preventDefault(); pick(+el.dataset.i); }));
+    }
+    panel.hidden = false;
+    inp.setAttribute('aria-expanded', 'true');
+  };
+  const search = async q => {
+    const my = ++seq;
+    const r = await api('client_search&q=' + encodeURIComponent(q)).catch(() => null);
+    if (!r || my !== seq) return;           // αγνόησε απαντήσεις που άργησαν
+    rows = r.results || []; cur = rows.length ? 0 : -1; draw();
+  };
+
   inp.addEventListener('input', () => {
-    const m = inp.value.match(/\(#(\d+)\)\s*$/);
-    hid.value = m ? m[1] : '';
+    hid.value = '';                          // γραφή = ακύρωση της επιλογής
     paint();
     clearTimeout(t);
     const q = inp.value.trim();
-    if (q.length < 2 || m) return;
-    t = setTimeout(async () => {
-      const r = await api('client_search&q=' + encodeURIComponent(q));
-      last = r.results || [];
-      dl.innerHTML = last.map(x => `<option value="${esc(x.label)}">`).join('');
-    }, 250);
+    if (q.length < 2) { rows = []; close(); return; }
+    t = setTimeout(() => search(q), 220);
+  });
+  inp.addEventListener('focus', () => { if (rows.length && !hid.value) draw(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (panel.hidden) { if (rows.length) draw(); return; }
+      e.preventDefault();
+      cur = Math.max(0, Math.min(rows.length - 1, cur + (e.key === 'ArrowDown' ? 1 : -1)));
+      draw();
+      const el = $('.cpick-row.on', panel); if (el) el.scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'Enter') {
+      if (!panel.hidden && cur >= 0) { e.preventDefault(); pick(cur); }
+    } else if (e.key === 'Escape') {
+      close();
+    }
   });
   inp.addEventListener('blur', () => setTimeout(() => {
+    close();
+    /* Έμεινε κείμενο χωρίς επιλογή: αν ταιριάζει σε ΑΚΡΙΒΩΣ έναν, δέσε τον
+       μόνος σου· αλλιώς σβήσε το κείμενο ώστε να μη μοιάζει με επιλεγμένο. */
     if (hid.value || !inp.value.trim()) { paint(); return; }
     const q = inp.value.trim().toLowerCase();
-    const exact = last.filter(x => String(x.label).toLowerCase().startsWith(q));
-    if (exact.length === 1) { inp.value = exact[0].label; hid.value = String(exact[0].id ?? '').replace(/\D/g, ''); }
-    if (!hid.value) {
-      const m2 = inp.value.match(/\(#(\d+)\)\s*$/);
-      if (m2) hid.value = m2[1];
-    }
+    const hits = rows.filter(r => String(r.name || r.label).toLowerCase().startsWith(q));
+    if (hits.length === 1) { hid.value = String(hits[0].id); inp.value = hits[0].label; }
     paint();
-  }, 150));
+  }, 160));
+  clr.addEventListener('click', () => {
+    hid.value = ''; inp.value = ''; rows = []; close(); paint(); inp.focus();
+  });
   paint();
 }
 

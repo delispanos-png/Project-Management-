@@ -8876,8 +8876,12 @@ case 'client_search':
                   ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
             });
         }
-        foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname']) as $c) {
-            $res[] = ['id' => (int) $c->id, 'label' => ($c->companyname ?: trim($c->firstname . ' ' . $c->lastname)) . ' (#' . $c->id . ')'];
+        foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'status']) as $c) {
+            $nm = $c->companyname ?: trim($c->firstname . ' ' . $c->lastname);
+            $res[] = ['id' => (int) $c->id, 'name' => $nm, 'email' => (string) $c->email,
+                'status' => (string) $c->status,
+                // Το `label` κρατιέται όπως ήταν — το διαβάζουν παλιές κλήσεις.
+                'label' => $nm . ' (#' . $c->id . ')'];
         }
     }
     out(['results' => $res]);

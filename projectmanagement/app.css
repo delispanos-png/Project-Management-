@@ -1574,3 +1574,24 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .kb-add-u{flex:0 0 100%;margin-top:5px;border:1px solid var(--line);border-radius:7px;background:transparent;
   color:var(--mut);font-size:11px;padding:3px 5px;cursor:pointer}
 .kb-add-u:focus{outline:none;border-color:var(--acc);color:var(--ink)}
+
+/* ── Επιλογή πελάτη (combobox) ─────────────────────────────────────
+   Αντικαθιστά το <datalist>, που δεχόταν ελεύθερο κείμενο και άφηνε
+   εγγραφές χωρίς πελάτη. Εδώ η τιμή μπαίνει μόνο με επιλογή. */
+.cpick{position:relative;display:block}
+.cpick .inp{width:100%;padding-right:30px}
+.cpick-ok{border-color:var(--ok)!important}
+.cpick-bad{border-color:var(--bad)!important}
+.cpick-x{position:absolute;right:7px;top:50%;transform:translateY(-50%);border:0;background:transparent;
+  color:var(--mut);cursor:pointer;font-size:13px;line-height:1;padding:3px 4px;border-radius:5px}
+.cpick-x:hover{background:var(--line);color:var(--bad)}
+.cpick-panel{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:70;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.16);
+  max-height:270px;overflow:auto}
+.cpick-row{display:flex;gap:8px;align-items:baseline;padding:8px 11px;cursor:pointer;font-size:13px;
+  border-bottom:1px solid var(--line)}
+.cpick-row:last-child{border-bottom:0}
+.cpick-row b{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpick-row .mut{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cpick-row.on,.cpick-row:hover{background:var(--line)}
+.cpick-empty{padding:11px;font-size:12.5px;color:var(--mut)}
