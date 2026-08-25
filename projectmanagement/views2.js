@@ -1910,6 +1910,11 @@ R.projects = async function () {
         ${p.id ? `<button class="btn btn-o" id="pjArch">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button>
           <button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
     </div></div>
+    ${p.id ? `<div class="card"><div class="card-h">${I.list} Εργασίες του έργου
+        <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η καθεμία ανήκει σε μία ομάδα</span></div>
+      <div class="card-b" id="pjTasks"><div class="skel" style="height:60px"></div></div></div>`
+      : `<div class="card"><div class="card-b mut" style="font-size:12.5px;padding:14px 16px">
+        ${I.list} Οι εργασίες μπαίνουν μόλις αποθηκευτεί το έργο.</div></div>`}
     ${p.id ? `<div class="card"><div class="card-h">${I.clipboard} Τι περιλαμβάνει το έργο — παραδοτέα</div>
       <div class="card-b" id="pjTodos"><div class="skel" style="height:50px"></div></div></div>` : ''}
     ${p.id ? `<div class="card"><div class="card-h">${I.link} Δημόσιο link για τον πελάτη</div>
@@ -1918,6 +1923,57 @@ R.projects = async function () {
     requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
     $('#dX').onclick = () => cnpAskClose(dr);
     clientAuto('pjCli', 'pjCliL', 'pjCliId', 'pjCliS');
+    /* Εργασίες μέσα στο ίδιο το έργο: εδώ στήνεις το πλάνο παράδοσης χωρίς να
+       πας στο board και χωρίς να ψάχνεις το έργο σε dropdown. Η ομάδα ορίζεται
+       με τη δημιουργία — αλλιώς η εργασία μένει αζήτητη. */
+    const loadTasks = async () => {
+      const box = $('#pjTasks', dr); if (!box) return;
+      const bd = await api('board&project=' + p.id).catch(() => null);
+      if (!bd) { box.innerHTML = '<div class="mut">Δεν φορτώθηκαν</div>'; return; }
+      const all = [];
+      bd.columns.forEach(col => col.tasks.forEach(t => all.push(Object.assign({st: col.status}, t))));
+      const depOf = id => (S.boot.depts || []).find(x => x.id === +id);
+      const open = all.filter(t => !t.done), done = all.filter(t => t.done);
+      const line = t => {
+        const dp = depOf(t.dept);
+        return `<div class="set-row" style="gap:8px">
+          <span class="dot" style="background:${dp ? dp.color : '#8595ac'};width:8px;height:8px;flex:none"></span>
+          <a href="javascript:" data-ptask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.title)}</a>
+          ${dp ? `<span class="pill pill-mut">${esc(dp.name)}</span>`
+            : '<span class="pill pill-warn">χωρίς ομάδα</span>'}
+          ${t.assignee ? `<span class="ava" title="${esc(adminName(t.assignee))}">${esc(adminIni(t.assignee))}</span>` : '<span class="mut" style="font-size:11px">αναθέτης;</span>'}
+          <span class="${t.due && t.due < today() && !t.done ? 'pill pill-bad' : 'mut'}" style="font-size:11px;white-space:nowrap">${t.due ? dShort(t.due) : '—'}</span>
+        </div>`;
+      };
+      box.innerHTML = `
+        ${bd.meta && bd.meta.deptSplit.length ? `<div class="us-strip" style="margin-bottom:11px">${bd.meta.deptSplit.map(x => {
+          const dp = depOf(x.dept);
+          return `<span class="us-chip ${x.total === x.done ? 'done' : (x.late ? 'late' : '')}">
+            <i style="background:${dp ? dp.color : '#8595ac'}">${esc(dp ? dp.icon : '?')}</i>
+            ${esc(dp ? dp.name : 'Χωρίς ομάδα')} <b>${x.done}/${x.total}</b></span>`;
+        }).join('')}</div>` : ''}
+        ${open.map(line).join('')}
+        ${done.length ? `<details style="margin-top:6px"><summary class="mut" style="font-size:12px;cursor:pointer">Ολοκληρωμένες (${done.length})</summary>${done.map(line).join('')}</details>` : ''}
+        ${!all.length ? '<div class="mut" style="font-size:12.5px;padding:2px 0 8px">Καμία εργασία ακόμη — γράψε την πρώτη παρακάτω.</div>' : ''}
+        <div class="set-row" style="gap:7px;margin-top:10px">
+          <input class="inp" id="pjTNew" placeholder="Νέα εργασία… (Enter)" style="flex:1;min-width:150px">
+          <select class="inp" id="pjTDep" style="width:auto;min-width:150px">
+            <option value="">— διάλεξε ομάδα —</option>
+            ${(S.boot.depts || []).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
+          <button class="btn btn-p btn-sm" id="pjTAdd">+</button></div>`;
+      $$('[data-ptask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.ptask); });
+      const add = async () => {
+        const v = $('#pjTNew', box).value.trim(); if (!v) return;
+        const dep = +$('#pjTDep', box).value || 0;
+        if (!dep) { toast('Διάλεξε ομάδα για την εργασία', true); $('#pjTDep', box).focus(); return; }
+        await api('quick_task', {project: p.id, dept: dep, title: v, status: 0});
+        toast('Προστέθηκε'); loadTasks();
+      };
+      $('#pjTAdd', box).onclick = add;
+      $('#pjTNew', box).onkeydown = e => { if (e.key === 'Enter') add(); };
+    };
+    loadTasks();
+
     const loadTodos = async () => {
       const box = $('#pjTodos', dr); if (!box) return;
       const dd = await api('ptodos&project=' + p.id);
@@ -2043,7 +2099,7 @@ R.projects = async function () {
         toast('Διάλεξε πελάτη από τη λίστα — δεν αρκεί να γράψεις το όνομα', true);
         $('#pjCli').focus(); return;
       }
-      await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: cid,
+      const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: cid,
         // Έργο πελάτη δεν ανήκει σε ομάδα — το department κρέμεται στις εργασίες.
         dept: kind === 'client' ? 0 : ($('#pjDept') ? +$('#pjDept').value || 0 : (p.dept || 0)),
         parent: +$('#pjPar').value || 0, color: $('#pjColor').value,
@@ -2052,8 +2108,12 @@ R.projects = async function () {
         start: $('#pjStart').value || null, due: $('#pjDue').value || null,
         manager: +$('#pjMgr').value || 0,
         members: $$('.pjM:checked', dr).map(x => +x.value), teams: $$('.pjT:checked', dr).map(x => +x.value)});
+      const isNew = !p.id;
       toast('Αποθηκεύτηκε'); closeDrawer();
-      const b = await api('boot'); S.boot = b; R.projects();
+      S.boot = await api('boot');
+      /* Μόλις γεννήθηκε το έργο, το επόμενο βήμα είναι οι εργασίες του —
+         πάμε κατευθείαν στο board του αντί να το ψάχνει στη λίστα. */
+      if (isNew && r && r.id) { go('board', r.id); } else { R.projects(); }
     };
   };
   $('#prNew').onclick = () => openProj(null);
