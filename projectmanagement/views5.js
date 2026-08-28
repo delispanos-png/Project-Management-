@@ -656,6 +656,9 @@ R.units = async function () {
         <span class="un-name">${esc(u.name)}${u.hidden ? ' <span class="pill pill-mut">κρυφό</span>' : ''}</span>
         ${u.late ? `<span class="pill pill-bad">${u.late} εκπρόθεσμ${u.late === 1 ? 'η' : 'ες'}</span>` : ''}
       </div>
+      <div class="un-teams">${u.teams.length
+        ? u.teams.map(t => `<span class="pill pill-mut" style="border-left:3px solid ${t.color}">${esc(t.name)}</span>`).join('')
+        : '<span class="pill pill-warn">καμία ομάδα δεν το εξυπηρετεί</span>'}</div>
       <div class="un-nums">
         <span><b>${u.open}</b><small>εργασίες</small></span>
         <span><b>${u.tickets}</b><small>tickets</small></span>
@@ -709,8 +712,14 @@ R.unit = async function (id) {
     </tbody></table></div>`;
   c.innerHTML = `<div class="card"><div class="card-b" style="display:flex;gap:9px;align-items:center;padding:11px 16px;flex-wrap:wrap">
       <a class="btn btn-sm btn-o" href="#/units">← Όλα τα departments</a>
-      <a class="btn btn-sm btn-o" href="#/inbox">${I.ticket} Tickets της ομάδας</a>
-      <span class="mut" style="font-size:12.5px">Ομαδοποίηση ανά πελάτη &amp; έργο — τα έργα πελατών πρώτα.</span></div></div>
+      <a class="btn btn-sm btn-o" href="#/inbox">${I.ticket} Tickets</a>
+      <span class="mut" style="font-size:12.5px">Ομαδοποίηση ανά πελάτη &amp; έργο — τα έργα πελατών πρώτα.</span></div>
+      <div class="card-b" style="padding:0 16px 12px;font-size:12.5px">
+        <span class="mut">${I.tree} Το εξυπηρετούν:</span>
+        ${d.dept.teams && d.dept.teams.length
+          ? d.dept.teams.map(t => `<a class="pill pill-mut" href="#/teams" style="border-left:3px solid ${t.color}">${esc(t.name)}</a>`).join(' ')
+          : '<span class="pill pill-warn">καμία ομάδα — οι υποψήφιοι για ανάθεση βγαίνουν από το WHMCS</span>'}
+      </div></div>
     ${d.groups.length ? d.groups.map(grp).join('')
       : '<div class="card"><div class="card-b empty">Καμία ανοιχτή εργασία σε αυτή την ομάδα 🎉</div></div>'}`;
   $$('[data-task]').forEach(a => a.onclick = () => openTask(+a.dataset.task));

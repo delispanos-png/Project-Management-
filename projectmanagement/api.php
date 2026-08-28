@@ -1139,17 +1139,37 @@ function cnp_depts()
     $i = 0;
     foreach (Capsule::table('tblticketdepartments')->orderBy('order')->orderBy('id')
                  ->get(['id', 'name', 'email', 'hidden']) as $d) {
-        /* Ποιοι χειριστές ανήκουν σε αυτή την ομάδα — από το WHMCS
-           (`tbladmins.supportdepts`). Η ομάδα δεν εκτελεί· εκτελεί ο άνθρωπός
-           της, οπότε η ανάθεση πρέπει να προτείνει αυτούς πρώτους. */
+        /* Ποιοι δουλεύουν γι' αυτό το department.
+           Πηγή #1: οι ΟΜΑΔΕΣ που το εξυπηρετούν (mod_cpm_team_depts) — εκεί ζει
+           η οργάνωση: ένα department εξυπηρετείται από πολλές ομάδες
+           ειδικότητας. Πηγή #2 (εφεδρική, όσο δεν έχουν οριστεί ομάδες): το
+           `tbladmins.supportdepts` του WHMCS. */
         $mem = [];
-        foreach (Capsule::table('tbladmins')->where('disabled', 0)
-                     ->get(['id', 'supportdepts']) as $a) {
-            $ds = array_filter(array_map('intval', explode(',', (string) $a->supportdepts)));
-            if (in_array((int) $d->id, $ds, true)) { $mem[] = (int) $a->id; }
+        $viaTeams = [];
+        if (Capsule::schema()->hasTable('mod_cpm_team_depts')) {
+            $viaTeams = array_map('intval', Capsule::table('mod_cpm_team_depts as td')
+                ->join('mod_cpm_team_members as m', 'm.team_id', '=', 'td.team_id')
+                ->where('td.dept_id', (int) $d->id)->distinct()->pluck('m.admin_id')->all());
         }
+        if ($viaTeams) {
+            $mem = $viaTeams;
+        } else {
+            foreach (Capsule::table('tbladmins')->where('disabled', 0)
+                         ->get(['id', 'supportdepts']) as $a) {
+                $ds = array_filter(array_map('intval', explode(',', (string) $a->supportdepts)));
+                if (in_array((int) $d->id, $ds, true)) { $mem[] = (int) $a->id; }
+            }
+        }
+        $teamsOf = Capsule::schema()->hasTable('mod_cpm_team_depts')
+            ? Capsule::table('mod_cpm_team_depts as td')->join('mod_cpm_teams as t', 't.id', '=', 'td.team_id')
+                ->where('td.dept_id', (int) $d->id)->orderBy('t.name')
+                ->get(['t.id', 't.name', 't.color'])->map(function ($x) {
+                    return ['id' => (int) $x->id, 'name' => $x->name, 'color' => $x->color];
+                })->all()
+            : [];
         $cache[] = ['id' => (int) $d->id, 'name' => $d->name, 'email' => (string) $d->email,
             'hidden' => (bool) $d->hidden, 'color' => $pal[$i % count($pal)], 'members' => $mem,
+            'teams' => $teamsOf, 'viaTeams' => (bool) $viaTeams,
             /* Δύο γράμματα: «Support» και «Sales» θα ήταν και τα δύο «S». */
             'icon' => mb_strtoupper(mb_substr(preg_replace('/\s+/u', '', trim($d->name)), 0, 2))];
         $i++;
@@ -1273,7 +1293,7 @@ function cnp_action_area($action)
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'perf', 'triage', 'rootcause',
             'agenda', 'topstats', 'suspend_queue', 'suspend_mark', 'suspend_do', 'suspend_notice',
             'suspend_notice_send', 'teams', 'save_team', 'del_team', 'team_member_add',
-            'team_member_del', 'teams_seed', 'settings_get', 'settings_save', 'users', 'user_save', 'user_del',
+            'team_member_del', 'settings_get', 'settings_save', 'users', 'user_save', 'user_del',
             'user_pass', 'user_toggle', 'user_areas_save', 'wh_ticket_manage', 'wh_dept_save',
             'wh_dept_del', 'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
             'auto_recipes', 'auto_recipe_add', 'tquotas', 'tquota_save', 'tquota_del',
@@ -3299,7 +3319,9 @@ case 'teams':
             ->where('pt.team_id', $tm->id)->pluck('p.name')->all();
         $teams[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color,
             'descr' => $tm->descr, 'members' => $members, 'projects' => $projNames,
-            'areas' => cnp_team_areas($tm->id)];
+            'areas' => cnp_team_areas($tm->id),
+            'depts' => array_map('intval', Capsule::table('mod_cpm_team_depts')
+                ->where('team_id', $tm->id)->pluck('dept_id')->all())];
     }
     $solo = [];
     foreach (Db::admins() as $a) {
@@ -3319,6 +3341,9 @@ case 'teams':
     $strict9 = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
         ->where('setting', 'strict_areas')->value('value') === 'on';
     out(['teams' => $teams, 'solo' => $solo, 'areaDefs' => $areaDefs, 'strict' => $strict9,
+        'depts' => array_map(function ($d) {
+            return ['id' => $d['id'], 'name' => $d['name'], 'color' => $d['color']];
+        }, cnp_depts()),
         'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))), 'canManage' => $FULL]);
 
 case 'save_team':
@@ -3334,6 +3359,16 @@ case 'save_team':
         $row9['areas'] = implode(',', array_values(array_intersect(cnp_area_keys(), (array) $in['areas'])));
     }
     $tid = Db::saveTeam((int) ($in['id'] ?? 0), $row9);
+    /* Ποια departments εξυπηρετεί η ομάδα — μόνο όταν σταλεί ρητά. */
+    if (array_key_exists('depts', $in)) {
+        $valid9 = array_column(cnp_depts(), 'id');
+        Capsule::table('mod_cpm_team_depts')->where('team_id', $tid)->delete();
+        foreach (array_unique(array_map('intval', (array) $in['depts'])) as $dd) {
+            if (in_array($dd, $valid9, true)) {
+                Capsule::table('mod_cpm_team_depts')->insert(['team_id' => $tid, 'dept_id' => $dd]);
+            }
+        }
+    }
     out(['ok' => true, 'id' => $tid]);
 
 case 'del_team':
@@ -3342,36 +3377,6 @@ case 'del_team':
     }
     Db::deleteTeam((int) ($in['id'] ?? 0));
     out(['ok' => true]);
-
-case 'teams_seed':                        // μία ομάδα ανά department, με τα μέλη του WHMCS
-    if (!$FULL) { fail('forbidden', 403); }
-    /* Χωρίς αφετηρία η οθόνη είναι άδεια και δεν ξέρεις από πού να πιάσεις.
-       Τα departments υπάρχουν ήδη, μαζί με το ποιος ανήκει πού — τα καθρεφτίζουμε
-       μία φορά και μετά τα προσαρμόζεις. Δεν διπλοδημιουργεί: ομάδα με το ίδιο
-       όνομα παραλείπεται. */
-    $made = 0;
-    foreach (cnp_depts() as $dp) {
-        if (Capsule::table('mod_cpm_teams')->where('name', $dp['name'])->exists()) {
-            continue;
-        }
-        /* Το κύκλωμα που ταιριάζει στο department — αν δεν αναγνωρίζεται,
-           η ομάδα γεννιέται χωρίς δικαιώματα και τα δίνεις εσύ. */
-        $guess = '';
-        $low = mb_strtolower($dp['name']);
-        foreach (['support' => 'support', 'υποστ' => 'support', 'sales' => 'sales',
-                     'πωλησ' => 'sales', 'account' => 'admin', 'λογιστ' => 'admin'] as $needle => $area) {
-            if (mb_strpos($low, $needle) !== false) { $guess = $area; break; }
-        }
-        $tid9 = Db::saveTeam(0, ['name' => $dp['name'], 'color' => $dp['color'],
-            'descr' => 'Από το department ' . $dp['name'],
-            'areas' => $guess]);
-        foreach ($dp['members'] as $aid) {
-            Db::addTeamMember($tid9, (int) $aid, '', 0);
-        }
-        $made++;
-    }
-    logActivity('CloudOn PM: δημιουργία ' . $made . ' ομάδων από τα departments (admin ' . $adminId . ')');
-    out(['ok' => true, 'created' => $made]);
 
 case 'team_member_add':
     if (!$FULL) {

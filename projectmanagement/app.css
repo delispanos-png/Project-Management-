@@ -1603,3 +1603,5 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tm-area input{width:13px;height:13px;cursor:pointer}
 .tm-area.on{border-color:var(--acc);color:var(--ink);font-weight:600;background:#0090dd10}
 .tm-area:has(input:disabled){cursor:default;opacity:.7}
+.un-teams{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px;min-height:20px}
+.un-teams .pill{font-size:10px;padding:1px 7px}

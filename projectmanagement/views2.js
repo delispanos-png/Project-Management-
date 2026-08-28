@@ -1663,9 +1663,11 @@ R.teams = async function () {
     <div class="mut" style="font-size:12.5px;margin-top:6px;line-height:1.7">
       Η ομάδα είναι που δίνει τα δικαιώματα. Όσο δεν υπάρχουν ομάδες, κάθε χειριστής παίρνει
       ό,τι του έχει οριστεί προσωπικά — ή την ιστορική προεπιλογή.<br>
-      Ξεκίνα από τα departments που ήδη υπάρχουν στο WHMCS: φτιάχνονται ομάδες με τα ίδια ονόματα,
-      τα μέλη τους και δικαίωμα στο αντίστοιχο κύκλωμα. Μετά τα προσαρμόζεις.</div>
-    ${d.canManage ? `<button class="btn btn-p" id="tmSeed" style="margin-top:12px">${I.tree} Δημιουργία ομάδων από τα departments</button>` : ''}
+      Οι ομάδες <b>δεν είναι τα departments</b>: το department είναι πού απευθύνεται το αίτημα
+      (Υποστήριξη, Πωλήσεις, Λογιστήριο), η ομάδα είναι η <b>ειδικότητα</b> των ανθρώπων
+      (π.χ. Λογιστές, Αναλυτές, R&amp;D, DevOps, Supporters).<br>
+      Φτιάξε ομάδες κατά ειδικότητα και μετά δήλωσε <b>ποια departments εξυπηρετεί</b> η καθεμία —
+      μία ομάδα μπορεί να εξυπηρετεί πολλά, και ένα department να το εξυπηρετούν πολλές.</div>
   </div></div>`}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
     ${d.teams.map(t => `<div class="card" style="margin:0;border-top:4px solid ${t.color}">
@@ -1673,6 +1675,11 @@ R.teams = async function () {
         <span class="kb-n" style="margin-left:auto">${t.members.length}</span>
         ${d.canManage ? `<button class="btn btn-sm btn-o" data-tedit="${t.id}" title="Επεξεργασία ομάδας">${I.edit}</button>` : ''}</div>
       <div class="card-b">
+        <div class="mut" style="font-size:11px;margin-bottom:8px">${I.tree} Εξυπηρετεί:
+          ${t.depts.length ? t.depts.map(id => {
+            const dp = d.depts.find(x => x.id === id);
+            return dp ? `<a class="pill pill-mut" href="#/unit/${dp.id}">${esc(dp.name)}</a>` : '';
+          }).join(' ') : '<span style="color:var(--warn)">κανένα department</span>'}</div>
         <div class="tm-rights">
           <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Πρόσβαση σε κυκλώματα</div>
           ${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
@@ -1761,13 +1768,6 @@ R.teams = async function () {
       await api('team_member_del', {team: +t, admin: +a}); R.teams();
     });
     $$('[data-tedit]').forEach(b => b.onclick = () => openTeam(d.teams.find(x => x.id === +b.dataset.tedit), d));
-    const seed = $('#tmSeed');
-    if (seed) seed.onclick = async () => {
-      if (!(await cnpConfirm('Να δημιουργηθεί μία ομάδα ανά department, με τα μέλη τους από το WHMCS;',
-        {ok: 'Δημιουργία'}))) return;
-      const r = await api('teams_seed', {});
-      toast(`Δημιουργήθηκαν ${r.created} ομάδες`); R.teams();
-    };
     $$('[data-tdel]').forEach(b => b.onclick = async () => {
       if (!(await cnpConfirm('Διαγραφή ομάδας; (τα μέλη δεν διαγράφονται)', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
       await api('del_team', {id: +b.dataset.tdel}); toast('Διαγράφηκε'); R.teams();
@@ -1792,6 +1792,14 @@ function openTeam(t, d) {
       </div>
       <label class="lbl" style="margin-top:11px">Τι κάνει αυτή η ομάδα</label>
       <input class="inp" id="tmD" value="${esc(t.descr || '')}" placeholder="π.χ. 1η γραμμή υποστήριξης — tickets & άμεσα αιτήματα">
+      <label class="lbl" style="margin-top:13px">${I.tree} Ποια departments εξυπηρετεί</label>
+      <div class="mut" style="font-size:11.5px;margin-bottom:7px">Το department είναι <b>πού απευθύνεται</b> το αίτημα·
+        η ομάδα είναι <b>ποιοι το αναλαμβάνουν</b>. Ένα department το εξυπηρετούν πολλές ομάδες,
+        και μια ομάδα μπορεί να εξυπηρετεί πολλά departments.</div>
+      <div>${d.depts.map(dp => `<label class="tm-area ${t.depts.includes(dp.id) ? 'on' : ''}">
+        <input type="checkbox" data-tdep="${dp.id}" ${t.depts.includes(dp.id) ? 'checked' : ''}>
+        <span class="dot" style="background:${dp.color};width:7px;height:7px"></span>${esc(dp.name)}</label>`).join('')}</div>
+
       <label class="lbl" style="margin-top:13px">${I.lock} Πρόσβαση σε κυκλώματα</label>
       <div class="mut" style="font-size:11.5px;margin-bottom:7px">Ό,τι επιλέξεις εδώ το αποκτούν <b>όλα τα μέλη</b> της ομάδας.</div>
       <div>${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
@@ -1839,9 +1847,12 @@ function openTeam(t, d) {
     ch.closest('.tm-area').classList.toggle('on', ch.checked); hint();
   });
   hint();
+  $$('[data-tdep]', dr).forEach(ch => ch.onchange = () =>
+    ch.closest('.tm-area').classList.toggle('on', ch.checked));
   $('#tmSave', dr).onclick = async () => {
     await api('save_team', {id: t.id, name: $('#tmN').value.trim() || t.name,
-      color: $('#tmC').value, descr: $('#tmD').value.trim(), areas: areasNow()});
+      color: $('#tmC').value, descr: $('#tmD').value.trim(), areas: areasNow(),
+      depts: $$('[data-tdep]', dr).filter(x => x.checked).map(x => +x.dataset.tdep)});
     toast('Αποθηκεύτηκε'); closeDrawer(); R.teams();
   };
   $('#tmDel', dr).onclick = async () => {

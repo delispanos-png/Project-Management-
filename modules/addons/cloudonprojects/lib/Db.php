@@ -194,6 +194,22 @@ class Db
            Ιστορικό: τον Αύγουστο 2026 δοκιμάστηκε ξεχωριστός πίνακας
            `mod_cpm_units`. Ήταν διπλοεγγραφή — καταργήθηκε την ίδια μέρα και οι
            αναθέσεις μεταφέρθηκαν στο `dept_id`. */
+        /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
+           Δύο διαφορετικοί άξονες που μπερδεύονταν:
+             DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)
+             ΟΜΑΔΑ      = ειδικότητα ανθρώπων (Accountants, DevOps, R&D, Analysts…)
+           Ένα department εξυπηρετείται από ΠΟΛΛΕΣ ομάδες, και μία ομάδα μπορεί
+           να εξυπηρετεί ΠΟΛΛΑ departments. Χωρίς αυτόν τον πίνακα η ομάδα
+           αναγκαζόταν να είναι αντίγραφο του department. */
+        if (!$s->hasTable('mod_cpm_team_depts')) {
+            $s->create('mod_cpm_team_depts', function ($t) {
+                $t->increments('id');
+                $t->integer('team_id')->unsigned();
+                $t->integer('dept_id')->unsigned();     // tblticketdepartments.id
+                $t->unique(['team_id', 'dept_id']);
+            });
+        }
+
         /* ── Δικαιώματα μέσω ομάδας ──────────────────────────────────────────
            Ο χειριστής ανήκει σε ομάδες· η ομάδα κρατάει τα δικαιώματα σε
            κυκλώματα του προγράμματος (πωλήσεις, υποστήριξη, έργα, HR,
@@ -1905,6 +1921,9 @@ class Db
 
     public static function deleteTeam($id)
     {
+        if (Capsule::schema()->hasTable('mod_cpm_team_depts')) {
+            Capsule::table('mod_cpm_team_depts')->where('team_id', (int) $id)->delete();
+        }
         Capsule::table('mod_cpm_team_members')->where('team_id', (int) $id)->delete();
         Capsule::table('mod_cpm_project_teams')->where('team_id', (int) $id)->delete();
         Capsule::table('mod_cpm_teams')->where('id', (int) $id)->delete();
