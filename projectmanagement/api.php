@@ -1273,7 +1273,7 @@ function cnp_action_area($action)
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'perf', 'triage', 'rootcause',
             'agenda', 'topstats', 'suspend_queue', 'suspend_mark', 'suspend_do', 'suspend_notice',
             'suspend_notice_send', 'teams', 'save_team', 'del_team', 'team_member_add',
-            'team_member_del', 'settings_get', 'settings_save', 'users', 'user_save', 'user_del',
+            'team_member_del', 'teams_seed', 'settings_get', 'settings_save', 'users', 'user_save', 'user_del',
             'user_pass', 'user_toggle', 'user_areas_save', 'wh_ticket_manage', 'wh_dept_save',
             'wh_dept_del', 'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
             'auto_recipes', 'auto_recipe_add', 'tquotas', 'tquota_save', 'tquota_del',
@@ -3328,6 +3328,36 @@ case 'del_team':
     }
     Db::deleteTeam((int) ($in['id'] ?? 0));
     out(['ok' => true]);
+
+case 'teams_seed':                        // μία ομάδα ανά department, με τα μέλη του WHMCS
+    if (!$FULL) { fail('forbidden', 403); }
+    /* Χωρίς αφετηρία η οθόνη είναι άδεια και δεν ξέρεις από πού να πιάσεις.
+       Τα departments υπάρχουν ήδη, μαζί με το ποιος ανήκει πού — τα καθρεφτίζουμε
+       μία φορά και μετά τα προσαρμόζεις. Δεν διπλοδημιουργεί: ομάδα με το ίδιο
+       όνομα παραλείπεται. */
+    $made = 0;
+    foreach (cnp_depts() as $dp) {
+        if (Capsule::table('mod_cpm_teams')->where('name', $dp['name'])->exists()) {
+            continue;
+        }
+        /* Το κύκλωμα που ταιριάζει στο department — αν δεν αναγνωρίζεται,
+           η ομάδα γεννιέται χωρίς δικαιώματα και τα δίνεις εσύ. */
+        $guess = '';
+        $low = mb_strtolower($dp['name']);
+        foreach (['support' => 'support', 'υποστ' => 'support', 'sales' => 'sales',
+                     'πωλησ' => 'sales', 'account' => 'admin', 'λογιστ' => 'admin'] as $needle => $area) {
+            if (mb_strpos($low, $needle) !== false) { $guess = $area; break; }
+        }
+        $tid9 = Db::saveTeam(0, ['name' => $dp['name'], 'color' => $dp['color'],
+            'descr' => 'Από το department ' . $dp['name'],
+            'areas' => $guess]);
+        foreach ($dp['members'] as $aid) {
+            Db::addTeamMember($tid9, (int) $aid, '', 0);
+        }
+        $made++;
+    }
+    logActivity('CloudOn PM: δημιουργία ' . $made . ' ομάδων από τα departments (admin ' . $adminId . ')');
+    out(['ok' => true, 'created' => $made]);
 
 case 'team_member_add':
     if (!$FULL) {

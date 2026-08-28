@@ -1658,9 +1658,20 @@ R.teams = async function () {
     <input class="inp" id="tmName" placeholder="Όνομα νέας ομάδας" style="max-width:240px">
     <input class="inp" type="color" id="tmColor" value="#0090dd" style="width:52px;padding:4px">
     <button class="btn btn-p btn-sm" id="tmAdd">${I.plus} Νέα ομάδα</button></div>` : ''}
+  ${d.teams.length ? '' : `<div class="card"><div class="card-b" style="padding:20px">
+    <b style="font-size:14px">Δεν υπάρχει καμία ομάδα ακόμη</b>
+    <div class="mut" style="font-size:12.5px;margin-top:6px;line-height:1.7">
+      Η ομάδα είναι που δίνει τα δικαιώματα. Όσο δεν υπάρχουν ομάδες, κάθε χειριστής παίρνει
+      ό,τι του έχει οριστεί προσωπικά — ή την ιστορική προεπιλογή.<br>
+      Ξεκίνα από τα departments που ήδη υπάρχουν στο WHMCS: φτιάχνονται ομάδες με τα ίδια ονόματα,
+      τα μέλη τους και δικαίωμα στο αντίστοιχο κύκλωμα. Μετά τα προσαρμόζεις.</div>
+    ${d.canManage ? `<button class="btn btn-p" id="tmSeed" style="margin-top:12px">${I.tree} Δημιουργία ομάδων από τα departments</button>` : ''}
+  </div></div>`}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
     ${d.teams.map(t => `<div class="card" style="margin:0;border-top:4px solid ${t.color}">
-      <div class="card-h">${esc(t.name)}<span class="kb-n" style="margin-left:auto">${t.members.length}</span></div>
+      <div class="card-h">${esc(t.name)}
+        <span class="kb-n" style="margin-left:auto">${t.members.length}</span>
+        ${d.canManage ? `<button class="btn btn-sm btn-o" data-tedit="${t.id}" title="Επεξεργασία ομάδας">${I.edit}</button>` : ''}</div>
       <div class="card-b">
         <div class="tm-rights">
           <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Πρόσβαση σε κυκλώματα</div>
@@ -1732,12 +1743,111 @@ R.teams = async function () {
       const [t, a] = b.dataset.rm.split(':');
       await api('team_member_del', {team: +t, admin: +a}); R.teams();
     });
+    $$('[data-tedit]').forEach(b => b.onclick = () => openTeam(d.teams.find(x => x.id === +b.dataset.tedit), d));
+    const seed = $('#tmSeed');
+    if (seed) seed.onclick = async () => {
+      if (!(await cnpConfirm('Να δημιουργηθεί μία ομάδα ανά department, με τα μέλη τους από το WHMCS;',
+        {ok: 'Δημιουργία'}))) return;
+      const r = await api('teams_seed', {});
+      toast(`Δημιουργήθηκαν ${r.created} ομάδες`); R.teams();
+    };
     $$('[data-tdel]').forEach(b => b.onclick = async () => {
       if (!(await cnpConfirm('Διαγραφή ομάδας; (τα μέλη δεν διαγράφονται)', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
       await api('del_team', {id: +b.dataset.tdel}); toast('Διαγράφηκε'); R.teams();
     });
   }
 };
+
+/* Επεξεργασία ομάδας σε ένα σημείο: ταυτότητα, δικαιώματα, μέλη. Χωρίς αυτό,
+   μια ομάδα μπορούσε μόνο να γεννηθεί και να πεθάνει — όχι να αλλάξει. */
+function openTeam(t, d) {
+  closeDrawer();
+  const ovl = document.createElement('div'); ovl.className = 'ovl';
+  const dr = document.createElement('div'); dr.className = 'drawer';
+  dr.innerHTML = `
+  <div class="drawer-h"><span class="dot" style="background:${t.color};width:12px;height:12px"></span>
+    <h2>${esc(t.name)}</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-b">
+    <div class="card"><div class="card-b">
+      <div class="frow">
+        <div style="flex:2"><label class="lbl">Όνομα ομάδας</label><input class="inp" id="tmN" value="${esc(t.name)}"></div>
+        <div><label class="lbl">Χρώμα</label><input class="inp" type="color" id="tmC" value="${t.color}" style="height:40px;padding:4px"></div>
+      </div>
+      <label class="lbl" style="margin-top:11px">Τι κάνει αυτή η ομάδα</label>
+      <input class="inp" id="tmD" value="${esc(t.descr || '')}" placeholder="π.χ. 1η γραμμή υποστήριξης — tickets & άμεσα αιτήματα">
+      <label class="lbl" style="margin-top:13px">${I.lock} Πρόσβαση σε κυκλώματα</label>
+      <div class="mut" style="font-size:11.5px;margin-bottom:7px">Ό,τι επιλέξεις εδώ το αποκτούν <b>όλα τα μέλη</b> της ομάδας.</div>
+      <div>${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
+        <input type="checkbox" data-tar="${ar.id}" ${t.areas.includes(ar.id) ? 'checked' : ''}>${esc(ar.name)}</label>`).join('')}</div>
+      <div class="mut" style="font-size:11px;margin-top:6px" id="tmAreaHint"></div>
+      <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
+        <button class="btn btn-p" id="tmSave">Αποθήκευση</button>
+        <button class="btn btn-o" id="tmDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή ομάδας</button></div>
+    </div></div>
+
+    <div class="card"><div class="card-h">${I.users} Μέλη <span class="kb-n" style="margin-left:auto">${t.members.length}</span></div>
+      <div class="card-b">
+        ${t.members.map(m => `<div class="set-row" style="gap:9px">
+          <span class="ava" style="background:${t.color}">${esc(m.ini)}</span>
+          <div style="flex:1;min-width:0"><b>${m.leader ? (I.crown + ' ') : ''}${esc(m.name)}</b>
+            ${m.role ? `<span class="mut" style="font-size:11px"> · ${esc(m.role)}</span>` : ''}</div>
+          <button class="btn btn-sm btn-o" data-trm="${m.id}" style="color:var(--bad)">✕</button></div>`).join('')
+          || '<div class="mut" style="font-size:12.5px">Χωρίς μέλη — η ομάδα δεν δίνει δικαιώματα σε κανέναν.</div>'}
+        <div class="set-row" style="gap:7px;margin-top:11px;flex-wrap:wrap">
+          <select class="inp" id="tmAdm" style="flex:1;min-width:140px">
+            ${S.boot.admins.filter(a => !t.members.some(m => m.id === a.id))
+              .map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('') || '<option value="">— όλοι είναι ήδη μέλη —</option>'}</select>
+          <select class="inp" id="tmRole" style="width:150px"><option value="">— ρόλος —</option>
+            ${d.roles.map(r => `<option>${esc(r)}</option>`).join('')}</select>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="tmLead">${I.crown} επικεφαλής</label>
+          <button class="btn btn-p btn-sm" id="tmAddM">+</button></div>
+      </div></div>
+
+    ${t.projects.length ? `<div class="card"><div class="card-h">${I.folder} Έργα με πρόσβαση</div>
+      <div class="card-b mut" style="font-size:12.5px">${t.projects.map(esc).join(' · ')}
+      <div style="font-size:11px;margin-top:5px">Ορίζονται μέσα από το κάθε έργο, στο πεδίο «Ομάδες με πρόσβαση».</div></div></div>` : ''}
+  </div>`;
+  document.body.append(ovl, dr);
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  $('#dX').onclick = () => closeDrawer();
+
+  const areasNow = () => $$('[data-tar]', dr).filter(x => x.checked).map(x => x.dataset.tar);
+  const hint = () => {
+    const n = areasNow().length;
+    $('#tmAreaHint', dr).innerHTML = n
+      ? `${t.members.length === 1 ? 'Το μέλος' : 'Τα ' + t.members.length + ' μέλη'} θα βλέπ${t.members.length === 1 ? 'ει' : 'ουν'} ${n === 1 ? '1 κύκλωμα' : n + ' κυκλώματα'}.`
+      : '<span style="color:var(--bad)">Χωρίς κύκλωμα, τα μέλη βλέπουν μόνο τα προσωπικά τους.</span>';
+  };
+  $$('[data-tar]', dr).forEach(ch => ch.onchange = () => {
+    ch.closest('.tm-area').classList.toggle('on', ch.checked); hint();
+  });
+  hint();
+  $('#tmSave', dr).onclick = async () => {
+    await api('save_team', {id: t.id, name: $('#tmN').value.trim() || t.name,
+      color: $('#tmC').value, descr: $('#tmD').value.trim(), areas: areasNow()});
+    toast('Αποθηκεύτηκε'); closeDrawer(); R.teams();
+  };
+  $('#tmDel', dr).onclick = async () => {
+    if (!(await cnpConfirm(`Διαγραφή της ομάδας «${t.name}»; Τα μέλη δεν διαγράφονται, χάνουν όμως τα δικαιώματα που τους έδινε.`,
+      {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
+    await api('del_team', {id: t.id}); toast('Διαγράφηκε'); closeDrawer(); R.teams();
+  };
+  $('#tmAddM', dr).onclick = async () => {
+    const a = +$('#tmAdm', dr).value || 0; if (!a) return;
+    await api('team_member_add', {team: t.id, admin: a, role: $('#tmRole', dr).value,
+      leader: $('#tmLead', dr).checked});
+    toast('Προστέθηκε');
+    const fresh = await api('teams');
+    closeDrawer(); R.teams();
+    setTimeout(() => openTeam(fresh.teams.find(x => x.id === t.id), fresh), 60);
+  };
+  $$('[data-trm]', dr).forEach(b => b.onclick = async () => {
+    await api('team_member_del', {team: t.id, admin: +b.dataset.trm});
+    const fresh = await api('teams');
+    closeDrawer(); R.teams();
+    setTimeout(() => openTeam(fresh.teams.find(x => x.id === t.id), fresh), 60);
+  });
+}
 
 /* ═════════ PROJECTS (PORTFOLIO) ═════════ */
 R.projects = async function () {
