@@ -4890,8 +4890,16 @@ case 'users':                          // διαχείριση χρηστών (�
             return ['id' => (int) $a->id, 'username' => $a->username,
                 'name' => trim($a->firstname . ' ' . $a->lastname), 'email' => $a->email,
                 'roleid' => (int) $a->roleid, 'disabled' => (bool) $a->disabled,
-                'full' => $isFullU, 'areas' => cnp_admin_areas((int) $a->id, $isFullU)];
+                'full' => $isFullU, 'areas' => cnp_admin_areas((int) $a->id, $isFullU),
+                /* Τα δικαιώματα δίνονται από τις ΟΜΑΔΕΣ. Εδώ τα δείχνουμε μόνο,
+                   μαζί με τυχόν παλιά προσωπική εξαίρεση ώστε να μπορεί να λυθεί. */
+                'teams' => Capsule::table('mod_cpm_team_members as m')
+                    ->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
+                    ->where('m.admin_id', (int) $a->id)->pluck('t.name')->all(),
+                'personal' => array_values(array_intersect(cnp_area_keys(),
+                    array_filter(array_map('trim', explode(',', Db::pref((int) $a->id, 'areas', ''))))))];
         }, Capsule::table('tbladmins')->orderBy('disabled')->orderBy('username')->get()->all()),
+        'areaNames' => array_map(function ($v) { return $v[0]; }, cnp_area_defs()),
         'roles' => array_map(function ($r) use ($fullRoles) {
             return ['id' => (int) $r->id, 'name' => $r->name,
                 'full' => in_array((int) $r->id, $fullRoles, true)];
