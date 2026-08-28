@@ -1595,3 +1595,11 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .cpick-row .mut{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cpick-row.on,.cpick-row:hover{background:var(--line)}
 .cpick-empty{padding:11px;font-size:12.5px;color:var(--mut)}
+
+/* ── Δικαιώματα ομάδας ─────────────────────────────────────────── */
+.tm-rights{border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:11px}
+.tm-area{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;border:1px solid var(--line);
+  border-radius:20px;padding:3px 10px;margin:0 5px 5px 0;cursor:pointer;background:var(--card);color:var(--mut)}
+.tm-area input{width:13px;height:13px;cursor:pointer}
+.tm-area.on{border-color:var(--acc);color:var(--ink);font-weight:600;background:#0090dd10}
+.tm-area:has(input:disabled){cursor:default;opacity:.7}

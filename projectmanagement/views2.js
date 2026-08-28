@@ -1649,7 +1649,7 @@ R.profit = async function () {
 
 /* ═════════ ΟΜΑΔΕΣ ═════════ */
 R.teams = async function () {
-  setTop('Ομάδες', 'Οργανόγραμμα — ποιος ανήκει πού');
+  setTop('Ομάδες & δικαιώματα', 'Ποιος ανήκει πού — και τι μπορεί να δει');
   const c = $('#content');
   c.innerHTML = skel(3, 200);
   const d = await api('teams');
@@ -1662,10 +1662,30 @@ R.teams = async function () {
     ${d.teams.map(t => `<div class="card" style="margin:0;border-top:4px solid ${t.color}">
       <div class="card-h">${esc(t.name)}<span class="kb-n" style="margin-left:auto">${t.members.length}</span></div>
       <div class="card-b">
+        <div class="tm-rights">
+          <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Πρόσβαση σε κυκλώματα</div>
+          ${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
+            <input type="checkbox" data-ar="${t.id}:${ar.id}" ${t.areas.includes(ar.id) ? 'checked' : ''}
+              ${d.canManage ? '' : 'disabled'}>${esc(ar.name)}</label>`).join('')}
+          ${t.areas.length ? '' : '<div class="mut" style="font-size:11px;margin-top:5px">Καμία — τα μέλη βλέπουν μόνο τα προσωπικά τους.</div>'}
+          ${t.members.some(m => !m.full && m.areas.some(x => !t.areas.includes(x)))
+            ? '<div class="mut" style="font-size:10.5px;margin-top:5px">Το <b>*</b> σημαίνει δικαίωμα από άλλη ομάδα ή προσωπική εξαίρεση.</div>' : ''}
+        </div>
         ${t.members.map(m => `<div style="display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
           <span class="ava" style="background:${t.color}">${esc(m.ini)}</span>
-          <div style="flex:1"><b>${m.leader ? (I.crown + ' ') : ''}${esc(m.name)}</b>
-            ${m.role ? `<div class="mut" style="font-size:11px">${esc(m.role)}</div>` : ''}</div>
+          <div style="flex:1;min-width:0"><b>${m.leader ? (I.crown + ' ') : ''}${esc(m.name)}</b>
+            ${m.role ? `<span class="mut" style="font-size:11px"> · ${esc(m.role)}</span>` : ''}
+            <div class="mut" style="font-size:10.5px">${m.full
+              ? '<span class="pill pill-info">διαχειριστής — όλα</span>'
+              : (m.areas.length
+                ? 'ισχύει: ' + m.areas.map(x => {
+                    const nm = esc((d.areaDefs.find(z => z.id === x) || {}).name || x);
+                    /* Ό,τι δεν το δίνει ΑΥΤΗ η ομάδα έρχεται από άλλη ομάδα ή από
+                       προσωπική εξαίρεση — αλλιώς μοιάζει ανεξήγητο. */
+                    return t.areas.includes(x) ? nm
+                      : `<span title="${m.personal.includes(x) ? 'προσωπική εξαίρεση' : 'από άλλη ομάδα'}" style="opacity:.75">${nm}*</span>`;
+                  }).join(' · ')
+                : '<span style="color:var(--bad)">καμία πρόσβαση</span>')}</div></div>
           ${d.canManage ? `<button class="btn btn-sm btn-o" data-rm="${t.id}:${m.id}">✕</button>` : ''}</div>`).join('') ||
           '<div class="mut" style="font-size:12.5px">Χωρίς μέλη</div>'}
         ${t.projects.length ? `<div class="mut" style="font-size:11px;margin-top:8px">${I.folder} ${esc(t.projects.slice(0, 4).join(' · '))}${t.projects.length > 4 ? ' +' + (t.projects.length - 4) : ''}</div>` : ''}
@@ -1680,7 +1700,13 @@ R.teams = async function () {
       </div></div>`).join('')}
     ${d.solo.length ? `<div class="card" style="margin:0;border:1.5px dashed var(--line);box-shadow:none">
       <div class="card-h mut">Χωρίς ομάδα</div><div class="card-b">
-      ${d.solo.map(s => `<div style="padding:4px 0">${esc(s.name)}${s.full ? ' <span class="pill pill-info">διαχειριστής</span>' : ''}</div>`).join('')}</div></div>` : ''}
+      <div class="mut" style="font-size:11.5px;margin-bottom:8px">Χωρίς ομάδα δεν υπάρχει ρόλος να δώσει δικαιώματα.
+        ${d.strict ? 'Με τον αυστηρό κανόνα ενεργό, δεν βλέπουν κανένα κύκλωμα.'
+          : 'Σήμερα παίρνουν την ιστορική προεπιλογή (Υποστήριξη, Έργα, Πωλήσεις).'}</div>
+      ${d.solo.map(s => `<div style="padding:5px 0;border-bottom:1px dashed var(--line)">${esc(s.name)}
+        ${s.full ? '<span class="pill pill-info">διαχειριστής — όλα</span>'
+          : (s.areas.length ? `<span class="mut" style="font-size:10.5px">ισχύει: ${s.areas.map(x => esc((d.areaDefs.find(z => z.id === x) || {}).name || x)).join(' · ')}</span>`
+            : '<span class="pill pill-bad">καμία πρόσβαση</span>')}</div>`).join('')}</div></div>` : ''}
   </div>`;
   if (d.canManage) {
     $('#tmAdd').onclick = async () => {
@@ -1688,6 +1714,14 @@ R.teams = async function () {
       await api('save_team', {id: 0, name: $('#tmName').value.trim(), color: $('#tmColor').value});
       toast('Δημιουργήθηκε'); R.teams();
     };
+    $$('[data-ar]').forEach(ch => ch.onchange = async () => {
+      const [tid] = ch.dataset.ar.split(':');
+      const areas = $$(`[data-ar^="${tid}:"]`).filter(x => x.checked).map(x => x.dataset.ar.split(':')[1]);
+      const tm = d.teams.find(x => x.id === +tid);
+      await api('save_team', {id: +tid, name: tm.name, color: tm.color, descr: tm.descr || '', areas});
+      toast('Τα δικαιώματα της ομάδας ενημερώθηκαν');
+      R.teams();
+    });
     $$('[data-mgo]').forEach(b => b.onclick = async () => {
       const t = b.dataset.mgo;
       await api('team_member_add', {team: +t, admin: +$(`[data-madm="${t}"]`).value,

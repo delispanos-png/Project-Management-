@@ -671,16 +671,69 @@ function cnp_can_reply_clients($adminId, $isFull)
     }
 }
 
-/** Ειδικότητες/πρόσβαση χειριστή: full → όλα· αλλιώς pref 'areas' (comma) ή default. */
+/* ───────── Δικαιώματα σε κυκλώματα («περιοχές») ─────────
+   Ένας ορισμός, μία φορά: τον διαβάζουν και ο έλεγχος του server και η οθόνη
+   των ομάδων, ώστε να μη γίνει η λίστα δύο λίστες που αποκλίνουν. */
+function cnp_area_defs()
+{
+    return [
+        'support'  => ['Υποστήριξη', 'Tickets, βάση γνώσης, Πελάτης 360°'],
+        'projects' => ['Έργα', 'Board, Gantt, εργασίες, χρόνος, departments'],
+        'sales'    => ['Πωλήσεις', 'CRM, leads, προσφορές, επικοινωνίες'],
+        'hr'       => ['Προσλήψεις', 'Βιογραφικά & αξιολογήσεις υποψηφίων'],
+        'admin'    => ['Διοίκηση', 'KPI, κερδοφορία, αναστολές, απόδοση, ρυθμίσεις'],
+    ];
+}
+function cnp_area_keys()
+{
+    return array_keys(cnp_area_defs());
+}
+/** Οι περιοχές που δίνει κάθε ομάδα. */
+function cnp_team_areas($teamId)
+{
+    $raw = (string) Capsule::table('mod_cpm_teams')->where('id', (int) $teamId)->value('areas');
+    return array_values(array_intersect(cnp_area_keys(),
+        array_filter(array_map('trim', explode(',', $raw)))));
+}
+/**
+ * Ειδικότητες/πρόσβαση χειριστή.
+ * full → όλα. Αλλιώς: ένωση των περιοχών ΤΩΝ ΟΜΑΔΩΝ ΤΟΥ + του προσωπικού pref
+ * `areas` (που μένει ως εξαίρεση για μεμονωμένες περιπτώσεις).
+ * Χωρίς ομάδα και χωρίς pref κρατάμε την ιστορική προεπιλογή, εκτός αν η
+ * ρύθμιση `strict_areas` είναι ενεργή — τότε καμία πρόσβαση.
+ */
 function cnp_admin_areas($adminId, $isFull)
 {
     if ($isFull) {
-        return ['sales', 'support', 'projects', 'admin', 'hr'];
+        return cnp_area_keys();
     }
-    $raw = Db::pref($adminId, 'areas', '');
-    $a = array_values(array_filter(array_map('trim', explode(',', $raw))));
-    // χωρίς ανάθεση → default (backward-compat): όλα εκτός Διοίκησης
-    return $a ?: ['sales', 'support', 'projects'];
+    static $memo = [];
+    if (isset($memo[(int) $adminId])) {
+        return $memo[(int) $adminId];
+    }
+    $out = [];
+    if (Capsule::schema()->hasColumn('mod_cpm_teams', 'areas')) {
+        $rows = Capsule::table('mod_cpm_team_members as m')
+            ->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
+            ->where('m.admin_id', (int) $adminId)->pluck('t.areas')->all();
+        foreach ($rows as $raw) {
+            foreach (array_filter(array_map('trim', explode(',', (string) $raw))) as $a) {
+                $out[] = $a;
+            }
+        }
+    }
+    $hasTeam = (bool) $out || Capsule::table('mod_cpm_team_members')
+        ->where('admin_id', (int) $adminId)->exists();
+    $pref = array_filter(array_map('trim', explode(',', Db::pref($adminId, 'areas', ''))));
+    $out = array_values(array_intersect(cnp_area_keys(), array_unique(array_merge($out, $pref))));
+
+    if (!$out && !$hasTeam && !$pref) {
+        $strict = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'strict_areas')->value('value');
+        // Ιστορική προεπιλογή: όλα εκτός Διοίκησης & HR.
+        $out = ($strict === 'on') ? [] : ['sales', 'support', 'projects'];
+    }
+    return $memo[(int) $adminId] = $out;
 }
 
 /**
@@ -1172,6 +1225,66 @@ function cnp_file_row($rec)
     return ['id' => (int) $rec['id'], 'name' => $rec['orig_name'], 'mime' => $rec['mime'], 'size' => (int) $rec['size'],
         'kind' => $rec['kind'], 'driver' => $rec['driver'], 'createdAt' => $rec['created_at'],
         'url' => 'api.php?a=file_get&id=' . (int) $rec['id']];
+}
+
+/* ───────── Πύλη περιοχών ─────────
+   Το κρυμμένο μενού δεν είναι δικαίωμα: όποιος ξέρει το όνομα της ενέργειας
+   την καλεί κατευθείαν. Εδώ κόβεται πριν φτάσει στη λογική.
+
+   Ο χάρτης είναι σκόπιμα ΡΗΤΟΣ (allow-by-default): μια ενέργεια που δεν
+   αναφέρεται δεν μπλοκάρεται. Έτσι δεν κλειδώνει κατά λάθος λειτουργία που
+   δεν έχει καταγραφεί ακόμη. Οι υπάρχοντες έλεγχοι $FULL μένουν ανέπαφοι —
+   αυτό είναι επιπλέον φράχτης, όχι αντικατάσταση. */
+function cnp_action_area($action)
+{
+    static $map = null;
+    if ($map === null) {
+        $map = [];
+        $add = function ($area, array $acts) use (&$map) {
+            foreach ($acts as $a) { $map[$a] = $area; }
+        };
+        $add('support', ['tickets', 'ticket', 'ticket_reply', 'ticket_update', 'ticket_note',
+            'ticket_refer', 'ticket_att', 'ticket_classify', 'classify_suggest',
+            'kb_list', 'kb_get', 'kb_save', 'kb_del', 'kb_draft', 'kb_use', 'kb_match', 'kb_bulk',
+            'kb_import_probe', 'kb_import_commit', 'client360', 'client_health',
+            'tcats', 'tcat_save', 'tcat_del', 'tcat_reorder']);
+        $add('projects', ['board', 'task', 'save_task', 'move_task', 'quick_task', 'comment',
+            'portfolio', 'save_project', 'archive_project', 'project_delete', 'project_from_offer',
+            'gantt', 'gantt_move', 'list', 'time', 'time_add', 'timer_start', 'timer_stop',
+            'depts_load', 'dept_view', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
+            'dep_add', 'dep_del', 'check_add', 'check_toggle', 'watch', 'request_update',
+            'recurring', 'save_recurring', 'del_recurring', 'recurrent', 'worknote_save',
+            'share_save', 'share_info', 'share_revoke', 'share_reply', 'add_expense', 'del_expense',
+            'status_save', 'status_del', 'type_save', 'type_del']);
+        $add('sales', ['crm', 'crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
+            'leads_import_preview', 'leads_import_commit', 'save_lead', 'lead_merge', 'lead_score',
+            'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle', 'lead_task_del',
+            'lead_fields', 'lead_field_save', 'lead_field_del', 'lead_products', 'lead_product_save',
+            'lead_product_del', 'lead_value_save', 'move_lead', 'hot_leads', 'my_crm_tasks',
+            'offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline', 'create_quote',
+            'comms', 'interaction', 'followup_done', 'campaigns', 'campaign_save', 'campaign_del',
+            'campaign_detail', 'campaign_add_lead', 'campaign_remove_lead',
+            'targets', 'save_ptarget', 'del_ptarget']);
+        $add('hr', ['cv_list', 'cv_get', 'cv_add', 'cv_update', 'cv_ai', 'cv_email', 'cv_file',
+            'cv_photo', 'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval',
+            'cv_jobs', 'cv_job_save', 'cv_job_del', 'cv_job_draft', 'cv_job_views',
+            'cv_job_image_upload', 'cv_job_image_delete']);
+        $add('admin', ['kpi', 'profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
+            'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'perf', 'triage', 'rootcause',
+            'agenda', 'topstats', 'suspend_queue', 'suspend_mark', 'suspend_do', 'suspend_notice',
+            'suspend_notice_send', 'teams', 'save_team', 'del_team', 'team_member_add',
+            'team_member_del', 'settings_get', 'settings_save', 'users', 'user_save', 'user_del',
+            'user_pass', 'user_toggle', 'user_areas_save', 'wh_ticket_manage', 'wh_dept_save',
+            'wh_dept_del', 'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
+            'auto_recipes', 'auto_recipe_add', 'tquotas', 'tquota_save', 'tquota_del',
+            'client_package_set', 'storage_test']);
+    }
+    return $map[$action] ?? null;
+}
+$needArea = cnp_action_area($action);
+if ($needArea !== null && !in_array($needArea, cnp_admin_areas($adminId, $FULL), true)) {
+    $lbl = cnp_area_defs()[$needArea][0] ?? $needArea;
+    fail('Δεν έχεις πρόσβαση στο κύκλωμα «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
 }
 
 switch ($action) {
@@ -3156,36 +3269,57 @@ case 'teams':
         $members = [];
         foreach (Db::teamMembers($tm->id) as $m) {
             $assigned[(int) $m->admin_id] = 1;
+            $isF9 = Db::isFullAccess((int) $m->admin_id);
             $members[] = ['id' => (int) $m->admin_id, 'name' => Db::adminName($m->admin_id),
                 'ini' => initials(Db::adminName($m->admin_id)),
-                'role' => $m->role_title, 'leader' => (bool) $m->is_leader];
+                'role' => $m->role_title, 'leader' => (bool) $m->is_leader,
+                'full' => $isF9,
+                // Τι ΙΣΧΥΕΙ τελικά γι' αυτόν — ένωση όλων των ομάδων του + προσωπικά.
+                'areas' => cnp_admin_areas((int) $m->admin_id, $isF9),
+                // Ξεχωριστά τα προσωπικά, ώστε να φαίνεται γιατί έχει παραπάνω από την ομάδα.
+                'personal' => array_values(array_intersect(cnp_area_keys(),
+                    array_filter(array_map('trim', explode(',', Db::pref((int) $m->admin_id, 'areas', ''))))))];
         }
         $projNames = Capsule::table('mod_cpm_project_teams as pt')
             ->join('mod_cpm_projects as p', 'p.id', '=', 'pt.project_id')
             ->where('pt.team_id', $tm->id)->pluck('p.name')->all();
         $teams[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color,
-            'descr' => $tm->descr, 'members' => $members, 'projects' => $projNames];
+            'descr' => $tm->descr, 'members' => $members, 'projects' => $projNames,
+            'areas' => cnp_team_areas($tm->id)];
     }
     $solo = [];
     foreach (Db::admins() as $a) {
         if (!isset($assigned[(int) $a->id])) {
-            $solo[] = ['name' => trim($a->firstname . ' ' . $a->lastname), 'full' => Db::isFullAccess($a->id)];
+            $isF8 = Db::isFullAccess($a->id);
+            $solo[] = ['id' => (int) $a->id, 'name' => trim($a->firstname . ' ' . $a->lastname),
+                'full' => $isF8, 'areas' => cnp_admin_areas((int) $a->id, $isF8)];
         }
     }
     $rolesCfg = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
         ->where('setting', 'team_roles')->value('value')
         ?: 'Διαχειριστής έργου,Senior Τεχνικός,Τεχνικός,Υποστήριξη,Πωλήσεις,Λογιστήριο,Developer');
-    out(['teams' => $teams, 'solo' => $solo,
+    $areaDefs = [];
+    foreach (cnp_area_defs() as $k => $v) {
+        $areaDefs[] = ['id' => $k, 'name' => $v[0], 'descr' => $v[1]];
+    }
+    $strict9 = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'strict_areas')->value('value') === 'on';
+    out(['teams' => $teams, 'solo' => $solo, 'areaDefs' => $areaDefs, 'strict' => $strict9,
         'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))), 'canManage' => $FULL]);
 
 case 'save_team':
     if (!$FULL) {
         fail('forbidden', 403);
     }
-    $tid = Db::saveTeam((int) ($in['id'] ?? 0), [
-        'name' => mb_substr(trim($in['name'] ?? ''), 0, 80) ?: 'Χωρίς όνομα',
+    $row9 = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 80) ?: 'Χωρίς όνομα',
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
-        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 500)]);
+        'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 500)];
+    /* Τα δικαιώματα γράφονται μόνο όταν σταλούν ρητά — αλλιώς μια αποθήκευση
+       ονόματος θα τα μηδένιζε σιωπηλά. */
+    if (array_key_exists('areas', $in)) {
+        $row9['areas'] = implode(',', array_values(array_intersect(cnp_area_keys(), (array) $in['areas'])));
+    }
+    $tid = Db::saveTeam((int) ($in['id'] ?? 0), $row9);
     out(['ok' => true, 'id' => $tid]);
 
 case 'del_team':
@@ -4739,8 +4873,7 @@ case 'user_areas_save':                 // ειδικότητες/πρόσβασ
     }
     $uid7 = (int) ($in['id'] ?? 0);
     if (!$uid7 || !Capsule::table('tbladmins')->where('id', $uid7)->exists()) { fail('user'); }
-    $valid = ['sales', 'support', 'projects', 'admin', 'hr'];
-    $areas7 = array_values(array_intersect($valid, (array) ($in['areas'] ?? [])));
+    $areas7 = array_values(array_intersect(cnp_area_keys(), (array) ($in['areas'] ?? [])));
     Db::setPref($uid7, 'areas', implode(',', $areas7));
     out(['ok' => true, 'areas' => $areas7]);
 
@@ -5023,7 +5156,7 @@ case 'settings_save':
         fail('forbidden', 403);
     }
     $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
-        'ticket_autoclose', 'ticket_autoclose_days',
+        'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas',
         'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {

@@ -194,6 +194,17 @@ class Db
            Ιστορικό: τον Αύγουστο 2026 δοκιμάστηκε ξεχωριστός πίνακας
            `mod_cpm_units`. Ήταν διπλοεγγραφή — καταργήθηκε την ίδια μέρα και οι
            αναθέσεις μεταφέρθηκαν στο `dept_id`. */
+        /* ── Δικαιώματα μέσω ομάδας ──────────────────────────────────────────
+           Ο χειριστής ανήκει σε ομάδες· η ομάδα κρατάει τα δικαιώματα σε
+           κυκλώματα του προγράμματος (πωλήσεις, υποστήριξη, έργα, HR,
+           διοίκηση). Έτσι η πρόσβαση ορίζεται μία φορά ανά ρόλο, όχι
+           χειριστή-χειριστή. Το προσωπικό pref `areas` παραμένει ως έξτρα. */
+        if (!$s->hasColumn('mod_cpm_teams', 'areas')) {
+            $s->table('mod_cpm_teams', function ($t) {
+                $t->string('areas', 160)->nullable();   // csv: sales,support,projects,hr,admin
+            });
+        }
+
         if (!$s->hasColumn('mod_cpm_tasks', 'dept_id')) {
             $s->table('mod_cpm_tasks', function ($t) {
                 $t->integer('dept_id')->unsigned()->nullable(); // tblticketdepartments.id

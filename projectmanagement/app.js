@@ -166,7 +166,7 @@ function renderShell() {
   if (has('sales')) {
     nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
   }
-  if (me.full) {
+  if (has('admin')) {
     nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
       ['profit', I.coin, 'Κερδοφορία'], ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'],
       ['perf', I.chart, 'Απόδοση'], ['suspend', I.alert, 'Αναστολές'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
