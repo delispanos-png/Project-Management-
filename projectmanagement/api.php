@@ -3278,7 +3278,21 @@ case 'teams':
                 'areas' => cnp_admin_areas((int) $m->admin_id, $isF9),
                 // Ξεχωριστά τα προσωπικά, ώστε να φαίνεται γιατί έχει παραπάνω από την ομάδα.
                 'personal' => array_values(array_intersect(cnp_area_keys(),
-                    array_filter(array_map('trim', explode(',', Db::pref((int) $m->admin_id, 'areas', ''))))))];
+                    array_filter(array_map('trim', explode(',', Db::pref((int) $m->admin_id, 'areas', '')))))),
+                /* Τι του δίνουν οι ΑΛΛΕΣ του ομάδες. Αν αυτή εδώ δεν προσθέτει
+                   τίποτα πάνω από εκείνες, η συμμετοχή είναι διακοσμητική και
+                   αξίζει να το ξέρει αυτός που τη στήνει. */
+                'otherAreas' => (function () use ($m, $tm) {
+                    $o = [];
+                    foreach (Capsule::table('mod_cpm_team_members as x')
+                                 ->join('mod_cpm_teams as t2', 't2.id', '=', 'x.team_id')
+                                 ->where('x.admin_id', (int) $m->admin_id)
+                                 ->where('x.team_id', '<>', (int) $tm->id)
+                                 ->pluck('t2.areas') as $raw) {
+                        foreach (array_filter(array_map('trim', explode(',', (string) $raw))) as $a) { $o[$a] = 1; }
+                    }
+                    return array_keys($o);
+                })()];
         }
         $projNames = Capsule::table('mod_cpm_project_teams as pt')
             ->join('mod_cpm_projects as p', 'p.id', '=', 'pt.project_id')

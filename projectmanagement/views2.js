@@ -1681,13 +1681,21 @@ R.teams = async function () {
           ${t.areas.length ? '' : '<div class="mut" style="font-size:11px;margin-top:5px">Καμία — τα μέλη βλέπουν μόνο τα προσωπικά τους.</div>'}
           ${t.members.some(m => !m.full && m.areas.some(x => !t.areas.includes(x)))
             ? '<div class="mut" style="font-size:10.5px;margin-top:5px">Το <b>*</b> σημαίνει δικαίωμα από άλλη ομάδα ή προσωπική εξαίρεση.</div>' : ''}
+          ${(() => {
+            const real = t.members.filter(m => !m.full);
+            if (!real.length || !t.areas.length) { return ''; }
+            const useless = real.filter(m => t.areas.every(x => m.otherAreas.includes(x)));
+            return useless.length === real.length
+              ? `<div class="mut" style="font-size:10.5px;margin-top:5px;color:var(--warn)">⚠ Κανένα μέλος δεν κερδίζει κάτι από αυτή την ομάδα — τα ίδια δικαιώματα τα παίρνουν αλλού.</div>`
+              : '';
+          })()}
         </div>
         ${t.members.map(m => `<div style="display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
           <span class="ava" style="background:${t.color}">${esc(m.ini)}</span>
           <div style="flex:1;min-width:0"><b>${m.leader ? (I.crown + ' ') : ''}${esc(m.name)}</b>
             ${m.role ? `<span class="mut" style="font-size:11px"> · ${esc(m.role)}</span>` : ''}
             <div class="mut" style="font-size:10.5px">${m.full
-              ? '<span class="pill pill-info">διαχειριστής — όλα</span>'
+              ? '<span class="pill pill-info" title="Ο ρόλος του στο WHMCS του δίνει τα πάντα — τα δικαιώματα της ομάδας δεν τον αφορούν">διαχειριστής — τα δικαιώματα της ομάδας δεν τον αφορούν</span>'
               : (m.areas.length
                 ? 'ισχύει: ' + m.areas.map(x => {
                     const nm = esc((d.areaDefs.find(z => z.id === x) || {}).name || x);
@@ -1696,7 +1704,16 @@ R.teams = async function () {
                     return t.areas.includes(x) ? nm
                       : `<span title="${m.personal.includes(x) ? 'προσωπική εξαίρεση' : 'από άλλη ομάδα'}" style="opacity:.75">${nm}*</span>`;
                   }).join(' · ')
-                : '<span style="color:var(--bad)">καμία πρόσβαση</span>')}</div></div>
+                : '<span style="color:var(--bad)">καμία πρόσβαση</span>')}
+            ${(() => {
+              /* Συμμετοχή που δεν προσθέτει τίποτα: ή ο ρόλος του τα δίνει όλα,
+                 ή άλλη του ομάδα καλύπτει ήδη ό,τι δίνει αυτή. */
+              if (m.full || !t.areas.length) { return ''; }
+              const extra = t.areas.filter(x => !m.otherAreas.includes(x));
+              if (extra.length) { return ''; }
+              return `<span class="pill pill-warn" style="font-size:9.5px"
+                title="Οι άλλες του ομάδες δίνουν ήδη ό,τι δίνει αυτή">δεν προσθέτει δικαιώματα</span>`;
+            })()}</div></div>
           ${d.canManage ? `<button class="btn btn-sm btn-o" data-rm="${t.id}:${m.id}">✕</button>` : ''}</div>`).join('') ||
           '<div class="mut" style="font-size:12.5px">Χωρίς μέλη</div>'}
         ${t.projects.length ? `<div class="mut" style="font-size:11px;margin-top:8px">${I.folder} ${esc(t.projects.slice(0, 4).join(' · '))}${t.projects.length > 4 ? ' +' + (t.projects.length - 4) : ''}</div>` : ''}
