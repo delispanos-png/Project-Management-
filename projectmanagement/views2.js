@@ -2058,7 +2058,11 @@ R.projects = async function () {
       })() : ''}
       <label style="display:flex;gap:6px;align-items:center;margin-top:11px;font-size:13px">
         <input type="checkbox" id="pjVis" ${p.visible ? 'checked' : ''}> Ορατό στον πελάτη (portal)</label>
-      <label class="lbl" style="margin-top:12px">Μέλη (agents με πρόσβαση)</label>
+      <label class="lbl" style="margin-top:14px">${I.lock} Ποιος βλέπει αυτό το έργο</label>
+      <div class="mut" style="font-size:11.5px;margin-bottom:7px">Οι διαχειριστές το βλέπουν πάντα. Για τους υπόλοιπους δώσε πρόσβαση
+        <b>ονομαστικά</b> ή <b>σε ολόκληρη ομάδα</b> — δεν χρειάζεται να μπει κάποιος στην ομάδα για να πάρει ένα έργο της.</div>
+      <div id="pjAccWarn"></div>
+      <label class="lbl" style="margin-top:4px">Μέλη (agents με πρόσβαση)</label>
       <div style="display:flex;gap:10px;flex-wrap:wrap">${S.boot.admins.filter(a => !a.full).map(a =>
         `<label style="font-size:12.5px;display:flex;gap:4px"><input type="checkbox" class="pjM" value="${a.id}"
           ${p.members.includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('') || '<span class="mut">όλοι είναι διαχειριστές</span>'}</div>
@@ -2231,6 +2235,18 @@ R.projects = async function () {
       }
     };
     loadShare();
+    /* Άδεια και τα δύο = μόνο διαχειριστές. Σιωπηλά μοιάζει «ανοιχτό σε όλους»,
+       ενώ στην πράξη κανένας χειριστής δεν βλέπει το έργο. */
+    const accWarn = () => {
+      const box = $('#pjAccWarn', dr); if (!box) return;
+      const n = $$('.pjM:checked', dr).length, g = $$('.pjT:checked', dr).length;
+      box.innerHTML = (n || g)
+        ? `<div class="mut" style="font-size:11.5px;margin-bottom:6px">Το βλέπουν οι διαχειριστές${n ? ` + ${n} χειριστ${n === 1 ? 'ής' : 'ές'} ονομαστικά` : ''}${g ? ` + τα μέλη ${g} ομάδ${g === 1 ? 'ας' : 'ων'}` : ''}.</div>`
+        : '<div class="pill pill-warn" style="margin-bottom:6px">⚠ Μόνο οι διαχειριστές θα βλέπουν αυτό το έργο</div>';
+    };
+    $$('.pjM, .pjT', dr).forEach(ch => ch.addEventListener('change', accWarn));
+    accWarn();
+
     const arb = $('#pjArch', dr);
     if (arb) arb.onclick = async () => {
       await api('archive_project', {id: p.id});
