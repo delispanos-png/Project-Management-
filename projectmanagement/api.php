@@ -1311,7 +1311,7 @@ function cnp_action_area($action)
             'suspend_do', 'suspend_notice', 'suspend_notice_send', 'client_package_set']);
         $add('admin', ['teams', 'save_team', 'del_team', 'team_member_add', 'team_member_del',
             'settings_get', 'settings_save', 'users', 'user_save', 'user_del', 'user_pass',
-            'user_toggle', 'user_areas_save', 'wh_ticket_manage', 'wh_dept_save', 'wh_dept_del',
+            'user_toggle', 'user_areas_save', 'addon_access_grant', 'wh_ticket_manage', 'wh_dept_save', 'wh_dept_del',
             'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
             'auto_recipes', 'auto_recipe_add', 'tquotas', 'tquota_save', 'tquota_del',
             'storage_test']);
@@ -4950,10 +4950,31 @@ case 'users':                          // διαχείριση χρηστών (�
                     array_filter(array_map('trim', explode(',', Db::pref((int) $a->id, 'areas', ''))))))];
         }, Capsule::table('tbladmins')->orderBy('disabled')->orderBy('username')->get()->all()),
         'areaNames' => array_map(function ($v) { return $v[0]; }, cnp_area_defs()),
+        /* Ποιοι ΡΟΛΟΙ του WHMCS επιτρέπονται στο addon. Χωρίς αυτό ο χειριστής
+           δεν φτάνει καν στην εφαρμογή: το WHMCS του λέει «Access has not been
+           given for your admin role group» και τα δικαιώματα εδώ δεν παίζουν
+           κανέναν ρόλο. Το δείχνουμε για να μην ψάχνει κανείς. */
+        'addonRoles' => array_values(array_filter(array_map('intval', explode(',',
+            (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+                ->where('setting', 'access')->value('value'))))),
         'roles' => array_map(function ($r) use ($fullRoles) {
             return ['id' => (int) $r->id, 'name' => $r->name,
                 'full' => in_array((int) $r->id, $fullRoles, true)];
         }, Capsule::table('tbladminroles')->orderBy('id')->get()->all())]);
+
+case 'addon_access_grant':               // δώσε στον ρόλο πρόσβαση στο addon
+    if (!$FULL) { fail('perm', 403); }
+    $rid9 = (int) ($in['role'] ?? 0);
+    if (!$rid9 || !Capsule::table('tbladminroles')->where('id', $rid9)->exists()) { fail('role'); }
+    $row9 = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'access');
+    $cur9 = array_values(array_filter(array_map('intval', explode(',', (string) $row9->value('value')))));
+    if (!in_array($rid9, $cur9, true)) {
+        $cur9[] = $rid9;
+        sort($cur9);
+        $row9->update(['value' => implode(',', $cur9)]);
+        logActivity('CloudOn PM: πρόσβαση στο addon για τον ρόλο #' . $rid9 . ' (από admin ' . $adminId . ')');
+    }
+    out(['ok' => true, 'roles' => $cur9]);
 
 case 'user_areas_save':                 // ειδικότητες/πρόσβαση χειριστή (full μόνο)
     if (!$FULL) {
