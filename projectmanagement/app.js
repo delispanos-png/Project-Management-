@@ -832,7 +832,7 @@ function cnpDialog(opts) {
         ${o.hint ? `<div class="mut" style="font-size:11.5px;margin-top:7px">${o.hint}</div>` : ''}
         <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>
-          ${o.third ? `<button class="btn btn-o" id="cnpDlgTh" style="color:var(--bad)">${o.third}</button>` : ''}
+          ${o.third ? `<button class="btn btn-o" id="cnpDlgTh"${o.thirdPlain ? '' : ' style="color:var(--bad)"'}>${o.third}</button>` : ''}
           <button class="btn ${o.danger ? '' : 'btn-p'}" id="cnpDlgOk" style="${o.danger ? 'background:var(--bad);color:#fff' : ''}">${o.ok}</button>
         </div>
       </div></div>`;
@@ -963,7 +963,22 @@ function go(view, arg) {
   document.body.classList.remove('detail-open');   // νέα οθόνη → επαναφορά tab bar
   const c = $('#content'); c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
   c.scrollTop = 0;   // νέα οθόνη → ξεκίνα από την κορυφή (όπως σε native app)
-  ((window.R && window.R[view]) || vMyDay)(arg);
+  /* Deep link ή bookmark σε οθόνη χωρίς δικαίωμα: δείξε καθαρό μήνυμα αντί να
+     σκάσει ανεπιτήρητο σφάλμα. */
+  try {
+    const r = ((window.R && window.R[view]) || vMyDay)(arg);
+    if (r && typeof r.catch === 'function') {
+      r.catch(err => {
+        const msg = String((err && err.message) || '');
+        c.innerHTML = /πρόσβαση|forbidden|perm/i.test(msg)
+          ? `<div class="empty"><div class="big">${I.lock}</div>${esc(msg)}
+              <div class="mut" style="font-size:12.5px;margin-top:8px">Επίλεξε άλλη οθόνη από το μενού.</div></div>`
+          : `<div class="empty"><div class="big">⚠️</div>Κάτι πήγε στραβά${msg ? ': ' + esc(msg) : ''}.</div>`;
+      });
+    }
+  } catch (e) {
+    c.innerHTML = `<div class="empty"><div class="big">⚠️</div>Κάτι πήγε στραβά.</div>`;
+  }
   if (typeof loadTopStats === 'function') { loadTopStats(); }
 }
 window.R = window.R || {};

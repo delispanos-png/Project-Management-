@@ -2070,8 +2070,9 @@ R.projects = async function () {
       <label style="display:flex;gap:6px;align-items:center;margin-top:11px;font-size:13px">
         <input type="checkbox" id="pjVis" ${p.visible ? 'checked' : ''}> Ορατό στον πελάτη (portal)</label>
       <label class="lbl" style="margin-top:14px">${I.lock} Ποιος βλέπει αυτό το έργο</label>
-      <div class="mut" style="font-size:11.5px;margin-bottom:7px">Οι διαχειριστές το βλέπουν πάντα. Για τους υπόλοιπους δώσε πρόσβαση
-        <b>ονομαστικά</b> ή <b>σε ολόκληρη ομάδα</b> — δεν χρειάζεται να μπει κάποιος στην ομάδα για να πάρει ένα έργο της.</div>
+      <div class="mut" style="font-size:11.5px;margin-bottom:7px">Οι διαχειριστές το βλέπουν πάντα. Αν δεν επιλέξεις κανέναν, το έργο
+        είναι <b>ανοιχτό</b> σε όποιον έχει το κύκλωμα «Έργα». Μόλις επιλέξεις έστω έναν, <b>περιορίζεται</b> σε αυτούς —
+        ονομαστικά ή σε ολόκληρη ομάδα (δεν χρειάζεται να μπει κάποιος στην ομάδα για να πάρει ένα έργο της).</div>
       <div id="pjAccWarn"></div>
       <label class="lbl" style="margin-top:4px">Μέλη (agents με πρόσβαση)</label>
       <div style="display:flex;gap:10px;flex-wrap:wrap">${S.boot.admins.filter(a => !a.full).map(a =>
@@ -2253,7 +2254,7 @@ R.projects = async function () {
       const n = $$('.pjM:checked', dr).length, g = $$('.pjT:checked', dr).length;
       box.innerHTML = (n || g)
         ? `<div class="mut" style="font-size:11.5px;margin-bottom:6px">Το βλέπουν οι διαχειριστές${n ? ` + ${n} χειριστ${n === 1 ? 'ής' : 'ές'} ονομαστικά` : ''}${g ? ` + τα μέλη ${g} ομάδ${g === 1 ? 'ας' : 'ων'}` : ''}.</div>`
-        : '<div class="pill pill-warn" style="margin-bottom:6px">⚠ Μόνο οι διαχειριστές θα βλέπουν αυτό το έργο</div>';
+        : '<div class="pill pill-info" style="margin-bottom:6px">Ανοιχτό — το βλέπει όποιος έχει το κύκλωμα «Έργα»</div>';
     };
     $$('.pjM, .pjT', dr).forEach(ch => ch.addEventListener('change', accWarn));
     accWarn();

@@ -1284,10 +1284,12 @@ function cnp_action_area($action)
             'gantt', 'gantt_move', 'list', 'time', 'time_add', 'timer_start', 'timer_stop',
             'depts_load', 'dept_view', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
             'dep_add', 'dep_del', 'check_add', 'check_toggle', 'watch', 'request_update',
-            'recurring', 'save_recurring', 'del_recurring', 'recurrent', 'worknote_save',
+            'recurring', 'save_recurring', 'del_recurring', 'recurrent',
             'share_save', 'share_info', 'share_revoke', 'share_reply', 'add_expense', 'del_expense',
             'status_save', 'status_del', 'type_save', 'type_del']);
-        $add('sales', ['crm', 'crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
+        // `worknote_save` = προσωπική σημείωση στο «Το πλάνο μου» — ελεύθερη.
+        // `crm` το διαβάζουν και οι Επαφές (ελεύθερη οθόνη) — μένει ανοιχτό.
+        $add('sales', ['crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
             'leads_import_preview', 'leads_import_commit', 'save_lead', 'lead_merge', 'lead_score',
             'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle', 'lead_task_del',
             'lead_fields', 'lead_field_save', 'lead_field_del', 'lead_products', 'lead_product_save',
@@ -1300,7 +1302,10 @@ function cnp_action_area($action)
             'cv_photo', 'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval',
             'cv_jobs', 'cv_job_save', 'cv_job_del', 'cv_job_draft', 'cv_job_views',
             'cv_job_image_upload', 'cv_job_image_delete']);
-        $add('reports', ['kpi', 'perf', 'triage', 'rootcause', 'agenda', 'topstats']);
+        /* `topstats` (σφυγμός πάνω μπάρας) και `agenda` (Standup) καλούνται από
+           οθόνες χωρίς φραγμό — δεν ζητούν περιοχή, αλλιώς κάθε χειριστής χωρίς
+           «Αναφορές» έτρωγε 403 σε κάθε φόρτωση. */
+        $add('reports', ['kpi', 'perf', 'triage', 'rootcause']);
         $add('finance', ['profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'suspend_queue', 'suspend_mark',
             'suspend_do', 'suspend_notice', 'suspend_notice_send', 'client_package_set']);
@@ -5016,7 +5021,38 @@ case 'user_pass':                      // reset κωδικού → νέος, ε�
         ->update(['password' => password_hash($plain, PASSWORD_DEFAULT),
             'passwordhash' => password_hash($plain, PASSWORD_DEFAULT), 'loginattempts' => 0,
             'updated_at' => date('Y-m-d H:i:s')]);
-    out(['ok' => true, 'password' => $plain]);
+
+    /* Προαιρετική αποστολή στον ίδιο τον χειριστή. Παρακάμπτουμε το
+       Notify::send(): εκείνο σέβεται τη γενική ρύθμιση ειδοποιήσεων και την
+       προσωπική εξαίρεση του χρήστη — ένας κωδικός πρόσβασης δεν είναι
+       ειδοποίηση, πρέπει να φύγει. Ο κωδικός ΔΕΝ καταγράφεται πουθενά. */
+    $sent = false;
+    $mailTo = '';
+    if (!empty($in['send'])) {
+        $u9 = Capsule::table('tbladmins')->where('id', $uid)
+            ->first(['username', 'firstname', 'lastname', 'email']);
+        $mailTo = trim((string) $u9->email);
+        if (!filter_var($mailTo, FILTER_VALIDATE_EMAIL)) {
+            out(['ok' => true, 'password' => $plain, 'sent' => false,
+                'mailError' => 'Ο χειριστής δεν έχει έγκυρο email — ο κωδικός εμφανίζεται μόνο εδώ']);
+        }
+        $url9 = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'my.cloudon.gr') . '/project/';
+        $sent = Notify::sendTo($mailTo,
+            'Ο νέος σου κωδικός πρόσβασης — CloudOn Project Manager',
+            '<p>Γεια σου ' . htmlspecialchars(trim($u9->firstname . ' ' . $u9->lastname) ?: $u9->username, ENT_QUOTES, 'UTF-8') . ',</p>'
+            . '<p>Ο κωδικός σου μηδενίστηκε από διαχειριστή. Τα νέα στοιχεία εισόδου:</p>'
+            . '<p style="font-size:15px;line-height:2">Χρήστης: <b>' . htmlspecialchars($u9->username, ENT_QUOTES, 'UTF-8') . '</b><br>'
+            . 'Κωδικός: <b style="font-family:monospace;font-size:17px;letter-spacing:1px">'
+            . htmlspecialchars($plain, ENT_QUOTES, 'UTF-8') . '</b></p>'
+            . '<p><a href="' . htmlspecialchars($url9, ENT_QUOTES, 'UTF-8') . '">Είσοδος στην εφαρμογή</a></p>'
+            . '<p style="color:#8291a9;font-size:12.5px">Άλλαξέ τον μόλις μπεις, από «Το προφίλ μου». '
+            . 'Αν δεν ζήτησες εσύ αυτή την αλλαγή, ενημέρωσε αμέσως τον διαχειριστή.</p>');
+        // Καταγράφεται ΟΤΙ στάλθηκε — ποτέ ο κωδικός.
+        logActivity('CloudOn PM: reset κωδικού για «' . $u9->username . '» και αποστολή στο '
+            . $mailTo . ' (από admin ' . $adminId . ')');
+    }
+    out(['ok' => true, 'password' => $plain, 'sent' => $sent, 'mailTo' => $mailTo,
+        'mailError' => (!empty($in['send']) && !$sent) ? 'Η αποστολή απέτυχε — δώσε τον κωδικό με άλλον τρόπο' : '']);
 
 case 'user_toggle':
     if (!$FULL) {

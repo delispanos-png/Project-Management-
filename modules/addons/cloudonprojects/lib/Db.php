@@ -2173,7 +2173,22 @@ class Db
             $viaTeams = array_map('intval', Capsule::table('mod_cpm_project_teams')
                 ->whereIn('team_id', $teamIds)->pluck('project_id')->all());
         }
-        return array_values(array_unique(array_merge($direct, $viaTeams)));
+        /* Έργο ΧΩΡΙΣ κανένα μέλος και καμία ομάδα δεν είναι «κλειδωμένο» — είναι
+           αδήλωτο. Το θεωρούμε ανοιχτό σε όποιον έχει το κύκλωμα «Έργα».
+           Χωρίς αυτό, ένα νέο έργο ήταν αόρατο σε όλους πλην διαχειριστών μέχρι
+           να θυμηθεί κάποιος να ορίσει πρόσβαση — και κάθε νέος χειριστής έβλεπε
+           άδειο board. Μόλις δηλωθεί έστω ένα μέλος ή μία ομάδα, το έργο
+           περιορίζεται σε αυτούς. */
+        $restricted = array_values(array_unique(array_merge(
+            array_map('intval', Capsule::table('mod_cpm_project_members')->distinct()->pluck('project_id')->all()),
+            array_map('intval', Capsule::table('mod_cpm_project_teams')->distinct()->pluck('project_id')->all())
+        )));
+        $open = Capsule::table('mod_cpm_projects');
+        if ($restricted) {
+            $open->whereNotIn('id', $restricted);
+        }
+        $openIds = array_map('intval', $open->pluck('id')->all());
+        return array_values(array_unique(array_merge($direct, $viaTeams, $openIds)));
     }
 
     /** Ορατό project για τον admin; */
