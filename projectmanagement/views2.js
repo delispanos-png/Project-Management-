@@ -1146,7 +1146,7 @@ R.client360 = async function (cid) {
         <div class="card-b"><table class="tbl"><tbody>${d.openTasks.map(t => `<tr>
           <td><a href="javascript:" data-c3task="${t.id}" style="font-weight:600">${esc(t.title)}</a>
             <div class="mut" style="font-size:11px">${esc(t.project || '—')}
-              ${t.dept ? `· <a href="#/unit/${t.deptId}">${esc(t.dept)}</a>` : '<span class="pill pill-warn" style="padding:0 5px">χωρίς ομάδα</span>'}</div></td>
+              ${t.dept ? `· <a href="#/unit/${t.deptId}">${esc(t.dept)}</a>` : '<span class="pill pill-warn" style="padding:0 5px">χωρίς department</span>'}</div></td>
           <td style="width:130px">${esc(t.assignee || '—')}</td>
           <td style="width:110px" class="${t.due && t.due < today() ? 'pill pill-bad' : 'mut'}">${t.due ? dShort(t.due) : '—'}</td>
         </tr>`).join('')}</tbody></table></div></div>` : ''}
@@ -2045,7 +2045,7 @@ R.projects = async function () {
           <option value="red" ${p.health === 'red' ? 'selected' : ''}>🔴 Πρόβλημα</option></select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="pjKind">
           <option value="client" ${p.kind !== 'dept' ? 'selected' : ''}>Έργο πελάτη</option>
-          <option value="dept" ${p.kind === 'dept' ? 'selected' : ''}>Ουρά ομάδας (παλαιό)</option></select></div>
+          <option value="dept" ${p.kind === 'dept' ? 'selected' : ''}>Ουρά department (παλαιό)</option></select></div>
         ${p.kind === 'dept' ? `<div><label class="lbl">Τροφοδοτείται από</label><select class="inp" id="pjDept"><option value="">—</option>
           ${d.depts.map(dp => `<option value="${dp.id}" ${dp.id === p.dept ? 'selected' : ''}>${esc(dp.name)}</option>`).join('')}</select>
           <div class="mut" style="font-size:11px;margin-top:3px">Τα tickets αυτής της ομάδας γίνονται εργασίες εδώ.</div></div>` : ''}
@@ -2087,7 +2087,7 @@ R.projects = async function () {
           <button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
     </div></div>
     ${p.id ? `<div class="card"><div class="card-h">${I.list} Εργασίες του έργου
-        <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η καθεμία ανήκει σε μία ομάδα</span></div>
+        <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η καθεμία ανήκει σε ένα department</span></div>
       <div class="card-b" id="pjTasks"><div class="skel" style="height:60px"></div></div></div>`
       : `<div class="card"><div class="card-b mut" style="font-size:12.5px;padding:14px 16px">
         ${I.list} Οι εργασίες μπαίνουν μόλις αποθηκευτεί το έργο.</div></div>`}
@@ -2116,7 +2116,7 @@ R.projects = async function () {
           <span class="dot" style="background:${dp ? dp.color : '#8595ac'};width:8px;height:8px;flex:none"></span>
           <a href="javascript:" data-ptask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.title)}</a>
           ${dp ? `<span class="pill pill-mut">${esc(dp.name)}</span>`
-            : '<span class="pill pill-warn">χωρίς ομάδα</span>'}
+            : '<span class="pill pill-warn">χωρίς department</span>'}
           ${t.assignee ? `<span class="ava" title="${esc(adminName(t.assignee))}">${esc(adminIni(t.assignee))}</span>` : '<span class="mut" style="font-size:11px">αναθέτης;</span>'}
           <span class="${t.due && t.due < today() && !t.done ? 'pill pill-bad' : 'mut'}" style="font-size:11px;white-space:nowrap">${t.due ? dShort(t.due) : '—'}</span>
         </div>`;
@@ -2126,7 +2126,7 @@ R.projects = async function () {
           const dp = depOf(x.dept);
           return `<span class="us-chip ${x.total === x.done ? 'done' : (x.late ? 'late' : '')}">
             <i style="background:${dp ? dp.color : '#8595ac'}">${esc(dp ? dp.icon : '?')}</i>
-            ${esc(dp ? dp.name : 'Χωρίς ομάδα')} <b>${x.done}/${x.total}</b></span>`;
+            ${esc(dp ? dp.name : 'Χωρίς department')} <b>${x.done}/${x.total}</b></span>`;
         }).join('')}</div>` : ''}
         ${open.map(line).join('')}
         ${done.length ? `<details style="margin-top:6px"><summary class="mut" style="font-size:12px;cursor:pointer">Ολοκληρωμένες (${done.length})</summary>${done.map(line).join('')}</details>` : ''}
@@ -2134,14 +2134,14 @@ R.projects = async function () {
         <div class="set-row" style="gap:7px;margin-top:10px">
           <input class="inp" id="pjTNew" placeholder="Νέα εργασία… (Enter)" style="flex:1;min-width:150px">
           <select class="inp" id="pjTDep" style="width:auto;min-width:150px">
-            <option value="">— διάλεξε ομάδα —</option>
+            <option value="">— διάλεξε department —</option>
             ${(S.boot.depts || []).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
           <button class="btn btn-p btn-sm" id="pjTAdd">+</button></div>`;
       $$('[data-ptask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.ptask); });
       const add = async () => {
         const v = $('#pjTNew', box).value.trim(); if (!v) return;
         const dep = +$('#pjTDep', box).value || 0;
-        if (!dep) { toast('Διάλεξε ομάδα για την εργασία', true); $('#pjTDep', box).focus(); return; }
+        if (!dep) { toast('Διάλεξε department για την εργασία', true); $('#pjTDep', box).focus(); return; }
         await api('quick_task', {project: p.id, dept: dep, title: v, status: 0});
         toast('Προστέθηκε'); loadTasks();
       };
@@ -2288,7 +2288,7 @@ R.projects = async function () {
         $('#pjCli').focus(); return;
       }
       const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: cid,
-        // Έργο πελάτη δεν ανήκει σε ομάδα — το department κρέμεται στις εργασίες.
+        // Έργο πελάτη δεν ανήκει σε department — αυτό κρέμεται στις εργασίες.
         dept: kind === 'client' ? 0 : ($('#pjDept') ? +$('#pjDept').value || 0 : (p.dept || 0)),
         parent: +$('#pjPar').value || 0, color: $('#pjColor').value,
         pstatus: $('#pjPs').value, health: $('#pjH').value, visible: $('#pjVis').checked,

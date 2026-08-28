@@ -1023,12 +1023,12 @@ async function vBoard(arg) {
       <div class="kb-h" style="border-color:${st.color}">${esc(st.title)}<span class="kb-n">${col.tasks.length}</span></div>
       <div class="kb-cards">${col.tasks.map(cardHtml).join('')}</div>
       <div class="kb-add"><input placeholder="+ Νέο task… (Enter)" data-status="${st.id}">
-        ${(S.boot.depts || []).length ? `<select class="kb-add-u" title="Ομάδα στην οποία θα ανήκει">
+        ${(S.boot.depts || []).length ? `<select class="kb-add-u" title="Department στο οποίο θα ανήκει">
           <option value="">department: αυτόματα</option>
           ${S.boot.depts.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>` : ''}</div>
     </div>`;
   }).join('');
-  /* Νέα εργασία κατευθείαν στη στήλη. Την ομάδα τη διαλέγεις εδώ: σε έργο
+  /* Νέα εργασία κατευθείαν στη στήλη. Το department το διαλέγεις εδώ: σε έργο
      πελάτη δεν υπάρχει τι να κληρονομήσει, οπότε αλλιώς θα έμενε αζήτητη. */
   $$('.kb-add', kb).forEach(box => {
     const inp = box.querySelector('input'), sel = box.querySelector('select');
@@ -1063,9 +1063,9 @@ function boardHead(m) {
     const left = x.total - x.done;
     return `<a class="us-chip ${left ? (x.late ? 'late' : '') : 'done'}"
       href="${u ? '#/unit/' + u.id : 'javascript:'}"
-      title="${u ? esc(u.name) : 'Χωρίς ομάδα'}: ${x.done}/${x.total} ολοκληρωμένες${x.late ? ' — ' + x.late + ' εκπρόθεσμες' : ''}">
+      title="${u ? esc(u.name) : 'Χωρίς department'}: ${x.done}/${x.total} ολοκληρωμένες${x.late ? ' — ' + x.late + ' εκπρόθεσμες' : ''}">
       <i style="background:${u ? u.color : '#8595ac'}">${esc(u ? u.icon : '?')}</i>
-      ${esc(u ? u.name : 'Χωρίς ομάδα')} <b>${x.done}/${x.total}</b>
+      ${esc(u ? u.name : 'Χωρίς department')} <b>${x.done}/${x.total}</b>
       ${x.late ? `<span class="pill pill-bad" style="padding:0 5px">${x.late}</span>` : ''}</a>`;
   }).join('');
   h.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="card-b" style="padding:11px 15px;display:flex;flex-direction:column;gap:9px">
@@ -1123,8 +1123,8 @@ async function openTask(id) {
   const t = d.task, me = S.boot.me;
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer';
-  /* Η ομάδα δεν εκτελεί — εκτελεί ο άνθρωπός της. Όταν η εργασία ανήκει σε
-     department, φέρνουμε πρώτα τα μέλη του· οι υπόλοιποι μένουν διαθέσιμοι. */
+  /* Το department δεν εκτελεί — εκτελεί ένας άνθρωπος από τις ομάδες που το
+     εξυπηρετούν. Τους φέρνουμε πρώτους· οι υπόλοιποι μένουν διαθέσιμοι. */
   const admOpts = (sel, didFor) => {
     const dep = didFor ? (d.depts || []).find(x => x.id === +didFor) : null;
     const mem = dep ? (dep.members || []) : [];
@@ -1135,7 +1135,7 @@ async function openTask(id) {
     const out = S.boot.admins.filter(a => !mem.includes(a.id));
     return head
       + `<optgroup label="${esc(dep.name)}">${inD.map(opt).join('')}</optgroup>`
-      + (out.length ? `<optgroup label="Εκτός ομάδας">${out.map(opt).join('')}</optgroup>` : '');
+      + (out.length ? `<optgroup label="Εκτός department">${out.map(opt).join('')}</optgroup>` : '');
   };
   dr.innerHTML = `
   <div class="drawer-h">
@@ -1200,8 +1200,8 @@ async function openTask(id) {
             ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Department <span class="mut" style="font-weight:400">— η ομάδα στην οποία ανήκει</span></label>
-          <select class="inp" id="fDept"><option value="">— χωρίς ομάδα —</option>
+        <div><label class="lbl">Department <span class="mut" style="font-weight:400">— πού απευθύνεται</span></label>
+          <select class="inp" id="fDept"><option value="">— χωρίς department —</option>
           ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
         <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
@@ -1217,7 +1217,7 @@ async function openTask(id) {
           ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
              title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
           <a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>
-          ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες της ομάδας">${esc(u.name)}</a>` : ''; })()}
+          ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες του department">${esc(u.name)}</a>` : ''; })()}
         </span>
       </div>
     </div></div>
@@ -1288,7 +1288,7 @@ async function openTask(id) {
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
   $('#dX').onclick = () => cnpAskClose(dr);
-  /* Αλλάζεις ομάδα → αλλάζουν και οι υποψήφιοι για ανάθεση. */
+  /* Αλλάζεις department → αλλάζουν και οι υποψήφιοι για ανάθεση. */
   const fDep = $('#fDept', dr);
   if (fDep) fDep.onchange = () => {
     ['fAssignee', 'fBall'].forEach(id => {
@@ -1298,7 +1298,7 @@ async function openTask(id) {
       el.value = keep;
     });
   };
-  /* Τα «ψίχουλα» (πελάτης / έργο / ομάδα) βγάζουν εκτός εργασίας — αν έμενε
+  /* Τα «ψίχουλα» (πελάτης / έργο / department) βγάζουν εκτός εργασίας — αν έμενε
      ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
   $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
   $('#dSave', dr).onclick = async () => {

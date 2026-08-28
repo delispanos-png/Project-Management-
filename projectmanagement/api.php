@@ -1123,9 +1123,10 @@ function taskDto($t, $minsMap = null, $checkMap = null)
     ];
 }
 /* ───────── Departments ─────────
-   Ένα και μόνο μητρώο: τα ticket departments του WHMCS. Είναι οι ομάδες
-   εξειδικευμένων ανθρώπων — τα ίδια που βλέπει ο πελάτης όταν ανοίγει ticket.
-   Το έργο ανήκει στον πελάτη· η κάθε εργασία του ανατίθεται σε ένα department.
+   Ένα και μόνο μητρώο: τα ticket departments του WHMCS — πού απευθύνεται το
+   αίτημα, το ίδιο που βλέπει ο πελάτης όταν ανοίγει ticket. Ποιοι το
+   εξυπηρετούν ορίζεται από τις ΟΜΑΔΕΣ (mod_cpm_team_depts), που είναι άλλος
+   άξονας. Το έργο ανήκει στον πελάτη· η κάθε εργασία του ανήκει σε department.
    Χρώμα/σύμβολο παράγονται ντετερμινιστικά από τη σειρά, ώστε να μη χρειάζεται
    δεύτερος πίνακας μόνο για διακόσμηση. */
 function cnp_depts()
@@ -1346,7 +1347,7 @@ case 'boot':
 
 /* ================= BOARD ================= */
 /* ================= DEPARTMENTS ================= */
-case 'depts_load':                        // φορτίο ανά ομάδα
+case 'depts_load':                        // φορτίο ανά department
     $doneU = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
     $list = [];
     foreach (cnp_depts() as $u) {
@@ -1366,12 +1367,12 @@ case 'depts_load':                        // φορτίο ανά ομάδα
             ->whereNotIn('status', ['Closed', 'Cancelled'])->count();
         $list[] = $u;
     }
-    /* Εργασίες χωρίς ομάδα — δεν τις χρεώνεται κανείς. */
+    /* Εργασίες χωρίς department — δεν τις χρεώνεται κανείς. */
     $orphan = (int) Capsule::table('mod_cpm_tasks')->whereNull('dept_id')
         ->whereNotIn('status_id', $doneU)->count();
     out(['depts' => $list, 'orphan' => $orphan, 'canManage' => $FULL]);
 
-case 'dept_view':                         // μία ομάδα: τι χρωστάει, ανά πελάτη/έργο
+case 'dept_view':                         // ένα department: τι χρωστάει, ανά πελάτη/έργο
     $did = (int) ($_GET['id'] ?? 0);
     $u = null;
     foreach (cnp_depts() as $x) {

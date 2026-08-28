@@ -640,11 +640,12 @@ R.perf = async function () {
 };
 
 /* ═══════════ Departments ═══════════
-   Οι ομάδες εξειδικευμένων ανθρώπων του WHMCS. Το έργο ανήκει στον πελάτη· η
-   κάθε εργασία του ανατίθεται σε μία ομάδα. Εδώ βλέπεις το φορτίο κάθε ομάδας
-   και μπαίνεις μέσα της για να δεις ποιον πελάτη και ποιο έργο κρατάει πίσω. */
+   Τα ticket departments του WHMCS: πού απευθύνεται το αίτημα. Κάθε εργασία
+   ανήκει σε ένα department, το department το εξυπηρετούν ΟΜΑΔΕΣ ειδικότητας,
+   και την εργασία την εκτελεί ένας άνθρωπος αυτών των ομάδων. Εδώ βλέπεις το
+   φορτίο κάθε department και ποιον πελάτη / έργο κρατάει πίσω. */
 R.units = async function () {
-  setTop('Departments', 'Σε ποια ομάδα ανήκει κάθε εργασία');
+  setTop('Departments', 'Πού απευθύνεται κάθε εργασία — και ποιες ομάδες το καλύπτουν');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:260px"></div>';
   const d = await api('depts_load');
@@ -671,12 +672,12 @@ R.units = async function () {
   };
   c.innerHTML = `
     <div class="card"><div class="card-b" style="font-size:12.5px;color:var(--mut);padding:12px 16px;line-height:1.6">
-      Κάθε <b>department</b> είναι μια ομάδα εξειδικευμένων ανθρώπων — η ίδια που επιλέγει ο πελάτης
-      όταν ανοίγει ticket. Το <b>έργο</b> ανήκει στον πελάτη· κάθε εργασία του ανήκει σε μία ομάδα
-      και <b>την εκτελεί ένας άνθρωπος</b> αυτής της ομάδας.
-      Το έργο παραδίδεται όταν κλείσουν οι εργασίες <b>όλων</b> των ομάδων που το αγγίζουν.
+      Το <b>department</b> είναι <b>πού απευθύνεται</b> το αίτημα — το ίδιο που επιλέγει ο πελάτης
+      όταν ανοίγει ticket. Το εξυπηρετούν μία ή περισσότερες <a href="#/teams">ομάδες ειδικότητας</a>,
+      και κάθε εργασία την <b>εκτελεί ένας άνθρωπος</b> αυτών των ομάδων.
+      Το έργο παραδίδεται όταν κλείσουν οι εργασίες <b>όλων</b> των departments που το αγγίζουν.
     </div></div>
-    ${d.orphan ? `<div class="card"><div class="card-b"><span class="pill pill-warn">⚠ ${d.orphan} εργασίες χωρίς ομάδα</span>
+    ${d.orphan ? `<div class="card"><div class="card-b"><span class="pill pill-warn">⚠ ${d.orphan} εργασίες χωρίς department</span>
       <span class="mut" style="font-size:12px;margin-left:8px">Δεν τις χρεώνεται κανείς — άνοιξέ τες και όρισε department.</span></div></div>` : ''}
     <div class="un-grid">${d.depts.map(tile).join('')}</div>
     ${d.canManage ? `<div style="margin-top:12px"><a class="btn btn-o btn-sm" href="#/settings" id="unNew">${I.gear} Διαχείριση departments</a>
@@ -721,6 +722,6 @@ R.unit = async function (id) {
           : '<span class="pill pill-warn">καμία ομάδα — οι υποψήφιοι για ανάθεση βγαίνουν από το WHMCS</span>'}
       </div></div>
     ${d.groups.length ? d.groups.map(grp).join('')
-      : '<div class="card"><div class="card-b empty">Καμία ανοιχτή εργασία σε αυτή την ομάδα 🎉</div></div>'}`;
+      : '<div class="card"><div class="card-b empty">Καμία ανοιχτή εργασία σε αυτό το department 🎉</div></div>'}`;
   $$('[data-task]').forEach(a => a.onclick = () => openTask(+a.dataset.task));
 };

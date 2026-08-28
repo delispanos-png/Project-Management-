@@ -2903,6 +2903,27 @@ function cpm_tab_teams($link, $adminId)
         if ($tm->descr) {
             echo '<div style="padding:0 14px 6px;color:#8291a9;font-size:12px">' . cpm_e($tm->descr) . '</div>';
         }
+        /* Δικαιώματα & departments ορίζονται στην εφαρμογή PM. Εδώ φαίνονται
+           μόνο — αλλιώς μια ομάδα φτιαγμένη από αυτή τη σελίδα δείχνει πλήρης
+           ενώ δεν δίνει τίποτα και δεν εξυπηρετεί κανένα department. */
+        $areaL = ['support' => 'Υποστήριξη', 'projects' => 'Έργα', 'sales' => 'Πωλήσεις',
+            'hr' => 'Προσλήψεις', 'admin' => 'Διοίκηση'];
+        $tAreas = array_filter(array_map('trim', explode(',', (string) ($tm->areas ?? ''))));
+        $tDepts = Capsule::schema()->hasTable('mod_cpm_team_depts')
+            ? Capsule::table('mod_cpm_team_depts as td')
+                ->join('tblticketdepartments as d', 'd.id', '=', 'td.dept_id')
+                ->where('td.team_id', $tm->id)->pluck('d.name')->all()
+            : [];
+        echo '<div style="padding:0 14px 8px;font-size:11.5px;line-height:1.9">'
+            . '<span style="color:#8291a9">Εξυπηρετεί:</span> '
+            . ($tDepts ? cpm_e(implode(' · ', $tDepts))
+                : '<span style="color:#e0a800">κανένα department</span>') . '<br>'
+            . '<span style="color:#8291a9">Πρόσβαση:</span> '
+            . ($tAreas ? cpm_e(implode(' · ', array_map(function ($a) use ($areaL) {
+                return $areaL[$a] ?? $a;
+            }, $tAreas)))
+                : '<span style="color:#e0a800">κανένα κύκλωμα</span>')
+            . '</div>';
         echo '<div style="padding:4px 14px 10px">';
         if (!count($members)) {
             echo '<p class="text-muted" style="font-size:12px">Χωρίς μέλη.</p>';
@@ -2966,8 +2987,15 @@ function cpm_tab_teams($link, $adminId)
         echo '</div></div>';
     }
     echo '</div>';
-    echo '<p class="text-muted" style="margin-top:14px;font-size:12px"><i class="fas fa-info-circle"></i> '
-        . 'Οι ομάδες δίνουν και πρόσβαση: στην επεξεργασία ενός project μπορείς να δώσεις πρόσβαση σε ολόκληρη ομάδα αντί για μεμονωμένα μέλη.</p>';
+    echo '<p class="text-muted" style="margin-top:14px;font-size:12px;line-height:1.8"><i class="fas fa-info-circle"></i> '
+        . '<b>Department</b> = πού απευθύνεται το αίτημα (τα ticket departments). '
+        . '<b>Ομάδα</b> = ειδικότητα ανθρώπων· ένα department το εξυπηρετούν πολλές ομάδες '
+        . 'και μια ομάδα εξυπηρετεί πολλά departments.<br>'
+        . '<i class="fas fa-exclamation-triangle"></i> Εδώ ορίζονται μόνο <b>όνομα, χρώμα και μέλη</b>. '
+        . 'Τα <b>departments που εξυπηρετεί</b> και η <b>πρόσβαση σε κυκλώματα</b> ορίζονται στην εφαρμογή '
+        . '<a href="' . $link . '&pmlaunch=1" target="_blank">Project Manager → Ομάδες</a> — '
+        . 'ομάδα χωρίς αυτά δεν δίνει δικαιώματα σε κανέναν.<br>'
+        . 'Στην επεξεργασία ενός project μπορείς να δώσεις πρόσβαση σε ολόκληρη ομάδα αντί για μεμονωμένα μέλη.</p>';
 }
 
 /* ------------------------------------------------------------------ */
