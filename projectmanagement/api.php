@@ -681,7 +681,12 @@ function cnp_area_defs()
         'projects' => ['Έργα', 'Board, Gantt, εργασίες, χρόνος, departments'],
         'sales'    => ['Πωλήσεις', 'CRM, leads, προσφορές, επικοινωνίες'],
         'hr'       => ['Προσλήψεις', 'Βιογραφικά & αξιολογήσεις υποψηφίων'],
-        'admin'    => ['Διοίκηση', 'KPI, κερδοφορία, αναστολές, απόδοση, ρυθμίσεις'],
+        /* Η «Διοίκηση» ήταν ένα ενιαίο κύκλωμα, οπότε για να δώσεις σε έναν
+           project manager το KPI έπρεπε να του δώσεις και τα οικονομικά και τις
+           ρυθμίσεις. Σπασμένη σε τρία, δίνεται κατά ενότητα. */
+        'reports'  => ['Αναφορές & απόδοση', 'Πλάνο ημέρας, Ανάλυση ριζών, KPI, Απόδοση χειριστών'],
+        'finance'  => ['Οικονομικά', 'Κερδοφορία, συμφωνία πληρωμών, λογιστικός έλεγχος, αναστολές'],
+        'admin'    => ['Διαχείριση συστήματος', 'Ομάδες, χρήστες, ρυθμίσεις, automations, πακέτα'],
     ];
 }
 function cnp_area_keys()
@@ -1295,15 +1300,16 @@ function cnp_action_area($action)
             'cv_photo', 'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval',
             'cv_jobs', 'cv_job_save', 'cv_job_del', 'cv_job_draft', 'cv_job_views',
             'cv_job_image_upload', 'cv_job_image_delete']);
-        $add('admin', ['kpi', 'profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
-            'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'perf', 'triage', 'rootcause',
-            'agenda', 'topstats', 'suspend_queue', 'suspend_mark', 'suspend_do', 'suspend_notice',
-            'suspend_notice_send', 'teams', 'save_team', 'del_team', 'team_member_add',
-            'team_member_del', 'settings_get', 'settings_save', 'users', 'user_save', 'user_del',
-            'user_pass', 'user_toggle', 'user_areas_save', 'wh_ticket_manage', 'wh_dept_save',
-            'wh_dept_del', 'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
+        $add('reports', ['kpi', 'perf', 'triage', 'rootcause', 'agenda', 'topstats']);
+        $add('finance', ['profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
+            'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'suspend_queue', 'suspend_mark',
+            'suspend_do', 'suspend_notice', 'suspend_notice_send', 'client_package_set']);
+        $add('admin', ['teams', 'save_team', 'del_team', 'team_member_add', 'team_member_del',
+            'settings_get', 'settings_save', 'users', 'user_save', 'user_del', 'user_pass',
+            'user_toggle', 'user_areas_save', 'wh_ticket_manage', 'wh_dept_save', 'wh_dept_del',
+            'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
             'auto_recipes', 'auto_recipe_add', 'tquotas', 'tquota_save', 'tquota_del',
-            'client_package_set', 'storage_test']);
+            'storage_test']);
     }
     return $map[$action] ?? null;
 }
@@ -2042,7 +2048,7 @@ case 'ticket_refer':                     // ↩ Παραπομπή σε παλι
         'sameClient' => ((int) $ref->userid === (int) $cur->userid)]);
 
 case 'perf':                             // 📊 Απόδοση χειριστών σε tickets & tasks
-    if (!$FULL) { fail('forbidden', 403); }
+    // Η πρόσβαση ελέγχεται από την πύλη περιοχών («Αναφορές & απόδοση»).
     /* Τι μετράμε και γιατί ΑΥΤΟ:
        - Οι απαντήσεις σε tickets είναι το πραγματικό σήμα δουλειάς. Η ανάθεση
          (tblticketreplies→flag) είναι άχρηστη εδώ: 553 από 629 tickets είναι
@@ -2160,9 +2166,9 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
             . (int) Capsule::table('mod_cpm_timelogs')->count() . ' εγγραφές χρόνου συνολικά.']);
 
 case 'kpi':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
+    // Η πρόσβαση ελέγχεται από την πύλη περιοχών («Αναφορές & απόδοση»).
+
+
     $today = date('Y-m-d 00:00:00');
     $open = Capsule::table('tbltickets')->whereNotIn('status', ['Closed', 'Cancelled'])->count();
     $closedToday = Capsule::table('tbltickets')->where('status', 'Closed')->where('lastreply', '>=', $today)->count();
@@ -4073,9 +4079,9 @@ case 'profile_pref':                   // προσωπικές προτιμήσ�
     out(['ok' => true]);
 
 case 'triage':                          // 🎯 Πλάνο ημέρας — πρόταση tickets (managers)
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
+    // Η πρόσβαση ελέγχεται από την πύλη περιοχών («Αναφορές & απόδοση»).
+
+
     $now = time();
     $slaBy = [];
     try {
@@ -6360,9 +6366,9 @@ case 'tcat_del':
     out(['ok' => true]);
 
 case 'rootcause':                       // 🔬 ανάλυση ριζών (full)
-    if (!$FULL) {
-        fail('perm', 403);
-    }
+    // Η πρόσβαση ελέγχεται από την πύλη περιοχών («Αναφορές & απόδοση»).
+
+
     $since7 = date('Y-m-d', strtotime('-' . (in_array((int) ($_GET['days'] ?? 90), [30, 90, 180, 365], true) ? (int) $_GET['days'] : 90) . ' days'));
     $cats7 = cnp_ticket_cats();
     $areaN = []; foreach ($cats7['area'] as $a) { $areaN[$a['id']] = $a; }

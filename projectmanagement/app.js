@@ -166,11 +166,16 @@ function renderShell() {
   if (has('sales')) {
     nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
   }
-  if (has('admin')) {
-    nav.push(['Διοίκηση', [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'], ['kpi', I.chart, 'KPI Dashboard'],
-      ['profit', I.coin, 'Κερδοφορία'], ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'],
-      ['perf', I.chart, 'Απόδοση'], ['suspend', I.alert, 'Αναστολές'], ['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']]]);
-  }
+  /* Η «Διοίκηση» ήταν ένα ενιαίο κύκλωμα. Σπασμένη σε τρία, κάθε ενότητα
+     εμφανίζεται με το δικό της δικαίωμα — ώστε ένας project manager να παίρνει
+     αναφορές χωρίς οικονομικά και χωρίς ρυθμίσεις. */
+  const admItems = []
+    .concat(has('reports') ? [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'],
+      ['kpi', I.chart, 'KPI Dashboard'], ['perf', I.chart, 'Απόδοση']] : [])
+    .concat(has('finance') ? [['profit', I.coin, 'Κερδοφορία'],
+      ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'], ['suspend', I.alert, 'Αναστολές']] : [])
+    .concat(has('admin') ? [['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']] : []);
+  if (admItems.length) { nav.push(['Διοίκηση', admItems]); }
   if (has('hr')) {
     nav.push(['Προσλήψεις', [['recruit', I.contact || I.users, 'Βιογραφικά']]]);
   }

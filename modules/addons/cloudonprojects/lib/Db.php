@@ -223,6 +223,32 @@ class Db
             }
         }
 
+        /* ── Σπάσιμο του κυκλώματος «Διοίκηση» σε τρία ───────────────────────
+           Ήταν όλα-ή-τίποτα: για να δώσεις KPI σε έναν project manager, έδινες
+           και οικονομικά και ρυθμίσεις. Έγινε reports / finance / admin.
+           Όποιος είχε το παλιό `admin` παίρνει και τα τρία, ώστε να μη χάσει
+           πρόσβαση από τη μετάπτωση. */
+        if ($s->hasColumn('mod_cpm_teams', 'areas')) {
+            foreach (Capsule::table('mod_cpm_teams')->get(['id', 'areas']) as $tm) {
+                $a = array_filter(array_map('trim', explode(',', (string) $tm->areas)));
+                if (in_array('admin', $a, true) && !in_array('reports', $a, true)) {
+                    $a = array_values(array_unique(array_merge($a, ['reports', 'finance'])));
+                    Capsule::table('mod_cpm_teams')->where('id', $tm->id)
+                        ->update(['areas' => implode(',', $a)]);
+                }
+            }
+        }
+        if ($s->hasTable('mod_cpm_prefs')) {
+            foreach (Capsule::table('mod_cpm_prefs')->where('pref', 'areas')->get() as $pr) {
+                $a = array_filter(array_map('trim', explode(',', (string) $pr->value)));
+                if (in_array('admin', $a, true) && !in_array('reports', $a, true)) {
+                    $a = array_values(array_unique(array_merge($a, ['reports', 'finance'])));
+                    Capsule::table('mod_cpm_prefs')->where('id', $pr->id)
+                        ->update(['value' => implode(',', $a)]);
+                }
+            }
+        }
+
         /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
            Δύο διαφορετικοί άξονες που μπερδεύονταν:
              DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)
