@@ -194,6 +194,35 @@ class Db
            Ιστορικό: τον Αύγουστο 2026 δοκιμάστηκε ξεχωριστός πίνακας
            `mod_cpm_units`. Ήταν διπλοεγγραφή — καταργήθηκε την ίδια μέρα και οι
            αναθέσεις μεταφέρθηκαν στο `dept_id`. */
+        /* ── Εργασία χωρίς έργο ──────────────────────────────────────────────
+           Το «έργο» είναι δουλειά που παραδίδεται σε πελάτη. Μια εργασία από
+           ticket δεν είναι μέρος έργου — ανήκει μόνο σε department. Μέχρι τώρα
+           το `project_id` ήταν NOT NULL, οπότε υπήρχαν τρία ψευτο-έργα
+           (Support/Sales/Accounting Department) σκέτα δοχεία. Τα καταργούμε. */
+        if ($s->hasColumn('mod_cpm_tasks', 'project_id')) {
+            $col = Capsule::select("SHOW COLUMNS FROM mod_cpm_tasks LIKE 'project_id'");
+            if ($col && $col[0]->Null === 'NO') {
+                Capsule::statement('ALTER TABLE mod_cpm_tasks MODIFY project_id INT(10) UNSIGNED NULL');
+                /* Οι εργασίες των ψευτο-έργων κρατούν το department τους και
+                   χάνουν το έργο· μετά τα ψευτο-έργα σβήνονται. */
+                $ghosts = Capsule::table('mod_cpm_projects')->where('kind', 'dept')
+                    ->whereNull('clientid')->pluck('id')->all();
+                if ($ghosts) {
+                    Capsule::table('mod_cpm_tasks')->whereIn('project_id', $ghosts)
+                        ->update(['project_id' => null]);
+                    foreach (['mod_cpm_project_members', 'mod_cpm_project_teams', 'mod_cpm_project_todos',
+                                 'mod_cpm_project_shares', 'mod_cpm_snapshots', 'mod_cpm_worknote',
+                                 'mod_cpm_recurring', 'mod_cpm_expenses', 'mod_cpm_fields',
+                                 'mod_cpm_todos', 'mod_cpm_share_comments'] as $tb) {
+                        if (Capsule::schema()->hasTable($tb)) {
+                            Capsule::table($tb)->whereIn('project_id', $ghosts)->delete();
+                        }
+                    }
+                    Capsule::table('mod_cpm_projects')->whereIn('id', $ghosts)->delete();
+                }
+            }
+        }
+
         /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
            Δύο διαφορετικοί άξονες που μπερδεύονταν:
              DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)
@@ -1069,7 +1098,7 @@ class Db
     public static function tasksFiltered(array $f, $limit = 300)
     {
         $q = Capsule::table('mod_cpm_tasks as t')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->select('t.*', 'p.name as project_name', 'p.color as project_color');
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['status_id']))  { $q->where('t.status_id', (int) $f['status_id']); }
@@ -1289,7 +1318,7 @@ class Db
     {
         $q = Capsule::table('mod_cpm_timelogs as l')
             ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->select('l.*', 't.title as task_title', 't.ticketid', 'p.id as project_id',
                 'p.name as project_name', 'p.color as project_color', 'p.clientid')
             ->where('l.running', 0)
@@ -1460,7 +1489,7 @@ class Db
     public static function tasksForMonth($ym)
     {
         return Capsule::table('mod_cpm_tasks as t')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->select('t.id', 't.title', 't.due_date', 't.priority', 't.completed_at', 't.assignee',
                 't.project_id', 'p.name as project_name', 'p.color as project_color')
             ->whereNotNull('t.due_date')
@@ -2137,6 +2166,24 @@ class Db
         if ((int) $task->assignee === (int) $adminId) {
             return true;
         }
+        if ((int) $task->action_user === (int) $adminId) {
+            return true;
+        }
+        /* Εργασία χωρίς έργο ανήκει μόνο σε department: τη βλέπει όποιος είναι
+           σε ομάδα που εξυπηρετεί αυτό το department (και οι full). Χωρίς αυτό
+           οι εργασίες από tickets θα ήταν αόρατες σε όλους πλην αναδόχου. */
+        if (empty($task->project_id)) {
+            if (self::isFullAccess($adminId)) {
+                return true;
+            }
+            $did = isset($task->dept_id) ? (int) $task->dept_id : 0;
+            if (!$did) {
+                return false;
+            }
+            return Capsule::table('mod_cpm_team_depts as td')
+                ->join('mod_cpm_team_members as m', 'm.team_id', '=', 'td.team_id')
+                ->where('td.dept_id', $did)->where('m.admin_id', (int) $adminId)->exists();
+        }
         return self::canSeeProject($adminId, $task->project_id);
     }
 
@@ -2444,24 +2491,24 @@ class Db
 
         // tasks του πελάτη (μέσω projects)
         $tasks = Capsule::table('mod_cpm_tasks as t')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->where('p.clientid', $uid)
             ->select('t.id', 't.title', 't.created_at', 't.completed_at', 'p.name as pname')->get();
         foreach ($tasks as $t) {
             if ($t->created_at >= $since) {
                 $ev[] = ['ts' => $t->created_at, 'type' => 'task', 'title' => 'Νέο task: ' . $t->title,
-                         'meta' => $t->pname, 'link' => 'task:' . $t->id];
+                         'meta' => $t->pname ?: 'Χωρίς έργο', 'link' => 'task:' . $t->id];
             }
             if ($t->completed_at && $t->completed_at >= $since) {
                 $ev[] = ['ts' => $t->completed_at, 'type' => 'task_done', 'title' => 'Ολοκληρώθηκε: ' . $t->title,
-                         'meta' => $t->pname, 'link' => 'task:' . $t->id];
+                         'meta' => $t->pname ?: 'Χωρίς έργο', 'link' => 'task:' . $t->id];
             }
         }
 
         // χρόνος εργασίας (μέσω projects του πελάτη ή sc_userid)
         $logs = Capsule::table('mod_cpm_timelogs as l')
             ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->where('l.running', 0)->where('l.created_at', '>=', $since)
             ->where(function ($w) use ($uid) {
                 $w->where('p.clientid', $uid)->orWhere('l.sc_userid', $uid);

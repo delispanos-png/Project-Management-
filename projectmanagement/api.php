@@ -1195,6 +1195,11 @@ function cnp_dept_split($taskQuery, array $doneIds)
     }
     return array_values($rows);
 }
+/** Ετικέτα έργου· εργασία χωρίς έργο ανήκει μόνο σε department. */
+function cnp_pn($v)
+{
+    return ($v === null || $v === '') ? 'Χωρίς έργο' : (string) $v;
+}
 function clientLabel($cid)
 {
 
@@ -1418,7 +1423,11 @@ case 'dept_view':                         // ένα department: τι χρωστ�
 case 'board':
     $pid = (int) ($_GET['project'] ?? 0);
     if (!$pid || !Db::canSeeProject($adminId, $pid)) {
-        fail('project', 403);
+        fail('Δεν έχεις πρόσβαση σε αυτό το έργο', 403);
+    }
+    /* Το έργο μπορεί να έχει διαγραφεί ενώ ήταν ανοιχτό σε άλλη καρτέλα. */
+    if (!Db::project($pid)) {
+        fail('Το έργο δεν υπάρχει πια', 404);
     }
     $mins = Db::minutesByTask($pid);
     $check = Db::checklistProgress($pid);
@@ -1514,7 +1523,13 @@ case 'task':
                 'msgs' => array_slice($msgs, -6)];
         }
     }
-    $proj = Db::project($t->project_id);
+    /* Εργασία χωρίς έργο (π.χ. από ticket): ανήκει μόνο σε department.
+       Δίνουμε ψευδο-έργο ώστε το drawer να μη χρειάζεται ειδική περίπτωση. */
+    $proj = $t->project_id ? Db::project($t->project_id) : null;
+    if (!$proj) {
+        $proj = (object) ['id' => 0, 'name' => 'Χωρίς έργο', 'color' => '#8595ac',
+            'kind' => '', 'pstatus' => '', 'due_date' => null, 'clientid' => null, 'manager_id' => null];
+    }
     $running = Db::runningTimer($adminId);
     $deps = [];
     foreach (Db::depsOf($t->id) as $dp) {
@@ -1529,6 +1544,7 @@ case 'task':
         'owner' => $ownerId ? ['id' => $ownerId, 'name' => clientLabel($ownerId),
             'via' => $proj->clientid ? 'project' : 'ticket'] : null,
         'project' => ['id' => (int) $proj->id, 'name' => $proj->name, 'color' => $proj->color,
+            'none' => !$t->project_id,
             'kind' => (string) $proj->kind, 'pstatus' => (string) $proj->pstatus,
             'due' => $proj->due_date, 'clientId' => $proj->clientid ? (int) $proj->clientid : null],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
@@ -1579,18 +1595,18 @@ case 'myday':
     });
     // πλάνο + μπάλες + tasks μου
     $plan = [];
-    foreach (Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+    foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->select('t.*', 'p.name as pname', 'p.color as pcolor')
         ->whereNotIn('t.status_id', $doneIds)->whereNotNull('t.schedule_date')->where('t.schedule_date', '<=', $today)
         ->where(function ($w) use ($adminId) { $w->where('t.assignee', $adminId)->orWhere('t.action_user', $adminId); })
         ->orderByRaw('t.priority DESC')->get() as $t) {
-        $plan[] = taskDto($t) + ['pname' => $t->pname, 'pcolor' => $t->pcolor];
+        $plan[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
     }
     $balls = [];
-    foreach (Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+    foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->select('t.*', 'p.name as pname', 'p.color as pcolor')
         ->where('t.action_user', $adminId)->whereNotIn('t.status_id', $doneIds)->get() as $t) {
-        $balls[] = taskDto($t) + ['pname' => $t->pname, 'pcolor' => $t->pcolor];
+        $balls[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
     }
     $myOpen = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)->count();
     $dueToday = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
@@ -2286,12 +2302,15 @@ case 'move_task':
 
 case 'quick_task':
     $pid = (int) ($in['project'] ?? 0);
+    $qdept = (int) ($in['dept'] ?? 0);
     $title = mb_substr(trim($in['title'] ?? ''), 0, 200);
-    if (!$pid || $title === '' || !Db::canSeeProject($adminId, $pid)) {
+    /* Χωρίς έργο επιτρέπεται — αρκεί να δηλωθεί department, ώστε να μη μείνει
+       αζήτητη. Με έργο, χρειάζεται και δικαίωμα σε αυτό. */
+    if ($title === '' || (!$pid && !$qdept) || ($pid && !Db::canSeeProject($adminId, $pid))) {
         fail('input');
     }
     $sid = (int) ($in['status'] ?? 0);
-    $new = ['project_id' => $pid, 'title' => $title,
+    $new = ['project_id' => $pid ?: null, 'title' => $title,
         'status_id' => Db::status($sid) ? $sid : Db::firstStatusId()];
     if ((int) ($in['dept'] ?? 0)) {
         $new['dept_id'] = (int) $in['dept'];
@@ -2530,8 +2549,8 @@ case 'list':
     foreach ($rows as $t) {
         $d = taskDto($t);
         $d['project'] = (int) $t->project_id;      // το χρειάζεται το φίλτρο/chips ανά project
-        $d['pname'] = $t->project_name;
-        $d['pcolor'] = $t->project_color;
+        $d['pname'] = cnp_pn($t->project_name);
+        $d['pcolor'] = $t->project_color ?: '#8595ac';
         $d['mins'] = (int) ($mins[(int) $t->id] ?? 0);
         $list[] = $d;
     }
@@ -2546,7 +2565,7 @@ case 'calendar':
         }
         $items[] = ['id' => (int) $t->id, 'title' => $t->title, 'due' => $t->due_date,
             'prio' => (int) $t->priority, 'done' => (bool) $t->completed_at,
-            'color' => $t->project_color, 'pname' => $t->project_name];
+            'color' => $t->project_color ?: '#8595ac', 'pname' => cnp_pn($t->project_name)];
     }
     $evs = [];
     $mStart = $ym . '-01 00:00:00';
@@ -2715,7 +2734,7 @@ case 'time':
             $agg[$grp][$key]['c'] += (int) $r->charged_minutes;
         }
         $entries[] = ['at' => $r->created_at, 'task' => (int) $r->task_id, 'title' => $r->task_title,
-            'pname' => $r->project_name, 'pcolor' => $r->project_color,
+            'pname' => cnp_pn($r->project_name), 'pcolor' => $r->project_color ?: '#8595ac',
             'client' => $r->clientid ? clientLabel($r->clientid) : null,
             'by' => Db::adminName($r->admin_id), 'mins' => $m,
             'billable' => (bool) $r->billable, 'charged' => (int) $r->charged_minutes, 'note' => $r->note];
@@ -3156,7 +3175,7 @@ case 'client360':
         'full' => $FULL,
         'summary' => [
             'services' => Capsule::table('tblhosting')->where('userid', $cid)->where('domainstatus', 'Active')->count(),
-            'openTasks' => Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            'openTasks' => Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
                 ->where('p.clientid', $cid)->whereNotIn('t.status_id', $doneIds)->count(),
             'openTickets' => Capsule::table('tbltickets')->where('userid', $cid)->whereNotIn('status', ['Closed', 'Cancelled'])->count(),
             'scBalance' => $scBal !== null ? (int) $scBal : null,
@@ -3183,12 +3202,12 @@ case 'client360':
         })(),
         'openTasks' => (function () use ($cid, $doneIds) {
             $out = [];
-            foreach (Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
                          ->where('p.clientid', $cid)->whereNotIn('t.status_id', $doneIds)
                          ->orderBy('t.due_date')->limit(25)
                          ->get(['t.id', 't.title', 't.due_date', 't.assignee', 't.ticketid', 't.dept_id',
                              'p.name as pname', 'p.id as pid']) as $t) {
-                $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'project' => $t->pname,
+                $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'project' => cnp_pn($t->pname),
                     'projectId' => (int) $t->pid, 'ticket' => $t->ticketid ? (int) $t->ticketid : null,
                     'deptId' => $t->dept_id ? (int) $t->dept_id : null,
                     'dept' => $t->dept_id ? (string) Capsule::table('tblticketdepartments')
@@ -3224,7 +3243,7 @@ case 'profit':
     $mins = [];
     foreach (Capsule::table('mod_cpm_timelogs as l')
         ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
-        ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('l.running', 0)->whereBetween('l.created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
         ->selectRaw('COALESCE(p.clientid, l.sc_userid, 0) as cid, SUM(l.minutes) m')->groupBy('cid')->get() as $r) {
         $mins[(int) $r->cid] = (int) $r->m;
@@ -3607,7 +3626,7 @@ case 'recurring':
     $recs = [];
     foreach (Db::recurringAll() as $r) {
         $recs[] = ['id' => (int) $r->id, 'title' => $r->title, 'project' => (int) $r->project_id,
-            'pname' => $r->project_name, 'pcolor' => $r->project_color,
+            'pname' => cnp_pn($r->project_name), 'pcolor' => $r->project_color ?: '#8595ac',
             'freq' => $r->freq, 'every' => (int) $r->every, 'next' => $r->next_run,
             'dueDays' => (int) $r->due_days, 'assignee' => $r->assignee ? (int) $r->assignee : null,
             'prio' => (int) $r->priority, 'active' => (bool) $r->active, 'last' => $r->last_run];
@@ -5109,16 +5128,14 @@ case 'ticket_note':
     }
     $task = Db::taskForTicket($tid);
     if (!$task) {
-        $proj = Db::projectForDept($tk->did) ?: (Db::projects()[0] ?? null);
-        if ($proj) {
-            $ntid = Db::saveTask(0, ['project_id' => (int) $proj->id,
-                'title' => '[#' . $tk->tid . '] ' . mb_substr($tk->title, 0, 180),
-                'status_id' => Db::firstStatusId(), 'ticketid' => $tid], $adminId);
-            $task = Db::task($ntid);
-        }
+        // Εργασία από ticket: ανήκει στο department του, χωρίς έργο.
+        $ntid = Db::saveTask(0, ['project_id' => null, 'dept_id' => (int) $tk->did,
+            'title' => '[#' . $tk->tid . '] ' . mb_substr($tk->title, 0, 180),
+            'status_id' => Db::firstStatusId(), 'ticketid' => $tid], $adminId);
+        $task = Db::task($ntid);
     }
     if (!$task) {
-        fail('no project');
+        fail('task');
     }
     $to = ($in['to'] ?? '') !== '' && $in['to'] !== null ? (int) $in['to'] : null;
     Db::addComment($task->id, $adminId, mb_substr($msg, 0, 60000), $to);
@@ -5137,14 +5154,14 @@ case 'search':
     }
     $like = '%' . $q . '%';
     $tasks = [];
-    $tqq = Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+    $tqq = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('t.title', 'like', $like)->orderBy('t.id', 'desc')->limit(6)
         ->select('t.id', 't.title', 't.assignee', 't.project_id', 'p.name as pname', 'p.color as pcolor');
     foreach ($tqq->get() as $t) {
         if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
             continue;
         }
-        $tasks[] = ['id' => (int) $t->id, 'title' => $t->title, 'pname' => $t->pname, 'pcolor' => $t->pcolor];
+        $tasks[] = ['id' => (int) $t->id, 'title' => $t->title, 'pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
     }
     $tickets = [];
     $tkq = Capsule::table('tbltickets')->where(function ($w) use ($like) {
@@ -5757,7 +5774,7 @@ case 'gantt':
     $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d', strtotime('+35 days'));
     $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
     $rows = Capsule::table('mod_cpm_tasks as t')
-        ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->select('t.*', 'p.name as pname', 'p.color as pcolor')
         ->whereNotIn('t.status_id', $doneIds)
         ->where(function ($w) {
@@ -5795,7 +5812,7 @@ case 'gantt':
         $projIds[(int) $t->project_id] = 1;
         $tasks[] = ['id' => (int) $t->id, 'title' => $t->title, 'project' => (int) $t->project_id, '_bid' => (int) $t->id,
             'assignee' => $aKey ?: null, 'start' => $start, 'end' => $end,
-            'color' => $t->pcolor, 'pname' => $t->pname, 'prio' => (int) $t->priority,
+            'color' => $t->pcolor ?: '#8595ac', 'pname' => cnp_pn($t->pname), 'prio' => (int) $t->priority,
             'est' => $est ?: null, 'ticket' => $t->ticketid ? (int) $t->ticketid : null];
     }
     // projects δέντρο (όσα έχουν tasks + οι γονείς τους)
@@ -6452,21 +6469,21 @@ case 'standup':                         // 🏃 Standup dashboard — απασχ
         return ['type' => 'project', 'id' => (int) $p->id, 'title' => $p->name,
             'sub' => $p->kind === 'client' ? clientLabel($p->clientid) : 'Τμήμα'];
     })->all();
-    $bugRows = $tScope(Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
+    $bugRows = $tScope(Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
         ->where('t.type_id', $bugType)->whereNotIn('t.status_id', $doneIds)
         ->get(['t.id', 't.title', 'p.name as pname']);
     $bugsOpen = count($bugRows);
     $drill['bugs'] = $bugRows->map(function ($t) {
-        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => $t->pname];
+        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => cnp_pn($t->pname)];
     })->all();
-    $dueRows = $tScope(Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
+    $dueRows = $tScope(Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
         ->whereBetween('t.due_date', [$ps, $pe])->whereNotIn('t.status_id', $doneIds)
         ->orderBy('t.due_date')->get(['t.id', 't.title', 't.due_date', 'p.name as pname']);
     $dueThis = count($dueRows);
     $drill['deadlines'] = $dueRows->map(function ($t) {
-        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => $t->pname . ' · λήγει ' . $t->due_date];
+        return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => cnp_pn($t->pname) . ' · λήγει ' . $t->due_date];
     })->all();
-    $doneRows = $tScope(Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
+    $doneRows = $tScope(Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
         ->whereBetween('t.completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
         ->orderByDesc('t.completed_at')->get(['t.id', 't.title', 't.completed_at', 'p.name as pname']);
     $doneThis = count($doneRows);
@@ -6992,7 +7009,7 @@ case 'lib_del':
 /* ============ ✅ ΠΛΑΝΟ ΧΕΙΡΙΣΤΗ ανά project («πού έμεινα») ============ */
 case 'todos_list':
     $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
-    $myOpenTasks = Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+    $myOpenTasks = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('t.assignee', $adminId)->whereNotIn('t.status_id', $doneIds)
         ->select('t.id', 't.title', 't.project_id', 'p.name as pname', 'p.color as pcolor')->get();
     $todoRows = Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->orderBy('done')->orderBy('sort')->orderBy('id')->get();
@@ -7005,8 +7022,10 @@ case 'todos_list':
         }
     };
     foreach ($myOpenTasks as $t) {
-        $ensure((int) $t->project_id, $t->pname, $t->pcolor);
-        $proj[(int) $t->project_id]['tasks'][] = ['id' => (int) $t->id, 'title' => $t->title];
+        // project_id 0 = εργασίες χωρίς έργο· μπαίνουν σε δική τους ομάδα.
+        $pk = (int) $t->project_id;
+        $ensure($pk, cnp_pn($t->pname), $t->pcolor ?: '#8595ac');
+        $proj[$pk]['tasks'][] = ['id' => (int) $t->id, 'title' => $t->title];
     }
     $needNames = [];
     foreach ($todoRows as $t) { if ($t->project_id && !isset($proj[(int) $t->project_id])) { $needNames[(int) $t->project_id] = 1; } }

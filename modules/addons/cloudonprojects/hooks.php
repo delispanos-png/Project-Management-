@@ -48,13 +48,12 @@ add_hook('TicketOpen', 1, function ($vars) {
     if (!$t) {
         return;
     }
-    $proj = Db::projectForDept($t->did);
-    if (!$proj) {
-        return; // κανένα project δεν "ακούει" αυτό το τμήμα
-    }
+    /* Η εργασία από ticket ανήκει στο DEPARTMENT του ticket, όχι σε έργο.
+       Έργο υπάρχει μόνο όταν η δουλειά είναι μέρος παράδοσης σε πελάτη. */
     $prio = ['High' => 2, 'Medium' => 1, 'Low' => 0][$t->urgency ?? ''] ?? 0;
     $taskId = Db::saveTask(0, [
-        'project_id' => (int) $proj->id,
+        'project_id' => null,
+        'dept_id'    => (int) $t->did,
         'title'      => '[#' . $t->tid . '] ' . mb_substr($t->title, 0, 180),
         'descr'      => 'Αυτόματο task από ticket #' . $t->tid,
         'status_id'  => Db::firstStatusId(),

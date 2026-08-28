@@ -48,10 +48,11 @@ function quickNew() {
     <div style="padding:16px 18px">
       <input class="inp" id="qnT" placeholder="Τι πρέπει να γίνει; (Enter)" style="font-size:15px;margin-bottom:10px">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <div style="flex:1;min-width:190px"><label class="lbl">Σε ποιο έργο</label>
-          <select class="inp" id="qnP">${(() => {
+        <div style="flex:1;min-width:190px"><label class="lbl">Σε ποιο έργο <span class="mut" style="font-weight:400">— προαιρετικό</span></label>
+          <select class="inp" id="qnP"><option value="">— χωρίς έργο —</option>${(() => {
             const cli = S.boot.projects.filter(p => p.clientName), ops = S.boot.projects.filter(p => !p.clientName);
-            const opt = p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
+            const cur = S.view === 'board' ? S.project : 0;
+            const opt = p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
             return (cli.length ? `<optgroup label="Έργα πελατών">${cli.map(opt).join('')}</optgroup>` : '')
               + (ops.length ? `<optgroup label="Λειτουργικά">${ops.map(opt).join('')}</optgroup>` : '');
           })()}</select></div>
@@ -64,7 +65,11 @@ function quickNew() {
   const inp = $('#qnT'); inp.focus();
   const create = async () => {
     if (!inp.value.trim()) return;
-    const r = await api('quick_task', {project: +$('#qnP').value, dept: +$('#qnU').value || 0,
+    const pr = +$('#qnP').value || 0, dp = +$('#qnU').value || 0;
+    /* Ένα από τα δύο αρκεί — αλλά όχι κανένα: χωρίς έργο και χωρίς department
+       η εργασία δεν ανήκει πουθενά και δεν τη βλέπει κανείς. */
+    if (!pr && !dp) { toast('Διάλεξε έργο ή department', true); $('#qnU').focus(); return; }
+    const r = await api('quick_task', {project: pr, dept: dp,
       title: inp.value.trim(), status: 0});
     ovl.remove(); toast('Δημιουργήθηκε');
     openTask(r.id);

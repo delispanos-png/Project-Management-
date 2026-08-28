@@ -545,10 +545,11 @@ function cloudonprojects_output($vars)
             if ($tk && $c !== '') {
                 $task = Db::taskForTicket($ticketId);
                 if (!$task) {
-                    $proj = Db::projectForDept($tk->did) ?: (Db::projects()[0] ?? null);
-                    if ($proj) {
+                    // Εργασία από ticket: ανήκει στο department του, χωρίς έργο.
+                    if (true) {
                         $newTid = Db::saveTask(0, [
-                            'project_id' => (int) $proj->id,
+                            'project_id' => null,
+                            'dept_id'    => (int) $tk->did,
                             'title'      => '[#' . $tk->tid . '] ' . mb_substr($tk->title, 0, 180),
                             'status_id'  => Db::firstStatusId(),
                             'ticketid'   => $ticketId,
@@ -2037,7 +2038,7 @@ function cpm_recurring_section($link)
         foreach ($recs as $r) {
             echo '<tr' . ($r->active ? '' : ' class="text-muted"') . '>'
                 . '<td><b>' . cpm_e($r->title) . '</b></td>'
-                . '<td><span class="cnp-dot" style="background:' . cpm_e($r->project_color) . '"></span> ' . cpm_e($r->project_name) . '</td>'
+                . '<td><span class="cnp-dot" style="background:' . cpm_e($r->project_color ?: '#8595ac') . '"></span> ' . cpm_e($r->project_name ?: 'Χωρίς έργο') . '</td>'
                 . '<td>κάθε ' . (int) $r->every . ' ' . cpm_e($freqL[$r->freq] ?? $r->freq) . '</td>'
                 . '<td><b>' . cpm_e(date('d/m/Y', strtotime($r->next_run))) . '</b></td>'
                 . '<td>' . cpm_e(Db::adminName($r->assignee)) . '</td>'
@@ -2116,7 +2117,7 @@ function cpm_my_dashboard($link, $aid)
     $actionOnMe = (int) Capsule::table('mod_cpm_tasks')->where('action_user', $aid)
         ->whereNotIn('status_id', $doneIds)->count();
     $planned = Capsule::table('mod_cpm_tasks as t')
-        ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->select('t.*', 'p.name as pname', 'p.color as pcolor')
         ->whereNotIn('t.status_id', $doneIds)
         ->whereNotNull('t.schedule_date')->where('t.schedule_date', '<=', $today)
@@ -2141,7 +2142,7 @@ function cpm_my_dashboard($link, $aid)
             echo '<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px dashed #eef2f7">'
                 . '<span class="cnp-dot" style="background:' . $prioC . '"></span>'
                 . '<a href="' . $link . '&tab=task&id=' . (int) $pt->id . '" style="flex:1"><b>' . cpm_e($pt->title) . '</b></a>'
-                . '<small class="text-muted">' . cpm_e($pt->pname) . '</small>'
+                . '<small class="text-muted">' . cpm_e($pt->pname ?: 'Χωρίς έργο') . '</small>'
                 . ((int) $pt->action_user === $aid ? '<span class="cnp-ball cnp-ball--me">⚡ εσύ</span>' : '')
                 . ($pt->schedule_date < $today ? '<small class="cnp-due-over">από ' . cpm_e(date('d/m', strtotime($pt->schedule_date))) . '</small>' : '')
                 . '</div>';
@@ -2266,7 +2267,7 @@ function cpm_tab_list($link, $mineAdminId = 0)
         $over = ($t->due_date && $t->due_date < $today && !$t->completed_at);
         echo '<tr>';
         echo '<td><a href="' . $link . '&tab=task&id=' . (int) $t->id . '"><b>' . cpm_e($t->title) . '</b></a></td>';
-        echo '<td><span class="cnp-dot" style="background:' . cpm_e($t->project_color) . '"></span> ' . cpm_e($t->project_name) . '</td>';
+        echo '<td><span class="cnp-dot" style="background:' . cpm_e($t->project_color ?: '#8595ac') . '"></span> ' . cpm_e($t->project_name) . '</td>';
         echo '<td><span class="label" style="background:' . cpm_e($st->color ?? '#888') . '">' . cpm_e($st->title ?? '?') . '</span></td>';
         echo '<td>' . cpm_prio_badge($t->priority) . '</td>';
         echo '<td>' . cpm_e(Db::adminName($t->assignee)) . '</td>';
@@ -2578,9 +2579,9 @@ function cpm_tab_calendar($link)
         foreach ($byDay[$date] ?? [] as $t) {
             $cls = 'ev';
             if ($t->completed_at) { $cls .= ' done'; } elseif ($date < $today) { $cls .= ' over'; }
-            echo '<a class="' . $cls . '" style="border-color:' . cpm_e($t->project_color) . '" '
+            echo '<a class="' . $cls . '" style="border-color:' . cpm_e($t->project_color ?: '#8595ac') . '" '
                 . 'href="' . $link . '&tab=task&id=' . (int) $t->id . '" '
-                . 'title="' . cpm_e($t->title . ' — ' . $t->project_name . ($t->assignee ? ' · ' . Db::adminName($t->assignee) : '')) . '">'
+                . 'title="' . cpm_e($t->title . ' — ' . ($t->project_name ?: 'Χωρίς έργο') . ($t->assignee ? ' · ' . Db::adminName($t->assignee) : '')) . '">'
                 . ((int) $t->priority === 2 ? '<b style="color:#d92d3a">!</b> ' : ((int) $t->priority === 1 ? '<b style="color:#e0a020">!</b> ' : ''))
                 . cpm_e($t->title) . '</a>';
         }
@@ -2758,7 +2759,7 @@ function cpm_tab_profit($link)
     $mins = [];
     foreach (Capsule::table('mod_cpm_timelogs as l')
         ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
-        ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('l.running', 0)->whereBetween('l.created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
         ->selectRaw('COALESCE(p.clientid, l.sc_userid, 0) as cid, SUM(l.minutes) m')->groupBy('cid')->get() as $r) {
         $mins[(int) $r->cid] = (int) $r->m;
@@ -3599,7 +3600,7 @@ function cpm_tab_client($link)
     }
 
     // summary
-    $openTasks = Capsule::table('mod_cpm_tasks as t')->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+    $openTasks = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('p.clientid', $uid)
         ->whereNotIn('t.status_id', Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0])->count();
     $openTickets = Capsule::table('tbltickets')->where('userid', $uid)
@@ -4050,7 +4051,7 @@ function cpm_tab_time($link)
         $tot['w'] += $m;
         $tot[(int) $r->billable ? 'b' : 'nb'] += $m;
         $tot['c'] += (int) $r->charged_minutes;
-        foreach ([['byProject', $r->project_name], ['byClient', $r->clientid ? cpm_client_label($r->clientid) : '— εσωτερικά —'], ['byAdmin', Db::adminName($r->admin_id)]] as $g) {
+        foreach ([['byProject', $r->project_name ?: 'Χωρίς έργο'], ['byClient', $r->clientid ? cpm_client_label($r->clientid) : '— εσωτερικά —'], ['byAdmin', Db::adminName($r->admin_id)]] as $g) {
             [$grp, $key] = $g;
             if (!isset(${$grp}[$key])) { ${$grp}[$key] = ['w' => 0, 'b' => 0, 'c' => 0]; }
             ${$grp}[$key]['w'] += $m;
@@ -4098,7 +4099,7 @@ function cpm_tab_time($link)
     foreach ($rows as $r) {
         echo '<tr><td>' . cpm_e(date('d/m/Y H:i', strtotime($r->created_at))) . '</td>'
             . '<td><a href="' . $link . '&tab=task&id=' . (int) $r->task_id . '">' . cpm_e($r->task_title) . '</a></td>'
-            . '<td><span class="cnp-dot" style="background:' . cpm_e($r->project_color) . '"></span> ' . cpm_e($r->project_name) . '</td>'
+            . '<td><span class="cnp-dot" style="background:' . cpm_e($r->project_color ?: '#8595ac') . '"></span> ' . cpm_e($r->project_name ?: 'Χωρίς έργο') . '</td>'
             . '<td>' . cpm_e($r->clientid ? cpm_client_label($r->clientid) : '—') . '</td>'
             . '<td>' . cpm_e(Db::adminName($r->admin_id)) . '</td>'
             . '<td><b>' . cpm_e(Time::fmt($r->minutes)) . '</b></td>'

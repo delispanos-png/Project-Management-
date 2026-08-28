@@ -219,7 +219,7 @@ class Notify
         $today = date('Y-m-d');
         $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
         $rows = Capsule::table('mod_cpm_tasks as t')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->select('t.id', 't.title', 't.due_date', 't.assignee', 'p.name as project_name')
             ->whereNotNull('t.assignee')->whereNotNull('t.due_date')
             ->where('t.due_date', '<=', $today)
@@ -275,7 +275,7 @@ class Notify
                 foreach ($tasks as $r) {
                     $over = $r->due_date < $today;
                     $h .= '<li><a href="' . self::taskLink($r->id) . '">' . htmlspecialchars($r->title) . '</a>'
-                        . ' <small>(' . htmlspecialchars($r->project_name) . ')</small> — '
+                        . ' <small>(' . htmlspecialchars((string) ($r->project_name ?: 'Χωρίς έργο')) . ')</small> — '
                         . ($over ? '<b style="color:#c0392b">εκπρόθεσμο από ' . date('d/m', strtotime($r->due_date)) . '</b>'
                                  : '<b>λήγει σήμερα</b>') . '</li>';
                 }

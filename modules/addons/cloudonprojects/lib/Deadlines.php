@@ -117,7 +117,14 @@ class Deadlines
                 continue;
             }
 
-            $proj = Capsule::table('mod_cpm_projects')->where('id', $t->project_id)->first(['id', 'name', 'manager_id']);
+            $proj = $t->project_id
+                ? Capsule::table('mod_cpm_projects')->where('id', $t->project_id)->first(['id', 'name', 'manager_id'])
+                : null;
+            /* Χωρίς έργο, το «πού ανήκει» είναι το department. */
+            $where = $proj ? $proj->name
+                : (isset($t->dept_id) && $t->dept_id
+                    ? (string) Capsule::table('tblticketdepartments')->where('id', $t->dept_id)->value('name')
+                    : '');
             $to = self::recipients($t, $proj, $level);
             if (!$to) {
                 continue;   // ορφανή εργασία — δεν έχει νόημα ειδοποίηση σε κανέναν
@@ -126,8 +133,11 @@ class Deadlines
             $title = mb_substr((string) $t->title, 0, 90);
             $what = self::phrase($days);
             $subj = ($days < 0 ? '⛔ Εκπρόθεσμη εργασία: ' : '⏳ Προθεσμία εργασίας: ') . $title;
-            $line = $title . ' — ' . $what . ($proj ? ' · ' . $proj->name : '');
-            $url = '/project/#/board/' . (int) $t->project_id;
+            $line = $title . ' — ' . $what . ($where !== '' ? ' · ' . $where : '');
+            /* Εργασία χωρίς έργο δεν έχει board — στέλνουμε στο department της. */
+            $url = $t->project_id
+                ? '/project/#/board/' . (int) $t->project_id
+                : (isset($t->dept_id) && $t->dept_id ? '/project/#/unit/' . (int) $t->dept_id : '/project/#/list');
 
             foreach ($to as $adminId => $role) {
                 if (!self::claim('task', (int) $t->id, $level, (int) $adminId, $dry)) {
@@ -138,12 +148,13 @@ class Deadlines
                         ($days < 0 ? '⛔ ' : '⏳ ') . $line, $url);
                     /* Email μόνο στην κλιμάκωση: ο υπεύθυνος πρέπει να το δει
                        ακόμη κι αν δεν ανοίξει την εφαρμογή σήμερα. */
-                    if ($level === 'over' && $role === 'manager') {
+                    if ($level === 'over' && ($role === 'manager' || $role === 'lead')) {
                         Notify::send((int) $adminId,
                             $subj,
                             '<p><b>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</b></p>'
                             . '<p>' . htmlspecialchars($what, ENT_QUOTES, 'UTF-8') . '.'
-                            . ($proj ? ' Έργο: ' . htmlspecialchars($proj->name, ENT_QUOTES, 'UTF-8') . '.' : '')
+                            . ($where !== '' ? ($proj ? ' Έργο: ' : ' Department: ')
+                                . htmlspecialchars($where, ENT_QUOTES, 'UTF-8') . '.' : '')
                             . '</p><p>Χρειάζεται απόφαση: νέα ημερομηνία ή ενημέρωση του πελάτη.</p>');
                     }
                 }
@@ -249,6 +260,24 @@ class Deadlines
                 $flag = (int) Capsule::table('tbltickets')->where('id', $t->ticketid)->value('flag');
                 if ($flag) {
                     $to[$flag] = isset($to[$flag]) ? $to[$flag] : 'ticket';
+                }
+            }
+        }
+        /* Εργασία χωρίς έργο δεν έχει manager να κλιμακώσει. Ανήκει όμως σε
+           department, και το department το εξυπηρετούν ομάδες: ειδοποιούμε τους
+           επικεφαλής τους. Αλλιώς μια χαμένη προθεσμία σε ticket-εργασία θα
+           έφτανε μόνο στον ανάδοχο — δηλαδή σε αυτόν που ήδη την έχασε. */
+        if ($level === 't0' || $level === 'over') {
+            $did = isset($t->dept_id) ? (int) $t->dept_id : 0;
+            if ($did && Capsule::schema()->hasTable('mod_cpm_team_depts')) {
+                $leads = Capsule::table('mod_cpm_team_depts as td')
+                    ->join('mod_cpm_team_members as m', 'm.team_id', '=', 'td.team_id')
+                    ->where('td.dept_id', $did)->where('m.is_leader', 1)
+                    ->distinct()->pluck('m.admin_id')->all();
+                foreach ($leads as $lid) {
+                    if (!isset($to[(int) $lid])) {
+                        $to[(int) $lid] = 'lead';
+                    }
                 }
             }
         }

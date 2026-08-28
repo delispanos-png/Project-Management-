@@ -1003,10 +1003,19 @@ function dnd(cardSel, colSel, onDrop, onClick) {
 /* ═════════ BOARD ═════════ */
 async function vBoard(arg) {
   if (arg) S.project = +arg;
+  /* Το έργο μπορεί να έχει διαγραφεί ή να μην είναι ορατό: μην επιμένεις σε
+     id που δεν υπάρχει στη λίστα — το API θα απαντούσε 403/404. */
+  if (S.project && !S.boot.projects.some(p => p.id === +S.project)) { S.project = 0; }
   if (!S.project && S.boot.projects[0]) S.project = S.boot.projects[0].id;
   setTop('Board');
   const c = $('#content');
-  if (!S.boot.projects.length) { c.innerHTML = `<div class="empty"><div class="big">${I.folder}</div>Δεν έχεις πρόσβαση σε κανένα project.</div>`; return; }
+  if (!S.boot.projects.length) {
+    c.innerHTML = `<div class="empty"><div class="big">${I.folder}</div>Δεν έχεις πρόσβαση σε κανένα έργο.
+      <div class="mut" style="font-size:12.5px;margin-top:8px;max-width:460px;margin-inline:auto;line-height:1.7">
+        Το board δείχνει έργα πελατών. Οι εργασίες που δεν ανήκουν σε έργο (π.χ. από tickets)
+        βρίσκονται στα <a href="#/units">Departments</a> και στη <a href="#/list">Λίστα tasks</a>.</div></div>`;
+    return;
+  }
   c.innerHTML = `<div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
     <select class="inp" id="projSel" style="max-width:340px">
       ${S.boot.projects.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`).join('')}
@@ -1216,7 +1225,9 @@ async function openTask(id) {
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
           ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
              title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
-          <a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>
+          ${d.project.none
+            ? '<span class="pill pill-mut" title="Η εργασία ανήκει μόνο σε department, δεν είναι μέρος έργου">Χωρίς έργο</span>'
+            : `<a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>`}
           ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες του department">${esc(u.name)}</a>` : ''; })()}
         </span>
       </div>
@@ -1383,14 +1394,21 @@ async function openTask(id) {
     await api('time_add', {task: id, mins: m, billable: $('#tBill').checked, note: $('#tNote').value});
     toast('Καταχωρήθηκε ' + fmtMin(m)); openTask(id);
   };
-  /* deps */
-  api('board&project=' + d.project.id).then(bd => {
+  /* Εξαρτήσεις: υποψήφιες οι «αδελφές» εργασίες. Για εργασία έργου είναι οι
+     υπόλοιπες του board· για εργασία χωρίς έργο, οι ανοιχτές του department
+     της — αλλιώς δεν υπήρχε από πού να διαλέξεις. */
+  (async () => {
     const sel = $('#depSel', dr);
-    if (!sel) return;
-    bd.columns.forEach(col => col.tasks.forEach(tt => {
-      if (tt.id !== id) sel.innerHTML += `<option value="${tt.id}">${esc(tt.title)}</option>`;
-    }));
-  });
+    if (!sel) { return; }
+    const add = (tid, title) => { if (tid !== id) { sel.innerHTML += `<option value="${tid}">${esc(title)}</option>`; } };
+    if (!d.project.none) {
+      const bd = await api('board&project=' + d.project.id).catch(() => null);
+      if (bd) { bd.columns.forEach(col => col.tasks.forEach(tt => add(tt.id, tt.title))); }
+    } else if (t.dept) {
+      const dv = await api('dept_view&id=' + t.dept).catch(() => null);
+      if (dv) { dv.groups.forEach(g => g.tasks.forEach(tt => add(tt.id, tt.title))); }
+    }
+  })();
   $('#depAdd', dr).onclick = async () => {
     const on = +$('#depSel', dr).value;
     if (!on) return;
