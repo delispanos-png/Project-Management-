@@ -4950,13 +4950,25 @@ case 'users':                          // διαχείριση χρηστών (�
                     array_filter(array_map('trim', explode(',', Db::pref((int) $a->id, 'areas', ''))))))];
         }, Capsule::table('tbladmins')->orderBy('disabled')->orderBy('username')->get()->all()),
         'areaNames' => array_map(function ($v) { return $v[0]; }, cnp_area_defs()),
-        /* Ποιοι ΡΟΛΟΙ του WHMCS επιτρέπονται στο addon. Χωρίς αυτό ο χειριστής
-           δεν φτάνει καν στην εφαρμογή: το WHMCS του λέει «Access has not been
-           given for your admin role group» και τα δικαιώματα εδώ δεν παίζουν
-           κανέναν ρόλο. Το δείχνουμε για να μην ψάχνει κανείς. */
-        'addonRoles' => array_values(array_filter(array_map('intval', explode(',',
-            (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
-                ->where('setting', 'access')->value('value'))))),
+        /* Ποιοι ΡΟΛΟΙ του WHMCS φτάνουν πραγματικά στην εφαρμογή. Χρειάζονται
+           ΔΥΟ πράγματα, και τα δύο εκτός του δικού μας συστήματος:
+             1. ο ρόλος στη λίστα `access` του addon — αλλιώς «Access has not
+                been given for your admin role group»
+             2. το δικαίωμα WHMCS #46 «Addon Modules» — αλλιώς
+                accessdenied.php?permid=46, πριν καν φορτώσει το addon.
+           Χωρίς αυτά, όσα δικαιώματα κι αν οριστούν εδώ δεν μετράνε. */
+        'addonRoles' => (function () {
+            $acc = array_values(array_filter(array_map('intval', explode(',',
+                (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+                    ->where('setting', 'access')->value('value')))));
+            $out = [];
+            foreach ($acc as $rid) {
+                if (Capsule::table('tbladminperms')->where('roleid', $rid)->where('permid', 46)->exists()) {
+                    $out[] = $rid;
+                }
+            }
+            return $out;
+        })(),
         'roles' => array_map(function ($r) use ($fullRoles) {
             return ['id' => (int) $r->id, 'name' => $r->name,
                 'full' => in_array((int) $r->id, $fullRoles, true)];
@@ -4968,13 +4980,23 @@ case 'addon_access_grant':               // δώσε στον ρόλο πρόσ�
     if (!$rid9 || !Capsule::table('tbladminroles')->where('id', $rid9)->exists()) { fail('role'); }
     $row9 = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'access');
     $cur9 = array_values(array_filter(array_map('intval', explode(',', (string) $row9->value('value')))));
+    $did9 = [];
     if (!in_array($rid9, $cur9, true)) {
         $cur9[] = $rid9;
         sort($cur9);
         $row9->update(['value' => implode(',', $cur9)]);
-        logActivity('CloudOn PM: πρόσβαση στο addon για τον ρόλο #' . $rid9 . ' (από admin ' . $adminId . ')');
+        $did9[] = 'access';
     }
-    out(['ok' => true, 'roles' => $cur9]);
+    // Το WHMCS #46 «Addon Modules» — χωρίς αυτό η σελίδα δεν ανοίγει καν.
+    if (!Capsule::table('tbladminperms')->where('roleid', $rid9)->where('permid', 46)->exists()) {
+        Capsule::table('tbladminperms')->insert(['roleid' => $rid9, 'permid' => 46]);
+        $did9[] = 'perm46';
+    }
+    if ($did9) {
+        logActivity('CloudOn PM: πρόσβαση στο addon για τον ρόλο #' . $rid9
+            . ' [' . implode('+', $did9) . '] (από admin ' . $adminId . ')');
+    }
+    out(['ok' => true, 'roles' => $cur9, 'granted' => $did9]);
 
 case 'user_areas_save':                 // ειδικότητες/πρόσβαση χειριστή (full μόνο)
     if (!$FULL) {
