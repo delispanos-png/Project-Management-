@@ -2087,6 +2087,14 @@ R.projects = async function () {
         ${p.id ? `<button class="btn btn-o" id="pjArch">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button>
           <button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
     </div></div>
+    ${p.id && p.canPmNotes ? `<div class="card pm-notes"><div class="card-h">${I.lock} Σημειώσεις υπεύθυνου έργου
+        <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">ιδιωτικές — δεν τις βλέπει κανένας εμπλεκόμενος</span></div>
+      <div class="card-b">
+        <textarea class="inp" id="pjPmN" rows="5" placeholder="Ρίσκα, συνεννοήσεις, τι να προσέξω, τι δεν λέω στον πελάτη…">${esc(p.pmNotes || '')}</textarea>
+        <div style="display:flex;gap:9px;align-items:center;margin-top:8px">
+          <button class="btn btn-o btn-sm" id="pjPmSave">Αποθήκευση σημειώσεων</button>
+          <span class="mut" style="font-size:11px">Ορατές μόνο σε εσένα και στους διαχειριστές.</span></div>
+      </div></div>` : ''}
     ${p.id ? `<div class="card"><div class="card-h">${I.list} Εργασίες του έργου
         <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η καθεμία ανήκει σε ένα department</span></div>
       <div class="card-b" id="pjTasks"><div class="skel" style="height:60px"></div></div></div>`
@@ -2259,6 +2267,11 @@ R.projects = async function () {
     $$('.pjM, .pjT', dr).forEach(ch => ch.addEventListener('change', accWarn));
     accWarn();
 
+    const pmb = $('#pjPmSave', dr);
+    if (pmb) pmb.onclick = async () => {
+      await api('project_pm_notes', {id: p.id, notes: $('#pjPmN', dr).value});
+      toast('Οι σημειώσεις αποθηκεύτηκαν');
+    };
     const arb = $('#pjArch', dr);
     if (arb) arb.onclick = async () => {
       await api('archive_project', {id: p.id});

@@ -161,7 +161,7 @@ function renderShell() {
   }
   if (has('projects')) {
     nav.push(['Έργα', [['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'], ['list', I.list, 'Λίστα tasks'],
-      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Departments']]]);
+      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Departments'], ['templates', I.clipboard, 'Πρότυπα']]]);
   }
   if (has('sales')) {
     nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
@@ -233,7 +233,7 @@ function renderShell() {
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
-        units: 'Depts', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+        units: 'Depts', templates: 'Πρότυπα', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));

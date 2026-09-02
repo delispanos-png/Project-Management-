@@ -1659,3 +1659,10 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .bill-gate{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
   margin-top:10px;padding:9px 12px;border-radius:10px;border:1px solid var(--warn);background:#f0a52a12}
 .bill-gate.ok{border-color:var(--ok);background:#2dbd6e12}
+/* Πρότυπα υλοποίησης: οι έλεγχοι κάθε βήματος */
+.tpl-checks{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.tpl-checks span{font-size:10.5px;color:var(--mut);border:1px solid var(--line);
+  border-radius:20px;padding:1px 8px;background:var(--card)}
+/* Ιδιωτικές σημειώσεις υπεύθυνου έργου */
+.pm-notes{border-left:3px solid #7b5cd6;background:#7b5cd608}
+.pm-notes textarea{min-height:96px;resize:vertical}

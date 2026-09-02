@@ -260,6 +260,49 @@ class Db
             });
         }
 
+        /* ── Πρότυπα υλοποίησης ──────────────────────────────────────────────
+           Κάθε υλοποίηση (π.χ. «στήσιμο e-shop») έχει τα ίδια βήματα κάθε φορά.
+           Τα γράφουμε ΜΙΑ φορά ως πρότυπο, με υπεύθυνο, ομάδα, εκτίμηση και
+           checklist ελέγχου ανά βήμα, και τα κλωνοποιούμε σε πελάτη όταν
+           ξεκινά η δουλειά. Οι ημερομηνίες μπαίνουν ως ΜΕΡΕΣ ΜΕΤΑ ΤΗΝ ΕΝΑΡΞΗ,
+           ώστε το ίδιο πρότυπο να δουλεύει σε οποιαδήποτε ημερομηνία. */
+        if (!$s->hasTable('mod_cpm_templates')) {
+            $s->create('mod_cpm_templates', function ($t) {
+                $t->increments('id');
+                $t->string('name', 140);
+                $t->text('descr')->nullable();
+                $t->string('color', 7)->default('#0090dd');
+                $t->decimal('budget', 10, 2)->nullable();       // ενδεικτικό budget έργου
+                $t->tinyInteger('active')->default(1);
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_template_steps')) {
+            $s->create('mod_cpm_template_steps', function ($t) {
+                $t->increments('id');
+                $t->integer('template_id')->unsigned()->index();
+                $t->integer('sort')->default(0);
+                $t->string('title', 200);
+                $t->text('descr')->nullable();                  // λεπτομέρειες του βήματος
+                $t->integer('dept_id')->unsigned()->nullable(); // ομάδα που το εκτελεί
+                $t->integer('assignee')->unsigned()->nullable();// προτεινόμενος υπεύθυνος
+                $t->integer('off_start')->default(0);           // ημέρες από την έναρξη
+                $t->integer('off_due')->default(0);             // ημέρες → λήξη
+                $t->integer('off_deadline')->nullable();        // ημέρες → σκληρό deadline
+                $t->integer('est_minutes')->unsigned()->nullable();
+                $t->tinyInteger('prio')->default(0);
+                $t->text('checks')->nullable();                 // έλεγχοι, ένας ανά γραμμή
+            });
+        }
+        /* Ιδιωτικές σημειώσεις του υπεύθυνου έργου — δεν τις βλέπουν οι εμπλεκόμενοι. */
+        if (!$s->hasColumn('mod_cpm_projects', 'pm_notes')) {
+            $s->table('mod_cpm_projects', function ($t) {
+                $t->text('pm_notes')->nullable();
+                $t->integer('template_id')->unsigned()->nullable();  // από ποιο πρότυπο γεννήθηκε
+            });
+        }
+
         /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
            Δύο διαφορετικοί άξονες που μπερδεύονταν:
              DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)
