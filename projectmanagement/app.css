@@ -1671,3 +1671,7 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 /* Ιδιωτικές σημειώσεις υπεύθυνου έργου */
 .pm-notes{border-left:3px solid #7b5cd6;background:#7b5cd608}
 .pm-notes textarea{min-height:96px;resize:vertical}
+/* «Νέος πελάτης» μέσα στο πεδίο επιλογής */
+.cpick-new{padding:9px 11px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--brand);
+  border-top:1px solid var(--line);background:#0090dd0a;display:flex;gap:6px;align-items:center}
+.cpick-new:hover{background:#0090dd18}

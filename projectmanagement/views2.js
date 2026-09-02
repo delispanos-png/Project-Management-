@@ -764,6 +764,52 @@ function openOffer(o, d) {
   };
 }
 window.CNP.clientAuto = clientAuto;   // το χρησιμοποιεί και το R.remotebook (app.js)
+/* Νέος πελάτης χωρίς να φύγεις από τη φόρμα. Ό,τι χρειάζεται το WHMCS και δεν
+   το ξέρουμε ακόμη (διεύθυνση, ΤΚ, τηλέφωνο) μπαίνει ως placeholder — ο σκοπός
+   είναι να υπάρξει η καρτέλα ώστε να κρεμαστούν lead, προσφορά και έργο. */
+function openNewClient(prefill, onDone) {
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+  ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:560px" onclick="event.stopPropagation()">
+    <div style="padding:20px 22px">
+      <b style="font-size:15.5px;color:var(--ink)">${I.user} Νέος πελάτης</b>
+      <div class="mut" style="font-size:12px;margin-top:5px;line-height:1.6">
+        Δημιουργείται καρτέλα στο WHMCS ώστε να κρεμαστούν πάνω της lead, προσφορές και έργα.
+        Μόνο η <b>επωνυμία</b> είναι υποχρεωτική — τα υπόλοιπα συμπληρώνονται όποτε τα μάθουμε.</div>
+      <label class="lbl" style="margin-top:13px">Επωνυμία ή ονοματεπώνυμο</label>
+      <input class="inp" id="ncComp" value="${esc(prefill || '')}" placeholder="π.χ. ΠΑΠΑΔΟΠΟΥΛΟΣ ΑΕ">
+      <div class="frow" style="margin-top:11px">
+        <div><label class="lbl">Όνομα επαφής</label><input class="inp" id="ncFirst" placeholder="προαιρετικό"></div>
+        <div><label class="lbl">Επώνυμο επαφής</label><input class="inp" id="ncLast" placeholder="προαιρετικό"></div>
+        <div><label class="lbl">Email</label><input class="inp" id="ncMail" type="email" placeholder="αν δεν το ξέρεις, άφησέ το κενό"></div>
+        <div><label class="lbl">Τηλέφωνο</label><input class="inp" id="ncPhone" placeholder="προαιρετικό"></div>
+      </div>
+      <div id="ncWarn" class="mut" style="font-size:11.5px;margin-top:8px"></div>
+      <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+        <button class="btn btn-o" id="ncNo">Άκυρο</button>
+        <button class="btn btn-p" id="ncGo">Δημιουργία & επιλογή</button></div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const done = () => ovl.remove();
+  $('#ncNo', ovl).onclick = done;
+  const warn = () => {
+    $('#ncWarn', ovl).innerHTML = $('#ncMail', ovl).value.trim() ? ''
+      : '<span style="color:var(--warn)">Χωρίς email θα μπει προσωρινό — σημειώνεται στην καρτέλα ώστε να συμπληρωθεί.</span>';
+  };
+  $('#ncMail', ovl).oninput = warn; warn();
+  $('#ncGo', ovl).onclick = async () => {
+    const r = await api('client_quick_add', {
+      company: $('#ncComp', ovl).value, first: $('#ncFirst', ovl).value,
+      last: $('#ncLast', ovl).value, email: $('#ncMail', ovl).value,
+      phone: $('#ncPhone', ovl).value,
+    }).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast(`Δημιουργήθηκε ο πελάτης #${r.id}${r.placeholderEmail ? ' — συμπλήρωσε email' : ''}`);
+    done();
+    if (onDone) { onDone(r); }
+  };
+  setTimeout(() => $('#ncComp', ovl).focus(), 40);
+}
+
 /* ── Επιλογή πελάτη ────────────────────────────────────────────────────────
    Το `<datalist>` δέχεται και ελεύθερο κείμενο: αν ο χρήστης έγραφε όνομα
    χωρίς να επιλέξει, το id έμενε κενό και η εγγραφή αποθηκευόταν σιωπηλά
@@ -816,20 +862,36 @@ function clientAuto(inpId, listId, hidId, statusId) {
     close(); paint();
     inp.dispatchEvent(new CustomEvent('cpick', {detail: r, bubbles: true}));
   };
+  /* Ο πελάτης μπορεί να μην υπάρχει ακόμη — τυπικό σε lead ή προσφορά. Τον
+     δημιουργούμε επί τόπου και από εκεί και πέρα κρεμιούνται όλα πάνω του. */
+  const addRow = () => {
+    const q = inp.value.trim();
+    return `<div class="cpick-new" data-cnew="1">
+      ${I.plus} Δημιουργία νέου πελάτη${q ? ` «<b>${esc(q)}</b>»` : ''}</div>`;
+  };
   const draw = () => {
     if (!rows.length) {
-      panel.innerHTML = '<div class="cpick-empty">Κανένας πελάτης δεν ταιριάζει</div>';
+      panel.innerHTML = '<div class="cpick-empty">Κανένας πελάτης δεν ταιριάζει</div>' + addRow();
+      bindNew();
     } else {
       panel.innerHTML = rows.map((r, i) => `<div class="cpick-row ${i === cur ? 'on' : ''}" data-i="${i}">
         <b>${esc(r.name || r.label)}</b>
         <span class="mut">#${r.id}${r.email ? ' · ' + esc(r.email) : ''}</span>
         ${r.status && r.status !== 'Active' ? `<span class="pill pill-mut">${esc(r.status)}</span>` : ''}
-      </div>`).join('');
+      </div>`).join('') + addRow();
       $$('.cpick-row', panel).forEach(el =>
         el.addEventListener('mousedown', e => { e.preventDefault(); pick(+el.dataset.i); }));
+      bindNew();
     }
     panel.hidden = false;
     inp.setAttribute('aria-expanded', 'true');
+  };
+  const bindNew = () => {
+    const el = $('[data-cnew]', panel);
+    if (el) { el.addEventListener('mousedown', e => { e.preventDefault(); openNewClient(inp.value.trim(), r => {
+      hid.value = String(r.id); inp.value = r.label; close(); paint();
+      inp.dispatchEvent(new CustomEvent('cpick', {detail: r, bubbles: true}));
+    }); }); }
   };
   const search = async q => {
     const my = ++seq;

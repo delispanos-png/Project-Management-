@@ -1294,7 +1294,7 @@ function cnp_action_area($action)
             'status_save', 'status_del', 'type_save', 'type_del']);
         // `worknote_save` = προσωπική σημείωση στο «Το πλάνο μου» — ελεύθερη.
         // `crm` το διαβάζουν και οι Επαφές (ελεύθερη οθόνη) — μένει ανοιχτό.
-        $add('sales', ['crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
+        $add('sales', ['client_quick_add', 'crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
             'leads_import_preview', 'leads_import_commit', 'save_lead', 'lead_merge', 'lead_score',
             'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle', 'lead_task_del',
             'lead_fields', 'lead_field_save', 'lead_field_del', 'lead_products', 'lead_product_save',
@@ -9377,6 +9377,66 @@ case 'version':
         'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread]);
 
 /* ---- αναζήτηση πελάτη (autocomplete) ---- */
+case 'client_quick_add':                  // νέος πελάτης επί τόπου, από το πεδίο επιλογής
+    if (!$FULL && !in_array('sales', cnp_admin_areas($adminId, $FULL), true)) {
+        fail('Δεν έχεις δικαίωμα δημιουργίας πελάτη', 403);
+    }
+    $qName = trim((string) ($in['company'] ?? ''));
+    $qFirst = trim((string) ($in['first'] ?? ''));
+    $qLast = trim((string) ($in['last'] ?? ''));
+    $qMail = trim((string) ($in['email'] ?? ''));
+    if ($qName === '' && $qFirst === '' && $qLast === '') {
+        fail('Δώσε επωνυμία ή ονοματεπώνυμο');
+    }
+    if ($qMail !== '' && !filter_var($qMail, FILTER_VALIDATE_EMAIL)) {
+        fail('Μη έγκυρο email');
+    }
+    /* Το WHMCS απαιτεί email και το θέλει μοναδικό. Όταν δεν το ξέρουμε ακόμη
+       (τυπική περίπτωση σε lead), βάζουμε placeholder του δικού μας domain που
+       δεν παραδίδεται πουθενά — και το σημειώνουμε στις σημειώσεις του πελάτη
+       ώστε να φαίνεται ότι πρέπει να συμπληρωθεί. */
+    $placeholder = false;
+    if ($qMail === '') {
+        $qMail = 'lead+' . substr(bin2hex(random_bytes(5)), 0, 8) . '@noreply.cloudon.gr';
+        $placeholder = true;
+    }
+    if (Capsule::table('tblclients')->where('email', $qMail)->exists()) {
+        fail('Υπάρχει ήδη πελάτης με αυτό το email');
+    }
+    /* Αν δεν δόθηκε ονοματεπώνυμο, το βγάζουμε από την επωνυμία — το WHMCS τα
+       θέλει υποχρεωτικά και χωρίς αυτά η κλήση αποτυγχάνει. */
+    if ($qFirst === '' && $qLast === '') {
+        $parts = preg_split('/\s+/u', $qName, 2);
+        $qFirst = $parts[0];
+        $qLast = $parts[1] ?? '-';
+    } elseif ($qLast === '') {
+        $qLast = '-';
+    } elseif ($qFirst === '') {
+        $qFirst = '-';
+    }
+    $res = localAPI('AddClient', [
+        'firstname' => $qFirst, 'lastname' => $qLast,
+        'companyname' => $qName, 'email' => $qMail,
+        'address1' => trim((string) ($in['address'] ?? '')) ?: '—',
+        'city' => trim((string) ($in['city'] ?? '')) ?: '—',
+        'state' => '—', 'postcode' => trim((string) ($in['postcode'] ?? '')) ?: '00000',
+        'country' => strtoupper(substr(trim((string) ($in['country'] ?? 'GR')), 0, 2)) ?: 'GR',
+        'phonenumber' => trim((string) ($in['phone'] ?? '')) ?: '0000000000',
+        'password2' => bin2hex(random_bytes(10)),
+        'notes' => 'Δημιουργήθηκε από το Project Manager'
+            . ($placeholder ? ' — ΠΡΟΣΟΧΗ: προσωρινό email, χρειάζεται συμπλήρωση.' : ''),
+        'noemail' => true, 'skipvalidation' => true,
+    ], 'pdelis');
+    if (($res['result'] ?? '') !== 'success') {
+        fail('WHMCS: ' . ($res['message'] ?? 'αποτυχία δημιουργίας'));
+    }
+    $newId = (int) $res['clientid'];
+    logActivity('CloudOn PM: νέος πελάτης #' . $newId . ' «' . ($qName ?: $qFirst . ' ' . $qLast)
+        . '» από admin ' . $adminId . ($placeholder ? ' (προσωρινό email)' : ''));
+    out(['ok' => true, 'id' => $newId, 'name' => $qName ?: trim($qFirst . ' ' . $qLast),
+        'email' => $placeholder ? '' : $qMail, 'placeholderEmail' => $placeholder,
+        'label' => ($qName ?: trim($qFirst . ' ' . $qLast)) . ' (#' . $newId . ')']);
+
 case 'client_search':
     $q = trim($_GET['q'] ?? '');
     $res = [];
