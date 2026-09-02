@@ -249,6 +249,17 @@ class Db
             }
         }
 
+        /* ── Έγκριση λογιστηρίου πριν το κλείσιμο ────────────────────────────
+           Εργασία με χρεώσιμο χρόνο δεν κλείνει μόνο από τον τεχνικό: αν κλείσει
+           πριν το λογιστήριο δει τι θα τιμολογηθεί, ο χρόνος χάνεται σιωπηλά. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'billing_ok')) {
+            $s->table('mod_cpm_tasks', function ($t) {
+                $t->tinyInteger('billing_ok')->default(0);
+                $t->integer('billing_ok_by')->unsigned()->nullable();
+                $t->timestamp('billing_ok_at')->nullable();
+            });
+        }
+
         /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
            Δύο διαφορετικοί άξονες που μπερδεύονταν:
              DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)
@@ -2631,7 +2642,8 @@ class Db
 
     public static function addComment($taskId, $adminId, $comment, $toAdmin = null)
     {
-        Capsule::table('mod_cpm_comments')->insert([
+        // Επιστρέφει το id, ώστε να μπορούν να κρεμαστούν συνημμένα στο μήνυμα.
+        $cid = (int) Capsule::table('mod_cpm_comments')->insertGetId([
             'task_id'    => (int) $taskId,
             'admin_id'   => $adminId ? (int) $adminId : null,
             'comment'    => $comment,
@@ -2639,6 +2651,7 @@ class Db
             'created_at' => date('Y-m-d H:i:s'),
         ]);
         self::logActivity($taskId, $adminId, 'comment', mb_substr($comment, 0, 120));
+        return $cid;
     }
 
     public static function comments($taskId)

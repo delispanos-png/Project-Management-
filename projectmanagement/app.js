@@ -1151,7 +1151,7 @@ async function openTask(id) {
   closeDrawer();
   const t = d.task, me = S.boot.me;
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
-  const dr = document.createElement('div'); dr.className = 'drawer';
+  const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
   /* Το department δεν εκτελεί — εκτελεί ένας άνθρωπος από τις ομάδες που το
      εξυπηρετούν. Τους φέρνουμε πρώτους· οι υπόλοιποι μένουν διαθέσιμοι. */
   const admOpts = (sel, didFor) => {
@@ -1166,17 +1166,38 @@ async function openTask(id) {
       + `<optgroup label="${esc(dep.name)}">${inD.map(opt).join('')}</optgroup>`
       + (out.length ? `<optgroup label="Εκτός department">${out.map(opt).join('')}</optgroup>` : '');
   };
+  /* Ένα μήνυμα της συνομιλίας μαζί με τα συνημμένα του. Οι εικόνες φαίνονται
+     επί τόπου — δεν έχει νόημα να ανοίγεις αρχείο για να δεις screenshot. */
+  const cmHtml = cm => `<div class="msg ${cm.byId === me.id ? 'mine' : ''}">
+    <div class="msg-h">${esc(cm.by)}${cm.to !== null ? ` <span class="pill pill-info">προς: ${cm.to === -1 ? 'Διαχειριστές' : esc(adminName(cm.to))}</span>` : ''}
+      <span class="mut">${tShort(cm.at)}</span></div>
+    <div class="msg-b">${esc(cm.body)}</div>
+    ${(cm.files || []).length ? `<div class="msg-files">${cm.files.map(f => f.kind === 'image'
+      ? `<a href="${f.url}" target="_blank" class="msg-img" title="${esc(f.name)}"><img src="${f.url}" loading="lazy" alt="${esc(f.name)}"></a>`
+      : `<a href="${f.url}&dl=1" class="msg-file" title="${esc(f.name)}">${f.kind === 'video' ? '🎬' : f.kind === 'audio' ? '🎵' : '📎'} ${esc(f.name)}</a>`
+    ).join('')}</div>` : ''}
+  </div>`;
+
+  /* Ο χρόνος ήταν χαμένος στη μέση της στήλης — ανεβαίνει στην κεφαλίδα, μαζί
+     με την κατάσταση της χρέωσης, γιατί αυτά κοιτάς πρώτα. */
+  const billMins = (d.timelogs || []).filter(l => l.billable && !l.running)
+    .reduce((a, l) => a + (l.charged || l.mins || 0), 0);
   dr.innerHTML = `
   <div class="drawer-h">
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
     <h2>${esc(t.title)}</h2>
     <span class="pill" id="dStPill" style="background:${statusOf(t.status).color || '#8291a9'}22;color:${statusOf(t.status).color || '#8291a9'};font-weight:700">${esc(statusOf(t.status).title || '—')}</span>
+    <span class="tk-hdr">
+      <span class="tk-hdr-i" title="Καταγεγραμμένος χρόνος${t.est ? ' / εκτίμηση' : ''}">⏱ <b>${fmtMin(d.total)}</b>${t.est ? `<small>/ ~${fmtMin(t.est)}</small>` : ''}</span>
+      ${billMins ? `<span class="tk-hdr-i ${t.billOk ? 'ok' : 'warn'}" title="${t.billOk ? 'Εγκρίθηκε από το λογιστήριο' : 'Χρεώσιμος χρόνος — χρειάζεται έγκριση λογιστηρίου πριν κλείσει'}">💶 <b>${fmtMin(billMins)}</b> ${t.billOk ? '✔' : '⏳'}</span>` : ''}
+      ${d.timerHere ? '<span class="tk-hdr-i live">▶ τρέχει</span>' : ''}
+    </span>
     <button class="btn btn-sm ${d.watching ? 'btn-p' : 'btn-o'}" id="dWatch"
       title="${d.watching ? 'Την παρακολουθείς — ειδοποιήσεις σε κάθε αλλαγή. Κλικ για διακοπή.' : 'Παρακολούθηση: ειδοποίηση σε κάθε αλλαγή αυτής της εργασίας.'}"
       aria-label="Παρακολούθηση εργασίας">${I.eye}${d.watchers ? ' ' + d.watchers : ''}</button>
     <button class="drawer-x" id="dX">✕</button>
   </div>
-  <div class="drawer-b">
+  <div class="drawer-b tk-modal-b">
     ${t.done ? `<div class="card done-card"><div class="card-b">
       <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
       ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
@@ -1218,14 +1239,14 @@ async function openTask(id) {
       <label class="lbl">Τίτλος</label>
       <input class="inp" id="fTitle" value="${esc(t.title)}">
       <div class="frow" style="margin-top:12px">
-        <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span> ${me.full ? '' : (I.lock)}</label>
-          <select class="inp" id="fAssignee" ${me.full ? '' : 'disabled'}>${admOpts(t.assignee, t.dept)}</select></div>
+        <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span></label>
+          <select class="inp" id="fAssignee">${admOpts(t.assignee, t.dept)}</select></div>
         <div><label class="lbl">Κατάσταση</label>
           <select class="inp" id="fStatus">${S.boot.statuses.map(st =>
             `<option value="${st.id}" ${st.id === t.status ? 'selected' : ''}>${esc(st.title)}${st.done ? ' ✔' : ''}</option>`).join('')}</select></div>
         <div><label class="lbl">⚡ Η μπάλα σε</label><select class="inp" id="fBall">${admOpts(t.ball, t.dept)}</select></div>
-        <div><label class="lbl">Προτεραιότητα ${me.full ? '' : (I.lock)}</label>
-          <select class="inp" id="fPrio" ${me.full ? '' : 'disabled'}>
+        <div><label class="lbl">Προτεραιότητα</label>
+          <select class="inp" id="fPrio">
             ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
@@ -1236,8 +1257,8 @@ async function openTask(id) {
         <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
         <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
       </div>
-      <label class="lbl" style="margin-top:12px">Περιγραφή</label>
-      ${rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 120})}
+      <label class="lbl" style="margin-top:12px">${I.doc || ''} <b>1. Το ζητούμενο</b> — τι ακριβώς πρέπει να γίνει</label>
+      ${rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 260})}
       <div style="display:flex;gap:9px;margin-top:13px;align-items:center">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
@@ -1253,7 +1274,7 @@ async function openTask(id) {
       </div>
     </div></div>
 
-    <div class="card"><div class="card-h">⏱ Χρόνος <span class="mut" style="font-weight:600">${fmtMin(d.total)}${t.est ? ' / ~' + fmtMin(t.est) : ''}</span>
+    <div class="card tk-side"><div class="card-h">⏱ Χρόνος <span class="mut" style="font-weight:600">${fmtMin(d.total)}${t.est ? ' / ~' + fmtMin(t.est) : ''}</span>
       <span style="flex:1"></span>
       ${d.timerHere ? `<span class="timer-live" id="tLive"></span><button class="btn btn-sm btn-danger" id="tStop">${I.stop} Stop</button>`
         : d.timerElsewhere ? `<span class="pill pill-warn">τρέχει αλλού</span><button class="btn btn-sm btn-ok" id="tStart">${I.play} Εδώ</button>`
@@ -1268,6 +1289,15 @@ async function openTask(id) {
         <button class="btn btn-sm btn-o" id="tAdd">Καταχώρηση</button>
       </div>
       ${d.scClient ? `<div class="mut" style="font-size:11.5px;margin-top:7px">Πελάτης: <b>${esc(d.scClient)}</b> — τα χρεώσιμα αφαιρούν προαγορά</div>` : ''}
+      ${billMins ? `<div class="bill-gate ${t.billOk ? 'ok' : ''}">
+        <div><b>${t.billOk ? '✔ Η χρέωση εγκρίθηκε' : '⏳ Εκκρεμεί έγκριση λογιστηρίου'}</b>
+          <div class="mut" style="font-size:11px">${t.billOk
+            ? `${esc(t.billOkBy ? adminName(t.billOkBy) : '')}${t.billOkAt ? ' · ' + tShort(t.billOkAt) : ''}`
+            : `${fmtMin(billMins)} χρεώσιμος χρόνος — η εργασία δεν κλείνει πριν εγκριθεί`}</div></div>
+        ${(me.areas || []).includes('finance')
+          ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
+          : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
+      </div>` : ''}
       ${d.timelogs.length ? `<div style="margin-top:12px">${d.timelogs.slice(0, 6).map(l =>
         `<div style="display:flex;gap:9px;font-size:12px;padding:4px 0" class="${l.running ? '' : ''}">
           <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
@@ -1276,7 +1306,7 @@ async function openTask(id) {
           <span class="mut" style="margin-left:auto">${tShort(l.at)}</span></div>`).join('')}</div>` : ''}
     </div></div>
 
-    <div class="card"><div class="card-h">${I.link} Εξαρτήσεις <span class="mut" style="font-weight:600;font-size:11px">— πρέπει να τελειώσουν πρώτα</span></div>
+    <div class="card tk-side"><div class="card-h">${I.link} Εξαρτήσεις <span class="mut" style="font-weight:600;font-size:11px">— πρέπει να τελειώσουν πρώτα</span></div>
       <div class="card-b" id="dDeps">
       ${(d.deps || []).map(dp => `<div style="display:flex;gap:8px;align-items:center;padding:4px 0">
         <span>${dp.done ? '✅' : '⏳'}</span>
@@ -1287,27 +1317,33 @@ async function openTask(id) {
         <button class="btn btn-sm btn-o" id="depAdd">+</button></div>
     </div></div>
 
-    <div class="card"><div class="card-h">${I.clip} Αρχεία</div><div class="card-b" id="dFiles">
+    <div class="card tk-side"><div class="card-h">${I.clip} Αρχεία <span class="mut" style="font-weight:600;font-size:11px">— γενικά της εργασίας</span></div><div class="card-b" id="dFiles">
       <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
 
-    <div class="card"><div class="card-h">${I.checkSquare} Checklist
-      <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα της εργασίας· η πρόοδος φαίνεται στην κάρτα</span></div><div class="card-b" id="dCheck">
+    <div class="card tk-step"><div class="card-h">${I.checkSquare} <b>2. Ενέργειες</b>
+      <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα· η πρόοδος φαίνεται στην κάρτα</span></div><div class="card-b" id="dCheck">
       ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${esc(it.title)}</span></div>`).join('')}
       <div style="display:flex;gap:8px;margin-top:9px">
         <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)"></div>
     </div></div>
 
-    <div class="card"><div class="card-h">${I.chat} Εσωτερική συνομιλία
+    <div class="card tk-step tk-chat"><div class="card-h">${I.chat} <b>3. Επικοινωνία</b>
       <span class="mut" style="font-weight:600;font-size:11px">— μεταξύ μας· ο πελάτης δεν τη βλέπει</span></div><div class="card-b">
-      <div id="dMsgs">${d.comments.map(cm => `<div class="msg ${cm.byId === me.id ? 'mine' : ''}">
-        <div class="msg-h">${esc(cm.by)}${cm.to !== null ? ` <span class="pill pill-info">προς: ${cm.to === -1 ? 'Διαχειριστές' : esc(adminName(cm.to))}</span>` : ''}
-          <span class="mut">${tShort(cm.at)}</span></div>
-        <div class="msg-b">${esc(cm.body)}</div></div>`).join('') || '<div class="mut" style="font-size:12.5px">Καμία κουβέντα ακόμη.</div>'}</div>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <input class="inp" id="cmBody" placeholder="Γράψε μήνυμα… (Enter)" style="flex:1">
-        <select class="inp" id="cmTo" style="width:180px" title="Σε ποιον στέλνει ειδοποίηση· «απλό» = μόνο σε όσους παρακολουθούν"><option value="">— χωρίς παραλήπτη —</option>
-          <option value="-1">Διαχειριστές (όλοι)</option>
-          ${S.boot.admins.filter(a => a.id !== me.id).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+      <div id="dMsgs">${d.comments.map(cmHtml).join('') || '<div class="mut" style="font-size:12.5px">Καμία κουβέντα ακόμη.</div>'}</div>
+      <div class="cm-box">
+        <textarea class="inp" id="cmBody" rows="3"
+          placeholder="Γράψε μήνυμα…&#10;Enter = αποστολή · Shift+Enter = νέα γραμμή"></textarea>
+        <div class="cm-row">
+          <select class="inp" id="cmTo" title="Υποχρεωτικό — σε ποιον απευθύνεται">
+            <option value="">— διάλεξε παραλήπτη —</option>
+            <option value="-1">Διαχειριστές (όλοι)</option>
+            ${S.boot.admins.filter(a => a.id !== me.id).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+          <input type="file" id="cmFiles" multiple hidden>
+          <button class="btn btn-o btn-sm" id="cmAttach" title="Επισύναψη στο μήνυμα">${I.clip} Αρχεία</button>
+          <span class="mut" id="cmFileN" style="font-size:11.5px"></span>
+          <span style="flex:1"></span>
+          <button class="btn btn-p btn-sm" id="cmSend">Αποστολή</button>
+        </div>
       </div>
     </div></div>
 
@@ -1316,6 +1352,16 @@ async function openTask(id) {
         <b>${esc(a.detail || a.action)}</b> <span class="mut">— ${esc(a.by)} · ${tShort(a.at)}</span></div>`).join('')}</div></details>
   </div>`;
   document.body.append(ovl, dr);
+  /* Δύο στήλες: αριστερά η ροή (ζητούμενο → ενέργειες → επικοινωνία), δεξιά τα
+     βοηθητικά (χρόνος, εξαρτήσεις, αρχεία). Η αναδιάταξη γίνεται εδώ και όχι
+     στο template, ώστε η σειρά του DOM να μένει λογική και σε κινητό. */
+  (() => {
+    const body = $('.tk-modal-b', dr); if (!body) { return; }
+    const main = document.createElement('div'); main.className = 'tk-col-main';
+    const side = document.createElement('div'); side.className = 'tk-col-side';
+    [...body.children].forEach(el => (el.classList.contains('tk-side') ? side : main).appendChild(el));
+    body.append(main, side);
+  })();
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
   $('#dX').onclick = () => cnpAskClose(dr);
@@ -1390,6 +1436,13 @@ async function openTask(id) {
     }
   });
 
+  const bok = $('#dBillOk', dr);
+  if (bok) bok.onclick = async () => {
+    const r = await api('task_billing_ok', {task: id, ok: !t.billOk}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast(r.billOk ? 'Η χρέωση εγκρίθηκε' : 'Η έγκριση ανακλήθηκε');
+    openTask(id);
+  };
   $('#dWatch', dr).onclick = async () => {
     const r = await api('watch', {task: id});
     toast(r.watching ? 'Θα ειδοποιείσαι σε κάθε αλλαγή αυτής της εργασίας'
@@ -1452,10 +1505,37 @@ async function openTask(id) {
     await api('check_toggle', {id: +cb.dataset.chk});
     cb.closest('.chk').classList.toggle('done', cb.checked);
   });
-  $('#cmBody', dr).onkeydown = async e => {
-    if (e.key !== 'Enter' || !e.target.value.trim()) return;
-    await api('comment', {task: id, body: e.target.value.trim(), to: $('#cmTo').value === '' ? null : +$('#cmTo').value});
-    toast('Στάλθηκε'); openTask(id);
+  /* Συνομιλία: Enter στέλνει, Shift+Enter αλλάζει γραμμή. Ο παραλήπτης είναι
+     υποχρεωτικός — μήνυμα «προς κανέναν» δεν το διαβάζει κανείς. Τα συνημμένα
+     κρέμονται στο ΜΗΝΥΜΑ, οπότε ανεβαίνουν αφού πάρουμε το id του. */
+  let cmPicked = [];
+  const cmFileIn = $('#cmFiles', dr), cmN = $('#cmFileN', dr);
+  if (cmFileIn) {
+    $('#cmAttach', dr).onclick = () => cmFileIn.click();
+    cmFileIn.onchange = () => {
+      cmPicked = [...cmFileIn.files];
+      cmN.textContent = cmPicked.length ? `${cmPicked.length} αρχεί${cmPicked.length === 1 ? 'ο' : 'α'}` : '';
+    };
+  }
+  const cmSend = async () => {
+    const body = $('#cmBody', dr).value.trim();
+    const to = $('#cmTo', dr).value;
+    if (!body && !cmPicked.length) { return; }
+    if (to === '') { toast('Διάλεξε παραλήπτη', true); $('#cmTo', dr).focus(); return; }
+    const r = await api('comment', {task: id, body: body || '(συνημμένο)', to: +to}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    for (const f of cmPicked) {
+      const fd = new FormData();
+      fd.append('module', 'task'); fd.append('ref_type', 'comment'); fd.append('ref_id', r.id); fd.append('file', f);
+      await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
+        .then(x => x.json()).catch(() => null);
+    }
+    toast(cmPicked.length ? 'Στάλθηκε με συνημμένα' : 'Στάλθηκε');
+    openTask(id);
+  };
+  $('#cmSend', dr).onclick = cmSend;
+  $('#cmBody', dr).onkeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); cmSend(); }
   };
 }
 /** Άμεσο κλείσιμο ΧΩΡΙΣ ερώτηση — το καλούν τα views ΜΕΤΑ από επιτυχή αποθήκευση. */

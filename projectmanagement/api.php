@@ -1119,6 +1119,9 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
         'dept' => isset($t->dept_id) && $t->dept_id ? (int) $t->dept_id : null,
+        'billOk' => !empty($t->billing_ok),
+        'billOkBy' => isset($t->billing_ok_by) && $t->billing_ok_by ? (int) $t->billing_ok_by : null,
+        'billOkAt' => $t->billing_ok_at ?? null,
         'done' => (bool) $t->completed_at,
         'doneAt' => $t->completed_at,
         'doneNote' => $t->completed_note ?? null,
@@ -1282,7 +1285,7 @@ function cnp_action_area($action)
         $add('projects', ['board', 'task', 'save_task', 'move_task', 'quick_task', 'comment',
             'portfolio', 'save_project', 'archive_project', 'project_delete', 'project_from_offer',
             'gantt', 'gantt_move', 'list', 'time', 'time_add', 'timer_start', 'timer_stop',
-            'depts_load', 'dept_view', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
+            'depts_load', 'dept_view', 'task_billing_ok', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
             'dep_add', 'dep_del', 'check_add', 'check_toggle', 'watch', 'request_update',
             'recurring', 'save_recurring', 'del_recurring', 'recurrent',
             'share_save', 'share_info', 'share_revoke', 'share_reply', 'add_expense', 'del_expense',
@@ -1475,9 +1478,23 @@ case 'task':
         fail('task', 404);
     }
     $comments = [];
+    $cIds = [];
+    foreach (Db::comments($t->id) as $c) { $cIds[] = (int) $c->id; }
+    /* Τα συνημμένα κρέμονται στο ΜΗΝΥΜΑ, όχι στην εργασία: αλλιώς δέκα εικόνες
+       από πέντε συνομιλίες γίνονται ένας σωρός χωρίς συμφραζόμενα. Ένα ερώτημα
+       για όλα — όχι ένα ανά μήνυμα. */
+    $cFiles = [];
+    if ($cIds) {
+        foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')
+                     ->where('ref_type', 'comment')->whereIn('ref_id', $cIds)
+                     ->orderBy('id')->get() as $f) {
+            $cFiles[(int) $f->ref_id][] = cnp_file_row($f);
+        }
+    }
     foreach (Db::comments($t->id) as $c) {
         $comments[] = ['id' => (int) $c->id, 'by' => Db::adminName($c->admin_id), 'byId' => (int) $c->admin_id,
-            'to' => $c->to_admin !== null ? (int) $c->to_admin : null, 'body' => $c->comment, 'at' => $c->created_at];
+            'to' => $c->to_admin !== null ? (int) $c->to_admin : null, 'body' => $c->comment, 'at' => $c->created_at,
+            'files' => $cFiles[(int) $c->id] ?? []];
     }
     $logs = [];
     foreach (Db::timelogsForTask($t->id) as $l) {
@@ -2295,6 +2312,16 @@ case 'move_task':
         if (!empty($bm[(int) $t->id])) {
             fail('Μπλοκάρεται από: ' . implode(', ', array_slice($bm[(int) $t->id], 0, 3)));
         }
+        /* Χρεώσιμος χρόνος χωρίς έγκριση λογιστηρίου: αν κλείσει τώρα, ο χρόνος
+           δεν θα τιμολογηθεί ποτέ γιατί κανείς δεν θα τον ξανακοιτάξει. */
+        if (empty($t->billing_ok)) {
+            $billMin = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)
+                ->where('billable', 1)->where('running', 0)->sum('minutes');
+            if ($billMin > 0) {
+                fail('Έχει ' . round($billMin / 60, 1) . 'ω χρεώσιμο χρόνο χωρίς έγκριση λογιστηρίου — '
+                    . 'δεν κλείνει πριν εγκριθεί η χρέωση', 409);
+            }
+        }
     }
     $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId, (string) ($in['note'] ?? ''));
     if ($ok && !$FULL) {
@@ -2365,18 +2392,18 @@ case 'save_task':
                 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid);
         }
     }
-    // χαρακτηρισμός: assignee/priority μόνο από διαχειριστές
-    if ($FULL) {
-        if (array_key_exists('assignee', $in)) {
-            $newA = (int) $in['assignee'] ?: null;
-            if ($newA && $newA !== (int) $t->assignee) {
-                Notify::assigned($tid, $newA, $adminId);
-            }
-            $data['assignee'] = $newA;
+    /* Ανάθεση & προτεραιότητα: όποιος βλέπει την εργασία μπορεί να τις ορίσει.
+       Ήταν κλειδωμένες σε διαχειριστές, που σήμαινε ότι ο τεχνικός δεν μπορούσε
+       να δώσει τη δουλειά σε συνάδελφο ούτε να ανεβάσει προτεραιότητα. */
+    if (array_key_exists('assignee', $in)) {
+        $newA = (int) $in['assignee'] ?: null;
+        if ($newA && $newA !== (int) $t->assignee) {
+            Notify::assigned($tid, $newA, $adminId);
         }
-        if (array_key_exists('prio', $in)) {
-            $data['priority'] = min(2, max(0, (int) $in['prio']));
-        }
+        $data['assignee'] = $newA;
+    }
+    if (array_key_exists('prio', $in)) {
+        $data['priority'] = min(2, max(0, (int) $in['prio']));
     }
     Db::saveTask($tid, $data, $adminId);
     Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
@@ -2389,14 +2416,41 @@ case 'comment':
     if (!$t || !Db::canSeeTask($adminId, $t) || $body === '') {
         fail('input');
     }
-    $to = ($in['to'] ?? '') !== '' && $in['to'] !== null ? (int) $in['to'] : null;
-    Db::addComment($tid, $adminId, mb_substr($body, 0, 60000), $to);
+    /* Παραλήπτης υποχρεωτικός: μήνυμα «προς όλους» δεν το διαβάζει κανείς και
+       δεν χρεώνεται σε κανέναν η απάντηση. */
+    $to = ($in['to'] ?? '') !== '' && $in['to'] !== null ? (int) $in['to'] : 0;
+    if ($to <= 0) {
+        fail('Διάλεξε παραλήπτη για το μήνυμα');
+    }
+    $cid9 = Db::addComment($tid, $adminId, mb_substr($body, 0, 60000), $to);
     Notify::commented($tid, $adminId, $body);
     if ($to !== null) {
         Notify::commentTo($tid, $adminId, $body, $to);
     }
     Notify::watchers($tid, $adminId, 'Σχόλιο στο: ' . $t->title, null);
-    out(['ok' => true]);
+    out(['ok' => true, 'id' => $cid9]);
+
+case 'task_billing_ok':                   // έγκριση λογιστηρίου για χρεώσιμη εργασία
+    $tid = (int) ($in['task'] ?? 0);
+    $t = Db::task($tid);
+    if (!$t) { fail('task', 404); }
+    /* Την έγκριση τη δίνει μόνο το λογιστήριο (κύκλωμα «Οικονομικά») ή
+       διαχειριστής — όχι αυτός που έκανε τη δουλειά. */
+    if (!in_array('finance', cnp_admin_areas($adminId, $FULL), true)) {
+        fail('Μόνο το λογιστήριο μπορεί να εγκρίνει τη χρέωση', 403);
+    }
+    $on9 = !empty($in['ok']);
+    Capsule::table('mod_cpm_tasks')->where('id', $tid)->update([
+        'billing_ok' => $on9 ? 1 : 0,
+        'billing_ok_by' => $on9 ? $adminId : null,
+        'billing_ok_at' => $on9 ? date('Y-m-d H:i:s') : null,
+    ]);
+    Db::logActivity($tid, $adminId, 'billing', $on9 ? 'Εγκρίθηκε η χρέωση από το λογιστήριο' : 'Ανακλήθηκε η έγκριση χρέωσης');
+    if ($on9 && $t->assignee) {
+        Db::pushNotification((int) $t->assignee, 'action',
+            '💶 Εγκρίθηκε η χρέωση — μπορεί να κλείσει: ' . $t->title, '/project/#/task/' . $tid);
+    }
+    out(['ok' => true, 'billOk' => $on9]);
 
 case 'timer_start':
     $tid = (int) ($in['task'] ?? 0);
