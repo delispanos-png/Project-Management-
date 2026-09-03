@@ -1797,3 +1797,47 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .td-seg{width:100%}
   .td-seg button{flex:1;text-align:center}
 }
+
+/* ═════════ Δραστηριότητα ═════════
+   Ο σκοπός είναι να διαβάζεται σε τρία δευτερόλεπτα: ποιος δουλεύει τώρα
+   ξεχωρίζει με χρώμα και παλμό, τα υπόλοιπα υποχωρούν. */
+.act-h{display:flex;align-items:center;gap:9px;margin-bottom:10px;font-size:13.5px;flex-wrap:wrap}
+.act-h b{font-size:14px}
+
+.act-ava{width:36px;height:36px;flex:none;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:12.5px;color:#fff;background:var(--sc);position:relative;letter-spacing:.3px}
+.act-ava::after{content:'';position:absolute;right:-2px;bottom:-2px;width:11px;height:11px;border-radius:50%;
+  background:var(--sc);border:2.5px solid var(--card)}
+
+.act-p{transition:border-color .14s,box-shadow .14s}
+.act-p:hover{border-color:#0090dd55}
+.act-p.busy{border-left:3px solid var(--brand)}
+
+.act-doing{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--txt);margin-top:3px}
+.act-doing.idle{color:var(--mut);font-size:12px}
+.act-doing svg{width:13px;height:13px;flex:none;opacity:.8}
+.act-min{margin-left:4px;font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums}
+/* Παλμός μόνο εκεί που κάτι πραγματικά τρέχει — αλλού είναι θόρυβος. */
+.act-live{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;animation:actPulse 1.8s ease-in-out infinite}
+@keyframes actPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.act-live{animation:none}}
+
+.act-nums{display:flex;gap:11px;align-items:center;flex-wrap:wrap;font-size:12px;font-weight:700;color:var(--mut)}
+.act-nums span{display:inline-flex;align-items:center;gap:4px}
+.act-nums svg{width:13px;height:13px;opacity:.8}
+
+.act-day{font-size:10.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--mut);
+  padding:14px 2px 6px}
+.act-row{display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border-radius:9px;font-size:12.5px}
+.act-row[data-task],.act-row[data-tk]{cursor:pointer}
+.act-row:hover{background:#0090dd0a}
+.act-time{flex:none;width:40px;color:var(--mut);font-variant-numeric:tabular-nums;font-size:11.5px;padding-top:1px}
+.act-i{flex:none;color:var(--mut);display:flex;padding-top:1px}
+.act-i svg{width:14px;height:14px}
+.act-txt{flex:1;min-width:0;color:var(--txt);line-height:1.45}
+.act-what{color:var(--ink);font-weight:600}
+
+@media (max-width:768px){
+  .act-nums{width:100%;justify-content:flex-start;gap:9px}
+  .act-time{width:36px}
+}

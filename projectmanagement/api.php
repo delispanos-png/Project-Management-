@@ -700,6 +700,29 @@ function cnp_prepaid_products()
     usort($out, function ($a, $b) { return $a['hours'] <=> $b['hours']; });
     return $out;
 }
+/**
+ * Οι απαντήσεις σε tickets κρατούν το ΟΝΟΜΑ του χειριστή, όχι id. Χαρτογράφηση
+ * ονόματος/username → id, με την ίδια λογική που χρησιμοποιεί η «Απόδοση
+ * χειριστών»: τα bot/chatbot μένουν έξω γιατί δεν είναι άνθρωποι της ομάδας.
+ */
+function cnp_admin_by_name($name)
+{
+    static $map = null;
+    if ($map === null) {
+        $map = [];
+        foreach (Capsule::table('tbladmins')->where('disabled', 0)
+            ->get(['id', 'firstname', 'lastname', 'username']) as $a) {
+            $nm = trim($a->firstname . ' ' . $a->lastname);
+            if (preg_match('/\b(bot|debug|good ?day|chat ?bot)\b/i', $nm . ' ' . $a->username)) {
+                continue;
+            }
+            foreach (array_filter([$nm, (string) $a->username]) as $k) {
+                $map[mb_strtolower($k)] = (int) $a->id;
+            }
+        }
+    }
+    return $map[mb_strtolower(trim((string) $name))] ?? 0;
+}
 function cnp_area_defs()
 {
     /* Ένα δικαίωμα = μία ενότητα του μενού, με το ίδιο όνομα. Η σειρά εδώ είναι
@@ -714,7 +737,7 @@ function cnp_area_defs()
            project manager το KPI έπρεπε να του δώσεις και τα οικονομικά και τις
            ρυθμίσεις. Σπασμένη σε τρία, δίνεται κατά ενότητα. */
         'prepaid'  => ['Προαγορά χρόνου', 'Συμβόλαια, υπόλοιπα, ακάλυπτος χρόνος, μηνιαίες αναφορές'],
-        'reports'  => ['Αναφορές & απόδοση', 'Πλάνο ημέρας, KPI, ανάλυση ριζών, απόδοση χειριστών'],
+        'reports'  => ['Αναφορές & απόδοση', 'Δραστηριότητα, πλάνο ημέρας, KPI, ανάλυση ριζών, απόδοση'],
         'finance'  => ['Οικονομικά', 'Κερδοφορία, συμφωνία πληρωμών, λογιστικός έλεγχος, αναστολές'],
         'hr'       => ['Προσλήψεις', 'Βιογραφικά και αξιολογήσεις υποψηφίων'],
         'admin'    => ['Σύστημα', 'Ομάδες & δικαιώματα, χρήστες, ρυθμίσεις, automations, πακέτα'],
@@ -1387,7 +1410,7 @@ function cnp_action_area($action)
            «Αναφορές» έτρωγε 403 σε κάθε φόρτωση. */
         $add('prepaid', ['prepaid', 'prepaid_client', 'prepaid_save', 'prepaid_move',
             'prepaid_offer', 'prepaid_offer_cover', 'prepaid_report', 'prepaid_report_send']);
-        $add('reports', ['kpi', 'perf', 'triage', 'rootcause']);
+        $add('reports', ['kpi', 'perf', 'triage', 'rootcause', 'activity']);
         $add('finance', ['profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'suspend_queue', 'suspend_mark',
             'suspend_do', 'suspend_notice', 'suspend_notice_send']);
@@ -2637,6 +2660,149 @@ case 'kpi':
         'agents' => $list, 'workload' => array_values($wl),
         'month' => ['won' => Db::wonValueForMonth(date('Y-m')), 'laborCost' => round($mins / 60 * $costH, 2),
             'expenses' => $exp, 'minutes' => $mins]]);
+
+/* ================= ΔΡΑΣΤΗΡΙΟΤΗΤΑ =================
+   «Τι κάνει η ομάδα αυτή τη στιγμή». Δύο μέρη: ποιος είναι μπροστά στην οθόνη
+   και με τι καταπιάνεται τώρα, και η ροή του τι έγινε πραγματικά. Τίποτα δεν
+   γράφεται εδώ — μόνο διαβάζεται, από τις ίδιες πηγές που το παράγουν. */
+case 'activity':
+    $hrs = min(168, max(1, (int) ($_GET['h'] ?? 24)));
+    $since = date('Y-m-d H:i:s', time() - $hrs * 3600);
+    $today0 = date('Y-m-d') . ' 00:00:00';
+    $doneIds9 = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $now9 = time();
+
+    /* ── ποιος είναι εδώ και τι κάνει ── */
+    $people = [];
+    foreach (Capsule::table('tbladmins')->where('disabled', 0)->orderBy('firstname')
+        ->get(['id', 'firstname', 'lastname', 'username']) as $a9) {
+        $aid = (int) $a9->id;
+        $nm9 = trim($a9->firstname . ' ' . $a9->lastname);
+        if (preg_match('/\b(bot|debug|good ?day|chat ?bot|team team|support team)\b/i', $nm9 . ' ' . $a9->username)) {
+            continue;
+        }
+        $seen = (int) Db::pref($aid, 'last_seen', '0');
+        $manual = Db::pref($aid, 'chat_status', 'online');
+        $idle = $seen ? $now9 - $seen : null;
+        $status = $manual === 'offline' ? 'offline'
+            : ($manual === 'meeting' ? 'meeting'
+            : ($idle !== null && $idle < 90 ? 'online' : ($idle !== null && $idle < 1800 ? 'away' : 'offline')));
+
+        // τρέχον χρονόμετρο = η πιο άμεση απάντηση στο «με τι ασχολείται τώρα»
+        $tm = Capsule::table('mod_cpm_timelogs as tl')->leftJoin('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->where('tl.admin_id', $aid)->where('tl.running', 1)
+            ->orderBy('tl.id', 'desc')->first(['tl.id', 'tl.started_at', 't.id as tid', 't.title', 'p.name as pname']);
+        $timer = $tm ? ['task' => (int) $tm->tid, 'title' => $tm->title,
+            'project' => cnp_pn($tm->pname), 'since' => $tm->started_at,
+            'mins' => $tm->started_at ? max(0, (int) round(($now9 - strtotime($tm->started_at)) / 60)) : 0] : null;
+
+        // ανοιχτή απομακρυσμένη σύνδεση
+        $rs = Capsule::schema()->hasTable('mod_cpm_remote_sessions')
+            ? Capsule::table('mod_cpm_remote_sessions')->where('admin_id', $aid)->whereNull('ended_at')
+                ->orderBy('id', 'desc')->first(['clientid', 'tool', 'started_at', 'note'])
+            : null;
+        $remote = $rs ? ['client' => $rs->clientid ? clientLabel((int) $rs->clientid) : null,
+            'tool' => $rs->tool, 'since' => $rs->started_at, 'note' => $rs->note] : null;
+
+        $lastAct = Capsule::table('mod_cpm_activity')->where('admin_id', $aid)
+            ->orderBy('id', 'desc')->first(['action', 'detail', 'created_at', 'task_id']);
+
+        $people[] = [
+            'id' => $aid, 'name' => $nm9 ?: $a9->username,
+            'stale' => $idle === null || $idle > 7 * 86400,   // δεν φάνηκε εδώ και μια βδομάδα
+            'ini' => mb_strtoupper(mb_substr($a9->firstname, 0, 1) . mb_substr($a9->lastname, 0, 1)),
+            'status' => $status, 'idle' => $idle,
+            'reason' => $manual === 'offline' || $manual === 'meeting' ? Db::pref($aid, 'chat_reason', '') : '',
+            'timer' => $timer, 'remote' => $remote,
+            'openTasks' => (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
+                ->whereNotIn('status_id', $doneIds9)->count(),
+            'ball' => (int) Capsule::table('mod_cpm_tasks')->where('action_user', $aid)
+                ->whereNotIn('status_id', $doneIds9)->count(),
+            'tickets' => (int) Capsule::table('tbltickets')->where('flag', $aid)
+                ->whereNotIn('status', ['Closed', 'Cancelled'])->count(),
+            'minsToday' => (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $aid)
+                ->where('running', 0)->where('created_at', '>=', $today0)->sum('minutes'),
+            'doneToday' => (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $aid)
+                ->where('completed_at', '>=', $today0)->count(),
+            'lastAt' => $lastAct ? $lastAct->created_at : null,
+            'lastWhat' => $lastAct ? $lastAct->detail : null,
+        ];
+    }
+    /* Πρώτα όποιος δουλεύει τώρα, μετά οι συνδεδεμένοι, μετά οι υπόλοιποι. */
+    usort($people, function ($a, $b) {
+        $w = function ($p) {
+            if ($p['timer'] || $p['remote']) { return 0; }
+            return ['online' => 1, 'meeting' => 2, 'away' => 3, 'offline' => 4][$p['status']] ?? 4;
+        };
+        $wa = $w($a); $wb = $w($b);
+        if ($wa !== $wb) { return $wa <=> $wb; }
+        return strcmp($a['name'], $b['name']);
+    });
+
+    /* ── η ροή: τι έγινε πραγματικά ── */
+    $ACT = ['create' => ['άνοιξε εργασία', 'plus'], 'status' => ['μετακίνησε', 'board'],
+        'edit' => ['επεξεργάστηκε', 'doc'], 'assign' => ['ανέθεσε', 'user'],
+        'comment' => ['σχολίασε', 'chat'], 'time' => ['κατέγραψε χρόνο', 'clock'],
+        'timer' => ['ξεκίνησε χρονόμετρο', 'play'], 'auto' => ['αυτόματη ενέργεια', 'zap'],
+        'report' => ['έστειλε αναφορά', 'mail']];
+    $feed = [];
+    foreach (Capsule::table('mod_cpm_activity as a')->leftJoin('mod_cpm_tasks as t', 't.id', '=', 'a.task_id')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->where('a.created_at', '>=', $since)->orderBy('a.id', 'desc')->limit(200)
+        ->get(['a.id', 'a.admin_id', 'a.action', 'a.detail', 'a.created_at', 'a.task_id',
+            't.title', 'p.name as pname']) as $r9) {
+        $def = $ACT[$r9->action] ?? [$r9->action, 'doc'];
+        $feed[] = ['at' => $r9->created_at, 'admin' => (int) $r9->admin_id,
+            'who' => $r9->admin_id ? Db::adminName($r9->admin_id) : 'Σύστημα',
+            'verb' => $def[0], 'icon' => $def[1], 'kind' => 'task',
+            'what' => $r9->title, 'task' => (int) $r9->task_id,
+            'project' => $r9->pname ? cnp_pn($r9->pname) : null, 'note' => $r9->detail];
+    }
+    /* Απαντήσεις σε tickets: η μισή δουλειά της ομάδας ζει εκεί, όχι στα tasks. */
+    foreach (Capsule::table('tblticketreplies as r')->join('tbltickets as tk', 'tk.id', '=', 'r.tid')
+        ->where('r.date', '>=', $since)->whereRaw("COALESCE(r.admin,'') <> ''")
+        ->orderBy('r.id', 'desc')->limit(120)
+        ->get(['r.id', 'r.date', 'r.admin', 'tk.id as tkid', 'tk.tid as tnum', 'tk.title']) as $r9) {
+        $aid9 = cnp_admin_by_name($r9->admin);
+        $feed[] = ['at' => $r9->date, 'admin' => $aid9,
+            'who' => $aid9 ? Db::adminName($aid9) : trim((string) $r9->admin),
+            'verb' => 'απάντησε σε ticket', 'icon' => 'ticket',
+            'kind' => 'ticket', 'what' => $r9->title, 'ticket' => (int) $r9->tkid,
+            'tnum' => (int) $r9->tnum, 'project' => null, 'note' => null];
+    }
+    /* Καταχωρήσεις χρόνου: δείχνουν πού πήγε πραγματικά η ώρα. */
+    foreach (Capsule::table('mod_cpm_timelogs as tl')->leftJoin('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
+        ->where('tl.running', 0)->where('tl.created_at', '>=', $since)
+        ->orderBy('tl.id', 'desc')->limit(80)
+        ->get(['tl.id', 'tl.admin_id', 'tl.minutes', 'tl.billable', 'tl.note', 'tl.created_at',
+            't.id as tid', 't.title']) as $r9) {
+        $feed[] = ['at' => $r9->created_at, 'admin' => (int) $r9->admin_id,
+            'who' => Db::adminName($r9->admin_id),
+            'verb' => 'κατέγραψε ' . Cover::fmt((int) $r9->minutes) . ((int) $r9->billable ? ' χρεώσιμα' : ''),
+            'icon' => 'clock', 'kind' => 'time', 'what' => $r9->title, 'task' => (int) $r9->tid,
+            'project' => null, 'note' => $r9->note];
+    }
+    usort($feed, function ($a, $b) { return strcmp($b['at'], $a['at']); });
+    $feed = array_slice($feed, 0, 250);
+
+    /* ── σύνοψη ── */
+    $live = 0; $working = 0; $active = 0;
+    foreach ($people as $p9) {
+        if ($p9['status'] === 'online') { $live++; }
+        if ($p9['timer'] || $p9['remote']) { $working++; }
+        if (!$p9['stale']) { $active++; }
+    }
+    out(['people' => $people, 'feed' => $feed, 'hours' => $hrs,
+        'summary' => [
+            'online' => $live, 'working' => $working, 'team' => $active, 'all' => count($people),
+            'doneToday' => (int) Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $today0)->count(),
+            'repliesToday' => (int) Capsule::table('tblticketreplies')->where('date', '>=', $today0)
+                ->whereRaw("COALESCE(admin,'') <> ''")->count(),
+            'minsToday' => (int) Capsule::table('mod_cpm_timelogs')->where('running', 0)
+                ->where('created_at', '>=', $today0)->sum('minutes'),
+            'newTickets' => (int) Capsule::table('tbltickets')->where('date', '>=', $today0)->count(),
+        ]]);
 
 /* ================= NOTIFICATIONS ================= */
 case 'notifs':
@@ -9695,6 +9861,14 @@ case 'my_crm_tasks':                     // ανοιχτές CRM εργασίε�
     out(['tasks' => $out]);
 
 case 'version':
+    /* Ο σφυγμός κάθε 12" είναι ό,τι πιο αξιόπιστο έχουμε για «είναι μπροστά στην
+       οθόνη». Πριν, το `last_seen` το πείραζαν ΜΟΝΟ οι ενέργειες του chat, οπότε
+       όποιος δούλευε στο board χωρίς να ανοίξει chat έδειχνε απών. Γράφουμε μόνο
+       αν έχει περάσει μισό λεπτό, για να μη γίνεται update κάθε 12". */
+    $seenNow = time();
+    if ($seenNow - (int) Db::pref($adminId, 'last_seen', '0') > 30) {
+        Db::setPref($adminId, 'last_seen', (string) $seenNow);
+    }
     $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
     $b6 = (string) Capsule::table('mod_cpm_tasks')->count();
     $c6 = (string) Capsule::table('tbltickets')->max('lastreply');

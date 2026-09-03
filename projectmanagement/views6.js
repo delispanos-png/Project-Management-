@@ -5,7 +5,7 @@
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
 const {S, api, esc, fmtEur, dShort, dFull, toast, setTop, cnpConfirm, cnpDialog,
-  cnpDenied, closeDrawer, openTask, I, go, $, $$} = window.CNP;
+  cnpDenied, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 /* «2ω 30΄» — ίδια γραφή με τον server (Cover::fmt), για να διαβάζονται μαζί. */
@@ -428,3 +428,169 @@ async function reportPreview(clientId, from, to) {
 }
 
 window.openPrepaid = openPrepaid;
+
+/* ═════════ ΔΡΑΣΤΗΡΙΟΤΗΤΑ — τι κάνει η ομάδα τώρα ═════════
+   Δύο ερωτήσεις, δύο μέρη: «ποιος είναι μπροστά στην οθόνη και με τι
+   καταπιάνεται αυτή τη στιγμή» και «τι έγινε πραγματικά». Η σελίδα ανανεώνεται
+   μόνη της κάθε μισό λεπτό — παγώνει όταν φύγεις από την καρτέλα, για να μη
+   χτυπάει τον server χωρίς λόγο. */
+
+const ACT_ST = {
+  online:  ['Συνδεδεμένος', 'var(--ok)'],
+  meeting: ['Σε meeting', 'var(--warn)'],
+  away:    ['Απών', '#8595ac'],
+  offline: ['Εκτός', '#5d6b85'],
+};
+const ACT_ICO = {plus: 'plus', board: 'board', doc: 'doc', user: 'user', chat: 'chat',
+  clock: 'clock', play: 'play', zap: 'zap', mail: 'mail', ticket: 'ticket'};
+/** «πριν 3΄», «πριν 2ω», «χθες» */
+function actAgo(s) {
+  if (!s) { return '—'; }
+  const d = Math.floor((Date.now() - new Date(String(s).replace(' ', 'T')).getTime()) / 1000);
+  if (d < 60) { return 'μόλις τώρα'; }
+  if (d < 3600) { return 'πριν ' + Math.floor(d / 60) + '΄'; }
+  if (d < 86400) { return 'πριν ' + Math.floor(d / 3600) + 'ω'; }
+  const days = Math.floor(d / 86400);
+  return days === 1 ? 'χθες' : 'πριν ' + days + ' μέρες';
+}
+const actHm = m => {
+  m = Math.round(+m || 0);
+  const h = Math.floor(m / 60), r = m % 60;
+  return h && r ? h + 'ω ' + r + '΄' : h ? h + 'ω' : r + '΄';
+};
+
+R.activity = async function () {
+  setTop('Δραστηριότητα', 'Τι κάνει η ομάδα αυτή τη στιγμή');
+  const c = $('#content');
+  const st = R.activity._s = R.activity._s || {h: 24, who: 0, stale: false};
+  c.innerHTML = '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:400px"></div>';
+
+  const paint = d => {
+    const s = d.summary;
+    const live = d.people.filter(p => !p.stale);
+    const old = d.people.filter(p => p.stale);
+    const busy = d.people.filter(p => p.timer || p.remote);
+
+    const card = p => {
+      const [lbl, col] = ACT_ST[p.status] || ACT_ST.offline;
+      const doing = p.timer
+        ? `<div class="act-doing"><span class="act-live"></span>${I.clock}
+             <b>${esc(p.timer.title || 'Εργασία')}</b>
+             ${p.timer.project ? `<span class="mut">· ${esc(p.timer.project)}</span>` : ''}
+             <span class="act-min">${actHm(p.timer.mins)}</span></div>`
+        : p.remote
+        ? `<div class="act-doing"><span class="act-live"></span>${I.monitor}
+             <b>Απομακρυσμένη σύνδεση</b>
+             ${p.remote.client ? `<span class="mut">· ${esc(p.remote.client)}</span>` : ''}
+             <span class="act-min">${actAgo(p.remote.since)}</span></div>`
+        : p.status === 'online'
+        ? `<div class="act-doing idle">${I.eye} Στην εφαρμογή, χωρίς χρονόμετρο</div>`
+        : p.lastAt
+        ? `<div class="act-doing idle">${I.clock} Τελευταία κίνηση ${actAgo(p.lastAt)}${p.lastWhat ? ' · ' + esc(p.lastWhat) : ''}</div>`
+        : '';
+      return `<div class="card act-p${p.timer || p.remote ? ' busy' : ''}" data-who="${p.id}"
+        style="padding:12px 14px;margin-bottom:9px;cursor:pointer${st.who === p.id ? ';border-color:var(--brand)' : ''}">
+        <div style="display:flex;gap:11px;align-items:center;flex-wrap:wrap">
+          <span class="act-ava" style="--sc:${col}">${esc(p.ini || '?')}</span>
+          <div style="flex:1;min-width:150px">
+            <div style="font-weight:650;font-size:13.5px">${esc(p.name)}
+              <span class="mut" style="font-weight:500;font-size:11.5px">· ${lbl}${p.reason ? ' — ' + esc(p.reason) : ''}</span></div>
+            ${doing}
+          </div>
+          <div class="act-nums">
+            ${p.openTasks ? `<span title="ανοιχτές εργασίες">${I.checkSquare} ${p.openTasks}</span>` : ''}
+            ${p.ball ? `<span title="περιμένουν ενέργειά του" style="color:var(--warn)">${I.zap} ${p.ball}</span>` : ''}
+            ${p.tickets ? `<span title="tickets που χειρίζεται">${I.ticket} ${p.tickets}</span>` : ''}
+            ${p.minsToday ? `<span title="χρόνος σήμερα" style="color:var(--brand)">${I.clock} ${actHm(p.minsToday)}</span>` : ''}
+            ${p.doneToday ? `<span title="έκλεισε σήμερα" style="color:var(--ok)">✓ ${p.doneToday}</span>` : ''}
+          </div>
+        </div></div>`;
+    };
+
+    const feed = st.who ? d.feed.filter(e => e.admin === st.who) : d.feed;
+    const byDay = {};
+    feed.forEach(e => (byDay[e.at.slice(0, 10)] = byDay[e.at.slice(0, 10)] || []).push(e));
+    const dayLbl = k => {
+      const t = new Date().toISOString().slice(0, 10);
+      const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      return k === t ? 'Σήμερα' : k === y ? 'Χθες'
+        : new Date(k + 'T00:00').toLocaleDateString((window.CNP_LOCALE || 'el-GR'), {weekday: 'long', day: '2-digit', month: '2-digit'});
+    };
+
+    c.innerHTML = `
+    <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+      ${actStat(I.users, s.online + '/' + s.team, 'στην εφαρμογή τώρα', s.online ? 'var(--ok)' : 'var(--mut)')}
+      ${actStat(I.play, s.working, s.working === 1 ? 'δουλεύει αυτή τη στιγμή' : 'δουλεύουν αυτή τη στιγμή', s.working ? 'var(--brand)' : 'var(--mut)')}
+      ${actStat(I.clock, actHm(s.minsToday), 'χρόνος σήμερα', 'var(--violet)')}
+      ${actStat(I.ticket, s.repliesToday, 'απαντήσεις σήμερα', 'var(--info)')}
+      ${actStat(I.checkSquare, s.doneToday, 'έκλεισαν σήμερα', s.doneToday ? 'var(--ok)' : 'var(--mut)')}
+    </div>
+
+    <div class="act-h">
+      <b>Η ομάδα τώρα</b>
+      ${busy.length ? `<span class="pill pill-ok">${busy.length} σε εξέλιξη</span>` : '<span class="mut" style="font-size:12px">κανένα χρονόμετρο σε εξέλιξη</span>'}
+      <div style="flex:1"></div>
+      <button class="btn btn-o btn-sm" id="acRef" title="Ανανέωση τώρα">↻</button>
+    </div>
+    ${live.map(card).join('') || '<div class="mut" style="padding:10px 2px">Κανείς ενεργός.</div>'}
+    ${old.length ? `<button class="btn btn-o btn-sm" id="acOld" style="margin:4px 0 14px">
+      ${st.stale ? 'Κρύψε' : 'Δείξε'} ${old.length} που δεν φάνηκαν εδώ και μέρες</button>
+      ${st.stale ? old.map(card).join('') : ''}` : ''}
+
+    <div class="act-h" style="margin-top:18px">
+      <b>Ροή</b>
+      ${st.who ? `<span class="pill pill-info">μόνο ${esc((d.people.find(p => p.id === st.who) || {}).name || '')}
+        <button id="acAll" style="border:0;background:none;color:inherit;cursor:pointer;font-weight:800;padding:0 0 0 4px">✕</button></span>` : ''}
+      <div style="flex:1"></div>
+      <div class="td-seg">
+        ${[[8, '8 ώρες'], [24, '24 ώρες'], [72, '3 μέρες']].map(([h, l]) =>
+          `<button data-h="${h}" class="${st.h === h ? 'on' : ''}">${l}</button>`).join('')}
+      </div>
+    </div>
+    ${Object.keys(byDay).length ? Object.entries(byDay).map(([k, list]) => `
+      <div class="act-day">${dayLbl(k)}</div>
+      ${list.map(e => `<div class="act-row"${e.task ? ` data-task="${e.task}"` : (e.ticket ? ` data-tk="${e.ticket}"` : '')}>
+        <span class="act-time">${e.at.slice(11, 16)}</span>
+        <span class="act-i">${I[ACT_ICO[e.icon]] || I.doc}</span>
+        <span class="act-txt"><b>${esc(e.who)}</b> ${esc(e.verb)}
+          ${e.what ? `<span class="act-what">${esc(e.what)}</span>` : ''}
+          ${e.tnum ? `<span class="mut">#${e.tnum}</span>` : ''}
+          ${e.project ? `<span class="mut">· ${esc(e.project)}</span>` : ''}
+          ${e.note && e.note !== e.what ? `<span class="mut">— ${esc(e.note)}</span>` : ''}</span>
+      </div>`).join('')}`).join('')
+      : `<div class="empty" style="padding:36px">${I.sparkle}Καμία κίνηση ${st.who ? 'από αυτό το άτομο ' : ''}στο διάστημα που διάλεξες</div>`}
+    <div class="mut" style="text-align:center;font-size:11px;margin-top:14px">ανανεώνεται μόνο του κάθε 30΄΄</div>`;
+
+    $$('.act-p').forEach(el => el.onclick = () => {
+      const id = +el.dataset.who;
+      st.who = st.who === id ? 0 : id;
+      paint(d);
+    });
+    $$('[data-h]').forEach(b => b.onclick = () => { st.h = +b.dataset.h; load(); });
+    const ao = $('#acOld'); if (ao) { ao.onclick = () => { st.stale = !st.stale; paint(d); }; }
+    const aa = $('#acAll'); if (aa) { aa.onclick = e => { e.stopPropagation(); st.who = 0; paint(d); }; }
+    $('#acRef').onclick = () => load();
+    $$('.act-row[data-task]').forEach(el => el.onclick = () => openTask(+el.dataset.task));
+    $$('.act-row[data-tk]').forEach(el => el.onclick = () => go('#/inbox/' + el.dataset.tk));
+  };
+
+  const load = async () => {
+    let e0 = null;
+    const d = await api('activity&h=' + st.h).catch(e => { e0 = e; return null; });
+    if (!d) { c.innerHTML = cnpDenied(e0); return false; }
+    if (S.view !== 'activity') { return false; }   // άλλαξε οθόνη όσο φόρτωνε
+    paint(d);
+    return true;
+  };
+
+  await load();
+  /* Ένα μόνο χρονόμετρο, που σβήνει όταν φύγεις από την οθόνη. */
+  clearInterval(R.activity._t);
+  R.activity._t = setInterval(() => {
+    if (S.view !== 'activity') { clearInterval(R.activity._t); return; }
+    if (document.hidden) { return; }
+    load();
+  }, 30000);
+};
+const actStat = (ic, n, l, col) => `<div class="su-stat"><div class="ic" style="background:${col}1a;color:${col}">${ic}</div>
+  <div><div class="n">${n}</div><div class="l">${l}</div></div></div>`;
