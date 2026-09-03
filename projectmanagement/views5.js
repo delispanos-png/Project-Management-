@@ -761,6 +761,7 @@ R.templates = async function () {
       ${tp.category ? `<span class="pill pill-mut">${esc(tp.category)}</span>` : ''}
       ${tp.active ? '' : '<span class="pill pill-mut">ανενεργό</span>'}
       <span class="kb-n">${tp.steps.length} βήματα</span>
+      ${tp.checks.length ? `<span class="pill pill-ok" title="Ενέργειες παράδοσης">☑ ${tp.checks.length}</span>` : ''}
       ${tp.used ? `<span class="pill pill-mut" title="Σε πόσα έργα έχει μπει">${tp.used} υλοποιήσεις</span>` : ''}
       ${tp.budget ? `<span class="mut" style="font-size:11.5px">${fmtEur(tp.budget)}</span>` : ''}
       <span style="flex:1"></span>
@@ -770,6 +771,10 @@ R.templates = async function () {
     </div>
     ${st.open === tp.id ? `<div class="card-b">
       ${tp.descr ? `<div class="mut" style="font-size:12.5px;margin-bottom:9px;white-space:pre-wrap">${esc(tp.descr)}</div>` : ''}
+      ${tp.checks.length ? `<div class="dlv-box">
+        <b style="font-size:12px">${I.checkSquare} Checklist παράδοσης <span class="mut" style="font-weight:400">— υποχρεωτικό πριν κλείσει</span></b>
+        <div class="tpl-checks" style="margin-top:6px">${tp.checks.map(x => `<span>☑ ${esc(x)}</span>`).join('')}</div></div>`
+        : `<div class="mut" style="font-size:11.5px;margin-bottom:9px">Χωρίς checklist παράδοσης — πρόσθεσέ το από την επεξεργασία.</div>`}
       ${tp.steps.length ? `<table class="tbl"><thead><tr><th></th><th>Βήμα &amp; έλεγχοι</th><th>Ομάδα</th><th>Υπεύθυνος</th><th>Χρονισμός</th><th>Εκτ.</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
         <tbody>${tp.steps.map((s2, i) => stepRow(tp, s2, i)).join('')}</tbody></table>`
         : '<div class="mut" style="font-size:12.5px">Κανένα βήμα ακόμη.</div>'}
@@ -814,7 +819,7 @@ R.templates = async function () {
 /* Πρότυπο: ταυτότητα */
 function openTpl(tp, d) {
   closeDrawer();
-  tp = tp || {name: '', descr: '', color: '#0090dd', budget: null, active: true, steps: [], productId: null, category: ''};
+  tp = tp || {name: '', descr: '', color: '#0090dd', budget: null, active: true, steps: [], productId: null, category: '', checks: []};
   const ovl = document.createElement('div'); ovl.className = 'ovl';
   const dr = document.createElement('div'); dr.className = 'drawer';
   dr.innerHTML = `
@@ -839,6 +844,11 @@ function openTpl(tp, d) {
       <div><label class="lbl">Χρώμα</label><input type="color" class="inp" id="tpC" value="${tp.color}" style="height:40px;padding:4px"></div>
       <div><label class="lbl">Ενδεικτικό budget €</label><input class="inp" id="tpB" value="${tp.budget ?? ''}" placeholder="π.χ. 2500"></div>
     </div>
+    <label class="lbl" style="margin-top:14px">${I.checkSquare} Checklist παράδοσης — ένα ανά γραμμή</label>
+    <div class="mut" style="font-size:11.5px;margin-bottom:5px">Οι ενέργειες που πρέπει να επιβεβαιωθούν για να θεωρηθεί παραδοτέο.
+      Όταν το module ανατεθεί σε έργο, γίνονται εργασία <b>«Παράδοση: ${esc(tp.name || 'module')}»</b>
+      που <b>δεν κλείνει</b> όσο μένει ατσέκαρη ενέργεια.</div>
+    <textarea class="inp" id="tpCk" rows="7" placeholder="π.χ.&#10;Εγκατάσταση εφαρμογής&#10;Παραμετροποίηση αυτόματης ενημέρωσης Google&#10;Διασύνδεση με φαρμακαποθήκη&#10;Ρύθμιση αποστολής email&#10;Εκπαίδευση χρήστη & υπογραφή παράδοσης">${esc((tp.checks || []).join('\n'))}</textarea>
     <label style="display:flex;gap:7px;align-items:center;margin-top:11px;font-size:13px">
       <input type="checkbox" id="tpA" ${tp.active !== false ? 'checked' : ''}> Ενεργό — εμφανίζεται στην έναρξη νέας υλοποίησης</label>
     <div style="display:flex;gap:9px;margin-top:14px">
@@ -853,7 +863,8 @@ function openTpl(tp, d) {
     if (!$('#tpN', dr).value.trim()) { toast('Δώσε όνομα', true); return; }
     await api('template_save', {id: tp.id || 0, name: $('#tpN', dr).value, descr: $('#tpD', dr).value,
       color: $('#tpC', dr).value, budget: $('#tpB', dr).value.trim(), off: !$('#tpA', dr).checked,
-      product: +$('#tpP', dr).value || 0, category: $('#tpK', dr).value});
+      product: +$('#tpP', dr).value || 0, category: $('#tpK', dr).value,
+      checks: $('#tpCk', dr).value});
     toast('Αποθηκεύτηκε'); closeDrawer(); R.templates();
   };
   const del = $('#tpDel', dr);
@@ -933,7 +944,7 @@ function openClone(tp, d) {
     <div class="mod-pick">${active.map(m => `<label class="mod-opt ${tp && tp.id === m.id ? 'on' : ''}">
       <input type="checkbox" data-mod="${m.id}" ${tp && tp.id === m.id ? 'checked' : ''}>
       <span class="dot" style="background:${m.color};width:9px;height:9px"></span>
-      <b>${esc(m.name)}</b><small class="mut">${m.steps.length} βήματα${m.budget ? ' · ' + fmtEur(m.budget) : ''}</small></label>`).join('')
+      <b>${esc(m.name)}</b><small class="mut">${m.steps.length} βήματα${m.checks.length ? ' · ☑ ' + m.checks.length + ' παράδοσης' : ''}${m.budget ? ' · ' + fmtEur(m.budget) : ''}</small></label>`).join('')
       || '<div class="mut">Κανένα ενεργό module με βήματα.</div>'}</div>
 
     <div class="frow" style="margin-top:12px">
@@ -952,7 +963,7 @@ function openClone(tp, d) {
   const picked = () => $$('[data-mod]', dr).filter(x => x.checked).map(x => +x.dataset.mod);
   const summary = () => {
     const ids = picked(), ms = active.filter(m => ids.includes(m.id));
-    const steps = ms.reduce((a, m) => a + m.steps.length, 0);
+    const steps = ms.reduce((a, m) => a + m.steps.length + (m.checks.length ? 1 : 0), 0);
     const last = ms.reduce((a, m) => Math.max(a, ...m.steps.map(s2 => s2.offDeadline !== null ? s2.offDeadline : s2.offDue)), 0);
     const s0 = $('#clStart', dr).value;
     const end = s0 && ms.length ? dFull(new Date(new Date(s0 + 'T12:00:00').getTime() + last * 86400000).toISOString().slice(0, 10)) : '—';

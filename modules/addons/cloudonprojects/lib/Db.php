@@ -332,6 +332,23 @@ class Db
             });
         }
 
+        /* ── Checklist παράδοσης του module ──────────────────────────────────
+           Πέρα από τους ελέγχους κάθε βήματος, το module έχει τη ΔΙΚΗ ΤΟΥ λίστα
+           ενεργειών παράδοσης (εγκατάσταση, παραμετροποίηση, διασυνδέσεις…).
+           Όταν ανατεθεί σε έργο, γίνεται μία εργασία «Παράδοση: <module>» με
+           αυτά ως checklist — και η εργασία ΔΕΝ κλείνει όσο μένει έστω ένα
+           ατσέκαρο. Έτσι η παράδοση είναι απαιτητή, όχι προαιρετική. */
+        if (!$s->hasColumn('mod_cpm_templates', 'checks')) {
+            $s->table('mod_cpm_templates', function ($t) {
+                $t->text('checks')->nullable();      // ένας έλεγχος ανά γραμμή
+            });
+        }
+        if (!$s->hasColumn('mod_cpm_tasks', 'is_delivery')) {
+            $s->table('mod_cpm_tasks', function ($t) {
+                $t->tinyInteger('is_delivery')->default(0);
+            });
+        }
+
         /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
            Δύο διαφορετικοί άξονες που μπερδεύονταν:
              DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)

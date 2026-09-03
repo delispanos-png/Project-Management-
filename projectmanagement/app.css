@@ -1691,3 +1691,10 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .mod-head .kb-gchev.open{transform:rotate(90deg)}
 .mod-body{padding:4px 8px 8px;border-top:1px dashed var(--line)}
 .us-chip.sel{border-color:var(--brand);background:#0090dd14;font-weight:700}
+/* Checklist παράδοσης module */
+.dlv-box{border:1px solid var(--ok);background:#2dbd6e0d;border-radius:10px;padding:9px 11px;margin-bottom:10px}
+.dlv-task{border-left:3px solid var(--ok)!important;background:#2dbd6e08}
+.dlv-items{display:flex;flex-direction:column;gap:3px;margin:5px 0 2px 30px}
+.dlv-items label{display:flex;gap:7px;align-items:flex-start;font-size:12px;cursor:pointer}
+.dlv-items input{margin-top:2px;width:14px;height:14px;cursor:pointer}
+.dlv-items .ok{text-decoration:line-through;opacity:.55}

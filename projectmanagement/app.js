@@ -1153,11 +1153,11 @@ dnd('.tcard', '.kb-col', async (card, col) => {
     note = await askDone(card.querySelector('.tcard-t')?.textContent || '');
     if (note === null) { return; }          // άκυρο = η κάρτα μένει όπου ήταν
   }
-  const r = await api('move_task', {task: +card.dataset.task, status: st, note}).catch(() => ({ok: false}));
+  const r = await api('move_task', {task: +card.dataset.task, status: st, note}).catch(e => ({ok: false, error: e && e.message}));
   if (r.ok) {
     col.querySelector('.kb-cards').appendChild(card);
     $$('.kb-col').forEach(c => c.querySelector('.kb-n').textContent = c.querySelectorAll('.tcard').length);
-  } else toast('Δεν επιτρέπεται', true);
+  } else { toast(r.error || 'Δεν επιτρέπεται', true); vBoard(); }
 }, el => openTask(+el.dataset.task));
 
 /* ═════════ TASK DRAWER ═════════ */
@@ -1414,7 +1414,7 @@ async function openTask(id) {
       note = await askDone($('#fTitle').value || t.title);
       if (note === null) { stSel.value = prev; return; }
     }
-    const r = await api('move_task', {task: id, status: to, note}).catch(() => ({ok: false}));
+    const r = await api('move_task', {task: id, status: to, note}).catch(e => ({ok: false, error: e && e.message}));
     if (!r.ok) { stSel.value = prev; toast(r.error || 'Δεν επιτρέπεται', true); return; }
     toast('Κατάσταση: ' + (statusOf(to).title || '—'));
     openTask(id);
@@ -1428,7 +1428,7 @@ async function openTask(id) {
     if (!fin) { toast('Δεν υπάρχει στήλη ολοκλήρωσης', true); return; }
     const note = await askDone($('#fTitle').value || t.title);
     if (note === null) { return; }
-    const r = await api('move_task', {task: id, status: fin.id, note}).catch(() => ({ok: false}));
+    const r = await api('move_task', {task: id, status: fin.id, note}).catch(e => ({ok: false, error: e && e.message}));
     if (!r.ok) { toast(r.error || 'Δεν επιτρέπεται', true); return; }
     toast('Ολοκληρώθηκε'); closeDrawer();
     if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); } else if (window.R && window.R[S.view]) { window.R[S.view](); }
@@ -1884,7 +1884,7 @@ function dndLead(data) {
       if (col.dataset.stage === 'lost') {
         reason = (await cnpPrompt('Γιατί χάθηκε η πώληση;', {title: I.chat + ' Αιτία απώλειας', placeholder: 'προαιρετικό — βοηθά στη στατιστική', ok: 'Καταχώρηση', cancel: 'Χωρίς αιτία'})) || '';
       }
-      const r = await api('move_lead', {lead: +card.dataset.lead, stage: col.dataset.stage, reason}).catch(() => ({ok: false}));
+      const r = await api('move_lead', {lead: +card.dataset.lead, stage: col.dataset.stage, reason}).catch(e => ({ok: false, error: e && e.message}));
       if (r.ok) { col.querySelector('.kb-cards').appendChild(card);
         $$('.lcol').forEach(c => c.querySelector('.kb-n').textContent = c.querySelectorAll('.tcard').length);
       } else toast('Δεν επιτρέπεται', true);

@@ -1120,6 +1120,7 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
         'dept' => isset($t->dept_id) && $t->dept_id ? (int) $t->dept_id : null,
         'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
+        'delivery' => !empty($t->is_delivery),
         'billOk' => !empty($t->billing_ok),
         'billOkBy' => isset($t->billing_ok_by) && $t->billing_ok_by ? (int) $t->billing_ok_by : null,
         'billOkAt' => $t->billing_ok_at ?? null,
@@ -1408,7 +1409,8 @@ case 'templates':
             'color' => $x->color, 'budget' => $x->budget !== null ? (float) $x->budget : null,
             'active' => (bool) $x->active, 'steps' => $steps, 'used' => $used,
             'productId' => $x->product_id ? (int) $x->product_id : null, 'productName' => $prodName,
-            'category' => (string) ($x->category ?? '')];
+            'category' => (string) ($x->category ?? ''),
+            'checks' => array_values(array_filter(array_map('trim', explode("\n", (string) ($x->checks ?? '')))))];
     }
     /* Τα προϊόντα του WHMCS, για να δεθεί κάθε module με αυτό που πουλάμε. */
     $prods = [];
@@ -1434,6 +1436,7 @@ case 'template_save':
         'budget' => ($in['budget'] ?? '') !== '' ? round((float) str_replace(',', '.', (string) $in['budget']), 2) : null,
         'product_id' => (int) ($in['product'] ?? 0) ?: null,
         'category' => mb_substr(trim((string) ($in['category'] ?? '')), 0, 60) ?: null,
+        'checks' => trim((string) ($in['checks'] ?? '')) ?: null,
         'active' => empty($in['off']) ? 1 : 0];
     $tid = (int) ($in['id'] ?? 0);
     if ($tid) {
@@ -1561,6 +1564,33 @@ case 'project_add_modules':               // modules → εργασίες μέσ
             if ($st->assignee) { Notify::assigned($ntid, (int) $st->assignee, $adminId); }
             $made9++;
         }
+        /* Το checklist παράδοσης του module → μία εργασία που κλείνει τελευταία
+           και δεν κλείνει όσο μένει ατσέκαρο βήμα. */
+        $mChecks = array_values(array_filter(array_map('trim', explode("\n", (string) ($m->checks ?? '')))));
+        if ($mChecks) {
+            $lastStep = $steps9->last();
+            $dOff = $lastStep
+                ? ($lastStep->off_deadline !== null ? (int) $lastStep->off_deadline : (int) $lastStep->off_due) : 0;
+            $lastDue = max($lastDue, $dOff);
+            $dtid = Db::saveTask(0, [
+                'project_id' => $pid9, 'module_id' => (int) $mid, 'is_delivery' => 1,
+                'dept_id' => $lastStep && $lastStep->dept_id ? (int) $lastStep->dept_id : null,
+                'title' => 'Παράδοση: ' . $m->name,
+                'descr' => 'Οι ενέργειες που πρέπει να επιβεβαιωθούν για να θεωρηθεί '
+                    . 'παραδοτέο το «' . $m->name . '». Η εργασία δεν κλείνει όσο μένει ατσέκαρο βήμα.',
+                'status_id' => $first9,
+                'assignee' => $lastStep && $lastStep->assignee ? (int) $lastStep->assignee : null,
+                'priority' => 1,
+                'start_date' => $day($dOff), 'due_date' => $day($dOff),
+            ], $adminId);
+            $k = 0;
+            foreach ($mChecks as $c) {
+                Capsule::table('mod_cpm_checklist')->insert(['task_id' => $dtid,
+                    'title' => mb_substr($c, 0, 200), 'done' => 0, 'sort' => $k++]);
+            }
+            if ($lastStep && $lastStep->assignee) { Notify::assigned($dtid, (int) $lastStep->assignee, $adminId); }
+            $made9++;
+        }
     }
     /* Η παράδοση του έργου = το πιο μακρινό βήμα από όσα προστέθηκαν τώρα,
        μόνο αν είναι πιο μετά από την υπάρχουσα. */
@@ -1588,6 +1618,12 @@ case 'project_modules':                   // τα modules ενός έργου, �
                 'done' => in_array((int) $t->status_id, $doneIds, true) || (bool) $t->completed_at,
                 'assignee' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
                 'due' => $t->due_date, 'dept' => $t->dept_id ? (int) $t->dept_id : null,
+                'delivery' => !empty($t->is_delivery),
+                'items' => !empty($t->is_delivery)
+                    ? Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->orderBy('sort')->orderBy('id')
+                        ->get(['id', 'title', 'done'])->map(function ($c) {
+                            return ['id' => (int) $c->id, 'title' => $c->title, 'done' => (bool) $c->done];
+                        })->all() : [],
                 'checks' => [(int) (clone $ck)->where('done', 1)->count(), (int) $ck->count()]];
         }
         $dn = count(array_filter($tasks, function ($x) { return $x['done']; }));
@@ -2556,6 +2592,16 @@ case 'move_task':
         $bm = Db::blockedMap([$t->id]);
         if (!empty($bm[(int) $t->id])) {
             fail('Μπλοκάρεται από: ' . implode(', ', array_slice($bm[(int) $t->id], 0, 3)));
+        }
+        /* Παράδοση module: δεν κλείνει όσο μένει ατσέκαρο βήμα. Αυτό είναι το
+           «απαιτητό» — αλλιώς το checklist θα ήταν διακοσμητικό. */
+        if (!empty($t->is_delivery)) {
+            $left = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->where('done', 0)->count();
+            if ($left > 0) {
+                $tot = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->count();
+                fail('Μένουν ' . $left . ' από ' . $tot . ' ενέργειες παράδοσης — '
+                    . 'τσέκαρέ τις πρώτα και μετά κλείσε την εργασία', 409);
+            }
         }
         /* Χρεώσιμος χρόνος χωρίς έγκριση λογιστηρίου: αν κλείσει τώρα, ο χρόνος
            δεν θα τιμολογηθεί ποτέ γιατί κανείς δεν θα τον ξανακοιτάξει. */

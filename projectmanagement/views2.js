@@ -2182,12 +2182,14 @@ R.projects = async function () {
       const md = await api('project_modules&project=' + p.id).catch(() => null);
       if (!md) { box.innerHTML = '<div class="mut">Δεν φορτώθηκαν</div>'; return; }
       const canEdit = p.canEdit !== false;
-      const line = t => `<div class="set-row" style="gap:8px;padding-left:22px">
+      const line = t => `<div class="set-row ${t.delivery ? 'dlv-task' : ''}" style="gap:8px;padding-left:22px;flex-wrap:wrap">
         <span class="dot" style="background:${t.done ? 'var(--ok)' : '#8595ac'};width:8px;height:8px;flex:none"></span>
-        <a href="javascript:" data-mtask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.title)}</a>
-        ${t.checks[1] ? `<span class="pill ${t.checks[0] >= t.checks[1] ? 'pill-ok' : 'pill-mut'}" title="Έλεγχοι">☑ ${t.checks[0]}/${t.checks[1]}</span>` : ''}
+        <a href="javascript:" data-mtask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${t.delivery ? I.checkSquare + ' ' : ''}${esc(t.title)}</a>
+        ${t.checks[1] ? `<span class="pill ${t.checks[0] >= t.checks[1] ? 'pill-ok' : 'pill-mut'}" title="${t.delivery ? 'Ενέργειες παράδοσης — υποχρεωτικές' : 'Έλεγχοι'}">☑ ${t.checks[0]}/${t.checks[1]}</span>` : ''}
         <span class="mut" style="font-size:11px">${esc(t.assignee || '—')}</span>
         <span class="${t.due && t.due < today() && !t.done ? 'pill pill-bad' : 'mut'}" style="font-size:11px;white-space:nowrap">${t.due ? dShort(t.due) : '—'}</span>
+        ${(t.items || []).length ? `<div class="dlv-items" style="flex-basis:100%">${t.items.map(it => `<label class="${it.done ? 'ok' : ''}">
+          <input type="checkbox" data-dchk="${it.id}" ${it.done ? 'checked' : ''}><span>${esc(it.title)}</span></label>`).join('')}</div>` : ''}
       </div>`;
       const mod = m => {
         const open = modState[m.id] !== false;
@@ -2210,6 +2212,13 @@ R.projects = async function () {
         ${canEdit ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="pjModAssign">${I.box} Ανάθεση προϊόντων${avail.length ? '' : ' (όλα μέσα)'}</button></div>` : ''}`;
       $$('[data-modtoggle]', box).forEach(h => h.onclick = () => { modState[+h.dataset.modtoggle] = modState[+h.dataset.modtoggle] === false; loadMods(); });
       $$('[data-mtask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.mtask); });
+      /* Οι ενέργειες παράδοσης τσεκάρονται επί τόπου — δεν χρειάζεται να
+         ανοίξεις την εργασία για κάθε μία. */
+      $$('[data-dchk]', box).forEach(c => c.onchange = async () => {
+        await api('check_toggle', {id: +c.dataset.dchk});
+        c.closest('label').classList.toggle('ok', c.checked);
+        loadMods();
+      });
       const asg2 = $('#pjModAssign', box);
       if (asg2 && window.openAssignModules) {
         asg2.onclick = () => window.openAssignModules(p.id, () => { openProj(p); });
