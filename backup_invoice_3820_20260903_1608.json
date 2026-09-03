@@ -1,0 +1,74 @@
+{
+    "invoice": {
+        "id": 3820,
+        "userid": 197,
+        "invoicenum": "PF20263787",
+        "date": "2026-09-02",
+        "duedate": "2026-09-12",
+        "datepaid": "0000-00-00 00:00:00",
+        "last_capture_attempt": "0000-00-00 00:00:00",
+        "date_refunded": "0000-00-00 00:00:00",
+        "date_cancelled": "0000-00-00 00:00:00",
+        "subtotal": "65.66",
+        "credit": "0.00",
+        "tax": "14.63",
+        "tax2": "0.00",
+        "total": "80.29",
+        "taxrate": "24.000",
+        "taxrate2": "0.000",
+        "status": "Unpaid",
+        "paymentmethod": "paypal",
+        "paymethodid": null,
+        "notes": "",
+        "created_at": "2026-09-02 09:00:37",
+        "updated_at": "2026-09-02 09:00:37"
+    },
+    "items": [
+        {
+            "id": 9004,
+            "invoiceid": 3820,
+            "userid": 197,
+            "type": "Hosting",
+            "relid": 1436,
+            "description": "Cloudon VPS 1 General Purpose (DE)  - mayvps.co (12\/09\/2026 - 11\/10\/2026)\nLocation: Nuremberg\nPanel: Without Panel\nExtra IPs: 5 x IP 5.00 €\nOperating System: AlmaLinux 9\nBackups: Όχι",
+            "amount": "60.97",
+            "taxed": 1,
+            "duedate": "2026-09-12",
+            "paymentmethod": "paypal",
+            "notes": ""
+        },
+        {
+            "id": 9005,
+            "invoiceid": 3820,
+            "userid": 197,
+            "type": "cnp_gwfee",
+            "relid": 0,
+            "description": "Χρέωση διεκπεραίωσης PayPal",
+            "amount": "4.69",
+            "taxed": 0,
+            "duedate": "2026-09-12",
+            "paymentmethod": "",
+            "notes": ""
+        }
+    ],
+    "accounts": [
+        {
+            "id": 3458,
+            "userid": 197,
+            "currency": 1,
+            "gateway": "",
+            "date": "2026-09-02 09:00:37",
+            "description": "Applied Credit Note funded by Client Credit",
+            "amountin": "4.93",
+            "fees": "0.00",
+            "amountout": "0.00",
+            "rate": "1.00000",
+            "transid": "",
+            "invoiceid": 3820,
+            "refundid": 0,
+            "billingnoteid": 36,
+            "type": "invoice_credit_applied",
+            "relid": 0
+        }
+    ]
+}
