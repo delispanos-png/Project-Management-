@@ -7647,7 +7647,43 @@ case 'todos_list':
         if ($ao !== $bo) { return $bo <=> $ao; }
         return strcmp($a['name'], $b['name']);
     });
-    out(['groups' => $groups]);
+
+    /* ── Επίπεδη λίστα: αυτό διαβάζει η to-do οθόνη ──
+       Το έργο είναι ετικέτα, όχι φάκελος. Γράφεις πρώτα τι έχεις να κάνεις και
+       το χρεώνεις σε έργο μόνο αν χρειάζεται. */
+    $items = [];
+    foreach ($todoRows as $t) {
+        $pid = (int) $t->project_id;
+        $items[] = ['id' => (int) $t->id, 'text' => $t->text, 'done' => (bool) $t->done,
+            'project' => $pid, 'pname' => $pid ? ($proj[$pid]['name'] ?? '—') : null,
+            'pcolor' => $pid ? ($proj[$pid]['color'] ?? '#8595ac') : null,
+            'remind' => $t->remind_at, 'sort' => (int) $t->sort,
+            'doneAt' => $t->done_at, 'createdAt' => $t->created_at];
+    }
+    /* Οι σημειώσεις «πού έμεινα» δεν χάνονται: βγαίνουν χωριστά, για να
+       φαίνονται πάνω από τη λίστα χωρίς να την πνίγουν. */
+    $notes = [];
+    foreach ($noteRows as $pid => $nr) {
+        $txt = trim(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", (string) $nr->note)));
+        if ($txt === '') { continue; }
+        $notes[] = ['project' => (int) $pid, 'name' => $pid ? ($proj[$pid]['name'] ?? '—') : 'Γενικά',
+            'color' => $pid ? ($proj[$pid]['color'] ?? '#8595ac') : '#8291a9',
+            'note' => $txt, 'at' => $nr->updated_at];
+    }
+    /* Τα ανοιχτά μου tasks που ΔΕΝ είναι ήδη στη λίστα — για το «φέρε τα tasks μου». */
+    $have = array_map('mb_strtolower', array_column($items, 'text'));
+    $free = [];
+    foreach ($myOpenTasks as $t) {
+        if (in_array(mb_strtolower($t->title), $have, true)) { continue; }
+        $free[] = ['id' => (int) $t->id, 'title' => $t->title, 'project' => (int) $t->project_id,
+            'pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
+    }
+    /* Λίστα έργων για το πεδίο επιλογής: όσα με αφορούν. */
+    $pick = [];
+    foreach ($groups as $g) {
+        if ($g['id']) { $pick[] = ['id' => $g['id'], 'name' => $g['name'], 'color' => $g['color']]; }
+    }
+    out(['groups' => $groups, 'items' => $items, 'notes' => $notes, 'tasks' => $free, 'projects' => $pick]);
 
 case 'todo_add':
     $text = mb_substr(trim($in['text'] ?? ''), 0, 300);
@@ -7666,6 +7702,10 @@ case 'todo_update':                      // επεξεργασία κειμέν�
     if (array_key_exists('remind', $in)) {
         $upd['remind_at'] = $in['remind'] ? date('Y-m-d H:i:s', strtotime($in['remind'])) : null;
         $upd['remind_sent'] = 0;
+    }
+    if (array_key_exists('project', $in)) {
+        $np = (int) $in['project'];
+        $upd['project_id'] = ($np && Capsule::table('mod_cpm_projects')->where('id', $np)->exists()) ? $np : 0;
     }
     if ($upd) { Capsule::table('mod_cpm_todos')->where('id', $r->id)->update($upd); }
     out(['ok' => true]);
@@ -7706,17 +7746,31 @@ case 'todo_del':
     out(['ok' => true]);
 
 case 'todo_clear_done':
-    Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->where('project_id', (int) ($in['project'] ?? 0))->where('done', 1)->delete();
-    out(['ok' => true]);
+    $q9 = Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->where('done', 1);
+    if (empty($in['all'])) { $q9->where('project_id', (int) ($in['project'] ?? 0)); }
+    out(['ok' => true, 'removed' => $q9->delete()]);
 
-case 'todo_seed':                        // αυτο-δημιουργία από τα ανοιχτά μου tasks του project
-    $pid = (int) ($in['project'] ?? 0);
+case 'todo_seed':                        // φέρε τα ανοιχτά μου tasks μέσα στη λίστα
+    /* `tasks` = συγκεκριμένα id (από την to-do οθόνη), `project` = όλα ενός έργου
+       (από την προβολή ανά έργο). Και στις δύο περιπτώσεις τα ήδη γραμμένα
+       παραλείπονται, ώστε το κουμπί να πατιέται ξανά χωρίς διπλότυπα. */
     $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
-    $existing = array_map('mb_strtolower', Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->where('project_id', $pid)->pluck('text')->all());
+    $existing = array_map('mb_strtolower',
+        Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->pluck('text')->all());
+    $q9 = Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds);
+    $wanted = array_values(array_filter(array_map('intval', (array) ($in['tasks'] ?? []))));
+    if ($wanted) {
+        $q9->whereIn('id', $wanted);
+    } else {
+        $q9->where('project_id', (int) ($in['project'] ?? 0));
+    }
     $added = 0;
-    foreach (Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)->get(['title']) as $t) {
+    foreach ($q9->get(['id', 'title', 'project_id']) as $t) {
         if (in_array(mb_strtolower($t->title), $existing, true)) { continue; }
-        Capsule::table('mod_cpm_todos')->insert(['admin_id' => $adminId, 'project_id' => $pid, 'text' => mb_substr($t->title, 0, 300), 'created_at' => date('Y-m-d H:i:s')]);
+        $existing[] = mb_strtolower($t->title);
+        Capsule::table('mod_cpm_todos')->insert(['admin_id' => $adminId,
+            'project_id' => (int) $t->project_id, 'text' => mb_substr($t->title, 0, 300),
+            'created_at' => date('Y-m-d H:i:s')]);
         $added++;
     }
     out(['ok' => true, 'added' => $added]);

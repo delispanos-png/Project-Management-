@@ -3,6 +3,7 @@
 :root{
   --ink:#131f30;--txt:#3e506a;--mut:#8595ac;--line:#e5eaf1;--canvas:#f2f5f9;--card:#ffffff;
   --brand:#0090dd;--brand2:#00a8ff;--brand-d:#0072ad;--ok:#16a26a;--warn:#eba63c;--bad:#e2515f;--violet:#7b5cd6;
+  --info:#0374b0;
   --side:#131e33;--side2:#0e1626;--sideTxt:#a9b7cf;
   --r:14px;--r-sm:10px;
   --sh:0 1px 2px rgba(15,32,56,.05),0 10px 28px -18px rgba(15,32,56,.22);
@@ -10,6 +11,7 @@
 }
 html[data-theme="dark"]{
   --ink:#e8eef7;--txt:#b7c3d6;--mut:#6d7d95;--line:#243349;--canvas:#0e1626;--card:#16213511;
+  --info:#4db3ea;
   --card:#182338;--side:#0b1220;--side2:#080e19;--sideTxt:#8b9ab3;
   --sh:0 1px 2px rgba(0,0,0,.3),0 10px 28px -18px rgba(0,0,0,.6);
   --sh-lg:0 12px 40px -12px rgba(0,0,0,.7);
@@ -1698,3 +1700,78 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .dlv-items label{display:flex;gap:7px;align-items:flex-start;font-size:12px;cursor:pointer}
 .dlv-items input{margin-top:2px;width:14px;height:14px;cursor:pointer}
 .dlv-items .ok{text-decoration:line-through;opacity:.55}
+
+/* ═════════ Το πλάνο μου — to-do list ═════════
+   Η γραμμή είναι το βασικό στοιχείο: κουτάκι, κείμενο, ετικέτα έργου, πότε.
+   Ό,τι δεν χρειάζεσαι εκείνη τη στιγμή (λαβή, διαγραφή) εμφανίζεται στο hover,
+   ώστε η λίστα να διαβάζεται σαν λίστα και όχι σαν φόρμα. */
+.td-seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--card)}
+.td-seg button{border:0;background:transparent;color:var(--mut);font:inherit;font-size:11.5px;font-weight:600;
+  padding:5px 13px;cursor:pointer;white-space:nowrap}
+.td-seg button.on{background:var(--brand);color:#fff}
+.td-seg button:not(.on):hover{background:var(--line)}
+
+.td-grp{margin-bottom:16px}
+.td-grp-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:.9px;
+  text-transform:uppercase;padding:0 2px 7px}
+.td-list{display:flex;flex-direction:column}
+
+.td-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:10px;
+  background:var(--card);border:1px solid var(--line);margin-bottom:5px;transition:border-color .12s,opacity .18s}
+.td-row:hover{border-color:#0090dd55}
+.td-row.dragging{opacity:.35}
+.td-row.td-fade{opacity:.4}
+
+.td-grip{color:var(--line);cursor:grab;font-size:12px;flex:none;line-height:1;opacity:0;transition:opacity .12s}
+.td-row:hover .td-grip{opacity:1;color:var(--mut)}
+
+.td-box{flex:none;width:19px;height:19px;border-radius:6px;border:1.8px solid var(--mut);background:transparent;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800;
+  padding:0;transition:background .12s,border-color .12s}
+.td-box:hover{border-color:var(--brand)}
+.td-box.on{background:var(--ok);border-color:var(--ok)}
+
+.td-txt{flex:1;min-width:0;font-size:13.5px;color:var(--ink);cursor:text;word-break:break-word}
+.td-txt.done{text-decoration:line-through;color:var(--mut)}
+.td-inline{flex:1;min-width:0;font-size:13.5px;padding:3px 7px}
+
+.td-tag{flex:none;cursor:pointer;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.td-tag:hover{filter:brightness(.95)}
+
+.td-when{flex:none;border:1px solid transparent;background:transparent;color:var(--mut);font:inherit;font-size:11px;
+  font-weight:600;border-radius:999px;padding:3px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;
+  white-space:nowrap;opacity:.55;transition:opacity .12s}
+.td-when svg{width:12px;height:12px}
+.td-row:hover .td-when{opacity:1}
+.td-when.set{opacity:1;background:#0090dd14;color:var(--brand);border-color:#0090dd33}
+.td-when.over{opacity:1;background:#e2515f1a;color:var(--bad);border-color:#e2515f44}
+
+.td-x{flex:none;border:0;background:transparent;color:var(--mut);cursor:pointer;font-size:13px;line-height:1;
+  padding:3px 5px;border-radius:6px;opacity:0;transition:opacity .12s,color .12s}
+.td-row:hover .td-x{opacity:1}
+.td-x:hover{color:var(--bad);background:#e2515f14}
+
+.td-note:last-child{border-bottom:0!important}
+.td-note:hover{background:#0090dd08}
+
+.td-pop{position:fixed;z-index:400;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--sh-lg);padding:6px;min-width:212px;max-height:70vh;overflow:auto}
+.td-pop button{display:flex;align-items:center;gap:7px;width:100%;border:0;background:transparent;color:var(--ink);
+  font:inherit;font-size:12.5px;text-align:left;padding:7px 10px;border-radius:8px;cursor:pointer}
+.td-pop button:hover{background:var(--canvas)}
+.td-pop button span{margin-left:auto;color:var(--mut);font-size:11px}
+.td-pop-sep{height:1px;background:var(--line);margin:5px 8px}
+.td-pop-row{display:flex;gap:5px;padding:2px 6px 6px}
+.td-pop-row input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:5px 7px;
+  font:inherit;font-size:12px;background:transparent;color:var(--ink)}
+.td-pop-ok{justify-content:center!important;background:var(--brand)!important;color:#fff!important;font-weight:700!important}
+.td-pop-clr{color:var(--bad)!important}
+
+@media (max-width:768px){
+  .td-row{gap:7px;padding:9px 8px}
+  .td-grip{display:none}
+  .td-tag{max-width:96px}
+  .td-x,.td-when{opacity:1}
+  .td-seg{width:100%}
+  .td-seg button{flex:1;text-align:center}
+}

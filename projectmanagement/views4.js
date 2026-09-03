@@ -1385,86 +1385,385 @@ R.library = async function () {
 };
 
 /* ═════════ ✅ ΤΟ ΠΛΑΝΟ ΜΟΥ (ανά project — «πού έμεινα») ═════════ */
-R.todos = async function () {
-  setTop('Το πλάνο μου', 'Ανά project — τι έχεις να κάνεις & πού έμεινες');
-  const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:130px;margin-bottom:12px"></div>'.repeat(3);
-  const remLbl = r => new Date(r.replace(' ', 'T')).toLocaleString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
-  const load = async () => {
-    const d = await api('todos_list');
-    if (!d.groups.length) { c.innerHTML = `<div class="empty" style="padding:44px"><div class="big">${I.checkSquare}</div>Δεν έχεις ανοιχτά project ακόμη</div>`; return; }
-    c.innerHTML = d.groups.map(g => {
-      const openN = g.todos.filter(t => !t.done).length;
-      const doneN = g.todos.filter(t => t.done).length;
-      return `<div class="card" style="margin-bottom:14px;border-left:3px solid ${g.color}">
-      <div class="card-h" style="align-items:center">
-        <span class="dot" style="background:${g.color}"></span> ${esc(g.name)}
-        ${g.tasks.length ? `<span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">${g.tasks.length} ανοιχτά tasks</span>` : ''}
-        <span class="kb-n" style="margin-left:auto">${openN}</span>
-      </div>
-      <div class="card-b">
-        <div style="margin-bottom:12px">
-          <label class="lbl">📍 Πού έμεινα / σημειώσεις</label>
-          <textarea class="inp" data-wn="${g.id}" rows="2" placeholder="π.χ. έμεινα στη ρύθμιση DNS, περιμένω απάντηση πελάτη…" style="font-size:12.5px">${esc((g.note || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))}</textarea>
-          <div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-o" data-wnsave="${g.id}">${I.save} Αποθήκευση σημείωσης</button></div>
-        </div>
-        <div class="todo-items" data-proj="${g.id}">
-          ${g.todos.length ? g.todos.map(t => `<div class="todo-row" data-tid="${t.id}" style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
-            <span class="drag-h" title="σύρε για αλλαγή σειράς" style="cursor:grab;color:var(--mut);flex:none;font-size:13px">⋮⋮</span>
-            <input type="checkbox" data-ttog="${t.id}" ${t.done ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;flex:none">
-            <span style="flex:1;font-size:13px;${t.done ? 'text-decoration:line-through;color:var(--mut)' : ''}">${esc(t.text)}${t.remind ? ` <span class="pill" style="font-size:9px;margin-left:4px;background:${t.overdue ? 'var(--bad)' : 'var(--warn)'}1a;color:${t.overdue ? 'var(--bad)' : 'var(--warn)'}">${I.clock} ${remLbl(t.remind)}</span>` : ''}</span>
-            <button class="btn btn-sm btn-o" data-trem="${t.id}" title="υπενθύμιση με ώρα" style="padding:2px 6px">${I.clock}</button>
-            <button class="btn btn-sm btn-o" data-tdel="${t.id}" style="padding:2px 7px;color:var(--bad)">✕</button></div>`).join('') : '<div class="mut" style="font-size:12px;padding:6px 0">Καμία υπενθύμιση ακόμη</div>'}
-        </div>
-        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-          <input class="inp" data-tadd="${g.id}" placeholder="+ Προσθήκη υπενθύμισης (Enter)" style="flex:1;min-width:160px">
-          ${g.tasks.length ? `<button class="btn btn-o btn-sm" data-tseed="${g.id}" title="Δημιούργησε λίστα από τα ανοιχτά σου tasks">${I.zap} Auto από tasks</button>` : ''}
-          ${doneN ? `<button class="btn btn-o btn-sm" data-tclear="${g.id}">Καθάρισε ✓ (${doneN})</button>` : ''}
-        </div>
-        ${g.tasks.length ? `<details style="margin-top:10px"><summary class="mut" style="font-size:11.5px;cursor:pointer">Δες τα ${g.tasks.length} ανοιχτά tasks του project</summary>
-          <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">${g.tasks.map(t => `<div style="display:flex;gap:7px;align-items:center;font-size:12px;cursor:pointer" data-tgo="${t.id}"><span style="color:var(--brand)">${I.checkSquare}</span>${esc(t.title)}</div>`).join('')}</div></details>` : ''}
-      </div></div>`;
-    }).join('');
-    $$('[data-ttog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.ttog}); load(); });
-    $$('[data-tdel]').forEach(b => b.onclick = async () => { await api('todo_del', {id: +b.dataset.tdel}); load(); });
-    $$('[data-tadd]').forEach(inp => inp.onkeydown = async e => { if (e.key === 'Enter' && inp.value.trim()) { await api('todo_add', {project: +inp.dataset.tadd, text: inp.value.trim()}); inp.value = ''; load(); } });
-    $$('[data-tseed]').forEach(b => b.onclick = async () => { const r = await api('todo_seed', {project: +b.dataset.tseed}); toast(r.added ? r.added + ' προστέθηκαν' : 'Όλα ήδη στη λίστα'); load(); });
-    $$('[data-tclear]').forEach(b => b.onclick = async () => { await api('todo_clear_done', {project: +b.dataset.tclear}); load(); });
-    $$('[data-wnsave]').forEach(b => b.onclick = async () => { const ta = document.querySelector(`textarea[data-wn="${b.dataset.wnsave}"]`); await api('worknote_save', {project: +b.dataset.wnsave, note: ta.value.replace(/\n/g, '<br>')}); toast('Σημείωση αποθηκεύτηκε ✓'); });
-    $$('[data-tgo]').forEach(x => x.onclick = () => openTask(+x.dataset.tgo));
-    $$('[data-trem]').forEach(b => b.onclick = async () => {
-      const d0 = new Date(Date.now() + 86400000);
-      const def = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')} 09:00`;
-      const v = await cnpPrompt('Πότε να σου θυμίσω; (μορφή: ΕΕΕΕ-ΜΜ-ΗΗ ΩΩ:ΛΛ) — κενό για αφαίρεση', {title: I.clock + ' Υπενθύμιση', input: def, placeholder: '2026-07-26 09:30', ok: 'Ορισμός'});
-      if (v === null) { return; }
-      await api('todo_update', {id: +b.dataset.trem, remind: v.trim()});
-      toast(v.trim() ? 'Υπενθύμιση ⏰ ορίστηκε' : 'Υπενθύμιση αφαιρέθηκε'); load();
-    });
-    $$('.todo-items').forEach(cont => enableTodoDrag(cont));
-  };
-  function enableTodoDrag(cont) {
-    let drag = null;
-    cont.querySelectorAll('.todo-row').forEach(row => {
-      row.draggable = true;
-      row.ondragstart = () => { drag = row; row.classList.add('dragging'); row.style.opacity = '.4'; };
-      row.ondragend = async () => {
-        row.classList.remove('dragging'); row.style.opacity = '';
-        const ids = [...cont.querySelectorAll('.todo-row')].map(x => +x.dataset.tid);
-        await api('todo_reorder', {ids});
-      };
-    });
-    cont.ondragover = e => {
-      if (!drag) { return; }
-      e.preventDefault();
-      const after = [...cont.querySelectorAll('.todo-row:not(.dragging)')].reduce((closest, child) => {
-        const box = child.getBoundingClientRect(); const offset = e.clientY - box.top - box.height / 2;
-        return (offset < 0 && offset > closest.offset) ? {offset, el: child} : closest;
-      }, {offset: -Infinity, el: null}).el;
-      if (after == null) { cont.appendChild(drag); } else { cont.insertBefore(drag, after); }
-    };
+/* ═════════ ✅ ΤΟ ΠΛΑΝΟ ΜΟΥ — to-do list ═════════
+   Πρώτα γράφεις τι έχεις να κάνεις, μετά (αν χρειάζεται) το χρεώνεις σε έργο.
+   Η παλιά οθόνη ήταν ανάποδα: έπρεπε να βρεις καρτέλα έργου για να γράψεις μία
+   αράδα. Το έργο είναι πια ετικέτα, και η σειρά βγαίνει από τον χρόνο —
+   εκπρόθεσμα, σήμερα, αύριο, μετά. Η ομαδοποίηση ανά έργο μένει ως δεύτερη
+   προβολή, μαζί με τις σημειώσεις «πού έμεινα». */
+
+const TD_BUCKETS = [
+  ['over',  'Εκπρόθεσμα',        'var(--bad)'],
+  ['today', 'Σήμερα',            'var(--brand)'],
+  ['tom',   'Αύριο',             'var(--ink)'],
+  ['week',  'Μέσα στην εβδομάδα', 'var(--ink)'],
+  ['later', 'Αργότερα',          'var(--mut)'],
+  ['none',  'Χωρίς ημερομηνία',  'var(--mut)'],
+];
+const tdMid = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+/** Σε ποιον κάδο πέφτει ένα to-do, με βάση την υπενθύμισή του. */
+function tdBucket(t) {
+  if (!t.remind) { return 'none'; }
+  const when = new Date(t.remind.replace(' ', 'T')).getTime();
+  const d0 = tdMid(new Date());
+  if (when < Date.now()) { return 'over'; }
+  const day = tdMid(new Date(when));
+  if (day === d0) { return 'today'; }
+  if (day === d0 + 86400000) { return 'tom'; }
+  return day <= d0 + 7 * 86400000 ? 'week' : 'later';
+}
+/** «σήμερα 18:00», «Δευ 09:00», «12/09 14:00» — όσο χρειάζεται, όχι παραπάνω. */
+function tdWhen(s) {
+  const d = new Date(s.replace(' ', 'T'));
+  const hm = d.toLocaleTimeString((window.CNP_LOCALE || 'el-GR'), {hour: '2-digit', minute: '2-digit', hour12: false});
+  const day = tdMid(d), d0 = tdMid(new Date());
+  if (day === d0) { return 'σήμερα ' + hm; }
+  if (day === d0 + 86400000) { return 'αύριο ' + hm; }
+  if (day === d0 - 86400000) { return 'χθες ' + hm; }
+  if (day > d0 && day <= d0 + 7 * 86400000) {
+    return d.toLocaleDateString((window.CNP_LOCALE || 'el-GR'), {weekday: 'short'}) + ' ' + hm;
   }
+  return d.toLocaleDateString((window.CNP_LOCALE || 'el-GR'), {day: '2-digit', month: '2-digit'}) + ' ' + hm;
+}
+const tdSql = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} `
+  + `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+/** Γρήγορες επιλογές ημερομηνίας — αυτό που θα διάλεγες στο 90% των περιπτώσεων. */
+function tdQuick() {
+  const now = new Date();
+  const at = (plus, h) => { const d = new Date(); d.setDate(d.getDate() + plus); d.setHours(h, 0, 0, 0); return d; };
+  const mon = new Date(); mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7)); mon.setHours(9, 0, 0, 0);
+  const out = [];
+  if (now.getHours() < 17) { out.push(['Σήμερα το απόγευμα', at(0, 18)]); }
+  out.push(['Αύριο πρωί', at(1, 9)], ['Δευτέρα πρωί', mon], ['Σε μία εβδομάδα', at(7, 9)]);
+  return out;
+}
+
+R.todos = async function () {
+  setTop('Το πλάνο μου', 'Τι έχεις να κάνεις — και πού έμεινες');
+  const c = $('#content');
+  c.innerHTML = '<div class="skel" style="height:70px;margin-bottom:12px"></div><div class="skel" style="height:340px"></div>';
+  const st = R.todos._s = R.todos._s || {view: localStorage.cnpTodoView || 'date', showDone: false, notes: false, proj: 0};
+  let d = null;
+
+  const load = async () => {
+    d = R.todos._d = await api('todos_list').catch(() => null);
+    if (!d) { c.innerHTML = '<div class="empty" style="padding:44px">Δεν φορτώθηκε το πλάνο</div>'; return; }
+    st.view === 'proj' ? paintByProject() : paintByDate();
+  };
+
+  /* ───────── κοινά κομμάτια ───────── */
+
+  const addBar = () => `
+    <div class="card" style="padding:11px 13px;margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input class="inp" id="tdNew" placeholder="Τι πρέπει να κάνεις;" autocomplete="off"
+        style="flex:1;min-width:220px;font-size:14px;border:none;background:transparent;padding-left:2px">
+      <select class="inp" id="tdNewP" title="Σε ποιο έργο" style="width:auto;max-width:190px;padding:6px 9px;font-size:12px">
+        <option value="0">— χωρίς έργο —</option>
+        ${d.projects.map(p => `<option value="${p.id}" ${st.proj === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select>
+      <button class="btn btn-o btn-sm" id="tdNewD" title="Πότε">${I.clock} <span id="tdNewDL">Πότε;</span></button>
+      <button class="btn btn-p btn-sm" id="tdAdd">${I.plus} Προσθήκη</button>
+    </div>`;
+
+  const viewToggle = (open, done) => `
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px">
+      <b style="font-size:13px">${open} ${open === 1 ? 'ανοιχτό' : 'ανοιχτά'}</b>
+      ${done ? `<span class="mut" style="font-size:12px">· ${done} ολοκληρωμέν${done === 1 ? 'ο' : 'α'}</span>` : ''}
+      <div style="flex:1"></div>
+      ${d.tasks.length ? `<button class="btn btn-o btn-sm" id="tdSeed" title="Πρόσθεσε στη λίστα τα ανοιχτά tasks που σου έχουν ανατεθεί">${I.zap || I.plus} ${d.tasks.length === 1 ? 'Φέρε το ανοιχτό task μου' : 'Φέρε τα ' + d.tasks.length + ' ανοιχτά tasks μου'}</button>` : ''}
+      ${done ? `<button class="btn btn-o btn-sm" id="tdClear">Καθάρισε ολοκληρωμένα</button>` : ''}
+      <div class="td-seg">
+        <button data-v="date" class="${st.view === 'date' ? 'on' : ''}">Κατά ημερομηνία</button>
+        <button data-v="proj" class="${st.view === 'proj' ? 'on' : ''}">Κατά έργο</button>
+      </div>
+    </div>`;
+
+  /* Οι σημειώσεις «πού έμεινα» — μαζεμένες πάνω, όχι μία φόρμα ανά έργο. */
+  const notesCard = () => {
+    if (!d.notes.length && !st.notes) {
+      return `<button class="btn btn-o btn-sm" id="tdNoteOpen" style="margin-bottom:12px">${I.doc} Πού έμεινα…</button>`;
+    }
+    return `<div class="card" style="margin-bottom:12px">
+      <div class="card-h" style="cursor:pointer" id="tdNoteH">
+        ${I.doc} Πού έμεινα
+        ${d.notes.length ? `<span class="kb-n" style="margin-left:8px">${d.notes.length}</span>` : ''}
+        <span style="margin-left:auto;color:var(--mut);font-size:12px">${st.notes ? '▾' : '▸'}</span>
+      </div>
+      ${st.notes ? `<div class="card-b">
+        ${d.notes.map(n => `<div class="td-note" data-np="${n.project}" style="padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer">
+          <div style="display:flex;gap:7px;align-items:center">
+            <span class="dot" style="background:${n.color}"></span>
+            <b style="font-size:12.5px">${esc(n.name)}</b>
+            <span class="mut" style="font-size:11px;margin-left:auto">${n.at ? dShort(n.at) : ''}</span></div>
+          <div style="font-size:12.5px;color:var(--txt);white-space:pre-wrap;margin-top:3px">${esc(n.note)}</div>
+        </div>`).join('')}
+        <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap">
+          <select class="inp" id="tdNoteP" style="width:auto;max-width:210px;padding:6px 9px;font-size:12px">
+            <option value="0">Γενικά</option>
+            ${d.projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <button class="btn btn-o btn-sm" id="tdNoteAdd">${I.plus} Σημείωση</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+  };
+
+  const row = t => `<div class="td-row" data-tid="${t.id}">
+    <span class="td-grip" title="σύρε για αλλαγή σειράς">⋮⋮</span>
+    <button class="td-box${t.done ? ' on' : ''}" data-ttog="${t.id}" aria-label="${t.done ? 'Αναίρεση' : 'Ολοκλήρωση'}">${t.done ? '✓' : ''}</button>
+    <span class="td-txt${t.done ? ' done' : ''}" data-tedit="${t.id}">${esc(t.text)}</span>
+    ${t.pname ? `<span class="pill pill-mut td-tag" data-tproj="${t.id}" title="Άλλαξε έργο"><span class="dot" style="background:${t.pcolor}"></span>${esc(t.pname)}</span>` : ''}
+    <button class="td-when${t.remind ? (tdBucket(t) === 'over' && !t.done ? ' over' : ' set') : ''}" data-tdate="${t.id}">
+      ${t.remind ? I.clock + ' ' + tdWhen(t.remind) : I.clock}</button>
+    <button class="td-x" data-tdel="${t.id}" title="Διαγραφή">✕</button>
+  </div>`;
+
+  /* ───────── προβολή κατά ημερομηνία ───────── */
+
+  function paintByDate() {
+    const open = d.items.filter(t => !t.done);
+    const done = d.items.filter(t => t.done);
+    const by = {};
+    open.forEach(t => (by[tdBucket(t)] = by[tdBucket(t)] || []).push(t));
+    Object.values(by).forEach(a => a.sort((x, y) =>
+      (x.remind && y.remind ? x.remind.localeCompare(y.remind) : 0) || x.sort - y.sort || x.id - y.id));
+
+    c.innerHTML = addBar() + viewToggle(open.length, done.length) + notesCard()
+      + (open.length ? TD_BUCKETS.filter(b => (by[b[0]] || []).length).map(([k, lbl, col]) => `
+        <div class="td-grp">
+          <div class="td-grp-h" style="color:${col}">${lbl}
+            <span class="mut" style="font-weight:600">${by[k].length}</span></div>
+          <div class="td-list" data-bucket="${k}">${by[k].map(row).join('')}</div>
+        </div>`).join('')
+        : `<div class="empty" style="padding:40px">${I.checkSquare}<div style="margin-top:8px">Καθαρή λίστα.</div>
+           <div class="mut" style="font-size:12.5px;margin-top:5px">Γράψε πάνω τι έχεις να κάνεις${d.tasks.length ? (d.tasks.length === 1 ? ', ή φέρε το ανοιχτό task σου' : ', ή φέρε τα ' + d.tasks.length + ' ανοιχτά tasks σου') : ''}.</div></div>`)
+      + (done.length ? `<div class="td-grp">
+          <div class="td-grp-h" id="tdDoneH" style="cursor:pointer;color:var(--mut)">
+            ✓ Ολοκληρωμέν${done.length === 1 ? 'ο' : 'α'} <span class="mut" style="font-weight:600">${done.length}</span>
+            <span style="font-weight:400">${st.showDone ? '▾' : '▸'}</span></div>
+          ${st.showDone ? `<div class="td-list">${done.slice(0, 60).map(row).join('')}</div>` : ''}
+        </div>` : '');
+    wire();
+    const h = $('#tdDoneH'); if (h) { h.onclick = () => { st.showDone = !st.showDone; paintByDate(); }; }
+    $$('.td-list[data-bucket]').forEach(el => tdDrag(el));
+  }
+
+  /* ───────── προβολή κατά έργο ───────── */
+
+  function paintByProject() {
+    const groups = {};
+    d.items.forEach(t => {
+      const k = t.project || 0;
+      (groups[k] = groups[k] || {id: k, name: t.pname || 'Χωρίς έργο', color: t.pcolor || '#8291a9', items: []}).items.push(t);
+    });
+    d.projects.forEach(p => { if (!groups[p.id]) { groups[p.id] = {id: p.id, name: p.name, color: p.color, items: []}; } });
+    const list = Object.values(groups).sort((a, b) =>
+      (b.items.filter(x => !x.done).length - a.items.filter(x => !x.done).length) || a.name.localeCompare(b.name));
+    const open = d.items.filter(t => !t.done).length;
+    const done = d.items.filter(t => t.done).length;
+
+    c.innerHTML = addBar() + viewToggle(open, done) + notesCard()
+      + list.map(g => {
+        const o = g.items.filter(t => !t.done);
+        const dn = g.items.filter(t => t.done);
+        const show = st.showDone ? g.items : o;
+        return `<div class="card td-grp" style="border-left:3px solid ${g.color};margin-bottom:12px">
+          <div class="card-h"><span class="dot" style="background:${g.color}"></span> ${esc(g.name)}
+            <span class="kb-n" style="margin-left:auto">${o.length}</span></div>
+          <div class="card-b" style="padding-top:4px">
+            ${show.length ? `<div class="td-list" data-proj="${g.id}">${show.map(row).join('')}</div>`
+              : `<div class="mut" style="font-size:12.5px;padding:6px 0">Τίποτα ανοιχτό${dn.length ? ' · ' + dn.length + (dn.length === 1 ? ' ολοκληρωμένο' : ' ολοκληρωμένα') : ''}</div>`}
+          </div></div>`;
+      }).join('')
+      + (done ? `<div style="text-align:center;margin-top:6px">
+          <button class="btn btn-o btn-sm" id="tdDoneT">${st.showDone ? 'Κρύψε' : 'Δείξε'} ${done === 1 ? 'το ολοκληρωμένο' : 'τα ' + done + ' ολοκληρωμένα'}</button></div>` : '');
+    wire();
+    const t2 = $('#tdDoneT'); if (t2) { t2.onclick = () => { st.showDone = !st.showDone; paintByProject(); }; }
+    $$('.td-list[data-proj]').forEach(el => tdDrag(el));
+  }
+
+  /* ───────── συμπεριφορές ───────── */
+
+  function wire() {
+    let pend = null;   // ημερομηνία που περιμένει το νέο to-do
+    const nd = $('#tdNewD');
+    if (nd) {
+      nd.onclick = e => tdDateMenu(e.currentTarget, pend, v => {
+        pend = v;
+        $('#tdNewDL').textContent = v ? tdWhen(v) : 'Πότε;';
+        nd.classList.toggle('on', !!v);
+      });
+    }
+    const add = async () => {
+      const inp = $('#tdNew');
+      const txt = inp.value.trim();
+      if (!txt) { inp.focus(); return; }
+      st.proj = +$('#tdNewP').value || 0;
+      await api('todo_add', {text: txt, project: st.proj, remind: pend || ''});
+      inp.value = ''; pend = null;
+      await load();
+      const again = $('#tdNew'); if (again) { again.focus(); }
+    };
+    if ($('#tdAdd')) { $('#tdAdd').onclick = add; }
+    if ($('#tdNew')) { $('#tdNew').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }; }
+
+    $$('.td-seg button').forEach(b => b.onclick = () => {
+      st.view = b.dataset.v; localStorage.cnpTodoView = st.view;
+      st.view === 'proj' ? paintByProject() : paintByDate();
+    });
+    const sd = $('#tdSeed');
+    if (sd) { sd.onclick = async () => {
+      const r = await api('todo_seed', {tasks: d.tasks.map(t => t.id)});
+      toast(r.added ? r.added + (r.added === 1 ? ' προστέθηκε' : ' προστέθηκαν') : 'Ήταν ήδη όλα στη λίστα');
+      load();
+    }; }
+    const cl = $('#tdClear');
+    if (cl) { cl.onclick = async () => {
+      if (!await cnpConfirm('Να διαγραφούν τα ολοκληρωμένα από τη λίστα;', {ok: 'Διαγραφή'})) { return; }
+      const r = await api('todo_clear_done', {all: true});
+      toast(r.removed === 1 ? 'Διαγράφηκε 1' : r.removed + ' διαγράφηκαν'); load();
+    }; }
+
+    $$('[data-ttog]').forEach(b => b.onclick = async () => {
+      const el = b.closest('.td-row');
+      el.classList.add('td-fade');
+      await api('todo_toggle', {id: +b.dataset.ttog});
+      load();
+    });
+    $$('[data-tdel]').forEach(b => b.onclick = async () => {
+      await api('todo_del', {id: +b.dataset.tdel}); load();
+    });
+    $$('[data-tdate]').forEach(b => b.onclick = e => {
+      const id = +b.dataset.tdate;
+      const cur = (d.items.find(x => x.id === id) || {}).remind;
+      tdDateMenu(e.currentTarget, cur, async v => {
+        await api('todo_update', {id, remind: v || ''}); load();
+      });
+    });
+    $$('[data-tproj]').forEach(el => el.onclick = e => {
+      const id = +el.dataset.tproj;
+      tdProjMenu(e.currentTarget, async pid => { await api('todo_update', {id, project: pid}); load(); });
+    });
+    $$('[data-tedit]').forEach(sp => sp.onclick = () => tdInlineEdit(sp, load));
+
+    /* σημειώσεις «πού έμεινα» */
+    const nh = $('#tdNoteH'); if (nh) { nh.onclick = () => { st.notes = !st.notes; st.view === 'proj' ? paintByProject() : paintByDate(); }; }
+    const no = $('#tdNoteOpen'); if (no) { no.onclick = () => { st.notes = true; st.view === 'proj' ? paintByProject() : paintByDate(); }; }
+    $$('.td-note').forEach(el => el.onclick = () => tdNote(+el.dataset.np, d, load));
+    const na = $('#tdNoteAdd'); if (na) { na.onclick = () => tdNote(+$('#tdNoteP').value, d, load); }
+  }
+
   await load();
 };
+
+/* Επεξεργασία κειμένου πάνω στη γραμμή — χωρίς popup. */
+function tdInlineEdit(span, done) {
+  const id = +span.dataset.tedit;
+  const old = span.textContent;
+  const inp = document.createElement('input');
+  inp.className = 'inp td-inline';
+  inp.value = old;
+  span.replaceWith(inp);
+  inp.focus(); inp.setSelectionRange(old.length, old.length);
+  let closed = false;
+  const finish = async save => {
+    if (closed) { return; } closed = true;
+    const v = inp.value.trim();
+    if (save && v && v !== old) { await api('todo_update', {id, text: v}); done(); } else { done(); }
+  };
+  inp.onblur = () => finish(true);
+  inp.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  };
+}
+
+/* Μικρό μενού ημερομηνίας δίπλα στο κουμπί — όχι πληκτρολόγηση μορφής. */
+function tdDateMenu(anchor, current, onPick) {
+  document.querySelectorAll('.td-pop').forEach(x => x.remove());
+  const p = document.createElement('div');
+  p.className = 'td-pop';
+  p.innerHTML = tdQuick().map(([lbl, dt]) =>
+      `<button data-v="${tdSql(dt)}">${lbl}<span>${tdWhen(tdSql(dt))}</span></button>`).join('')
+    + `<div class="td-pop-sep"></div>
+       <div class="td-pop-row"><input type="date" id="tdPD"><input type="time" id="tdPT" value="09:00"></div>
+       <button data-ok="1" class="td-pop-ok">Ορισμός</button>
+       ${current ? '<button data-v="" class="td-pop-clr">Αφαίρεση ημερομηνίας</button>' : ''}`;
+  document.body.appendChild(p);
+  const r = anchor.getBoundingClientRect();
+  p.style.top = Math.min(r.bottom + 6, window.innerHeight - p.offsetHeight - 10) + 'px';
+  p.style.left = Math.max(8, Math.min(r.left, window.innerWidth - p.offsetWidth - 10)) + 'px';
+  if (current) {
+    const dt = new Date(current.replace(' ', 'T'));
+    p.querySelector('#tdPD').value = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    p.querySelector('#tdPT').value = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+  }
+  const close = () => { p.remove(); document.removeEventListener('mousedown', out, true); };
+  const out = e => { if (!p.contains(e.target) && e.target !== anchor) { close(); } };
+  setTimeout(() => document.addEventListener('mousedown', out, true), 0);
+  p.querySelectorAll('button[data-v]').forEach(b => b.onclick = () => { close(); onPick(b.dataset.v); });
+  p.querySelector('[data-ok]').onclick = () => {
+    const dd = p.querySelector('#tdPD').value;
+    if (!dd) { return; }
+    close(); onPick(dd + ' ' + (p.querySelector('#tdPT').value || '09:00'));
+  };
+}
+
+/* Αλλαγή έργου από την ετικέτα. */
+function tdProjMenu(anchor, onPick) {
+  document.querySelectorAll('.td-pop').forEach(x => x.remove());
+  const list = (R.todos._d && R.todos._d.projects) || [];
+  const p = document.createElement('div');
+  p.className = 'td-pop';
+  p.innerHTML = '<button data-p="0">— χωρίς έργο —</button>'
+    + list.map(x => `<button data-p="${x.id}"><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</button>`).join('');
+  document.body.appendChild(p);
+  const r = anchor.getBoundingClientRect();
+  p.style.top = (r.bottom + 6) + 'px';
+  p.style.left = Math.max(8, Math.min(r.left, window.innerWidth - p.offsetWidth - 10)) + 'px';
+  const close = () => { p.remove(); document.removeEventListener('mousedown', out, true); };
+  const out = e => { if (!p.contains(e.target) && e.target !== anchor) { close(); } };
+  setTimeout(() => document.addEventListener('mousedown', out, true), 0);
+  p.querySelectorAll('button[data-p]').forEach(b => b.onclick = () => { close(); onPick(+b.dataset.p); });
+}
+
+/* «Πού έμεινα» για ένα έργο. */
+async function tdNote(pid, d, done) {
+  const cur = (d.notes.find(n => n.project === pid) || {}).note || '';
+  const name = pid ? ((d.projects.find(p => p.id === pid) || {}).name || '—') : 'Γενικά';
+  const v = await cnpPrompt('Πού έμεινες; Τι περιμένεις; Τι να θυμάσαι όταν το ξαναπιάσεις;', {
+    title: I.doc + ' Πού έμεινα — ' + esc(name), input: cur, rows: 5, max: 4000,
+    placeholder: 'π.χ. έμεινα στη ρύθμιση DNS, περιμένω απάντηση πελάτη…', ok: 'Αποθήκευση'});
+  if (v === null) { return; }
+  await api('worknote_save', {project: pid, note: v.trim().replace(/\n/g, '<br>')});
+  toast(v.trim() ? 'Η σημείωση αποθηκεύτηκε' : 'Η σημείωση αφαιρέθηκε');
+  done();
+}
+
+/* Σύρσιμο μέσα στον ίδιο κάδο — η σειρά μετράει όταν δεν υπάρχει ημερομηνία. */
+function tdDrag(cont) {
+  let drag = null;
+  cont.querySelectorAll('.td-row').forEach(row => {
+    const grip = row.querySelector('.td-grip');
+    if (!grip) { return; }
+    row.draggable = true;
+    row.ondragstart = () => { drag = row; row.classList.add('dragging'); };
+    row.ondragend = async () => {
+      row.classList.remove('dragging');
+      drag = null;
+      await api('todo_reorder', {ids: [...cont.querySelectorAll('.td-row')].map(x => +x.dataset.tid)});
+    };
+  });
+  cont.ondragover = e => {
+    if (!drag) { return; }
+    e.preventDefault();
+    const after = [...cont.querySelectorAll('.td-row:not(.dragging)')].reduce((cl, ch) => {
+      const b = ch.getBoundingClientRect(); const off = e.clientY - b.top - b.height / 2;
+      return (off < 0 && off > cl.offset) ? {offset: off, el: ch} : cl;
+    }, {offset: -Infinity, el: null}).el;
+    if (after == null) { cont.appendChild(drag); } else { cont.insertBefore(drag, after); }
+  };
+}
 
 /* ═════════ 🧑‍💼 ΠΡΟΣΛΗΨΕΙΣ / ΒΙΟΓΡΑΦΙΚΑ ═════════ */
 const _cvStatusCol = {new: '#0097e4', review: '#e0a020', shortlist: '#7b5cd6', interview: '#16a26a', rejected: '#e2515f', hired: '#0a8a4f'};
