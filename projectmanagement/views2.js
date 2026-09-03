@@ -2207,20 +2207,13 @@ R.projects = async function () {
       const avail = md.available.filter(a => !md.modules.some(m => m.id === a.id));
       box.innerHTML = `
         ${md.modules.map(mod).join('') || '<div class="mut" style="font-size:12.5px;padding:2px 0 8px">Κανένα module ακόμη — πρόσθεσε ποιο δικό μας προϊόν παραδίδει αυτό το έργο.</div>'}
-        ${canEdit && avail.length ? `<div class="set-row" style="gap:7px;margin-top:10px">
-          <select class="inp" id="pjModAdd" style="flex:1"><option value="">— πρόσθεσε module —</option>
-            ${avail.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
-          <input type="date" class="inp" id="pjModStart" value="${today()}" title="Έναρξη των βημάτων του" style="width:auto">
-          <button class="btn btn-p btn-sm" id="pjModGo">+</button></div>` : ''}`;
+        ${canEdit ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="pjModAssign">${I.box} Ανάθεση προϊόντων${avail.length ? '' : ' (όλα μέσα)'}</button></div>` : ''}`;
       $$('[data-modtoggle]', box).forEach(h => h.onclick = () => { modState[+h.dataset.modtoggle] = modState[+h.dataset.modtoggle] === false; loadMods(); });
       $$('[data-mtask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.mtask); });
-      const go2 = $('#pjModGo', box);
-      if (go2) go2.onclick = async () => {
-        const mid = +$('#pjModAdd', box).value || 0; if (!mid) { toast('Διάλεξε module', true); return; }
-        const r = await api('project_add_modules', {project: p.id, modules: [mid], start: $('#pjModStart', box).value}).catch(e => ({err: e.message}));
-        if (r.err) { toast(r.err, true); return; }
-        toast(`Προστέθηκε module με ${r.tasks} εργασίες`); loadMods(); loadTasks();
-      };
+      const asg2 = $('#pjModAssign', box);
+      if (asg2 && window.openAssignModules) {
+        asg2.onclick = () => window.openAssignModules(p.id, () => { openProj(p); });
+      }
     };
     loadMods();
 

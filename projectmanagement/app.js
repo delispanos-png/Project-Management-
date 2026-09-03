@@ -1105,6 +1105,7 @@ function boardHead(m) {
       ${m.manager ? `<span class="pill pill-mut">Υπεύθυνος: ${esc(m.manager)}</span>` : ''}
       ${m.due ? `<span class="pill ${m.due < today() && m.pstatus !== 'done' ? 'pill-bad' : 'pill-mut'}">${I.cal} Παράδοση ${dShort(m.due)}</span>` : ''}
       <span style="flex:1"></span>
+      ${m.clientId && m.canEdit ? `<button class="btn btn-sm btn-o" id="kbAssign" title="Ανάθεση δικών μας προϊόντων/modules σε αυτό το έργο">${I.box} Ανάθεση προϊόντων</button>` : ''}
       <b style="font-variant-numeric:tabular-nums">${dn}/${tot}</b><small class="mut">εργασίες</small>
     </div>
     ${(m.modules || []).length ? `<div class="us-strip" title="Modules της υλοποίησης">${m.modules.map(x =>
@@ -1113,6 +1114,12 @@ function boardHead(m) {
         <i style="background:${x.color}">${I.box}</i>${esc(x.name)} <b>${x.done}/${x.total}</b></a>`).join('')}</div>` : ''}
     ${chips ? `<div class="us-strip">${chips}</div>` : ''}
   </div></div>`;
+  /* Ανάθεση προϊόντων από εδώ: το έργο είναι ανοιχτό, δεν χρειάζεται να πάει
+     κανείς στη φόρμα επεξεργασίας για να δηλώσει τι παραδίδει. */
+  const asg = $('#kbAssign', h);
+  if (asg && window.openAssignModules) {
+    asg.onclick = () => window.openAssignModules(m.id, () => vBoard());
+  }
   /* Κλικ σε module → μένουν μόνο οι κάρτες του στο board· ξανά κλικ → όλες. */
   $$('[data-modfilter]', h).forEach(a => a.onclick = () => {
     const id = +a.dataset.modfilter, on = a.classList.toggle('sel');

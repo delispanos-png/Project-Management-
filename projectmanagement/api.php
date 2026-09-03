@@ -1702,6 +1702,7 @@ case 'board':
             'clientId' => $pj->clientid ? (int) $pj->clientid : null,
             'client' => $pj->clientid ? clientLabel((int) $pj->clientid) : null,
             'manager' => $pj->manager_id ? Db::adminName((int) $pj->manager_id) : null,
+            'canEdit' => cnp_can_edit_project($adminId, $FULL, $pj),
             'deptSplit' => $split,
             'modules' => (function () use ($pid, $doneB) {
                 $o = [];

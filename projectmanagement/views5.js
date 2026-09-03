@@ -974,3 +974,52 @@ function openClone(tp, d) {
     closeDrawer(); S.boot = await api('boot'); go('board', r.project);
   };
 }
+
+/* Ανάθεση δικών μας προϊόντων/modules σε υπάρχον έργο πελάτη.
+   Καλείται από την κεφαλίδα του board και από τη φόρμα του έργου, ώστε η
+   ανάθεση να γίνεται εκεί που δουλεύεις και όχι μόνο στην επεξεργασία. */
+async function openAssignModules(projectId, onDone) {
+  closeDrawer();
+  const md = await api('project_modules&project=' + projectId).catch(() => null);
+  if (!md) { toast('Δεν φορτώθηκαν τα modules', true); return; }
+  const have = md.modules.map(m => m.id);
+  const free = md.available.filter(a => !have.includes(a.id));
+  const ovl = document.createElement('div'); ovl.className = 'ovl';
+  const dr = document.createElement('div'); dr.className = 'drawer';
+  dr.innerHTML = `
+  <div class="drawer-h"><h2>${I.box} Ανάθεση προϊόντων στο έργο</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-b"><div class="card"><div class="card-b">
+    ${md.modules.length ? `<label class="lbl">Ήδη ανατεθειμένα</label>
+      <div class="mod-pick" style="margin-bottom:14px">${md.modules.map(m => `<div class="mod-opt on" style="cursor:default">
+        <span class="dot" style="background:${m.color};width:9px;height:9px"></span>
+        <b>${esc(m.name)}</b>
+        ${m.product ? `<small class="mut">${esc(m.product)}</small>` : ''}
+        <span class="pill ${m.done === m.total && m.total ? 'pill-ok' : 'pill-mut'}">${m.done}/${m.total}</span></div>`).join('')}</div>` : ''}
+    <label class="lbl">${free.length ? 'Πρόσθεσε προϊόντα / modules' : 'Δεν μένει άλλο module'}</label>
+    <div class="mut" style="font-size:11.5px;margin-bottom:6px">Κάθε module φέρνει τα βήματα παράδοσής του ως εργασίες, με το checklist του.</div>
+    <div class="mod-pick">${free.map(a => `<label class="mod-opt">
+      <input type="checkbox" data-am="${a.id}">
+      <span class="dot" style="background:${a.color};width:9px;height:9px"></span>
+      <b>${esc(a.name)}</b></label>`).join('') || '<div class="mut">Όλα τα ενεργά modules είναι ήδη μέσα.</div>'}</div>
+    ${free.length ? `<div class="frow" style="margin-top:12px">
+      <div><label class="lbl">Έναρξη των βημάτων</label><input type="date" class="inp" id="amStart" value="${today()}"></div>
+    </div>
+    <div style="display:flex;gap:9px;margin-top:12px"><button class="btn btn-p" id="amGo">${I.plus} Ανάθεση</button></div>` : ''}
+  </div></div></div>`;
+  document.body.append(ovl, dr);
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  $('#dX').onclick = () => closeDrawer();
+  $$('[data-am]', dr).forEach(c => c.onchange = () => c.closest('.mod-opt').classList.toggle('on', c.checked));
+  const go = $('#amGo', dr);
+  if (go) go.onclick = async () => {
+    const ids = $$('[data-am]', dr).filter(x => x.checked).map(x => +x.dataset.am);
+    if (!ids.length) { toast('Διάλεξε τουλάχιστον ένα', true); return; }
+    const r = await api('project_add_modules', {project: projectId, modules: ids,
+      start: $('#amStart', dr).value}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast(`Ανατέθηκαν ${r.modules} module${r.modules === 1 ? '' : 's'} — ${r.tasks} εργασίες`);
+    closeDrawer();
+    if (onDone) { onDone(); }
+  };
+}
+window.openAssignModules = openAssignModules;
