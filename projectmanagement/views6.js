@@ -1,4 +1,4 @@
-/* ═══════════ CloudOn Projects — Προαγορασμένος χρόνος ═══════════
+/* ═══════════ CloudOn Projects — Προαγορά χρόνου ═══════════
    Ο χρεώσιμος χρόνος πληρώνεται από κάπου: εγκεκριμένη προσφορά για το έργο,
    ή προαγορά του πελάτη. Ό,τι δεν καλύφθηκε μένει ακάλυπτο και από εκεί βγαίνει
    η επόμενη προσφορά. Το μητρώο είναι του supportcontracts — εδώ γίνεται
@@ -42,7 +42,7 @@ function drawer(title, html, wide) {
 /* ─────────────────────── Υπόλοιπα πελατών ─────────────────────── */
 
 R.prepaid = async function () {
-  setTop('Προαγορασμένος χρόνος', 'Πόσο έχουν αγοράσει, πόσο έμεινε, τι δεν καλύφθηκε');
+  setTop('Προαγορά χρόνου', 'Πόσο έχουν αγοράσει, πόσο έμεινε, τι δεν καλύφθηκε');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:110px;margin-bottom:14px"></div><div class="skel" style="height:340px"></div>';
   let dErr = null;
@@ -143,7 +143,7 @@ function pickClient() {
 /* ─────────────────────── Καρτέλα πελάτη ─────────────────────── */
 
 async function openPrepaid(clientId, forceEdit) {
-  const dr = drawer('Προαγορασμένος χρόνος', '<div class="skel" style="height:300px"></div>', true);
+  const dr = drawer('Προαγορά χρόνου', '<div class="skel" style="height:300px"></div>', true);
   const body = $('#ppBody', dr);
   let dErr = null;
   let d = await api('prepaid_client&client=' + clientId).catch(e => { dErr = e; return null; });

@@ -626,11 +626,15 @@ table.tbl{width:100%;border-collapse:collapse}
   z-index:60;box-shadow:0 6px 18px rgba(0,0,0,.45);pointer-events:none}
 
 /* ═══ Accordion nav groups ═══ */
-button.sgroup{display:flex;align-items:center;width:100%;background:none;border:0;cursor:pointer;
-  color:#586c8f;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
-  padding:13px 10px 6px;font-family:inherit;transition:color .12s}
+button.sgroup{display:flex;align-items:center;gap:6px;width:100%;background:none;border:0;cursor:pointer;
+  color:#586c8f;font-size:13px;font-weight:700;letter-spacing:.55px;text-transform:uppercase;
+  padding:13px 9px 6px;font-family:inherit;transition:color .12s;text-align:left}
+/* Ο τίτλος μένει ΠΑΝΤΑ σε μία γραμμή: το <button> κεντράρει το κείμενο από
+   προεπιλογή, οπότε ένας μακρύς τίτλος έσπαγε στα δύο και έδειχνε στοιχισμένος
+   στο κέντρο — έσπαγε την ομοιομορφία της στήλης. */
+.sgroup-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 button.sgroup:hover{color:#8ba0c4}
-button.sgroup .chev{margin-left:auto;opacity:.6;transition:transform .18s ease;flex:none}
+button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
 .snav-grp.open button.sgroup .chev{transform:rotate(180deg)}
 .snav-items{overflow:hidden;transition:max-height .2s ease}
 .snav-grp:not(.open) .snav-items{max-height:0}

@@ -193,7 +193,7 @@ function renderShell() {
       ['standup', I.clipboard, 'Standup'],
       ['remotebook', I.monitor, 'Απομακρυσμένες'],
     ]],
-    ['Προαγορασμένος χρόνος', 'prepaid', 'πόσο χρόνο έχουν αγοράσει, πόσο έχει μείνει, τι δεν καλύφθηκε', [
+    ['Προαγορά χρόνου', 'prepaid', 'πόσο χρόνο έχουν αγοράσει, πόσο έχει μείνει, τι δεν καλύφθηκε', [
       ['prepaid', I.clock, 'Υπόλοιπα πελατών'],
       ['uncovered', I.alert, 'Ακάλυπτος χρόνος'],
     ]],
@@ -231,7 +231,7 @@ function renderShell() {
           const hasActive = items.some(([k]) => k === S.view);
           const open = openSet ? openSet.has(g) : hasActive;   // default: ανοιχτή η ενότητα του τρέχοντος view
           return `<div class="snav-grp ${open ? 'open' : ''}">
-            <button class="sgroup" data-grptoggle="${esc(g)}"${hint ? ` title="${esc(hint)}"` : ''}>${esc(g)}
+            <button class="sgroup" data-grptoggle="${esc(g)}"${hint ? ` title="${esc(hint)}"` : ''}><span class="sgroup-t">${esc(g)}</span>
               <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
             <div class="snav-items">${items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}">${ic}<span>${lb}</span></button>`).join('')}</div>
           </div>`;
