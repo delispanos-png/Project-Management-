@@ -487,6 +487,65 @@ function cnp_words($text, $max = 40)
  * Καθαρισμός rich-text HTML (ασφαλή tags μόνο· χωρίς 4-byte για utf8mb3 DB).
  * $max: όριο χαρακτήρων — τα μεγάλα πεδία (descr/solution) κρατούν τη χωρητικότητά τους (60k).
  */
+/* ================= ΠΑΡΑΠΟΝΑ ΠΕΛΑΤΩΝ =================
+   Όποιος μιλάει με πελάτη ακούει και παράπονα. Αν δεν γραφτούν εκείνη τη
+   στιγμή, χάνονται — και μαζί τους το μοτίβο που τα γεννάει. Το παράπονο δεν
+   είναι ticket (αίτημα) ούτε επικοινωνία (καταγραφή επαφής): έχει κύκλο ζωής
+   και απολογισμό, γι' αυτό ζει χωριστά. */
+
+/** Ποιοι μαθαίνουν αμέσως ένα κρίσιμο παράπονο: όσοι το χειρίζονται. */
+function cnp_cx_watchers($exceptId = 0)
+{
+    $ids = [];
+    foreach (Capsule::table('tbladmins')->where('disabled', 0)
+        ->get(['id', 'firstname', 'lastname', 'username']) as $a) {
+        if ((int) $a->id === (int) $exceptId) { continue; }
+        if (cnp_is_bot(trim($a->firstname . ' ' . $a->lastname), $a->username)) { continue; }
+        if (Db::isFullAccess($a->id) || cnp_has_cap($a->id, false, 'clients.complaint_close')) {
+            $ids[] = (int) $a->id;
+        }
+    }
+    return array_values(array_unique($ids));
+}
+
+/** Τι αφορά το παράπονο. Σταθερή λίστα: το νόημα είναι να συγκρίνεις μήνες. */
+function cnp_cx_cats()
+{
+    return [
+        'delay'    => ['Καθυστέρηση', '#e0a020'],
+        'quality'  => ['Ποιότητα δουλειάς', '#c0392b'],
+        'comm'     => ['Επικοινωνία / ενημέρωση', '#0090dd'],
+        'billing'  => ['Χρέωση / τιμολόγηση', '#7b5cd6'],
+        'outage'   => ['Διακοπή / βλάβη', '#e2515f'],
+        'attitude' => ['Συμπεριφορά', '#d95f9a'],
+        'other'    => ['Άλλο', '#8595ac'],
+    ];
+}
+function cnp_cx_sources()
+{
+    return ['call' => 'Τηλεφωνικά', 'email' => 'Email', 'ticket' => 'Μέσω ticket',
+        'meeting' => 'Σε συνάντηση', 'visit' => 'Επιτόπου', 'other' => 'Άλλο'];
+}
+function cnp_cx_status()
+{
+    return ['open' => ['Ανοιχτό', 'var(--bad)'], 'progress' => ['Σε χειρισμό', 'var(--warn)'],
+        'resolved' => ['Λύθηκε', 'var(--ok)'], 'rejected' => ['Αβάσιμο', 'var(--mut)']];
+}
+/** Μία γραμμή για τη λίστα. */
+function cnp_cx_row($r)
+{
+    return ['id' => (int) $r->id, 'client' => (int) $r->clientid,
+        'name' => $r->clientid ? clientLabel((int) $r->clientid) : ($r->contact ?: '— χωρίς πελάτη —'),
+        'contact' => $r->contact, 'category' => $r->category, 'severity' => (int) $r->severity,
+        'summary' => $r->summary, 'source' => $r->source, 'status' => $r->status,
+        'owner' => (int) $r->owner_id, 'ownerName' => $r->owner_id ? Db::adminName($r->owner_id) : null,
+        'by' => $r->created_by ? Db::adminName($r->created_by) : null,
+        'at' => $r->created_at, 'resolvedAt' => $r->resolved_at, 'informed' => (bool) $r->informed,
+        'ticket' => (int) $r->ticketid, 'task' => (int) $r->task_id,
+        'ageDays' => $r->created_at ? (int) floor((time() - strtotime($r->created_at)) / 86400) : 0];
+}
+
+
 /** Κρατά μόνο τα ψηφία, για σύγκριση τηλεφώνων με διαφορετική μορφή. */
 function cnp_phone_norm($p)
 {
@@ -706,6 +765,12 @@ function cnp_prepaid_products()
     usort($out, function ($a, $b) { return $a['hours'] <=> $b['hours']; });
     return $out;
 }
+/** Λογαριασμός-ρομπότ ή συστήματος, όχι άνθρωπος της ομάδας. */
+function cnp_is_bot($name, $username = '')
+{
+    return (bool) preg_match('/\b(bot|debug|good ?day|chat ?bot|team team|support team)\b/i',
+        trim($name . ' ' . $username));
+}
 /**
  * Οι απαντήσεις σε tickets κρατούν το ΟΝΟΜΑ του χειριστή, όχι id. Χαρτογράφηση
  * ονόματος/username → id, με την ίδια λογική που χρησιμοποιεί η «Απόδοση
@@ -719,7 +784,7 @@ function cnp_admin_by_name($name)
         foreach (Capsule::table('tbladmins')->where('disabled', 0)
             ->get(['id', 'firstname', 'lastname', 'username']) as $a) {
             $nm = trim($a->firstname . ' ' . $a->lastname);
-            if (preg_match('/\b(bot|debug|good ?day|chat ?bot)\b/i', $nm . ' ' . $a->username)) {
+            if (cnp_is_bot($nm, $a->username)) {
                 continue;
             }
             foreach (array_filter([$nm, (string) $a->username]) as $k) {
@@ -1379,6 +1444,8 @@ function cnp_caps()
         'clients.crm'     => ['screen', 'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
         'clients.offers'  => ['screen', 'Προσφορές', 'Δημιουργία και παρακολούθηση προσφορών'],
         'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket από πάνω'],
+        'clients.complaints' => ['screen', 'Παράπονα πελατών', 'Καταχώρηση και παρακολούθηση δυσαρέσκειας'],
+        'clients.complaint_close' => ['power', 'Κλείσιμο παραπόνου', 'Έκβαση και αιτία — ποιος λογοδοτεί για τη λύση', 'clients.complaints'],
         'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
         'clients.import'  => ['power',  'Εισαγωγή / εξαγωγή leads', 'Μαζική εισαγωγή από CSV και εξαγωγή', 'clients.crm'],
 
@@ -1521,6 +1588,9 @@ function cnp_action_cap($action)
         $add('clients.card|finance.packages', ['client_package_set']);
         $add('clients.new', ['client_quick_add']);
         $add('clients.calls', ['call_log', 'call_who', 'call_recent']);
+        $add('clients.complaints', ['complaints', 'complaint', 'complaint_save',
+            'complaint_status', 'complaint_note']);
+        $add('clients.complaint_close', ['complaint_resolve']);
         $add('clients.crm', ['crm_overview', 'crm_reports', 'leads_dupes', 'save_lead', 'lead_merge',
             'lead_score', 'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle',
             'lead_task_del', 'lead_products', 'lead_product_save', 'lead_product_del',
@@ -2658,7 +2728,7 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
     $people = [];
     foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'firstname', 'lastname', 'username']) as $a) {
         $nm = trim($a->firstname . ' ' . $a->lastname);
-        if (preg_match('/\b(bot|debug|good ?day|chat ?bot)\b/i', $nm . ' ' . $a->username)) { continue; }
+        if (cnp_is_bot($nm, $a->username)) { continue; }
         $people[(int) $a->id] = ['name' => $nm ?: $a->username,
             'keys' => array_values(array_unique(array_filter([$nm, (string) $a->username])))];
     }
@@ -2869,7 +2939,7 @@ case 'activity':
         ->get(['id', 'firstname', 'lastname', 'username']) as $a9) {
         $aid = (int) $a9->id;
         $nm9 = trim($a9->firstname . ' ' . $a9->lastname);
-        if (preg_match('/\b(bot|debug|good ?day|chat ?bot|team team|support team)\b/i', $nm9 . ' ' . $a9->username)) {
+        if (cnp_is_bot($nm9, $a9->username)) {
             continue;
         }
         $seen = (int) Db::pref($aid, 'last_seen', '0');
@@ -3315,6 +3385,173 @@ case 'interaction':
         'followup_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['followup'] ?? '') ? $in['followup'] : null,
         'followup_note' => mb_substr(trim($in['followupNote'] ?? ''), 0, 200) ?: null]);
     out(['ok' => true]);
+
+case 'complaints':
+    $st9 = (string) ($_GET['status'] ?? 'live');       // live = ανοιχτά + σε χειρισμό
+    $q9 = Capsule::table('mod_cpm_complaints');
+    if ($st9 === 'live') { $q9->whereIn('status', ['open', 'progress']); }
+    elseif (in_array($st9, ['open', 'progress', 'resolved', 'rejected'], true)) { $q9->where('status', $st9); }
+    if (!empty($_GET['client'])) { $q9->where('clientid', (int) $_GET['client']); }
+    if (!empty($_GET['cat'])) { $q9->where('category', (string) $_GET['cat']); }
+    if (!empty($_GET['mine'])) { $q9->where('owner_id', $adminId); }
+    $rows9 = [];
+    foreach ($q9->orderByRaw("FIELD(status,'open','progress','resolved','rejected')")
+        ->orderBy('severity', 'desc')->orderBy('id', 'desc')->limit(300)->get() as $r9) {
+        $rows9[] = cnp_cx_row($r9);
+    }
+    /* Σύνοψη: όχι μόνο πόσα, αλλά τι επαναλαμβάνεται και πόσο αργούμε. */
+    $all9 = Capsule::table('mod_cpm_complaints');
+    $openN = (int) (clone $all9)->whereIn('status', ['open', 'progress'])->count();
+    $critN = (int) (clone $all9)->whereIn('status', ['open', 'progress'])->where('severity', 3)->count();
+    $mon9 = date('Y-m-01') . ' 00:00:00';
+    $newN = (int) (clone $all9)->where('created_at', '>=', $mon9)->count();
+    $days = [];
+    foreach ((clone $all9)->whereNotNull('resolved_at')->where('resolved_at', '>=', date('Y-m-d', strtotime('-90 days')))
+        ->get(['created_at', 'resolved_at']) as $r9) {
+        $days[] = max(0, (strtotime($r9->resolved_at) - strtotime($r9->created_at)) / 86400);
+    }
+    $byCat = [];
+    foreach ((clone $all9)->where('created_at', '>=', date('Y-m-d', strtotime('-180 days')))
+        ->select(Capsule::raw('category, COUNT(*) n'))->groupBy('category')->orderByRaw('n DESC')->get() as $r9) {
+        $byCat[] = ['id' => $r9->category, 'name' => cnp_cx_cats()[$r9->category][0] ?? $r9->category,
+            'color' => cnp_cx_cats()[$r9->category][1] ?? '#8595ac', 'n' => (int) $r9->n];
+    }
+    $worst = [];
+    foreach ((clone $all9)->whereNotNull('clientid')->where('created_at', '>=', date('Y-m-d', strtotime('-180 days')))
+        ->select(Capsule::raw('clientid, COUNT(*) n'))->groupBy('clientid')
+        ->havingRaw('COUNT(*) > 1')->orderByRaw('n DESC')->limit(5)->get() as $r9) {
+        $worst[] = ['client' => (int) $r9->clientid, 'name' => clientLabel((int) $r9->clientid), 'n' => (int) $r9->n];
+    }
+    out(['rows' => $rows9, 'cats' => array_map(function ($k, $v) {
+            return ['id' => $k, 'name' => $v[0], 'color' => $v[1]];
+        }, array_keys(cnp_cx_cats()), cnp_cx_cats()),
+        'sources' => cnp_cx_sources(),
+        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaint_close'),
+        'admins' => array_map(function ($a) { return ['id' => (int) $a->id,
+            'name' => trim($a->firstname . ' ' . $a->lastname)]; }, Db::admins()->all()),
+        'summary' => ['open' => $openN, 'critical' => $critN, 'month' => $newN,
+            'avgDays' => $days ? round(array_sum($days) / count($days), 1) : null,
+            'byCat' => $byCat, 'repeat' => $worst]]);
+
+case 'complaint':
+    $cxid = (int) ($_GET['id'] ?? $in['id'] ?? 0);
+    $cx9 = Capsule::table('mod_cpm_complaints')->where('id', $cxid)->first();
+    if (!$cx9) { fail('notfound', 404); }
+    $notes9 = [];
+    foreach (Capsule::table('mod_cpm_complaint_notes')->where('complaint_id', $cxid)
+        ->orderBy('id')->get() as $n9) {
+        $notes9[] = ['at' => $n9->created_at, 'kind' => $n9->kind, 'body' => $n9->body,
+            'who' => $n9->admin_id ? Db::adminName($n9->admin_id) : 'Σύστημα'];
+    }
+    out(['cx' => cnp_cx_row($cx9) + ['detail' => $cx9->detail, 'resolution' => $cx9->resolution,
+            'cause' => $cx9->cause, 'lead' => (int) $cx9->lead_id, 'project' => (int) $cx9->project_id],
+        'notes' => $notes9,
+        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaint_close')]);
+
+case 'complaint_save':
+    $cxid = (int) ($in['id'] ?? 0);
+    $sum9 = mb_substr(trim((string) ($in['summary'] ?? '')), 0, 255);
+    if ($sum9 === '') { fail('Γράψε σε μία γραμμή το παράπονο'); }
+    $cid9 = (int) ($in['client'] ?? 0) ?: null;
+    if ($cid9 && !Capsule::table('tblclients')->where('id', $cid9)->exists()) { $cid9 = null; }
+    $row9 = [
+        'clientid' => $cid9, 'lead_id' => (int) ($in['lead'] ?? 0) ?: null,
+        'contact' => mb_substr(trim((string) ($in['contact'] ?? '')), 0, 120) ?: null,
+        'category' => array_key_exists((string) ($in['category'] ?? ''), cnp_cx_cats()) ? $in['category'] : 'other',
+        'severity' => min(3, max(1, (int) ($in['severity'] ?? 2))),
+        'summary' => $sum9,
+        'detail' => mb_substr(trim((string) ($in['detail'] ?? '')), 0, 8000) ?: null,
+        'source' => array_key_exists((string) ($in['source'] ?? ''), cnp_cx_sources()) ? $in['source'] : 'call',
+        'ticketid' => (int) ($in['ticket'] ?? 0) ?: null,
+        'project_id' => (int) ($in['project'] ?? 0) ?: null,
+        'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    if ($cxid) {
+        Capsule::table('mod_cpm_complaints')->where('id', $cxid)->update($row9);
+        Db::cxNote($cxid, $adminId, 'note', 'Ενημέρωση στοιχείων');
+    } else {
+        $row9['owner_id'] = (int) ($in['owner'] ?? 0) ?: null;
+        $row9['status'] = 'open';
+        $row9['created_by'] = $adminId;
+        $row9['created_at'] = date('Y-m-d H:i:s');
+        $cxid = (int) Capsule::table('mod_cpm_complaints')->insertGetId($row9);
+        Db::cxNote($cxid, $adminId, 'note', 'Καταχωρήθηκε');
+        /* Κρίσιμο παράπονο δεν περιμένει να το δει κάποιος στη λίστα. */
+        if ($row9['severity'] === 3) {
+            foreach (cnp_cx_watchers($adminId) as $w9) {
+                Db::pushNotification($w9, 'complaint',
+                    '⚠ Κρίσιμο παράπονο: ' . mb_substr($sum9, 0, 90),
+                    'addonmodules.php?module=cloudonprojects&pmlaunch=1#/complaints');
+            }
+        }
+        if ($row9['owner_id'] && $row9['owner_id'] !== $adminId) {
+            Db::pushNotification($row9['owner_id'], 'complaint',
+                'Σου ανατέθηκε παράπονο: ' . mb_substr($sum9, 0, 90),
+                'addonmodules.php?module=cloudonprojects&pmlaunch=1#/complaints');
+        }
+    }
+    out(['ok' => true, 'id' => $cxid]);
+
+case 'complaint_status':                 // ανάθεση, κατάσταση, «ενημερώθηκε ο πελάτης»
+    $cxid = (int) ($in['id'] ?? 0);
+    $cx9 = Capsule::table('mod_cpm_complaints')->where('id', $cxid)->first();
+    if (!$cx9) { fail('notfound', 404); }
+    $upd9 = ['updated_at' => date('Y-m-d H:i:s')];
+    if (array_key_exists('owner', $in)) {
+        $ow9 = (int) $in['owner'] ?: null;
+        $upd9['owner_id'] = $ow9;
+        Db::cxNote($cxid, $adminId, 'assign', $ow9 ? 'Ανατέθηκε σε ' . Db::adminName($ow9) : 'Αφαιρέθηκε η ανάθεση');
+        if ($ow9 && $ow9 !== $adminId) {
+            Db::pushNotification($ow9, 'complaint', 'Σου ανατέθηκε παράπονο: ' . mb_substr($cx9->summary, 0, 90),
+                'addonmodules.php?module=cloudonprojects&pmlaunch=1#/complaints');
+        }
+    }
+    if (array_key_exists('informed', $in)) {
+        $upd9['informed'] = !empty($in['informed']) ? 1 : 0;
+        Db::cxNote($cxid, $adminId, 'informed',
+            $upd9['informed'] ? 'Ενημερώθηκε ο πελάτης' : 'Αναιρέθηκε η ενημέρωση πελάτη');
+    }
+    if (!empty($in['status']) && in_array($in['status'], ['open', 'progress'], true)) {
+        $upd9['status'] = $in['status'];
+        $upd9['resolved_at'] = null;
+        $upd9['resolved_by'] = null;
+        Db::cxNote($cxid, $adminId, 'status', 'Κατάσταση: ' . (cnp_cx_status()[$in['status']][0] ?? $in['status']));
+    }
+    Capsule::table('mod_cpm_complaints')->where('id', $cxid)->update($upd9);
+    out(['ok' => true]);
+
+case 'complaint_resolve':                // κλείσιμο με έκβαση — χωριστό δικαίωμα
+    $cxid = (int) ($in['id'] ?? 0);
+    $cx9 = Capsule::table('mod_cpm_complaints')->where('id', $cxid)->first();
+    if (!$cx9) { fail('notfound', 404); }
+    $how9 = ($in['status'] ?? 'resolved') === 'rejected' ? 'rejected' : 'resolved';
+    $res9 = mb_substr(trim((string) ($in['resolution'] ?? '')), 0, 4000);
+    if ($res9 === '') { fail('Γράψε τι έγινε — χωρίς έκβαση το παράπονο δεν κλείνει'); }
+    Capsule::table('mod_cpm_complaints')->where('id', $cxid)->update([
+        'status' => $how9, 'resolution' => $res9,
+        'cause' => mb_substr(trim((string) ($in['cause'] ?? '')), 0, 120) ?: null,
+        'resolved_by' => $adminId, 'resolved_at' => date('Y-m-d H:i:s'),
+        'informed' => !empty($in['informed']) ? 1 : (int) $cx9->informed,
+        'updated_at' => date('Y-m-d H:i:s')]);
+    Db::cxNote($cxid, $adminId, 'resolve',
+        ($how9 === 'rejected' ? 'Κρίθηκε αβάσιμο' : 'Λύθηκε') . ': ' . $res9);
+    if ((int) $cx9->created_by && (int) $cx9->created_by !== $adminId) {
+        Db::pushNotification((int) $cx9->created_by, 'complaint',
+            'Έκλεισε το παράπονο που κατέγραψες: ' . mb_substr($cx9->summary, 0, 80),
+            'addonmodules.php?module=cloudonprojects&pmlaunch=1#/complaints');
+    }
+    out(['ok' => true]);
+
+case 'complaint_note':
+    $cxid = (int) ($in['id'] ?? 0);
+    $b9 = mb_substr(trim((string) ($in['body'] ?? '')), 0, 4000);
+    if (!$cxid || $b9 === '') { fail('input'); }
+    if (!Capsule::table('mod_cpm_complaints')->where('id', $cxid)->exists()) { fail('notfound', 404); }
+    Db::cxNote($cxid, $adminId, 'note', $b9);
+    Capsule::table('mod_cpm_complaints')->where('id', $cxid)
+        ->update(['updated_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
 
 /* ================= ΚΑΤΑΓΡΑΦΗ ΚΛΗΣΗΣ =================
    Χτύπησε το τηλέφωνο, το κλείνεις, και σε δεκαπέντε δευτερόλεπτα μένει γραπτό

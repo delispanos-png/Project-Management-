@@ -1106,6 +1106,49 @@ class Db
             });
         }
 
+        /* ── Παράπονα πελατών ──
+           Δεν είναι ticket (αίτημα) ούτε επικοινωνία (καταγραφή επαφής): είναι
+           **δυσαρέσκεια**, με δικό της κύκλο ζωής — ανοιχτό, σε χειρισμό,
+           λυμένο — και δικό της απολογισμό. Γι' αυτό έχει δικό της μητρώο,
+           συνδεδεμένο όμως με ό,τι το γέννησε (κλήση, ticket, έργο). */
+        if (!$s->hasTable('mod_cpm_complaints')) {
+            $s->create('mod_cpm_complaints', function ($t) {
+                $t->increments('id');
+                $t->integer('clientid')->unsigned()->nullable()->index();
+                $t->integer('lead_id')->unsigned()->nullable();
+                $t->string('contact', 120)->nullable();      // ποιος παραπονέθηκε ονομαστικά
+                $t->string('category', 16)->default('other');
+                $t->tinyInteger('severity')->default(2);     // 1 ήπιο · 2 σοβαρό · 3 κρίσιμο
+                $t->string('summary', 255);
+                $t->text('detail')->nullable();
+                $t->string('source', 12)->default('call');   // πώς έφτασε σε εμάς
+                $t->integer('ticketid')->unsigned()->nullable();
+                $t->integer('task_id')->unsigned()->nullable();
+                $t->integer('project_id')->unsigned()->nullable();
+                $t->integer('interaction_id')->unsigned()->nullable();
+                $t->string('status', 10)->default('open')->index();   // open|progress|resolved|rejected
+                $t->integer('owner_id')->unsigned()->nullable()->index();
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+                $t->integer('resolved_by')->unsigned()->nullable();
+                $t->timestamp('resolved_at')->nullable();
+                $t->text('resolution')->nullable();
+                $t->string('cause', 120)->nullable();        // τι το προκάλεσε — για το μοτίβο
+                $t->tinyInteger('informed')->default(0);     // γύρισε κάποιος στον πελάτη;
+            });
+        }
+        /* Οι σημειώσεις χειρισμού: τι έγινε, πότε, από ποιον. */
+        if (!$s->hasTable('mod_cpm_complaint_notes')) {
+            $s->create('mod_cpm_complaint_notes', function ($t) {
+                $t->increments('id');
+                $t->integer('complaint_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned()->nullable();
+                $t->string('kind', 12)->default('note');     // note|status|assign|resolve|informed
+                $t->text('body')->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         /* ── Καταγραφή κλήσης ──
            Ο πίνακας επικοινωνιών κρατούσε μόνο «σε ποιον» και «τι». Για να
            καταχωρείς μια κλήση σε δεκαπέντε δευτερόλεπτα χρειάζεται και ο
@@ -2259,6 +2302,18 @@ class Db
     /* ------------------------------------------------------------------ */
     /* Ειδοποιήσεις (καμπανάκι)                                           */
     /* ------------------------------------------------------------------ */
+
+    /** Σημείωση χειρισμού πάνω σε παράπονο — το ιστορικό του. */
+    public static function cxNote($complaintId, $adminId, $kind, $body)
+    {
+        Capsule::table('mod_cpm_complaint_notes')->insert([
+            'complaint_id' => (int) $complaintId,
+            'admin_id' => $adminId ? (int) $adminId : null,
+            'kind' => $kind,
+            'body' => mb_substr((string) $body, 0, 4000),
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
 
     public static function pushNotification($adminId, $type, $title, $url = null)
     {

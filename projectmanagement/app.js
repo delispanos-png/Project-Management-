@@ -176,6 +176,7 @@ function renderShell() {
       ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
       ['crm', I.target, 'CRM & leads', 'clients.crm'],
       ['offers', I.doc, 'Προσφορές', 'clients.offers'],
+      ['complaints', I.alert, 'Παράπονα', 'clients.complaints'],
     ]],
     ['Υποστήριξη', 'τα αιτήματα που περιμένουν απάντηση', [
       ['inbox', I.ticket, 'Tickets', 'support.tickets'],
@@ -280,7 +281,7 @@ function renderShell() {
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
         settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
-        chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', activity: 'Δραστηρ.', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
+        chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', activity: 'Δραστηρ.', complaints: 'Παράπονα', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
@@ -343,6 +344,7 @@ function renderShell() {
       {icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()},
       {icon: I.target, label: 'Νέο lead', on: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
       {icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall()},
+      {icon: I.alert, label: 'Παράπονο πελάτη', on: () => window.CNP.quickCx && window.CNP.quickCx()},
       {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => go('time')},
     ]);
   };

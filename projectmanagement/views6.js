@@ -5,7 +5,7 @@
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
 const {S, api, esc, fmtEur, dShort, dFull, toast, setTop, cnpConfirm, cnpDialog,
-  cnpDenied, cnpCan, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
+  cnpDenied, cnpCan, cnpPrompt, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 /* «2ω 30΄» — ίδια γραφή με τον server (Cover::fmt), για να διαβάζονται μαζί. */
@@ -594,3 +594,332 @@ R.activity = async function () {
 };
 const actStat = (ic, n, l, col) => `<div class="su-stat"><div class="ic" style="background:${col}1a;color:${col}">${ic}</div>
   <div><div class="n">${n}</div><div class="l">${l}</div></div></div>`;
+
+/* ═════════ ⚠ ΠΑΡΑΠΟΝΑ ΠΕΛΑΤΩΝ ═════════
+   Όποιος μιλάει με πελάτη ακούει και παράπονα. Αν δεν γραφτούν εκείνη τη
+   στιγμή χάνονται — και μαζί τους το μοτίβο που τα γεννάει. Η οθόνη έχει δύο
+   δουλειές: να καταχωρείς σε δεκαπέντε δευτερόλεπτα, και να βλέπεις τι
+   επαναλαμβάνεται. */
+
+const CX_CAT = {delay: ['Καθυστέρηση', '#e0a020'], quality: ['Ποιότητα δουλειάς', '#c0392b'],
+  comm: ['Επικοινωνία / ενημέρωση', '#0090dd'], billing: ['Χρέωση / τιμολόγηση', '#7b5cd6'],
+  outage: ['Διακοπή / βλάβη', '#e2515f'], attitude: ['Συμπεριφορά', '#d95f9a'],
+  other: ['Άλλο', '#8595ac']};
+const CX_SRC = {call: 'Τηλεφωνικά', email: 'Email', ticket: 'Μέσω ticket',
+  meeting: 'Σε συνάντηση', visit: 'Επιτόπου', other: 'Άλλο'};
+const CX_ST = {open: ['Ανοιχτό', 'var(--bad)'], progress: ['Σε χειρισμό', 'var(--warn)'],
+  resolved: ['Λύθηκε', 'var(--ok)'], rejected: ['Αβάσιμο', 'var(--mut)']};
+const CX_SEV = {1: ['Ήπιο', 'var(--mut)'], 2: ['Σοβαρό', 'var(--warn)'], 3: ['Κρίσιμο', 'var(--bad)']};
+const cxCat = c => CX_CAT[c] || CX_CAT.other;
+
+R.complaints = async function () {
+  setTop('Παράπονα πελατών', 'Τι μας είπαν, τι κάναμε, τι επαναλαμβάνεται');
+  const c = $('#content');
+  const st = R.complaints._s = R.complaints._s || {status: 'live', cat: '', mine: false};
+  c.innerHTML = '<div class="skel" style="height:100px;margin-bottom:14px"></div><div class="skel" style="height:340px"></div>';
+  let dErr = null;
+  const qs = `complaints&status=${st.status}${st.cat ? '&cat=' + st.cat : ''}${st.mine ? '&mine=1' : ''}`;
+  const d = await api(qs).catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
+  const s = d.summary;
+
+  const row = r => {
+    const [sl, sc] = CX_ST[r.status] || CX_ST.open;
+    const [cn, cc] = cxCat(r.category);
+    const live = r.status === 'open' || r.status === 'progress';
+    return `<div class="card cx-row" data-cx="${r.id}">
+      <span class="cx-sev s${r.severity}" title="${CX_SEV[r.severity][0]}"></span>
+      <div class="cx-main">
+        <div class="cx-top"><b>${esc(r.summary)}</b></div>
+        <div class="cx-meta">
+          <span class="cx-cat" style="--c:${cc}">${esc(cn)}</span>
+          <span>${esc(r.name)}${r.contact && r.client ? ' · ' + esc(r.contact) : ''}</span>
+          <span class="mut">${esc(d.sources[r.source] || r.source)}</span>
+          <span class="mut">${dShort(r.at)}${live && r.ageDays > 2 ? ` · <b style="color:var(--warn)">${r.ageDays} μέρες ανοιχτό</b>` : ''}</span>
+          ${r.by ? `<span class="mut">κατέγραψε ${esc(r.by)}</span>` : ''}
+        </div>
+      </div>
+      <div class="cx-right">
+        <span class="pill" style="background:${sc}1e;color:${sc}">${sl}</span>
+        ${r.ownerName ? `<span class="mut" style="font-size:11px">${esc(r.ownerName)}</span>`
+          : (live ? '<span class="pill pill-warn" style="font-size:9.5px">χωρίς υπεύθυνο</span>' : '')}
+        ${r.informed ? `<span class="mut" style="font-size:10.5px" title="Γυρίσαμε στον πελάτη">✓ ενημερώθηκε</span>` : ''}
+      </div></div>`;
+  };
+
+  c.innerHTML = `
+  <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    ${cxStat(I.alert, s.open, s.open === 1 ? 'ανοιχτό παράπονο' : 'ανοιχτά παράπονα', s.open ? 'var(--bad)' : 'var(--ok)')}
+    ${cxStat(I.flag, s.critical, 'κρίσιμα σε εκκρεμότητα', s.critical ? 'var(--bad)' : 'var(--mut)')}
+    ${cxStat(I.cal, s.month, 'φέτος τον μήνα', 'var(--brand)')}
+    ${cxStat(I.clock, s.avgDays === null ? '—' : s.avgDays + ' μέρες', 'μέση επίλυση (90 ημερών)', 'var(--violet)')}
+  </div>
+
+  ${s.byCat.length ? `<div class="card cx-pat"><div class="card-b">
+    <label class="lbl" style="margin:0 0 9px">${I.chart} Τι επαναλαμβάνεται — τελευταίο εξάμηνο</label>
+    <div class="cx-bars">${(() => { const mx = Math.max(...s.byCat.map(x => x.n));
+      return s.byCat.map(x => `<div class="cx-bar" data-cat="${x.id}" title="Φίλτρο σε «${esc(x.name)}»">
+        <span class="cx-bar-l">${esc(x.name)}</span>
+        <span class="cx-bar-t"><i style="width:${Math.round(x.n / mx * 100)}%;background:${x.color}"></i></span>
+        <b>${x.n}</b></div>`).join(''); })()}</div>
+    ${s.repeat.length ? `<div class="cx-rep">${I.alert} Επαναλαμβανόμενα ανά πελάτη:
+      ${s.repeat.map(x => `<a class="pill pill-bad" href="#/client360/${x.client}">${esc(x.name)} · ${x.n}</a>`).join(' ')}</div>` : ''}
+  </div></div>` : ''}
+
+  <div class="card" style="padding:11px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <div class="td-seg">
+      ${[['live', 'Ενεργά'], ['resolved', 'Λυμένα'], ['rejected', 'Αβάσιμα'], ['', 'Όλα']].map(([k, l]) =>
+        `<button data-st="${k}" class="${st.status === k ? 'on' : ''}">${l}</button>`).join('')}
+    </div>
+    <select class="inp" id="cxCat" style="width:auto;max-width:200px;padding:6px 9px;font-size:12px">
+      <option value="">— κάθε κατηγορία —</option>
+      ${d.cats.map(x => `<option value="${x.id}" ${st.cat === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+    </select>
+    <label class="mut" style="display:flex;align-items:center;gap:5px;font-size:12px">
+      <input type="checkbox" id="cxMine" ${st.mine ? 'checked' : ''}> δικά μου</label>
+    <div style="flex:1"></div>
+    <button class="btn btn-p btn-sm" id="cxNew">${I.plus} Νέο παράπονο</button>
+  </div>
+
+  <div id="cxRows">${d.rows.length ? d.rows.map(row).join('')
+    : `<div class="empty" style="padding:44px">${I.sparkle}Κανένα παράπονο με αυτά τα κριτήρια.
+       <div class="mut" style="font-size:12.5px;margin-top:6px">Όταν ένας πελάτης εκφράσει δυσαρέσκεια, γράψ' την εδώ — αλλιώς χάνεται.</div></div>`}</div>`;
+
+  $$('[data-st]').forEach(b => b.onclick = () => { st.status = b.dataset.st; R.complaints(); });
+  $('#cxCat').onchange = e => { st.cat = e.target.value; R.complaints(); };
+  $('#cxMine').onchange = e => { st.mine = e.target.checked; R.complaints(); };
+  $('#cxNew').onclick = () => quickCx();
+  $$('.cx-row').forEach(el => el.onclick = () => openCx(+el.dataset.cx));
+  $$('.cx-bar').forEach(el => el.onclick = () => { st.cat = el.dataset.cat; R.complaints(); });
+};
+const cxStat = (ic, n, l, col) => `<div class="su-stat"><div class="ic" style="background:${col}1a;color:${col}">${ic}</div>
+  <div><div class="n">${n}</div><div class="l">${l}</div></div></div>`;
+
+/* ───────── Γρήγορη καταχώρηση ───────── */
+function quickCx(pre) {
+  if (!cnpCan('clients.complaints')) { toast('Δεν έχεις δικαίωμα καταχώρησης παραπόνου', true); return; }
+  closeDrawer();
+  const who = {id: 0, name: '', type: null};
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.innerHTML = `<div class="pal-box qc-box" onclick="event.stopPropagation()">
+    <div class="qc-h"><b>${I.alert} Παράπονο πελάτη</b></div>
+    <div class="qc-b">
+      <label class="lbl">Ποιος πελάτης</label>
+      <input class="inp" id="cxWho" placeholder="Όνομα, επωνυμία ή αριθμός τηλεφώνου…" autocomplete="off">
+      <div id="cxPick"></div>
+      <div id="cxSel" class="qc-sel" hidden></div>
+      <input class="inp" id="cxContact" placeholder="Ποιος μίλησε μαζί σου (όνομα ατόμου) — προαιρετικό"
+        style="margin-top:7px;font-size:12.5px">
+
+      <label class="lbl" style="margin-top:12px">Το παράπονο <span class="mut" style="font-weight:400">— με τα δικά του λόγια, μία γραμμή</span></label>
+      <input class="inp" id="cxSum" placeholder="π.χ. Περίμενα τρεις μέρες για απάντηση και δεν με πήρε κανείς" autocomplete="off">
+
+      <label class="lbl" style="margin-top:12px">Λεπτομέρειες</label>
+      <textarea class="inp" id="cxDet" rows="2" placeholder="Τι ακριβώς έγινε, πότε, ποιον αφορά"></textarea>
+
+      <label class="lbl" style="margin-top:12px">Τι αφορά</label>
+      <div class="cx-cats">${Object.entries(CX_CAT).map(([k, v]) =>
+        `<button class="cx-pick ${k === 'other' ? 'on' : ''}" data-cat="${k}" style="--c:${v[1]}">${esc(v[0])}</button>`).join('')}</div>
+
+      <div class="qc-row">
+        <div><label class="lbl">Σοβαρότητα</label>
+          <div class="td-seg" id="cxSev">
+            <button data-sev="1">Ήπιο</button><button data-sev="2" class="on">Σοβαρό</button>
+            <button data-sev="3">Κρίσιμο</button></div></div>
+        <div><label class="lbl">Πώς μας το είπε</label>
+          <select class="inp" id="cxSrc">${Object.entries(CX_SRC).map(([k, v]) =>
+            `<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
+      </div>
+
+      <label class="lbl" style="margin-top:12px">Ποιος το αναλαμβάνει <span class="mut" style="font-weight:400">— προαιρετικό</span></label>
+      <select class="inp" id="cxOwn" style="max-width:260px"><option value="">— κανείς ακόμη —</option>
+        ${(S.boot.admins || []).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+      <div class="cx-note" id="cxSevHint"></div>
+    </div>
+    <div class="qc-f">
+      <div style="flex:1"></div>
+      <button class="btn btn-o" id="cxX">Άκυρο</button>
+      <button class="btn btn-p" id="cxOk">Καταχώρηση</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const $q = s2 => ovl.querySelector(s2);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onEsc, true); };
+  const onEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onEsc, true);
+  ovl.onclick = close;
+  $q('#cxX').onclick = close;
+
+  const showSel = () => {
+    const el = $q('#cxSel');
+    if (!who.id && !who.name) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<span class="pill ${who.id ? 'pill-ok' : 'pill-warn'}">${who.id ? I.user : I.alert} ${esc(who.name)}${who.id ? '' : ' — δεν βρέθηκε στο μητρώο'}</span>
+      <button class="qc-clr">✕</button>`;
+    el.querySelector('.qc-clr').onclick = () => { who.id = 0; who.name = ''; $q('#cxWho').value = ''; showSel(); };
+  };
+  let tmr = null;
+  $q('#cxWho').oninput = () => {
+    clearTimeout(tmr);
+    const v = $q('#cxWho').value.trim();
+    who.id = 0; who.name = v; showSel();
+    if (v.length < 3) { $q('#cxPick').innerHTML = ''; return; }
+    tmr = setTimeout(async () => {
+      const r = await api('call_who&q=' + encodeURIComponent(v)).catch(() => null);
+      const list = ((r && r.results) || []).filter(x => x.type === 'client');
+      $q('#cxPick').innerHTML = list.length ? `<div class="qc-list">${list.map(x =>
+        `<div class="qc-opt" data-i="${x.id}" data-n="${esc(x.name)}">${I.user}<b>${esc(x.name)}</b>
+          ${x.phone ? `<span class="mut">${esc(x.phone)}</span>` : ''}</div>`).join('')}</div>` : '';
+      $$('.qc-opt', ovl).forEach(el => el.onclick = () => {
+        who.id = +el.dataset.i; who.name = el.dataset.n;
+        $q('#cxWho').value = who.name; $q('#cxPick').innerHTML = '';
+        showSel(); $q('#cxSum').focus();
+      });
+    }, 240);
+  };
+  let cat = 'other', sev = 2;
+  $$('.cx-pick', ovl).forEach(b => b.onclick = () => {
+    cat = b.dataset.cat;
+    $$('.cx-pick', ovl).forEach(x => x.classList.toggle('on', x === b));
+  });
+  $$('[data-sev]', ovl).forEach(b => b.onclick = () => {
+    sev = +b.dataset.sev;
+    $$('[data-sev]', ovl).forEach(x => x.classList.toggle('on', x === b));
+    $q('#cxSevHint').innerHTML = sev === 3
+      ? `<span style="color:var(--bad)">${I.alert} Κρίσιμο — ειδοποιούνται αμέσως όσοι χειρίζονται παράπονα.</span>` : '';
+  });
+
+  const save = async () => {
+    const sum = $q('#cxSum').value.trim();
+    if (!sum) { toast('Γράψε το παράπονο', true); $q('#cxSum').focus(); return; }
+    const btn = $q('#cxOk'); btn.disabled = true; btn.textContent = '…';
+    const r = await api('complaint_save', {client: who.id, contact: $q('#cxContact').value.trim(),
+      summary: sum, detail: $q('#cxDet').value.trim(), category: cat, severity: sev,
+      source: $q('#cxSrc').value, owner: +$q('#cxOwn').value || 0})
+      .catch(e => ({ok: false, error: e && e.message}));
+    btn.disabled = false; btn.textContent = 'Καταχώρηση';
+    if (!r.ok) { toast(r.error || 'Δεν καταχωρήθηκε', true); return; }
+    close();
+    toast('Το παράπονο καταγράφηκε');
+    if (S.view === 'complaints') { R.complaints(); } else { go('#/complaints'); }
+  };
+  $q('#cxOk').onclick = save;
+  $q('#cxSum').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+  if (pre && pre.client) { who.id = pre.client; who.name = pre.name || ''; $q('#cxWho').value = who.name; showSel(); $q('#cxSum').focus(); }
+  else { $q('#cxWho').focus(); }
+}
+window.CNP.quickCx = quickCx;
+
+/* ───────── Η καρτέλα του παραπόνου ───────── */
+async function openCx(id) {
+  closeDrawer();
+  const ovl = document.createElement('div'); ovl.className = 'ovl';
+  const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
+  dr.innerHTML = `<div class="drawer-h"><h2>${I.alert} Παράπονο</h2><button class="drawer-x" id="dX">✕</button></div>
+    <div class="drawer-b" id="cxBody"><div class="skel" style="height:280px"></div></div>`;
+  document.body.append(ovl, dr);
+  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  $('#dX', dr).onclick = () => closeDrawer();
+  ovl.onclick = () => closeDrawer();
+  const body = $('#cxBody', dr);
+  let dErr = null;
+  const d = await api('complaint&id=' + id).catch(e => { dErr = e; return null; });
+  if (!d) { body.innerHTML = cnpDenied(dErr); return; }
+  const x = d.cx;
+  const [sl, sc] = CX_ST[x.status] || CX_ST.open;
+  const [cn, cc] = cxCat(x.category);
+  const live = x.status === 'open' || x.status === 'progress';
+
+  body.innerHTML = `
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px">
+      <span class="pill" style="background:${sc}1e;color:${sc}">${sl}</span>
+      <span class="cx-cat" style="--c:${cc}">${esc(cn)}</span>
+      <span class="pill" style="background:${CX_SEV[x.severity][1]}1e;color:${CX_SEV[x.severity][1]}">${CX_SEV[x.severity][0]}</span>
+      <span class="mut" style="font-size:12px">${esc(CX_SRC[x.source] || x.source)} · ${dFull(x.at)}</span>
+    </div>
+    <div style="font-size:15.5px;font-weight:650;line-height:1.4">${esc(x.summary)}</div>
+    <div class="mut" style="font-size:12.5px;margin-top:4px">
+      ${x.client ? `<a href="#/client360/${x.client}">${esc(x.name)}</a>` : esc(x.name)}
+      ${x.contact ? ' · ' + esc(x.contact) : ''}${x.by ? ' · κατέγραψε ' + esc(x.by) : ''}</div>
+    ${x.detail ? `<div class="cx-detail">${esc(x.detail)}</div>` : ''}
+
+    <div class="card" style="margin-top:13px"><div class="card-b">
+      <div class="qc-row" style="margin-top:0">
+        <div><label class="lbl">Υπεύθυνος</label>
+          <select class="inp" id="cxOwner"><option value="">— κανείς —</option>
+            ${d.cx && (window.__cxAdmins || []).length ? '' : ''}
+            ${(S.boot.admins || []).map(a => `<option value="${a.id}" ${a.id === x.owner ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Κατάσταση</label>
+          <div class="td-seg" id="cxLive">
+            <button data-s="open" class="${x.status === 'open' ? 'on' : ''}" ${live ? '' : 'disabled'}>Ανοιχτό</button>
+            <button data-s="progress" class="${x.status === 'progress' ? 'on' : ''}" ${live ? '' : 'disabled'}>Σε χειρισμό</button>
+          </div></div>
+      </div>
+      <label class="mut" style="display:flex;align-items:center;gap:6px;margin-top:11px;font-size:12.5px">
+        <input type="checkbox" id="cxInf" ${x.informed ? 'checked' : ''}> Γυρίσαμε στον πελάτη και τον ενημερώσαμε</label>
+    </div></div>
+
+    ${!live ? `<div class="card" style="margin-top:12px;border-left:3px solid ${sc}"><div class="card-b">
+      <label class="lbl" style="margin:0 0 6px">Έκβαση</label>
+      <div style="font-size:13px;white-space:pre-wrap">${esc(x.resolution || '—')}</div>
+      ${x.cause ? `<div class="mut" style="font-size:12px;margin-top:6px">Αιτία: <b>${esc(x.cause)}</b></div>` : ''}
+      <div class="mut" style="font-size:11.5px;margin-top:5px">${dFull(x.resolvedAt)}</div>
+    </div></div>` : ''}
+
+    <div class="card" style="margin-top:12px"><div class="card-b">
+      <label class="lbl" style="margin:0 0 8px">${I.list} Χειρισμός</label>
+      ${d.notes.map(n => `<div class="cx-n">
+        <span class="cx-n-k k-${n.kind}"></span>
+        <div><div style="font-size:12.5px;white-space:pre-wrap">${esc(n.body)}</div>
+          <div class="mut" style="font-size:11px">${esc(n.who)} · ${dFull(n.at)}</div></div></div>`).join('')}
+      <div style="display:flex;gap:6px;margin-top:9px">
+        <input class="inp" id="cxNoteIn" placeholder="Τι έγινε; (Enter)" style="flex:1">
+      </div>
+    </div></div>
+
+    ${live && d.canClose ? `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:13px;flex-wrap:wrap">
+      <button class="btn btn-o" id="cxRej">Αβάσιμο</button>
+      <button class="btn btn-p" id="cxRes">${I.check || ''} Κλείσιμο με έκβαση</button></div>`
+      : (live ? '<div class="mut" style="font-size:11.5px;margin-top:12px;text-align:right">Το κλείσιμο το κάνει όποιος έχει το δικαίωμα «Κλείσιμο παραπόνου».</div>' : '')}`;
+
+  const reload = () => { closeDrawer(); openCx(id); };
+  $('#cxOwner', body).onchange = async e => {
+    await api('complaint_status', {id, owner: +e.target.value || 0});
+    toast('Ενημερώθηκε ο υπεύθυνος'); reload();
+  };
+  $$('[data-s]', body).forEach(b => b.onclick = async () => {
+    if (b.disabled) { return; }
+    await api('complaint_status', {id, status: b.dataset.s}); reload();
+  });
+  $('#cxInf', body).onchange = async e => {
+    await api('complaint_status', {id, informed: e.target.checked});
+    toast(e.target.checked ? 'Σημειώθηκε ότι ενημερώθηκε' : 'Αναιρέθηκε'); reload();
+  };
+  $('#cxNoteIn', body).onkeydown = async e => {
+    if (e.key !== 'Enter' || !e.target.value.trim()) { return; }
+    await api('complaint_note', {id, body: e.target.value.trim()}); reload();
+  };
+  const close2 = async rejected => {
+    const res = await cnpPrompt(rejected
+      ? 'Γιατί κρίνεται αβάσιμο; Θα το διαβάσει όποιος το κατέγραψε.'
+      : 'Τι έγινε τελικά; Η έκβαση μένει στο ιστορικό του πελάτη.',
+      {title: (rejected ? 'Αβάσιμο' : 'Κλείσιμο') + ' παραπόνου', input: '', rows: 3, max: 4000,
+        ok: rejected ? 'Καταχώρηση' : 'Κλείσιμο'});
+    if (res === null || !res.trim()) { return; }
+    let cause = '';
+    if (!rejected) {
+      cause = await cnpPrompt('Τι το προκάλεσε; Μία-δυο λέξεις — έτσι βλέπεις τι επαναλαμβάνεται.',
+        {title: 'Αιτία', input: '', placeholder: 'π.χ. λάθος εκτίμηση χρόνου', ok: 'Αποθήκευση'}) || '';
+    }
+    const r = await api('complaint_resolve', {id, status: rejected ? 'rejected' : 'resolved',
+      resolution: res.trim(), cause: (cause || '').trim(), informed: $('#cxInf', body).checked})
+      .catch(e => ({ok: false, error: e && e.message}));
+    if (!r.ok) { toast(r.error || 'Δεν έκλεισε', true); return; }
+    toast(rejected ? 'Καταχωρήθηκε ως αβάσιμο' : 'Το παράπονο έκλεισε');
+    closeDrawer();
+    if (S.view === 'complaints') { R.complaints(); }
+  };
+  const br = $('#cxRes', body); if (br) { br.onclick = () => close2(false); }
+  const bj = $('#cxRej', body); if (bj) { bj.onclick = () => close2(true); }
+}
+window.openCx = openCx;
