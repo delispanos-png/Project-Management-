@@ -1,7 +1,7 @@
-/* ═══════════ CloudOn Projects — views pack 2 (όλα τα κυκλώματα) ═══════════ */
+/* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDenied, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -1022,8 +1022,9 @@ R.targets = async function (ym) {
   setTop('CRM', 'Στόχοι προϊόντων — ανά πωλητή, με πρόοδο');
   const c = $('#content');
   c.innerHTML = crmTabs('targets') + skel(1, 300);
-  const d = await api('targets' + (ym ? '&ym=' + ym : '')).catch(() => null);
-  if (!d) { c.innerHTML = crmTabs('targets') + `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
+  let dErr = null;
+  const d = await api('targets' + (ym ? '&ym=' + ym : '')).catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = crmTabs('targets') + cnpDenied(dErr); return; }
   const [Y, M] = d.ym.split('-').map(Number);
   const mn = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'][M - 1];
   const fmtYm = (y, m) => y + '-' + String(m).padStart(2, '0');
@@ -1665,8 +1666,9 @@ R.profit = async function () {
   const f = R.profit._f = R.profit._f || {};
   c.innerHTML = skel(4);
   const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
-  const d = await api('profit' + (qs ? '&' + qs : '')).catch(() => null);
-  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
+  let dErr = null;
+  const d = await api('profit' + (qs ? '&' + qs : '')).catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
   const tot = d.clients.reduce((a, x) => ({rev: a.rev + x.rev, labor: a.labor + x.labor, exp: a.exp + x.exp}), {rev: 0, labor: 0, exp: 0});
   const net = tot.rev - tot.labor - tot.exp;
   c.innerHTML = `
@@ -1743,7 +1745,7 @@ R.teams = async function () {
             return dp ? `<a class="pill pill-mut" href="#/unit/${dp.id}">${esc(dp.name)}</a>` : '';
           }).join(' ') : '<span style="color:var(--warn)">κανένα department</span>'}</div>
         <div class="tm-rights">
-          <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Πρόσβαση σε κυκλώματα</div>
+          <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Ενότητες του μενού</div>
           ${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
             <input type="checkbox" data-ar="${t.id}:${ar.id}" ${t.areas.includes(ar.id) ? 'checked' : ''}
               ${d.canManage ? '' : 'disabled'}>${esc(ar.name)}</label>`).join('')}
@@ -1798,8 +1800,8 @@ R.teams = async function () {
     ${d.solo.length ? `<div class="card" style="margin:0;border:1.5px dashed var(--line);box-shadow:none">
       <div class="card-h mut">Χωρίς ομάδα</div><div class="card-b">
       <div class="mut" style="font-size:11.5px;margin-bottom:8px">Χωρίς ομάδα δεν υπάρχει ρόλος να δώσει δικαιώματα.
-        ${d.strict ? 'Με τον αυστηρό κανόνα ενεργό, δεν βλέπουν κανένα κύκλωμα.'
-          : 'Σήμερα παίρνουν την ιστορική προεπιλογή (Υποστήριξη, Έργα, Πωλήσεις).'}</div>
+        ${d.strict ? 'Με τον αυστηρό κανόνα ενεργό, δεν βλέπουν καμία ενότητα.'
+          : 'Σήμερα παίρνουν την ιστορική προεπιλογή (Πελάτες, Υποστήριξη, Έργα & υλοποιήσεις).'}</div>
       ${d.solo.map(s => `<div style="padding:5px 0;border-bottom:1px dashed var(--line)">${esc(s.name)}
         ${s.full ? '<span class="pill pill-info">διαχειριστής — όλα</span>'
           : (s.areas.length ? `<span class="mut" style="font-size:10.5px">ισχύει: ${s.areas.map(x => esc((d.areaDefs.find(z => z.id === x) || {}).name || x)).join(' · ')}</span>`
@@ -1862,7 +1864,7 @@ function openTeam(t, d) {
         <input type="checkbox" data-tdep="${dp.id}" ${t.depts.includes(dp.id) ? 'checked' : ''}>
         <span class="dot" style="background:${dp.color};width:7px;height:7px"></span>${esc(dp.name)}</label>`).join('')}</div>
 
-      <label class="lbl" style="margin-top:13px">${I.lock} Πρόσβαση σε κυκλώματα</label>
+      <label class="lbl" style="margin-top:13px">${I.lock} Ενότητες του μενού</label>
       <div class="mut" style="font-size:11.5px;margin-bottom:7px">Ό,τι επιλέξεις εδώ το αποκτούν <b>όλα τα μέλη</b> της ομάδας.</div>
       <div>${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
         <input type="checkbox" data-tar="${ar.id}" ${t.areas.includes(ar.id) ? 'checked' : ''}>${esc(ar.name)}</label>`).join('')}</div>
@@ -1902,8 +1904,8 @@ function openTeam(t, d) {
   const hint = () => {
     const n = areasNow().length;
     $('#tmAreaHint', dr).innerHTML = n
-      ? `${t.members.length === 1 ? 'Το μέλος' : 'Τα ' + t.members.length + ' μέλη'} θα βλέπ${t.members.length === 1 ? 'ει' : 'ουν'} ${n === 1 ? '1 κύκλωμα' : n + ' κυκλώματα'}.`
-      : '<span style="color:var(--bad)">Χωρίς κύκλωμα, τα μέλη βλέπουν μόνο τα προσωπικά τους.</span>';
+      ? `${t.members.length === 1 ? 'Το μέλος' : 'Τα ' + t.members.length + ' μέλη'} θα βλέπ${t.members.length === 1 ? 'ει' : 'ουν'} ${n === 1 ? '1 ενότητα' : n + ' ενότητες'} του μενού.`
+      : '<span style="color:var(--bad)">Χωρίς ενότητα, τα μέλη βλέπουν μόνο τα προσωπικά τους.</span>';
   };
   $$('[data-tar]', dr).forEach(ch => ch.onchange = () => {
     ch.closest('.tm-area').classList.toggle('on', ch.checked); hint();
@@ -2133,7 +2135,7 @@ R.projects = async function () {
         <input type="checkbox" id="pjVis" ${p.visible ? 'checked' : ''}> Ορατό στον πελάτη (portal)</label>
       <label class="lbl" style="margin-top:14px">${I.lock} Ποιος βλέπει αυτό το έργο</label>
       <div class="mut" style="font-size:11.5px;margin-bottom:7px">Οι διαχειριστές το βλέπουν πάντα. Αν δεν επιλέξεις κανέναν, το έργο
-        είναι <b>ανοιχτό</b> σε όποιον έχει το κύκλωμα «Έργα». Μόλις επιλέξεις έστω έναν, <b>περιορίζεται</b> σε αυτούς —
+        είναι <b>ανοιχτό</b> σε όποιον έχει την ενότητα «Έργα & υλοποιήσεις». Μόλις επιλέξεις έστω έναν, <b>περιορίζεται</b> σε αυτούς —
         ονομαστικά ή σε ολόκληρη ομάδα (δεν χρειάζεται να μπει κάποιος στην ομάδα για να πάρει ένα έργο της).</div>
       <div id="pjAccWarn"></div>
       <label class="lbl" style="margin-top:4px">Μέλη (agents με πρόσβαση)</label>
@@ -2380,7 +2382,7 @@ R.projects = async function () {
       const n = $$('.pjM:checked', dr).length, g = $$('.pjT:checked', dr).length;
       box.innerHTML = (n || g)
         ? `<div class="mut" style="font-size:11.5px;margin-bottom:6px">Το βλέπουν οι διαχειριστές${n ? ` + ${n} χειριστ${n === 1 ? 'ής' : 'ές'} ονομαστικά` : ''}${g ? ` + τα μέλη ${g} ομάδ${g === 1 ? 'ας' : 'ων'}` : ''}.</div>`
-        : '<div class="pill pill-info" style="margin-bottom:6px">Ανοιχτό — το βλέπει όποιος έχει το κύκλωμα «Έργα»</div>';
+        : '<div class="pill pill-info" style="margin-bottom:6px">Ανοιχτό — το βλέπει όποιος έχει την ενότητα «Έργα & υλοποιήσεις»</div>';
     };
     $$('.pjM, .pjT', dr).forEach(ch => ch.addEventListener('change', accWarn));
     accWarn();
@@ -2669,8 +2671,9 @@ R.reports = async function () {
   setTop('CRM', 'Reports — αναλυτικά πωλήσεων');
   const c = $('#content');
   c.innerHTML = crmTabs('reports') + skel(4);
-  const d = await api('crm_reports').catch(() => null);
-  if (!d) { c.innerHTML = crmTabs('reports') + `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
+  let dErr = null;
+  const d = await api('crm_reports').catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = crmTabs('reports') + cnpDenied(dErr); return; }
   const suStat = window.CNP.suStat;
   const maxF = Math.max(1, ...d.funnel.map(f => f.count));
   const maxM = Math.max(1, ...d.byMonth.map(m => m.value));
@@ -2714,7 +2717,7 @@ R.reports = async function () {
 R.crmdata = async function () {
   setTop('CRM', 'Import / Export leads & διπλότυπα');
   const c = $('#content');
-  if (!S.boot.me.full) { c.innerHTML = crmTabs('crmdata') + `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
+  if (!S.boot.me.full) { c.innerHTML = crmTabs('crmdata') + cnpDenied({message: 'Το import/export leads και η συγχώνευση διπλότυπων είναι μόνο για διαχειριστές'}); return; }
   let preview = [];
   c.innerHTML = crmTabs('crmdata') + `
   <div class="grid g2" style="gap:14px">

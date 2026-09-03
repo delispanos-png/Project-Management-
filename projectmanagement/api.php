@@ -671,22 +671,26 @@ function cnp_can_reply_clients($adminId, $isFull)
     }
 }
 
-/* ───────── Δικαιώματα σε κυκλώματα («περιοχές») ─────────
+/* ───────── Δικαιώματα σε ενότητες του μενού ─────────
    Ένας ορισμός, μία φορά: τον διαβάζουν και ο έλεγχος του server και η οθόνη
    των ομάδων, ώστε να μη γίνει η λίστα δύο λίστες που αποκλίνουν. */
 function cnp_area_defs()
 {
+    /* Ένα δικαίωμα = μία ενότητα του μενού, με το ίδιο όνομα. Η σειρά εδώ είναι
+       η σειρά του μενού, ώστε η καρτέλα της ομάδας να διαβάζεται σαν το μενού.
+       Οι ενότητες «Τα δικά μου» και «Η ομάδα» δεν έχουν δικαίωμα: είναι η δική
+       σου δουλειά και η συνεννόηση, τα βλέπουν όλοι. */
     return [
-        'support'  => ['Υποστήριξη', 'Tickets, βάση γνώσης, Πελάτης 360°'],
-        'projects' => ['Έργα', 'Board, Gantt, εργασίες, χρόνος, departments'],
-        'sales'    => ['Πωλήσεις', 'CRM, leads, προσφορές, επικοινωνίες'],
-        'hr'       => ['Προσλήψεις', 'Βιογραφικά & αξιολογήσεις υποψηφίων'],
-        /* Η «Διοίκηση» ήταν ένα ενιαίο κύκλωμα, οπότε για να δώσεις σε έναν
+        'clients'  => ['Πελάτες', 'Πελάτης 360°, CRM & leads, προσφορές, επικοινωνίες, καμπάνιες'],
+        'support'  => ['Υποστήριξη', 'Tickets και βάση γνώσης'],
+        'projects' => ['Έργα & υλοποιήσεις', 'Έργα, board, λίστα, χρονοδιάγραμμα, modules, departments'],
+        /* Η «Διοίκηση» ήταν μία ενιαία ενότητα, οπότε για να δώσεις σε έναν
            project manager το KPI έπρεπε να του δώσεις και τα οικονομικά και τις
            ρυθμίσεις. Σπασμένη σε τρία, δίνεται κατά ενότητα. */
-        'reports'  => ['Αναφορές & απόδοση', 'Πλάνο ημέρας, Ανάλυση ριζών, KPI, Απόδοση χειριστών'],
+        'reports'  => ['Αναφορές & απόδοση', 'Πλάνο ημέρας, KPI, ανάλυση ριζών, απόδοση χειριστών'],
         'finance'  => ['Οικονομικά', 'Κερδοφορία, συμφωνία πληρωμών, λογιστικός έλεγχος, αναστολές'],
-        'admin'    => ['Διαχείριση συστήματος', 'Ομάδες, χρήστες, ρυθμίσεις, automations, πακέτα'],
+        'hr'       => ['Προσλήψεις', 'Βιογραφικά και αξιολογήσεις υποψηφίων'],
+        'admin'    => ['Σύστημα', 'Ομάδες & δικαιώματα, χρήστες, ρυθμίσεις, automations, πακέτα'],
     ];
 }
 function cnp_area_keys()
@@ -694,11 +698,19 @@ function cnp_area_keys()
     return array_keys(cnp_area_defs());
 }
 /** Οι περιοχές που δίνει κάθε ομάδα. */
+/** Παλιά ονόματα δικαιωμάτων → σημερινά. */
+function cnp_area_alias(array $keys)
+{
+    $al = ['sales' => 'clients'];
+    $out = [];
+    foreach ($keys as $k) { $out[] = $al[$k] ?? $k; }
+    return array_unique($out);
+}
 function cnp_team_areas($teamId)
 {
     $raw = (string) Capsule::table('mod_cpm_teams')->where('id', (int) $teamId)->value('areas');
     return array_values(array_intersect(cnp_area_keys(),
-        array_filter(array_map('trim', explode(',', $raw)))));
+        cnp_area_alias(array_filter(array_map('trim', explode(',', $raw))))));
 }
 /**
  * Ειδικότητες/πρόσβαση χειριστή.
@@ -730,13 +742,13 @@ function cnp_admin_areas($adminId, $isFull)
     $hasTeam = (bool) $out || Capsule::table('mod_cpm_team_members')
         ->where('admin_id', (int) $adminId)->exists();
     $pref = array_filter(array_map('trim', explode(',', Db::pref($adminId, 'areas', ''))));
-    $out = array_values(array_intersect(cnp_area_keys(), array_unique(array_merge($out, $pref))));
+    $out = array_values(array_intersect(cnp_area_keys(), cnp_area_alias(array_merge($out, $pref))));
 
     if (!$out && !$hasTeam && !$pref) {
         $strict = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', 'strict_areas')->value('value');
         // Ιστορική προεπιλογή: όλα εκτός Διοίκησης & HR.
-        $out = ($strict === 'on') ? [] : ['sales', 'support', 'projects'];
+        $out = ($strict === 'on') ? [] : ['clients', 'support', 'projects'];
     }
     return $memo[(int) $adminId] = $out;
 }
@@ -1206,7 +1218,7 @@ function cnp_dept_split($taskQuery, array $doneIds)
     return array_values($rows);
 }
 /* ───────── Δικαιώματα έργου ─────────
-   Δημιουργία: όποιος έχει το κύκλωμα «Έργα» — ο project manager δεν είναι
+   Δημιουργία: όποιος έχει την ενότητα «Έργα & υλοποιήσεις» — ο project manager δεν είναι
    Full Administrator του WHMCS και δεν πρέπει να χρειάζεται να είναι.
    Επεξεργασία/αρχειοθέτηση: διαχειριστής ή ο ΥΠΕΥΘΥΝΟΣ του έργου.
    Διαγραφή: μόνο διαχειριστής — παίρνει μαζί εργασίες, χρόνο και ιστορικό. */
@@ -1293,27 +1305,47 @@ function cnp_action_area($action)
         $add = function ($area, array $acts) use (&$map) {
             foreach ($acts as $a) { $map[$a] = $area; }
         };
-        $add('support', ['tickets', 'ticket', 'ticket_reply', 'ticket_update', 'ticket_note',
+        $add('support', ['tickets', 'ticket', 'ticket_reply', 'ticket_note',
             'ticket_refer', 'ticket_att', 'ticket_classify', 'classify_suggest',
             'kb_list', 'kb_get', 'kb_save', 'kb_del', 'kb_draft', 'kb_use', 'kb_match', 'kb_bulk',
-            'kb_import_probe', 'kb_import_commit', 'client360', 'client_health',
+            'kb_import_probe', 'kb_import_commit']);
+        /* Ενέργειες που ανήκουν σε δύο ενότητες, γιατί η μία τις ορίζει και η
+           άλλη τις χρησιμοποιεί — ή γιατί το ταμπλό είναι εξ ορισμού
+           διατμηματικό. Φτάνει ένα από τα δύο δικαιώματα. */
+        $add('projects|finance', ['add_expense', 'del_expense']);   // έξοδα έργου, από την Κερδοφορία
+        $add('projects|reports', ['recurrent']);                    // επαναλαμβανόμενες, στο Πλάνο ημέρας
+        $add('clients|projects', ['project_from_offer']);           // κερδισμένη προσφορά → έργο
+        $add('support|reports', ['ticket_update']);                 // retriage από το Πλάνο ημέρας
+        $add('clients|reports', ['client_health']);                 // υγεία πελάτη, και στο Πλάνο ημέρας
+        $add('clients|finance', ['client_package_set']);            // πακέτο υποστήριξης, από την καρτέλα
+        $add('clients|admin', ['lead_fields']);                     // τα διαβάζει το CRM, τα ορίζουν οι Ρυθμίσεις
+        /* Ορίζονται αποκλειστικά στις Ρυθμίσεις, άρα ανήκουν στο «Σύστημα». */
+        $add('admin', ['status_save', 'status_del', 'type_save', 'type_del',
+            'lead_field_save', 'lead_field_del', 'canned_save', 'canned_del',
             'tcats', 'tcat_save', 'tcat_del', 'tcat_reorder']);
-        $add('projects', ['board', 'task', 'save_task', 'move_task', 'quick_task', 'comment',
-            'portfolio', 'save_project', 'archive_project', 'project_delete', 'project_pm_notes', 'project_from_offer',
-            'gantt', 'gantt_move', 'list', 'time', 'time_add', 'timer_start', 'timer_stop',
+        /* Η ενότητα «Τα δικά μου» δεν ζητάει δικαίωμα, άρα δεν επιτρέπεται να το
+           ζητάει και το περιεχόμενό της. Οι εργασίες που ανοίγεις από «Η μέρα
+           μου» και ο δικός σου χρόνος μένουν εκτός φραγμού περιοχής: τα φυλάει
+           ήδη το `Db::canSeeTask()` (ανάθεση / μπάλα / ομάδα του department),
+           που είναι στενότερο από το δικαίωμα «Έργα». Αλλιώς ένας τεχνικός
+           χωρίς «Έργα» έβλεπε τις εργασίες του και δεν μπορούσε να τις ανοίξει.
+           Το `save_task` δεν φτιάχνει εργασία — απαιτεί υπαρκτή — γι' αυτό
+           μπορεί να μείνει ελεύθερο· το `quick_task` φτιάχνει, οπότε μένει. */
+        $add('projects', ['board', 'quick_task',
+            'portfolio', 'save_project', 'archive_project', 'project_delete', 'project_pm_notes',
+            'gantt', 'gantt_move', 'list',
             'depts_load', 'dept_view', 'task_billing_ok', 'templates', 'template_save',
             'template_del', 'template_step_save', 'template_step_del', 'template_step_move',
             'template_clone', 'project_add_modules', 'project_modules', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
-            'dep_add', 'dep_del', 'check_add', 'check_toggle', 'watch', 'request_update',
-            'recurring', 'save_recurring', 'del_recurring', 'recurrent',
-            'share_save', 'share_info', 'share_revoke', 'share_reply', 'add_expense', 'del_expense',
-            'status_save', 'status_del', 'type_save', 'type_del']);
+            'dep_add', 'dep_del', 'check_add',
+            'recurring', 'save_recurring', 'del_recurring',
+            'share_save', 'share_info', 'share_revoke', 'share_reply']);
         // `worknote_save` = προσωπική σημείωση στο «Το πλάνο μου» — ελεύθερη.
         // `crm` το διαβάζουν και οι Επαφές (ελεύθερη οθόνη) — μένει ανοιχτό.
-        $add('sales', ['client_quick_add', 'crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
+        $add('clients', ['client360', 'client_quick_add', 'crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
             'leads_import_preview', 'leads_import_commit', 'save_lead', 'lead_merge', 'lead_score',
             'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle', 'lead_task_del',
-            'lead_fields', 'lead_field_save', 'lead_field_del', 'lead_products', 'lead_product_save',
+            'lead_products', 'lead_product_save',
             'lead_product_del', 'lead_value_save', 'move_lead', 'hot_leads', 'my_crm_tasks',
             'offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline', 'create_quote',
             'comms', 'interaction', 'followup_done', 'campaigns', 'campaign_save', 'campaign_del',
@@ -1329,7 +1361,7 @@ function cnp_action_area($action)
         $add('reports', ['kpi', 'perf', 'triage', 'rootcause']);
         $add('finance', ['profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'suspend_queue', 'suspend_mark',
-            'suspend_do', 'suspend_notice', 'suspend_notice_send', 'client_package_set']);
+            'suspend_do', 'suspend_notice', 'suspend_notice_send']);
         $add('admin', ['teams', 'save_team', 'del_team', 'team_member_add', 'team_member_del',
             'settings_get', 'settings_save', 'users', 'user_save', 'user_del', 'user_pass',
             'user_toggle', 'user_areas_save', 'addon_access_grant', 'wh_ticket_manage', 'wh_dept_save', 'wh_dept_del',
@@ -1339,10 +1371,19 @@ function cnp_action_area($action)
     }
     return $map[$action] ?? null;
 }
+/* Ο πίνακας γράφει «α|β» όταν μια ενέργεια πατάει δικαιολογημένα σε δύο ενότητες
+   — π.χ. η «υγεία πελάτη» φαίνεται και στους Πελάτες και στο Πλάνο ημέρας.
+   Φτάνει το ένα από τα δύο δικαιώματα. */
 $needArea = cnp_action_area($action);
-if ($needArea !== null && !in_array($needArea, cnp_admin_areas($adminId, $FULL), true)) {
-    $lbl = cnp_area_defs()[$needArea][0] ?? $needArea;
-    fail('Δεν έχεις πρόσβαση στο κύκλωμα «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
+if ($needArea !== null) {
+    $want = explode('|', $needArea);
+    if (!array_intersect($want, cnp_admin_areas($adminId, $FULL))) {
+        $defs = cnp_area_defs();
+        $lbl = implode('» ή «', array_map(function ($w) use ($defs) {
+            return $defs[$w][0] ?? $w;
+        }, $want));
+        fail('Δεν έχεις πρόσβαση στην ενότητα «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
+    }
 }
 
 switch ($action) {
@@ -1493,7 +1534,7 @@ case 'template_step_move':                // αναδιάταξη βημάτων
 
 case 'template_clone':                    // παλιό όνομα — ίδια λογική με project_add_modules
 case 'project_add_modules':               // modules → εργασίες μέσα στο έργο πελάτη
-    if (!cnp_can_create_project($adminId, $FULL)) { fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403); }
+    if (!cnp_can_create_project($adminId, $FULL)) { fail('Δεν έχεις πρόσβαση στην ενότητα «Έργα & υλοποιήσεις»', 403); }
     $modIds = array_values(array_unique(array_filter(array_map('intval',
         (array) ($in['modules'] ?? [(int) ($in['template'] ?? 0)])))));
     if (!$modIds) { fail('Διάλεξε τουλάχιστον ένα module'); }
@@ -2725,7 +2766,7 @@ case 'task_billing_ok':                   // έγκριση λογιστηρίο
     $tid = (int) ($in['task'] ?? 0);
     $t = Db::task($tid);
     if (!$t) { fail('task', 404); }
-    /* Την έγκριση τη δίνει μόνο το λογιστήριο (κύκλωμα «Οικονομικά») ή
+    /* Την έγκριση τη δίνει μόνο το λογιστήριο (ενότητα «Οικονομικά») ή
        διαχειριστής — όχι αυτός που έκανε τη δουλειά. */
     if (!in_array('finance', cnp_admin_areas($adminId, $FULL), true)) {
         fail('Μόνο το λογιστήριο μπορεί να εγκρίνει τη χρέωση', 403);
@@ -2790,13 +2831,18 @@ case 'check_add':
     out(['ok' => true, 'id' => $id]);
 
 case 'check_toggle':
+    $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ci || !Db::canSeeTask($adminId, Db::task((int) $ci->task_id))) {
+        fail('checklist', 403);
+    }
     $it = Db::toggleCheckItem((int) ($in['id'] ?? 0));
     out(['ok' => (bool) $it]);
 
 case 'watch':
     $tid = (int) ($in['task'] ?? 0);
-    if (!Db::task($tid)) {
-        fail('task');
+    $wt = Db::task($tid);
+    if (!$wt || !Db::canSeeTask($adminId, $wt)) {
+        fail('task', 403);
     }
     $on = Db::toggleWatcher($tid, $adminId);
     out(['ok' => true, 'watching' => $on]);
@@ -2811,9 +2857,6 @@ case 'remind':
     out(['ok' => true]);
 
 case 'request_update':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     out(['ok' => Notify::requestUpdate((int) ($in['task'] ?? 0), $adminId)]);
 
 /* ---- CRM actions ---- */
@@ -3324,9 +3367,6 @@ case 'followup_done':
 
 /* ================= ΣΤΟΧΟΙ ΠΡΟΪΟΝΤΩΝ ================= */
 case 'targets':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $ym = preg_match('/^\d{4}-\d{2}$/', $_GET['ym'] ?? '') ? $_GET['ym'] : date('Y-m');
     $from = $ym . '-01';
     $to = date('Y-m-t', strtotime($from));
@@ -3388,9 +3428,6 @@ case 'targets':
     out(['ym' => $ym, 'cards' => $cards, 'sellers' => $sellers, 'products' => $products]);
 
 case 'save_ptarget':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $pid = (int) ($in['product'] ?? 0);
     if (!$pid || !Capsule::table('tblproducts')->where('id', $pid)->exists()) {
         fail('product');
@@ -3408,9 +3445,6 @@ case 'save_ptarget':
     out(['ok' => true]);
 
 case 'del_ptarget':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Db::deleteProductTarget((int) ($in['id'] ?? 0));
     out(['ok' => true]);
 
@@ -3589,9 +3623,6 @@ case 'client360':
 
 /* ================= ΚΕΡΔΟΦΟΡΙΑ ================= */
 case 'profit':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-01-01');
     $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d');
     $costH = (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
@@ -3638,9 +3669,6 @@ case 'profit':
         'expenses' => $expList, 'projects' => $projList]);
 
 case 'add_expense':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $pid = (int) ($in['project'] ?? 0);
     $amt = (float) ($in['amount'] ?? 0);
     if (!$pid || $amt <= 0 || !Db::project($pid)) {
@@ -3651,9 +3679,6 @@ case 'add_expense':
     out(['ok' => true]);
 
 case 'del_expense':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Db::deleteExpense((int) ($in['id'] ?? 0));
     out(['ok' => true]);
 
@@ -3723,9 +3748,6 @@ case 'teams':
         'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))), 'canManage' => $FULL]);
 
 case 'save_team':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $row9 = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 80) ?: 'Χωρίς όνομα',
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
         'descr' => mb_substr(trim($in['descr'] ?? ''), 0, 500)];
@@ -3748,16 +3770,10 @@ case 'save_team':
     out(['ok' => true, 'id' => $tid]);
 
 case 'del_team':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Db::deleteTeam((int) ($in['id'] ?? 0));
     out(['ok' => true]);
 
 case 'team_member_add':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $tid = (int) ($in['team'] ?? 0);
     $aid2 = (int) ($in['admin'] ?? 0);
     if (!$tid || !$aid2 || !Db::team($tid)) {
@@ -3767,9 +3783,6 @@ case 'team_member_add':
     out(['ok' => true]);
 
 case 'team_member_del':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Db::removeTeamMember((int) ($in['team'] ?? 0), (int) ($in['admin'] ?? 0));
     out(['ok' => true]);
 
@@ -3841,7 +3854,7 @@ case 'save_project':
             fail('Μόνο ο υπεύθυνος του έργου ή διαχειριστής μπορεί να το αλλάξει', 403);
         }
     } elseif (!cnp_can_create_project($adminId, $FULL)) {
-        fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403);
+        fail('Δεν έχεις πρόσβαση στην ενότητα «Έργα & υλοποιήσεις»', 403);
     }
     $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Χωρίς όνομα',
         'clientid' => (int) ($in['client'] ?? 0) ?: null,
@@ -3873,7 +3886,7 @@ case 'save_project':
 
 case 'project_from_offer':             // κερδισμένη προσφορά → έργο πελάτη
     if (!cnp_can_create_project($adminId, $FULL)) {
-        fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403);
+        fail('Δεν έχεις πρόσβαση στην ενότητα «Έργα & υλοποιήσεις»', 403);
     }
     $of9 = Capsule::table('mod_cpm_offers')->where('id', (int) ($in['offer'] ?? 0))->first();
     if (!$of9) {
@@ -4002,9 +4015,6 @@ case 'project_delete':
     out(['ok' => true, 'tasks' => count($tIds)]);
 
 case 'recurring':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $recs = [];
     foreach (Db::recurringAll() as $r) {
         $recs[] = ['id' => (int) $r->id, 'title' => $r->title, 'project' => (int) $r->project_id,
@@ -4016,9 +4026,6 @@ case 'recurring':
     out(['recurring' => $recs]);
 
 case 'save_recurring':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $freq = in_array($in['freq'] ?? '', ['daily', 'weekly', 'monthly', 'yearly'], true) ? $in['freq'] : 'monthly';
     Db::saveRecurring((int) ($in['id'] ?? 0), [
         'project_id' => (int) ($in['project'] ?? 0),
@@ -4033,9 +4040,6 @@ case 'save_recurring':
     out(['ok' => true]);
 
 case 'del_recurring':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Db::deleteRecurring((int) ($in['id'] ?? 0));
     out(['ok' => true]);
 
@@ -4695,10 +4699,7 @@ case 'mynext':                          /* Προσωπικό top-3 με αρι�
     usort($list9, function ($a, $b) { return $b['score'] <=> $a['score']; });
     out(['next' => array_slice($list9, 0, 3)]);
 
-case 'recurrent':                       // 🔁 επαναλαμβανόμενα προβλήματα 90 ημερών (full)
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
+case 'recurrent':                       // 🔁 επαναλαμβανόμενα προβλήματα 90 ημερών
     $since = date('Y-m-d', strtotime('-90 days'));
     $sigs = [];
     foreach (Capsule::table('tbltickets')->where('date', '>=', $since)
@@ -4737,10 +4738,7 @@ case 'recurrent':                       // 🔁 επαναλαμβανόμενα
     usort($clusters, function ($a, $b) { return $b['count'] <=> $a['count']; });
     out(['clusters' => array_slice($clusters, 0, 10)]);
 
-case 'client_health':                   // ❤️ υγεία πελατών — ποιοι «καίγονται» (full)
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
+case 'client_health':                   // ❤️ υγεία πελατών — ποιοι «καίγονται»
     $since = date('Y-m-d', strtotime('-90 days'));
     $stats = [];
     foreach (Capsule::table('tbltickets')->where('date', '>=', $since)->where('userid', '>', 0)
@@ -5045,9 +5043,6 @@ case 'kb_import_commit':                 // εισαγωγή επιλεγμέν�
         'failedTitles' => array_slice($errs, 0, 10)]);
 
 case 'kb_del':
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     Capsule::table('mod_cpm_kb')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
@@ -5245,9 +5240,6 @@ case 'remote_stop':
     out(['ok' => true, 'minutes' => $mins8, 'charged' => $charged8]);
 
 case 'tquotas':                         // 🎟 πακέτα υποστήριξης με όρια tickets (full)
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     $rows7 = [];
     foreach (Capsule::table('mod_cpm_support_packages')->orderBy('sort')->orderBy('id')->get() as $pk) {
         $rows7[] = ['id' => (int) $pk->id, 'name' => $pk->name,
@@ -5257,9 +5249,6 @@ case 'tquotas':                         // 🎟 πακέτα υποστήριξ�
     out(['packages' => $rows7]);
 
 case 'tquota_save':                     // δημιουργία/μετονομασία/όρια πακέτου
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     $pid7 = (int) ($in['id'] ?? 0);
     $nm7 = mb_substr(trim($in['name'] ?? ''), 0, 80);
     if ($nm7 === '') {
@@ -5276,17 +5265,11 @@ case 'tquota_save':                     // δημιουργία/μετονομα
     out(['ok' => true, 'id' => $pid7]);
 
 case 'tquota_del':
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     Capsule::table('mod_cpm_support_packages')->where('id', (int) ($in['id'] ?? 0))->delete();
     Capsule::table('mod_cpm_client_package')->where('package_id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
-case 'client_package_set':              // ανάθεση πελάτη σε πακέτο (full)
-    if (!$FULL) {
-        fail('perm', 403);
-    }
+case 'client_package_set':              // ανάθεση πελάτη σε πακέτο
     $cid7 = (int) ($in['client'] ?? 0);
     $pk7 = (int) ($in['package'] ?? 0);
     if (!$cid7) {
@@ -5299,10 +5282,7 @@ case 'client_package_set':              // ανάθεση πελάτη σε πα
     }
     out(['ok' => true]);
 
-case 'users':                          // διαχείριση χρηστών (μόνο διαχειριστές)
-    if (!$FULL) {
-        fail('perm', 403);
-    }
+case 'users':                          // λίστα χειριστών — δικαίωμα «Σύστημα»
     $fullRoles = array_filter(array_map('intval', explode(',',
         (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', 'full_access_roles')->value('value') ?: '1'))));
@@ -5369,10 +5349,7 @@ case 'addon_access_grant':               // δώσε στον ρόλο πρόσ�
     }
     out(['ok' => true, 'roles' => $cur9, 'granted' => $did9]);
 
-case 'user_areas_save':                 // ειδικότητες/πρόσβαση χειριστή (full μόνο)
-    if (!$FULL) {
-        fail('perm', 403);
-    }
+case 'user_areas_save':                 // προσωπική εξαίρεση: ενότητες εκτός ομάδας
     $uid7 = (int) ($in['id'] ?? 0);
     if (!$uid7 || !Capsule::table('tbladmins')->where('id', $uid7)->exists()) { fail('user'); }
     $areas7 = array_values(array_intersect(cnp_area_keys(), (array) ($in['areas'] ?? [])));
@@ -5651,9 +5628,6 @@ case 'search':
 
 /* ================= ΡΥΘΜΙΣΕΙΣ (in-app) ================= */
 case 'settings_get':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
         'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     $vals = [];
@@ -5683,9 +5657,6 @@ case 'settings_get':
     out(['settings' => $vals, 'statuses' => $sts, 'types' => $types]);
 
 case 'settings_save':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
         'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas',
         'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
@@ -5796,9 +5767,6 @@ case 'file_delete':
     out(['ok' => true]);
 
 case 'status_save':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $sid = (int) ($in['id'] ?? 0);
     $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 60) ?: 'Στήλη',
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#8595ac',
@@ -5812,9 +5780,6 @@ case 'status_save':
     out(['ok' => true, 'id' => $sid]);
 
 case 'status_del':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $sid = (int) ($in['id'] ?? 0);
     if (Capsule::table('mod_cpm_tasks')->where('status_id', $sid)->exists()) {
         fail('Η στήλη έχει tasks — μετακίνησέ τα πρώτα');
@@ -5826,9 +5791,6 @@ case 'status_del':
     out(['ok' => true]);
 
 case 'type_save':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $tid2 = (int) ($in['id'] ?? 0);
     $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 60) ?: 'Τύπος',
         'icon' => preg_match('/^fa-[a-z0-9-]+$/', $in['icon'] ?? '') ? $in['icon'] : 'fa-tasks',
@@ -5844,9 +5806,6 @@ case 'type_save':
     out(['ok' => true, 'id' => $tid2]);
 
 case 'type_del':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $tid2 = (int) ($in['id'] ?? 0);
     Capsule::table('mod_cpm_tasks')->where('type_id', $tid2)->update(['type_id' => null]);
     Capsule::table('mod_cpm_task_types')->where('id', $tid2)->delete();
@@ -5861,9 +5820,6 @@ case 'canned':
     out(['canned' => $rows]);
 
 case 'canned_save':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $cid2 = (int) ($in['id'] ?? 0);
     $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 80) ?: 'Απάντηση',
         'body' => mb_substr(trim($in['body'] ?? ''), 0, 20000)];
@@ -5875,17 +5831,11 @@ case 'canned_save':
     out(['ok' => true, 'id' => $cid2]);
 
 case 'canned_del':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Capsule::table('mod_cpm_canned')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
 /* ================= AUTOMATIONS ================= */
 case 'autos':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $rows = [];
     foreach (Capsule::table('mod_cpm_automations')->orderBy('id')->get() as $a) {
         $rows[] = ['id' => (int) $a->id, 'name' => $a->name, 'trigger' => $a->trigger,
@@ -5965,9 +5915,6 @@ case 'auto_recipe_add':
     out(['ok' => true, 'id' => (int) $id9]);
 
 case 'auto_save':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $aid3 = (int) ($in['id'] ?? 0);
     $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Κανόνας',
         'trigger' => in_array($in['trigger'] ?? '', ['task_status', 'ticket_status', 'lead_stage', 'sla_breach'], true) ? $in['trigger'] : 'task_status',
@@ -5984,9 +5931,6 @@ case 'auto_save':
     out(['ok' => true, 'id' => $aid3]);
 
 case 'auto_del':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Capsule::table('mod_cpm_auto_log')->where('auto_id', (int) ($in['id'] ?? 0))->delete();
     Capsule::table('mod_cpm_automations')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
@@ -6192,9 +6136,6 @@ case 'lead_fields':
     out(['fields' => $flds, 'values' => $vals]);
 
 case 'lead_field_save':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $fid5 = (int) ($in['id'] ?? 0);
     $type = in_array($in['type'] ?? '', ['text', 'select', 'date'], true) ? $in['type'] : 'text';
     $data = ['label' => mb_substr(trim($in['label'] ?? ''), 0, 60) ?: 'Πεδίο', 'type' => $type,
@@ -6208,9 +6149,6 @@ case 'lead_field_save':
     out(['ok' => true, 'id' => $fid5]);
 
 case 'lead_field_del':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     Capsule::table('mod_cpm_lead_values')->where('field_id', (int) ($in['id'] ?? 0))->delete();
     Capsule::table('mod_cpm_lead_fields')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
@@ -6758,9 +6696,6 @@ case 'kb_match':                        // 📚 άρθρα γνώσης που �
     out(['items' => array_slice($hits, 0, 4)]);
 
 case 'tcats':                           // λίστα κατηγοριών (+ πλήθος για διαχείριση)
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     $counts = [];
     foreach (Capsule::table('mod_cpm_ticket_class')
         ->select(Capsule::raw('area_id, cause_id'))->get() as $cl) {
@@ -6776,9 +6711,6 @@ case 'tcats':                           // λίστα κατηγοριών (+ π
     out($out7);
 
 case 'tcat_save':
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     $kind7 = ($in['kind'] ?? '') === 'cause' ? 'cause' : 'area';
     $nm7 = mb_substr(trim($in['name'] ?? ''), 0, 80);
     if ($nm7 === '') {
@@ -6806,9 +6738,6 @@ case 'tcat_reorder':                     // νέα σειρά περιοχών/�
     out(['ok' => true]);
 
 case 'tcat_del':
-    if (!$FULL) {
-        fail('perm', 403);
-    }
     $cid7 = (int) ($in['id'] ?? 0);
     Capsule::table('mod_cpm_ticket_cats')->where('id', $cid7)->delete();
     Capsule::table('mod_cpm_ticket_class')->where('area_id', $cid7)->update(['area_id' => null]);
@@ -9529,7 +9458,7 @@ case 'version':
 
 /* ---- αναζήτηση πελάτη (autocomplete) ---- */
 case 'client_quick_add':                  // νέος πελάτης επί τόπου, από το πεδίο επιλογής
-    if (!$FULL && !in_array('sales', cnp_admin_areas($adminId, $FULL), true)) {
+    if (!$FULL && !in_array('clients', cnp_admin_areas($adminId, $FULL), true)) {
         fail('Δεν έχεις δικαίωμα δημιουργίας πελάτη', 403);
     }
     $qName = trim((string) ($in['company'] ?? ''));

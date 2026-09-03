@@ -1105,6 +1105,45 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+
+        /* ── Μετάπτωση δικαιωμάτων στις ενότητες του μενού (μία φορά) ──
+           Το `sales` λεγόταν «Πωλήσεις» και κρατούσε CRM + προσφορές, ενώ το
+           «Πελάτης 360°» κρεμόταν από το `support`. Στο μενού είναι πια μία
+           ενότητα, «Πελάτες», άρα ένα δικαίωμα: `clients`. Όποιος είχε είτε
+           `sales` είτε `support` το παίρνει, για να μη χάσει κανείς την
+           καρτέλα πελάτη που έβλεπε χθες. Τρέχει μία φορά και σφραγίζεται,
+           αλλιώς κάθε install θα ξαναέδινε ό,τι αφαίρεσε ο διαχειριστής. */
+        $seal = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'areas_menu_v2')->value('value');
+        if ($seal !== 'done') {
+            $fix = function ($raw) {
+                $k = array_filter(array_map('trim', explode(',', (string) $raw)));
+                if (in_array('sales', $k, true) || in_array('support', $k, true)) {
+                    $k[] = 'clients';
+                }
+                $k = array_diff($k, ['sales']);
+                $order = ['clients', 'support', 'projects', 'reports', 'finance', 'hr', 'admin'];
+                return implode(',', array_values(array_intersect($order, array_unique($k))));
+            };
+            if (Capsule::schema()->hasColumn('mod_cpm_teams', 'areas')) {
+                foreach (Capsule::table('mod_cpm_teams')->get(['id', 'areas']) as $tm) {
+                    $nw = $fix($tm->areas);
+                    if ($nw !== (string) $tm->areas) {
+                        Capsule::table('mod_cpm_teams')->where('id', $tm->id)->update(['areas' => $nw]);
+                    }
+                }
+            }
+            if (Capsule::schema()->hasTable('mod_cpm_prefs')) {
+                foreach (Capsule::table('mod_cpm_prefs')->where('pref', 'areas')->get() as $pr) {
+                    $nw = $fix($pr->value);
+                    if ($nw !== (string) $pr->value && trim((string) $pr->value) !== '') {
+                        Capsule::table('mod_cpm_prefs')->where('id', $pr->id)->update(['value' => $nw]);
+                    }
+                }
+            }
+            Capsule::table('tbladdonmodules')->insert(['module' => 'cloudonprojects',
+                'setting' => 'areas_menu_v2', 'value' => 'done']);
+        }
     }
 
     /* ------------------------------------------------------------------ */

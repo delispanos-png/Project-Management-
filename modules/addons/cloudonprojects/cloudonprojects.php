@@ -2907,8 +2907,13 @@ function cpm_tab_teams($link, $adminId)
         /* Δικαιώματα & departments ορίζονται στην εφαρμογή PM. Εδώ φαίνονται
            μόνο — αλλιώς μια ομάδα φτιαγμένη από αυτή τη σελίδα δείχνει πλήρης
            ενώ δεν δίνει τίποτα και δεν εξυπηρετεί κανένα department. */
-        $areaL = ['support' => 'Υποστήριξη', 'projects' => 'Έργα', 'sales' => 'Πωλήσεις',
-            'hr' => 'Προσλήψεις', 'admin' => 'Διοίκηση'];
+        $areaL = [];
+        if (function_exists('cnp_area_defs')) {
+            foreach (cnp_area_defs() as $ak => $ad) { $areaL[$ak] = $ad[0]; }
+        }
+        $areaL += ['clients' => 'Πελάτες', 'sales' => 'Πελάτες', 'support' => 'Υποστήριξη',
+            'projects' => 'Έργα & υλοποιήσεις', 'reports' => 'Αναφορές & απόδοση',
+            'finance' => 'Οικονομικά', 'hr' => 'Προσλήψεις', 'admin' => 'Σύστημα'];
         $tAreas = array_filter(array_map('trim', explode(',', (string) ($tm->areas ?? ''))));
         $tDepts = Capsule::schema()->hasTable('mod_cpm_team_depts')
             ? Capsule::table('mod_cpm_team_depts as td')

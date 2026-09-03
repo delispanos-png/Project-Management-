@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
-  adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, I, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, I, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -295,8 +295,9 @@ R.triage = async function () {
   setTop('Πλάνο ημέρας', 'Πρόταση: με ποια tickets ασχολούμαστε σήμερα — κρισιμότητα · αναμονή · SLA');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:340px"></div>';
-  const d = await api('triage').catch(() => null);
-  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
+  let dErr = null;
+  const d = await api('triage').catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
   const sm = d.summary;
   const whyChip = (label, v, cls) => v > 0 ? `<span class="pill ${cls}" title="${label}">${label} +${v}</span>` : '';
   c.innerHTML = `
@@ -1006,8 +1007,9 @@ R.rootcause = async function (days) {
   const c = $('#content');
   const st = R.rootcause._d = days || R.rootcause._d || 90;
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
-  const d = await api('rootcause&days=' + st).catch(() => null);
-  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
+  let dErr = null;
+  const d = await api('rootcause&days=' + st).catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
   const pct = d.allTickets ? Math.round(d.totalClassified / d.allTickets * 100) : 0;
   const maxC = Math.max(1, ...d.topCauses.map(x => x.count));
   const aById = {}; d.areas.forEach(a => aById[a.id] = a);
@@ -1482,8 +1484,9 @@ R.recruit = async function () {
   const c = $('#content');
   const st = R.recruit._s = R.recruit._s || {job: '', status: '', q: '', page: 1, per: 50, dups: false};
   c.innerHTML = '<div class="skel" style="height:60px;margin-bottom:12px"></div><div class="skel" style="height:420px"></div>';
-  const jd = await api('cv_jobs').catch(() => null);
-  if (!jd) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Χρειάζεσαι ειδικότητα «HR» για αυτή την ενότητα.</div>`; return; }
+  let jErr = null;
+  const jd = await api('cv_jobs').catch(e => { jErr = e; return null; });
+  if (!jd) { c.innerHTML = cnpDenied(jErr); return; }
   const statuses = jd.statuses; window._cvStatuses = statuses;
   window._cvModels = jd.models || {}; window._cvDefaultModel = jd.defaultModel || '';
   const activeJobs = jd.jobs.filter(j => j.active).length;

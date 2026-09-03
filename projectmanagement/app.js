@@ -151,62 +151,69 @@ const typeOf = id => S.boot.types.find(t => t.id === +id);
 
 function renderShell() {
   const me = S.boot.me;
-  const has = a => me.full || (me.areas || []).includes(a);   // ειδικότητες/πρόσβαση
-  /* ── Μενού ανά ΚΥΚΛΩΜΑ ────────────────────────────────────────────────
-     Πριν, η «Εργασία» ανακάτευε τα προσωπικά μου με τη συνεννόηση της ομάδας,
-     ο «Πελάτης 360°» ζούσε στην Υποστήριξη ενώ είναι η καρτέλα του πελάτη, και
-     τα Έργα ήταν επτά στοιχεία χωρίς σειρά. Τώρα κάθε ενότητα απαντά σε μία
-     ερώτηση, και κάθε στοιχείο φέρνει ΤΟ ΔΙΚΟ ΤΟΥ δικαίωμα — έτσι μια ενότητα
-     μπορεί να ανήκει σε δύο κυκλώματα (π.χ. Πελάτες = υποστήριξη + πωλήσεις)
-     και εμφανίζεται με ό,τι δικαιούται ο καθένας. */
-  const A = (area, items) => (has(area) ? items : []);
+  const has = a => me.full || (me.areas || []).includes(a);
+  /* ── Το μενού ΕΙΝΑΙ τα δικαιώματα ────────────────────────────────────
+     Κάθε ενότητα απαντά σε μία ερώτηση και κρατάει ΕΝΑ δικαίωμα, με το ίδιο
+     όνομα: τσεκάρεις «Πελάτες» στην ομάδα και εμφανίζεται η ενότητα «Πελάτες».
+     Πριν, μια ενότητα μπορούσε να θέλει δύο ή τρία δικαιώματα (οι «Πελάτες»
+     ήθελαν υποστήριξη + πωλήσεις, η «Διοίκηση» τρία), και ο διαχειριστής δεν
+     είχε τρόπο να ξέρει τι θα δει ο χειριστής αφού τσεκάρει κάτι.
+     Οι δύο ενότητες χωρίς δικαίωμα («Τα δικά μου», «Η ομάδα») είναι η δική σου
+     δουλειά και η συνεννόηση: δεν κλειδώνονται, γιατί χωρίς αυτές δεν
+     δουλεύει κανείς. Η σειρά εδώ είναι η σειρά που βλέπεις. */
   const groups = [
-    ['Τα δικά μου', 'ό,τι αφορά εμένα σήμερα', [
+    ['Τα δικά μου', null, 'ό,τι αφορά εμένα σήμερα', [
       ['myday', I.sun, 'Η μέρα μου'],
       ['todos', I.checkSquare, 'Το πλάνο μου'],
-      ...A('projects', [['time', I.clock, 'Ο χρόνος μου']]),
+      ['time', I.clock, 'Ο χρόνος μου'],
       ['library', I.book, 'Η βιβλιοθήκη μου'],
       ['vault', I.key, 'Κωδικοί'],
       ['profile', I.contact || I.user, 'Το προφίλ μου'],
     ]],
-    ['Πελάτες', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
-      ...A('support', [['client360', I.user, 'Πελάτης 360°']]),
-      ...A('sales', [['crm', I.target, 'CRM & leads'], ['offers', I.doc, 'Προσφορές']]),
+    ['Πελάτες', 'clients', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
+      ['client360', I.user, 'Πελάτης 360°'],
+      ['crm', I.target, 'CRM & leads'],
+      ['offers', I.doc, 'Προσφορές'],
     ]],
-    ['Υποστήριξη', 'τα αιτήματα που περιμένουν απάντηση', [
-      ...A('support', [['inbox', I.ticket, 'Tickets'], ['knowledge', I.book, 'Βάση γνώσης']]),
+    ['Υποστήριξη', 'support', 'τα αιτήματα που περιμένουν απάντηση', [
+      ['inbox', I.ticket, 'Tickets'],
+      ['knowledge', I.book, 'Βάση γνώσης'],
     ]],
-    ['Έργα & υλοποιήσεις', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
-      ...A('projects', [
-        ['projects', I.folder, 'Έργα πελατών'],
-        ['board', I.board, 'Board'],
-        ['list', I.list, 'Λίστα εργασιών'],
-        ['gantt', I.gantt, 'Χρονοδιάγραμμα'],
-        ['templates', I.box, 'Modules'],
-        ['units', I.tree, 'Departments'],
-      ]),
+    ['Έργα & υλοποιήσεις', 'projects', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
+      ['projects', I.folder, 'Έργα πελατών'],
+      ['board', I.board, 'Board'],
+      ['list', I.list, 'Λίστα εργασιών'],
+      ['gantt', I.gantt, 'Χρονοδιάγραμμα'],
+      ['templates', I.box, 'Modules'],
+      ['units', I.tree, 'Departments'],
     ]],
-    ['Η ομάδα', 'συνεννόηση, διαθεσιμότητα, απόδοση', [
+    ['Η ομάδα', null, 'συνεννόηση και διαθεσιμότητα', [
       ['chat', I.chat || I.ticket, 'Chat'],
       ['calendar', I.cal, 'Ημερολόγιο'],
       ['standup', I.clipboard, 'Standup'],
       ['remotebook', I.monitor, 'Απομακρυσμένες'],
-      ...A('admin', [['teams', I.tree, 'Ομάδες & δικαιώματα']]),
-      ...A('reports', [['perf', I.chart, 'Απόδοση χειριστών']]),
     ]],
-    ['Διοίκηση', 'αριθμοί, οικονομικά, ρυθμίσεις', [
-      ...A('reports', [['triage', I.flag, 'Πλάνο ημέρας'], ['kpi', I.chart, 'KPI Dashboard'],
-        ['rootcause', I.chart, 'Ανάλυση ριζών']]),
-      ...A('finance', [['profit', I.coin, 'Κερδοφορία'],
-        ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'], ['suspend', I.alert, 'Αναστολές']]),
-      ...A('admin', [['settings', I.gear, 'Ρυθμίσεις']]),
+    ['Αναφορές & απόδοση', 'reports', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
+      ['triage', I.flag, 'Πλάνο ημέρας'],
+      ['kpi', I.chart, 'KPI Dashboard'],
+      ['rootcause', I.chart, 'Ανάλυση ριζών'],
+      ['perf', I.chart, 'Απόδοση χειριστών'],
     ]],
-    ['Προσλήψεις', 'υποψήφιοι & αξιολογήσεις', [
-      ...A('hr', [['recruit', I.contact || I.users, 'Βιογραφικά']]),
+    ['Οικονομικά', 'finance', 'τι μπαίνει, τι βγαίνει, τι δεν πληρώθηκε', [
+      ['profit', I.coin, 'Κερδοφορία'],
+      ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'],
+      ['suspend', I.alert, 'Αναστολές'],
+    ]],
+    ['Προσλήψεις', 'hr', 'υποψήφιοι & αξιολογήσεις', [
+      ['recruit', I.contact || I.users, 'Βιογραφικά'],
+    ]],
+    ['Σύστημα', 'admin', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
+      ['teams', I.tree, 'Ομάδες & δικαιώματα'],
+      ['settings', I.gear, 'Ρυθμίσεις'],
     ]],
   ];
   // Ενότητα χωρίς στοιχεία δεν εμφανίζεται καθόλου.
-  const nav = groups.filter(g => g[2].length).map(g => [g[0], g[2], g[1]]);
+  const nav = groups.filter(g => !g[1] || has(g[1])).map(g => [g[0], g[3], g[2]]);
   nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']], 'πώς δουλεύει το εργαλείο']);
   $('#app').innerHTML = `
   <div class="shell${(localStorage.cnpSideCollapsed === '1' && !matchMedia('(max-width:768px)').matches) ? ' collapsed' : ''}">
@@ -262,7 +269,9 @@ function renderShell() {
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Έργα', offers: 'Προσφορές',
         profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
-        units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+        units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
+        settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
+        chat: 'Chat', board: 'Board', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
@@ -2191,7 +2200,7 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-/* Η άρνηση έρχεται πλέον από την πύλη περιοχών και λέει ΠΟΙΟ κύκλωμα λείπει.
+/* Η άρνηση έρχεται από την πύλη δικαιωμάτων και λέει ΠΟΙΑ ενότητα λείπει.
    Το «Μόνο για διαχειριστές» ήταν λάθος αφότου σπάσαμε τη Διοίκηση σε τρία. */
 function cnpDenied(err) {
   const msg = (err && err.message) || '';

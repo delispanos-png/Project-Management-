@@ -15,7 +15,8 @@
 
   var DICT = {
     /* ── ομάδες μενού (το CSS τα κεφαλαιοποιεί — το DOM τα έχει κανονικά) ── */
-    'Εργασία': 'Work', 'Υποστήριξη': 'Support', 'Έργα': 'Projects', 'Πωλήσεις': 'Sales',
+    'Τα δικά μου': 'My work', 'Υποστήριξη': 'Support', 'Έργα': 'Projects', 'Πελάτες': 'Clients',
+    'Έργα & υλοποιήσεις': 'Projects & rollouts', 'Η ομάδα': 'The team', 'Σύστημα': 'System',
     'Διοίκηση': 'Management', 'Προσλήψεις': 'Recruiting', 'Βοήθεια': 'Help',
     /* ── μενού / πλοήγηση ── */
     'Η μέρα μου': 'My day', 'Το πλάνο μου': 'My plan', 'Η βιβλιοθήκη μου': 'My library',
@@ -90,7 +91,7 @@
     'Αποθηκευμένες συνδέσεις πελατών — ένα κλικ για σύνδεση': 'Saved client connections — one click to connect',
     /* ── κοινά κενά/φορτώσεις ── */
     'Δεν φορτώθηκε': 'Failed to load', 'Μόνο για διαχειριστές': 'Administrators only',
-    'Μόνο για διαχειριστές.': 'Administrators only.', 'Δεν έχεις πρόσβαση': 'You don’t have access',
+    'Μόνο για διαχειριστές.': 'Administrators only.', 'Ενότητες του μενού': 'Menu sections', 'Δεν έχεις πρόσβαση': 'You don’t have access',
     'Καμία εγγραφή': 'No records', 'Κανένα αποτέλεσμα': 'No results',
     /* ── ρυθμίσεις (ενότητες) ── */
     'Γενικά': 'General', 'Απαντήσεις': 'Replies', 'Χρήστες & πρόσβαση': 'Users & access',
