@@ -342,7 +342,7 @@ function renderShell() {
     miniMenu($('#newBtn'), [
       {icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()},
       {icon: I.target, label: 'Νέο lead', on: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
-      {icon: I.phone, label: 'Νέα επικοινωνία', on: () => go('comms')},
+      {icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall()},
       {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => go('time')},
     ]);
   };

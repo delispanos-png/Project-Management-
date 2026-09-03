@@ -72,14 +72,20 @@ class Time
      * Push μιας κλεισμένης καταχώρησης χρόνου στο supportcontracts.
      * Idempotent μέσω sc_worklog_id (δεύτερο push = no-op).
      */
-    public static function push($entryId)
+    /**
+     * @param int $clientHint Πελάτης που ξέρει ο καλών, όταν η εργασία δεν τον
+     *   φανερώνει μόνη της. Μια εργασία που γεννήθηκε από **τηλεφώνημα** δεν
+     *   έχει ούτε έργο ούτε ticket — χωρίς αυτό ο χρεώσιμος χρόνος έμενε
+     *   αχρέωτος, σαν να ήταν εσωτερική δουλειά.
+     */
+    public static function push($entryId, $clientHint = 0)
     {
         $e = Db::timelog($entryId);
         if (!$e || $e->running || $e->minutes <= 0 || $e->sc_worklog_id || !self::scReady()) {
             return false;
         }
         $task = Db::task($e->task_id);
-        $uid = self::clientForTask($task);
+        $uid = self::clientForTask($task) ?: (int) $clientHint;
         if (!$uid) {
             return false; // εσωτερική εργασία — μένει μόνο στο CPM
         }

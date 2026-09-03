@@ -1106,6 +1106,22 @@ class Db
             });
         }
 
+        /* ── Καταγραφή κλήσης ──
+           Ο πίνακας επικοινωνιών κρατούσε μόνο «σε ποιον» και «τι». Για να
+           καταχωρείς μια κλήση σε δεκαπέντε δευτερόλεπτα χρειάζεται και ο
+           αριθμός (συχνά ο καλών δεν είναι καν στο μητρώο), η κατεύθυνση, η
+           διάρκεια, και το τι βγήκε από αυτήν — εργασία ή ticket. */
+        foreach (['phone' => 'str40', 'caller' => 'str120', 'direction' => 'str4',
+                  'minutes' => 'int', 'task_id' => 'int', 'ticketid' => 'int'] as $col => $kind) {
+            if ($s->hasTable('mod_cpm_interactions') && !$s->hasColumn('mod_cpm_interactions', $col)) {
+                $s->table('mod_cpm_interactions', function ($t) use ($col, $kind) {
+                    if ($kind === 'int') { $t->integer($col)->unsigned()->nullable(); }
+                    elseif ($kind === 'str4') { $t->string($col, 4)->nullable(); }   // in | out
+                    elseif ($kind === 'str40') { $t->string($col, 40)->nullable(); }
+                    else { $t->string($col, 120)->nullable(); }
+                });
+            }
+        }
         /* ── Λεπτομερή δικαιώματα: χρειάζονται χώρο ──
            Το `areas` κρατούσε ως 160 χαρακτήρες, αρκετοί για 8 κλειδιά ενοτήτων.
            Τώρα κρατά και κλειδιά δυνατοτήτων («projects.board»), που είναι

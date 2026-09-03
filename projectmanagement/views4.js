@@ -21,6 +21,7 @@ const R = window.R;
     }
     if (k === 'g') { gPending = true; gTimer = setTimeout(() => gPending = false, 900); return; }
     if (k === 'n') { e.preventDefault(); quickNew(); }
+    if (k === 'v') { e.preventDefault(); quickCall(); }   // v = τηλεφωνική επικοινωνία
     if (k === '?') { e.preventDefault(); showKeys(); }
   });
   function showKeys() {
@@ -29,7 +30,7 @@ const R = window.R;
     ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:420px" onclick="event.stopPropagation()">
       <div class="pop-h" style="padding:14px 18px">⌨️ Συντομεύσεις</div>
       <div style="padding:12px 18px 18px;font-size:13px;line-height:2">
-        <b>Ctrl+K</b> — αναζήτηση παντού<br><b>n</b> — νέο task<br>
+        <b>Ctrl+K</b> — αναζήτηση παντού<br><b>n</b> — νέο task · <b>v</b> — καταγραφή κλήσης<br>
         <b>g</b> μετά <b>m</b> — Η μέρα μου · <b>g i</b> — Tickets · <b>g b</b> — Board<br>
         <b>g l</b> — Λίστα · <b>g c</b> — CRM · <b>g o</b> — Προσφορές · <b>g t</b> — Χρόνος<br>
         <b>g k</b> — KPI · <b>g p</b> — Projects · <b>g s</b> — Ρυθμίσεις<br>
@@ -78,6 +79,218 @@ function quickNew() {
   $('#qnGo').onclick = create;
 }
 window.CNP.quickNew = quickNew;
+
+/* ═════════ ☎ Καταγραφή κλήσης (πλήκτρο τ / t με shift) ═════════
+   Χτύπησε το τηλέφωνο, το έκλεισες. Σε δεκαπέντε δευτερόλεπτα μένει γραπτό
+   ποιος πήρε, τι ζήτησε, και **τι γίνεται με αυτό** — γιατί μια κλήση χωρίς
+   συνέχεια είναι σημείωση που θα χαθεί. Ο χρόνος της κλήσης, αν είναι
+   χρεώσιμος, περνάει από την ίδια μηχανή κάλυψης με κάθε άλλη εργασία. */
+function quickCall(pre) {
+  if (!cnpCan('clients.calls')) { toast('Δεν έχεις δικαίωμα καταγραφής κλήσης', true); return; }
+  closeDrawer();
+  const canTask = cnpCan('projects.board');
+  const canTk = cnpCan('support.tickets');
+  const who = {type: null, id: 0, name: '', phone: ''};
+  const depts = (S.boot.depts || []).filter(d => d.id);
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.innerHTML = `<div class="pal-box qc-box" onclick="event.stopPropagation()">
+    <div class="qc-h">
+      <b>${I.phone} Καταγραφή κλήσης</b>
+      <div class="td-seg qc-dir">
+        <button data-dir="in" class="on">Εισερχόμενη</button>
+        <button data-dir="out">Εξερχόμενη</button>
+      </div>
+    </div>
+    <div class="qc-b">
+      <label class="lbl">Ποιος πήρε</label>
+      <input class="inp" id="qcWho" placeholder="Όνομα, επωνυμία ή αριθμός τηλεφώνου…" autocomplete="off">
+      <div id="qcPick"></div>
+      <div id="qcSel" class="qc-sel" hidden></div>
+
+      <label class="lbl" style="margin-top:12px">Τι ζήτησε <span class="mut" style="font-weight:400">— μία γραμμή</span></label>
+      <input class="inp" id="qcSum" placeholder="π.χ. Δεν στέλνει email από το τιμολόγιο" autocomplete="off">
+
+      <label class="lbl" style="margin-top:12px">Λεπτομέρειες <span class="mut" style="font-weight:400">— προαιρετικά</span></label>
+      <textarea class="inp" id="qcDet" rows="2" placeholder="Ό,τι ειπώθηκε και αξίζει να θυμάσαι"></textarea>
+
+      <div class="qc-row">
+        <div><label class="lbl">Διάρκεια</label>
+          <div style="display:flex;gap:5px;align-items:center">
+            <input class="inp" id="qcMin" type="number" min="0" max="600" value="0" style="width:74px">
+            <span class="mut" style="font-size:12px">λεπτά</span>
+            ${[5, 10, 15, 30].map(m => `<button class="btn btn-o btn-sm qc-m" data-m="${m}">${m}΄</button>`).join('')}
+          </div></div>
+        <label class="qc-bill mut"><input type="checkbox" id="qcBill"> χρεώσιμος χρόνος</label>
+      </div>
+
+      <label class="lbl" style="margin-top:12px">Και μετά;</label>
+      <div class="qc-then">
+        <button class="qc-t on" data-then="none">${I.eye} Μόνο καταγραφή</button>
+        ${canTask ? `<button class="qc-t" data-then="task">${I.checkSquare} Εργασία</button>` : ''}
+        ${canTk ? `<button class="qc-t" data-then="ticket">${I.ticket} Ticket</button>` : ''}
+      </div>
+      <div id="qcExtra"></div>
+
+      <label class="lbl" style="margin-top:12px">Υπενθύμιση <span class="mut" style="font-weight:400">— προαιρετικά</span></label>
+      <input class="inp" id="qcFup" type="date" style="width:170px">
+    </div>
+    <div class="qc-f">
+      <span class="mut" id="qcHint" style="font-size:11.5px;flex:1"></span>
+      <button class="btn btn-o" id="qcX">Άκυρο</button>
+      <button class="btn btn-p" id="qcOk">Καταχώρηση</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const $q = s => ovl.querySelector(s);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onEsc, true); };
+  const onEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onEsc, true);
+  ovl.onclick = close;
+  $q('#qcX').onclick = close;
+
+  /* ── ποιος καλεί ── */
+  const showSel = () => {
+    const s = $q('#qcSel');
+    if (!who.type && !who.name) { s.hidden = true; return; }
+    s.hidden = false;
+    s.innerHTML = `<span class="pill ${who.type ? 'pill-ok' : 'pill-warn'}">${
+      who.type === 'lead' ? I.target : (who.type ? I.user : I.alert)} ${esc(who.name)}${
+      who.phone ? ` <span class="mut">${esc(who.phone)}</span>` : ''}${
+      who.type ? '' : ' — άγνωστος'}</span>
+      <button class="qc-clr" title="Καθάρισμα">✕</button>`;
+    s.querySelector('.qc-clr').onclick = () => {
+      who.type = null; who.id = 0; who.name = ''; who.phone = '';
+      $q('#qcWho').value = ''; showSel(); thenTabs();
+    };
+  };
+  let tmr = null;
+  $q('#qcWho').oninput = () => {
+    clearTimeout(tmr);
+    const v = $q('#qcWho').value.trim();
+    who.type = null; who.id = 0;
+    /* Άγνωστος καλών: κρατάμε ό,τι έγραψες — αριθμό ή όνομα. */
+    if (/^[\d\s+().-]{6,}$/.test(v)) { who.name = v; who.phone = v; } else { who.name = v; who.phone = ''; }
+    showSel(); thenTabs();
+    if (v.length < 3) { $q('#qcPick').innerHTML = ''; return; }
+    tmr = setTimeout(async () => {
+      const r = await api('call_who&q=' + encodeURIComponent(v)).catch(() => null);
+      const list = (r && r.results) || [];
+      $q('#qcPick').innerHTML = list.length ? `<div class="qc-list">${list.map(x =>
+        `<div class="qc-opt" data-t="${x.type}" data-i="${x.id}" data-n="${esc(x.name)}" data-p="${esc(x.phone || '')}">
+          ${x.type === 'lead' ? I.target : I.user}<b>${esc(x.name)}</b>
+          ${x.phone ? `<span class="mut">${esc(x.phone)}</span>` : ''}
+          <span class="pill pill-mut">${esc(x.why)}</span></div>`).join('')}</div>` : '';
+      $$('.qc-opt', ovl).forEach(el => el.onclick = () => {
+        who.type = el.dataset.t; who.id = +el.dataset.i;
+        who.name = el.dataset.n; who.phone = el.dataset.p;
+        $q('#qcWho').value = who.name;
+        $q('#qcPick').innerHTML = '';
+        showSel(); thenTabs();
+        $q('#qcSum').focus();
+      });
+    }, 240);
+  };
+
+  /* ── διάρκεια ── */
+  $$('.qc-m', ovl).forEach(b => b.onclick = () => {
+    $q('#qcMin').value = +$q('#qcMin').value === +b.dataset.m ? 0 : +b.dataset.m;
+    hint();
+  });
+  $q('#qcMin').oninput = hint;
+  $q('#qcBill').onchange = hint;
+
+  /* ── τι γίνεται μετά ── */
+  let then = 'none';
+  const thenTabs = () => {
+    $$('.qc-t', ovl).forEach(b => b.classList.toggle('on', b.dataset.then === then));
+    const ex = $q('#qcExtra');
+    if (then === 'task') {
+      ex.innerHTML = `<div class="qc-row" style="margin-top:9px">
+        <div><label class="lbl">Έργο</label>
+          <select class="inp" id="qcPj"><option value="">— χωρίς έργο —</option>
+            ${(S.boot.projects || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Ανάθεση</label>
+          <select class="inp" id="qcAs">${(S.boot.admins || []).map(a =>
+            `<option value="${a.id}" ${a.id === S.boot.me.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+      </div>`;
+    } else if (then === 'ticket') {
+      ex.innerHTML = who.type === 'client'
+        ? `<div style="margin-top:9px"><label class="lbl">Department</label>
+             <select class="inp" id="qcDept" style="max-width:260px">${depts.map(d =>
+               `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></div>`
+        : `<div class="qc-warn">${I.alert} Για ticket χρειάζεται υπαρκτός πελάτης — διάλεξέ τον παραπάνω.</div>`;
+    } else {
+      ex.innerHTML = '';
+    }
+    hint();
+  };
+  $$('.qc-t', ovl).forEach(b => b.onclick = () => { then = b.dataset.then; thenTabs(); });
+  $$('[data-dir]', ovl).forEach(b => b.onclick = () => {
+    $$('[data-dir]', ovl).forEach(x => x.classList.toggle('on', x === b));
+  });
+
+  function hint() {
+    const m = +$q('#qcMin').value || 0;
+    const bill = $q('#qcBill').checked;
+    let t = '';
+    if (m && bill && then !== 'task') {
+      t = `<span style="color:var(--warn)">${I.alert} Ο χρεώσιμος χρόνος χρειάζεται εργασία για να καταγραφεί.</span>`;
+    } else if (m && bill) {
+      t = `${m}΄ χρεώσιμα — θα αφαιρεθούν από την προαγορά ή θα μείνουν ακάλυπτα.`;
+    } else if (m) {
+      t = `${m}΄ χωρίς χρέωση.`;
+    }
+    $q('#qcHint').innerHTML = t;
+  }
+
+  /* ── καταχώρηση ── */
+  const save = async () => {
+    const sum = $q('#qcSum').value.trim();
+    if (!sum) { toast('Γράψε τι ζήτησε', true); $q('#qcSum').focus(); return; }
+    if (then === 'ticket' && who.type !== 'client') { toast('Για ticket διάλεξε υπαρκτό πελάτη', true); return; }
+    const body = {
+      summary: sum, detail: $q('#qcDet').value.trim(),
+      direction: $q('[data-dir].on', ovl).dataset.dir,
+      minutes: +$q('#qcMin').value || 0, billable: $q('#qcBill').checked,
+      caller: who.type ? '' : who.name, phone: who.phone,
+      client: who.type === 'client' ? who.id : 0,
+      lead: who.type === 'lead' ? who.id : 0,
+      then, followup: $q('#qcFup').value || '',
+    };
+    if (then === 'task') {
+      body.project = +($q('#qcPj') || {}).value || 0;
+      body.assignee = +($q('#qcAs') || {}).value || 0;
+    }
+    if (then === 'ticket') { body.dept = +($q('#qcDept') || {}).value || 0; }
+    const btn = $q('#qcOk'); btn.disabled = true; btn.textContent = '…';
+    const r = await api('call_log', body).catch(e => ({ok: false, error: e && e.message}));
+    btn.disabled = false; btn.textContent = 'Καταχώρηση';
+    if (!r.ok) { toast(r.error || 'Δεν καταχωρήθηκε', true); return; }
+    close();
+    if (r.task) {
+      toast('Καταγράφηκε — άνοιξε εργασία' + (r.timed ? ' με τον χρόνο' : ''));
+      openTask(r.task);
+    } else if (r.ticket) {
+      toast('Καταγράφηκε — άνοιξε ticket');
+      go('#/inbox/' + r.ticket);
+    } else {
+      toast('Η κλήση καταγράφηκε' + (r.billNeedsTask ? ' — ο χρεώσιμος χρόνος δεν μπήκε, χρειαζόταν εργασία' : ''));
+    }
+  };
+  $q('#qcOk').onclick = save;
+  $q('#qcSum').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+
+  if (pre && pre.client) {
+    who.type = 'client'; who.id = pre.client; who.name = pre.name || ''; who.phone = pre.phone || '';
+    $q('#qcWho').value = who.name; showSel();
+    $q('#qcSum').focus();
+  } else {
+    $q('#qcWho').focus();
+  }
+  thenTabs();
+}
+window.CNP.quickCall = quickCall;
+
 
 /* ═════════ Λίστα v2 — grouping + saved views ═════════ */
 R.list = async function () {

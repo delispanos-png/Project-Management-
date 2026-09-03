@@ -91,7 +91,7 @@
     'Αποθηκευμένες συνδέσεις πελατών — ένα κλικ για σύνδεση': 'Saved client connections — one click to connect',
     /* ── κοινά κενά/φορτώσεις ── */
     'Δεν φορτώθηκε': 'Failed to load', 'Μόνο για διαχειριστές': 'Administrators only',
-    'Μόνο για διαχειριστές.': 'Administrators only.', 'Ενότητες του μενού': 'Menu sections', 'Προαγορά χρόνου': 'Prepaid time', 'Δραστηριότητα': 'Activity',
+    'Μόνο για διαχειριστές.': 'Administrators only.', 'Ενότητες του μενού': 'Menu sections', 'Προαγορά χρόνου': 'Prepaid time', 'Δραστηριότητα': 'Activity', 'Καταγραφή κλήσης': 'Log a call',
     'Ακάλυπτος χρόνος': 'Uncovered time', 'Υπόλοιπα πελατών': 'Client balances', 'Δεν έχεις πρόσβαση': 'You don’t have access',
     'Καμία εγγραφή': 'No records', 'Κανένα αποτέλεσμα': 'No results',
     /* ── ρυθμίσεις (ενότητες) ── */

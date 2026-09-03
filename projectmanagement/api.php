@@ -487,6 +487,12 @@ function cnp_words($text, $max = 40)
  * Καθαρισμός rich-text HTML (ασφαλή tags μόνο· χωρίς 4-byte για utf8mb3 DB).
  * $max: όριο χαρακτήρων — τα μεγάλα πεδία (descr/solution) κρατούν τη χωρητικότητά τους (60k).
  */
+/** Κρατά μόνο τα ψηφία, για σύγκριση τηλεφώνων με διαφορετική μορφή. */
+function cnp_phone_norm($p)
+{
+    $d = preg_replace('/\D+/', '', (string) $p);
+    return strlen($d) > 9 ? substr($d, -9) : $d;   // αγνοεί κωδικό χώρας
+}
 function cnp_clean_html($html, $max = 12000)
 {
     $html = (string) $html;
@@ -1372,6 +1378,7 @@ function cnp_caps()
         'clients.card'    => ['screen', 'Πελάτης 360°', 'Καρτέλα πελάτη: υπηρεσίες, τιμολόγια, αιτήματα'],
         'clients.crm'     => ['screen', 'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
         'clients.offers'  => ['screen', 'Προσφορές', 'Δημιουργία και παρακολούθηση προσφορών'],
+        'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket από πάνω'],
         'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
         'clients.import'  => ['power',  'Εισαγωγή / εξαγωγή leads', 'Μαζική εισαγωγή από CSV και εξαγωγή', 'clients.crm'],
 
@@ -1513,6 +1520,7 @@ function cnp_action_cap($action)
         $add('clients.card|reports.triage', ['client_health']);
         $add('clients.card|finance.packages', ['client_package_set']);
         $add('clients.new', ['client_quick_add']);
+        $add('clients.calls', ['call_log', 'call_who', 'call_recent']);
         $add('clients.crm', ['crm_overview', 'crm_reports', 'leads_dupes', 'save_lead', 'lead_merge',
             'lead_score', 'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle',
             'lead_task_del', 'lead_products', 'lead_product_save', 'lead_product_del',
@@ -3307,6 +3315,152 @@ case 'interaction':
         'followup_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['followup'] ?? '') ? $in['followup'] : null,
         'followup_note' => mb_substr(trim($in['followupNote'] ?? ''), 0, 200) ?: null]);
     out(['ok' => true]);
+
+/* ================= ΚΑΤΑΓΡΑΦΗ ΚΛΗΣΗΣ =================
+   Χτύπησε το τηλέφωνο, το κλείνεις, και σε δεκαπέντε δευτερόλεπτα μένει γραπτό
+   ποιος πήρε, τι ζήτησε, και τι γίνεται με αυτό. Δεν φτιάχνεται νέο μητρώο:
+   γράφει στις `mod_cpm_interactions`, εκεί που ζουν όλες οι επικοινωνίες. */
+
+
+case 'call_who':                         // ποιος καλεί: πελάτης ή lead, με όνομα ή αριθμό
+    $q9 = trim((string) ($_GET['q'] ?? ''));
+    $res9 = [];
+    if (mb_strlen($q9) >= 3) {
+        $dig = cnp_phone_norm($q9);
+        $like = '%' . $q9 . '%';
+        /* Ο αριθμός είναι το κλειδί: όταν χτυπά το τηλέφωνο, αυτό έχεις. */
+        /* Τα τηλέφωνα είναι αποθηκευμένα μορφοποιημένα («+30.21 2102 2756»),
+           οπότε η σύγκριση γίνεται σε σκέτα ψηφία και στις δύο πλευρές. */
+        $bare9 = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phonenumber,' ',''),'.',''),'-',''),'(',''),')',''),'+','')";
+        if (strlen($dig) >= 6) {
+            foreach (Capsule::table('tblclients')->whereRaw($bare9 . ' LIKE ?', ['%' . $dig . '%'])
+                ->limit(6)->get(['id', 'firstname', 'lastname', 'companyname', 'phonenumber']) as $c9) {
+                $res9[] = ['type' => 'client', 'id' => (int) $c9->id,
+                    'name' => $c9->companyname ?: trim($c9->firstname . ' ' . $c9->lastname),
+                    'phone' => $c9->phonenumber, 'why' => 'τηλέφωνο'];
+            }
+        }
+        foreach (Capsule::table('tblclients')->where(function ($w) use ($like) {
+            $w->where('companyname', 'like', $like)->orWhere('firstname', 'like', $like)
+              ->orWhere('lastname', 'like', $like)->orWhere('email', 'like', $like);
+        })->limit(8)->get(['id', 'firstname', 'lastname', 'companyname', 'phonenumber']) as $c9) {
+            $res9[] = ['type' => 'client', 'id' => (int) $c9->id,
+                'name' => $c9->companyname ?: trim($c9->firstname . ' ' . $c9->lastname),
+                'phone' => $c9->phonenumber, 'why' => 'όνομα'];
+        }
+        if (Capsule::schema()->hasTable('mod_cpm_leads')) {
+            foreach (Capsule::table('mod_cpm_leads')->where(function ($w) use ($like, $dig) {
+                $w->where('company', 'like', $like)->orWhere('email', 'like', $like);
+                if (strlen($dig) >= 6) {
+                    $w->orWhereRaw("REPLACE(REPLACE(REPLACE(phone,' ',''),'.',''),'-','') LIKE ?", ['%' . $dig . '%']);
+                }
+            })->limit(5)->get(['id', 'company', 'phone']) as $l9) {
+                $res9[] = ['type' => 'lead', 'id' => (int) $l9->id, 'name' => $l9->company,
+                    'phone' => $l9->phone, 'why' => 'lead'];
+            }
+        }
+        /* Διπλότυπα: ο ίδιος πελάτης μπορεί να βρέθηκε και από αριθμό και από όνομα. */
+        $seen9 = [];
+        $res9 = array_values(array_filter($res9, function ($r) use (&$seen9) {
+            $k = $r['type'] . $r['id'];
+            if (isset($seen9[$k])) { return false; }
+            $seen9[$k] = 1;
+            return true;
+        }));
+    }
+    out(['results' => array_slice($res9, 0, 10)]);
+
+case 'call_recent':                      // οι τελευταίες μου κλήσεις — για τη λίστα «σήμερα»
+    $rows9 = [];
+    foreach (Capsule::table('mod_cpm_interactions')->where('kind', 'call')
+        ->where('admin_id', $adminId)->orderBy('id', 'desc')->limit(15)->get() as $r9) {
+        $rows9[] = ['id' => (int) $r9->id, 'at' => $r9->happened_at,
+            'who' => $r9->clientid ? clientLabel((int) $r9->clientid) : ($r9->caller ?: 'Άγνωστος'),
+            'phone' => $r9->phone, 'dir' => $r9->direction ?: 'in',
+            'summary' => $r9->summary, 'minutes' => (int) $r9->minutes,
+            'task' => (int) $r9->task_id, 'ticket' => (int) $r9->ticketid,
+            'followup' => $r9->followup_date];
+    }
+    out(['rows' => $rows9]);
+
+case 'call_log':                         // η καταχώρηση
+    $sum9 = mb_substr(trim((string) ($in['summary'] ?? '')), 0, 255);
+    if ($sum9 === '') { fail('Γράψε τι ζήτησε ο καλών'); }
+    $cid9 = (int) ($in['client'] ?? 0) ?: null;
+    $lid9 = (int) ($in['lead'] ?? 0) ?: null;
+    if ($cid9 && !Capsule::table('tblclients')->where('id', $cid9)->exists()) { $cid9 = null; }
+    $mins9 = max(0, min(600, (int) ($in['minutes'] ?? 0)));
+    $dir9 = ($in['direction'] ?? 'in') === 'out' ? 'out' : 'in';
+    $caller9 = mb_substr(trim((string) ($in['caller'] ?? '')), 0, 120) ?: null;
+    $phone9 = mb_substr(trim((string) ($in['phone'] ?? '')), 0, 40) ?: null;
+    $detail9 = mb_substr(trim((string) ($in['detail'] ?? '')), 0, 4000) ?: null;
+    $fup9 = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['followup'] ?? '')) ? $in['followup'] : null;
+
+    /* ── τι βγαίνει από την κλήση ── */
+    $taskId9 = 0;
+    $tkId9 = 0;
+    $want9 = (string) ($in['then'] ?? 'none');   // none | task | ticket
+    if ($want9 === 'task') {
+        if (!cnp_has_cap($adminId, $FULL, 'projects.board')) {
+            fail('Δεν έχεις δικαίωμα δημιουργίας εργασίας', 403);
+        }
+        $pid9 = (int) ($in['project'] ?? 0) ?: null;
+        $asg9 = (int) ($in['assignee'] ?? 0) ?: $adminId;
+        $taskId9 = (int) Db::saveTask(0, [
+            'project_id' => $pid9,
+            'title' => mb_substr(($caller9 || $cid9 ? '☎ ' : '☎ ') . $sum9, 0, 200),
+            'descr' => cnp_clean_html(nl2br(trim(($phone9 ? 'Τηλέφωνο: ' . $phone9 . "\n" : '')
+                . ($detail9 ?: '')))) ?: null,
+            'assignee' => $asg9,
+            'action_user' => $asg9,
+            'due_date' => $fup9,
+            'created_by' => $adminId,
+        ], $adminId);
+        if ($taskId9 && $asg9 !== $adminId) { Notify::assigned($taskId9, $asg9, $adminId); }
+    } elseif ($want9 === 'ticket') {
+        if (!cnp_has_cap($adminId, $FULL, 'support.tickets')) {
+            fail('Δεν έχεις δικαίωμα δημιουργίας ticket', 403);
+        }
+        if (!$cid9) { fail('Για ticket χρειάζεται πελάτης'); }
+        $dept9 = (int) ($in['dept'] ?? 0) ?: (int) Capsule::table('tblticketdepartments')
+            ->orderBy('order')->value('id');
+        try {
+            $r9 = localAPI('OpenTicket', ['clientid' => $cid9, 'deptid' => $dept9,
+                'subject' => mb_substr($sum9, 0, 200),
+                'message' => trim("Τηλεφωνική επικοινωνία" . ($phone9 ? ' (' . $phone9 . ')' : '')
+                    . "\n\n" . ($detail9 ?: $sum9)),
+                'priority' => 'Medium', 'markdown' => false, 'noemail' => true],
+                Capsule::table('tbladmins')->where('id', $adminId)->value('username'));
+            if (($r9['result'] ?? '') === 'success') {
+                $tkId9 = (int) ($r9['id'] ?? 0);
+                Capsule::table('tbltickets')->where('id', $tkId9)->update(['flag' => $adminId]);
+            } else {
+                fail('Το ticket δεν άνοιξε: ' . ($r9['message'] ?? 'άγνωστο σφάλμα'), 500);
+            }
+        } catch (\Throwable $e9) {
+            fail('Το ticket δεν άνοιξε: ' . $e9->getMessage(), 500);
+        }
+    }
+
+    Db::addInteraction(['lead_id' => $lid9, 'clientid' => $cid9, 'kind' => 'call',
+        'summary' => $sum9, 'detail' => $detail9, 'admin_id' => $adminId,
+        'happened_at' => date('Y-m-d H:i:s'),
+        'phone' => $phone9, 'caller' => $caller9, 'direction' => $dir9, 'minutes' => $mins9 ?: null,
+        'task_id' => $taskId9 ?: null, 'ticketid' => $tkId9 ?: null,
+        'followup_date' => $fup9,
+        'followup_note' => mb_substr(trim((string) ($in['followupNote'] ?? '')), 0, 200) ?: null]);
+
+    /* Ο χρόνος της κλήσης μπαίνει στην εργασία, ώστε να περάσει από τη μηχανή
+       κάλυψης (προαγορά ή προσφορά) όπως κάθε άλλος χρεώσιμος χρόνος. */
+    $timed9 = false;
+    if ($mins9 > 0 && $taskId9) {
+        $eid9 = Db::addTime($taskId9, $adminId, $mins9, !empty($in['billable']),
+            'Τηλεφωνική επικοινωνία' . ($phone9 ? ' ' . $phone9 : ''));
+        Time::push($eid9, (int) $cid9);   // ο πελάτης της κλήσης, που η εργασία δεν τον ξέρει
+        $timed9 = true;
+    }
+    out(['ok' => true, 'task' => $taskId9, 'ticket' => $tkId9, 'timed' => $timed9,
+        'billNeedsTask' => $mins9 > 0 && !$taskId9 && !empty($in['billable'])]);
 
 /* ================= ΛΙΣΤΑ / ΗΜΕΡΟΛΟΓΙΟ / ΧΡΟΝΟΣ ================= */
 case 'list':
