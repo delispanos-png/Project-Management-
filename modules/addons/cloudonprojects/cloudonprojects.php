@@ -21,6 +21,7 @@ use WHMCS\Module\Addon\CloudonProjects\Notify;
 
 require_once __DIR__ . '/lib/Db.php';
 require_once __DIR__ . '/lib/Time.php';
+require_once __DIR__ . '/lib/Cover.php';
 require_once __DIR__ . '/lib/Notify.php';
 require_once __DIR__ . '/lib/Storage.php';
 

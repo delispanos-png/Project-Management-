@@ -15,6 +15,8 @@ namespace WHMCS\Module\Addon\CloudonProjects;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
+require_once __DIR__ . '/Cover.php';
+
 class Time
 {
     /** Το supportcontracts είναι εγκατεστημένο και φορτώσιμο; */
@@ -87,15 +89,22 @@ class Time
             . ($e->note ? ' · ' . mb_substr($e->note, 0, 60) : '');
         $wid = ScDb::addWork($uid, $task->ticketid ?: null, (int) $e->minutes, $charge,
             (int) $e->billable, $note, $e->admin_id);
-        if ((int) $e->billable && $charge > 0 && ScDb::contract($uid)) {
-            $ln = $note . ($charge > $e->minutes ? ' (εργασία ' . self::fmt($e->minutes) . ', χρέωση ' . self::fmt($charge) . ')' : '');
-            ScDb::applyMovement($uid, -abs($charge), 'usage', $ln, $task->ticketid ?: null, $e->admin_id,
-                'cpm-time-' . $entryId);
+        /* Από πού πληρώνεται ο χρόνος: πρώτα η προσφορά του έργου, μετά η
+           προαγορά, και ό,τι περισσέψει μένει ακάλυπτο για την επόμενη
+           προσφορά. Δες Cover.php. */
+        $cov = ['cover' => null, 'offer' => null, 'covered' => 0];
+        if ((int) $e->billable && $charge > 0) {
+            $ln = $note . ($charge > $e->minutes
+                ? ' (εργασία ' . self::fmt($e->minutes) . ', χρέωση ' . self::fmt($charge) . ')' : '');
+            $cov = Cover::draw($uid, $task, $charge, $entryId, $ln);
         }
         Db::updateTimelog($entryId, [
             'charged_minutes' => $charge,
             'sc_userid'       => $uid,
             'sc_worklog_id'   => is_numeric($wid) ? (int) $wid : null,
+            'cover'           => $cov['cover'],
+            'cover_offer_id'  => $cov['offer'],
+            'cover_minutes'   => $cov['covered'],
         ]);
         return true;
     }
@@ -110,11 +119,8 @@ class Time
         if ($e->sc_worklog_id) {
             Capsule::table('mod_supportcontracts_worklog')->where('id', (int) $e->sc_worklog_id)->delete();
         }
-        if ($e->sc_userid && (int) $e->billable && (int) $e->charged_minutes > 0 && ScDb::contract($e->sc_userid)
-            && !ScDb::refExists('cpm-time-rev-' . $entryId)) {
-            ScDb::applyMovement($e->sc_userid, abs((int) $e->charged_minutes), 'adjust',
-                'Αναίρεση καταχώρησης χρόνου (task #' . $e->task_id . ')', null, null, 'cpm-time-rev-' . $entryId);
-        }
+        Cover::undraw($e);
+
     }
 
     public static function fmt($mins)

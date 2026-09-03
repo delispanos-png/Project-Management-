@@ -193,6 +193,10 @@ function renderShell() {
       ['standup', I.clipboard, 'Standup'],
       ['remotebook', I.monitor, 'Απομακρυσμένες'],
     ]],
+    ['Προαγορασμένος χρόνος', 'prepaid', 'πόσο χρόνο έχουν αγοράσει, πόσο έχει μείνει, τι δεν καλύφθηκε', [
+      ['prepaid', I.clock, 'Υπόλοιπα πελατών'],
+      ['uncovered', I.alert, 'Ακάλυπτος χρόνος'],
+    ]],
     ['Αναφορές & απόδοση', 'reports', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
       ['triage', I.flag, 'Πλάνο ημέρας'],
       ['kpi', I.chart, 'KPI Dashboard'],
@@ -271,7 +275,7 @@ function renderShell() {
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
         settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
-        chat: 'Chat', board: 'Board', help: 'Οδηγός'};
+        chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));

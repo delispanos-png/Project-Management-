@@ -1106,6 +1106,25 @@ class Db
             });
         }
 
+        /* ── Κάλυψη χρόνου (προαγορά ή προσφορά) ──
+           Ο χρεώσιμος χρόνος πρέπει να προέρχεται από κάπου: είτε από την
+           προαγορά του πελάτη, είτε από εγκεκριμένη προσφορά που καλύπτει
+           συγκεκριμένο έργο. Ό,τι δεν καλύπτεται μένει «ακάλυπτο» και από εκεί
+           βγαίνει η επόμενη προσφορά — δεν βυθίζουμε την προαγορά σε αρνητικό,
+           γιατί το αρνητικό υπόλοιπο κρύβει το τι πρέπει να τιμολογηθεί. */
+        if ($s->hasTable('mod_cpm_offers') && !$s->hasColumn('mod_cpm_offers', 'covered_minutes')) {
+            $s->table('mod_cpm_offers', function ($t) {
+                $t->integer('covered_minutes')->unsigned()->nullable();  // πόσο χρόνο καλύπτει η προσφορά
+            });
+        }
+        foreach (['cover' => 'str', 'cover_offer_id' => 'int', 'cover_minutes' => 'int'] as $col => $kind) {
+            if ($s->hasTable('mod_cpm_timelogs') && !$s->hasColumn('mod_cpm_timelogs', $col)) {
+                $s->table('mod_cpm_timelogs', function ($t) use ($col, $kind) {
+                    $kind === 'int' ? $t->integer($col)->unsigned()->nullable()
+                                    : $t->string($col, 10)->nullable();   // prepaid | offer | none
+                });
+            }
+        }
         /* ── Μετάπτωση δικαιωμάτων στις ενότητες του μενού (μία φορά) ──
            Το `sales` λεγόταν «Πωλήσεις» και κρατούσε CRM + προσφορές, ενώ το
            «Πελάτης 360°» κρεμόταν από το `support`. Στο μενού είναι πια μία

@@ -43,12 +43,14 @@ class Db
                 $t->text('ticket_notes')->nullable();         // details shown to ticket handlers on the admin ticket page
                 $t->text('covered')->nullable();              // which products/services this contract covers
                 $t->string('contract_file', 255)->nullable(); // stored filename of the attached contract
+                $t->string('report_freq', 255)->nullable();   // monthly | weekly | both | off (κενό = monthly)
                 $t->timestamp('created_at')->nullable();
                 $t->timestamp('updated_at')->nullable();
             });
         }
         // migrations: add new columns to an existing clients table
-        foreach (['report_email' => 'string', 'notes' => 'text', 'ticket_notes' => 'text', 'covered' => 'text', 'contract_file' => 'string'] as $col => $kind) {
+        foreach (['report_email' => 'string', 'notes' => 'text', 'ticket_notes' => 'text', 'covered' => 'text',
+                  'contract_file' => 'string', 'report_freq' => 'string'] as $col => $kind) {
             if ($s->hasTable('mod_supportcontracts_clients') && !$s->hasColumn('mod_supportcontracts_clients', $col)) {
                 $s->table('mod_supportcontracts_clients', function ($t) use ($col, $kind) {
                     $kind === 'text' ? $t->text($col)->nullable() : $t->string($col, 255)->nullable();

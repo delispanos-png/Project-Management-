@@ -5,6 +5,11 @@
  * in the last 7 days: the week's movements (top-ups + usage), which ticket each
  * usage was for, totals, and the current balance.
  *
+ * ΑΝΤΙΚΑΤΑΣΤΑΘΗΚΕ (3/9/2026) από το cloudonprojects/crons/prepaid_report.php, που
+ * στέλνει και μηνιαία, ομαδοποιεί ανά έργο/υπηρεσία και ξέρει τι καλύφθηκε από
+ * προσφορά. Μένει εδώ ως αναφορά· ΔΕΝ είναι προγραμματισμένο — μην το ξαναβάλεις
+ * στο cron, θα στείλει δεύτερο email στους ίδιους πελάτες.
+ *
  * Schedule (Friday 18:00):
  *   0 18 * * 5 <user> /opt/plesk/php/8.3/bin/php -q .../crons/weekly_report.php >/dev/null 2>&1
  *

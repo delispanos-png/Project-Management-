@@ -13,12 +13,20 @@ use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Time;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
 use WHMCS\Module\Addon\CloudonProjects\Storage;
+use WHMCS\Module\Addon\CloudonProjects\Cover;
+use WHMCS\Module\Addon\CloudonProjects\Report;
+use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
+if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
+    require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
+}
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -674,6 +682,24 @@ function cnp_can_reply_clients($adminId, $isFull)
 /* ───────── Δικαιώματα σε ενότητες του μενού ─────────
    Ένας ορισμός, μία φορά: τον διαβάζουν και ο έλεγχος του server και η οθόνη
    των ομάδων, ώστε να μη γίνει η λίστα δύο λίστες που αποκλίνουν. */
+/** Τα προϊόντα WHMCS που πιστώνουν προαγορά (ρύθμιση `prepaid_hours_map`). */
+function cnp_prepaid_products()
+{
+    $raw = (string) Capsule::table('tbladdonmodules')->where('module', 'supportcontracts')
+        ->where('setting', 'prepaid_hours_map')->value('value');
+    $map = json_decode($raw, true);
+    if (!is_array($map)) {
+        return [];
+    }
+    $out = [];
+    foreach ($map as $pid => $hours) {
+        $name = Capsule::table('tblproducts')->where('id', (int) $pid)->value('name');
+        $out[] = ['id' => (int) $pid, 'hours' => (float) $hours,
+            'name' => $name ?: ('Προϊόν #' . (int) $pid), 'exists' => (bool) $name];
+    }
+    usort($out, function ($a, $b) { return $a['hours'] <=> $b['hours']; });
+    return $out;
+}
 function cnp_area_defs()
 {
     /* Ένα δικαίωμα = μία ενότητα του μενού, με το ίδιο όνομα. Η σειρά εδώ είναι
@@ -687,6 +713,7 @@ function cnp_area_defs()
         /* Η «Διοίκηση» ήταν μία ενιαία ενότητα, οπότε για να δώσεις σε έναν
            project manager το KPI έπρεπε να του δώσεις και τα οικονομικά και τις
            ρυθμίσεις. Σπασμένη σε τρία, δίνεται κατά ενότητα. */
+        'prepaid'  => ['Προαγορασμένος χρόνος', 'Συμβόλαια, υπόλοιπα, ακάλυπτος χρόνος, μηνιαίες αναφορές'],
         'reports'  => ['Αναφορές & απόδοση', 'Πλάνο ημέρας, KPI, ανάλυση ριζών, απόδοση χειριστών'],
         'finance'  => ['Οικονομικά', 'Κερδοφορία, συμφωνία πληρωμών, λογιστικός έλεγχος, αναστολές'],
         'hr'       => ['Προσλήψεις', 'Βιογραφικά και αξιολογήσεις υποψηφίων'],
@@ -1358,6 +1385,8 @@ function cnp_action_area($action)
         /* `topstats` (σφυγμός πάνω μπάρας) και `agenda` (Standup) καλούνται από
            οθόνες χωρίς φραγμό — δεν ζητούν περιοχή, αλλιώς κάθε χειριστής χωρίς
            «Αναφορές» έτρωγε 403 σε κάθε φόρτωση. */
+        $add('prepaid', ['prepaid', 'prepaid_client', 'prepaid_save', 'prepaid_move',
+            'prepaid_offer', 'prepaid_offer_cover', 'prepaid_report', 'prepaid_report_send']);
         $add('reports', ['kpi', 'perf', 'triage', 'rootcause']);
         $add('finance', ['profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'suspend_queue', 'suspend_mark',
@@ -3191,6 +3220,12 @@ case 'move_offer':
     }
     $stage = (string) ($in['stage'] ?? '');
     $ok = Db::moveOffer($o->id, $stage, $adminId);
+    /* Χαμένη προσφορά δεν καλύπτει τίποτα: ο χρόνος που κρατούσε ξαναγίνεται
+       ακάλυπτος, για να ξαναμπεί σε επόμενη πρόταση. */
+    if ($ok && $stage === 'lost') {
+        Capsule::table('mod_cpm_timelogs')->where('cover_offer_id', (int) $o->id)
+            ->update(['cover' => null, 'cover_offer_id' => null, 'cover_minutes' => null]);
+    }
     if ($ok && $o->quoteid) {
         $qs = ['draft' => 'Draft', 'sent' => 'Delivered', 'accepted' => 'Accepted', 'lost' => 'Lost'][$stage] ?? null;
         if ($qs) {
@@ -3680,6 +3715,182 @@ case 'add_expense':
 
 case 'del_expense':
     Db::deleteExpense((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+/* ================= ΠΡΟΑΓΟΡΑΣΜΕΝΟΣ ΧΡΟΝΟΣ =================
+   Το μητρώο είναι ΕΝΑ: οι πίνακες του supportcontracts. Εδώ δεν φτιάχνεται
+   δεύτερη τράπεζα χρόνου — απλώς γίνεται δουλεύσιμη από το PM, όπου ζει και ο
+   χρόνος που την αναλώνει. Δες lib/Cover.php για το ποια πηγή πληρώνει τι. */
+case 'prepaid':
+    $pcRows = [];
+    $pcTot = ['balance' => 0, 'offer' => 0, 'open' => 0, 'clients' => 0, 'low' => 0];
+    $lowLimit = (int) round(((float) (Capsule::table('tbladdonmodules')->where('module', 'supportcontracts')
+        ->where('setting', 'low_balance_hours')->value('value') ?: 2)) * 60);
+    $withContract = [];
+    if (Capsule::schema()->hasTable('mod_supportcontracts_clients')) {
+        foreach (Capsule::table('mod_supportcontracts_clients')->orderBy('id')->get() as $pc) {
+            $withContract[] = (int) $pc->userid;
+        }
+    }
+    /* Και όποιος έχει ακάλυπτο χρόνο χωρίς συμβόλαιο: αλλιώς η δουλειά που
+       πρέπει να τιμολογηθεί δεν φαίνεται πουθενά. */
+    foreach (Capsule::table('mod_cpm_timelogs')->whereNotNull('sc_userid')->where('billable', 1)
+        ->distinct()->pluck('sc_userid') as $u9) {
+        if (!in_array((int) $u9, $withContract, true)) { $withContract[] = (int) $u9; }
+    }
+    foreach ($withContract as $uid9) {
+        $st = Cover::clientState($uid9);
+        if (!$st['contract'] && !$st['uncovered']) { continue; }
+        $pcRows[] = ['client' => $uid9, 'name' => clientLabel($uid9)] + $st;
+        $pcTot['clients']++;
+        $pcTot['balance'] += $st['balance'];
+        $pcTot['offer'] += $st['offerLeft'];
+        $pcTot['open'] += $st['uncovered'];
+        if ($st['contract'] && $st['balance'] <= $lowLimit) { $pcTot['low']++; }
+    }
+    usort($pcRows, function ($a, $b) {
+        if ($a['uncovered'] !== $b['uncovered']) { return $b['uncovered'] <=> $a['uncovered']; }
+        return $a['balance'] <=> $b['balance'];
+    });
+    out(['rows' => $pcRows, 'totals' => $pcTot, 'low' => $lowLimit,
+        'step' => (int) (Capsule::table('tbladdonmodules')->where('module', 'supportcontracts')
+            ->where('setting', 'charge_step_minutes')->value('value') ?: 15),
+        'rate' => (float) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'hour_rate')->value('value') ?: 0),
+        'products' => cnp_prepaid_products()]);
+
+case 'prepaid_client':
+    $uid9 = (int) ($_GET['client'] ?? $in['client'] ?? 0);
+    if (!$uid9 || !Capsule::table('tblclients')->where('id', $uid9)->exists()) { fail('client'); }
+    $from9 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-01');
+    $to9 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d');
+    $ledger = [];
+    if (Capsule::schema()->hasTable('mod_supportcontracts_ledger')) {
+        foreach (Capsule::table('mod_supportcontracts_ledger')->where('userid', $uid9)
+            ->orderBy('id', 'desc')->limit(120)->get() as $lg) {
+            $ledger[] = ['at' => $lg->created_at, 'type' => $lg->type, 'minutes' => (int) $lg->minutes,
+                'after' => (int) $lg->balance_after, 'note' => $lg->note,
+                'by' => $lg->admin_id ? Db::adminName($lg->admin_id) : null];
+        }
+    }
+    $ct = Capsule::schema()->hasTable('mod_supportcontracts_clients')
+        ? Capsule::table('mod_supportcontracts_clients')->where('userid', $uid9)->first() : null;
+    out(['client' => $uid9, 'name' => clientLabel($uid9), 'state' => Cover::clientState($uid9),
+        'ledger' => $ledger, 'uncovered' => Cover::uncoveredRows($uid9),
+        'breakdown' => Cover::breakdown($uid9, $from9 . ' 00:00:00', date('Y-m-d', strtotime($to9 . ' +1 day')) . ' 00:00:00'),
+        'from' => $from9, 'to' => $to9,
+        'contract' => $ct ? ['enabled' => (int) $ct->enabled, 'label' => $ct->label,
+            'priority' => (int) $ct->priority, 'report_email' => $ct->report_email,
+            'report_freq' => $ct->report_freq ?: 'monthly', 'covered' => $ct->covered,
+            'notes' => $ct->notes, 'sla_value' => (int) $ct->sla_response_value,
+            'sla_unit' => $ct->sla_response_unit] : null,
+        'rate' => (float) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'hour_rate')->value('value') ?: 0)]);
+
+case 'prepaid_save':                    // δημιουργία / επεξεργασία συμβολαίου
+    $uid9 = (int) ($in['client'] ?? 0);
+    if (!$uid9 || !Capsule::table('tblclients')->where('id', $uid9)->exists()) { fail('client'); }
+    if (!Time::scReady()) { fail('Το module Support Contracts δεν είναι διαθέσιμο', 500); }
+    $data9 = ['enabled' => !empty($in['enabled']) ? 1 : 0,
+        'label' => mb_substr(trim((string) ($in['label'] ?? '')), 0, 100) ?: null,
+        'priority' => min(2, max(0, (int) ($in['priority'] ?? 0))),
+        'report_email' => mb_substr(trim((string) ($in['report_email'] ?? '')), 0, 255) ?: null,
+        'covered' => mb_substr(trim((string) ($in['covered'] ?? '')), 0, 4000) ?: null,
+        'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 4000) ?: null];
+    $freq9 = (string) ($in['report_freq'] ?? 'monthly');
+    if (in_array($freq9, ['monthly', 'weekly', 'both', 'off'], true)
+        && Capsule::schema()->hasColumn('mod_supportcontracts_clients', 'report_freq')) {
+        $data9['report_freq'] = $freq9;
+    }
+    if (isset($in['sla_value'])) { $data9['sla_response_value'] = max(1, (int) $in['sla_value']); }
+    if (isset($in['sla_unit']) && in_array($in['sla_unit'], ['hours', 'days'], true)) {
+        $data9['sla_response_unit'] = $in['sla_unit'];
+    }
+    ScDb::saveContract($uid9, $data9);
+    out(['ok' => true, 'state' => Cover::clientState($uid9)]);
+
+case 'prepaid_move':                    // χειροκίνητη πίστωση / χρέωση
+    $uid9 = (int) ($in['client'] ?? 0);
+    $mins9 = (int) ($in['minutes'] ?? 0);
+    if (!$uid9 || !$mins9) { fail('input'); }
+    if (!Time::scReady() || !ScDb::contract($uid9)) { fail('Ο πελάτης δεν έχει συμβόλαιο προαγοράς'); }
+    $type9 = $mins9 > 0 ? 'topup' : 'adjust';
+    $note9 = mb_substr(trim((string) ($in['note'] ?? '')), 0, 200)
+        ?: ($mins9 > 0 ? 'Χειροκίνητη πίστωση' : 'Χειροκίνητη διόρθωση');
+    $bal9 = ScDb::applyMovement($uid9, $mins9, $type9, $note9, null, $adminId,
+        'cpm-manual-' . $adminId . '-' . time());
+    out(['ok' => true, 'balance' => (int) $bal9]);
+
+case 'prepaid_offer':                   // ακάλυπτος χρόνος → προσφορά προς τον πελάτη
+    $uid9 = (int) ($in['client'] ?? 0);
+    $ids9 = array_values(array_filter(array_map('intval', (array) ($in['entries'] ?? []))));
+    $rate9 = round((float) ($in['rate'] ?? 0), 2);
+    if (!$uid9 || !$ids9) { fail('Διάλεξε τουλάχιστον μία καταχώρηση'); }
+    if ($rate9 <= 0) { fail('Δώσε τιμή ανά ώρα'); }
+    $rows9 = Capsule::table('mod_cpm_timelogs')->whereIn('id', $ids9)
+        ->where('sc_userid', $uid9)->where('billable', 1)->get();
+    $open9 = 0;
+    $lines9 = [];
+    foreach ($rows9 as $r9) {
+        $o9 = (int) $r9->charged_minutes - (int) $r9->cover_minutes;
+        if ($o9 <= 0) { continue; }
+        $open9 += $o9;
+        $t9 = Db::task((int) $r9->task_id);
+        $lines9[] = '• ' . substr($r9->created_at, 0, 10) . ' — '
+            . ($t9 ? $t9->title : 'Εργασία #' . (int) $r9->task_id) . ' · ' . Cover::fmt($o9);
+    }
+    if (!$open9) { fail('Οι καταχωρήσεις που διάλεξες είναι ήδη καλυμμένες'); }
+    $amt9 = round($open9 / 60 * $rate9, 2);
+    $oid9 = Capsule::table('mod_cpm_offers')->insertGetId([
+        'title' => mb_substr(trim((string) ($in['title'] ?? '')) ?: ('Εργασίες εκτός προαγοράς — ' . date('m/Y')), 0, 200),
+        'clientid' => $uid9, 'amount' => $amt9, 'stage' => 'draft', 'assignee' => $adminId,
+        'covered_minutes' => $open9, 'created_by' => $adminId,
+        'descr' => 'Χρόνος που δεν καλύφθηκε από προαγορά (' . Cover::fmt($open9) . ' × '
+            . number_format($rate9, 2, ',', '.') . " €/ώρα):\n" . implode("\n", $lines9),
+        'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+    /* Οι καταχωρήσεις δεσμεύονται από τη στιγμή που μπαίνουν στην προσφορά —
+       αλλιώς ο ίδιος ακάλυπτος χρόνος θα έμπαινε και σε δεύτερη. Αν η προσφορά
+       χαθεί, ελευθερώνονται (δες `move_offer`). */
+    foreach ($rows9 as $r9) {
+        $o9 = (int) $r9->charged_minutes - (int) $r9->cover_minutes;
+        if ($o9 <= 0) { continue; }
+        Capsule::table('mod_cpm_timelogs')->where('id', (int) $r9->id)->update([
+            'cover' => 'offer', 'cover_offer_id' => (int) $oid9,
+            'cover_minutes' => (int) $r9->charged_minutes]);
+    }
+    Capsule::table('tbladdonmodules')->updateOrInsert(
+        ['module' => 'cloudonprojects', 'setting' => 'hour_rate'], ['value' => (string) $rate9]);
+    out(['ok' => true, 'offer' => (int) $oid9, 'minutes' => $open9, 'amount' => $amt9]);
+
+case 'prepaid_report':                   // προεπισκόπηση αναφοράς περιόδου
+case 'prepaid_report_send':              // …και αποστολή της
+    $uid9 = (int) ($_GET['client'] ?? $in['client'] ?? 0);
+    $f9 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? $in['from'] ?? '')
+        ? ($_GET['from'] ?? $in['from']) : date('Y-m-01', strtotime('-1 month'));
+    $t9 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? $in['to'] ?? '')
+        ? ($_GET['to'] ?? $in['to']) : date('Y-m-d');
+    if (!$uid9 || !Capsule::table('tblclients')->where('id', $uid9)->exists()) { fail('client'); }
+    if ($action === 'prepaid_report') {
+        $rp9 = Report::build($uid9, $f9, $t9);
+        out(['subject' => $rp9['subject'], 'html' => $rp9['html'], 'to' => $rp9['to'], 'empty' => $rp9['empty']]);
+    }
+    $res9 = Report::send($uid9, $f9, $t9,
+        Capsule::table('tbladmins')->where('id', $adminId)->value('username'));
+    if (empty($res9['ok'])) { fail($res9['error'] ?? 'Δεν στάλθηκε', 500); }
+    /* Η αποστολή γράφεται στις κινήσεις του πελάτη, ώστε να φαίνεται ποιος και
+       πότε την έστειλε — αλλιώς δεν ξέρεις αν έφυγε δύο φορές. */
+    if (Time::scReady() && ScDb::contract($uid9)) {
+        ScDb::applyMovement($uid9, 0, 'adjust',
+            'Στάλθηκε αναφορά περιόδου ' . date('d/m/Y', strtotime($f9)) . ' – ' . date('d/m/Y', strtotime($t9)),
+            null, $adminId, 'cpm-report-' . $uid9 . '-' . $f9 . '-' . $t9);
+    }
+    out(['ok' => true, 'to' => $res9['to']]);
+case 'prepaid_offer_cover':             // πόσο χρόνο καλύπτει μια προσφορά
+    $oid9 = (int) ($in['offer'] ?? 0);
+    if (!$oid9 || !Capsule::table('mod_cpm_offers')->where('id', $oid9)->exists()) { fail('offer'); }
+    Capsule::table('mod_cpm_offers')->where('id', $oid9)
+        ->update(['covered_minutes' => max(0, (int) ($in['minutes'] ?? 0)) ?: null,
+            'updated_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true]);
 
 /* ================= ΟΜΑΔΕΣ ================= */
