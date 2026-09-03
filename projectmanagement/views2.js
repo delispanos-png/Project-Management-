@@ -2157,6 +2157,9 @@ R.projects = async function () {
           <button class="btn btn-o btn-sm" id="pjPmSave">Αποθήκευση σημειώσεων</button>
           <span class="mut" style="font-size:11px">Ορατές μόνο σε εσένα και στους διαχειριστές.</span></div>
       </div></div>` : ''}
+    ${p.id ? `<div class="card"><div class="card-h">${I.box} Modules της υλοποίησης
+        <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κάθε module ανοίγει το checklist του</span></div>
+      <div class="card-b" id="pjMods"><div class="skel" style="height:50px"></div></div></div>` : ''}
     ${p.id ? `<div class="card"><div class="card-h">${I.list} Εργασίες του έργου
         <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η καθεμία ανήκει σε ένα department</span></div>
       <div class="card-b" id="pjTasks"><div class="skel" style="height:60px"></div></div></div>`
@@ -2170,6 +2173,57 @@ R.projects = async function () {
     requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
     $('#dX').onclick = () => cnpAskClose(dr);
     clientAuto('pjCli', 'pjCliL', 'pjCliId', 'pjCliS');
+    /* Modules του έργου: ποια δικά μας προϊόντα παραδίδονται και πόσο έχει
+       προχωρήσει το checklist του καθενός. Κλικ στο module → οι εργασίες του
+       με την πρόοδο των ελέγχων· κλικ στην εργασία → το checklist. */
+    const modState = openProj._mods = openProj._mods || {};
+    const loadMods = async () => {
+      const box = $('#pjMods', dr); if (!box) return;
+      const md = await api('project_modules&project=' + p.id).catch(() => null);
+      if (!md) { box.innerHTML = '<div class="mut">Δεν φορτώθηκαν</div>'; return; }
+      const canEdit = p.canEdit !== false;
+      const line = t => `<div class="set-row" style="gap:8px;padding-left:22px">
+        <span class="dot" style="background:${t.done ? 'var(--ok)' : '#8595ac'};width:8px;height:8px;flex:none"></span>
+        <a href="javascript:" data-mtask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.title)}</a>
+        ${t.checks[1] ? `<span class="pill ${t.checks[0] >= t.checks[1] ? 'pill-ok' : 'pill-mut'}" title="Έλεγχοι">☑ ${t.checks[0]}/${t.checks[1]}</span>` : ''}
+        <span class="mut" style="font-size:11px">${esc(t.assignee || '—')}</span>
+        <span class="${t.due && t.due < today() && !t.done ? 'pill pill-bad' : 'mut'}" style="font-size:11px;white-space:nowrap">${t.due ? dShort(t.due) : '—'}</span>
+      </div>`;
+      const mod = m => {
+        const open = modState[m.id] !== false;
+        const pct = m.total ? Math.round(m.done / m.total * 100) : 0;
+        return `<div class="mod-card" style="border-left-color:${m.color}">
+          <div class="mod-head" data-modtoggle="${m.id}">
+            <span class="kb-gchev ${open ? 'open' : ''}">${I.chev}</span>
+            <b>${esc(m.name)}</b>
+            ${m.product ? `<span class="pill pill-mut" style="font-size:10px">${esc(m.product)}</span>` : ''}
+            <span style="flex:1"></span>
+            <div class="bar" style="width:110px"><span class="${pct === 100 ? 'ok' : ''}" style="width:${pct}%;${pct < 100 ? 'background:' + m.color : ''}"></span></div>
+            <small class="mut" style="font-variant-numeric:tabular-nums">${m.done}/${m.total}</small>
+          </div>
+          ${open ? `<div class="mod-body">${m.tasks.map(line).join('') || '<div class="mut" style="font-size:12px;padding-left:22px">Χωρίς βήματα.</div>'}</div>` : ''}
+        </div>`;
+      };
+      const avail = md.available.filter(a => !md.modules.some(m => m.id === a.id));
+      box.innerHTML = `
+        ${md.modules.map(mod).join('') || '<div class="mut" style="font-size:12.5px;padding:2px 0 8px">Κανένα module ακόμη — πρόσθεσε ποιο δικό μας προϊόν παραδίδει αυτό το έργο.</div>'}
+        ${canEdit && avail.length ? `<div class="set-row" style="gap:7px;margin-top:10px">
+          <select class="inp" id="pjModAdd" style="flex:1"><option value="">— πρόσθεσε module —</option>
+            ${avail.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+          <input type="date" class="inp" id="pjModStart" value="${today()}" title="Έναρξη των βημάτων του" style="width:auto">
+          <button class="btn btn-p btn-sm" id="pjModGo">+</button></div>` : ''}`;
+      $$('[data-modtoggle]', box).forEach(h => h.onclick = () => { modState[+h.dataset.modtoggle] = modState[+h.dataset.modtoggle] === false; loadMods(); });
+      $$('[data-mtask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.mtask); });
+      const go2 = $('#pjModGo', box);
+      if (go2) go2.onclick = async () => {
+        const mid = +$('#pjModAdd', box).value || 0; if (!mid) { toast('Διάλεξε module', true); return; }
+        const r = await api('project_add_modules', {project: p.id, modules: [mid], start: $('#pjModStart', box).value}).catch(e => ({err: e.message}));
+        if (r.err) { toast(r.err, true); return; }
+        toast(`Προστέθηκε module με ${r.tasks} εργασίες`); loadMods(); loadTasks();
+      };
+    };
+    loadMods();
+
     /* Εργασίες μέσα στο ίδιο το έργο: εδώ στήνεις το πλάνο παράδοσης χωρίς να
        πας στο board και χωρίς να ψάχνεις το έργο σε dropdown. Η ομάδα ορίζεται
        με τη δημιουργία — αλλιώς η εργασία μένει αζήτητη. */

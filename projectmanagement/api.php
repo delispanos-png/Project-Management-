@@ -1119,6 +1119,7 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
         'dept' => isset($t->dept_id) && $t->dept_id ? (int) $t->dept_id : null,
+        'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
         'billOk' => !empty($t->billing_ok),
         'billOkBy' => isset($t->billing_ok_by) && $t->billing_ok_by ? (int) $t->billing_ok_by : null,
         'billOkAt' => $t->billing_ok_at ?? null,
@@ -1301,7 +1302,7 @@ function cnp_action_area($action)
             'gantt', 'gantt_move', 'list', 'time', 'time_add', 'timer_start', 'timer_stop',
             'depts_load', 'dept_view', 'task_billing_ok', 'templates', 'template_save',
             'template_del', 'template_step_save', 'template_step_del', 'template_step_move',
-            'template_clone', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
+            'template_clone', 'project_add_modules', 'project_modules', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
             'dep_add', 'dep_del', 'check_add', 'check_toggle', 'watch', 'request_update',
             'recurring', 'save_recurring', 'del_recurring', 'recurrent',
             'share_save', 'share_info', 'share_revoke', 'share_reply', 'add_expense', 'del_expense',
@@ -1400,12 +1401,22 @@ case 'templates':
                 'checks' => array_values(array_filter(array_map('trim', explode("\n", (string) $st->checks)))),
             ];
         }
-        $used = (int) Capsule::table('mod_cpm_projects')->where('template_id', $x->id)->count();
+        $used = (int) Capsule::table('mod_cpm_project_modules')->where('template_id', $x->id)->count();
+        $prodName = $x->product_id
+            ? (string) Capsule::table('tblproducts')->where('id', $x->product_id)->value('name') : null;
         $tpl[] = ['id' => (int) $x->id, 'name' => $x->name, 'descr' => (string) $x->descr,
             'color' => $x->color, 'budget' => $x->budget !== null ? (float) $x->budget : null,
-            'active' => (bool) $x->active, 'steps' => $steps, 'used' => $used];
+            'active' => (bool) $x->active, 'steps' => $steps, 'used' => $used,
+            'productId' => $x->product_id ? (int) $x->product_id : null, 'productName' => $prodName,
+            'category' => (string) ($x->category ?? '')];
     }
-    out(['templates' => $tpl, 'depts' => cnp_depts(), 'canManage' => $FULL,
+    /* Τα προϊόντα του WHMCS, για να δεθεί κάθε module με αυτό που πουλάμε. */
+    $prods = [];
+    foreach (Capsule::table('tblproducts as p')->join('tblproductgroups as g', 'g.id', '=', 'p.gid')
+                 ->orderBy('g.order')->orderBy('p.order')->get(['p.id', 'p.name', 'g.name as gname']) as $pr) {
+        $prods[] = ['id' => (int) $pr->id, 'name' => $pr->name, 'group' => $pr->gname];
+    }
+    out(['templates' => $tpl, 'depts' => cnp_depts(), 'canManage' => $FULL, 'products' => $prods,
         'canClone' => cnp_can_create_project($adminId, $FULL),
         'admins' => (function () {
             $o = [];
@@ -1421,6 +1432,8 @@ case 'template_save':
         'descr' => mb_substr(trim((string) ($in['descr'] ?? '')), 0, 4000),
         'color' => preg_match('/^#[0-9a-f]{6}$/i', (string) ($in['color'] ?? '')) ? $in['color'] : '#0090dd',
         'budget' => ($in['budget'] ?? '') !== '' ? round((float) str_replace(',', '.', (string) $in['budget']), 2) : null,
+        'product_id' => (int) ($in['product'] ?? 0) ?: null,
+        'category' => mb_substr(trim((string) ($in['category'] ?? '')), 0, 60) ?: null,
         'active' => empty($in['off']) ? 1 : 0];
     $tid = (int) ($in['id'] ?? 0);
     if ($tid) {
@@ -1475,58 +1488,116 @@ case 'template_step_move':                // αναδιάταξη βημάτων
     }
     out(['ok' => true]);
 
-case 'template_clone':                    // πρότυπο → έργο πελάτη
+case 'template_clone':                    // παλιό όνομα — ίδια λογική με project_add_modules
+case 'project_add_modules':               // modules → εργασίες μέσα στο έργο πελάτη
     if (!cnp_can_create_project($adminId, $FULL)) { fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403); }
-    $tpl9 = Capsule::table('mod_cpm_templates')->where('id', (int) ($in['template'] ?? 0))->first();
-    $cid9 = (int) ($in['client'] ?? 0);
-    if (!$tpl9) { fail('template', 404); }
-    if (!$cid9 || !Capsule::table('tblclients')->where('id', $cid9)->exists()) {
-        fail('Διάλεξε πελάτη από τη λίστα');
-    }
+    $modIds = array_values(array_unique(array_filter(array_map('intval',
+        (array) ($in['modules'] ?? [(int) ($in['template'] ?? 0)])))));
+    if (!$modIds) { fail('Διάλεξε τουλάχιστον ένα module'); }
+    $mods = Capsule::table('mod_cpm_templates')->whereIn('id', $modIds)->get()->keyBy('id');
+    if (count($mods) !== count($modIds)) { fail('Κάποιο module δεν υπάρχει', 404); }
+
     $start9 = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['start'] ?? '')) ? $in['start'] : date('Y-m-d');
-    $steps9 = Capsule::table('mod_cpm_template_steps')->where('template_id', $tpl9->id)
-        ->orderBy('sort')->orderBy('id')->get();
-    if (!count($steps9)) { fail('Το πρότυπο δεν έχει βήματα'); }
-
     $day = function ($n) use ($start9) { return date('Y-m-d', strtotime($start9 . ' +' . (int) $n . ' day')); };
-    $lastDue = 0;
-    foreach ($steps9 as $st) { $lastDue = max($lastDue, (int) ($st->off_deadline ?? $st->off_due)); }
 
-    $pid9 = Db::saveProject(0, [
-        'name' => mb_substr(trim((string) ($in['name'] ?? '')), 0, 120) ?: ($tpl9->name . ' — ' . clientLabel($cid9)),
-        'kind' => 'client', 'clientid' => $cid9, 'color' => $tpl9->color,
-        'descr' => (string) $tpl9->descr, 'pstatus' => 'active', 'status' => 'active',
-        'budget' => $tpl9->budget, 'start_date' => $start9, 'due_date' => $day($lastDue),
-        'manager_id' => (int) ($in['manager'] ?? 0) ?: $adminId,
-        'template_id' => (int) $tpl9->id, 'client_visible' => 0,
-    ]);
-    $first9 = Db::firstStatusId();
-    $made9 = 0;
-    foreach ($steps9 as $st) {
-        $ntid = Db::saveTask(0, [
-            'project_id' => $pid9,
-            'dept_id' => $st->dept_id ? (int) $st->dept_id : null,
-            'title' => $st->title,
-            'descr' => nl2br(htmlspecialchars((string) $st->descr, ENT_QUOTES, 'UTF-8')),
-            'status_id' => $first9,
-            'assignee' => $st->assignee ? (int) $st->assignee : null,
-            'priority' => (int) $st->prio,
-            'estimate_minutes' => $st->est_minutes ? (int) $st->est_minutes : null,
-            'start_date' => $day($st->off_start),
-            'due_date' => $day($st->off_deadline !== null ? $st->off_deadline : $st->off_due),
-        ], $adminId);
-        // Οι έλεγχοι του βήματος γίνονται checklist της εργασίας.
-        $k = 0;
-        foreach (array_filter(array_map('trim', explode("\n", (string) $st->checks))) as $c) {
-            Capsule::table('mod_cpm_checklist')->insert(['task_id' => $ntid, 'title' => mb_substr($c, 0, 200),
-                'done' => 0, 'sort' => $k++]);
+    $pid9 = (int) ($in['project'] ?? 0);
+    if ($pid9) {
+        /* Προσθήκη σε υπάρχον έργο: μόνο όποιος μπορεί να το επεξεργαστεί. */
+        $pj9 = Db::project($pid9);
+        if (!cnp_can_edit_project($adminId, $FULL, $pj9)) {
+            fail('Μόνο ο υπεύθυνος του έργου ή διαχειριστής', 403);
         }
-        if ($st->assignee) { Notify::assigned($ntid, (int) $st->assignee, $adminId); }
-        $made9++;
+        $already = Capsule::table('mod_cpm_project_modules')->where('project_id', $pid9)
+            ->whereIn('template_id', $modIds)->pluck('template_id')->all();
+        if ($already) {
+            fail('Το έργο έχει ήδη: ' . implode(', ', array_map(function ($x) use ($mods) {
+                return $mods[$x]->name;
+            }, $already)));
+        }
+    } else {
+        $cid9 = (int) ($in['client'] ?? 0);
+        if (!$cid9 || !Capsule::table('tblclients')->where('id', $cid9)->exists()) {
+            fail('Διάλεξε πελάτη από τη λίστα');
+        }
+        $names = array_map(function ($m) { return $m->name; }, $mods->all());
+        $first = $mods->first();
+        $pid9 = Db::saveProject(0, [
+            'name' => mb_substr(trim((string) ($in['name'] ?? '')), 0, 120)
+                ?: (implode(' + ', $names) . ' — ' . clientLabel($cid9)),
+            'kind' => 'client', 'clientid' => $cid9, 'color' => $first->color,
+            'descr' => '', 'pstatus' => 'active', 'status' => 'active',
+            'budget' => array_sum(array_map(function ($m) { return (float) $m->budget; }, $mods->all())) ?: null,
+            'start_date' => $start9, 'due_date' => null,
+            'manager_id' => (int) ($in['manager'] ?? 0) ?: $adminId,
+            'template_id' => count($modIds) === 1 ? (int) $modIds[0] : null, 'client_visible' => 0,
+        ]);
     }
-    logActivity('CloudOn PM: κλωνοποίηση προτύπου «' . $tpl9->name . '» → έργο #' . $pid9
-        . ' (' . $made9 . ' βήματα) για πελάτη ' . $cid9);
-    out(['ok' => true, 'project' => $pid9, 'tasks' => $made9]);
+
+    $first9 = Db::firstStatusId();
+    $made9 = 0; $lastDue = 0;
+    foreach ($modIds as $mid) {
+        $m = $mods[$mid];
+        Capsule::table('mod_cpm_project_modules')->insert(['project_id' => $pid9, 'template_id' => (int) $mid,
+            'added_by' => $adminId, 'added_at' => date('Y-m-d H:i:s')]);
+        $steps9 = Capsule::table('mod_cpm_template_steps')->where('template_id', $mid)->orderBy('sort')->orderBy('id')->get();
+        foreach ($steps9 as $st) {
+            $dueOff = $st->off_deadline !== null ? (int) $st->off_deadline : (int) $st->off_due;
+            $lastDue = max($lastDue, $dueOff);
+            $ntid = Db::saveTask(0, [
+                'project_id' => $pid9, 'module_id' => (int) $mid,
+                'dept_id' => $st->dept_id ? (int) $st->dept_id : null,
+                'title' => $st->title,
+                'descr' => nl2br(htmlspecialchars((string) $st->descr, ENT_QUOTES, 'UTF-8')),
+                'status_id' => $first9,
+                'assignee' => $st->assignee ? (int) $st->assignee : null,
+                'priority' => (int) $st->prio,
+                'estimate_minutes' => $st->est_minutes ? (int) $st->est_minutes : null,
+                'start_date' => $day($st->off_start), 'due_date' => $day($dueOff),
+            ], $adminId);
+            $k = 0;
+            foreach (array_filter(array_map('trim', explode("\n", (string) $st->checks))) as $c) {
+                Capsule::table('mod_cpm_checklist')->insert(['task_id' => $ntid, 'title' => mb_substr($c, 0, 200), 'done' => 0, 'sort' => $k++]);
+            }
+            if ($st->assignee) { Notify::assigned($ntid, (int) $st->assignee, $adminId); }
+            $made9++;
+        }
+    }
+    /* Η παράδοση του έργου = το πιο μακρινό βήμα από όσα προστέθηκαν τώρα,
+       μόνο αν είναι πιο μετά από την υπάρχουσα. */
+    $cur = Capsule::table('mod_cpm_projects')->where('id', $pid9)->value('due_date');
+    if (!$cur || $cur < $day($lastDue)) {
+        Capsule::table('mod_cpm_projects')->where('id', $pid9)->update(['due_date' => $day($lastDue)]);
+    }
+    logActivity('CloudOn PM: ' . count($modIds) . ' module(s) → έργο #' . $pid9 . ' (' . $made9 . ' εργασίες) από admin ' . $adminId);
+    out(['ok' => true, 'project' => $pid9, 'tasks' => $made9, 'modules' => count($modIds)]);
+
+case 'project_modules':                   // τα modules ενός έργου, με το checklist του καθενός
+    $pid9 = (int) ($_GET['project'] ?? 0);
+    if (!$pid9 || !Db::canSeeProject($adminId, $pid9)) { fail('project', 403); }
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $stName = Capsule::table('mod_cpm_statuses')->pluck('title', 'id')->all();
+    $out = [];
+    foreach (Capsule::table('mod_cpm_project_modules as pm')->join('mod_cpm_templates as t', 't.id', '=', 'pm.template_id')
+                 ->where('pm.project_id', $pid9)->orderBy('pm.id')->get(['t.id', 't.name', 't.color', 't.product_id', 'pm.added_at']) as $m) {
+        $tasks = [];
+        foreach (Capsule::table('mod_cpm_tasks')->where('project_id', $pid9)->where('module_id', $m->id)
+                     ->orderBy('start_date')->orderBy('id')->get() as $t) {
+            $ck = Capsule::table('mod_cpm_checklist')->where('task_id', $t->id);
+            $tasks[] = ['id' => (int) $t->id, 'title' => $t->title,
+                'status' => (string) ($stName[(int) $t->status_id] ?? ''),
+                'done' => in_array((int) $t->status_id, $doneIds, true) || (bool) $t->completed_at,
+                'assignee' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
+                'due' => $t->due_date, 'dept' => $t->dept_id ? (int) $t->dept_id : null,
+                'checks' => [(int) (clone $ck)->where('done', 1)->count(), (int) $ck->count()]];
+        }
+        $dn = count(array_filter($tasks, function ($x) { return $x['done']; }));
+        $out[] = ['id' => (int) $m->id, 'name' => $m->name, 'color' => $m->color,
+            'product' => $m->product_id ? (string) Capsule::table('tblproducts')->where('id', $m->product_id)->value('name') : null,
+            'total' => count($tasks), 'done' => $dn, 'tasks' => $tasks];
+    }
+    out(['modules' => $out, 'available' => array_map(function ($x) {
+        return ['id' => (int) $x->id, 'name' => $x->name, 'color' => $x->color];
+    }, Capsule::table('mod_cpm_templates')->where('active', 1)->orderBy('name')->get()->all())]);
 
 case 'depts_load':                        // φορτίο ανά department
     $doneU = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
@@ -1631,7 +1702,18 @@ case 'board':
             'clientId' => $pj->clientid ? (int) $pj->clientid : null,
             'client' => $pj->clientid ? clientLabel((int) $pj->clientid) : null,
             'manager' => $pj->manager_id ? Db::adminName((int) $pj->manager_id) : null,
-            'deptSplit' => $split]]);
+            'deptSplit' => $split,
+            'modules' => (function () use ($pid, $doneB) {
+                $o = [];
+                foreach (Capsule::table('mod_cpm_project_modules as pm')->join('mod_cpm_templates as t', 't.id', '=', 'pm.template_id')
+                             ->where('pm.project_id', $pid)->get(['t.id', 't.name', 't.color']) as $m) {
+                    $q = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->where('module_id', $m->id);
+                    $o[] = ['id' => (int) $m->id, 'name' => $m->name, 'color' => $m->color,
+                        'total' => (int) (clone $q)->count(),
+                        'done' => (int) (clone $q)->whereIn('status_id', $doneB)->count()];
+                }
+                return $o;
+            })()]]);
 
 /* ================= TASK (drawer) ================= */
 case 'task':

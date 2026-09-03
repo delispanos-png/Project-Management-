@@ -732,7 +732,7 @@ R.unit = async function (id) {
    πελάτη όταν ξεκινά η δουλειά. Οι ημερομηνίες είναι ΜΕΡΕΣ ΑΠΟ ΤΗΝ ΕΝΑΡΞΗ,
    ώστε το ίδιο πρότυπο να δουλεύει οποιαδήποτε στιγμή. */
 R.templates = async function () {
-  setTop('Πρότυπα υλοποίησης', 'Γράψε τα βήματα μία φορά — κλωνοποίησέ τα σε κάθε πελάτη');
+  setTop('Modules', 'Τα δικά μας προϊόντα — το καθένα με το checklist παράδοσής του');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:280px"></div>';
   const d = await api('templates');
@@ -757,9 +757,11 @@ R.templates = async function () {
   const card = tp => `<div class="card" style="border-top:4px solid ${tp.color}">
     <div class="card-h" style="gap:9px">
       <b>${esc(tp.name)}</b>
+      ${tp.productName ? `<span class="pill pill-info" title="Προϊόν WHMCS">${I.box} ${esc(tp.productName)}</span>` : '<span class="pill pill-mut" title="Δεν έχει δεθεί με προϊόν WHMCS">χωρίς προϊόν</span>'}
+      ${tp.category ? `<span class="pill pill-mut">${esc(tp.category)}</span>` : ''}
       ${tp.active ? '' : '<span class="pill pill-mut">ανενεργό</span>'}
       <span class="kb-n">${tp.steps.length} βήματα</span>
-      ${tp.used ? `<span class="pill pill-info" title="Έργα που γεννήθηκαν από αυτό">${tp.used} υλοποιήσεις</span>` : ''}
+      ${tp.used ? `<span class="pill pill-mut" title="Σε πόσα έργα έχει μπει">${tp.used} υλοποιήσεις</span>` : ''}
       ${tp.budget ? `<span class="mut" style="font-size:11.5px">${fmtEur(tp.budget)}</span>` : ''}
       <span style="flex:1"></span>
       ${d.canClone && tp.active ? `<button class="btn btn-sm btn-p" data-clone="${tp.id}">${I.rocket} Έναρξη σε πελάτη</button>` : ''}
@@ -776,20 +778,26 @@ R.templates = async function () {
 
   c.innerHTML = `
     <div class="card"><div class="card-b" style="font-size:12.5px;color:var(--mut);padding:12px 16px;line-height:1.7">
-      Κάθε βήμα κρατάει <b>ομάδα, υπεύθυνο, ημέρες από την έναρξη, εκτίμηση</b> και τους
-      <b>ελέγχους</b> που πρέπει να συμπληρωθούν στο τέλος. Με το «Έναρξη σε πελάτη» γεννιέται
-      έργο με όλα τα βήματα ως εργασίες, με πραγματικές ημερομηνίες και checklist.
+      <b>Module</b> = δικό μας προϊόν ή υποδομή (PharmacyOne, e-shop, VPS setup…) με τα βήματα που
+      χρειάζονται για να παραδοθεί σε πελάτη. Κάθε βήμα έχει <b>ομάδα, υπεύθυνο, ημέρες από την έναρξη</b>
+      και τους <b>ελέγχους</b> του. Ένα έργο πελάτη περιλαμβάνει <b>ένα ή πολλά</b> modules — και μέσα στο
+      έργο, κάτω από κάθε module, ανοίγει το checklist του.
     </div></div>
-    ${d.canManage ? `<div style="margin-bottom:12px"><button class="btn btn-p btn-sm" id="tplNew">${I.plus} Νέο πρότυπο</button></div>` : ''}
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      ${d.canManage ? `<button class="btn btn-p btn-sm" id="tplNew">${I.plus} Νέο module</button>` : ''}
+      ${d.canClone && d.templates.some(t => t.active) ? `<button class="btn btn-o btn-sm" id="tplStart">${I.rocket} Νέα υλοποίηση σε πελάτη — πολλά modules</button>` : ''}
+    </div>
     ${d.templates.length ? d.templates.map(card).join('')
-      : '<div class="card"><div class="card-b empty">Κανένα πρότυπο ακόμη — φτιάξε το πρώτο.</div></div>'}`;
+      : '<div class="card"><div class="card-b empty">Κανένα module ακόμη — φτιάξε το πρώτο.</div></div>'}`;
 
   $$('[data-topen]').forEach(b => b.onclick = () => {
     st.open = st.open === +b.dataset.topen ? null : +b.dataset.topen; R.templates();
   });
   $$('[data-clone]').forEach(b => b.onclick = () => openClone(d.templates.find(x => x.id === +b.dataset.clone), d));
+  const tplStart0 = $('#tplStart'); if (tplStart0) tplStart0.onclick = () => openClone(null, d);
   if (!d.canManage) return;
 
+  const tplStart = $('#tplStart'); if (tplStart) tplStart.onclick = () => openClone(null, d);
   $('#tplNew').onclick = () => openTpl(null, d);
   $$('[data-tedit]').forEach(b => b.onclick = () => openTpl(d.templates.find(x => x.id === +b.dataset.tedit), d));
   $$('[data-sadd]').forEach(b => b.onclick = () => openStep(+b.dataset.sadd, null, d));
@@ -806,14 +814,25 @@ R.templates = async function () {
 /* Πρότυπο: ταυτότητα */
 function openTpl(tp, d) {
   closeDrawer();
-  tp = tp || {name: '', descr: '', color: '#0090dd', budget: null, active: true, steps: []};
+  tp = tp || {name: '', descr: '', color: '#0090dd', budget: null, active: true, steps: [], productId: null, category: ''};
   const ovl = document.createElement('div'); ovl.className = 'ovl';
   const dr = document.createElement('div'); dr.className = 'drawer';
   dr.innerHTML = `
-  <div class="drawer-h"><h2>${tp.id ? esc(tp.name) : 'Νέο πρότυπο'}</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-h"><h2>${tp.id ? esc(tp.name) : 'Νέο module'}</h2><button class="drawer-x" id="dX">✕</button></div>
   <div class="drawer-b"><div class="card"><div class="card-b">
-    <label class="lbl">Όνομα υλοποίησης</label>
-    <input class="inp" id="tpN" value="${esc(tp.name)}" placeholder="π.χ. Στήσιμο e-shop, Μετάπτωση mail">
+    <label class="lbl">Όνομα module</label>
+    <input class="inp" id="tpN" value="${esc(tp.name)}" placeholder="π.χ. PharmacyOne, Στήσιμο e-shop, VPS setup">
+    <div class="frow" style="margin-top:11px">
+      <div><label class="lbl">Προϊόν WHMCS <span class="mut" style="font-weight:400">— τι το πουλάμε</span></label>
+        <select class="inp" id="tpP"><option value="">— χωρίς σύνδεση —</option>
+          ${(() => { let g = ''; return d.products.map(pr => {
+            const head = pr.group !== g ? `${g ? '</optgroup>' : ''}<optgroup label="${esc(pr.group)}">` : '';
+            g = pr.group;
+            return head + `<option value="${pr.id}" ${pr.id === tp.productId ? 'selected' : ''}>${esc(pr.name)}</option>`;
+          }).join('') + (g ? '</optgroup>' : ''); })()}</select></div>
+      <div><label class="lbl">Κατηγορία <span class="mut" style="font-weight:400">— ελεύθερη</span></label>
+        <input class="inp" id="tpK" value="${esc(tp.category || '')}" placeholder="π.χ. Λογισμικό, Υποδομή, Υπηρεσία"></div>
+    </div>
     <label class="lbl" style="margin-top:11px">Τι περιλαμβάνει</label>
     <textarea class="inp" id="tpD" rows="4" placeholder="Σύντομη περιγραφή — τι παραδίδουμε και σε τι κατάσταση">${esc(tp.descr || '')}</textarea>
     <div class="frow" style="margin-top:11px">
@@ -833,12 +852,13 @@ function openTpl(tp, d) {
   $('#tpSave', dr).onclick = async () => {
     if (!$('#tpN', dr).value.trim()) { toast('Δώσε όνομα', true); return; }
     await api('template_save', {id: tp.id || 0, name: $('#tpN', dr).value, descr: $('#tpD', dr).value,
-      color: $('#tpC', dr).value, budget: $('#tpB', dr).value.trim(), off: !$('#tpA', dr).checked});
+      color: $('#tpC', dr).value, budget: $('#tpB', dr).value.trim(), off: !$('#tpA', dr).checked,
+      product: +$('#tpP', dr).value || 0, category: $('#tpK', dr).value});
     toast('Αποθηκεύτηκε'); closeDrawer(); R.templates();
   };
   const del = $('#tpDel', dr);
   if (del) del.onclick = async () => {
-    if (!(await cnpConfirm(`Διαγραφή του προτύπου «${tp.name}»; Τα έργα που έχουν ήδη γεννηθεί δεν επηρεάζονται.`,
+    if (!(await cnpConfirm(`Διαγραφή του module «${tp.name}»; Τα έργα που το έχουν ήδη δεν επηρεάζονται.`,
       {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
     await api('template_del', {id: tp.id}); toast('Διαγράφηκε'); closeDrawer(); R.templates();
   };
@@ -894,46 +914,63 @@ function openStep(tplId, s2, d) {
   };
 }
 
-/* Κλωνοποίηση προτύπου σε πελάτη — εδώ γεννιέται η υλοποίηση */
+/* Νέα υλοποίηση σε πελάτη: ένα ή πολλά modules → έργο με τα βήματά τους.
+   Με tp δοσμένο, το module είναι προεπιλεγμένο· χωρίς, διαλέγεις από όλα. */
 function openClone(tp, d) {
   closeDrawer();
+  const active = d.templates.filter(x => x.active && x.steps.length);
   const ovl = document.createElement('div'); ovl.className = 'ovl';
   const dr = document.createElement('div'); dr.className = 'drawer';
-  const lastDay = tp.steps.reduce((m, s2) => Math.max(m, s2.offDeadline !== null ? s2.offDeadline : s2.offDue), 0);
   dr.innerHTML = `
-  <div class="drawer-h"><h2>${I.rocket} Έναρξη: ${esc(tp.name)}</h2><button class="drawer-x" id="dX">✕</button></div>
+  <div class="drawer-h"><h2>${I.rocket} Νέα υλοποίηση σε πελάτη</h2><button class="drawer-x" id="dX">✕</button></div>
   <div class="drawer-b"><div class="card"><div class="card-b">
-    <div class="mut" style="font-size:12.5px;margin-bottom:11px">Θα δημιουργηθεί έργο πελάτη με <b>${tp.steps.length} εργασίες</b>,
-      με ημερομηνίες υπολογισμένες από την έναρξη και checklist ελέγχου σε κάθε βήμα.</div>
     <label class="lbl">Πελάτης <span class="mut" style="font-weight:400">— γράψε και <b>διάλεξε</b> από τη λίστα</span></label>
     <input class="inp" id="clCli" autocomplete="off" placeholder="όνομα, επωνυμία ή email…">
     <input type="hidden" id="clCliId"><div id="clCliS" class="mut" style="font-size:11px;margin-top:3px"></div>
-    <div class="frow" style="margin-top:11px">
-      <div><label class="lbl">Ονομασία έργου</label><input class="inp" id="clName" placeholder="${esc(tp.name)} — <πελάτης>"></div>
+
+    <label class="lbl" style="margin-top:13px">${I.box} Modules που περιλαμβάνει η υλοποίηση</label>
+    <div class="mut" style="font-size:11.5px;margin-bottom:6px">Κάθε module φέρνει τα βήματά του ως εργασίες, με το checklist του.</div>
+    <div class="mod-pick">${active.map(m => `<label class="mod-opt ${tp && tp.id === m.id ? 'on' : ''}">
+      <input type="checkbox" data-mod="${m.id}" ${tp && tp.id === m.id ? 'checked' : ''}>
+      <span class="dot" style="background:${m.color};width:9px;height:9px"></span>
+      <b>${esc(m.name)}</b><small class="mut">${m.steps.length} βήματα${m.budget ? ' · ' + fmtEur(m.budget) : ''}</small></label>`).join('')
+      || '<div class="mut">Κανένα ενεργό module με βήματα.</div>'}</div>
+
+    <div class="frow" style="margin-top:12px">
+      <div><label class="lbl">Ονομασία έργου <span class="mut" style="font-weight:400">— κενό = αυτόματη</span></label><input class="inp" id="clName" placeholder="<modules> — <πελάτης>"></div>
       <div><label class="lbl">Ημερομηνία έναρξης</label><input type="date" class="inp" id="clStart" value="${today()}"></div>
       <div><label class="lbl">Υπεύθυνος έργου</label><select class="inp" id="clMgr">
         ${d.admins.map(x => `<option value="${x.id}" ${x.id === S.boot.me.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
     </div>
-    <div class="mut" style="font-size:11.5px;margin-top:9px">Παράδοση: <b id="clEnd">—</b> (${lastDay} ημέρες μετά την έναρξη)</div>
+    <div class="mut" style="font-size:11.5px;margin-top:9px" id="clSum">—</div>
     <div style="display:flex;gap:9px;margin-top:14px"><button class="btn btn-p" id="clGo">${I.rocket} Δημιουργία έργου</button></div>
   </div></div></div>`;
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
   $('#dX').onclick = () => closeDrawer();
   window.CNP.clientAuto('clCli', null, 'clCliId', 'clCliS');
-  const paintEnd = () => {
+  const picked = () => $$('[data-mod]', dr).filter(x => x.checked).map(x => +x.dataset.mod);
+  const summary = () => {
+    const ids = picked(), ms = active.filter(m => ids.includes(m.id));
+    const steps = ms.reduce((a, m) => a + m.steps.length, 0);
+    const last = ms.reduce((a, m) => Math.max(a, ...m.steps.map(s2 => s2.offDeadline !== null ? s2.offDeadline : s2.offDue)), 0);
     const s0 = $('#clStart', dr).value;
-    $('#clEnd', dr).textContent = s0
-      ? dFull(new Date(new Date(s0 + 'T12:00:00').getTime() + lastDay * 86400000).toISOString().slice(0, 10)) : '—';
+    const end = s0 && ms.length ? dFull(new Date(new Date(s0 + 'T12:00:00').getTime() + last * 86400000).toISOString().slice(0, 10)) : '—';
+    $('#clSum', dr).innerHTML = ms.length
+      ? `<b>${ms.length}</b> module${ms.length === 1 ? '' : 's'} · <b>${steps}</b> εργασίες · παράδοση <b>${end}</b> (+${last} ημ.)`
+      : '<span style="color:var(--warn)">Διάλεξε τουλάχιστον ένα module.</span>';
+    $$('.mod-opt', dr).forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
   };
-  $('#clStart', dr).onchange = paintEnd; paintEnd();
+  $$('[data-mod]', dr).forEach(c => c.onchange = summary);
+  $('#clStart', dr).onchange = summary; summary();
   $('#clGo', dr).onclick = async () => {
-    const cid = +$('#clCliId', dr).value || 0;
+    const cid = +$('#clCliId', dr).value || 0, ids = picked();
     if (!cid) { toast('Διάλεξε πελάτη από τη λίστα', true); $('#clCli', dr).focus(); return; }
-    const r = await api('template_clone', {template: tp.id, client: cid, start: $('#clStart', dr).value,
+    if (!ids.length) { toast('Διάλεξε τουλάχιστον ένα module', true); return; }
+    const r = await api('project_add_modules', {project: 0, client: cid, modules: ids, start: $('#clStart', dr).value,
       name: $('#clName', dr).value.trim(), manager: +$('#clMgr', dr).value || 0}).catch(e => ({err: e.message}));
     if (r.err) { toast(r.err, true); return; }
-    toast(`Δημιουργήθηκε έργο με ${r.tasks} εργασίες`);
+    toast(`Έργο με ${r.modules} module${r.modules === 1 ? '' : 's'} και ${r.tasks} εργασίες`);
     closeDrawer(); S.boot = await api('boot'); go('board', r.project);
   };
 }

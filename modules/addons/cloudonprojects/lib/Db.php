@@ -303,6 +303,35 @@ class Db
             });
         }
 
+        /* ── Modules: δικά μας προϊόντα με checklist παράδοσης ─────────────────
+           Ένα module είναι δικό μας προϊόν/υποδομή (PharmacyOne, e-shop, VPS
+           setup…) που για να παραδοθεί σε πελάτη χρειάζεται συγκεκριμένα βήματα.
+           Τα βήματα ζουν στο mod_cpm_template_steps. Το έργο ενός πελάτη
+           περιλαμβάνει ΠΟΛΛΑ modules· κάθε εργασία του ξέρει από ποιο module
+           προήλθε, ώστε στο έργο το checklist να ανοίγει κάτω από το module του.
+           Το product_id δένει το module με το προϊόν του WHMCS που το πουλά. */
+        if (!$s->hasColumn('mod_cpm_templates', 'product_id')) {
+            $s->table('mod_cpm_templates', function ($t) {
+                $t->integer('product_id')->unsigned()->nullable();   // tblproducts.id
+                $t->string('category', 60)->nullable();               // ελεύθερη ομαδοποίηση
+            });
+        }
+        if (!$s->hasTable('mod_cpm_project_modules')) {
+            $s->create('mod_cpm_project_modules', function ($t) {
+                $t->increments('id');
+                $t->integer('project_id')->unsigned()->index();
+                $t->integer('template_id')->unsigned();               // το module
+                $t->integer('added_by')->unsigned()->nullable();
+                $t->timestamp('added_at')->nullable();
+                $t->unique(['project_id', 'template_id']);
+            });
+        }
+        if (!$s->hasColumn('mod_cpm_tasks', 'module_id')) {
+            $s->table('mod_cpm_tasks', function ($t) {
+                $t->integer('module_id')->unsigned()->nullable();    // mod_cpm_templates.id
+            });
+        }
+
         /* ── Ομάδα ⇄ department (πολλά-προς-πολλά) ───────────────────────────
            Δύο διαφορετικοί άξονες που μπερδεύονταν:
              DEPARTMENT = πού απευθύνεται το αίτημα (Support / Sales / Accounting)

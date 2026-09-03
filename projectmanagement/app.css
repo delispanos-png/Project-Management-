@@ -1675,3 +1675,19 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .cpick-new{padding:9px 11px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--brand);
   border-top:1px solid var(--line);background:#0090dd0a;display:flex;gap:6px;align-items:center}
 .cpick-new:hover{background:#0090dd18}
+
+/* ── Modules ─────────────────────────────────────────────────────── */
+.mod-pick{display:flex;flex-direction:column;gap:6px}
+.mod-opt{display:flex;gap:9px;align-items:center;padding:8px 11px;border:1px solid var(--line);border-radius:10px;
+  cursor:pointer;background:var(--card)}
+.mod-opt.on{border-color:var(--brand);background:#0090dd0d}
+.mod-opt input{width:15px;height:15px;cursor:pointer}
+.mod-opt b{flex:1;font-size:13px}
+.mod-opt small{font-size:11px}
+.mod-card{border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:10px;margin-bottom:8px;overflow:hidden}
+.mod-head{display:flex;gap:9px;align-items:center;padding:9px 12px;cursor:pointer;background:var(--card);font-size:13px}
+.mod-head:hover{background:var(--line)}
+.mod-head .kb-gchev{transition:transform .15s}
+.mod-head .kb-gchev.open{transform:rotate(90deg)}
+.mod-body{padding:4px 8px 8px;border-top:1px dashed var(--line)}
+.us-chip.sel{border-color:var(--brand);background:#0090dd14;font-weight:700}

@@ -161,7 +161,7 @@ function renderShell() {
   }
   if (has('projects')) {
     nav.push(['Έργα', [['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'], ['list', I.list, 'Λίστα tasks'],
-      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Departments'], ['templates', I.clipboard, 'Πρότυπα']]]);
+      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Departments'], ['templates', I.box, 'Modules']]]);
   }
   if (has('sales')) {
     nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
@@ -233,7 +233,7 @@ function renderShell() {
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
-        units: 'Depts', templates: 'Πρότυπα', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
+        units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
@@ -1107,14 +1107,24 @@ function boardHead(m) {
       <span style="flex:1"></span>
       <b style="font-variant-numeric:tabular-nums">${dn}/${tot}</b><small class="mut">εργασίες</small>
     </div>
+    ${(m.modules || []).length ? `<div class="us-strip" title="Modules της υλοποίησης">${m.modules.map(x =>
+      `<a class="us-chip ${x.total && x.done === x.total ? 'done' : ''}" href="javascript:" data-modfilter="${x.id}"
+         title="${esc(x.name)}: ${x.done}/${x.total} εργασίες — κλικ για να δεις μόνο αυτές">
+        <i style="background:${x.color}">${I.box}</i>${esc(x.name)} <b>${x.done}/${x.total}</b></a>`).join('')}</div>` : ''}
     ${chips ? `<div class="us-strip">${chips}</div>` : ''}
   </div></div>`;
+  /* Κλικ σε module → μένουν μόνο οι κάρτες του στο board· ξανά κλικ → όλες. */
+  $$('[data-modfilter]', h).forEach(a => a.onclick = () => {
+    const id = +a.dataset.modfilter, on = a.classList.toggle('sel');
+    $$('[data-modfilter]', h).forEach(o => { if (o !== a) o.classList.remove('sel'); });
+    $$('.tcard').forEach(c => { c.style.display = (!on || +c.dataset.module === id) ? '' : 'none'; });
+  });
 }
 
 function cardHtml(t) {
   const ty = t.type ? typeOf(t.type) : null;
   const over = t.due && t.due < today() && !t.done;
-  return `<div class="tcard ${over ? 'overdue' : ''}" data-task="${t.id}">
+  return `<div class="tcard ${over ? 'overdue' : ''}" data-task="${t.id}" data-module="${t.module || 0}">
     <div class="tcard-t">${ty ? `<i class="fas ${ty.icon}" style="color:${ty.color};margin-right:4px"></i>` : ''}${esc(t.title)}</div>
     <div class="tcard-m">
       <span class="dot" style="background:${['#8595ac', '#eba63c', '#e2515f'][t.prio]}"></span>
