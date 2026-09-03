@@ -152,34 +152,62 @@ const typeOf = id => S.boot.types.find(t => t.id === +id);
 function renderShell() {
   const me = S.boot.me;
   const has = a => me.full || (me.areas || []).includes(a);   // ειδικότητες/πρόσβαση
-  const nav = [
-    ['Εργασία', [['myday', I.sun, 'Η μέρα μου'], ['todos', I.checkSquare, 'Το πλάνο μου'], ['library', I.book, 'Η βιβλιοθήκη μου'],
-      ['vault', I.key, 'Κωδικοί'], ['standup', I.clipboard, 'Standup'], ['calendar', I.cal, 'Ημερολόγιο'], ['chat', I.chat || I.ticket, 'Chat'], ['remotebook', I.monitor, 'Απομακρυσμένες']]],
+  /* ── Μενού ανά ΚΥΚΛΩΜΑ ────────────────────────────────────────────────
+     Πριν, η «Εργασία» ανακάτευε τα προσωπικά μου με τη συνεννόηση της ομάδας,
+     ο «Πελάτης 360°» ζούσε στην Υποστήριξη ενώ είναι η καρτέλα του πελάτη, και
+     τα Έργα ήταν επτά στοιχεία χωρίς σειρά. Τώρα κάθε ενότητα απαντά σε μία
+     ερώτηση, και κάθε στοιχείο φέρνει ΤΟ ΔΙΚΟ ΤΟΥ δικαίωμα — έτσι μια ενότητα
+     μπορεί να ανήκει σε δύο κυκλώματα (π.χ. Πελάτες = υποστήριξη + πωλήσεις)
+     και εμφανίζεται με ό,τι δικαιούται ο καθένας. */
+  const A = (area, items) => (has(area) ? items : []);
+  const groups = [
+    ['Τα δικά μου', 'ό,τι αφορά εμένα σήμερα', [
+      ['myday', I.sun, 'Η μέρα μου'],
+      ['todos', I.checkSquare, 'Το πλάνο μου'],
+      ...A('projects', [['time', I.clock, 'Ο χρόνος μου']]),
+      ['library', I.book, 'Η βιβλιοθήκη μου'],
+      ['vault', I.key, 'Κωδικοί'],
+      ['profile', I.contact || I.user, 'Το προφίλ μου'],
+    ]],
+    ['Πελάτες', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
+      ...A('support', [['client360', I.user, 'Πελάτης 360°']]),
+      ...A('sales', [['crm', I.target, 'CRM & leads'], ['offers', I.doc, 'Προσφορές']]),
+    ]],
+    ['Υποστήριξη', 'τα αιτήματα που περιμένουν απάντηση', [
+      ...A('support', [['inbox', I.ticket, 'Tickets'], ['knowledge', I.book, 'Βάση γνώσης']]),
+    ]],
+    ['Έργα & υλοποιήσεις', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
+      ...A('projects', [
+        ['projects', I.folder, 'Έργα πελατών'],
+        ['board', I.board, 'Board'],
+        ['list', I.list, 'Λίστα εργασιών'],
+        ['gantt', I.gantt, 'Χρονοδιάγραμμα'],
+        ['templates', I.box, 'Modules'],
+        ['units', I.tree, 'Departments'],
+      ]),
+    ]],
+    ['Η ομάδα', 'συνεννόηση, διαθεσιμότητα, απόδοση', [
+      ['chat', I.chat || I.ticket, 'Chat'],
+      ['calendar', I.cal, 'Ημερολόγιο'],
+      ['standup', I.clipboard, 'Standup'],
+      ['remotebook', I.monitor, 'Απομακρυσμένες'],
+      ...A('admin', [['teams', I.tree, 'Ομάδες & δικαιώματα']]),
+      ...A('reports', [['perf', I.chart, 'Απόδοση χειριστών']]),
+    ]],
+    ['Διοίκηση', 'αριθμοί, οικονομικά, ρυθμίσεις', [
+      ...A('reports', [['triage', I.flag, 'Πλάνο ημέρας'], ['kpi', I.chart, 'KPI Dashboard'],
+        ['rootcause', I.chart, 'Ανάλυση ριζών']]),
+      ...A('finance', [['profit', I.coin, 'Κερδοφορία'],
+        ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'], ['suspend', I.alert, 'Αναστολές']]),
+      ...A('admin', [['settings', I.gear, 'Ρυθμίσεις']]),
+    ]],
+    ['Προσλήψεις', 'υποψήφιοι & αξιολογήσεις', [
+      ...A('hr', [['recruit', I.contact || I.users, 'Βιογραφικά']]),
+    ]],
   ];
-  if (has('support')) {
-    nav.push(['Υποστήριξη', [['inbox', I.ticket, 'Tickets'], ['knowledge', I.book, 'Γνώση'], ['client360', I.user, 'Πελάτης 360°']]]);
-  }
-  if (has('projects')) {
-    nav.push(['Έργα', [['board', I.board, 'Board'], ['gantt', I.gantt, 'Gantt'], ['list', I.list, 'Λίστα tasks'],
-      ['time', I.clock, 'Χρόνος'], ['projects', I.folder, 'Projects'], ['units', I.tree, 'Departments'], ['templates', I.box, 'Modules']]]);
-  }
-  if (has('sales')) {
-    nav.push(['Πωλήσεις', [['crm', I.target, 'CRM'], ['offers', I.doc, 'Προσφορές']]]);
-  }
-  /* Η «Διοίκηση» ήταν ένα ενιαίο κύκλωμα. Σπασμένη σε τρία, κάθε ενότητα
-     εμφανίζεται με το δικό της δικαίωμα — ώστε ένας project manager να παίρνει
-     αναφορές χωρίς οικονομικά και χωρίς ρυθμίσεις. */
-  const admItems = []
-    .concat(has('reports') ? [['triage', I.flag, 'Πλάνο ημέρας'], ['rootcause', I.chart, 'Ανάλυση ριζών'],
-      ['kpi', I.chart, 'KPI Dashboard'], ['perf', I.chart, 'Απόδοση']] : [])
-    .concat(has('finance') ? [['profit', I.coin, 'Κερδοφορία'],
-      ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'], ['suspend', I.alert, 'Αναστολές']] : [])
-    .concat(has('admin') ? [['teams', I.tree, 'Ομάδες'], ['settings', I.gear, 'Ρυθμίσεις']] : []);
-  if (admItems.length) { nav.push(['Διοίκηση', admItems]); }
-  if (has('hr')) {
-    nav.push(['Προσλήψεις', [['recruit', I.contact || I.users, 'Βιογραφικά']]]);
-  }
-  nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']]]);
+  // Ενότητα χωρίς στοιχεία δεν εμφανίζεται καθόλου.
+  const nav = groups.filter(g => g[2].length).map(g => [g[0], g[2], g[1]]);
+  nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']], 'πώς δουλεύει το εργαλείο']);
   $('#app').innerHTML = `
   <div class="shell${(localStorage.cnpSideCollapsed === '1' && !matchMedia('(max-width:768px)').matches) ? ' collapsed' : ''}">
     <aside class="side">
@@ -188,11 +216,11 @@ function renderShell() {
       ${(() => {
         let openSet = null;
         if (localStorage.cnpNavOpen) { try { openSet = new Set(JSON.parse(localStorage.cnpNavOpen)); } catch (e) {} }
-        return nav.map(([g, items]) => {
+        return nav.map(([g, items, hint]) => {
           const hasActive = items.some(([k]) => k === S.view);
           const open = openSet ? openSet.has(g) : hasActive;   // default: ανοιχτή η ενότητα του τρέχοντος view
           return `<div class="snav-grp ${open ? 'open' : ''}">
-            <button class="sgroup" data-grptoggle="${esc(g)}">${esc(g)}
+            <button class="sgroup" data-grptoggle="${esc(g)}"${hint ? ` title="${esc(hint)}"` : ''}>${esc(g)}
               <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
             <div class="snav-items">${items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}">${ic}<span>${lb}</span></button>`).join('')}</div>
           </div>`;
@@ -231,7 +259,8 @@ function renderShell() {
       const flat = nav.flatMap(([, items]) => items);
       const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', calendar: 'Ημερολόγιο', todos: 'Πλάνο',
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
-        knowledge: 'Γνώση', list: 'Tasks', projects: 'Projects', offers: 'Προσφορές',
+        knowledge: 'Γνώση', list: 'Tasks', projects: 'Έργα', offers: 'Προσφορές',
+        profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές', settings: 'Ρυθμίσεις', recruit: 'Βιογραφικά', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
@@ -2121,8 +2150,9 @@ async function vKpi() {
   setTop('KPI Dashboard', 'Η εικόνα της ομάδας σήμερα');
   const c = $('#content');
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(6) + '</div>';
-  const d = await api('kpi').catch(() => null);
-  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές.</div>`; return; }
+  let dErr = null;
+  const d = await api('kpi').catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
   const k = d.cards;
   const net = d.month.won - d.month.laborCost - d.month.expenses;
   c.innerHTML = `
@@ -2161,7 +2191,14 @@ async function vKpi() {
 }
 
 /* ───────── exports για views2.js ───────── */
-window.CNP = {S, api, esc, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+/* Η άρνηση έρχεται πλέον από την πύλη περιοχών και λέει ΠΟΙΟ κύκλωμα λείπει.
+   Το «Μόνο για διαχειριστές» ήταν λάθος αφότου σπάσαμε τη Διοίκηση σε τρία. */
+function cnpDenied(err) {
+  const msg = (err && err.message) || '';
+  return `<div class="empty"><div class="big">${I.lock}</div>${esc(msg) || 'Δεν έχεις πρόσβαση σε αυτή την οθόνη'}
+    <div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`;
+}
+window.CNP = {S, api, esc, cnpDenied, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */

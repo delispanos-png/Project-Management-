@@ -1023,7 +1023,7 @@ R.targets = async function (ym) {
   const c = $('#content');
   c.innerHTML = crmTabs('targets') + skel(1, 300);
   const d = await api('targets' + (ym ? '&ym=' + ym : '')).catch(() => null);
-  if (!d) { c.innerHTML = crmTabs('targets') + `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  if (!d) { c.innerHTML = crmTabs('targets') + `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
   const [Y, M] = d.ym.split('-').map(Number);
   const mn = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'][M - 1];
   const fmtYm = (y, m) => y + '-' + String(m).padStart(2, '0');
@@ -1666,7 +1666,7 @@ R.profit = async function () {
   c.innerHTML = skel(4);
   const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
   const d = await api('profit' + (qs ? '&' + qs : '')).catch(() => null);
-  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
   const tot = d.clients.reduce((a, x) => ({rev: a.rev + x.rev, labor: a.labor + x.labor, exp: a.exp + x.exp}), {rev: 0, labor: 0, exp: 0});
   const net = tot.rev - tot.labor - tot.exp;
   c.innerHTML = `
@@ -2670,7 +2670,7 @@ R.reports = async function () {
   const c = $('#content');
   c.innerHTML = crmTabs('reports') + skel(4);
   const d = await api('crm_reports').catch(() => null);
-  if (!d) { c.innerHTML = crmTabs('reports') + `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  if (!d) { c.innerHTML = crmTabs('reports') + `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
   const suStat = window.CNP.suStat;
   const maxF = Math.max(1, ...d.funnel.map(f => f.count));
   const maxM = Math.max(1, ...d.byMonth.map(m => m.value));
@@ -2714,7 +2714,7 @@ R.reports = async function () {
 R.crmdata = async function () {
   setTop('CRM', 'Import / Export leads & διπλότυπα');
   const c = $('#content');
-  if (!S.boot.me.full) { c.innerHTML = crmTabs('crmdata') + `<div class="empty"><div class="big">${I.lock}</div>Μόνο για διαχειριστές</div>`; return; }
+  if (!S.boot.me.full) { c.innerHTML = crmTabs('crmdata') + `<div class="empty"><div class="big">${I.lock}</div>Δεν έχεις πρόσβαση σε αυτή την οθόνη<div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`; return; }
   let preview = [];
   c.innerHTML = crmTabs('crmdata') + `
   <div class="grid g2" style="gap:14px">
