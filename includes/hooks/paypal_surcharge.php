@@ -157,6 +157,15 @@ function cnp_surcharge_sync($invoiceId, $gateway)
     if (!in_array($invoice->status, ['Unpaid', 'Draft', 'Payment Pending'], true)) {
         return;
     }
+    /* Έχει ήδη μπει χρήμα από την πύλη: η χρέωση έχει κριθεί στην πράξη.
+       Ξαναϋπολογισμός εδώ θα άλλαζε ποσό που ο πελάτης έχει ήδη πληρώσει —
+       ή θα ξαναπρόσθετε χρέωση σε παραστατικό που μόλις εξοφλήθηκε. */
+    $paidByGateway = (float) Capsule::table('tblaccounts')->where('invoiceid', (int) $invoiceId)
+        ->whereNotNull('gateway')->where('gateway', '<>', '')
+        ->sum(Capsule::raw('amountin - amountout'));
+    if ($paidByGateway > 0) {
+        return;
+    }
 
     $had = cnp_surcharge_remove($invoiceId);
     $cfg = CNP_SURCHARGE[$gateway] ?? null;
