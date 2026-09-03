@@ -1201,7 +1201,7 @@ R.client360 = async function (cid) {
           </tr>`).join('')}</tbody></table>`
             : `<div class="empty" style="padding:16px">Κανένα έργο για αυτόν τον πελάτη.
                <div class="mut" style="font-size:11.5px;margin-top:5px">Φτιάξε ένα και μοίρασε τις εργασίες του στις ομάδες.</div></div>`}
-          ${d.full ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
+          ${(d.full || (S.boot.me.areas || []).includes('projects')) ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
         </div></div>
 
       ${d.openTasks.length ? `<div class="card"><div class="card-h">${I.list} Ανοιχτές εργασίες <span class="kb-n" style="margin-left:auto">${d.openTasks.length}</span></div>
@@ -1968,8 +1968,8 @@ R.projects = async function () {
     <td style="min-width:130px">${burnBar(p)}</td>
     <td style="min-width:110px"><div class="bar"><span class="ok" style="width:${p.pct}%"></span></div>
       <small class="mut">${p.done}/${p.total}</small></td>
-    ${d.canManage ? `<td><button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} </button>
-      <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button></td>` : ''}</tr>`;
+    ${d.canCreate ? `<td>${p.canEdit ? `<button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} </button>
+      <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button>` : ''}</td>` : ''}</tr>`;
   const row = (p, depth) => `<tr class="${p.archived ? 'mut' : ''}">
     <td style="padding-left:${14 + depth * 24}px">
       <span class="dot" style="background:${p.health ? hC[p.health] : p.color};width:11px;height:11px;margin-right:8px"></span>
@@ -1980,8 +1980,8 @@ R.projects = async function () {
     <td style="min-width:130px"><div class="bar"><span class="ok" style="width:${p.pct}%"></span></div>
       <small class="mut">${p.done}/${p.total} (${p.pct}%)</small></td>
     <td>${p.trend === null ? '—' : p.trend > 0 ? `<b style="color:var(--bad)">▲ +${p.trend}</b>` : p.trend < 0 ? `<b style="color:var(--ok)">▼ ${p.trend}</b>` : '='}</td>
-    ${d.canManage ? `<td><button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} </button>
-      <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button></td>` : ''}</tr>`;
+    ${d.canCreate ? `<td>${p.canEdit ? `<button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} </button>
+      <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button>` : ''}</td>` : ''}</tr>`;
   /* ── Κινητό: κάρτες αντί για πίνακες 8-9 στηλών (που γίνονταν οριζόντιο scroll) ── */
   const MOB = matchMedia('(max-width:768px)').matches;
   const st = R.projects._st = R.projects._st || {q: '', closed: {}};
@@ -2009,7 +2009,7 @@ R.projects = async function () {
     </div>
     <div class="pj-prog"><div class="bar"><span class="ok" style="width:${p.pct}%"></span></div>
       <small class="mut">${p.done}/${p.total} (${p.pct}%)</small></div>
-    ${d.canManage ? `<div class="pj-acts">
+    ${p.canEdit ? `<div class="pj-acts">
       <button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} Επεξεργασία</button>
       <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button></div>` : ''}
   </div>`;
@@ -2038,7 +2038,7 @@ R.projects = async function () {
       .map(([cid, g]) => {
         const tot = g.items.reduce((a, x) => a + x.total, 0);
         const dn = g.items.reduce((a, x) => a + x.done, 0);
-        return `<tr class="pj-cgrp"><td colspan="${d.canManage ? 9 : 8}">
+        return `<tr class="pj-cgrp"><td colspan="${d.canCreate ? 9 : 8}">
           ${cid ? `<a href="#/client360/${cid}">${I.user} ${esc(g.name)}</a>` : `<span>${esc(g.name)}</span>`}
           <span class="kb-n">${g.items.length} έργα</span>
           <span class="mut" style="font-weight:400;font-size:11.5px">· ${dn}/${tot} εργασίες</span></td></tr>`
@@ -2054,8 +2054,8 @@ R.projects = async function () {
     <div class="kb-srow">
       <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
         <input class="inp" id="prQ" placeholder="Ψάξε έργο — όνομα, πελάτη, κατάσταση…" value="${esc(st.q)}"></div>
-      ${d.canManage ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>
-        <button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
+      ${d.canManage ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
+      ${d.canCreate ? `<button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
     </div>
   </div>
   ${MOB
@@ -2065,11 +2065,11 @@ R.projects = async function () {
         'Κανένα λειτουργικό project.')
     : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">ένας πελάτης → τα έργα του → οι εργασίες τους στις ομάδες</span></div>
     <table class="tbl"><thead><tr>
-    <th>Έργο</th><th>Πελάτης</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Παραδοτέα</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
+    <th>Έργο</th><th>Πελάτης</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Παραδοτέα</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canCreate ? '<th></th>' : ''}</tr></thead>
     <tbody>${cliList.length ? byClient(cliList) : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>
   <div class="card"><div class="card-h">${I.building} Λειτουργικά projects <span class="mut" style="font-weight:400;font-size:11.5px">τμήματα & καθημερινή λειτουργία (tickets)</span></div>
     <table class="tbl"><thead><tr>
-    <th>Project</th><th>Πελάτης</th><th>Κατάσταση</th><th>Ανοιχτά</th><th>Πρόοδος</th><th>Τάση 7ημ</th>${d.canManage ? '<th></th>' : ''}</tr></thead>
+    <th>Project</th><th>Πελάτης</th><th>Κατάσταση</th><th>Ανοιχτά</th><th>Πρόοδος</th><th>Τάση 7ημ</th>${d.canCreate ? '<th></th>' : ''}</tr></thead>
     <tbody>${roots.filter(hit).map(p => row(p, 0) + kids(p.id).filter(hit).map(k => row(k, 1)).join('')).join('')}</tbody></table></div>`}
   <div id="prExtra"></div>`;
   let pqt;
@@ -2080,7 +2080,7 @@ R.projects = async function () {
     h.nextElementSibling.style.display = st.closed[k] ? 'none' : '';
     h.querySelector('.kb-gchev').classList.toggle('open', !st.closed[k]);
   });
-  if (!d.canManage) return;
+  if (!d.canCreate) return;
   const openProj = p => {
     closeDrawer();
     p = p || {visible: true, members: [], teams: []};
@@ -2117,7 +2117,7 @@ R.projects = async function () {
         <div><label class="lbl">Deadline</label><input type="date" class="inp" id="pjDue" value="${p.due || ''}"></div>
         <div><label class="lbl">Υπεύθυνος έργου <span class="mut" style="font-weight:400">— σε αυτόν κλιμακώνουν οι χαμένες προθεσμίες</span></label>
           <select class="inp" id="pjMgr"><option value="">— κανείς —</option>
-          ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === p.manager ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+          ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === (p.id ? p.manager : S.boot.me.id) ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
       </div>
       ${p.id && p.kind === 'client' ? (() => {
         const cost = +S.boot.costPerHour || 0;
@@ -2146,8 +2146,8 @@ R.projects = async function () {
           ${p.teams.includes(t.id) ? 'checked' : ''}> <span class="dot" style="background:${t.color}"></span>${esc(t.name)}</label>`).join('') || '<span class="mut">—</span>'}</div>
       <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
         <button class="btn btn-p" id="pjSave">Αποθήκευση</button>
-        ${p.id ? `<button class="btn btn-o" id="pjArch">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button>
-          <button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
+        ${p.id ? `<button class="btn btn-o" id="pjArch">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button>` : ''}
+        ${p.id && d.canManage ? `<button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
     </div></div>
     ${p.id && p.canPmNotes ? `<div class="card pm-notes"><div class="card-h">${I.lock} Σημειώσεις υπεύθυνου έργου
         <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">ιδιωτικές — δεν τις βλέπει κανένας εμπλεκόμενος</span></div>
@@ -2391,7 +2391,7 @@ R.projects = async function () {
   $$('[data-arch]').forEach(b => b.onclick = async () => {
     await api('archive_project', {id: +b.dataset.arch}); R.projects();
   });
-  $('#prRec').onclick = async () => {
+  if ($('#prRec')) $('#prRec').onclick = async () => {
     const rec = await api('recurring');
     const freqL = {daily: 'ημέρες', weekly: 'εβδομάδες', monthly: 'μήνες', yearly: 'έτη'};
     $('#prExtra').innerHTML = `<div class="card"><div class="card-h">${I.repeat} Επαναλαμβανόμενα tasks (συντηρήσεις)</div>

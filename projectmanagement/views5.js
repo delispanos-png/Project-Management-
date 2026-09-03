@@ -762,8 +762,8 @@ R.templates = async function () {
       ${tp.used ? `<span class="pill pill-info" title="Έργα που γεννήθηκαν από αυτό">${tp.used} υλοποιήσεις</span>` : ''}
       ${tp.budget ? `<span class="mut" style="font-size:11.5px">${fmtEur(tp.budget)}</span>` : ''}
       <span style="flex:1"></span>
-      ${d.canManage ? `<button class="btn btn-sm btn-p" data-clone="${tp.id}">${I.rocket} Έναρξη σε πελάτη</button>
-        <button class="btn btn-sm btn-o" data-tedit="${tp.id}">${I.edit}</button>` : ''}
+      ${d.canClone && tp.active ? `<button class="btn btn-sm btn-p" data-clone="${tp.id}">${I.rocket} Έναρξη σε πελάτη</button>` : ''}
+      ${d.canManage ? `<button class="btn btn-sm btn-o" data-tedit="${tp.id}">${I.edit}</button>` : ''}
       <button class="btn btn-sm btn-o" data-topen="${tp.id}">${st.open === tp.id ? '▴' : '▾'}</button>
     </div>
     ${st.open === tp.id ? `<div class="card-b">
@@ -787,6 +787,7 @@ R.templates = async function () {
   $$('[data-topen]').forEach(b => b.onclick = () => {
     st.open = st.open === +b.dataset.topen ? null : +b.dataset.topen; R.templates();
   });
+  $$('[data-clone]').forEach(b => b.onclick = () => openClone(d.templates.find(x => x.id === +b.dataset.clone), d));
   if (!d.canManage) return;
 
   $('#tplNew').onclick = () => openTpl(null, d);
@@ -800,7 +801,6 @@ R.templates = async function () {
     if (!(await cnpConfirm('Διαγραφή βήματος;', {danger: true, ok: I.trash + ' Διαγραφή'}))) return;
     await api('template_step_del', {id: +b.dataset.sdel}); toast('Διαγράφηκε'); R.templates();
   });
-  $$('[data-clone]').forEach(b => b.onclick = () => openClone(d.templates.find(x => x.id === +b.dataset.clone), d));
 };
 
 /* Πρότυπο: ταυτότητα */

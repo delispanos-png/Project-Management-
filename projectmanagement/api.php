@@ -1203,6 +1203,20 @@ function cnp_dept_split($taskQuery, array $doneIds)
     }
     return array_values($rows);
 }
+/* ───────── Δικαιώματα έργου ─────────
+   Δημιουργία: όποιος έχει το κύκλωμα «Έργα» — ο project manager δεν είναι
+   Full Administrator του WHMCS και δεν πρέπει να χρειάζεται να είναι.
+   Επεξεργασία/αρχειοθέτηση: διαχειριστής ή ο ΥΠΕΥΘΥΝΟΣ του έργου.
+   Διαγραφή: μόνο διαχειριστής — παίρνει μαζί εργασίες, χρόνο και ιστορικό. */
+function cnp_can_create_project($adminId, $isFull)
+{
+    return $isFull || in_array('projects', cnp_admin_areas($adminId, $isFull), true);
+}
+function cnp_can_edit_project($adminId, $isFull, $proj)
+{
+    if ($isFull) { return true; }
+    return $proj && isset($proj->manager_id) && (int) $proj->manager_id === (int) $adminId;
+}
 /** Ετικέτα έργου· εργασία χωρίς έργο ανήκει μόνο σε department. */
 function cnp_pn($v)
 {
@@ -1392,6 +1406,7 @@ case 'templates':
             'active' => (bool) $x->active, 'steps' => $steps, 'used' => $used];
     }
     out(['templates' => $tpl, 'depts' => cnp_depts(), 'canManage' => $FULL,
+        'canClone' => cnp_can_create_project($adminId, $FULL),
         'admins' => (function () {
             $o = [];
             foreach (Db::admins() as $a) {
@@ -1461,7 +1476,7 @@ case 'template_step_move':                // αναδιάταξη βημάτων
     out(['ok' => true]);
 
 case 'template_clone':                    // πρότυπο → έργο πελάτη
-    if (!$FULL) { fail('perm', 403); }
+    if (!cnp_can_create_project($adminId, $FULL)) { fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403); }
     $tpl9 = Capsule::table('mod_cpm_templates')->where('id', (int) ($in['template'] ?? 0))->first();
     $cid9 = (int) ($in['client'] ?? 0);
     if (!$tpl9) { fail('template', 404); }
@@ -3670,6 +3685,7 @@ case 'portfolio':
             'pmNotes' => ($FULL || (isset($p->manager_id) && (int) $p->manager_id === $adminId))
                 ? (string) ($p->pm_notes ?? '') : null,
             'canPmNotes' => (bool) ($FULL || (isset($p->manager_id) && (int) $p->manager_id === $adminId)),
+            'canEdit' => cnp_can_edit_project($adminId, $FULL, $p),
             'offerId' => $p->offer_id ? (int) $p->offer_id : null,
             'spentMins' => $spentBy[(int) $p->id] ?? 0,
             'todos' => $todoBy[(int) $p->id] ?? null,
@@ -3685,13 +3701,19 @@ case 'portfolio':
     foreach (Db::teams() as $tm) {
         $teamsL[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color];
     }
-    out(['projects' => $projs, 'depts' => $depts, 'teams' => $teamsL, 'canManage' => $FULL]);
+    out(['projects' => $projs, 'depts' => $depts, 'teams' => $teamsL,
+        'canManage' => $FULL,                                          // διαγραφή, επαναλαμβανόμενα
+        'canCreate' => cnp_can_create_project($adminId, $FULL)]);      // νέο έργο
 
 case 'save_project':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $pid = (int) ($in['id'] ?? 0);
+    if ($pid) {
+        if (!cnp_can_edit_project($adminId, $FULL, Db::project($pid))) {
+            fail('Μόνο ο υπεύθυνος του έργου ή διαχειριστής μπορεί να το αλλάξει', 403);
+        }
+    } elseif (!cnp_can_create_project($adminId, $FULL)) {
+        fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403);
+    }
     $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Χωρίς όνομα',
         'clientid' => (int) ($in['client'] ?? 0) ?: null,
         'deptid' => (int) ($in['dept'] ?? 0) ?: null,
@@ -3707,7 +3729,7 @@ case 'save_project':
         'est_hours' => ($in['estHours'] ?? '') !== '' && $in['estHours'] !== null
             ? round((float) str_replace(',', '.', (string) $in['estHours']), 1) : null,
         // Υπεύθυνος έργου: σε αυτόν κλιμακώνουν οι προθεσμίες που χάνονται.
-        'manager_id' => (int) ($in['manager'] ?? 0) ?: null,
+        'manager_id' => (int) ($in['manager'] ?? 0) ?: ($pid ? null : $adminId),
         'start_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['start'] ?? '') ? $in['start'] : null,
         'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null];
 
@@ -3721,8 +3743,8 @@ case 'save_project':
     out(['ok' => true, 'id' => $pid]);
 
 case 'project_from_offer':             // κερδισμένη προσφορά → έργο πελάτη
-    if (!$FULL) {
-        fail('forbidden', 403);
+    if (!cnp_can_create_project($adminId, $FULL)) {
+        fail('Δεν έχεις πρόσβαση στο κύκλωμα «Έργα»', 403);
     }
     $of9 = Capsule::table('mod_cpm_offers')->where('id', (int) ($in['offer'] ?? 0))->first();
     if (!$of9) {
@@ -3795,10 +3817,10 @@ case 'ptodo_del':
     out(['ok' => true]);
 
 case 'archive_project':
-    if (!$FULL) {
-        fail('forbidden', 403);
-    }
     $p = Db::project((int) ($in['id'] ?? 0));
+    if (!cnp_can_edit_project($adminId, $FULL, $p)) {
+        fail('Μόνο ο υπεύθυνος του έργου ή διαχειριστής', 403);
+    }
     if ($p) {
         Db::saveProject($p->id, ['status' => $p->status === 'archived' ? 'active' : 'archived']);
     }
