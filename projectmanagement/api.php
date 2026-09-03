@@ -1783,7 +1783,6 @@ case 'templates':
         })()]);
 
 case 'template_save':
-    if (!$FULL) { fail('perm', 403); }
     $row = ['name' => mb_substr(trim((string) ($in['name'] ?? '')), 0, 140) ?: 'Χωρίς όνομα',
         'descr' => mb_substr(trim((string) ($in['descr'] ?? '')), 0, 4000),
         'color' => preg_match('/^#[0-9a-f]{6}$/i', (string) ($in['color'] ?? '')) ? $in['color'] : '#0090dd',
@@ -1803,14 +1802,12 @@ case 'template_save':
     out(['ok' => true, 'id' => $tid]);
 
 case 'template_del':
-    if (!$FULL) { fail('perm', 403); }
     $tid = (int) ($in['id'] ?? 0);
     Capsule::table('mod_cpm_template_steps')->where('template_id', $tid)->delete();
     Capsule::table('mod_cpm_templates')->where('id', $tid)->delete();
     out(['ok' => true]);
 
 case 'template_step_save':
-    if (!$FULL) { fail('perm', 403); }
     $tid = (int) ($in['template'] ?? 0);
     if (!$tid || !Capsule::table('mod_cpm_templates')->where('id', $tid)->exists()) { fail('template'); }
     $row = ['template_id' => $tid,
@@ -1834,12 +1831,10 @@ case 'template_step_save':
     out(['ok' => true, 'id' => $sid]);
 
 case 'template_step_del':
-    if (!$FULL) { fail('perm', 403); }
     Capsule::table('mod_cpm_template_steps')->where('id', (int) ($in['id'] ?? 0))->delete();
     out(['ok' => true]);
 
 case 'template_step_move':                // αναδιάταξη βημάτων
-    if (!$FULL) { fail('perm', 403); }
     foreach ((array) ($in['order'] ?? []) as $i => $sid) {
         Capsule::table('mod_cpm_template_steps')->where('id', (int) $sid)->update(['sort' => (int) $i]);
     }
@@ -4966,7 +4961,6 @@ case 'project_pm_notes':                  // ιδιωτικές σημειώσε
     out(['ok' => true]);
 
 case 'project_delete':
-    if (!$FULL) { fail('forbidden', 403); }
     $p = Db::project((int) ($in['id'] ?? 0));
     if (!$p) { fail('project', 404); }
     $tIds = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->pluck('id')->all();
@@ -6669,7 +6663,6 @@ case 'settings_save':
     out(['ok' => true]);
 
 case 'storage_test':                      // health check σύνδεσης S3 (+ auto CORS)
-    if (!$FULL) { fail('forbidden', 403); }
     $stt = Storage::s3Test();
     if (!empty($stt['ok'])) {
         $cors = Storage::applyCors(['https://my.cloudon.gr']);
@@ -6844,7 +6837,6 @@ case 'autos':
         'leadStages' => $stagesL]);
 
 case 'auto_recipes':                     // 🍳 Έτοιμοι κανόνες — ένα κλικ αντί για συμπλήρωση πεδίων
-    if (!$FULL) { fail('forbidden', 403); }
     /* Η μηχανή automations υπάρχει από καιρό αλλά έχει 0 κανόνες: για να
        φτιάξεις έναν, πρέπει να ξέρεις ποιοι triggers υπάρχουν και τι δέχεται
        κάθε πεδίο. Οι συνταγές είναι οι περιπτώσεις που ζητήθηκαν στην πράξη,
@@ -6881,7 +6873,6 @@ case 'auto_recipes':                     // 🍳 Έτοιμοι κανόνες �
     out(['recipes' => $recipes]);
 
 case 'auto_recipe_add':
-    if (!$FULL) { fail('forbidden', 403); }
     $k9 = (string) ($in['key'] ?? '');
     $doneSt2 = (int) (Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id') ?: 0);
     $all9 = [
@@ -7719,7 +7710,6 @@ case 'tcat_save':
     out(['ok' => true, 'id' => $cid7]);
 
 case 'tcat_reorder':                     // νέα σειρά περιοχών/ριζών (drag ή ↑↓)
-    if (!$FULL) { fail('forbidden', 403); }
     $kindR = ($in['kind'] ?? '') === 'cause' ? 'cause' : 'area';
     $idsR = (array) ($in['ids'] ?? []);
     if (!$idsR) { fail('Δεν δόθηκε σειρά'); }
@@ -8090,7 +8080,6 @@ case 'agenda':                          // 🗒 Ανοιχτά projects & ticket
 
 /* ═══════ WHMCS: διαχείριση Τμημάτων & Ticket Statuses (full μόνο) ═══════ */
 case 'wh_ticket_manage':
-    if (!$FULL) { fail('forbidden', 403); }
     $depsW = [];
     foreach (Capsule::table('tblticketdepartments')->orderBy('order')->get() as $dp) {
         $depsW[] = ['id' => (int) $dp->id, 'name' => $dp->name, 'email' => $dp->email,
@@ -8107,7 +8096,6 @@ case 'wh_ticket_manage':
     out(['depts' => $depsW, 'statuses' => $statW]);
 
 case 'wh_dept_save':
-    if (!$FULL) { fail('forbidden', 403); }
     $nm = mb_substr(trim($in['name'] ?? ''), 0, 100);
     if ($nm === '') { fail('Δώσε όνομα τμήματος'); }
     $em = filter_var(trim($in['email'] ?? ''), FILTER_VALIDATE_EMAIL) ? trim($in['email']) : '';
@@ -8123,7 +8111,6 @@ case 'wh_dept_save':
     out(['ok' => true]);
 
 case 'wh_dept_del':
-    if (!$FULL) { fail('forbidden', 403); }
     $did = (int) ($in['id'] ?? 0);
     if (Capsule::table('tbltickets')->where('did', $did)->exists()) {
         fail('Το τμήμα έχει tickets — μετακίνησέ τα πρώτα ή κρύψ\' το', 409);
@@ -8132,7 +8119,6 @@ case 'wh_dept_del':
     out(['ok' => true]);
 
 case 'wh_tstatus_save':
-    if (!$FULL) { fail('forbidden', 403); }
     $ti = mb_substr(trim($in['title'] ?? ''), 0, 60);
     if ($ti === '') { fail('Δώσε τίτλο status'); }
     $col = preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#888888';
@@ -8152,7 +8138,6 @@ case 'wh_tstatus_save':
     out(['ok' => true]);
 
 case 'wh_tstatus_del':
-    if (!$FULL) { fail('forbidden', 403); }
     $sid = (int) ($in['id'] ?? 0);
     $st = Capsule::table('tblticketstatuses')->where('id', $sid)->first();
     if (!$st) { fail('status'); }
@@ -8581,7 +8566,6 @@ case 'cv_jobs':
         'applyUrl' => 'https://my.cloudon.gr/project/apply.php']);
 
 case 'suspend_queue':                    // 🛑 Υπηρεσίες υποψήφιες για αναστολή
-    if (!$FULL) { fail('forbidden', 403); }
     /* Ο αυτοματισμός του WHMCS εκτελείται μόνο όπου υπάρχει server module — 15%
        των υπηρεσιών — οπότε τιμωρεί άνισα όποιον τυχαίνει να είναι στη Hetzner.
        Μέχρι να ολοκληρωθεί η μετάβαση, η απόφαση παίρνεται εδώ, με τα σωστά
@@ -8811,7 +8795,6 @@ case 'suspend_do':                       // εκτέλεση αναστολής 
     out(['ok' => true, 'status' => 'Suspended']);
 
 case 'suspend_notice':                   // σύνθεση ειδοποίησης προς τον πελάτη
-    if (!$FULL) { fail('forbidden', 403); }
     $cid = (int) ($in['client'] ?? 0);
     $cl = $cid ? Capsule::table('tblclients')->where('id', $cid)->first() : null;
     if (!$cl) { fail('client', 404); }
@@ -8969,7 +8952,6 @@ case 'suspend_notice':                   // σύνθεση ειδοποίηση�
         'email' => (string) $cl->email, 'name' => $name]);
 
 case 'suspend_notice_send':              // αποστολή ως ticket (μένει ίχνος, απαντά ο πελάτης)
-    if (!$FULL) { fail('forbidden', 403); }
     $cid = (int) ($in['client'] ?? 0);
     $cl = $cid ? Capsule::table('tblclients')->where('id', $cid)->first() : null;
     if (!$cl) { fail('client', 404); }
@@ -8993,7 +8975,6 @@ case 'suspend_notice_send':              // αποστολή ως ticket (μέν
     out(['ok' => true, 'ticket' => (int) ($r['id'] ?? 0), 'tid' => (string) ($r['tid'] ?? '')]);
 
 case 'suspend_mark':                     // καταγραφή τι κάναμε χειροκίνητα
-    if (!$FULL) { fail('forbidden', 403); }
     $sid = (int) ($in['service'] ?? 0);
     if (!$sid) { fail('service'); }
     $act = in_array($in['action'] ?? '', ['suspended', 'skipped', 'paid'], true) ? $in['action'] : 'skipped';
@@ -9007,7 +8988,6 @@ case 'suspend_mark':                     // καταγραφή τι κάναμε
     out(['ok' => true]);
 
 case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για το λογιστήριο
-    if (!$FULL) { fail('forbidden', 403); }
     $sc = (string) ($_GET['section'] ?? '');
     $titles = ['mismatch' => 'asymfonia-vivlion', 'overpaid' => 'yperpliromena',
                'zombie' => 'zombi-syndromes', 'debt' => 'ofeiles',
@@ -9127,7 +9107,6 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
     exit;
 
 case 'fin_audit':                        // Οικονομικοί έλεγχοι — τέσσερα σημεία κινδύνου
-    if (!$FULL) { fail('forbidden', 403); }
     $sec = (string) ($in['section'] ?? $_GET['section'] ?? '');
 
     /* Όλα με συγκεντρωτικά ερωτήματα, όχι βρόχους ανά πελάτη — αλλιώς η σελίδα
@@ -9262,7 +9241,6 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
     out($data);
 
 case 'pay_statement_csv':                // Η καρτέλα σε CSV για το λογιστήριο
-    if (!$FULL) { fail('forbidden', 403); }
     $cid2 = (int) ($_GET['client'] ?? 0);
     $cl2 = $cid2 ? Capsule::table('tblclients')->where('id', $cid2)->first() : null;
     if (!$cl2) { fail('Ο πελάτης δεν βρέθηκε', 404); }
@@ -9440,7 +9418,6 @@ case 'pay_statement':                    // Καρτέλα πελάτη: χρέ�
     ]);
 
 case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σε CSV για το λογιστήριο
-    if (!$FULL) { fail('forbidden', 403); }
     $qx  = trim((string) ($_GET['q'] ?? ''));
     $all = !empty($_GET['all']);
     $from = trim((string) ($_GET['from'] ?? ''));
@@ -9530,7 +9507,6 @@ case 'pay_trace':                        // Συμφωνία πληρωμών: �
     /* ΓΙΑΤΙ ΥΠΑΡΧΕΙ: ένας λογαριασμός PayPal μπορεί να πληρώνει ΠΟΛΛΟΥΣ πελάτες
        WHMCS, και ένας πελάτης να πληρώνεται από πολλά πρόσωπα. Η αντιστοίχιση
        είναι πολλά-προς-πολλά και χειροκίνητα παίρνει ώρες. */
-    if (!$FULL) { fail('forbidden', 403); }
     $q = trim((string) ($in['q'] ?? $_GET['q'] ?? ''));
     if (mb_strlen($q) < 3) { fail('Δώσε email πληρωτή, transaction ID, ποσό ή όνομα (3+ χαρακτήρες)'); }
 
@@ -10210,7 +10186,6 @@ case 'campaign_remove_lead':
     out(['ok' => true]);
 
 case 'crm_reports':                      // αναλυτικά reports πωλήσεων (διοίκηση)
-    if (!$FULL) { fail('forbidden', 403); }
     $sMeta = Db::leadStages();
     $all = Capsule::table('mod_cpm_leads')->get(['stage', 'value', 'source', 'assignee', 'created_at', 'closed_at']);
     // funnel ανά στάδιο
@@ -10289,7 +10264,6 @@ case 'hot_leads':                        // κατάταξη ανοιχτών le
         'cold' => count(array_filter($rows, fn($r) => $r['temp'] === 'cold'))]);
 
 case 'leads_export':                     // εξαγωγή όλων των leads σε CSV
-    if (!$FULL) { fail('forbidden', 403); }
     $cols = ['id', 'company', 'contact', 'email', 'phone', 'source', 'stage', 'value', 'next_action', 'descr'];
     $cell = fn($v) => '"' . str_replace('"', '""', (string) $v) . '"';
     $lines = [implode(',', array_map($cell, $cols))];
@@ -10301,7 +10275,6 @@ case 'leads_export':                     // εξαγωγή όλων των leads
     out(['csv' => implode("\r\n", $lines), 'count' => count($lines) - 1, 'filename' => 'leads-' . date('Ymd') . '.csv']);
 
 case 'leads_import_preview':             // ανάλυση CSV + εντοπισμός διπλότυπων (χωρίς αποθήκευση)
-    if (!$FULL) { fail('forbidden', 403); }
     $txt = trim((string) ($in['csv'] ?? ''));
     if ($txt === '') { fail('empty'); }
     // δείκτες υπαρχόντων leads
@@ -10349,7 +10322,6 @@ case 'leads_import_preview':             // ανάλυση CSV + εντοπισ�
     out(['rows' => $preview, 'newN' => $newN, 'dupN' => $dupN, 'total' => count($preview)]);
 
 case 'leads_import_commit':              // εκτέλεση εισαγωγής με αποφάσεις ανά γραμμή
-    if (!$FULL) { fail('forbidden', 403); }
     $rows = $in['rows'] ?? [];
     $stageKeys = array_keys(Db::leadStages());
     $ins = 0; $upd = 0; $skip = 0;
@@ -10374,7 +10346,6 @@ case 'leads_import_commit':              // εκτέλεση εισαγωγής 
     out(['ok' => true, 'inserted' => $ins, 'updated' => $upd, 'skipped' => $skip]);
 
 case 'leads_dupes':                      // εντοπισμός διπλότυπων μεταξύ υπαρχόντων leads
-    if (!$FULL) { fail('forbidden', 403); }
     $ph = fn($p) => preg_replace('/\D+/', '', (string) $p);
     $sMeta = Db::leadStages();
     $groups = [];  // sig => [lead ids]
@@ -10404,7 +10375,6 @@ case 'leads_dupes':                      // εντοπισμός διπλότυ�
     out(['clusters' => $clusters, 'count' => count($clusters)]);
 
 case 'lead_merge':                       // συγχώνευση: μετακίνηση σχέσεων drop→keep, διαγραφή drop
-    if (!$FULL) { fail('forbidden', 403); }
     $keep = (int) ($in['keep'] ?? 0); $drop = (int) ($in['drop'] ?? 0);
     if (!$keep || !$drop || $keep === $drop) { fail('input'); }
     Capsule::table('mod_cpm_interactions')->where('lead_id', $drop)->update(['lead_id' => $keep]);
@@ -10443,10 +10413,6 @@ case 'my_crm_tasks':                     // ανοιχτές CRM εργασίε�
     $today = date('Y-m-d');
     $q = Capsule::table('mod_cpm_lead_tasks as t')->join('mod_cpm_leads as l', 'l.id', '=', 't.lead_id')
         ->where('t.done', 0);
-    if (!$FULL) { $q->where('t.assignee', $adminId); }
-    $rows = $q->orderByRaw('t.due_date IS NULL, t.due_date ASC')->limit(50)
-        ->get(['t.id', 't.title', 't.kind', 't.due_date', 't.assignee', 't.lead_id',
-               'l.company', 'l.contact']);
     $out = [];
     foreach ($rows as $t) {
         $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'kind' => $t->kind, 'due' => $t->due_date,
