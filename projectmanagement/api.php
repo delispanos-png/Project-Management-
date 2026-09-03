@@ -759,7 +759,7 @@ function cnp_area_alias(array $keys)
 function cnp_team_areas($teamId)
 {
     $raw = (string) Capsule::table('mod_cpm_teams')->where('id', (int) $teamId)->value('areas');
-    return array_values(array_intersect(cnp_area_keys(),
+    return array_values(array_intersect(cnp_perm_keys(),
         cnp_area_alias(array_filter(array_map('trim', explode(',', $raw))))));
 }
 /**
@@ -792,7 +792,7 @@ function cnp_admin_areas($adminId, $isFull)
     $hasTeam = (bool) $out || Capsule::table('mod_cpm_team_members')
         ->where('admin_id', (int) $adminId)->exists();
     $pref = array_filter(array_map('trim', explode(',', Db::pref($adminId, 'areas', ''))));
-    $out = array_values(array_intersect(cnp_area_keys(), cnp_area_alias(array_merge($out, $pref))));
+    $out = array_values(array_intersect(cnp_perm_keys(), cnp_area_alias(array_merge($out, $pref))));
 
     if (!$out && !$hasTeam && !$pref) {
         $strict = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
@@ -974,7 +974,7 @@ function cnp_hr_admin_ids()
 {
     $ids = [];
     foreach (Db::admins() as $a) {
-        if (Db::isFullAccess($a->id) || in_array('hr', cnp_admin_areas($a->id, false))) { $ids[] = (int) $a->id; }
+        if (Db::isFullAccess($a->id) || cnp_has_cap($a->id, false, 'hr.cv')) { $ids[] = (int) $a->id; }
     }
     return array_values(array_unique($ids));
 }
@@ -1274,7 +1274,7 @@ function cnp_dept_split($taskQuery, array $doneIds)
    Διαγραφή: μόνο διαχειριστής — παίρνει μαζί εργασίες, χρόνο και ιστορικό. */
 function cnp_can_create_project($adminId, $isFull)
 {
-    return $isFull || in_array('projects', cnp_admin_areas($adminId, $isFull), true);
+    return cnp_has_cap($adminId, $isFull, 'projects.edit');
 }
 function cnp_can_edit_project($adminId, $isFull, $proj)
 {
@@ -1300,8 +1300,9 @@ function clientLabel($cid)
 /** Ειδικότητα που απαιτείται ανά module ('' = οποιοσδήποτε authenticated, null = άγνωστο→deny). */
 function cnp_file_area($module)
 {
-    $map = ['cv' => 'hr', 'task' => 'projects', 'project' => 'projects', 'ticket' => 'support',
-        'lead' => 'sales', 'sales' => 'sales', 'chat' => '', 'general' => '', 'library' => ''];
+    $map = ['cv' => 'hr.cv', 'task' => 'projects.board', 'project' => 'projects.portfolio',
+        'ticket' => 'support.tickets', 'lead' => 'clients.crm', 'sales' => 'clients.crm',
+        'chat' => '', 'general' => '', 'library' => ''];
     return array_key_exists($module, $map) ? $map[$module] : null;
 }
 /**
@@ -1320,7 +1321,7 @@ function cnp_file_authz($adminId, $FULL, $module)
     $area = cnp_file_area($module);
     if ($area === null) { return false; }
     if ($area === '') { return $adminId > 0; }
-    return in_array($area, cnp_admin_areas($adminId, $FULL), true);
+    return cnp_has_cap($adminId, $FULL, $area);
 }
 /** Blacklist επικίνδυνων επεκτάσεων (executables/scripts). */
 function cnp_file_ext_ok($name)
@@ -1347,94 +1348,274 @@ function cnp_file_row($rec)
    αναφέρεται δεν μπλοκάρεται. Έτσι δεν κλειδώνει κατά λάθος λειτουργία που
    δεν έχει καταγραφεί ακόμη. Οι υπάρχοντες έλεγχοι $FULL μένουν ανέπαφοι —
    αυτό είναι επιπλέον φράχτης, όχι αντικατάσταση. */
-function cnp_action_area($action)
+/* ───────── Δυνατότητες μέσα στην ενότητα ─────────
+   Το δικαίωμα δεν είναι πια «όλη η ενότητα ή τίποτα». Κάθε ενότητα σπάει σε
+   **δυνατότητες**: μία ανά οθόνη, συν όσες ενέργειες έχουν σοβαρή συνέπεια
+   (διαγραφή έργου, εκτέλεση αναστολής, πίστωση ωρών, αλλαγή δικαιωμάτων).
+
+   Κλειδί: «ενότητα.δυνατότητα». Μια ομάδα μπορεί να κρατά:
+     - `projects`        → ΟΛΗ η ενότητα (και ό,τι προστεθεί σε αυτήν αύριο)
+     - `projects.board`  → μόνο αυτή η δυνατότητα
+   Η πρώτη μορφή είναι και η συμβατότητα με ό,τι υπάρχει ήδη αποθηκευμένο.
+
+   `kind`: 'screen' = οθόνη του μενού · 'power' = ενέργεια με συνέπεια.
+   `needs`: η δυνατότητα δεν στέκει μόνη της (π.χ. η διαγραφή έργου προϋποθέτει
+   να βλέπεις τα έργα) — η καρτέλα της ομάδας το τσεκάρει μαζί. */
+function cnp_caps()
+{
+    static $c = null;
+    if ($c !== null) {
+        return $c;
+    }
+    $c = [
+        // ── Πελάτες ──
+        'clients.card'    => ['screen', 'Πελάτης 360°', 'Καρτέλα πελάτη: υπηρεσίες, τιμολόγια, αιτήματα'],
+        'clients.crm'     => ['screen', 'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
+        'clients.offers'  => ['screen', 'Προσφορές', 'Δημιουργία και παρακολούθηση προσφορών'],
+        'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
+        'clients.import'  => ['power',  'Εισαγωγή / εξαγωγή leads', 'Μαζική εισαγωγή από CSV και εξαγωγή', 'clients.crm'],
+
+        // ── Υποστήριξη ──
+        'support.tickets' => ['screen', 'Tickets', 'Προβολή, απάντηση, ανάθεση, κατηγοριοποίηση'],
+        'support.kb'      => ['screen', 'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων'],
+        'support.kb_edit' => ['power',  'Επεξεργασία βάσης γνώσης', 'Σύνταξη, διαγραφή, μαζική εισαγωγή άρθρων', 'support.kb'],
+
+        // ── Έργα & υλοποιήσεις ──
+        'projects.portfolio' => ['screen', 'Έργα πελατών', 'Λίστα έργων, καρτέλα έργου, σημειώσεις PM'],
+        'projects.board'     => ['screen', 'Board, λίστα, χρονοδιάγραμμα', 'Οι εργασίες: προβολή και διαχείριση'],
+        'projects.edit'      => ['power',  'Δημιουργία & επεξεργασία έργου', 'Νέο έργο, αλλαγή στοιχείων, αρχειοθέτηση', 'projects.portfolio'],
+        'projects.delete'    => ['power',  'Διαγραφή έργου', 'Οριστική διαγραφή έργου και των εργασιών του', 'projects.portfolio'],
+        'projects.modules'   => ['screen', 'Modules', 'Τα προϊόντα μας με τα checklist παράδοσης'],
+        'projects.depts'     => ['screen', 'Departments', 'Φόρτος και εργασίες ανά τμήμα'],
+        'projects.share'     => ['power',  'Κοινοποίηση σε πελάτη', 'Δημόσιος σύνδεσμος προόδου έργου', 'projects.portfolio'],
+        'projects.recurring' => ['power',  'Επαναλαμβανόμενες εργασίες', 'Ορισμός εργασιών που ξαναγεννιούνται', 'projects.board'],
+
+        // ── Προαγορά χρόνου ──
+        'prepaid.view'     => ['screen', 'Υπόλοιπα & ακάλυπτα', 'Πόσο έχει ο κάθε πελάτης, τι δεν καλύφθηκε'],
+        'prepaid.contract' => ['power',  'Συμβόλαια προαγοράς', 'Άνοιγμα και επεξεργασία συμβολαίου πελάτη', 'prepaid.view'],
+        'prepaid.move'     => ['power',  'Πίστωση / διόρθωση ωρών', 'Χειροκίνητη κίνηση στο υπόλοιπο', 'prepaid.view'],
+        'prepaid.offer'    => ['power',  'Προσφορά από ακάλυπτα', 'Μετατροπή ακάλυπτου χρόνου σε προσφορά', 'prepaid.view'],
+        'prepaid.report'   => ['power',  'Αποστολή αναφοράς', 'Προεπισκόπηση και αποστολή στον πελάτη', 'prepaid.view'],
+
+        // ── Αναφορές & απόδοση ──
+        'reports.activity'  => ['screen', 'Δραστηριότητα', 'Τι κάνει η ομάδα αυτή τη στιγμή'],
+        'reports.triage'    => ['screen', 'Πλάνο ημέρας', 'Τι πρέπει να πιαστεί σήμερα, με σειρά'],
+        'reports.kpi'       => ['screen', 'KPI Dashboard', 'Οι αριθμοί της εξυπηρέτησης'],
+        'reports.rootcause' => ['screen', 'Ανάλυση ριζών', 'Γιατί ξαναέρχονται τα ίδια αιτήματα'],
+        'reports.perf'      => ['screen', 'Απόδοση χειριστών', 'Ποιος παραδίδει, πόσο και πόσο γρήγορα'],
+
+        // ── Οικονομικά ──
+        'finance.profit'     => ['screen', 'Κερδοφορία', 'Έσοδα, κόστος εργασίας, έξοδα ανά πελάτη'],
+        'finance.paytrace'   => ['screen', 'Συμφωνία πληρωμών', 'Ιχνηλάτηση πληρωμών και λογιστικός έλεγχος'],
+        'finance.suspend'    => ['screen', 'Αναστολές', 'Ποιες υπηρεσίες πρέπει να πέσουν'],
+        'finance.suspend_do' => ['power',  'Εκτέλεση αναστολής', 'Πραγματική αναστολή υπηρεσίας και ειδοποίηση', 'finance.suspend'],
+        'finance.billing_ok' => ['power',  'Έγκριση χρέωσης χρόνου', 'Ξεκλείδωμα χρεώσιμης εργασίας για κλείσιμο — το δίνει το λογιστήριο'],
+        'finance.packages'   => ['power',  'Πακέτα υποστήριξης πελάτη', 'Ανάθεση πελάτη σε πακέτο SLA'],
+
+        // ── Προσλήψεις ──
+        'hr.cv'   => ['screen', 'Βιογραφικά', 'Υποψήφιοι, αξιολόγηση, συνεντεύξεις'],
+        'hr.jobs' => ['power',  'Θέσεις & αγγελίες', 'Δημιουργία και δημοσίευση θέσεων', 'hr.cv'],
+
+        // ── Σύστημα ──
+        'admin.teams'    => ['screen', 'Ομάδες & δικαιώματα', 'Δημιουργία ομάδων, μέλη, δικαιώματα'],
+        'admin.users'    => ['power',  'Λίστα χειριστών', 'Ποιος υπάρχει και τι βλέπει (χωρίς αλλαγές λογαριασμού)'],
+        'admin.settings' => ['screen', 'Ρυθμίσεις εφαρμογής', 'Status, τύποι, κατηγορίες, απαντήσεις, πεδία, όρια'],
+        'admin.autos'    => ['power',  'Automations', 'Κανόνες που εκτελούνται μόνοι τους'],
+        'admin.wh'       => ['power',  'Departments & status WHMCS', 'Πειράζει ρυθμίσεις του ίδιου του WHMCS'],
+    ];
+    return $c;
+}
+
+/** Οι δυνατότητες μιας ενότητας, με τη σειρά του μητρώου. */
+function cnp_caps_of($area)
+{
+    $out = [];
+    foreach (cnp_caps() as $k => $v) {
+        if (strpos($k, $area . '.') === 0) { $out[$k] = $v; }
+    }
+    return $out;
+}
+
+/**
+ * Έχει ο χειριστής τη συγκεκριμένη δυνατότητα;
+ * Δεκτό είτε το κλειδί της δυνατότητας, είτε ολόκληρη η ενότητα.
+ */
+function cnp_has_cap($adminId, $isFull, $cap)
+{
+    if ($isFull) {
+        return true;
+    }
+    $mine = cnp_admin_areas($adminId, $isFull);
+    if (in_array($cap, $mine, true)) {
+        return true;
+    }
+    $area = strpos($cap, '.') !== false ? substr($cap, 0, strpos($cap, '.')) : $cap;
+    return in_array($area, $mine, true);
+}
+
+/** Όλες οι δυνατότητες που ισχύουν πραγματικά για έναν χειριστή. */
+function cnp_admin_caps($adminId, $isFull)
+{
+    if ($isFull) {
+        return array_keys(cnp_caps());
+    }
+    $mine = cnp_admin_areas($adminId, $isFull);
+    $out = [];
+    foreach (cnp_caps() as $k => $v) {
+        $area = substr($k, 0, strpos($k, '.'));
+        if (in_array($k, $mine, true) || in_array($area, $mine, true)) { $out[] = $k; }
+    }
+    return $out;
+}
+
+/**
+ * Ενέργεια API → δυνατότητα. Με «α|β» όταν μια ενέργεια πατάει δικαιολογημένα
+ * σε δύο δυνατότητες (φτάνει η μία). Ό,τι δεν είναι εδώ μένει ελεύθερο —
+ * κανόνας: δεν μπαίνει ποτέ ενέργεια που καλείται από προσωπική οθόνη.
+ */
+/** Τα έγκυρα κλειδιά δικαιωμάτων: ενότητες (όλα) + δυνατότητες (κομμάτια). */
+function cnp_perm_keys()
+{
+    return array_merge(cnp_area_keys(), array_keys(cnp_caps()));
+}
+
+/**
+ * Καθαρίζει ό,τι ήρθε από τη φόρμα. Αν έχουν τσεκαριστεί ΟΛΕΣ οι δυνατότητες
+ * μιας ενότητας, αποθηκεύεται το κλειδί της ενότητας: έτσι η ομάδα κληρονομεί
+ * αυτόματα ό,τι προστεθεί αύριο σε εκείνη την ενότητα, αντί να μείνει πίσω.
+ */
+function cnp_perm_clean(array $in)
+{
+    $ok = array_values(array_intersect(cnp_perm_keys(), cnp_area_alias($in)));
+    $out = [];
+    foreach (cnp_area_keys() as $ar) {
+        $caps = array_keys(cnp_caps_of($ar));
+        $mine = array_values(array_intersect($ok, $caps));
+        if (in_array($ar, $ok, true) || (count($caps) && count($mine) === count($caps))) {
+            $out[] = $ar;                       // ολόκληρη η ενότητα
+        } else {
+            $out = array_merge($out, $mine);    // επιλεγμένα κομμάτια
+        }
+    }
+    return array_values(array_unique($out));
+}
+function cnp_action_cap($action)
 {
     static $map = null;
     if ($map === null) {
         $map = [];
-        $add = function ($area, array $acts) use (&$map) {
-            foreach ($acts as $a) { $map[$a] = $area; }
+        $add = function ($cap, array $acts) use (&$map) {
+            foreach ($acts as $a) { $map[$a] = $cap; }
         };
-        $add('support', ['tickets', 'ticket', 'ticket_reply', 'ticket_note',
-            'ticket_refer', 'ticket_att', 'ticket_classify', 'classify_suggest',
-            'kb_list', 'kb_get', 'kb_save', 'kb_del', 'kb_draft', 'kb_use', 'kb_match', 'kb_bulk',
-            'kb_import_probe', 'kb_import_commit']);
-        /* Ενέργειες που ανήκουν σε δύο ενότητες, γιατί η μία τις ορίζει και η
-           άλλη τις χρησιμοποιεί — ή γιατί το ταμπλό είναι εξ ορισμού
-           διατμηματικό. Φτάνει ένα από τα δύο δικαιώματα. */
-        $add('projects|finance', ['add_expense', 'del_expense']);   // έξοδα έργου, από την Κερδοφορία
-        $add('projects|reports', ['recurrent']);                    // επαναλαμβανόμενες, στο Πλάνο ημέρας
-        $add('clients|projects', ['project_from_offer']);           // κερδισμένη προσφορά → έργο
-        $add('support|reports', ['ticket_update']);                 // retriage από το Πλάνο ημέρας
-        $add('clients|reports', ['client_health']);                 // υγεία πελάτη, και στο Πλάνο ημέρας
-        $add('clients|finance', ['client_package_set']);            // πακέτο υποστήριξης, από την καρτέλα
-        $add('clients|admin', ['lead_fields']);                     // τα διαβάζει το CRM, τα ορίζουν οι Ρυθμίσεις
-        /* Ορίζονται αποκλειστικά στις Ρυθμίσεις, άρα ανήκουν στο «Σύστημα». */
-        $add('admin', ['status_save', 'status_del', 'type_save', 'type_del',
-            'lead_field_save', 'lead_field_del', 'canned_save', 'canned_del',
-            'tcats', 'tcat_save', 'tcat_del', 'tcat_reorder']);
-        /* Η ενότητα «Τα δικά μου» δεν ζητάει δικαίωμα, άρα δεν επιτρέπεται να το
-           ζητάει και το περιεχόμενό της. Οι εργασίες που ανοίγεις από «Η μέρα
-           μου» και ο δικός σου χρόνος μένουν εκτός φραγμού περιοχής: τα φυλάει
-           ήδη το `Db::canSeeTask()` (ανάθεση / μπάλα / ομάδα του department),
-           που είναι στενότερο από το δικαίωμα «Έργα». Αλλιώς ένας τεχνικός
-           χωρίς «Έργα» έβλεπε τις εργασίες του και δεν μπορούσε να τις ανοίξει.
-           Το `save_task` δεν φτιάχνει εργασία — απαιτεί υπαρκτή — γι' αυτό
-           μπορεί να μείνει ελεύθερο· το `quick_task` φτιάχνει, οπότε μένει. */
-        $add('projects', ['board', 'quick_task',
-            'portfolio', 'save_project', 'archive_project', 'project_delete', 'project_pm_notes',
-            'gantt', 'gantt_move', 'list',
-            'depts_load', 'dept_view', 'task_billing_ok', 'templates', 'template_save',
-            'template_del', 'template_step_save', 'template_step_del', 'template_step_move',
-            'template_clone', 'project_add_modules', 'project_modules', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle',
-            'dep_add', 'dep_del', 'check_add',
-            'recurring', 'save_recurring', 'del_recurring',
-            'share_save', 'share_info', 'share_revoke', 'share_reply']);
-        // `worknote_save` = προσωπική σημείωση στο «Το πλάνο μου» — ελεύθερη.
-        // `crm` το διαβάζουν και οι Επαφές (ελεύθερη οθόνη) — μένει ανοιχτό.
-        $add('clients', ['client360', 'client_quick_add', 'crm_overview', 'crm_reports', 'leads_dupes', 'leads_export',
-            'leads_import_preview', 'leads_import_commit', 'save_lead', 'lead_merge', 'lead_score',
-            'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle', 'lead_task_del',
-            'lead_products', 'lead_product_save',
-            'lead_product_del', 'lead_value_save', 'move_lead', 'hot_leads', 'my_crm_tasks',
-            'offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline', 'create_quote',
-            'comms', 'interaction', 'followup_done', 'campaigns', 'campaign_save', 'campaign_del',
-            'campaign_detail', 'campaign_add_lead', 'campaign_remove_lead',
-            'targets', 'save_ptarget', 'del_ptarget']);
-        $add('hr', ['cv_list', 'cv_get', 'cv_add', 'cv_update', 'cv_ai', 'cv_email', 'cv_file',
-            'cv_photo', 'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval',
-            'cv_jobs', 'cv_job_save', 'cv_job_del', 'cv_job_draft', 'cv_job_views',
+
+        /* ── Πελάτες ── */
+        $add('clients.card', ['client360']);
+        $add('clients.card|reports.triage', ['client_health']);
+        $add('clients.card|finance.packages', ['client_package_set']);
+        $add('clients.new', ['client_quick_add']);
+        $add('clients.crm', ['crm_overview', 'crm_reports', 'leads_dupes', 'save_lead', 'lead_merge',
+            'lead_score', 'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle',
+            'lead_task_del', 'lead_products', 'lead_product_save', 'lead_product_del',
+            'lead_value_save', 'move_lead', 'hot_leads', 'my_crm_tasks', 'comms', 'interaction',
+            'followup_done', 'campaigns', 'campaign_save', 'campaign_del', 'campaign_detail',
+            'campaign_add_lead', 'campaign_remove_lead', 'targets', 'save_ptarget', 'del_ptarget']);
+        $add('clients.crm|admin.settings', ['lead_fields']);
+        $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
+        $add('clients.offers', ['offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline',
+            'create_quote']);
+        $add('clients.offers|projects.edit', ['project_from_offer']);
+
+        /* ── Υποστήριξη ── */
+        $add('support.tickets', ['tickets', 'ticket', 'ticket_reply', 'ticket_note', 'ticket_refer',
+            'ticket_att', 'ticket_classify', 'classify_suggest']);
+        $add('support.tickets|reports.triage', ['ticket_update']);
+        $add('support.kb', ['kb_list', 'kb_get', 'kb_match', 'kb_draft', 'kb_bulk']);
+        $add('support.kb|support.tickets', ['kb_use']);   // χρήση άρθρου μέσα σε απάντηση
+        $add('support.kb_edit', ['kb_save', 'kb_del', 'kb_import_probe', 'kb_import_commit']);
+
+        /* ── Έργα & υλοποιήσεις ── */
+        $add('projects.portfolio', ['portfolio', 'project_modules', 'project_pm_notes']);
+        $add('projects.board', ['board', 'list', 'gantt', 'gantt_move', 'quick_task',
+            'dep_add', 'dep_del', 'check_add', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
+        $add('projects.edit', ['save_project', 'archive_project']);
+        $add('projects.delete', ['project_delete']);
+        $add('projects.modules', ['templates', 'template_save', 'template_del', 'template_step_save',
+            'template_step_del', 'template_step_move', 'template_clone', 'project_add_modules']);
+        $add('projects.depts', ['depts_load', 'dept_view']);
+        $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
+        $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);
+        $add('projects.recurring|reports.triage', ['recurrent']);
+        $add('projects.portfolio|finance.profit', ['add_expense', 'del_expense']);
+
+        /* ── Προαγορά χρόνου ── */
+        $add('prepaid.view', ['prepaid', 'prepaid_client']);
+        $add('prepaid.contract', ['prepaid_save']);
+        $add('prepaid.move', ['prepaid_move']);
+        $add('prepaid.offer', ['prepaid_offer', 'prepaid_offer_cover']);
+        $add('prepaid.report', ['prepaid_report', 'prepaid_report_send']);
+
+        /* ── Αναφορές & απόδοση ── */
+        $add('reports.activity', ['activity']);
+        $add('reports.triage', ['triage']);
+        $add('reports.kpi', ['kpi']);
+        $add('reports.rootcause', ['rootcause']);
+        $add('reports.perf', ['perf']);
+
+        /* ── Οικονομικά ── */
+        $add('finance.profit', ['profit']);
+        $add('finance.paytrace', ['pay_trace', 'pay_trace_export', 'pay_statement',
+            'pay_statement_csv', 'fin_audit', 'fin_audit_csv']);
+        $add('finance.suspend', ['suspend_queue', 'suspend_notice']);
+        $add('finance.suspend_do', ['suspend_mark', 'suspend_do', 'suspend_notice_send']);
+        $add('finance.billing_ok', ['task_billing_ok']);
+
+        /* ── Προσλήψεις ── */
+        $add('hr.cv', ['cv_list', 'cv_get', 'cv_add', 'cv_update', 'cv_ai', 'cv_email', 'cv_file',
+            'cv_photo', 'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval']);
+        $add('hr.cv|hr.jobs', ['cv_jobs']);
+        $add('hr.jobs', ['cv_job_save', 'cv_job_del', 'cv_job_draft', 'cv_job_views',
             'cv_job_image_upload', 'cv_job_image_delete']);
-        /* `topstats` (σφυγμός πάνω μπάρας) και `agenda` (Standup) καλούνται από
-           οθόνες χωρίς φραγμό — δεν ζητούν περιοχή, αλλιώς κάθε χειριστής χωρίς
-           «Αναφορές» έτρωγε 403 σε κάθε φόρτωση. */
-        $add('prepaid', ['prepaid', 'prepaid_client', 'prepaid_save', 'prepaid_move',
-            'prepaid_offer', 'prepaid_offer_cover', 'prepaid_report', 'prepaid_report_send']);
-        $add('reports', ['kpi', 'perf', 'triage', 'rootcause', 'activity']);
-        $add('finance', ['profit', 'pay_trace', 'pay_trace_export', 'pay_statement',
-            'pay_statement_csv', 'fin_audit', 'fin_audit_csv', 'suspend_queue', 'suspend_mark',
-            'suspend_do', 'suspend_notice', 'suspend_notice_send']);
-        $add('admin', ['teams', 'save_team', 'del_team', 'team_member_add', 'team_member_del',
-            'settings_get', 'settings_save', 'users', 'user_save', 'user_del', 'user_pass',
-            'user_toggle', 'user_areas_save', 'addon_access_grant', 'wh_ticket_manage', 'wh_dept_save', 'wh_dept_del',
-            'wh_tstatus_save', 'wh_tstatus_del', 'autos', 'auto_save', 'auto_del',
-            'auto_recipes', 'auto_recipe_add', 'tquotas', 'tquota_save', 'tquota_del',
-            'storage_test']);
+
+        /* ── Σύστημα ── */
+        $add('admin.teams', ['teams', 'save_team', 'del_team', 'team_member_add', 'team_member_del',
+            'user_areas_save', 'preset_save', 'preset_del']);
+        $add('admin.users', ['users', 'addon_access_grant',
+            'user_save', 'user_del', 'user_pass', 'user_toggle']);
+        $add('admin.settings', ['settings_get', 'settings_save', 'status_save', 'status_del',
+            'type_save', 'type_del', 'tcats', 'tcat_save', 'tcat_del', 'tcat_reorder',
+            'canned_save', 'canned_del', 'lead_field_save', 'lead_field_del',
+            'tquotas', 'tquota_save', 'tquota_del', 'storage_test']);
+        $add('admin.autos', ['autos', 'auto_save', 'auto_del', 'auto_recipes', 'auto_recipe_add']);
+        $add('admin.wh', ['wh_ticket_manage', 'wh_dept_save', 'wh_dept_del', 'wh_tstatus_save',
+            'wh_tstatus_del']);
     }
     return $map[$action] ?? null;
 }
 /* Ο πίνακας γράφει «α|β» όταν μια ενέργεια πατάει δικαιολογημένα σε δύο ενότητες
    — π.χ. η «υγεία πελάτη» φαίνεται και στους Πελάτες και στο Πλάνο ημέρας.
    Φτάνει το ένα από τα δύο δικαιώματα. */
-$needArea = cnp_action_area($action);
-if ($needArea !== null) {
-    $want = explode('|', $needArea);
-    if (!array_intersect($want, cnp_admin_areas($adminId, $FULL))) {
+/* Η πύλη κρίνει σε επίπεδο **δυνατότητας**. Το «α|β» σημαίνει ότι φτάνει η μία —
+   κάποιες ενέργειες πατούν δικαιολογημένα σε δύο (η «υγεία πελάτη» φαίνεται και
+   στην καρτέλα και στο Πλάνο ημέρας). Όποιος κρατά ολόκληρη την ενότητα τις
+   έχει όλες, οπότε τα παλιά αποθηκευμένα δικαιώματα δουλεύουν αυτούσια. */
+$needCap = cnp_action_cap($action);
+if ($needCap !== null) {
+    $want = explode('|', $needCap);
+    $okCap = false;
+    foreach ($want as $w) {
+        if (cnp_has_cap($adminId, $FULL, $w)) { $okCap = true; break; }
+    }
+    if (!$okCap) {
+        $caps = cnp_caps();
         $defs = cnp_area_defs();
-        $lbl = implode('» ή «', array_map(function ($w) use ($defs) {
+        $lbl = implode('» ή «', array_map(function ($w) use ($caps, $defs) {
+            if (isset($caps[$w])) {
+                $ar = substr($w, 0, strpos($w, '.'));
+                return ($defs[$ar][0] ?? $ar) . ' → ' . $caps[$w][1];
+            }
             return $defs[$w][0] ?? $w;
         }, $want));
-        fail('Δεν έχεις πρόσβαση στην ενότητα «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
+        fail('Δεν έχεις δικαίωμα για «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
     }
 }
 
@@ -1465,6 +1646,8 @@ case 'boot':
     }
     out(['me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
             'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
+            /* Οι αναλυτικές δυνατότητες: το μενού κρύβει πια ΣΤΟΙΧΕΙΑ, όχι μόνο ενότητες. */
+            'caps' => cnp_admin_caps($adminId, $FULL),
             'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
@@ -2961,11 +3144,8 @@ case 'task_billing_ok':                   // έγκριση λογιστηρίο
     $tid = (int) ($in['task'] ?? 0);
     $t = Db::task($tid);
     if (!$t) { fail('task', 404); }
-    /* Την έγκριση τη δίνει μόνο το λογιστήριο (ενότητα «Οικονομικά») ή
-       διαχειριστής — όχι αυτός που έκανε τη δουλειά. */
-    if (!in_array('finance', cnp_admin_areas($adminId, $FULL), true)) {
-        fail('Μόνο το λογιστήριο μπορεί να εγκρίνει τη χρέωση', 403);
-    }
+    /* Ποιος εγκρίνει το κρίνει η πύλη (δυνατότητα «Έγκριση χρέωσης χρόνου»),
+       που δίνεται χωριστά από τα υπόλοιπα Οικονομικά. */
     $on9 = !empty($in['ok']);
     Capsule::table('mod_cpm_tasks')->where('id', $tid)->update([
         'billing_ok' => $on9 ? 1 : 0,
@@ -4075,7 +4255,7 @@ case 'teams':
                 // Τι ΙΣΧΥΕΙ τελικά γι' αυτόν — ένωση όλων των ομάδων του + προσωπικά.
                 'areas' => cnp_admin_areas((int) $m->admin_id, $isF9),
                 // Ξεχωριστά τα προσωπικά, ώστε να φαίνεται γιατί έχει παραπάνω από την ομάδα.
-                'personal' => array_values(array_intersect(cnp_area_keys(),
+                'personal' => array_values(array_intersect(cnp_perm_keys(),
                     array_filter(array_map('trim', explode(',', Db::pref((int) $m->admin_id, 'areas', '')))))),
                 /* Τι του δίνουν οι ΑΛΛΕΣ του ομάδες. Αν αυτή εδώ δεν προσθέτει
                    τίποτα πάνω από εκείνες, η συμμετοχή είναι διακοσμητική και
@@ -4112,18 +4292,51 @@ case 'teams':
     $rolesCfg = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
         ->where('setting', 'team_roles')->value('value')
         ?: 'Διαχειριστής έργου,Senior Τεχνικός,Τεχνικός,Υποστήριξη,Πωλήσεις,Λογιστήριο,Developer');
+    /* Το δέντρο δικαιωμάτων: ενότητα → δυνατότητες. Η καρτέλα της ομάδας
+       τσεκάρει δυνατότητες· το κλειδί της ενότητας σημαίνει «όλες». */
     $areaDefs = [];
     foreach (cnp_area_defs() as $k => $v) {
-        $areaDefs[] = ['id' => $k, 'name' => $v[0], 'descr' => $v[1]];
+        $caps9 = [];
+        foreach (cnp_caps_of($k) as $ck => $cv) {
+            $caps9[] = ['id' => $ck, 'kind' => $cv[0], 'name' => $cv[1], 'descr' => $cv[2],
+                'needs' => $cv[3] ?? null];
+        }
+        $areaDefs[] = ['id' => $k, 'name' => $v[0], 'descr' => $v[1], 'caps' => $caps9];
+    }
+    $presets9 = [];
+    if (Capsule::schema()->hasTable('mod_cpm_perm_presets')) {
+        foreach (Capsule::table('mod_cpm_perm_presets')->orderBy('sort')->orderBy('id')->get() as $p9) {
+            $presets9[] = ['id' => (int) $p9->id, 'name' => $p9->name, 'descr' => $p9->descr,
+                'caps' => array_values(array_filter(array_map('trim', explode(',', (string) $p9->caps))))];
+        }
     }
     $strict9 = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
         ->where('setting', 'strict_areas')->value('value') === 'on';
     out(['teams' => $teams, 'solo' => $solo, 'areaDefs' => $areaDefs, 'strict' => $strict9,
+        'presets' => $presets9,
         'depts' => array_map(function ($d) {
             return ['id' => $d['id'], 'name' => $d['name'], 'color' => $d['color']];
         }, cnp_depts()),
         'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))), 'canManage' => $FULL]);
 
+case 'preset_save':                      // πρότυπο δικαιωμάτων (γεμίζει τα κουτάκια μιας ομάδας)
+    $pid9 = (int) ($in['id'] ?? 0);
+    $nm9 = mb_substr(trim((string) ($in['name'] ?? '')), 0, 60);
+    if ($nm9 === '') { fail('Δώσε όνομα προτύπου'); }
+    $row = ['name' => $nm9, 'descr' => mb_substr(trim((string) ($in['descr'] ?? '')), 0, 200) ?: null,
+        'caps' => implode(',', cnp_perm_clean((array) ($in['caps'] ?? []))),
+        'sort' => (int) ($in['sort'] ?? 0)];
+    if ($pid9) {
+        Capsule::table('mod_cpm_perm_presets')->where('id', $pid9)->update($row);
+    } else {
+        $row['created_at'] = date('Y-m-d H:i:s');
+        $pid9 = Capsule::table('mod_cpm_perm_presets')->insertGetId($row);
+    }
+    out(['ok' => true, 'id' => (int) $pid9]);
+
+case 'preset_del':
+    Capsule::table('mod_cpm_perm_presets')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
 case 'save_team':
     $row9 = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 80) ?: 'Χωρίς όνομα',
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
@@ -4131,7 +4344,7 @@ case 'save_team':
     /* Τα δικαιώματα γράφονται μόνο όταν σταλούν ρητά — αλλιώς μια αποθήκευση
        ονόματος θα τα μηδένιζε σιωπηλά. */
     if (array_key_exists('areas', $in)) {
-        $row9['areas'] = implode(',', array_values(array_intersect(cnp_area_keys(), (array) $in['areas'])));
+        $row9['areas'] = implode(',', cnp_perm_clean((array) $in['areas']));
     }
     $tid = Db::saveTeam((int) ($in['id'] ?? 0), $row9);
     /* Ποια departments εξυπηρετεί η ομάδα — μόνο όταν σταλεί ρητά. */
@@ -4221,7 +4434,10 @@ case 'portfolio':
         $teamsL[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color];
     }
     out(['projects' => $projs, 'depts' => $depts, 'teams' => $teamsL,
-        'canManage' => $FULL,                                          // διαγραφή, επαναλαμβανόμενα
+        'canManage' => $FULL,
+        'canDelete' => cnp_has_cap($adminId, $FULL, 'projects.delete'),
+        'canShare' => cnp_has_cap($adminId, $FULL, 'projects.share'),
+        'canRecur' => cnp_has_cap($adminId, $FULL, 'projects.recurring'),
         'canCreate' => cnp_can_create_project($adminId, $FULL)]);      // νέο έργο
 
 case 'save_project':
@@ -5674,10 +5890,18 @@ case 'users':                          // λίστα χειριστών — δι
                 'teams' => Capsule::table('mod_cpm_team_members as m')
                     ->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
                     ->where('m.admin_id', (int) $a->id)->pluck('t.name')->all(),
-                'personal' => array_values(array_intersect(cnp_area_keys(),
+                'personal' => array_values(array_intersect(cnp_perm_keys(),
                     array_filter(array_map('trim', explode(',', Db::pref((int) $a->id, 'areas', ''))))))];
         }, Capsule::table('tbladmins')->orderBy('disabled')->orderBy('username')->get()->all()),
-        'areaNames' => array_map(function ($v) { return $v[0]; }, cnp_area_defs()),
+        'areaNames' => (function () {
+            $nm = [];
+            foreach (cnp_area_defs() as $k => $v) { $nm[$k] = $v[0]; }
+            foreach (cnp_caps() as $k => $v) {
+                $ar = substr($k, 0, strpos($k, '.'));
+                $nm[$k] = (cnp_area_defs()[$ar][0] ?? $ar) . ' → ' . $v[1];
+            }
+            return $nm;
+        })(),
         /* Ποιοι ΡΟΛΟΙ του WHMCS φτάνουν πραγματικά στην εφαρμογή. Χρειάζονται
            ΔΥΟ πράγματα, και τα δύο εκτός του δικού μας συστήματος:
              1. ο ρόλος στη λίστα `access` του addon — αλλιώς «Access has not
@@ -5729,7 +5953,7 @@ case 'addon_access_grant':               // δώσε στον ρόλο πρόσ�
 case 'user_areas_save':                 // προσωπική εξαίρεση: ενότητες εκτός ομάδας
     $uid7 = (int) ($in['id'] ?? 0);
     if (!$uid7 || !Capsule::table('tbladmins')->where('id', $uid7)->exists()) { fail('user'); }
-    $areas7 = array_values(array_intersect(cnp_area_keys(), (array) ($in['areas'] ?? [])));
+    $areas7 = cnp_perm_clean((array) ($in['areas'] ?? []));
     Db::setPref($uid7, 'areas', implode(',', $areas7));
     out(['ok' => true, 'areas' => $areas7]);
 
@@ -7951,7 +8175,6 @@ case 'worknote_save':
 
 /* ============ 🧑‍💼 ΠΡΟΣΛΗΨΕΙΣ / ΒΙΟΓΡΑΦΙΚΑ (ειδικότητα hr) ============ */
 case 'cv_jobs':
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $jobs = [];
     foreach (Capsule::table('mod_cpm_cv_jobs')->orderByDesc('active')->orderBy('title')->get() as $jb) {
         $jobs[] = ['id' => (int) $jb->id, 'title' => $jb->title, 'active' => (bool) $jb->active,
@@ -9025,7 +9248,6 @@ case 'pay_trace':                        // Συμφωνία πληρωμών: �
          'total' => array_sum(array_column($rows, 'amount'))]);
 
 case 'cv_job_views':                     // επισκεψιμότητα αγγελιών (ανεξάρτητα από αιτήσεις)
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/JobViews.php';
     $vDays = max(1, min(365, (int) ($in['days'] ?? 30)));
     $vStats = WHMCS\Module\Addon\CloudonProjects\JobViews::stats($vDays);
@@ -9058,7 +9280,6 @@ case 'cv_job_views':                     // επισκεψιμότητα αγγ�
     ]);
 
 case 'cv_job_save':                      // δημιουργία/επεξεργασία αγγελίας
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
     if ($title === '') { fail('Δώσε τίτλο θέσης'); }
     $sections = (isset($in['sections']) && is_array($in['sections'])) ? $in['sections'] : null;
@@ -9076,7 +9297,6 @@ case 'cv_job_save':                      // δημιουργία/επεξεργ�
     out(['ok' => true, 'id' => $id]);
 
 case 'cv_job_image_upload':              // ανέβασμα δικής μας φωτογραφίας θέσης
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $f = $_FILES['file'] ?? null;
     if (!$f || ($f['error'] ?? 1) !== UPLOAD_ERR_OK) { fail('Δεν ανέβηκε αρχείο.'); }
     if ($f['size'] > 8 * 1024 * 1024) { fail('Το αρχείο ξεπερνά τα 8 MB.'); }
@@ -9112,7 +9332,6 @@ case 'cv_job_image_upload':              // ανέβασμα δικής μας �
     out(['ok' => true, 'image' => 'custom/' . $stem]);
 
 case 'cv_job_image_delete':              // διαγραφή ανεβασμένης φωτογραφίας
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $img = (string) ($in['image'] ?? '');
     if (!cnp_cv_job_image_is_custom($img)) { fail('Μη έγκυρη εικόνα.'); }
     // Μην τη σβήσεις αν τη χρησιμοποιεί θέση.
@@ -9122,7 +9341,6 @@ case 'cv_job_image_delete':              // διαγραφή ανεβασμέν�
     out(['ok' => true]);
 
 case 'cv_job_del':                       // διαγραφή (ή αρχειοθέτηση αν έχει υποψηφίους)
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $id = (int) ($in['id'] ?? 0);
     $cnt = (int) Capsule::table('mod_cpm_cv')->where('job_id', $id)->count();
     if ($cnt > 0) {
@@ -9133,7 +9351,6 @@ case 'cv_job_del':                       // διαγραφή (ή αρχειοθ�
     out(['ok' => true, 'deleted' => true]);
 
 case 'cv_job_draft':                     // ✨ AI σύνταξη δομημένης ΔΙΓΛΩΣΣΗΣ αγγελίας
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $title = mb_substr(trim($in['title'] ?? ''), 0, 190);
     if ($title === '') { fail('Δώσε πρώτα τίτλο θέσης'); }
     $key = trim(Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'ai_api_key')->value('value') ?: '');
@@ -9168,7 +9385,6 @@ case 'cv_job_draft':                     // ✨ AI σύνταξη δομημέν
     out(['ok' => true, 'sections' => $d]);
 
 case 'cv_list':
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $job = (int) ($_GET['job'] ?? 0); $status = $_GET['status'] ?? ''; $sq = trim($_GET['q'] ?? '');
     $dupsOnly = !empty($_GET['dups']);
     // emails που εμφανίζονται >1 φορά (διπλότυπα, χωρίς διαγραφή)
@@ -9216,7 +9432,6 @@ case 'cv_list':
         'dupTotal' => array_sum($dupEmails), 'page' => $page, 'per' => $per, 'pages' => $pages, 'statuses' => cnp_cv_statuses()]);
 
 case 'cv_get':
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $ai = $r->ai_json ? json_decode($r->ai_json, true) : null;
@@ -9247,7 +9462,6 @@ case 'cv_get':
         'hasCv' => ($r->cv_stored !== '' || !empty($r->cv_storage_id)), 'photo' => ($r->photo !== '' || !empty($r->photo_storage_id)), 'cvName' => $r->cv_name, 'cvMime' => $r->cv_mime, 'source' => $r->source, 'appliedAt' => $r->applied_at]);
 
 case 'cv_photo':                         // headshot thumbnail (auth + hr)
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('img', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r || !$r->photo) { fail('img', 404); }
     if (!empty($r->photo_storage_id)) {                     // migrated → S3/local via Storage
@@ -9265,7 +9479,6 @@ case 'cv_photo':                         // headshot thumbnail (auth + hr)
     exit;
 
 case 'cv_file':                          // προβολή/λήψη CV (auth + hr)
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('file', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r || (!$r->cv_stored && empty($r->cv_storage_id))) { fail('file', 404); }
     $mime = $r->cv_mime ?: 'application/octet-stream';
@@ -9291,7 +9504,6 @@ case 'cv_file':                          // προβολή/λήψη CV (auth + h
     exit;
 
 case 'cv_update':                        // status / rating / notes / assignee
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $upd = ['updated_at' => date('Y-m-d H:i:s')];
@@ -9303,7 +9515,6 @@ case 'cv_update':                        // status / rating / notes / assignee
     out(['ok' => true]);
 
 case 'cv_add':                           // χειροκίνητη προσθήκη υποψηφίου (CV από άλλες πηγές) — multipart
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $name = mb_substr(trim($_POST['name'] ?? ''), 0, 150);
     if ($name === '') { fail('Δώσε ονοματεπώνυμο'); }
     $cvName = ''; $cvMime = ''; $tmpUpload = null;
@@ -9339,14 +9550,12 @@ case 'cv_add':                           // χειροκίνητη προσθή�
     out(['ok' => true, 'id' => $id, 'evaluated' => !empty($ev['ok'])]);
 
 case 'cv_ai':                            // co-pilot: αξιολόγηση/ταξινόμηση (με επιλογή μοντέλου)
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $model = $in['model'] ?? cnp_cv_default_model();
     $res = cnp_cv_evaluate((int) ($in['id'] ?? 0), $model, true);
     if (empty($res['ok'])) { fail($res['error'] === 'notfound' ? 'notfound' : $res['error'], $res['error'] === 'notfound' ? 404 : 400); }
     out(['ok' => true, 'ai' => $res['ai'], 'score' => $res['score'], 'model' => $res['model']]);
 
 case 'cv_email':                         // αποστολή email σε υποψήφιο (καταγράφεται)
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $to = filter_var(trim($r->email), FILTER_VALIDATE_EMAIL);
@@ -9364,7 +9573,6 @@ case 'cv_email':                         // αποστολή email σε υποψ
     out(['ok' => true, 'sent' => (bool) $sent]);
 
 case 'cv_schedule':                      // προγραμματισμός συνέντευξης + ειδοποίηση/υπενθύμιση
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $when = trim($in['when'] ?? '');
@@ -9382,7 +9590,6 @@ case 'cv_schedule':                      // προγραμματισμός συ�
     out(['ok' => true, 'interviewAt' => $at]);
 
 case 'cv_interview_kit':                 // παραγωγή οδηγού ερωτήσεων συνέντευξης
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $iv = $r->interview_json ? json_decode($r->interview_json, true) : null;
@@ -9415,7 +9622,6 @@ case 'cv_interview_kit':                 // παραγωγή οδηγού ερω
     out(['ok' => true, 'kit' => $kit]);
 
 case 'cv_interview_save':                // αποθήκευση καταγεγραμμένων απαντήσεων
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $iv = $r->interview_json ? json_decode($r->interview_json, true) : ['questions' => []];
@@ -9432,7 +9638,6 @@ case 'cv_interview_save':                // αποθήκευση καταγεγ�
     out(['ok' => true]);
 
 case 'cv_interview_eval':                // AI αξιολόγηση της συνέντευξης
-    if (!in_array('hr', cnp_admin_areas($adminId, $FULL))) { fail('forbidden', 403); }
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$r) { fail('notfound', 404); }
     $iv = $r->interview_json ? json_decode($r->interview_json, true) : null;
@@ -9897,7 +10102,7 @@ case 'version':
 
 /* ---- αναζήτηση πελάτη (autocomplete) ---- */
 case 'client_quick_add':                  // νέος πελάτης επί τόπου, από το πεδίο επιλογής
-    if (!$FULL && !in_array('clients', cnp_admin_areas($adminId, $FULL), true)) {
+    if (!cnp_has_cap($adminId, $FULL, 'clients.new')) {
         fail('Δεν έχεις δικαίωμα δημιουργίας πελάτη', 403);
     }
     $qName = trim((string) ($in['company'] ?? ''));

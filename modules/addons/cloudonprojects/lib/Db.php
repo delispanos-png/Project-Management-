@@ -1106,6 +1106,35 @@ class Db
             });
         }
 
+        /* ── Λεπτομερή δικαιώματα: χρειάζονται χώρο ──
+           Το `areas` κρατούσε ως 160 χαρακτήρες, αρκετοί για 8 κλειδιά ενοτήτων.
+           Τώρα κρατά και κλειδιά δυνατοτήτων («projects.board»), που είναι
+           δεκάδες — αλλιώς η λίστα κοβόταν σιωπηλά και χάνονταν δικαιώματα. */
+        if ($s->hasColumn('mod_cpm_teams', 'areas')) {
+            try {
+                Capsule::statement('ALTER TABLE mod_cpm_teams MODIFY areas TEXT NULL');
+            } catch (\Throwable $e) {
+            }
+        }
+        if ($s->hasColumn('mod_cpm_prefs', 'value')) {
+            try {
+                Capsule::statement('ALTER TABLE mod_cpm_prefs MODIFY value TEXT NULL');
+            } catch (\Throwable $e) {
+            }
+        }
+        /* Πρότυπα δικαιωμάτων: ονομασμένα πακέτα που γεμίζουν γρήγορα τα
+           κουτάκια μιας ομάδας. ΔΕΝ είναι δεύτερο μητρώο — τα δικαιώματα
+           εξακολουθούν να ζουν πάνω στην ομάδα. */
+        if (!$s->hasTable('mod_cpm_perm_presets')) {
+            $s->create('mod_cpm_perm_presets', function ($t) {
+                $t->increments('id');
+                $t->string('name', 60);
+                $t->string('descr', 200)->nullable();
+                $t->text('caps')->nullable();
+                $t->integer('sort')->default(0);
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         /* ── Κάλυψη χρόνου (προαγορά ή προσφορά) ──
            Ο χρεώσιμος χρόνος πρέπει να προέρχεται από κάπου: είτε από την
            προαγορά του πελάτη, είτε από εγκεκριμένη προσφορά που καλύπτει

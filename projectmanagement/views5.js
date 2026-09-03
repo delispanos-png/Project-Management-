@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, suStat, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, closeDrawer, I, go, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -276,6 +276,9 @@ R.gantt = async function () {
    Μέχρι να ολοκληρωθεί η μετάβαση, η απόφαση παίρνεται εδώ — ανά ΠΕΛΑΤΗ, με τα
    πραγματικά ανοιχτά ποσά, και μένει ίχνος ποιος έκανε τι. */
 R.suspend = async function () {
+  /* Η εκτέλεση της αναστολής είναι δική της δυνατότητα — άλλος βλέπει τη
+     λίστα, άλλος πατάει το κουμπί. */
+  const canDo = cnpCan('finance.suspend_do');
   setTop('Αναστολές', 'Υπηρεσίες που πρέπει να πέσουν — η ενέργεια αναγνωρίζεται από το WHMCS');
   const c = $('#content');
   if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
@@ -373,21 +376,21 @@ R.suspend = async function () {
               ${stateBadge(r)}
               ${noteBadge(r.done)}
               <span style="flex:1"></span>
-              ${r.state === 'pending' && r.auto
+              ${canDo && r.state === 'pending' && r.auto
                 /* Μόνο μέσω module: το WHMCS εκτελεί τη διακοπή και ενημερώνει
                    κατάσταση, τιμολόγηση και ιστορικό. Δεν γράφουμε εμείς status. */
                 ? `<button class="btn btn-sm btn-danger" data-sdo="${r.service}" data-mode="module"
                      title="Εκτελεί την αναστολή μέσω ${esc(r.module)} — από το WHMCS">⏻ Αναστολή τώρα</button>` : ''}
-              ${r.state === 'suspended' && r.auto
+              ${canDo && r.state === 'suspended' && r.auto
                 ? `<button class="btn btn-sm btn-o" data-sundo="${r.service}" title="Επαναφορά μέσω ${esc(r.module)}">↻ Επαναφορά</button>` : ''}
               <a class="btn btn-sm ${r.state === 'pending' && !r.auto ? 'btn-p' : 'btn-o'}"
                  href="${esc(r.adminUrl)}" target="_blank"
                  title="${r.state === 'pending' && !r.auto ? 'Δεν έχει module — η αλλαγή κατάστασης γίνεται στο WHMCS' : 'Άνοιγμα στο WHMCS'}"
                  >${r.state === 'pending' && !r.auto ? 'Αλλαγή στο WHMCS ↗' : '↗'}</a>
-              ${r.done
+              ${!canDo ? '' : (r.done
                 ? `<button class="btn btn-sm btn-o" data-sclear="${r.service}">αναίρεση</button>`
                 : (r.state === 'pending'
-                  ? `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped" title="Δεν θα πέσει — π.χ. δώσαμε παράταση">Εξαίρεση</button>` : '')}
+                  ? `<button class="btn btn-sm btn-o" data-smark="${r.service}" data-act="skipped" title="Δεν θα πέσει — π.χ. δώσαμε παράταση">Εξαίρεση</button>` : ''))}
             </div>`).join('')}
           </div></div>`).join('')}
       ${groups.length ? '' : `<div class="empty" style="padding:44px">${st.ripe ? 'Κανένα μηχάνημα δεν έχει περάσει το όριο 🎉' : 'Καμία ληξιπρόθεσμη οφειλή 🎉'}</div>`}`;

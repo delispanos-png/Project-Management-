@@ -1840,3 +1840,47 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .act-nums{width:100%;justify-content:flex-start;gap:9px}
   .act-time{width:36px}
 }
+
+/* ═════════ Δικαιώματα: ενότητα → δυνατότητες ═════════
+   Ο γονέας λέει την αλήθεια με μια ματιά (όλα / μερικά / κανένα)· οι
+   δυνατότητες ανοίγουν μόνο όταν θέλεις να μπεις στη λεπτομέρεια. */
+.perm-bar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.perm-bar .inp{padding:6px 9px;font-size:12.5px}
+
+.perm-grp{border:1px solid var(--line);border-radius:11px;margin-bottom:7px;background:var(--card);overflow:hidden}
+.perm-grp>summary{display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;list-style:none;
+  font-size:13.5px;user-select:none}
+.perm-grp>summary::-webkit-details-marker{display:none}
+.perm-grp>summary:hover{background:#0090dd08}
+.perm-grp[open]>summary{border-bottom:1px solid var(--line)}
+.perm-parent{display:flex;align-items:center;cursor:pointer;flex:none}
+.perm-parent input{width:16px;height:16px;cursor:pointer;accent-color:var(--brand)}
+.perm-grp>summary b{flex:1;min-width:0;font-weight:650}
+
+.perm-n{font-size:11px;font-weight:800;color:var(--mut);background:var(--canvas);border-radius:999px;
+  padding:2px 9px;font-variant-numeric:tabular-nums;flex:none}
+.perm-n.all{background:#16a26a1e;color:#0e8a56}
+.perm-n.some{background:#eba63c22;color:#a8720e}
+.perm-chev{color:var(--mut);font-size:11px;transition:transform .18s;flex:none}
+.perm-grp[open] .perm-chev{transform:rotate(180deg)}
+
+.perm-caps{padding:6px 13px 10px;display:flex;flex-direction:column;gap:1px}
+.perm-cap{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer;
+  font-size:12.5px;transition:background .12s}
+.perm-cap:hover{background:#0090dd0a}
+.perm-cap input{width:15px;height:15px;cursor:pointer;flex:none;accent-color:var(--brand)}
+.perm-cap.on .perm-lb{color:var(--ink);font-weight:600}
+.perm-lb{flex:1;min-width:0;color:var(--txt)}
+.perm-kind{font-size:9.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+  border-radius:999px;padding:2px 7px;flex:none}
+.perm-kind.screen{background:#0090dd18;color:#0374b0}
+.perm-kind.power{background:#7b5cd61e;color:#6a4bc4}
+/* Όταν μια ενέργεια τραβάει μαζί της την οθόνη που προϋποθέτει. */
+.perm-flash{animation:permFlash .9s ease}
+@keyframes permFlash{0%,100%{background:transparent}30%{background:#16a26a30}}
+@media (prefers-reduced-motion:reduce){.perm-flash{animation:none;background:#16a26a20}}
+
+@media (max-width:768px){
+  .perm-kind{display:none}
+  .perm-bar .btn{flex:1}
+}

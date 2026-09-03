@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
-  adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, I, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan, I, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -425,8 +425,8 @@ R.knowledge = async function () {
           <span class="mut">${k.by ? esc(k.by) : ''}${k.at ? ' · ' + dShort(k.at) : ''}${k.keywords ? ' · ' + esc(k.keywords) : ''}</span>
           <span style="flex:1"></span>
           <button class="btn btn-sm btn-o" data-kcopy="${k.id}" title="Αντιγραφή λύσης">${I.copy}</button>
-          <button class="btn btn-sm btn-o" data-kedit="${k.id}">${I.edit} Επεξεργασία</button>
-          ${S.boot.me.full ? `<button class="btn btn-sm btn-o" style="color:var(--bad)" data-kdel="${k.id}">${I.trash}</button>` : ''}
+          ${cnpCan('support.kb_edit') ? `<button class="btn btn-sm btn-o" data-kedit="${k.id}">${I.edit} Επεξεργασία</button>
+          <button class="btn btn-sm btn-o" style="color:var(--bad)" data-kdel="${k.id}">${I.trash}</button>` : ''}
         </div>
       </div>
     </details>`;
@@ -1792,7 +1792,7 @@ R.recruit = async function () {
   c.innerHTML = `
   <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:0">
     <button class="rtab" data-rview="cvs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.users || ''} Υποψήφιοι</button>
-    <button class="rtab" data-rview="jobs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.briefcase || I.folder} Θέσεις / Αγγελίες <span class="kb-n" style="margin-left:2px">${activeJobs}</span></button>
+    ${cnpCan('hr.jobs') ? `<button class="rtab" data-rview="jobs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.briefcase || I.folder} Θέσεις / Αγγελίες <span class="kb-n" style="margin-left:2px">${activeJobs}</span></button>` : ''}
     <button class="rtab" data-rview="traffic" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.chart || I.pie || '📈'} Επισκεψιμότητα</button>
   </div>
   <div id="cvPane">

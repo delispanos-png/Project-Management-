@@ -5,7 +5,7 @@
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
 const {S, api, esc, fmtEur, dShort, dFull, toast, setTop, cnpConfirm, cnpDialog,
-  cnpDenied, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
+  cnpDenied, cnpCan, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 /* «2ω 30΄» — ίδια γραφή με τον server (Cover::fmt), για να διαβάζονται μαζί. */
@@ -63,7 +63,7 @@ R.prepaid = async function () {
     <label class="mut" style="display:flex;align-items:center;gap:5px;font-size:12px">
       <input type="checkbox" id="ppOpen"> μόνο με ακάλυπτο χρόνο</label>
     <div style="flex:1"></div>
-    <button class="btn btn-o btn-sm" id="ppNew">${I.plus} Νέο συμβόλαιο</button>
+    ${cnpCan('prepaid.contract') ? `<button class="btn btn-o btn-sm" id="ppNew">${I.plus} Νέο συμβόλαιο</button>` : ''}
   </div>
 
   <div class="mut" style="font-size:11.5px;margin-bottom:12px">${d.products.length
@@ -108,7 +108,7 @@ R.prepaid = async function () {
   };
   $('#ppQ').oninput = paint;
   $('#ppOpen').onchange = paint;
-  $('#ppNew').onclick = pickClient;
+  const bN = $('#ppNew'); if (bN) { bN.onclick = pickClient; }
   paint();
 };
 
@@ -160,8 +160,8 @@ async function openPrepaid(clientId, forceEdit) {
         <div class="mut" style="font-size:11.5px">#${d.client}${st.label ? ' · ' + esc(st.label) : ''}
           ${st.contract ? ' · αναφορά ' + (FREQ[st.reportFreq] || 'μηνιαία') : ''}</div>
       </div>
-      <button class="btn btn-o btn-sm" id="ppEdit">${I.gear} Συμβόλαιο</button>
-      <button class="btn btn-o btn-sm" id="ppAdd">${I.plus} Πίστωση / διόρθωση</button>
+      ${cnpCan('prepaid.contract') ? `<button class="btn btn-o btn-sm" id="ppEdit">${I.gear} Συμβόλαιο</button>` : ''}
+      ${cnpCan('prepaid.move') ? `<button class="btn btn-o btn-sm" id="ppAdd">${I.plus} Πίστωση / διόρθωση</button>` : ''}
     </div>
 
     <div style="display:flex;gap:11px;flex-wrap:wrap;margin-bottom:14px">
@@ -193,7 +193,7 @@ async function openPrepaid(clientId, forceEdit) {
         <input class="inp" type="date" id="ppTo" value="${d.to}" style="width:150px;padding:5px 9px">
         <button class="btn btn-o btn-sm" id="ppGo">Προβολή</button>
         <div style="flex:1"></div>
-        <button class="btn btn-o btn-sm" id="ppPrev">${I.mail} Προεπισκόπηση αναφοράς</button>
+        ${cnpCan('prepaid.report') ? `<button class="btn btn-o btn-sm" id="ppPrev">${I.mail} Προεπισκόπηση αναφοράς</button>` : ''}
       </div>
       ${bd.groups.length ? bd.groups.map(g => `
         <details style="border-bottom:1px solid var(--line)">
@@ -228,7 +228,7 @@ async function openPrepaid(clientId, forceEdit) {
         <div style="flex:1"></div>
         <label class="mut" style="font-size:11.5px;display:flex;align-items:center;gap:4px">
           <input type="checkbox" id="ppAll"> όλα</label>
-        <button class="btn btn-sm" id="ppMakeOffer">${I.doc} Δημιουργία προσφοράς</button>
+        ${cnpCan('prepaid.offer') ? `<button class="btn btn-sm" id="ppMakeOffer">${I.doc} Δημιουργία προσφοράς</button>` : ''}
       </div>
       <table class="tbl"><tbody>
         ${d.uncovered.map(u => `<tr>
@@ -252,14 +252,14 @@ async function openPrepaid(clientId, forceEdit) {
       </tr>`).join('')}</tbody></table>` : '<div class="mut">Καμία κίνηση ακόμη.</div>'}
     </div></div>`;
 
-    $('#ppEdit', body).onclick = () => editContract(d);
-    $('#ppAdd', body).onclick = () => moveBalance(d);
+    const bE = $('#ppEdit', body); if (bE) { bE.onclick = () => editContract(d); }
+    const bA = $('#ppAdd', body); if (bA) { bA.onclick = () => moveBalance(d); }
     $('#ppGo', body).onclick = async () => {
       const nd = await api(`prepaid_client&client=${clientId}&from=${$('#ppFrom', body).value}&to=${$('#ppTo', body).value}`)
         .catch(() => null);
       if (nd) { d = nd; render(); }
     };
-    $('#ppPrev', body).onclick = () => reportPreview(clientId, $('#ppFrom', body).value, $('#ppTo', body).value);
+    const bP = $('#ppPrev', body); if (bP) { bP.onclick = () => reportPreview(clientId, $('#ppFrom', body).value, $('#ppTo', body).value); }
     const all = $('#ppAll', body);
     if (all) { all.onchange = () => $$('.pp-u', body).forEach(x => { x.checked = all.checked; }); }
     const mk = $('#ppMakeOffer', body);

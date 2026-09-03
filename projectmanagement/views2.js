@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDenied, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDenied, cnpCan, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -1202,7 +1202,7 @@ R.client360 = async function (cid) {
           </tr>`).join('')}</tbody></table>`
             : `<div class="empty" style="padding:16px">Κανένα έργο για αυτόν τον πελάτη.
                <div class="mut" style="font-size:11.5px;margin-top:5px">Φτιάξε ένα και μοίρασε τις εργασίες του στις ομάδες.</div></div>`}
-          ${(d.full || (S.boot.me.areas || []).includes('projects')) ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
+          ${(d.full || cnpCan('projects.edit')) ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
         </div></div>
 
       ${d.openTasks.length ? `<div class="card"><div class="card-h">${I.list} Ανοιχτές εργασίες <span class="kb-n" style="margin-left:auto">${d.openTasks.length}</span></div>
@@ -1745,10 +1745,8 @@ R.teams = async function () {
             return dp ? `<a class="pill pill-mut" href="#/unit/${dp.id}">${esc(dp.name)}</a>` : '';
           }).join(' ') : '<span style="color:var(--warn)">κανένα department</span>'}</div>
         <div class="tm-rights">
-          <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Ενότητες του μενού</div>
-          ${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
-            <input type="checkbox" data-ar="${t.id}:${ar.id}" ${t.areas.includes(ar.id) ? 'checked' : ''}
-              ${d.canManage ? '' : 'disabled'}>${esc(ar.name)}</label>`).join('')}
+          <div class="mut" style="font-size:11px;margin-bottom:6px">${I.lock} Δικαιώματα</div>
+          ${tmSummary(t, d)}
           ${t.areas.length ? '' : '<div class="mut" style="font-size:11px;margin-top:5px">Καμία — τα μέλη βλέπουν μόνο τα προσωπικά τους.</div>'}
           ${t.members.some(m => !m.full && m.areas.some(x => !t.areas.includes(x)))
             ? '<div class="mut" style="font-size:10.5px;margin-top:5px">Το <b>*</b> σημαίνει δικαίωμα από άλλη ομάδα ή προσωπική εξαίρεση.</div>' : ''}
@@ -1813,14 +1811,6 @@ R.teams = async function () {
       await api('save_team', {id: 0, name: $('#tmName').value.trim(), color: $('#tmColor').value});
       toast('Δημιουργήθηκε'); R.teams();
     };
-    $$('[data-ar]').forEach(ch => ch.onchange = async () => {
-      const [tid] = ch.dataset.ar.split(':');
-      const areas = $$(`[data-ar^="${tid}:"]`).filter(x => x.checked).map(x => x.dataset.ar.split(':')[1]);
-      const tm = d.teams.find(x => x.id === +tid);
-      await api('save_team', {id: +tid, name: tm.name, color: tm.color, descr: tm.descr || '', areas});
-      toast('Τα δικαιώματα της ομάδας ενημερώθηκαν');
-      R.teams();
-    });
     $$('[data-mgo]').forEach(b => b.onclick = async () => {
       const t = b.dataset.mgo;
       await api('team_member_add', {team: +t, admin: +$(`[data-madm="${t}"]`).value,
@@ -1841,6 +1831,52 @@ R.teams = async function () {
 
 /* Επεξεργασία ομάδας σε ένα σημείο: ταυτότητα, δικαιώματα, μέλη. Χωρίς αυτό,
    μια ομάδα μπορούσε μόνο να γεννηθεί και να πεθάνει — όχι να αλλάξει. */
+
+/* ═════════ Δικαιώματα: ενότητα → δυνατότητες ═════════
+   Το δικαίωμα δεν είναι «όλη η ενότητα ή τίποτα». Ο πίνακας κρατά είτε το
+   κλειδί της ενότητας (= όλα, και ό,τι προστεθεί αύριο) είτε μεμονωμένα
+   κλειδιά δυνατοτήτων. Ο γονέας είναι τσεκαρισμένος όταν είναι όλα τα παιδιά,
+   και «μισός» (indeterminate) όταν είναι μερικά. */
+
+/** Έχει η ομάδα αυτή τη δυνατότητα; (το κλειδί ενότητας τις καλύπτει όλες) */
+const permHas = (list, cap) => list.includes(cap) || list.includes(cap.split('.')[0]);
+
+/** Σύνοψη για την κάρτα: «Πελάτες» ή «Έργα 3/8». */
+function tmSummary(t, d) {
+  const out = d.areaDefs.map(ar => {
+    const mine = ar.caps.filter(c => permHas(t.areas, c.id)).length;
+    if (!mine) { return ''; }
+    const all = mine === ar.caps.length;
+    return `<span class="pill ${all ? 'pill-ok' : 'pill-warn'}" title="${esc(ar.descr)}">${esc(ar.name)}${
+      all ? '' : ` <b>${mine}/${ar.caps.length}</b>`}</span>`;
+  }).filter(Boolean);
+  return out.length ? out.join(' ')
+    : '<span class="mut" style="font-size:11.5px">κανένα</span>';
+}
+
+/** Το δέντρο επιλογής μέσα στο συρτάρι. */
+function permTree(areaDefs, have) {
+  return areaDefs.map(ar => {
+    const on = ar.caps.filter(c => permHas(have, c.id)).length;
+    const all = on === ar.caps.length;
+    /* Ανοιχτή μόνο η ενότητα που είναι μισή — εκεί υπάρχει κάτι να δεις. */
+    return `<details class="perm-grp" data-area="${ar.id}" ${on && !all ? 'open' : ''}>
+      <summary>
+        <label class="perm-parent" onclick="event.stopPropagation()">
+          <input type="checkbox" data-parent="${ar.id}" ${all ? 'checked' : ''}></label>
+        <b>${esc(ar.name)}</b>
+        <span class="perm-n ${all ? 'all' : (on ? 'some' : '')}">${on}/${ar.caps.length}</span>
+        <span class="perm-chev">▾</span>
+      </summary>
+      <div class="perm-caps">
+        ${ar.caps.map(c => `<label class="perm-cap ${permHas(have, c.id) ? 'on' : ''}" title="${esc(c.descr)}">
+          <input type="checkbox" data-tar="${c.id}" data-kind="${c.kind}" data-needs="${c.needs || ''}" ${permHas(have, c.id) ? 'checked' : ''}>
+          <span class="perm-lb">${esc(c.name)}</span>
+          <span class="perm-kind ${c.kind}">${c.kind === 'screen' ? 'οθόνη' : 'ενέργεια'}</span>
+        </label>`).join('')}
+      </div></details>`;
+  }).join('');
+}
 function openTeam(t, d) {
   closeDrawer();
   const ovl = document.createElement('div'); ovl.className = 'ovl';
@@ -1864,11 +1900,21 @@ function openTeam(t, d) {
         <input type="checkbox" data-tdep="${dp.id}" ${t.depts.includes(dp.id) ? 'checked' : ''}>
         <span class="dot" style="background:${dp.color};width:7px;height:7px"></span>${esc(dp.name)}</label>`).join('')}</div>
 
-      <label class="lbl" style="margin-top:13px">${I.lock} Ενότητες του μενού</label>
-      <div class="mut" style="font-size:11.5px;margin-bottom:7px">Ό,τι επιλέξεις εδώ το αποκτούν <b>όλα τα μέλη</b> της ομάδας.</div>
-      <div>${d.areaDefs.map(ar => `<label class="tm-area ${t.areas.includes(ar.id) ? 'on' : ''}" title="${esc(ar.descr)}">
-        <input type="checkbox" data-tar="${ar.id}" ${t.areas.includes(ar.id) ? 'checked' : ''}>${esc(ar.name)}</label>`).join('')}</div>
-      <div class="mut" style="font-size:11px;margin-top:6px" id="tmAreaHint"></div>
+      <label class="lbl" style="margin-top:13px">${I.lock} Δικαιώματα</label>
+      <div class="mut" style="font-size:11.5px;margin-bottom:8px">Ό,τι επιλέξεις εδώ το αποκτούν <b>όλα τα μέλη</b> της ομάδας.
+        Μπορείς να δώσεις <b>μία δυνατότητα</b> χωρίς ολόκληρη την ενότητα —
+        π.χ. το Board χωρίς τα Modules, ή τις Αναστολές χωρίς την Κερδοφορία.</div>
+      <div class="perm-bar">
+        <select class="inp" id="tmPreset" style="flex:1;min-width:140px">
+          <option value="">— πρότυπο δικαιωμάτων —</option>
+          ${d.presets.map(p => `<option value="${p.id}" title="${esc(p.descr || '')}">${esc(p.name)}</option>`).join('')}
+        </select>
+        <button class="btn btn-o btn-sm" id="tmPresetApply">Εφαρμογή</button>
+        <button class="btn btn-o btn-sm" id="tmPresetSave" title="Αποθήκευση της τρέχουσας επιλογής ως πρότυπο">${I.save} Ως πρότυπο</button>
+        <button class="btn btn-o btn-sm" id="tmNone" title="Ξεκαθάρισμα όλων">Κανένα</button>
+      </div>
+      <div id="tmTree">${permTree(d.areaDefs, t.areas)}</div>
+      <div class="mut" style="font-size:11px;margin-top:8px" id="tmAreaHint"></div>
       <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
         <button class="btn btn-p" id="tmSave">Αποθήκευση</button>
         <button class="btn btn-o" id="tmDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή ομάδας</button></div>
@@ -1901,17 +1947,80 @@ function openTeam(t, d) {
   $('#dX').onclick = () => closeDrawer();
 
   const areasNow = () => $$('[data-tar]', dr).filter(x => x.checked).map(x => x.dataset.tar);
+  /** Ο γονέας δείχνει την αλήθεια: όλα, μερικά (μισός), ή κανένα. */
+  const syncParents = () => {
+    $$('.perm-grp', dr).forEach(g => {
+      const kids = $$('[data-tar]', g);
+      const on = kids.filter(x => x.checked).length;
+      const p = $('[data-parent]', g);
+      p.checked = on === kids.length && kids.length > 0;
+      p.indeterminate = on > 0 && on < kids.length;
+      const n = $('.perm-n', g);
+      n.textContent = on + '/' + kids.length;
+      n.className = 'perm-n' + (on === kids.length && kids.length ? ' all' : (on ? ' some' : ''));
+      kids.forEach(k => k.closest('.perm-cap').classList.toggle('on', k.checked));
+    });
+    hint();
+  };
   const hint = () => {
     const n = areasNow().length;
+    const scr = $$('[data-tar]', dr).filter(x => x.checked && x.dataset.kind === 'screen').length;
+    const who = t.members.length === 1 ? 'Το μέλος θα βλέπει' : 'Τα ' + t.members.length + ' μέλη θα βλέπουν';
     $('#tmAreaHint', dr).innerHTML = n
-      ? `${t.members.length === 1 ? 'Το μέλος' : 'Τα ' + t.members.length + ' μέλη'} θα βλέπ${t.members.length === 1 ? 'ει' : 'ουν'} ${n === 1 ? '1 ενότητα' : n + ' ενότητες'} του μενού.`
-      : '<span style="color:var(--bad)">Χωρίς ενότητα, τα μέλη βλέπουν μόνο τα προσωπικά τους.</span>';
+      ? `${who} <b>${scr}</b> ${scr === 1 ? 'οθόνη' : 'οθόνες'} και <b>${n - scr}</b> ${n - scr === 1 ? 'ειδική ενέργεια' : 'ειδικές ενέργειες'}.`
+      : '<span style="color:var(--bad)">Χωρίς δικαίωμα, τα μέλη βλέπουν μόνο τα προσωπικά τους.</span>';
   };
+  /* Μια ενέργεια χωρίς την οθόνη της δεν έχει νόημα — τσεκάρεται μαζί. */
   $$('[data-tar]', dr).forEach(ch => ch.onchange = () => {
-    ch.closest('.tm-area').classList.toggle('on', ch.checked); hint();
+    if (ch.checked && ch.dataset.needs) {
+      const need = $(`[data-tar="${ch.dataset.needs}"]`, dr);
+      if (need && !need.checked) {
+        need.checked = true;
+        need.closest('.perm-cap').classList.add('perm-flash');
+        setTimeout(() => need.closest('.perm-cap').classList.remove('perm-flash'), 900);
+      }
+    }
+    if (!ch.checked) {
+      // αν το ξετσεκάρεις, φεύγουν και όσα το προϋποθέτουν
+      $$(`[data-needs="${ch.dataset.tar}"]`, dr).forEach(x => { x.checked = false; });
+    }
+    syncParents();
   });
-  hint();
-  $$('[data-tdep]', dr).forEach(ch => ch.onchange = () =>
+  $$('[data-parent]', dr).forEach(p => p.onchange = () => {
+    $$('[data-tar]', p.closest('.perm-grp')).forEach(k => { k.checked = p.checked; });
+    syncParents();
+  });
+  $('#tmNone', dr).onclick = () => {
+    $$('[data-tar]', dr).forEach(k => { k.checked = false; });
+    syncParents();
+  };
+  const applyCaps = list => {
+    $$('[data-tar]', dr).forEach(k => {
+      k.checked = list.includes(k.dataset.tar) || list.includes(k.dataset.tar.split('.')[0]);
+    });
+    $$('.perm-grp', dr).forEach(g => {
+      const kids = $$('[data-tar]', g);
+      g.open = kids.some(x => x.checked) && !kids.every(x => x.checked);
+    });
+    syncParents();
+  };
+  $('#tmPresetApply', dr).onclick = () => {
+    const p = d.presets.find(x => x.id === +$('#tmPreset', dr).value);
+    if (!p) { toast('Διάλεξε πρότυπο', true); return; }
+    applyCaps(p.caps);
+    toast('Εφαρμόστηκε το πρότυπο «' + p.name + '» — πάτα Αποθήκευση για να ισχύσει');
+  };
+  $('#tmPresetSave', dr).onclick = async () => {
+    const caps = areasNow();
+    if (!caps.length) { toast('Δεν έχεις επιλέξει τίποτα', true); return; }
+    const nm = await cnpPrompt('Πώς θα λέγεται αυτό το πακέτο δικαιωμάτων;',
+      {title: I.save + ' Νέο πρότυπο', input: '', placeholder: 'π.χ. Τεχνικός, Λογιστήριο', ok: 'Αποθήκευση'});
+    if (!nm || !nm.trim()) { return; }
+    const r = await api('preset_save', {name: nm.trim(), caps}).catch(e => ({ok: false, error: e && e.message}));
+    if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
+    toast('Το πρότυπο «' + nm.trim() + '» αποθηκεύτηκε');
+  };
+  syncParents();  $$('[data-tdep]', dr).forEach(ch => ch.onchange = () =>
     ch.closest('.tm-area').classList.toggle('on', ch.checked));
   $('#tmSave', dr).onclick = async () => {
     await api('save_team', {id: t.id, name: $('#tmN').value.trim() || t.name,
@@ -2056,7 +2165,7 @@ R.projects = async function () {
     <div class="kb-srow">
       <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
         <input class="inp" id="prQ" placeholder="Ψάξε έργο — όνομα, πελάτη, κατάσταση…" value="${esc(st.q)}"></div>
-      ${d.canManage ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
+      ${d.canRecur ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
       ${d.canCreate ? `<button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
     </div>
   </div>
@@ -2149,7 +2258,7 @@ R.projects = async function () {
       <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
         <button class="btn btn-p" id="pjSave">Αποθήκευση</button>
         ${p.id ? `<button class="btn btn-o" id="pjArch">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button>` : ''}
-        ${p.id && d.canManage ? `<button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
+        ${p.id && d.canDelete ? `<button class="btn btn-o" id="pjDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή έργου</button>` : ''}</div>
     </div></div>
     ${p.id && p.canPmNotes ? `<div class="card pm-notes"><div class="card-h">${I.lock} Σημειώσεις υπεύθυνου έργου
         <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">ιδιωτικές — δεν τις βλέπει κανένας εμπλεκόμενος</span></div>

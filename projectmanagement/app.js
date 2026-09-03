@@ -151,18 +151,20 @@ const typeOf = id => S.boot.types.find(t => t.id === +id);
 
 function renderShell() {
   const me = S.boot.me;
-  const has = a => me.full || (me.areas || []).includes(a);
+  /* Το δικαίωμα είναι πια **δυνατότητα** μέσα σε ενότητα: `projects.board`.
+     Όποιος κρατά ολόκληρη την ενότητα (`projects`) τις έχει όλες. */
+  const caps = me.caps || [];
+  const has = c => me.full || caps.includes(c)
+    || (me.areas || []).includes(c.includes('.') ? c.split('.')[0] : c);
   /* ── Το μενού ΕΙΝΑΙ τα δικαιώματα ────────────────────────────────────
-     Κάθε ενότητα απαντά σε μία ερώτηση και κρατάει ΕΝΑ δικαίωμα, με το ίδιο
-     όνομα: τσεκάρεις «Πελάτες» στην ομάδα και εμφανίζεται η ενότητα «Πελάτες».
-     Πριν, μια ενότητα μπορούσε να θέλει δύο ή τρία δικαιώματα (οι «Πελάτες»
-     ήθελαν υποστήριξη + πωλήσεις, η «Διοίκηση» τρία), και ο διαχειριστής δεν
-     είχε τρόπο να ξέρει τι θα δει ο χειριστής αφού τσεκάρει κάτι.
-     Οι δύο ενότητες χωρίς δικαίωμα («Τα δικά μου», «Η ομάδα») είναι η δική σου
-     δουλειά και η συνεννόηση: δεν κλειδώνονται, γιατί χωρίς αυτές δεν
-     δουλεύει κανείς. Η σειρά εδώ είναι η σειρά που βλέπεις. */
+     Κάθε ενότητα απαντά σε μία ερώτηση· κάθε στοιχείο της κρατά τη δική του
+     δυνατότητα. Έτσι μπορείς να δώσεις το Board χωρίς τα Modules, ή τις
+     Αναστολές χωρίς την Κερδοφορία. Ενότητα που δεν έμεινε με κανένα ορατό
+     στοιχείο εξαφανίζεται μόνη της.
+     Οι δύο χωρίς δικαίωμα («Τα δικά μου», «Η ομάδα») είναι η δική σου δουλειά
+     και η συνεννόηση: δεν κλειδώνονται, γιατί χωρίς αυτές δεν δουλεύει κανείς. */
   const groups = [
-    ['Τα δικά μου', null, 'ό,τι αφορά εμένα σήμερα', [
+    ['Τα δικά μου', 'ό,τι αφορά εμένα σήμερα', [
       ['myday', I.sun, 'Η μέρα μου'],
       ['todos', I.checkSquare, 'Το πλάνο μου'],
       ['time', I.clock, 'Ο χρόνος μου'],
@@ -170,55 +172,55 @@ function renderShell() {
       ['vault', I.key, 'Κωδικοί'],
       ['profile', I.contact || I.user, 'Το προφίλ μου'],
     ]],
-    ['Πελάτες', 'clients', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
-      ['client360', I.user, 'Πελάτης 360°'],
-      ['crm', I.target, 'CRM & leads'],
-      ['offers', I.doc, 'Προσφορές'],
+    ['Πελάτες', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
+      ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
+      ['crm', I.target, 'CRM & leads', 'clients.crm'],
+      ['offers', I.doc, 'Προσφορές', 'clients.offers'],
     ]],
-    ['Υποστήριξη', 'support', 'τα αιτήματα που περιμένουν απάντηση', [
-      ['inbox', I.ticket, 'Tickets'],
-      ['knowledge', I.book, 'Βάση γνώσης'],
+    ['Υποστήριξη', 'τα αιτήματα που περιμένουν απάντηση', [
+      ['inbox', I.ticket, 'Tickets', 'support.tickets'],
+      ['knowledge', I.book, 'Βάση γνώσης', 'support.kb'],
     ]],
-    ['Έργα & υλοποιήσεις', 'projects', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
-      ['projects', I.folder, 'Έργα πελατών'],
-      ['board', I.board, 'Board'],
-      ['list', I.list, 'Λίστα εργασιών'],
-      ['gantt', I.gantt, 'Χρονοδιάγραμμα'],
-      ['templates', I.box, 'Modules'],
-      ['units', I.tree, 'Departments'],
+    ['Έργα & υλοποιήσεις', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
+      ['projects', I.folder, 'Έργα πελατών', 'projects.portfolio'],
+      ['board', I.board, 'Board', 'projects.board'],
+      ['list', I.list, 'Λίστα εργασιών', 'projects.board'],
+      ['gantt', I.gantt, 'Χρονοδιάγραμμα', 'projects.board'],
+      ['templates', I.box, 'Modules', 'projects.modules'],
+      ['units', I.tree, 'Departments', 'projects.depts'],
     ]],
-    ['Η ομάδα', null, 'συνεννόηση και διαθεσιμότητα', [
+    ['Η ομάδα', 'συνεννόηση και διαθεσιμότητα', [
       ['chat', I.chat || I.ticket, 'Chat'],
       ['calendar', I.cal, 'Ημερολόγιο'],
       ['standup', I.clipboard, 'Standup'],
       ['remotebook', I.monitor, 'Απομακρυσμένες'],
     ]],
-    ['Προαγορά χρόνου', 'prepaid', 'πόσο χρόνο έχουν αγοράσει, πόσο έχει μείνει, τι δεν καλύφθηκε', [
-      ['prepaid', I.clock, 'Υπόλοιπα πελατών'],
-      ['uncovered', I.alert, 'Ακάλυπτος χρόνος'],
+    ['Προαγορά χρόνου', 'πόσο χρόνο έχουν αγοράσει, πόσο έχει μείνει, τι δεν καλύφθηκε', [
+      ['prepaid', I.clock, 'Υπόλοιπα πελατών', 'prepaid.view'],
+      ['uncovered', I.alert, 'Ακάλυπτος χρόνος', 'prepaid.view'],
     ]],
-    ['Αναφορές & απόδοση', 'reports', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
-      ['activity', I.zap, 'Δραστηριότητα'],
-      ['triage', I.flag, 'Πλάνο ημέρας'],
-      ['kpi', I.chart, 'KPI Dashboard'],
-      ['rootcause', I.chart, 'Ανάλυση ριζών'],
-      ['perf', I.chart, 'Απόδοση χειριστών'],
+    ['Αναφορές & απόδοση', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
+      ['activity', I.zap, 'Δραστηριότητα', 'reports.activity'],
+      ['triage', I.flag, 'Πλάνο ημέρας', 'reports.triage'],
+      ['kpi', I.chart, 'KPI Dashboard', 'reports.kpi'],
+      ['rootcause', I.chart, 'Ανάλυση ριζών', 'reports.rootcause'],
+      ['perf', I.chart, 'Απόδοση χειριστών', 'reports.perf'],
     ]],
-    ['Οικονομικά', 'finance', 'τι μπαίνει, τι βγαίνει, τι δεν πληρώθηκε', [
-      ['profit', I.coin, 'Κερδοφορία'],
-      ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών'],
-      ['suspend', I.alert, 'Αναστολές'],
+    ['Οικονομικά', 'τι μπαίνει, τι βγαίνει, τι δεν πληρώθηκε', [
+      ['profit', I.coin, 'Κερδοφορία', 'finance.profit'],
+      ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών', 'finance.paytrace'],
+      ['suspend', I.alert, 'Αναστολές', 'finance.suspend'],
     ]],
-    ['Προσλήψεις', 'hr', 'υποψήφιοι & αξιολογήσεις', [
-      ['recruit', I.contact || I.users, 'Βιογραφικά'],
+    ['Προσλήψεις', 'υποψήφιοι & αξιολογήσεις', [
+      ['recruit', I.contact || I.users, 'Βιογραφικά', 'hr.cv'],
     ]],
-    ['Σύστημα', 'admin', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
-      ['teams', I.tree, 'Ομάδες & δικαιώματα'],
-      ['settings', I.gear, 'Ρυθμίσεις'],
+    ['Σύστημα', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
+      ['teams', I.tree, 'Ομάδες & δικαιώματα', 'admin.teams'],
+      ['settings', I.gear, 'Ρυθμίσεις', 'admin.settings'],
     ]],
-  ];
+  ].map(([title, hint, items]) => [title, hint, items.filter(it => !it[3] || has(it[3]))]);
   // Ενότητα χωρίς στοιχεία δεν εμφανίζεται καθόλου.
-  const nav = groups.filter(g => !g[1] || has(g[1])).map(g => [g[0], g[3], g[2]]);
+  const nav = groups.filter(g => g[2].length).map(g => [g[0], g[2], g[1]]);
   nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']], 'πώς δουλεύει το εργαλείο']);
   $('#app').innerHTML = `
   <div class="shell${(localStorage.cnpSideCollapsed === '1' && !matchMedia('(max-width:768px)').matches) ? ' collapsed' : ''}">
@@ -1359,7 +1361,7 @@ async function openTask(id) {
           <div class="mut" style="font-size:11px">${t.billOk
             ? `${esc(t.billOkBy ? adminName(t.billOkBy) : '')}${t.billOkAt ? ' · ' + tShort(t.billOkAt) : ''}`
             : `${fmtMin(billMins)} χρεώσιμος χρόνος — η εργασία δεν κλείνει πριν εγκριθεί`}</div></div>
-        ${(me.areas || []).includes('finance')
+        ${cnpCan('finance.billing_ok')
           ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
           : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
       </div>` : ''}
@@ -2274,12 +2276,21 @@ function scrollActiveIntoView() {
   const el = document.querySelector('.sitem.on');
   if (el && el.scrollIntoView) { el.scrollIntoView({block: 'nearest'}); }
 }
+/** Έχει ο τρέχων χειριστής τη δυνατότητα; Δέχεται «ενότητα.δυνατότητα» ή σκέτη ενότητα. */
+function cnpCan(cap) {
+  const me = S.boot && S.boot.me;
+  if (!me) { return false; }
+  if (me.full) { return true; }
+  if ((me.caps || []).includes(cap)) { return true; }
+  return (me.areas || []).includes(cap.includes(".") ? cap.split(".")[0] : cap);
+}
+
 function cnpDenied(err) {
   const msg = (err && err.message) || '';
   return `<div class="empty"><div class="big">${I.lock}</div>${esc(msg) || 'Δεν έχεις πρόσβαση σε αυτή την οθόνη'}
     <div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`;
 }
-window.CNP = {S, api, esc, cnpDenied, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */
