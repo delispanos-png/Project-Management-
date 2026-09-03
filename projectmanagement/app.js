@@ -224,6 +224,7 @@ function renderShell() {
     <aside class="side">
       <div class="brand"><div class="brand-ico">P</div>
         <div class="brand-t">Cloudon<b>Projects</b><small>Project Manager</small></div></div>
+      <nav class="snav">
       ${(() => {
         let openSet = null;
         if (localStorage.cnpNavOpen) { try { openSet = new Set(JSON.parse(localStorage.cnpNavOpen)); } catch (e) {} }
@@ -233,10 +234,11 @@ function renderShell() {
           return `<div class="snav-grp ${open ? 'open' : ''}">
             <button class="sgroup" data-grptoggle="${esc(g)}"${hint ? ` title="${esc(hint)}"` : ''}><span class="sgroup-t">${esc(g)}</span>
               <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
-            <div class="snav-items">${items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}">${ic}<span>${lb}</span></button>`).join('')}</div>
+            <div class="snav-items">${items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}" data-grp="${esc(g)}">${ic}<span>${lb}</span></button>`).join('')}</div>
           </div>`;
         }).join('');
       })()}
+      </nav>
       <div class="side-foot">
         <span class="ava" data-profile style="cursor:pointer" title="Το προφίλ μου">${esc(me.ini)}</span>
         <div data-profile style="cursor:pointer" title="Το προφίλ μου"><div class="side-foot-name">${esc(me.name)}</div>
@@ -316,7 +318,10 @@ function renderShell() {
   $('#sideTgl').onclick = () => {
     const sh = $('.shell'); const col = sh.classList.toggle('collapsed');
     localStorage.cnpSideCollapsed = col ? '1' : '0';
+    sideTipHide();
+    if (col) { scrollActiveIntoView(); }
   };
+  sideTips();
   $('#themeBtn').onclick = () => {
     S.theme = S.theme === 'dark' ? 'light' : 'dark';
     localStorage.cnpTheme = S.theme; document.documentElement.dataset.theme = S.theme;
@@ -2206,12 +2211,74 @@ async function vKpi() {
 /* ───────── exports για views2.js ───────── */
 /* Η άρνηση έρχεται από την πύλη δικαιωμάτων και λέει ΠΟΙΑ ενότητα λείπει.
    Το «Μόνο για διαχειριστές» ήταν λάθος αφότου σπάσαμε τη Διοίκηση σε τρία. */
+/* ───────── Κλειστό μενού: όνομα στο hover ─────────
+   Το tooltip ζει στο <body>, όχι ως ::after μέσα στη στήλη: το .snav κυλάει,
+   και ό,τι βγαίνει από τα όριά του θα κοβόταν. Δείχνει και την ενότητα, γιατί
+   όταν το μενού είναι κλειστό οι επικεφαλίδες δεν φαίνονται πουθενά. */
+let _sideTipEl = null;
+let _sideTipFor = null;
+function sideTipHide() {
+  if (_sideTipEl) { _sideTipEl.remove(); _sideTipEl = null; }
+  _sideTipFor = null;
+}
+/** Τοποθέτηση δίπλα στο εικονίδιο, πάντα μέσα στην οθόνη. */
+function sideTipPlace(btn, t) {
+  const r = btn.getBoundingClientRect();
+  const h = t.offsetHeight;
+  t.style.left = Math.round(r.right + 10) + 'px';
+  t.style.top = Math.round(Math.max(6, Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 6))) + 'px';
+}
+function sideTipShow(btn) {
+  if (_sideTipFor === btn && _sideTipEl) { sideTipPlace(btn, _sideTipEl); return; }
+  sideTipHide();
+  const lb = btn.dataset.lb || '';
+  const gp = btn.dataset.grp || '';
+  if (!lb) { return; }
+  const t = document.createElement('div');
+  t.className = 'side-tip';
+  t.innerHTML = esc(lb) + (gp && gp !== lb ? `<small>${esc(gp)}</small>` : '');
+  document.body.appendChild(t);
+  sideTipPlace(btn, t);
+  _sideTipEl = t;
+  _sideTipFor = btn;
+}
+/** Ένας ακροατής στη στήλη — όχι 34 ακροατές που ξαναδένονται σε κάθε render. */
+function sideTips() {
+  const side = $('.side');
+  if (!side || side._tips) { return; }
+  side._tips = 1;
+  const on = e => {
+    const b = e.target.closest ? e.target.closest('.sitem') : null;
+    if (!b || !document.querySelector('.shell.collapsed')) { sideTipHide(); return; }
+    sideTipShow(b);
+  };
+  side.addEventListener('mouseover', on);
+  side.addEventListener('mouseleave', sideTipHide);
+  side.addEventListener('click', sideTipHide);
+  const nav = $('.snav');
+  if (nav) {
+    nav.addEventListener('scroll', () => {
+      if (!_sideTipFor || !_sideTipEl) { return; }
+      const r = _sideTipFor.getBoundingClientRect();
+      const nr = nav.getBoundingClientRect();
+      // βγήκε από το ορατό μέρος της στήλης → δεν έχει νόημα να δείχνει
+      if (r.bottom < nr.top + 2 || r.top > nr.bottom - 2) { sideTipHide(); return; }
+      sideTipPlace(_sideTipFor, _sideTipEl);
+    }, {passive: true});
+  }
+  addEventListener('resize', sideTipHide);
+}
+/** Μετά το μάζεμα, φέρε το τρέχον κύκλωμα σε κοινή θέα. */
+function scrollActiveIntoView() {
+  const el = document.querySelector('.sitem.on');
+  if (el && el.scrollIntoView) { el.scrollIntoView({block: 'nearest'}); }
+}
 function cnpDenied(err) {
   const msg = (err && err.message) || '';
   return `<div class="empty"><div class="big">${I.lock}</div>${esc(msg) || 'Δεν έχεις πρόσβαση σε αυτή την οθόνη'}
     <div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`;
 }
-window.CNP = {S, api, esc, cnpDenied, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpDenied, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
 
 /* ───────── init ───────── */
