@@ -168,11 +168,24 @@ function cnp_surcharge_sync($invoiceId, $gateway)
         return;
     }
 
-    // Βάση = ό,τι θα εισπράξουμε στην πράξη: σύνολο μετά ΦΠΑ, μείον πίστωση,
-    // χωρίς την προηγούμενη χρέωση (μόλις σβήστηκε).
+    /* Βάση = ό,τι θα εισπράξουμε ΣΤΗΝ ΠΡΑΞΗ μέσω της πύλης: σύνολο μετά ΦΠΑ,
+       μείον πίστωση, μείον όσα έχουν ήδη τακτοποιηθεί ΕΣΩΤΕΡΙΚΑ (πιστωτικά
+       σημειώματα, επιστροφές πίστωσης — εγγραφές χωρίς gateway).
+
+       ΓΙΑΤΙ: όταν ο πελάτης ακυρώνει υπηρεσία «στη λήξη της περιόδου», το WHMCS
+       ΔΕΝ σβήνει τη γραμμή· της αφαιρεί type/relid και εκδίδει πιστωτικό για το
+       ποσό της. Το σύνολο μένει ίδιο, οπότε η χρέωση διεκπεραίωσης υπολογιζόταν
+       πάνω σε ποσό που δεν θα εισπραχθεί ποτέ — και το τιμολόγιο έμενε με
+       υπόλοιπο-φάντασμα που δεν μηδενιζόταν με τίποτα.
+
+       Οι πραγματικές πληρωμές πύλης ΔΕΝ αφαιρούνται: αν τις μετρούσαμε, μετά
+       την πληρωμή η χρέωση θα μηδενιζόταν αναδρομικά. */
     cnp_invoice_recalc($invoiceId);
     $inv = Capsule::table('tblinvoices')->where('id', (int) $invoiceId)->first();
-    $base = (float) $inv->total - (float) $inv->credit;
+    $internal = (float) Capsule::table('tblaccounts')->where('invoiceid', (int) $invoiceId)
+        ->where(function ($q) { $q->whereNull('gateway')->orWhere('gateway', ''); })
+        ->sum(Capsule::raw('amountin - amountout'));
+    $base = (float) $inv->total - (float) $inv->credit - $internal;
 
     if ($base <= 0) {
         return;
@@ -196,6 +209,38 @@ function cnp_surcharge_sync($invoiceId, $gateway)
 
     cnp_invoice_recalc($invoiceId);
 }
+
+/**
+ * Το τιμολόγιο άλλαξε μετά τη δημιουργία του — τυπικά όταν ακυρώνεται γραμμή
+ * ανανέωσης επειδή ο πελάτης ακύρωσε υπηρεσία «στη λήξη της περιόδου».
+ *
+ * Χωρίς αυτό, η χρέωση διεκπεραίωσης έμενε υπολογισμένη στο παλιό, μεγαλύτερο
+ * ποσό και το τιμολόγιο δεν μπορούσε να μηδενιστεί ποτέ.
+ *
+ * Ο φρουρός αναδρομής είναι απαραίτητος: ο συγχρονισμός γράφει στο τιμολόγιο
+ * και θα ξανακαλούσε τον εαυτό του.
+ */
+add_hook('UpdateInvoiceTotal', 1, function ($vars) {
+    static $busy = [];
+    $invoiceId = (int) ($vars['invoiceid'] ?? 0);
+    if (!$invoiceId || isset($busy[$invoiceId])) {
+        return;
+    }
+    $inv = Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
+    if (!$inv || !in_array($inv->status, ['Unpaid', 'Draft', 'Payment Pending'], true)) {
+        return;
+    }
+    if (!isset(CNP_SURCHARGE[(string) $inv->paymentmethod])) {
+        return;   // δεν είναι πύλη με χρέωση — δεν αγγίζουμε τίποτα
+    }
+    $busy[$invoiceId] = true;
+    try {
+        cnp_surcharge_sync($invoiceId, (string) $inv->paymentmethod);
+    } catch (\Throwable $e) {
+        // Ποτέ δεν σπάμε τη ροή τιμολόγησης για μια χρέωση διεκπεραίωσης.
+    }
+    unset($busy[$invoiceId]);
+});
 
 /**
  * Ο πελάτης άλλαξε τρόπο πληρωμής πάνω στο τιμολόγιο. Το WHMCS καλεί αυτό το
