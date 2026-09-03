@@ -624,12 +624,11 @@ table.tbl{width:100%;border-collapse:collapse}
    Με 34 εικονίδια σε οθόνη λάπτοπ το μενού ξεπερνούσε το ύψος της οθόνης: τα
    μισά κυκλώματα έμεναν έξω και το υποσέλιδο (προφίλ, θέμα, έξοδος) ήταν
    άφταστο. Οι ενότητες μπήκαν σε δοχείο που κυλάει με τη ρόδα. */
-.snav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
-  scrollbar-width:thin;scrollbar-color:#ffffff26 transparent;overscroll-behavior:contain}
-.snav::-webkit-scrollbar{width:6px}
-.snav::-webkit-scrollbar-track{background:transparent}
-.snav::-webkit-scrollbar-thumb{background:#ffffff1f;border-radius:99px}
-.snav:hover::-webkit-scrollbar-thumb{background:#ffffff33}
+.snav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+  scrollbar-width:none;-ms-overflow-style:none}
+/* Η μπάρα κύλισης δεν φαίνεται — η κύλιση δουλεύει κανονικά με τη ρόδα και την
+   αφή. Η στήλη είναι στενή και μια ορατή μπάρα κάθεται πάνω στα εικονίδια. */
+.snav::-webkit-scrollbar{width:0;height:0;display:none}
 .side-foot{flex:none}
 /* Κλειστό: οι επικεφαλίδες κρύβονται, άρα η ομαδοποίηση θα χανόταν εντελώς.
    Μια λεπτή γραμμή ανάμεσα στις ενότητες την κρατάει ορατή. */
