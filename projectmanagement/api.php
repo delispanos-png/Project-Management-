@@ -1397,12 +1397,25 @@ function cnp_file_authz($adminId, $FULL, $module)
     return cnp_has_cap($adminId, $FULL, $area);
 }
 /** Blacklist επικίνδυνων επεκτάσεων (executables/scripts). */
+/* Άλλοτε denylist εκτελέσιμων/scripts. Πλέον περιττή — η ασφάλεια δεν στηρίζεται
+   στην κατάληξη αλλά σε τρία επίπεδα: (1) ο φάκελος αποθήκευσης είναι Deny-from-all
+   και ΔΕΝ εκτελεί PHP (επαληθευμένο), (2) τα τοπικά αρχεία γράφονται στον δίσκο με
+   ουδέτερη κατάληξη «.bin» (Storage::store), (3) το file_get σερβίρει inline ΜΟΝΟ
+   παθητικούς τύπους — κώδικας/html/svg φεύγουν πάντα ως attachment με nosniff, οπότε
+   δεν εκτελούνται στον browser. Έτσι επιτρέπονται Excel, PDF, πηγαίος κώδικας και
+   κάθε άλλος τύπος αρχείου με ασφάλεια. */
 function cnp_file_ext_ok($name)
 {
-    $ext = strtolower(pathinfo((string) $name, PATHINFO_EXTENSION));
-    $bad = ['php', 'phtml', 'phar', 'php3', 'php4', 'php5', 'php7', 'pht', 'cgi', 'sh', 'bash', 'exe', 'bat', 'cmd',
-        'com', 'msi', 'htaccess', 'htm', 'html', 'svg', 'js', 'mjs', 'jsp', 'asp', 'aspx', 'pl', 'py', 'rb', 'so'];
-    return $ext !== '' && !in_array($ext, $bad, true);
+    return true;
+}
+/** Ασφαλές για inline προβολή; ΜΟΝΟ παθητικοί τύποι (το svg εκτελεί script → όχι). */
+function cnp_mime_inline_ok($mime)
+{
+    $m = strtolower((string) $mime);
+    if ($m === 'application/pdf') { return true; }
+    if (strpos($m, 'video/') === 0 || strpos($m, 'audio/') === 0) { return true; }
+    if (strpos($m, 'image/') === 0 && $m !== 'image/svg+xml') { return true; }
+    return false;
 }
 /** Εγγραφή μητρώου → payload για frontend (url = proxy/redirect endpoint). */
 function cnp_file_row($rec)
@@ -3201,12 +3214,13 @@ case 'comment':
     if (!$t || !Db::canSeeTask($adminId, $t) || $body === '') {
         fail('input');
     }
-    /* Παραλήπτης υποχρεωτικός: μήνυμα «προς όλους» δεν το διαβάζει κανείς και
-       δεν χρεώνεται σε κανέναν η απάντηση. */
-    $to = ($in['to'] ?? '') !== '' && $in['to'] !== null ? (int) $in['to'] : 0;
-    if ($to <= 0) {
-        fail('Διάλεξε παραλήπτη για το μήνυμα');
-    }
+    /* Παραλήπτης υποχρεωτικός. Δεκτό συγκεκριμένο admin (>0) ή -1 = όλοι οι
+       διαχειριστές (broadcast — το χειρίζεται το Notify::commentTo). Απορρίπτεται
+       μόνο το «κανένας» (κενό/0), αλλιώς το μήνυμα δεν το διαβάζει κανείς. */
+    $toRaw = $in['to'] ?? '';
+    if ($toRaw === '' || $toRaw === null) { fail('Διάλεξε παραλήπτη για το μήνυμα'); }
+    $to = (int) $toRaw;
+    if ($to === 0) { fail('Διάλεξε παραλήπτη για το μήνυμα'); }
     $cid9 = Db::addComment($tid, $adminId, mb_substr($body, 0, 60000), $to);
     Notify::commented($tid, $adminId, $body);
     if ($to !== null) {
@@ -6818,18 +6832,19 @@ case 'file_get':                          // προβολή/λήψη (s3→302 p
     if (!$rec) { fail('file', 404); }
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('file', 403); }
     if ($rec['module'] === 'library' && !cnp_lib_can($adminId, (int) $rec['ref_id'])) { fail('file', 403); }
-    $dl = !empty($_GET['dl']);
+    $mime = $rec['mime'] ?: 'application/octet-stream';
+    /* Inline μόνο για παθητικούς τύπους· ό,τι θα μπορούσε να εκτελεστεί (html, svg,
+       πηγαίος κώδικας) φεύγει ως λήψη — ακόμη κι αν ο τύπος έρθει «πειραγμένος». */
+    $dl = !empty($_GET['dl']) || !cnp_mime_inline_ok($mime);
     if ($rec['driver'] === 's3') {
         header('Location: ' . Storage::presign($rec['id'], 300, $dl), true, 302);
         exit;
     }
     $stream = Storage::openRead($rec['id']);
     if (!$stream) { fail('file', 404); }
-    $mime = $rec['mime'] ?: 'application/octet-stream';
-    $previewable = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0 || strpos($mime, 'video/') === 0 || strpos($mime, 'audio/') === 0);
     header('Content-Type: ' . $mime);
     header('X-Content-Type-Options: nosniff');
-    header('Content-Disposition: ' . (($dl || !$previewable) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($rec['orig_name'] ?: 'file') . '"');
+    header('Content-Disposition: ' . ($dl ? 'attachment' : 'inline') . '; filename="' . rawurlencode($rec['orig_name'] ?: 'file') . '"');
     if ($rec['size']) { header('Content-Length: ' . (int) $rec['size']); }
     fpassthru($stream); fclose($stream); exit;
 

@@ -187,7 +187,10 @@ class Storage
         $ext = pathinfo($orig, PATHINFO_EXTENSION);
         $driver = self::driver();
         $bucket = $driver === 's3' ? self::bucket() : '';
-        $key = self::newKey($module, $ext, $driver);
+        /* Τοπικά: ουδέτερη κατάληξη στον δίσκο (.bin) ώστε κανένα αρχείο (π.χ. .php,
+           .svg) να μη μπορεί να εκτελεστεί/σερβιριστεί ως ενεργό. Η πραγματική
+           κατάληξη & ο τύπος ζουν στο μητρώο και χρησιμοποιούνται στο κατέβασμα. */
+        $key = self::newKey($module, $driver === 's3' ? $ext : 'bin', $driver);
 
         if (!empty($opts['src'])) {
             $size = (int) @filesize($opts['src']);
