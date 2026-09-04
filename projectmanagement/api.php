@@ -1409,6 +1409,30 @@ function cnp_file_ext_ok($name)
 {
     return true;
 }
+/* Αυτόματος αριθμός προσφοράς: CLD-<έτος>-<ΕΕ><5ψήφιος αύξων>. Ο μετρητής ζει
+   στις ρυθμίσεις· «peek» δείχνει τον επόμενο (για preview), «reserve» τον κρατά
+   ατομικά στο save ώστε κάθε προσφορά να έχει μοναδικό αριθμό. */
+function cnp_offer_protocol_fmt($seq)
+{
+    return 'CLD-' . date('Y') . '-' . date('y') . str_pad((string) (int) $seq, 5, '0', STR_PAD_LEFT);
+}
+function cnp_offer_protocol_peek()
+{
+    $seq = (int) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'offer_protocol_seq')->value('value') ?: 0);
+    return cnp_offer_protocol_fmt($seq + 1);
+}
+function cnp_offer_protocol_reserve()
+{
+    $q = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'offer_protocol_seq');
+    if (!$q->exists()) {
+        Capsule::table('tbladdonmodules')->insert(['module' => 'cloudonprojects', 'setting' => 'offer_protocol_seq', 'value' => '0']);
+    }
+    Capsule::connection()->update("UPDATE tbladdonmodules SET value = CAST(value AS UNSIGNED) + 1 WHERE module = 'cloudonprojects' AND setting = 'offer_protocol_seq'");
+    $seq = (int) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'offer_protocol_seq')->value('value') ?: 1);
+    return cnp_offer_protocol_fmt($seq);
+}
 /** Ασφαλές για inline προβολή; ΜΟΝΟ παθητικοί τύποι (το svg εκτελεί script → όχι). */
 function cnp_mime_inline_ok($mime)
 {
@@ -4204,6 +4228,7 @@ case 'pharmacy_defs':                    // ο κατάλογος: παράμε�
         'defaults' => ['p' => Pharmacy::defaultParams(), 'yn' => Pharmacy::defaultModules(),
             'r' => Pharmacy::defaultRates()],
         'hourRate' => Pharmacy::HOUR_RATE,
+        'nextProtocol' => cnp_offer_protocol_peek(),
         'me' => Db::adminName($adminId)]);
 
 case 'pharmacy_calc':                    // ζωντανή προεπισκόπηση καθώς αλλάζεις παραμέτρους
@@ -4306,6 +4331,11 @@ case 'pharmacy_save':                    // δημιουργία / ενημέρ�
     $nm9 = trim((string) ($in['clientName'] ?? $cfg9['o']['client'] ?? ''));
     if ($cid9 && $nm9 === '') { $nm9 = clientLabel($cid9); }
     $cfg9['o']['client'] = $nm9;
+    /* Αυτόματος αριθμός: μόνο για νέα προσφορά όταν δεν έχει οριστεί ρητά. */
+    $prot9 = trim((string) ($cfg9['o']['protocol'] ?? ''));
+    if (!$oid9 && ($prot9 === '' || substr($prot9, -1) === '-')) {
+        $cfg9['o']['protocol'] = cnp_offer_protocol_reserve();
+    }
     $title9 = mb_substr(trim((string) ($in['title'] ?? '')) ?: ($ed9['name'] . ' — ' . ($nm9 ?: 'νέος πελάτης')), 0, 200);
     $amount9 = Pharmacy::offerAmount($cfg9);
 

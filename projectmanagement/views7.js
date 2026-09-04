@@ -51,7 +51,7 @@ async function openPharmacy(offerId, pre) {
       r: Object.assign({}, defs.defaults.r), sel: 2,
       ed: defs.editions.map(e => ({price: e.price, extraUser: e.extraUser})),
       o: {seller: defs.me || '', city: 'Αθήνα', vat: 24, validDays: 30, prepay: 50, discount: 0,
-        protocol: 'CLD-' + new Date().getFullYear() + '-', date: new Date().toISOString().slice(0, 10)}},
+        protocol: defs.nextProtocol || ('CLD-' + new Date().getFullYear() + '-'), date: new Date().toISOString().slice(0, 10)}},
     calc: null,
   };
   if (offerId) {
@@ -71,6 +71,15 @@ async function openPharmacy(offerId, pre) {
     paintNumbers();
   };
   const touch = () => { clearTimeout(phTimer); phTimer = setTimeout(recalc, 220); };
+  /* Μετά από ΑΑΔΕ/AI, γράψε τα αντλημένα στοιχεία στα ορατά πεδία (χωρίς rerender). */
+  const syncDoc = () => {
+    $$('[data-o]', body).forEach(inp => {
+      const k = inp.dataset.o;
+      if (k in st.cfg.o) { inp.value = st.cfg.o[k] === undefined || st.cfg.o[k] === null ? '' : st.cfg.o[k]; }
+    });
+    const w = $('#phWho', body); if (w) { w.value = st.clientName || ''; }
+    const a = $('#phAfm', body); if (a) { a.value = st.cfg.o.afm || ''; }
+  };
 
   /* ── σκελετός ── */
   const shell = () => {
@@ -142,8 +151,10 @@ async function openPharmacy(offerId, pre) {
       const addr = [dd.street, dd.postcode, dd.city].filter(Boolean).join(', ');
       if (addr) { st.cfg.o.address = addr; }
       if (dd.kad) { st.cfg.o.activity = dd.kad; }
+      if (dd.city) { st.cfg.o.city = dd.city; }
       if (stEl) { stEl.textContent = (dd.active === false ? '⚠ ανενεργό ΑΦΜ — ' : '✓ ') + (dd.name || ''); }
-      if (st.tab === 'doc') { pane(); }
+      syncDoc();
+      if (st.tab === 'doc') { renderDoc(); }
     };
     $('#phAade', body).onclick = () => aade(st.cfg.o.afm || '');
     $('#phAI', body).onclick = () => openAiDraft(aade);
@@ -180,6 +191,7 @@ async function openPharmacy(offerId, pre) {
         const m = q('#aiMsg'); m.hidden = false; m.textContent = (r && r.err) || 'Δεν κατάλαβα — δοκίμασε πιο συγκεκριμένα'; return; }
       /* Ο server επιστρέφει κανονικοποιημένη & επικυρωμένη ρύθμιση — τη δεχόμαστε ως αλήθεια. */
       st.cfg = r.cfg;
+      if (!st.offer && defs.nextProtocol) { st.cfg.o.protocol = defs.nextProtocol; }
       st.clientName = r.cfg.o.client || '';
       st.tab = 'setup';
       close();
