@@ -508,23 +508,105 @@ class Pharmacy
             'tag' => 'more than software', 'w' => '44mm'];
     }
 
-    private static function head($both = false)
+    /* Τα συμφραζόμενα της τρέχουσας κεφαλίδας/υποσέλιδου — γεμίζουν στην αρχή του docHtml. */
+    private static $run = '';
+    private static $ref = '';
+    private static $pages = 13;
+
+    /** Και τα δύο σήματα μαζί (εξώφυλλο). */
+    private static function logos()
     {
-        $h = '<div class="lg"><img class="c" src="' . self::LOGO_CLOUDON . '" alt="CloudOn">';
-        if ($both) {
-            $lg = self::partnerLogo();
-            $h .= '<div class="s"><img src="' . $lg['src'] . '" alt="' . self::e($lg['alt'])
-                . '" style="width:' . $lg['w'] . '">'
-                . ($lg['tag'] ? '<span>' . self::e($lg['tag']) . '</span>' : '') . '</div>';
-        }
-        return $h . '</div>';
+        $lg = self::partnerLogo();
+        return '<div class="clogos"><img class="c" src="' . self::LOGO_CLOUDON . '" alt="CloudOn">'
+            . '<div class="s"><img src="' . $lg['src'] . '" alt="' . self::e($lg['alt'])
+            . '" style="width:' . $lg['w'] . '">'
+            . ($lg['tag'] ? '<span>' . self::e($lg['tag']) . '</span>' : '') . '</div></div>';
     }
 
-    /** Μία σελίδα Α4 με τον αριθμό της κάτω δεξιά, όπως στο έντυπο. */
-    private static function pg($body, $n, $cls = '', $both = false)
+    /** Τρέχουσα κεφαλίδα εσωτερικής σελίδας: σήμα αριστερά, τι διαβάζεις δεξιά. */
+    private static function head()
     {
-        return '<div class="page' . ($cls ? ' ' . $cls : '') . '">' . self::head($both)
-            . $body . '<div class="pnum">' . $n . '</div></div>';
+        return '<div class="lg"><img class="c" src="' . self::LOGO_CLOUDON . '" alt="CloudOn">'
+            . '<div class="run">' . self::e(self::$run) . '</div></div>';
+    }
+
+    /** Μία σελίδα Α4 με κεφαλίδα, υποσέλιδο και αρίθμηση «ν / σύνολο». */
+    private static function pg($body, $n, $cls = '')
+    {
+        $cover = strpos($cls, 'cover') !== false;
+        return '<div class="page' . ($cls ? ' ' . $cls : '') . '">'
+            . ($cover ? '' : self::head())
+            . $body
+            . '<div class="foot"><span>' . self::e(self::$ref) . '</span>'
+            . '<span class="pn"><b>' . $n . '</b> / ' . self::$pages . '</span></div></div>';
+    }
+
+    /** Μια σελίδα προς σύνθεση — αριθμείται στο τέλος, όταν ξέρουμε πόσες βγήκαν. */
+    private static function mk($body, $cls = '')
+    {
+        return ['b' => $body, 'c' => $cls];
+    }
+
+    /* Ύψη σε χιλιοστά, μετρημένα πάνω στο ίδιο το έντυπο (docCss). Αν αλλάξει το
+       στυλ των πινάκων, αυτά είναι που πρέπει να ξαναμετρηθούν. */
+    const MM_PAGE   = 251;   // περιεχόμενο μιας σελίδας Α4, μετά κεφαλίδα/υποσέλιδο
+    const MM_HEAD   = 26;    // η τρέχουσα κεφαλίδα με το κενό της
+    const MM_ROW    = 10.7;  // γραμμή πίνακα κόστους
+    const MM_ROWQ   = 15.9;  // …με υπογραμμή ποσότητας
+    const MM_THEAD  = 7.6;   // επικεφαλίδα πίνακα κόστους
+    const MM_TOTAL  = 12;    // γραμμή συνόλου
+    const MM_GAP    = 9;     // κενό κάτω από πίνακα
+    const MM_MROW   = 9.5;   // γραμμή πίνακα ενοτήτων
+    const MM_MGRP   = 10.1;  // …επικεφαλίδα ομάδας
+    const MM_MTHEAD = 7.1;
+
+    /** Πόσα χιλιοστά πιάνει μια γραμμή· η ποσότητα προσθέτει δεύτερη σειρά. */
+    private static function rowMm($l)
+    {
+        return empty($l['qty']) ? self::MM_ROW : self::MM_ROWQ;
+    }
+
+    /**
+     * Ο πίνακας ενός κάδου κομμένος σε όσα κομμάτια χρειάζεται για να χωρέσει.
+     * Επιστρέφει [['u' => χιλιοστά, 'h' => html], …] — το σύνολο μπαίνει μόνο στο τελευταίο.
+     * Χωρίς αυτό, μια προσφορά με πολλά modules ξεχείλιζε από το φύλλο Α4 και η
+     * αρίθμηση των σελίδων έλεγε ψέματα.
+     */
+    private static function bucketChunks($bk, $lines, $budget, $extraTop = [])
+    {
+        $rows = array_merge($extraTop, $lines);
+        if (!$rows) { return []; }
+        $total = 0;
+        foreach ($lines as $l) { $total += $l['amount']; }
+        $head = '<table class="p"><thead><tr><th>' . $bk[0] . '</th><th class="n">'
+            . self::e($bk[2] ?: 'Αξία') . '</th></tr></thead><tbody>';
+        $cont = '<table class="p"><thead><tr><th>' . $bk[0]
+            . ' <span class="cont">συνέχεια</span></th><th class="n">'
+            . self::e($bk[2] ?: 'Αξία') . '</th></tr></thead><tbody>';
+        $out = [];
+        $body = ''; $u = self::MM_THEAD; $first = true;
+        $n = count($rows);
+        foreach ($rows as $x => $l) {
+            $ru = self::rowMm($l);
+            $last = ($x === $n - 1);
+            $need = $u + $ru + ($last ? self::MM_TOTAL : 0);
+            if ($body !== '' && $need > $budget) {
+                $out[] = ['u' => $u, 'h' => ($first ? $head : $cont) . $body . '</tbody></table>'];
+                $body = ''; $u = self::MM_THEAD; $first = false;
+            }
+            $sub = !empty($l['sub']);
+            $body .= '<tr' . ($sub ? ' class="sub"' : '') . '>'
+                . '<td class="d">' . self::e($l['lab'])
+                . (!empty($l['qty']) ? '<span class="q">' . self::e($l['qty']) . '</span>' : '')
+                . '</td><td class="n' . (array_key_exists('amount', $l) ? '' : ' nt') . '">'
+                . (array_key_exists('amount', $l) ? self::fmtEur($l['amount']) : self::e($l['note'] ?? ''))
+                . '</td></tr>';
+            $u += $ru;
+        }
+        $body .= '<tr class="tot"><td>' . self::e($bk[1]) . '</td><td class="n">'
+            . self::fmtEur($total) . '</td></tr>';
+        $out[] = ['u' => $u + self::MM_TOTAL, 'h' => ($first ? $head : $cont) . $body . '</tbody></table>'];
+        return $out;
     }
 
     /**
@@ -538,11 +620,10 @@ class Pharmacy
         $total = 0;
         foreach ($lines as $l) { $total += $l['amount']; }
         $h = '<table class="p"><thead><tr><th>' . $bk[0] . '</th><th class="n">'
-            . self::e($bk[2]) . '</th></tr></thead><tbody>';
-        $k = 0;
+            . self::e($bk[2] ?: 'Αξία') . '</th></tr></thead><tbody>';
         foreach ($rows as $l) {
             $sub = !empty($l['sub']);
-            $h .= '<tr class="' . ($k++ % 2 ? 'alt' : '') . ($sub ? ' sub' : '') . '">'
+            $h .= '<tr' . ($sub ? ' class="sub"' : '') . '>'
                 . '<td class="d">' . self::e($l['lab'])
                 . (!empty($l['qty']) ? '<span class="q">' . self::e($l['qty']) . '</span>' : '')
                 . '</td><td class="n' . (array_key_exists('amount', $l) ? '' : ' nt') . '">'
@@ -557,101 +638,215 @@ class Pharmacy
     public static function docCss()
     {
         return <<<'CSS'
+:root{
+  --ink:#0B1B2E; --body:#3B4B60; --mut:#7C8BA0; --faint:#A7B3C4;
+  --line:#E4EAF2; --hair:#EFF3F8; --tint:#F6F9FD;
+  --acc:#0090DD; --acc-d:#0A6FAF; --acc-t:#E9F4FC; --acc-w:#F4FAFE;
+  --red:#DF2438; --navy:#0C2544;
+}
 *{box-sizing:border-box}
-body{margin:0;padding:16px;background:#eef1f5;color:#1a1a1a;
-  font:11pt/1.45 Calibri,Carlito,"Segoe UI",system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{position:relative;width:210mm;min-height:297mm;margin:0 auto 16px;padding:16mm 18mm 16mm;
-  background:#fff;box-shadow:0 1px 8px rgba(15,32,56,.2)}
-.pnum{position:absolute;right:18mm;bottom:10mm;font-size:10pt;color:#333}
-.lg{display:flex;align-items:flex-start;justify-content:space-between;gap:10mm;margin-bottom:9mm}
-.lg img.c{width:46mm;height:auto}
-.lg .s{text-align:right;align-self:center}
-.lg .s img{width:44mm;height:auto;display:block}
-.lg .s span{display:block;font-size:8pt;letter-spacing:.2em;color:#5a6672;margin-top:1.5mm}
-h1.sec{color:#2E74B5;font-size:16pt;font-weight:700;margin:0 0 5mm}
-h2.sub{color:#2E74B5;font-size:12.5pt;font-weight:700;margin:7mm 0 3mm}
+body{margin:0;padding:20px;background:#E9EDF3;color:var(--body);
+  font:10pt/1.55 "Segoe UI Variable Text","Segoe UI",Inter,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  font-feature-settings:"kern" 1,"liga" 1;-webkit-font-smoothing:antialiased;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{position:relative;width:210mm;min-height:297mm;margin:0 auto 20px;padding:14mm 18mm 18mm;
+  background:#fff;box-shadow:0 2px 4px rgba(11,27,46,.06),0 18px 40px -18px rgba(11,27,46,.28)}
+
+/* ── τρέχουσα κεφαλίδα & υποσέλιδο ── */
+.lg{display:flex;align-items:center;justify-content:space-between;gap:10mm;
+  padding-bottom:4mm;border-bottom:1px solid var(--line);margin-bottom:9mm}
+.lg img.c{width:34mm;height:auto;display:block}
+.lg .run{font-size:8pt;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  text-align:right;max-width:95mm;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.foot{position:absolute;left:18mm;right:18mm;bottom:9mm;display:flex;justify-content:space-between;
+  align-items:baseline;padding-top:3mm;border-top:1px solid var(--hair);
+  font-size:8pt;letter-spacing:.06em;color:var(--faint)}
+.foot .pn{font-variant-numeric:tabular-nums;color:var(--mut)}
+.foot .pn b{color:var(--ink);font-weight:700}
+
+/* ── τυπογραφία ── */
+.eyebrow{font-size:8pt;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--acc);margin-bottom:3mm}
+h1.sec{color:var(--ink);font-size:18pt;font-weight:700;line-height:1.18;letter-spacing:-.012em;
+  margin:0 0 5mm;display:flex;align-items:baseline;gap:4mm;text-wrap:balance}
+h2.sub{color:var(--ink);font-size:12.5pt;font-weight:700;line-height:1.25;letter-spacing:-.008em;
+  margin:7mm 0 3.5mm;display:flex;align-items:baseline;gap:3.5mm}
 h2.sub:first-of-type{margin-top:0}
-h3.sub3{color:#2E74B5;font-size:11.5pt;font-weight:700;margin:5mm 0 2.5mm}
-p{margin:0 0 3.4mm;text-align:justify}
-ul{margin:0 0 3.4mm;padding-left:7mm}
-li{margin-bottom:1.4mm}
-ul.tick{list-style:none;padding-left:3mm}
-ul.tick>li::before{content:"\2713";color:#2E74B5;font-weight:700;display:inline-block;width:6mm;margin-left:-6mm}
-.mut{color:#5a6672}
-b.br{color:#2E74B5}
+h3.sub3{color:var(--ink);font-size:10.5pt;font-weight:700;margin:6mm 0 2.6mm;
+  display:flex;align-items:baseline;gap:3mm}
+.num{flex:none;font-variant-numeric:tabular-nums;font-weight:700;color:var(--acc);
+  font-size:.68em;letter-spacing:.04em;padding:.9mm 2.2mm;border-radius:2mm;
+  background:var(--acc-t);transform:translateY(-.6mm)}
+p{margin:0 0 3mm;max-width:64em}
+.lead{font-size:11pt;line-height:1.5;color:var(--ink);font-weight:400;margin-bottom:5mm}
+ul{margin:0 0 3.4mm;padding-left:6mm}
+li{margin-bottom:1.3mm;padding-left:1mm}
+li::marker{color:var(--acc)}
+ul.tick{list-style:none;padding-left:0}
+ul.tick>li{position:relative;padding-left:7mm}
+ul.tick>li::before{content:"";position:absolute;left:0;top:1.9mm;width:3.6mm;height:3.6mm;
+  border-radius:50%;background:var(--acc-t);
+  box-shadow:inset 0 0 0 .8mm var(--acc)}
+.mut{color:var(--mut)}
+b.br{color:var(--acc-d)}
+b{color:var(--ink);font-weight:600}
+
 /* ── εξώφυλλο ── */
-.cover .cbox{display:flex;gap:5mm;align-items:stretch;margin-top:4mm}
-.cover .bl{flex:1 1 58%;background:#1F86D0;color:#fff;padding:9mm 7mm;text-align:center}
-.cover .bl .t{font-size:15pt;font-weight:700;line-height:1.35}
-.cover .bl .cl{margin-top:7mm;font-size:14pt;font-weight:700}
-.cover .br2{flex:1 1 38%;background:#EE1C25;color:#fff;padding:9mm 6mm;
-  display:flex;flex-direction:column;justify-content:center;text-align:center;font-size:11pt;line-height:1.6}
+.cover{padding:0;display:flex;flex-direction:column}
+.cover .clogos{display:flex;align-items:center;justify-content:space-between;gap:10mm;
+  padding:16mm 20mm 10mm;border-bottom:0}
+.cover .clogos img.c{width:44mm;height:auto}
+.cover .clogos .s img{height:auto;display:block}
+.cover .clogos .s span{display:block;font-size:8pt;letter-spacing:.2em;color:var(--mut);
+  margin-top:1.5mm;text-align:right}
+.cover .hero{background:linear-gradient(135deg,var(--navy) 0%,#0B3D6E 52%,var(--acc-d) 100%);
+  color:#fff;padding:20mm 20mm 18mm;position:relative;overflow:hidden}
+.cover .hero::after{content:"";position:absolute;right:-30mm;top:-40mm;width:110mm;height:110mm;
+  border-radius:50%;background:rgba(255,255,255,.055)}
+.cover .hero .kick{font-size:8.5pt;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+  color:rgba(255,255,255,.72);margin-bottom:7mm}
+.cover .hero h1{margin:0;font-size:27pt;line-height:1.16;font-weight:700;letter-spacing:-.018em;
+  max-width:135mm;color:#fff}
+.cover .hero .prod{margin-top:7mm;padding-top:6mm;border-top:1px solid rgba(255,255,255,.22);
+  font-size:14pt;font-weight:600;color:#8FD3FF;letter-spacing:-.005em}
+.cover .body{padding:14mm 20mm 0;flex:1}
+.cover .to{border-left:1.2mm solid var(--acc);padding:1mm 0 1mm 6mm}
+.cover .to .k{font-size:8pt;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+.cover .to .v{font-size:16pt;font-weight:700;color:var(--ink);line-height:1.3;margin-top:2mm;
+  letter-spacing:-.01em}
+.cover .meta{display:flex;gap:14mm;margin-top:12mm;padding-top:7mm;border-top:1px solid var(--line)}
+.cover .meta .k{font-size:8pt;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--mut);margin-bottom:1.6mm}
+.cover .meta .v{font-size:11pt;color:var(--ink);font-weight:600}
+
 /* ── επιστολή ── */
-.lh{font-size:11pt;line-height:1.9;margin-bottom:6mm}
-.lh .r{text-align:right;margin-top:5mm}
-.sig{margin-top:8mm}
-.sig .nm{margin-top:12mm;font-weight:600}
+.lh{display:flex;justify-content:space-between;gap:12mm;align-items:flex-start;
+  padding-bottom:5mm;border-bottom:1px solid var(--line);margin-bottom:6mm}
+.lh .k{font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.lh .v{color:var(--ink);font-weight:600;margin-bottom:3mm}
+.lh .v:last-child{margin-bottom:0}
+.lh .rt{text-align:right;flex:none}
+.sig{margin-top:8mm;padding-top:5mm;border-top:1px solid var(--line)}
+.sig .nm{margin-top:11mm;font-weight:700;color:var(--ink);font-size:11pt}
+.sig .co{color:var(--mut);font-size:9.5pt}
+
 /* ── περιεχόμενα ── */
-.toc{margin-top:3mm}
-.toc>div{display:flex;align-items:baseline;gap:2mm;margin-bottom:3mm;font-size:11pt}
-.toc .d{flex:1 1 auto;border-bottom:1.6px dotted #9aa4ad;transform:translateY(-3px)}
-.toc .n{font-variant-numeric:tabular-nums;white-space:nowrap}
-.toc .l1{font-weight:700;color:#2E74B5}
-.toc .l2{padding-left:9mm;font-size:10pt;color:#3a4753}
-.toc .l2 .t{text-transform:uppercase;font-size:9pt;letter-spacing:.02em}
-/* ── πίνακας λογισμικού ── */
-table.m{width:100%;border-collapse:collapse;font-size:10pt;table-layout:fixed}
-table.m th{background:#D9D9D9;color:#2E74B5;font-weight:700;font-size:10.5pt;text-align:left;padding:2.4mm 3mm}
-table.m th.n,table.m td.n{width:40mm;text-align:center}
-table.m td{padding:2.2mm 3mm;border-bottom:2px solid #fff;word-wrap:break-word}
-table.m tr.alt td{background:#F2F2F2}
-table.m tr.grp td{background:#D9D9D9;color:#2E74B5;font-weight:700}
-.dot{display:inline-block;width:2.8mm;height:2.8mm;border-radius:50%;background:#2E9BD6}
+.toc{margin-top:2mm}
+.toc a,.toc>div{display:flex;align-items:baseline;gap:4mm;padding:3.4mm 0;
+  border-bottom:1px solid var(--hair)}
+.toc .tn{flex:0 0 14mm;font-variant-numeric:tabular-nums;font-weight:700;color:var(--acc);font-size:9.5pt}
+.toc .t{flex:1 1 auto;color:var(--ink);font-weight:600}
+.toc .n{flex:none;font-variant-numeric:tabular-nums;color:var(--mut);font-size:9.5pt}
+.toc .l1 .t{font-size:11.5pt}
+.toc .l2{padding-left:8mm}
+.toc .l2 .t{font-weight:400;color:var(--body);font-size:10pt}
+.toc .l2 .tn{font-size:9pt;color:var(--faint)}
+
+/* ── πίνακας ενοτήτων λογισμικού ── */
+table.m{width:100%;border-collapse:collapse;font-size:9.5pt;table-layout:fixed}
+table.m th{text-align:left;padding:0 0 2.6mm;border-bottom:1.4px solid var(--ink);
+  font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
+table.m th.n,table.m td.n{width:32mm;text-align:center}
+table.m td{padding:2mm 2mm;border-bottom:1px solid var(--hair);word-wrap:break-word;vertical-align:top}
+table.m tr.grp td{padding:5mm 2mm 2mm;border-bottom:1px solid var(--line);
+  font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+table.m tr.grp:first-child td{padding-top:3.5mm}
+table.m tr.off td{color:var(--faint)}
+.dot{display:inline-block;width:3.2mm;height:3.2mm;border-radius:50%;background:var(--acc);
+  box-shadow:0 0 0 1.2mm var(--acc-t)}
+.ring{display:inline-block;width:3.2mm;height:3.2mm;border-radius:50%;
+  box-shadow:inset 0 0 0 .5mm var(--line)}
+
 /* ── πίνακες κόστους ── */
-table.p{width:100%;border-collapse:collapse;font-size:10.5pt;margin:0 0 7mm;table-layout:fixed}
-table.p th{background:#DEEBF7;color:#2E74B5;font-weight:700;text-align:left;padding:2.6mm 3mm}
-table.p th.n,table.p td.n{width:37mm;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-table.p td{padding:2.4mm 3mm;border-bottom:2px solid #fff;word-wrap:break-word}
-table.p tr.alt td{background:#F2F2F2}
-table.p tr.sub td.d{padding-left:9mm;position:relative}
-table.p tr.sub td.d::before{content:"\2713";color:#2E74B5;font-weight:700;position:absolute;left:3mm}
-table.p tr.tot td{background:#BDD7EE;color:#1F4E79;font-weight:700}
-table.p .q{display:block;font-size:8.5pt;color:#5a6672;margin-top:.6mm}
-table.p td.nt{font-size:8.5pt;font-weight:700;letter-spacing:-.01em}
-.note{font-size:9.5pt;color:#5a6672;margin-top:-4mm}
-/* ── συγκεντρωτικός ── */
-table.s{width:100%;border-collapse:collapse;font-size:11pt;table-layout:fixed}
-table.s td{background:#DEEBF7;padding:3.2mm;border-bottom:2.5px solid #fff}
-table.s td.l{font-style:italic;font-weight:700;color:#1F4E79}
-table.s td.n{width:44mm;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
-table.s tr.plain td.l{font-style:normal;font-weight:700;color:#1a1a1a}
-table.s tr.disc td{color:#C00000;font-style:italic;font-weight:700}
-table.s tr.head td{height:18mm;text-align:center}
-table.s tr.head img{height:13mm}
-.terms{margin-top:6mm;font-size:10.5pt}
+table.p{width:100%;border-collapse:collapse;font-size:10pt;margin:0 0 9mm;table-layout:fixed}
+table.p th{text-align:left;padding:0 0 2.8mm;border-bottom:1.4px solid var(--ink);
+  font-size:8.5pt;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--ink)}
+table.p th.n,table.p td.n{width:36mm;text-align:right;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+table.p td{padding:2.5mm 2mm;border-bottom:1px solid var(--hair);word-wrap:break-word;vertical-align:top}
+table.p td.d{color:var(--ink)}
+table.p td.n{font-weight:600;color:var(--ink)}
+table.p tr.sub td{border-bottom:1px solid var(--hair)}
+table.p tr.sub td.d{padding-left:9mm;position:relative;color:var(--body)}
+table.p tr.sub td.d::before{content:"";position:absolute;left:2mm;top:4mm;width:2.4mm;height:2.4mm;
+  border-radius:50%;background:var(--acc-t);box-shadow:inset 0 0 0 .7mm var(--acc)}
+table.p tr.tot td{border-top:1.4px solid var(--ink);border-bottom:none;background:var(--acc-w);
+  padding:3mm 2mm;font-weight:700;color:var(--ink);font-size:10.5pt}
+table.p .q{display:block;font-size:8pt;color:var(--mut);margin-top:.8mm;font-weight:400;letter-spacing:.01em}
+table.p td.nt{font-size:8pt;font-weight:700;letter-spacing:.08em;color:var(--acc-d);white-space:nowrap}
+table.p th .cont{font-weight:400;letter-spacing:.1em;color:var(--mut);text-transform:none}
+.note{font-size:9pt;color:var(--mut)}
+
+/* ── συγκεντρωτικοί ── */
+table.s{width:100%;border-collapse:collapse;font-size:10.5pt;table-layout:fixed;margin-bottom:5mm}
+table.s th{text-align:left;padding:0 0 2.8mm;border-bottom:1.4px solid var(--ink);
+  font-size:8.5pt;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--ink)}
+table.s th.n,table.s td.n{width:44mm;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+table.s td{padding:2.6mm 2mm;border-bottom:1px solid var(--hair)}
+table.s td.l{color:var(--body)}
+table.s td.n{font-weight:600;color:var(--ink)}
+table.s tr.plain td{border-top:1px solid var(--line);font-weight:700;color:var(--ink)}
+table.s tr.plain td.l{color:var(--ink)}
+table.s tr.disc td{color:var(--red)}
+table.s tr.disc td.n{color:var(--red);font-weight:700}
+.grand{display:flex;align-items:center;justify-content:space-between;gap:8mm;
+  background:linear-gradient(135deg,var(--navy),#0B3D6E);color:#fff;
+  padding:5mm 7mm;border-radius:2mm;margin-top:2mm}
+.grand .k{font-size:9pt;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+  color:rgba(255,255,255,.78)}
+.grand .v{font-size:18pt;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.015em}
+.terms{margin-top:6mm;display:flex;gap:6mm;flex-wrap:wrap}
+.terms .cell{flex:1 1 60mm;background:var(--tint);border-left:.9mm solid var(--acc);
+  padding:3mm 4mm;border-radius:0 2mm 2mm 0}
+.terms .k{font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.terms .v{color:var(--ink);font-weight:600;margin-top:1mm}
+
 /* ── τράπεζες ── */
-table.b{width:100%;border-collapse:collapse;font-size:10.5pt;margin-top:3mm}
-table.b td{border-bottom:1px solid #cfd7de;padding:3mm;vertical-align:top;line-height:1.75}
-table.b td.k{width:42mm;font-weight:700;color:#2E74B5;font-size:11.5pt}
-table.b b{color:#1a1a1a}
-table.b .on{color:#2E74B5;font-weight:700}
+.banks{display:flex;gap:6mm;margin-top:4mm}
+.bank{flex:1 1 0;border:1px solid var(--line);border-radius:2.5mm;padding:4.5mm;background:var(--tint)}
+.bank .nm{font-size:9pt;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--acc-d);margin-bottom:3mm;padding-bottom:2.5mm;border-bottom:1px solid var(--line)}
+.bank .k{font-size:8pt;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-top:2.6mm}
+.bank .v{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;font-size:9.5pt;
+  letter-spacing:.01em;word-break:normal;overflow-wrap:break-word}
+.pay{display:flex;gap:5mm;margin:5mm 0 7mm}
+.pay .step{flex:1 1 0;border:1px solid var(--line);border-radius:2.5mm;padding:4.5mm}
+.pay .pc{font-size:20pt;font-weight:700;color:var(--acc);line-height:1;letter-spacing:-.02em}
+.pay .pl{margin-top:2.5mm;color:var(--body)}
+
 /* ── έντυπο αποδοχής ── */
-table.f{width:100%;border-collapse:collapse;font-size:11pt;margin-bottom:7mm;table-layout:fixed}
-table.f td{border:1px solid #b9c2cb;padding:2.8mm 3mm;height:10mm}
-table.f td.k{width:34mm}
-table.f td.on{color:#2E74B5;font-weight:700}
-.box{border:1px solid #b9c2cb;margin-bottom:7mm}
-.box .h{text-align:center;padding:2.8mm;border-bottom:1px solid #b9c2cb}
-.box .v{height:28mm}
-.box.sg .v{height:44mm}
-@page{size:A4;margin:14mm 16mm}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:4mm 8mm;margin-bottom:7mm}
+.fgrid .fld{border-bottom:1px solid var(--line);padding-bottom:2mm;min-height:10mm}
+.fgrid .fld.wide{grid-column:1 / -1}
+.fgrid .k{font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--mut);margin-bottom:1.5mm}
+.fgrid .v{color:var(--ink);font-weight:600;min-height:5mm}
+.card{border:1px solid var(--line);border-radius:2.5mm;background:var(--tint);padding:4mm 6mm;margin-bottom:7mm}
+.card .ttl{font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--acc-d);margin-bottom:3mm}
+.card .row{display:flex;gap:4mm;padding:1.8mm 0;border-bottom:1px solid var(--line)}
+.card .row:last-child{border-bottom:none}
+.card .row .k{flex:0 0 34mm;color:var(--mut)}
+.card .row .v{color:var(--ink);font-weight:600}
+.box{border:1px solid var(--line);border-radius:2.5mm;margin-bottom:6mm;overflow:hidden}
+.box .h{padding:3mm 5mm;background:var(--tint);border-bottom:1px solid var(--line);
+  font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.box .v{height:22mm}
+.box.sg .v{height:29mm}
+
+@page{size:A4;margin:12mm 14mm}
 @media print{
   body{background:#fff;padding:0}
-  .page{width:auto;min-height:245mm;margin:0;padding:0;box-shadow:none;
+  .page{width:auto;min-height:262mm;margin:0;padding:0 0 16mm;box-shadow:none;
     break-after:page;page-break-after:always}
+  .page.cover{padding:0}
+  .cover .clogos{padding:0 0 10mm}
+  .cover .hero{padding:18mm 14mm;margin:0 -14mm}
+  .cover .body{padding:14mm 0 0}
   .page:last-child{break-after:auto;page-break-after:auto}
-  .pnum{right:0;bottom:0}
-  table.m tr,table.p tr,table.s tr,table.f tr{break-inside:avoid;page-break-inside:avoid}
+  .foot{left:0;right:0;bottom:2mm}
+  table.m tr,table.p tr,table.s tr,.bank,.box,.grand{break-inside:avoid;page-break-inside:avoid}
+  h1.sec,h2.sub,h3.sub3{break-after:avoid;page-break-after:avoid}
 }
 CSS;
     }
@@ -678,23 +873,37 @@ CSS;
         $prod = $e['soft1'] . ' - Cloud Edition';
         $full = $prod . ' + ' . $e['name'];
         $date = self::longDate($o['date']);
-        $H = '';
-        $n = 0;
+        self::$run = 'Οικονομική Πρόταση · ' . $company;
+        self::$ref = $o['protocol'] !== '' ? 'Αρ. Πρωτοκόλλου ' . $o['protocol'] : 'CloudOn Ι.Κ.Ε.';
+        /* Οι σελίδες συντίθενται πρώτα και αριθμούνται μετά: τα περιεχόμενα δεν μπορούν
+           να δείχνουν σελίδες που δεν έχουν ακόμη προκύψει. */
+        $P = [];
+        $mark = [];
+        /* Χώρος για πίνακες σε μια σελίδα, σε χιλιοστά. */
+        $ROOM  = self::MM_PAGE - self::MM_HEAD;   // σκέτη σελίδα πινάκων
+        $ROOM1 = $ROOM - 32;                      // …με την επικεφαλίδα 2.2 από πάνω
+        $ROOMM = $ROOM - 96;                     // …με τα εισαγωγικά της 2.1 από πάνω
 
         /* ── 1. Εξώφυλλο ── */
-        $H .= self::pg('<div class="cbox">'
-            . '<div class="bl"><div class="t">Οικονομική Πρόταση για την Εγκατάσταση και '
-            . 'Λειτουργία του Πληροφοριακού Συστήματος<br>' . self::e($prod) . '</div>'
-            . '<div class="cl">“ ' . self::e(mb_strtoupper($company, 'UTF-8')) . ' ”</div></div>'
-            . '<div class="br2">' . self::e($date) . '<br>Αρ. Πρωτ/λου: ' . self::e($o['protocol']) . '</div>'
-            . '</div>', ++$n, 'cover', true);
+        $P[] = self::mk(self::logos()
+            . '<div class="hero"><div class="kick">Οικονομική Πρόταση</div>'
+            . '<h1>Για την εγκατάσταση και λειτουργία του πληροφοριακού συστήματος</h1>'
+            . '<div class="prod">' . self::e($prod) . '</div></div>'
+            . '<div class="body"><div class="to"><div class="k">Προς</div>'
+            . '<div class="v">' . self::e(mb_strtoupper($company, 'UTF-8')) . '</div></div>'
+            . '<div class="meta">'
+            . '<div><div class="k">Ημερομηνία</div><div class="v">' . self::e($date) . '</div></div>'
+            . '<div><div class="k">Αρ. Πρωτοκόλλου</div><div class="v">'
+            . self::e($o['protocol']) . '</div></div></div></div>', 'cover');
 
         /* ── 2. Συνοδευτική επιστολή ── */
-        $H .= self::pg('<div class="lh">'
-            . 'Προς: “ ' . self::e($company) . ' ”<br>'
-            . 'Υπόψη: ' . self::e($o['attn'] ?: '……………………') . '<br>'
-            . 'Αριθμός Πρωτοκόλλου: ' . self::e($o['protocol'])
-            . '<div class="r">' . self::e($o['city']) . ', ' . self::e($date) . '</div></div>'
+        $P[] = self::mk('<div class="lh"><div>'
+            . '<div class="k">Προς</div><div class="v">' . self::e($company) . '</div>'
+            . '<div class="k">Υπόψη</div><div class="v">' . self::e($o['attn'] ?: '……………………') . '</div>'
+            . '<div class="k">Αριθμός Πρωτοκόλλου</div><div class="v">' . self::e($o['protocol']) . '</div>'
+            . '</div><div class="rt">'
+            . '<div class="k">' . self::e($o['city']) . '</div>'
+            . '<div class="v">' . self::e($date) . '</div></div></div>'
             . '<p>' . self::e($o['greeting'] ?: 'Αξιότιμοι κύριοι,') . '</p>'
             . '<p>Σε συνέχεια του ενδιαφέροντος που εκδηλώσατε για την εγκατάσταση του λογισμικού Soft1 '
             . 'και της πλατφόρμας PharmacyOne στην επιχείρηση ' . self::e($q) . ', σας παραθέτουμε την '
@@ -715,28 +924,14 @@ CSS;
             . 'το διευρυμένο δίκτυο συνεργατών αποτελούν τα εχέγγυα που διασφαλίζουν την επιτυχή '
             . 'εγκατάσταση του προτεινόμενου συστήματος στην επιχείρησή σας. Παραμένουμε στη διάθεσή σας '
             . 'για οποιαδήποτε συμπληρωματική πληροφορία ή διευκρίνιση.</p>'
-            . '<div class="sig">Με τιμή,<div class="nm">' . self::e($o['seller']) . '</div></div>', ++$n);
+            . '<div class="sig">Με τιμή,<div class="nm">' . self::e($o['seller']) . '</div>'
+            . '<div class="co">CloudOn Ι.Κ.Ε.</div></div>');
 
         /* ── 3. Περιεχόμενα ── */
-        $toc = [
-            ['l1', 'Εισαγωγή', 4], ['l1', '1&nbsp;&nbsp;&nbsp;Soft1 Open Enterprise Edition', 5],
-            ['l1', '2&nbsp;&nbsp;&nbsp;Οικονομική Πρόταση', 6],
-            ['l2', '2.1&nbsp;&nbsp;&nbsp;Προτεινόμενο Λογισμικό', 6],
-            ['l2', '2.2&nbsp;&nbsp;&nbsp;Οικονομική Προσφορά - Λογισμικό ' . self::e($prod), 8],
-            ['l2', '2.3&nbsp;&nbsp;&nbsp;Υπηρεσίες Υλοποίησης Έργου', 10],
-            ['l2', '2.4&nbsp;&nbsp;&nbsp;Συγκεντρωτικοί πίνακες', 11],
-            ['l2', '2.5&nbsp;&nbsp;&nbsp;Τρόπος Πληρωμής', 12],
-            ['l1', '3&nbsp;&nbsp;&nbsp;Παράρτημα B - Έντυπο Αποδοχής Προσφοράς', 13],
-        ];
-        $b3 = '<h1 class="sec">ΠΕΡΙΕΧΟΜΕΝΑ</h1><div class="toc">';
-        foreach ($toc as $r) {
-            $b3 .= '<div class="' . $r[0] . '"><span class="t">' . $r[1] . '</span>'
-                . '<span class="d"></span><span class="n">' . $r[2] . '</span></div>';
-        }
-        $H .= self::pg($b3 . '</div>', ++$n);
+        $P[] = self::mk('%%TOC%%');
 
         /* ── 4. Εισαγωγή ── */
-        $H .= self::pg('<h1 class="sec">Εισαγωγή</h1>'
+        $P[] = self::mk('<h1 class="sec">Εισαγωγή</h1>'
             . '<p>Η παρούσα οικονομική πρόταση αφορά στην προμήθεια, εγκατάσταση και θέση σε λειτουργία '
             . 'πληροφοριακού συστήματος <b>' . self::e($full) . '</b> στην “' . self::e($company) . '”.</p>'
             . '<p>Η διαμόρφωση της πρότασης αυτής προέκυψε με βάση τις απαιτήσεις της ' . self::e($q)
@@ -768,10 +963,10 @@ CSS;
             . 'να προσφέρει ολοκληρωμένες λύσεις για τη μηχανογράφηση επιχειρήσεων που θα ικανοποιούν '
             . 'κάθε απαίτηση λειτουργίας, θα δημιουργούν ανταγωνιστικά πλεονεκτήματα και θα συνδράμουν '
             . 'ουσιαστικά στην ανάπτυξη των επιχειρήσεων στο σύγχρονο, σύνθετο επιχειρηματικό '
-            . 'περιβάλλον.</p>', ++$n);
+            . 'περιβάλλον.</p>');
 
         /* ── 5. Soft1 Open Enterprise Edition ── */
-        $H .= self::pg('<h1 class="sec">1&nbsp;&nbsp;&nbsp;Soft1 Open Enterprise Edition</h1>'
+        $P[] = self::mk('<h1 class="sec"><span class="num">1</span>Soft1 Open Enterprise Edition</h1>'
             . '<p>Η νέα έκδοση <b>Soft1 Open Enterprise Edition</b> χαρακτηρίζει τη νέα γενιά λογισμικού '
             . 'Soft1, απευθύνεται σε κάθε σύγχρονη <b>«ανοικτή επιχείρηση»</b>, ανεξάρτητα από μέγεθος ή '
             . 'κλάδο δραστηριότητας και καλύπτει με τον καλύτερο τρόπο τις απαιτήσεις για:</p>'
@@ -806,27 +1001,26 @@ CSS;
 
         /* ── 6-7. Προτεινόμενο λογισμικό + ο πίνακας των ενοτήτων ── */
         $tbl = self::soft1Table();
-        $split = 18;                     // ίδιο σημείο κοπής με το έντυπο
         $mk = function ($from, $to) use ($tbl, $i) {
-            $h = '<table class="m"><thead><tr><th>Soft1 ERP</th><th class="n">Modules included</th></tr>'
+            $h = '<table class="m"><thead><tr><th>Soft1 ERP</th><th class="n">Περιλαμβάνεται</th></tr>'
                 . '</thead><tbody>';
-            $k = 0;
             for ($x = $from; $x < $to && $x < count($tbl); $x++) {
                 $r = $tbl[$x];
                 if ($r[0] === 'g') {
                     $h .= '<tr class="grp"><td colspan="2">' . self::e($r[1]) . '</td></tr>';
-                    $k = 0;
                     continue;
                 }
                 $on = !empty($r[2][$i]);
                 $lab = !empty($r[3]) ? $r[1] : self::e($r[1]);   // 4ο πεδίο = ήδη HTML
-                $h .= '<tr class="' . ($k++ % 2 ? 'alt' : '') . '"><td>' . $lab . '</td>'
-                    . '<td class="n">' . ($on ? '<span class="dot"></span>' : '') . '</td></tr>';
+                /* Γεμάτη κουκκίδα = μέσα· άδειος δακτύλιος = εκτός. Το κενό κελί άφηνε
+                   τον αναγνώστη να αναρωτιέται αν λείπει η πληροφορία ή η δυνατότητα. */
+                $h .= '<tr' . ($on ? '' : ' class="off"') . '><td>' . $lab . '</td>'
+                    . '<td class="n"><span class="' . ($on ? 'dot' : 'ring') . '"></span></td></tr>';
             }
             return $h . '</tbody></table>';
         };
-        $H .= self::pg('<h1 class="sec">2&nbsp;&nbsp;&nbsp;Οικονομική Πρόταση</h1>'
-            . '<h2 class="sub">2.1&nbsp;&nbsp;&nbsp;Προτεινόμενο Λογισμικό</h2>'
+        $head21 = '<h1 class="sec"><span class="num">2</span>Οικονομική Πρόταση</h1>'
+            . '<h2 class="sub"><span class="num">2.1</span>Προτεινόμενο Λογισμικό</h2>'
             . '<p>Το λογισμικό που προτείνεται με την παρούσα πρόταση για εγκατάσταση και λειτουργία στην '
             . self::e($q) . ' είναι το <b>' . self::e($full) . '</b> που περιλαμβάνεται στην έκδοση '
             . '<b>Soft1 Open Enterprise Edition</b>.</p>'
@@ -834,8 +1028,20 @@ CSS;
             . 'διατίθεται εναλλακτικά σύμφωνα με τους παρακάτω τρόπους διάθεσης:</p>'
             . '<ul><li>Ορισμένου Χρόνου / cloud - Συνδρομητικό Μοντέλο διάθεσης</li></ul>'
             . '<p>και περιλαμβάνει τη λειτουργικότητα των ενοτήτων Λογισμικού που περιγράφονται αναλυτικά '
-            . 'παρακάτω:</p>' . $mk(0, $split), ++$n);
-        $H .= self::pg($mk($split, count($tbl)), ++$n);
+            . 'παρακάτω:</p>';
+        /* Κόβουμε στο όριο της σελίδας, ποτέ αμέσως μετά από επικεφαλίδα ομάδας. */
+        $mark['2.1'] = count($P) + 1;
+        $from = 0; $u = ($ROOM - $ROOMM) + self::MM_MTHEAD; $cut = [];
+        foreach ($tbl as $x => $r) {
+            $ru = $r[0] === 'g' ? self::MM_MGRP : self::MM_MROW;
+            if ($u + $ru > $ROOM) { $cut[] = $x; $u = self::MM_MTHEAD; }
+            $u += $ru;
+        }
+        $cut[] = count($tbl);
+        foreach ($cut as $z => $to) {
+            $P[] = self::mk(($z === 0 ? $head21 : '') . $mk($from, $to));
+            $from = $to;
+        }
 
         /* ── 8-10. Οικονομική προσφορά ── */
         $bk = self::buckets();
@@ -853,19 +1059,30 @@ CSS;
         }
         if ($b1) { array_splice($b1, 2, 0, $inc); }
 
-        $H .= self::pg('<h2 class="sub">2.2&nbsp;&nbsp;&nbsp;Οικονομική Προσφορά - Λογισμικό '
-            . self::e($prod) . '</h2>'
-            . '<p><b>Τρόπος Διάθεσης Λογισμικού:</b> Ορισμένου Χρόνου / Cloud - Συνδρομητικό Μοντέλο διάθεσης</p>'
-            . self::bucketTable($bk[1], $b1)
-            . self::bucketTable($bk[2], $lines[2]), ++$n);
-
-        $H .= self::pg(self::bucketTable($bk[3], $lines[3])
-            . self::bucketTable($bk[4], $lines[4]), ++$n);
-
         $incRow = [['lab' => 'Νομοθετικές ενημερώσεις, Νέες εκδόσεις Λογισμικού, online ηλεκτρονική '
             . 'τεκμηρίωση', 'note' => 'ΠΕΡΙΛΑΜΒΑΝΟΝΤΑΙ']];
-        $H .= self::pg(self::bucketTable($bk[5], $lines[5], $incRow)
-            . '<h2 class="sub">2.3&nbsp;&nbsp;&nbsp;Υπηρεσίες Υλοποίησης Έργου</h2>'
+        $head22 = '<h2 class="sub"><span class="num">2.2</span>Οικονομική Προσφορά - Λογισμικό '
+            . self::e($prod) . '</h2>'
+            . '<p><b>Τρόπος Διάθεσης Λογισμικού:</b> Ορισμένου Χρόνου / Cloud - Συνδρομητικό Μοντέλο διάθεσης</p>';
+        $mark['2.2'] = count($P) + 1;
+        $chunks = [];
+        foreach ([1, 2, 3, 4, 5] as $b) {
+            /* Ο πρώτος κάδος μοιράζεται τη σελίδα με την επικεφαλίδα — παίρνει λιγότερο χώρο. */
+            foreach (self::bucketChunks($bk[$b], $b === 1 ? $b1 : $lines[$b],
+                $b === 1 ? $ROOM1 : $ROOM, $b === 5 ? $incRow : []) as $ch) { $chunks[] = $ch; }
+        }
+        $open = $head22; $u = $ROOM - $ROOM1; $held = 0;
+        foreach ($chunks as $ch) {
+            /* Ποτέ σελίδα με μόνο μια επικεφαλίδα: κόβουμε αφού μπει τουλάχιστον ένας πίνακας. */
+            if ($held > 0 && $u + $ch['u'] > $ROOM) {
+                $P[] = self::mk($open); $open = ''; $u = 0; $held = 0;
+            }
+            $open .= $ch['h'];
+            $u += $ch['u'] + self::MM_GAP;
+            $held++;
+        }
+        /* Η 2.3 είναι σύντομη — μπαίνει στο υπόλοιπο της τελευταίας σελίδας αν χωρά. */
+        $tail23 = '<h2 class="sub"><span class="num">2.3</span>Υπηρεσίες Υλοποίησης Έργου</h2>'
             . '<p>Το κόστος των υπηρεσιών υλοποίησης του έργου, όπως αναλύεται λεπτομερώς στην παράγραφο '
             . '<b>2.2</b> «Οικονομική Προσφορά - Υπηρεσίες Παραμετροποίησης», ανέρχεται σε <b>'
             . self::fmtEur($bt[3]) . '</b> και αντιστοιχεί σε <b>' . self::fmtHrs($bt[3] / self::HOUR_RATE)
@@ -875,13 +1092,15 @@ CSS;
             . '<p class="mut">Οι ώρες υπηρεσιών υπολογίζονται με χρέωση ' . self::fmtEur(self::HOUR_RATE)
             . ' ανά ώρα. Στις παραπάνω αξίες έχουν ήδη ενσωματωθεί οι εκπτώσεις: αδειών CloudOn '
             . self::fmtPct($p['L4']) . ', αδειών Soft1 ' . self::fmtPct($p['K8']) . ', υπηρεσιών '
-            . self::fmtPct($p['J8']) . '.</p>', ++$n);
+            . self::fmtPct($p['J8']) . '.</p>';
+        if ($u + 62 > $ROOM) { $P[] = self::mk($open); $open = ''; }   // 62mm = η ενότητα 2.3
+        $mark['2.3'] = count($P) + 1;
+        $P[] = self::mk($open . $tail23);
 
         /* ── 11. Συγκεντρωτικοί πίνακες ── */
-        $sum = '<h2 class="sub">2.4&nbsp;&nbsp;&nbsp;Συγκεντρωτικοί πίνακες</h2>'
-            . '<h3 class="sub3">2.4.1&nbsp;&nbsp;&nbsp;Λογισμικό &amp; Υπηρεσίες</h3>'
-            . '<table class="s"><tbody><tr class="head"><td></td>'
-            . '<td class="n"><img src="' . self::LOGO_CLOUDON . '" alt=""></td></tr>';
+        $sum = '<h2 class="sub"><span class="num">2.4</span>Συγκεντρωτικοί πίνακες</h2>'
+            . '<h3 class="sub3"><span class="num">2.4.1</span>Λογισμικό &amp; Υπηρεσίες</h3>'
+            . '<table class="s"><thead><tr><th>Περιγραφή</th><th class="n">Αξία</th></tr></thead><tbody>';
         foreach ([1, 3, 5, 2, 4] as $b) {
             $sum .= '<tr><td class="l">' . self::e($bk[$b][1]) . '</td><td class="n">'
                 . self::fmtEur($bt[$b]) . '</td></tr>';
@@ -890,68 +1109,96 @@ CSS;
             . self::fmtEur($pre) . '</td></tr>'
             . ($disc ? '<tr class="disc"><td class="l">Έκπτωση επί της Αξίας του Λογισμικού και των '
                 . 'Υπηρεσιών</td><td class="n">-' . self::fmtEur($disc) . '</td></tr>' : '')
-            . '<tr class="plain"><td class="l">Τελική Αξία Έργου</td><td class="n">'
-            . self::fmtEur($fin) . '</td></tr></tbody></table>'
-            . '<div class="terms"><b>Αξίες:</b> Όλες οι παραπάνω αξίες επιβαρύνονται με ΦΠΑ '
-            . (float) $o['vat'] . '%.<br>'
-            . '<b>Ισχύς προσφοράς:</b> Η προσφορά ισχύει για ' . (int) $o['validDays'] . ' ημέρες.</div>'
-            . '<h3 class="sub3">2.4.2&nbsp;&nbsp;&nbsp;Εφάπαξ και επαναλαμβανόμενο κόστος</h3>'
-            . '<table class="s"><tbody>'
+            . '</tbody></table>'
+            . '<div class="grand"><span class="k">Τελική Αξία Έργου</span>'
+            . '<span class="v">' . self::fmtEur($fin) . '</span></div>'
+            . '<div class="terms">'
+            . '<div class="cell"><div class="k">Αξίες</div><div class="v">Όλες οι παραπάνω αξίες '
+            . 'επιβαρύνονται με ΦΠΑ ' . (float) $o['vat'] . '%.</div></div>'
+            . '<div class="cell"><div class="k">Ισχύς προσφοράς</div><div class="v">Η προσφορά ισχύει '
+            . 'για ' . (int) $o['validDays'] . ' ημέρες.</div></div></div>'
+            . '<h3 class="sub3"><span class="num">2.4.2</span>Εφάπαξ και επαναλαμβανόμενο κόστος</h3>'
+            . '<table class="s"><thead><tr><th>Περιγραφή</th><th class="n">Αξία</th></tr></thead><tbody>'
             . '<tr><td class="l">Εφάπαξ κόστος έναρξης (παραμετροποίηση &amp; διασυνδέσεις)</td>'
             . '<td class="n">' . self::fmtEur($bt[3] + $bt[4]) . '</td></tr>'
             . '<tr><td class="l">Ετήσιο επαναλαμβανόμενο κόστος (συνδρομές &amp; υποστήριξη)</td>'
             . '<td class="n">' . self::fmtEur($bt[1] + $bt[2] + $bt[5]) . '</td></tr>'
             . '<tr class="plain"><td class="l">Μηνιαίο κόστος ανά χρήστη</td><td class="n">'
             . self::fmtEur($t['monthlyPerUser']) . '</td></tr></tbody></table>';
-        $H .= self::pg($sum, ++$n);
+        $mark['2.4'] = count($P) + 1;
+        $P[] = self::mk($sum);
 
         /* ── 12. Τρόπος πληρωμής ── */
         $rest = 100 - (float) $o['prepay'];
-        $H .= self::pg('<h2 class="sub">2.5&nbsp;&nbsp;&nbsp;Τρόπος Πληρωμής</h2>'
+        $mark['2.5'] = count($P) + 1;
+        $P[] = self::mk('<h2 class="sub"><span class="num">2.5</span>Τρόπος Πληρωμής</h2>'
             . '<p>Η εξόφληση της αξίας των εφαρμογών λογισμικού <b>' . self::e($prod) . '</b> και του '
             . 'κόστους των υπηρεσιών υλοποίησης γίνεται ως εξής:</p>'
-            . '<ul><li>' . (float) $o['prepay'] . ' % της συνολικής αξίας του έργου μετρητοίς με την '
-            . 'ανάθεση του έργου.</li>'
-            . '<li>' . $rest . ' % του συνολικού ποσού με την παράδοση του έργου.</li></ul>'
-            . '<p><b>Τραπεζικοί λογαριασμοί CLOUDON IKE</b></p>'
-            . '<table class="b"><tbody>'
-            . '<tr><td class="k">EUROBANK</td><td>'
-            . 'Αριθμός λογαριασμού: 0026 0234 46 0200987302<br>'
-            . 'IBAN: GR5402 6023 400004 60200 987302<br>'
-            . 'ΔΙΚΑΙΟΥΧΟΣ: <span class="on">CLOUDON IKE</span></td></tr>'
-            . '<tr><td class="k">ALPHA BANK</td><td>'
-            . 'Αριθμός λογαριασμού: 209/00 200 2001 311<br>'
-            . 'IBAN: GR69 0140 2090 2090 0200 2001 311<br>'
-            . 'ΔΙΚΑΙΟΥΧΟΣ: <span class="on">CLOUDON IKE</span></td></tr>'
-            . '</tbody></table>'
-            . '<p style="margin-top:6mm">Η εξόφληση των προϊόντων άλλων κατασκευαστών (Βάση Δεδομένων) '
-            . 'γίνεται με αξιόγραφο 30 ημερών από την ημερομηνία τιμολόγησης.</p>', ++$n);
+            . '<div class="pay">'
+            . '<div class="step"><div class="pc">' . (float) $o['prepay'] . '%</div>'
+            . '<div class="pl">της συνολικής αξίας του έργου μετρητοίς με την <b>ανάθεση</b> του έργου.</div></div>'
+            . '<div class="step"><div class="pc">' . $rest . '%</div>'
+            . '<div class="pl">του συνολικού ποσού με την <b>παράδοση</b> του έργου.</div></div></div>'
+            . '<h3 class="sub3">Τραπεζικοί λογαριασμοί CLOUDON IKE</h3>'
+            . '<div class="banks">'
+            . '<div class="bank"><div class="nm">Eurobank</div>'
+            . '<div class="k">Αριθμός λογαριασμού</div><div class="v">0026 0234 46 0200987302</div>'
+            . '<div class="k">IBAN</div><div class="v">GR5402 6023 400004 60200 987302</div>'
+            . '<div class="k">Δικαιούχος</div><div class="v">CLOUDON IKE</div></div>'
+            . '<div class="bank"><div class="nm">Alpha Bank</div>'
+            . '<div class="k">Αριθμός λογαριασμού</div><div class="v">209/00 200 2001 311</div>'
+            . '<div class="k">IBAN</div><div class="v">GR69 0140 2090 2090 0200 2001 311</div>'
+            . '<div class="k">Δικαιούχος</div><div class="v">CLOUDON IKE</div></div>'
+            . '</div>'
+            . '<p style="margin-top:7mm" class="note">Η εξόφληση των προϊόντων άλλων κατασκευαστών '
+            . '(Βάση Δεδομένων) γίνεται με αξιόγραφο 30 ημερών από την ημερομηνία τιμολόγησης.</p>');
 
         /* ── 13. Έντυπο αποδοχής ── */
-        $H .= self::pg('<h1 class="sec">3&nbsp;&nbsp;&nbsp;Παράρτημα B - Έντυπο Αποδοχής Προσφοράς</h1>'
+        $mark['3'] = count($P) + 1;
+        $P[] = self::mk('<h1 class="sec"><span class="num">3</span>Παράρτημα B - Έντυπο Αποδοχής Προσφοράς</h1>'
             . '<p>Για την αποδοχή της παραπάνω προσφοράς, παρακαλείσθε να <b>επιστρέψετε υπογεγραμμένη '
             . 'και σφραγισμένη την παρούσα σελίδα.</b></p>'
-            . '<table class="f"><tbody>'
-            . '<tr><td class="k">Από:</td><td>' . self::e($company) . '</td></tr>'
-            . '<tr><td class="k">Υπεύθυνος:</td><td>' . self::e($o['attn']) . '</td></tr>'
-            . '<tr><td class="k">Τηλέφωνο:</td><td>' . self::e($o['cphone']) . '</td></tr>'
-            . '<tr><td class="k">Fax:</td><td></td></tr>'
-            . '<tr><td class="k">Ημερομηνία:</td><td></td></tr>'
-            . '</tbody></table>'
-            . '<table class="f"><tbody>'
-            . '<tr><td class="k">Προς:</td><td class="on">CloudOn I.K.E</td></tr>'
-            . '<tr><td class="k">Τηλέφωνο:</td><td>' . self::e($o['tel']) . '</td></tr>'
-            . '<tr><td class="k">Fax:</td><td>' . self::e($o['fax']) . '</td></tr>'
-            . '<tr><td class="k">Υπόψη:</td><td>' . self::e($o['acceptAttn']) . '</td></tr>'
-            . '</tbody></table>'
-            . '<table class="f"><tbody>'
-            . '<tr><td class="k">Σχετικά με:</td><td>Αριθμός Πρωτοκόλλου: ' . self::e($o['protocol'])
-            . '</td></tr></tbody></table>'
-            . '<div class="box"><div class="h">ΠΑΡΑΤΗΡΗΣΕΙΣ</div><div class="v"></div></div>'
-            . '<div class="box sg"><div class="h">Υπογραφή - Σφραγίδα Επιχείρησης</div><div class="v"></div></div>',
-            ++$n);
+            . '<div class="fgrid">'
+            . '<div class="fld wide"><div class="k">Από</div><div class="v">' . self::e($company) . '</div></div>'
+            . '<div class="fld"><div class="k">Υπεύθυνος</div><div class="v">' . self::e($o['attn']) . '</div></div>'
+            . '<div class="fld"><div class="k">Τηλέφωνο</div><div class="v">' . self::e($o['cphone']) . '</div></div>'
+            . '<div class="fld"><div class="k">Fax</div><div class="v"></div></div>'
+            . '<div class="fld"><div class="k">Ημερομηνία</div><div class="v"></div></div>'
+            . '</div>'
+            . '<div class="card"><div class="ttl">Προς</div>'
+            . '<div class="row"><span class="k">Επωνυμία</span><span class="v">CloudOn I.K.E</span></div>'
+            . '<div class="row"><span class="k">Τηλέφωνο</span><span class="v">' . self::e($o['tel']) . '</span></div>'
+            . '<div class="row"><span class="k">Fax</span><span class="v">' . self::e($o['fax']) . '</span></div>'
+            . '<div class="row"><span class="k">Υπόψη</span><span class="v">' . self::e($o['acceptAttn']) . '</span></div>'
+            . '<div class="row"><span class="k">Σχετικά με</span><span class="v">Αριθμός Πρωτοκόλλου: '
+            . self::e($o['protocol']) . '</span></div></div>'
+            . '<div class="box"><div class="h">Παρατηρήσεις</div><div class="v"></div></div>'
+            . '<div class="box sg"><div class="h">Υπογραφή — Σφραγίδα Επιχείρησης</div><div class="v"></div></div>',
+            );
 
-        return $H;
+        /* ── αρίθμηση & περιεχόμενα, τώρα που ξέρουμε πόσες σελίδες βγήκαν ── */
+        self::$pages = count($P);
+        $mark['ε'] = 4; $mark['1'] = 5; $mark['2'] = $mark['2.1'];
+        $toc = [
+            ['l1', '', 'Εισαγωγή', $mark['ε']],
+            ['l1', '1', 'Soft1 Open Enterprise Edition', $mark['1']],
+            ['l1', '2', 'Οικονομική Πρόταση', $mark['2']],
+            ['l2', '2.1', 'Προτεινόμενο Λογισμικό', $mark['2.1']],
+            ['l2', '2.2', 'Οικονομική Προσφορά — Λογισμικό ' . $prod, $mark['2.2']],
+            ['l2', '2.3', 'Υπηρεσίες Υλοποίησης Έργου', $mark['2.3']],
+            ['l2', '2.4', 'Συγκεντρωτικοί πίνακες', $mark['2.4']],
+            ['l2', '2.5', 'Τρόπος Πληρωμής', $mark['2.5']],
+            ['l1', '3', 'Παράρτημα B — Έντυπο Αποδοχής Προσφοράς', $mark['3']],
+        ];
+        $b3 = '<div class="eyebrow">Το έντυπο</div><h1 class="sec">Περιεχόμενα</h1><div class="toc">';
+        foreach ($toc as $r) {
+            $b3 .= '<div class="' . $r[0] . '"><span class="tn">' . self::e($r[1]) . '</span>'
+                . '<span class="t">' . self::e($r[2]) . '</span>'
+                . '<span class="n">' . $r[3] . '</span></div>';
+        }
+        $H = '';
+        foreach ($P as $x => $pg) { $H .= self::pg($pg['b'], $x + 1, $pg['c']); }
+        return str_replace('%%TOC%%', $b3 . '</div>', $H);
     }
 
 }
