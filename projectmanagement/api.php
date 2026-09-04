@@ -1616,7 +1616,7 @@ function cnp_action_cap($action)
         $add('clients.crm|admin.settings', ['lead_fields']);
         $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
         $add('clients.offers', ['offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline',
-            'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc']);
+            'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc', 'pharmacy_ai_draft']);
         $add('clients.offers|projects.edit', ['project_from_offer']);
 
         /* ── Υποστήριξη ── */
@@ -4219,6 +4219,82 @@ case 'pharmacy_calc':                    // ζωντανή προεπισκόπ�
     }
     out(['totals' => $res9['totals'], 'buckets' => array_values($lines9),
         'amount' => Pharmacy::offerAmount($cfg9), 'cfg' => $res9['cfg']]);
+
+case 'pharmacy_ai_draft':                 // ✨ Copilot: από περιγραφή → ρύθμιση + στοιχεία πελάτη
+    $keyD = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'ai_api_key')->value('value') ?: '');
+    if ($keyD === '') { fail('Δεν έχει οριστεί AI API key — βάλ\' το στις Ρυθμίσεις'); }
+    $descD = trim((string) ($in['text'] ?? ''));
+    if (mb_strlen($descD) < 5) { fail('Γράψε μια περιγραφή του τι θέλει ο πελάτης'); }
+
+    /* Ο κατάλογος δίνεται στο μοντέλο ως πλαίσιο — έτσι διαλέγει ΜΟΝΟ έγκυρα κελιά. */
+    $pDefs = Pharmacy::paramDefs();
+    $pLines = [];
+    foreach ($pDefs as $pd) { $pLines[] = $pd[0] . ' = ' . $pd[1] . ' (' . ($pd[2] === 'pct' ? 'ποσοστό %' : 'αριθμός') . ')'; }
+    $mLines = [];
+    foreach (Pharmacy::moduleGroups() as $g) {
+        foreach ($g['items'] as $it) { $mLines[] = $it[0] . ' = ' . $it[1] . ' [' . $g['title'] . ']'; }
+    }
+    $eLines = [];
+    foreach (Pharmacy::defaultEditions() as $ei => $ed) { $eLines[] = $ei . ' = ' . $ed['name'] . ' (' . $ed['soft1'] . ')'; }
+
+    $promptD = "Είσαι βοηθός πωλήσεων της CloudOn για προσφορές φαρμακείου (PharmacyOne).\n"
+        . "Από την περιγραφή του πελάτη, ΣΥΜΠΛΗΡΩΣΕ μια ρύθμιση προσφοράς. Επίστρεψε ΜΟΝΟ ένα JSON object, χωρίς σχόλια.\n\n"
+        . "ΠΑΡΑΜΕΤΡΟΙ (κλειδί → τι μετράει· δώσε ΑΡΙΘΜΟ ποσότητας/πλήθους — ΠΟΤΕ τιμή/κόστος):\n" . implode("\n", $pLines) . "\n\n"
+        . "MODULES (κλειδί → όνομα· βάλε στο 'modules' ΜΟΝΟ όσα ζητά ρητά ή προφανώς η περιγραφή):\n" . implode("\n", $mLines) . "\n\n"
+        . "ΕΚΔΟΣΕΙΣ (δείκτης 'edition' 0-3): " . implode(' · ', $eLines) . "\n\n"
+        . "ΚΑΝΟΝΕΣ:\n"
+        . "- Χρησιμοποίησε ΜΟΝΟ κλειδιά από τους παραπάνω καταλόγους. Μη βγάζεις τιμές/ποσά — ο υπολογισμός γίνεται αλλού.\n"
+        . "- Αν δεν αναφέρεται κάτι, ΜΗΝ το βάζεις (θα πάρει προεπιλογή). Χρήστες: αν δεν λέει, βάλε 1.\n"
+        . "- Αναγνώρισε ΣΤΟΙΧΕΙΑ ΠΕΛΑΤΗ από την περιγραφή: επωνυμία, ΑΦΜ (9 ψηφία), υπόψη (ονοματεπώνυμο), τηλέφωνο, email, διεύθυνση, Δ.Ο.Υ., πόλη. Ό,τι δεν υπάρχει → κενό.\n"
+        . "- Διάλεξε 'edition' που ταιριάζει (default 2 αν αβέβαιο).\n\n"
+        . "Σχήμα JSON:\n"
+        . "{\"edition\":2,\"params\":{\"I4\":3},\"modules\":[\"N16\"],"
+        . "\"client\":{\"name\":\"\",\"afm\":\"\",\"attn\":\"\",\"phone\":\"\",\"email\":\"\",\"address\":\"\",\"doy\":\"\",\"city\":\"\"},"
+        . "\"summary\":\"μία πρόταση στα ελληνικά: τι κατάλαβα\"}\n\n"
+        . "ΠΕΡΙΓΡΑΦΗ ΠΕΛΑΤΗ:\n" . $descD;
+
+    $modelD = trim((string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'offer_ai_model')->value('value') ?: '')) ?: 'claude-opus-5';
+    $resD = cnp_anthropic($keyD, $modelD, [['type' => 'text', 'text' => $promptD]], 1500);
+    if (empty($resD['ok'])) { fail($resD['error'] ?? 'Αποτυχία AI', 502); }
+    $aiD = cnp_json_extract($resD['text']);
+    if (!is_array($aiD)) { fail('Δεν κατάλαβα την περιγραφή — δοκίμασε πιο συγκεκριμένα', 422); }
+
+    /* ── Αυστηρή επικύρωση: μόνο έγκυρα κελιά· καμία τιμή/κόστος από το AI. ── */
+    $okParams = [];
+    foreach ($pDefs as $pd) { $okParams[$pd[0]] = $pd[2]; }
+    $okMods = [];
+    foreach (Pharmacy::moduleGroups() as $g) { foreach ($g['items'] as $it) { $okMods[$it[0]] = true; } }
+
+    $cfgD = ['p' => [], 'yn' => [], 'sel' => 2, 'o' => []];
+    $cfgD['sel'] = (isset($aiD['edition']) && (int) $aiD['edition'] >= 0 && (int) $aiD['edition'] <= 3) ? (int) $aiD['edition'] : 2;
+    foreach ((array) ($aiD['params'] ?? []) as $cell => $val) {
+        if (!isset($okParams[$cell]) || !is_numeric($val)) { continue; }
+        $v = (float) $val;
+        if ($okParams[$cell] === 'pct') { $v = $v > 1 ? $v / 100 : $v; $v = max(0, min(1, $v)); }
+        else { $v = max(0, min(9999, $v)); }
+        $cfgD['p'][$cell] = $v;
+    }
+    foreach ((array) ($aiD['modules'] ?? []) as $cell) {
+        if (isset($okMods[(string) $cell])) { $cfgD['yn'][(string) $cell] = 1; }
+    }
+    $cl = is_array($aiD['client'] ?? null) ? $aiD['client'] : [];
+    $afmD = preg_replace('/\D+/', '', (string) ($cl['afm'] ?? ''));
+    $cfgD['o'] = [
+        'client' => mb_substr(trim((string) ($cl['name'] ?? '')), 0, 200),
+        'afm' => mb_strlen($afmD) === 9 ? $afmD : '',
+        'attn' => mb_substr(trim((string) ($cl['attn'] ?? '')), 0, 120),
+        'cphone' => mb_substr(trim((string) ($cl['phone'] ?? '')), 0, 40),
+        'cemail' => mb_substr(trim((string) ($cl['email'] ?? '')), 0, 120),
+        'address' => mb_substr(trim((string) ($cl['address'] ?? '')), 0, 200),
+        'doy' => mb_substr(trim((string) ($cl['doy'] ?? '')), 0, 80),
+        'city' => mb_substr(trim((string) ($cl['city'] ?? '')), 0, 80) ?: 'Αθήνα',
+    ];
+    $cfgFull = Pharmacy::normalize($cfgD);
+    out(['ok' => true, 'cfg' => $cfgFull, 'amount' => Pharmacy::offerAmount($cfgFull),
+        'summary' => mb_substr(trim((string) ($aiD['summary'] ?? '')), 0, 400),
+        'afm' => $cfgD['o']['afm']]);
 
 case 'pharmacy_save':                    // δημιουργία / ενημέρωση της προσφοράς
     $oid9 = (int) ($in['offer'] ?? 0);

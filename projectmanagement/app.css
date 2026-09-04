@@ -2193,3 +2193,13 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
   color:var(--brand);background:var(--acc-t);border-bottom:1px solid var(--line);cursor:pointer;text-decoration:none}
 .push-enable:hover{background:#0090dd22}
 .push-enable svg{width:15px;height:15px}
+
+/* ✨ Copilot προσφοράς — modal «από περιγραφή» */
+.ai-box{width:min(560px,94vw);margin:11vh auto 0;display:flex;flex-direction:column;max-height:80vh}
+.ai-h{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:3px}
+.ai-h b{font-size:15px;color:var(--ink);display:flex;align-items:center;gap:8px}
+.ai-b{padding:16px 18px;overflow:auto}
+.ai-b textarea{resize:vertical;line-height:1.5}
+.ai-msg{margin-top:10px;padding:9px 12px;border-radius:9px;background:#e2515f14;border:1px solid #e2515f55;
+  color:#c33240;font-size:12.5px}
+.ai-f{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end}

@@ -81,6 +81,7 @@ async function openPharmacy(offerId, pre) {
         <input class="inp ph-afm" id="phAfm" placeholder="ΑΦΜ" maxlength="9" inputmode="numeric"
           value="${esc(st.cfg.o.afm || '')}">
         <button class="btn btn-o btn-sm" id="phAade" title="Άντληση στοιχείων από το μητρώο ΑΑΔΕ">Άντληση ΑΑΔΕ</button>
+        <button class="btn btn-p btn-sm" id="phAI" title="Περίγραψε τι θέλει ο πελάτης — ο Copilot συμπληρώνει έκδοση, modules, παραμέτρους και στοιχεία">✨ Από περιγραφή</button>
         <span class="mut ph-afmst" id="phAfmSt"></span>
       </div>
       <div id="phPick"></div>
@@ -127,23 +128,66 @@ async function openPharmacy(offerId, pre) {
     };
     const a = $('#phAfm', body);
     a.oninput = () => { st.cfg.o.afm = a.value.replace(/\D/g, '').slice(0, 9); a.value = st.cfg.o.afm; };
-    $('#phAade', body).onclick = async () => {
-      const afm = (st.cfg.o.afm || '').replace(/\D/g, '');
+    /* Άντληση ΑΑΔΕ — κοινή, ώστε να την καλεί και το κουμπί και ο Copilot όταν βρει ΑΦΜ. */
+    const aade = async afm => {
       const stEl = $('#phAfmSt', body);
-      if (afm.length !== 9) { stEl.textContent = 'Δώσε 9ψήφιο ΑΦΜ'; return; }
-      stEl.textContent = 'Αναζήτηση στο μητρώο…';
-      /* Το ίδιο endpoint που τροφοδοτεί και τη φόρμα εγγραφής — ένα σημείο επαφής με την ΑΑΔΕ. */
-      const r = await fetch('afm.php?afm=' + afm, {credentials: 'same-origin'})
-        .then(x => x.json()).catch(() => null);
-      if (!r || !r.ok) { stEl.textContent = 'ΑΑΔΕ: ' + ((r && r.error) || 'χωρίς αποτέλεσμα'); return; }
+      afm = String(afm || '').replace(/\D/g, '');
+      if (afm.length !== 9) { if (stEl) { stEl.textContent = 'Δώσε 9ψήφιο ΑΦΜ'; } return; }
+      if (stEl) { stEl.textContent = 'Αναζήτηση στο μητρώο…'; }
+      const r = await fetch('afm.php?afm=' + afm, {credentials: 'same-origin'}).then(x => x.json()).catch(() => null);
+      if (!r || !r.ok) { if (stEl) { stEl.textContent = 'ΑΑΔΕ: ' + ((r && r.error) || 'χωρίς αποτέλεσμα'); } return; }
       const dd = r.data || {};
-      if (dd.name) { st.clientName = dd.name; st.cfg.o.client = dd.name; $('#phWho', body).value = dd.name; }
+      if (dd.name) { st.clientName = dd.name; st.cfg.o.client = dd.name; const w = $('#phWho', body); if (w) { w.value = dd.name; } }
       if (dd.doy) { st.cfg.o.doy = dd.doy; }
       const addr = [dd.street, dd.postcode, dd.city].filter(Boolean).join(', ');
       if (addr) { st.cfg.o.address = addr; }
       if (dd.kad) { st.cfg.o.activity = dd.kad; }
-      stEl.textContent = (dd.active === false ? '⚠ ανενεργό ΑΦΜ — ' : '✓ ') + (dd.name || '');
+      if (stEl) { stEl.textContent = (dd.active === false ? '⚠ ανενεργό ΑΦΜ — ' : '✓ ') + (dd.name || ''); }
       if (st.tab === 'doc') { pane(); }
+    };
+    $('#phAade', body).onclick = () => aade(st.cfg.o.afm || '');
+    $('#phAI', body).onclick = () => openAiDraft(aade);
+  }
+
+  /* ✨ Copilot: από ελεύθερη περιγραφή → έκδοση, modules, παράμετροι, στοιχεία πελάτη.
+     Το AI δεν αγγίζει τιμές — μόνο ρυθμίσεις· ο έλεγχος μένει στον χειριστή. */
+  function openAiDraft(aade) {
+    const ov = document.createElement('div'); ov.className = 'ovl show';
+    ov.style.zIndex = '60';   // πάνω από το drawer του κοστολογητή (z-index 51)
+    ov.innerHTML = `<div class="pal-box ai-box" onclick="event.stopPropagation()">
+      <div class="ai-h"><b>✨ Δημιουργία από περιγραφή</b>
+        <span class="mut" style="font-size:11.5px">έκδοση, modules, παράμετροι & στοιχεία πελάτη — αυτόματα</span></div>
+      <div class="ai-b">
+        <textarea class="inp" id="aiTxt" rows="6" placeholder="π.χ. Φαρμακείο «ΥΓΕΙΑ ΕΕ», ΑΦΜ 123456789, 3 χρήστες, 1 υποκατάστημα. Θέλει σύνδεση Skroutz &amp; myData, courier ACS, και εκπαίδευση. Υπόψη κας Παπαδοπούλου, 2101234567."></textarea>
+        <div class="mut" style="font-size:11.5px;margin-top:6px">Γράψε ελεύθερα ό,τι ξέρεις — όσα περισσότερα, τόσο καλύτερα.</div>
+        <div id="aiMsg" class="ai-msg" hidden></div>
+      </div>
+      <div class="ai-f"><button class="btn btn-o" id="aiX">Άκυρο</button>
+        <button class="btn btn-p" id="aiOk">✨ Συμπλήρωσε</button></div></div>`;
+    document.body.appendChild(ov);
+    const q = sel => ov.querySelector(sel);
+    const close = () => { ov.remove(); document.removeEventListener('keydown', esc, true); };
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    document.addEventListener('keydown', esc, true);
+    ov.onclick = close; q('#aiX').onclick = close;
+    setTimeout(() => q('#aiTxt').focus(), 60);
+    q('#aiOk').onclick = async () => {
+      const text = q('#aiTxt').value.trim();
+      if (text.length < 5) { q('#aiTxt').focus(); return; }
+      const okBtn = q('#aiOk'); okBtn.disabled = true; okBtn.textContent = '✨ Σκέφτομαι…';
+      const r = await api('pharmacy_ai_draft', {text}).catch(e => ({err: e && e.message}));
+      if (!r || r.err) { okBtn.disabled = false; okBtn.textContent = '✨ Συμπλήρωσε';
+        const m = q('#aiMsg'); m.hidden = false; m.textContent = (r && r.err) || 'Δεν κατάλαβα — δοκίμασε πιο συγκεκριμένα'; return; }
+      /* Ο server επιστρέφει κανονικοποιημένη & επικυρωμένη ρύθμιση — τη δεχόμαστε ως αλήθεια. */
+      st.cfg = r.cfg;
+      st.clientName = r.cfg.o.client || '';
+      st.tab = 'setup';
+      close();
+      shell();
+      await recalc();
+      if (r.summary) { toast('✨ ' + r.summary); }
+      /* Βρέθηκε ΑΦΜ → άντλησε επίσημα στοιχεία από την ΑΑΔΕ (υπερισχύουν). */
+      if (r.afm) { aade(r.afm); }
     };
   }
 
