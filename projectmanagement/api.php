@@ -12,6 +12,7 @@ use WHMCS\Module\Addon\CloudonProjects\Auto;
 use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Time;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
+use WHMCS\Module\Addon\CloudonProjects\Push;
 use WHMCS\Module\Addon\CloudonProjects\Storage;
 use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
@@ -3087,6 +3088,41 @@ case 'notifs':
 case 'notif_read':
     Db::markNotifRead($adminId, (int) ($in['id'] ?? 0));
     out(['ok' => true, 'unread' => Db::unreadCount($adminId)]);
+
+/* ---- Web Push (ειδοποιήσεις στη συσκευή, ακόμη κι με κλειστή εφαρμογή) ---- */
+case 'push_pubkey':
+    require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Push.php';
+    out(['key' => Push::publicKey(), 'enabled' => Push::enabled()]);
+
+case 'push_subscribe':
+    $pe = trim((string) ($in['endpoint'] ?? ''));
+    $pk = trim((string) ($in['p256dh'] ?? ''));
+    $pa = trim((string) ($in['auth'] ?? ''));
+    if ($pe === '' || $pk === '' || $pa === '' || !preg_match('#^https://#', $pe)) { fail('input'); }
+    Capsule::table('mod_cpm_push_subs')->updateOrInsert(
+        ['endpoint' => mb_substr($pe, 0, 500)],
+        ['admin_id' => $adminId, 'p256dh' => mb_substr($pk, 0, 200), 'auth' => mb_substr($pa, 0, 100),
+            'ua' => mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 160),
+            'created_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'push_unsubscribe':
+    $pe = trim((string) ($in['endpoint'] ?? ''));
+    if ($pe !== '') { Capsule::table('mod_cpm_push_subs')->where('endpoint', $pe)->where('admin_id', $adminId)->delete(); }
+    out(['ok' => true]);
+
+case 'push_latest':                       // ο service worker τραβά τι να δείξει
+    $ln = Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)
+        ->orderBy('id', 'desc')->first();
+    if (!$ln) { out(['title' => '']); }
+    /* url του μητρώου → SPA deep-link ώστε το tap να ανοίγει μέσα στην εφαρμογή. */
+    $spa = '/project/';
+    $u = (string) ($ln->url ?? '');
+    if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
+    elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
+    elseif (preg_match('#/project(?:management)?/#/(\w+)#', $u, $m)) { $spa = '/project/#/' . $m[1]; }
+    out(['id' => (int) $ln->id, 'title' => $ln->title, 'body' => '', 'url' => $spa, 'unread' => (bool) !$ln->is_read]);
+
 
 /* ================= ACTIONS ================= */
 case 'move_task':

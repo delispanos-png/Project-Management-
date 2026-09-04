@@ -1170,6 +1170,21 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        /* ── Push notifications (Web Push / VAPID) ──
+           Συνδρομές συσκευών ανά χρήστη· μια ειδοποίηση φεύγει σε όλες τις
+           ενεργές του συσκευές, ώστε να τον βρίσκει και με κλειστή εφαρμογή. */
+        if (!$s->hasTable('mod_cpm_push_subs')) {
+            $s->create('mod_cpm_push_subs', function ($t) {
+                $t->increments('id');
+                $t->integer('admin_id')->unsigned()->index();
+                $t->string('endpoint', 500)->unique();
+                $t->string('p256dh', 200);
+                $t->string('auth', 100);
+                $t->string('ua', 160)->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('used_at')->nullable();
+            });
+        }
         if ($s->hasTable('mod_cpm_help') && !$s->hasColumn('mod_cpm_help', 'kind')) {
             $s->table('mod_cpm_help', function ($t) { $t->string('kind', 8)->default('help')->after('task_id'); });
         }
@@ -2370,6 +2385,12 @@ class Db
             Capsule::table('mod_cpm_notifications')->where('admin_id', (int) $adminId)
                 ->where('id', '<=', $min)->delete();
         }
+        /* Web Push: ξύπνα τις συσκευές του χρήστη (fire-and-forget, ποτέ blocking
+           του app flow). Ο service worker τραβά το περιεχόμενο από το push_latest. */
+        try {
+            require_once __DIR__ . '/Push.php';
+            if (Push::enabled()) { Push::send((int) $adminId); }
+        } catch (\Throwable $e) { /* μια αποτυχία push δεν χαλάει τίποτα */ }
     }
 
     public static function notificationsFor($adminId, $limit = 12)

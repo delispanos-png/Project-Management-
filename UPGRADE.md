@@ -1295,6 +1295,31 @@ task ούτε ticket — είναι προσωπική έκκληση που **�
 δωμάτιο· παραπάνω θέλει SFU (μεγαλύτερο έργο). *Σημ.:* αν μπει Hetzner Cloud Firewall,
 θέλει inbound UDP 3478, TCP 3478, UDP 49160-49200.
 
+**Push notifications στη συσκευή (Web Push / VAPID)** (5/9/2026). Μέχρι τώρα κάθε
+ειδοποίηση (ανάθεση, σχόλιο, «ζήτα βοήθεια», «έλα στη φωνή», SLA, deadline) έφτανε **μόνο
+με ανοιχτή καρτέλα** (poll 12"). Πλέον φτάνει στο **κινητό/desktop ακόμη κι με κλειστή
+εφαρμογή**.
+
+- **Χωρίς payload encryption**: στέλνουμε «κενό» push (VAPID ES256, καθαρός PHP+openssl —
+  όχι aes128gcm)· ο service worker ξυπνά και **τραβά το περιεχόμενο** από `push_latest`
+  (τίτλος + SPA deep-link). Έτσι το tap ανοίγει κατευθείαν το σωστό task/οθόνη.
+- **`lib/Push.php`**: VAPID JWT ανά origin (DER→raw υπογραφή, επαληθεύτηκε με `openssl_verify`),
+  αποστολή σε όλες τις συσκευές του χρήστη, κλάδεμα νεκρών συνδρομών (404/410). Κλειδιά
+  VAPID στις ρυθμίσεις (`vapid_public/private/subject`).
+- **`mod_cpm_push_subs`** (endpoint/p256dh/auth ανά admin). Ενέργειες `push_pubkey`,
+  `push_subscribe`, `push_unsubscribe`, `push_latest`. Σύνδεση στο `Db::pushNotification`
+  (fire-and-forget, ποτέ blocking — try/catch + σύντομα timeouts).
+- **Frontend**: ο SW (`sw.js`) απέκτησε `push` + `notificationclick`. Στο SPA:
+  `cnpPushInit()` (ξανα-συγχρονίζει τη συνδρομή αν υπάρχει ήδη άδεια) + link **«🔔
+  Ενεργοποίηση ειδοποιήσεων σε αυτή τη συσκευή»** μέσα στο καμπανάκι (δεν ρωτάμε αυτόματα).
+  Το tap κάνει πλοήγηση στην ήδη ανοιχτή καρτέλα μέσω `postMessage`.
+
+Έλεγχος: VAPID JWT verify=1· push_pubkey/subscribe/latest OK· SW εγγράφεται· link
+ενεργοποίησης εμφανίζεται· 36 οθόνες χωρίς σφάλμα. **Η πραγματική παράδοση σε κινητό
+δοκιμάζεται από συσκευή** (χρειάζεται FCM/πραγματικό push service — δεν γίνεται headless).
+*Follow-up αν χρειαστεί:* ουρά αποστολής, ώστε ένα broadcast «έλα στη φωνή» σε 10 άτομα να
+μη σειριοποιεί 10 κλήσεις FCM στο ίδιο request.
+
 ## 9. Ανοιχτά θέματα (Αύγουστος 2026)
 
 - **Staging**: το `mystaging.cloudon.gr` είναι σε **WHMCS 8.11.2** με δική του βάση

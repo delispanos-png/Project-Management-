@@ -398,15 +398,55 @@ function miniMenu(anchor, items) {
   setTimeout(() => document.addEventListener('click', closer), 0);
 }
 function updateBell(n) { const b = $('#bellN'); if (!b) return; b.style.display = n ? '' : 'none'; b.textContent = n > 99 ? '99+' : n; }
+
+/* ── Web Push: ειδοποιήσεις συσκευής (κινητό/desktop) ακόμη κι με κλειστή εφαρμογή ── */
+function urlB64ToU8(str) {
+  const pad = '='.repeat((4 - str.length % 4) % 4);
+  const bin = atob((str + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...bin].map(c => c.charCodeAt(0)));
+}
+async function cnpPushSubscribe(reg) {
+  const pk = await api('push_pubkey').catch(() => null);
+  if (!pk || !pk.enabled || !pk.key) { return false; }
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) { sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: urlB64ToU8(pk.key)}); }
+  const j = sub.toJSON();
+  await api('push_subscribe', {endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth});
+  return true;
+}
+async function cnpPushInit() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { return; }
+    if (Notification.permission !== 'granted') { return; }   // αυτόματα ΔΕΝ ρωτάμε
+    const reg = await navigator.serviceWorker.ready;
+    await cnpPushSubscribe(reg);
+  } catch (e) {}
+}
+async function cnpPushEnable() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    toast('Η συσκευή/browser δεν υποστηρίζει ειδοποιήσεις', true); return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('Δεν δόθηκε άδεια ειδοποιήσεων', true); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const ok = await cnpPushSubscribe(reg);
+    toast(ok ? '🔔 Ειδοποιήσεις ενεργές σε αυτή τη συσκευή' : 'Δεν ενεργοποιήθηκαν', !ok);
+    const b = $('#pushEnable'); if (b) { b.remove(); }
+  } catch (e) { toast('Σφάλμα ενεργοποίησης', true); }
+}
 async function toggleBell() {
   const old = $('.pop'); if (old) { old.remove(); return; }
   const d = await api('notifs'); updateBell(d.unread);
   const pop = document.createElement('div'); pop.className = 'pop';
-  pop.innerHTML = `<div class="pop-h">Ειδοποιήσεις <a href="#" id="readAll" style="font-size:11px;font-weight:600">όλα ως διαβασμένα</a></div>` +
+  const pushRow = ('Notification' in window && 'PushManager' in window && Notification.permission !== 'granted')
+    ? `<a href="#" id="pushEnable" class="push-enable">${I.bell} Ενεργοποίηση ειδοποιήσεων σε αυτή τη συσκευή</a>` : '';
+  pop.innerHTML = `<div class="pop-h">Ειδοποιήσεις <a href="#" id="readAll" style="font-size:11px;font-weight:600">όλα ως διαβασμένα</a></div>` + pushRow +
     (d.items.length ? d.items.map(n => `<a class="nrow ${n.read ? '' : 'unread'}" data-id="${n.id}" data-url="${esc(n.url || '')}">
       <span>${esc(n.title)}</span><span class="tm">${tShort(n.at)}</span></a>`).join('')
     : '<div class="empty" style="padding:22px">Καμία ειδοποίηση</div>');
   $('.bell-wrap').appendChild(pop);
+  const pe = pop.querySelector('#pushEnable'); if (pe) { pe.onclick = e => { e.preventDefault(); e.stopPropagation(); cnpPushEnable(); }; }
   pop.onclick = async e => {
     const a = e.target.closest('.nrow'); const ra = e.target.closest('#readAll');
     if (ra) { e.preventDefault(); await api('notif_read', {id: 0}); updateBell(0); toggleBell(); return; }
@@ -2423,6 +2463,18 @@ window.CNP = {S, api, esc, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSe
   });
   document.getElementById('remoteChip').onclick = stopRemote;
   remoteRefresh();
+  // Web Push: αν έχει ήδη δοθεί άδεια, ξανα-συγχρόνισε τη συνδρομή αυτής της συσκευής
+  cnpPushInit();
+  // tap σε push → πλοήγηση μέσα στην ήδη ανοιχτή εφαρμογή
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data && e.data.type === 'cnp-nav' && e.data.url) {
+        const h = String(e.data.url).split('#')[1];
+        if (h) { location.hash = h.startsWith('/') ? h : '/' + h; }
+        try { window.focus(); } catch (x) {}
+      }
+    });
+  }
   // realtime: version polling ανά 12" → σιωπηλό refresh όταν αλλάξει κάτι από συναδέλφους
   let lastV = null;
   setInterval(async () => {
