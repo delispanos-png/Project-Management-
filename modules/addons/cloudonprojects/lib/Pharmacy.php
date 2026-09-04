@@ -488,15 +488,34 @@ class Pharmacy
     private static function plural($n, $one, $many) { return $n == 1 ? $one : $many; }
 
     /** Τα λογότυπα ζουν ως στατικά αρχεία — το έγγραφο μένει ελαφρύ σε κάθε προεπισκόπηση. */
+    const LOGO_DIR     = '/project/doc-assets/';
     const LOGO_CLOUDON = '/project/doc-assets/cloudon.svg';
-    const LOGO_SOFTONE = '/project/doc-assets/softone.png';
+
+    /**
+     * Το σήμα του συνεργάτη. Μετά τη συγχώνευση Entersoft–SoftOne το wordmark είναι
+     * «ENTERSOFTONE», χωρίς το παλιό tagline. Αν το νέο αρχείο υπάρχει το χρησιμοποιούμε·
+     * αλλιώς μένει το παλιό, ώστε το έντυπο να μη βγάλει ποτέ σπασμένη εικόνα.
+     */
+    private static function partnerLogo()
+    {
+        $root = dirname(__DIR__, 4) . '/projectmanagement/doc-assets/';
+        foreach (['entersoftone.svg', 'entersoftone.png'] as $f) {
+            if (is_file($root . $f)) {
+                return ['src' => self::LOGO_DIR . $f, 'alt' => 'Entersoft One', 'tag' => '', 'w' => '56mm'];
+            }
+        }
+        return ['src' => self::LOGO_DIR . 'softone.png', 'alt' => 'SoftOne',
+            'tag' => 'more than software', 'w' => '44mm'];
+    }
 
     private static function head($both = false)
     {
         $h = '<div class="lg"><img class="c" src="' . self::LOGO_CLOUDON . '" alt="CloudOn">';
         if ($both) {
-            $h .= '<div class="s"><img src="' . self::LOGO_SOFTONE . '" alt="SoftOne">'
-                . '<span>more than software</span></div>';
+            $lg = self::partnerLogo();
+            $h .= '<div class="s"><img src="' . $lg['src'] . '" alt="' . self::e($lg['alt'])
+                . '" style="width:' . $lg['w'] . '">'
+                . ($lg['tag'] ? '<span>' . self::e($lg['tag']) . '</span>' : '') . '</div>';
         }
         return $h . '</div>';
     }
