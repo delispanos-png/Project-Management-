@@ -5469,10 +5469,31 @@ case 'ticket':
         'by' => $tk->name ?: clientLabel($tk->userid), 'admin' => false,
         'at' => $tk->date, 'body' => $tk->message, 'att' => $attList($tk->attachment ?? '', 0),
     ]];
+    /* Ψευδώνυμο: ποιες απαντήσεις γράφτηκαν «ως Support Team» και από ποιον
+       πραγματικά — ώστε εσωτερικά να φαίνεται ο αληθινός συντάκτης. */
+    $aliasMap = [];
+    if (Capsule::schema()->hasTable('mod_cpm_ticket_alias')) {
+        foreach (Capsule::table('mod_cpm_ticket_alias')->where('tid', $tid)
+                     ->get(['reply_id', 'real_admin_id']) as $ar) {
+            $aliasMap[(int) $ar->reply_id] = (int) $ar->real_admin_id;
+        }
+    }
+    $aliasName = '';
+    if ($aliasMap) {
+        $au = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'ticket_alias_admin')->value('value') ?: 'support');
+        $ad = Capsule::table('tbladmins')->where('username', $au)->first(['firstname', 'lastname']);
+        $aliasName = $ad ? trim($ad->firstname . ' ' . $ad->lastname) : 'Support Team';
+    }
     foreach (Capsule::table('tblticketreplies')->where('tid', $tid)->orderBy('id')->get() as $r) {
-        $conv[] = ['by' => $r->admin ?: ($r->name ?: clientLabel($r->userid)),
+        $reply = ['by' => $r->admin ?: ($r->name ?: clientLabel($r->userid)),
             'admin' => $r->admin !== '' && $r->admin !== null, 'at' => $r->date, 'body' => $r->message,
             'att' => $attList($r->attachment ?? '', (int) $r->id)];
+        if (isset($aliasMap[(int) $r->id])) {
+            $reply['by'] = Db::adminName($aliasMap[(int) $r->id]);   // εσωτερικά: ο πραγματικός συντάκτης
+            $reply['alias'] = $aliasName ?: 'Support Team';          // δημόσια εμφανίστηκε ως…
+        }
+        $conv[] = $reply;
     }
     // εσωτερική συνομιλία (linked task comments)
     $task = Db::taskForTicket($tid);
@@ -5692,7 +5713,25 @@ case 'ticket_reply':
         }
     }
     $uname = Capsule::table('tbladmins')->where('id', $adminId)->value('username');
-    $r = localAPI('AddTicketReply', ['ticketid' => $tid, 'message' => $msg, 'adminusername' => $uname]
+    /* Ψευδώνυμο «Support Team»: η απάντηση αναρτάται με τον δημόσιο λογαριασμό,
+       ώστε ο πελάτης να δει «Support Team» αντί για το όνομα του χειριστή. Ο
+       πραγματικός συντάκτης καταγράφεται εσωτερικά (mod_cpm_ticket_alias). Την
+       επιλογή την έχει μόνο όποιος απαντά στον πελάτη. */
+    $aliasOn = !empty($in['alias']);
+    $replyUser = $uname;
+    if ($aliasOn) {
+        $aliasUser = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'ticket_alias_admin')->value('value') ?: 'support');
+        $aa = Capsule::table('tbladmins')->where('username', $aliasUser)
+            ->where('disabled', 0)->first(['id']);
+        if ($aa) {
+            $replyUser = $aliasUser;
+        } else {
+            $aliasOn = false;       // δεν υπάρχει έγκυρος λογαριασμός → κανονική απάντηση
+        }
+    }
+    // Ανάρτηση ΩΣ $replyUser, αλλά με δικαιώματα/έλεγχο του πραγματικού χειριστή ($uname).
+    $r = localAPI('AddTicketReply', ['ticketid' => $tid, 'message' => $msg, 'adminusername' => $replyUser]
         + (!empty($in['status']) ? ['status' => $in['status']] : []), $uname);
     if (($r['result'] ?? '') !== 'success') {
         foreach ($attNames as $s) {     // μην αφήσεις ορφανά στο δίσκο
@@ -5700,11 +5739,15 @@ case 'ticket_reply':
         }
         fail($r['message'] ?? 'reply failed');
     }
-    if ($attNames) {
-        $rid = (int) Capsule::table('tblticketreplies')->where('tid', $tid)->max('id');
-        if ($rid) {
-            Capsule::table('tblticketreplies')->where('id', $rid)->update(['attachment' => implode('|', $attNames)]);
-        }
+    $rid = ($attNames || $aliasOn)
+        ? (int) Capsule::table('tblticketreplies')->where('tid', $tid)->max('id') : 0;
+    if ($attNames && $rid) {
+        Capsule::table('tblticketreplies')->where('id', $rid)->update(['attachment' => implode('|', $attNames)]);
+    }
+    if ($aliasOn && $rid) {
+        Capsule::table('mod_cpm_ticket_alias')->insert([
+            'reply_id' => $rid, 'tid' => $tid, 'real_admin_id' => $adminId,
+            'created_at' => date('Y-m-d H:i:s')]);
     }
     out(['ok' => true]);
 

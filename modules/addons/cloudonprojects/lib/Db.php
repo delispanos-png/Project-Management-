@@ -1188,6 +1188,21 @@ class Db
         if ($s->hasTable('mod_cpm_help') && !$s->hasColumn('mod_cpm_help', 'kind')) {
             $s->table('mod_cpm_help', function ($t) { $t->string('kind', 8)->default('help')->after('task_id'); });
         }
+        /* ── Ψευδώνυμο απάντησης ticket ──
+           Όταν μια απάντηση φεύγει προς τον πελάτη «ως Support Team» (δημόσιο
+           λογαριασμός), η απάντηση καταγράφεται στο WHMCS με τον λογαριασμό-
+           ψευδώνυμο. Κρατάμε εδώ ΠΟΙΟΣ πραγματικά την έγραψε, ώστε η εσωτερική
+           απόδοση να μη χάνεται — ο πελάτης βλέπει «Support Team», η ομάδα
+           βλέπει το πραγματικό όνομα. */
+        if (!$s->hasTable('mod_cpm_ticket_alias')) {
+            $s->create('mod_cpm_ticket_alias', function ($t) {
+                $t->increments('id');
+                $t->integer('reply_id')->unsigned()->index();   // tblticketreplies.id
+                $t->integer('tid')->unsigned()->index();        // tbltickets.id
+                $t->integer('real_admin_id')->unsigned();       // ποιος όντως απάντησε
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         /* Οι σημειώσεις χειρισμού: τι έγινε, πότε, από ποιον. */
         if (!$s->hasTable('mod_cpm_complaint_notes')) {
             $s->create('mod_cpm_complaint_notes', function ($t) {
