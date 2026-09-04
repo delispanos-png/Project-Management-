@@ -15,12 +15,14 @@ use WHMCS\Module\Addon\CloudonProjects\Notify;
 use WHMCS\Module\Addon\CloudonProjects\Storage;
 use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
+use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pharmacy.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
@@ -1600,7 +1602,7 @@ function cnp_action_cap($action)
         $add('clients.crm|admin.settings', ['lead_fields']);
         $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
         $add('clients.offers', ['offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline',
-            'create_quote']);
+            'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc']);
         $add('clients.offers|projects.edit', ['project_from_offer']);
 
         /* ── Υποστήριξη ── */
@@ -3917,6 +3919,7 @@ case 'offers':
             continue;
         }
         $offers[] = ['id' => (int) $o->id, 'title' => $o->title, 'stage' => $o->stage,
+            'kind' => $o->kind ?: 'plain',
             'client' => $o->clientid ? (int) $o->clientid : null, 'clientName' => clientLabel($o->clientid),
             'value' => $o->quoteid && $o->quote_total !== null ? (float) $o->quote_total : (float) ($o->amount ?? 0),
             'amount' => $o->amount !== null ? (float) $o->amount : null,
@@ -4058,6 +4061,92 @@ case 'create_quote':
         out(['ok' => true, 'quote' => (int) $r['quoteid']]);
     }
     fail($r['message'] ?? 'CreateQuote failed');
+
+/* ================= ΚΟΣΤΟΛΟΓΗΣΗ PHARMACYONE =================
+   Η προσφορά PharmacyOne δεν είναι ελεύθερο κείμενο με ένα ποσό: είναι μια
+   ρύθμιση από την οποία βγαίνουν και το ποσό και το έγγραφο. Ο υπολογισμός
+   γίνεται ΜΟΝΟ στον server (lib/Pharmacy.php), ώστε να μη γίνεται ποτέ να
+   διαφέρει η τιμή της προσφοράς από τους αριθμούς που διαβάζει ο πελάτης. */
+case 'pharmacy_defs':                    // ο κατάλογος: παράμετροι, modules, τιμοκατάλογος
+    out(['params' => array_map(function ($d) {
+            return ['cell' => $d[0], 'lab' => $d[1], 'type' => $d[2]];
+        }, Pharmacy::paramDefs()),
+        'groups' => array_map(function ($g) {
+            return ['title' => $g['title'], 'items' => array_map(function ($it) {
+                return ['cell' => $it[0], 'lab' => $it[1]];
+            }, $g['items'])];
+        }, Pharmacy::moduleGroups()),
+        'rates' => array_map(function ($d) {
+            return ['cell' => $d[0], 'lab' => $d[1], 'adj' => $d[2]];
+        }, Pharmacy::rateRows()),
+        'editions' => Pharmacy::defaultEditions(),
+        'features' => array_map(function ($f) { return ['lab' => $f[0], 'on' => $f[1]]; }, Pharmacy::features()),
+        'defaults' => ['p' => Pharmacy::defaultParams(), 'yn' => Pharmacy::defaultModules(),
+            'r' => Pharmacy::defaultRates()],
+        'hourRate' => Pharmacy::HOUR_RATE,
+        'me' => Db::adminName($adminId)]);
+
+case 'pharmacy_calc':                    // ζωντανή προεπισκόπηση καθώς αλλάζεις παραμέτρους
+    $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
+    $res9 = Pharmacy::calc($cfg9);
+    $lines9 = [];
+    foreach (Pharmacy::buckets() as $b9 => $bd9) {
+        $lines9[$b9] = ['title' => $bd9[0], 'sum' => $bd9[1], 'head' => $bd9[2], 'rows' => []];
+    }
+    foreach (Pharmacy::bucketLines($res9, $res9['cfg']['sel']) as $b9 => $rows9) {
+        $lines9[$b9]['rows'] = $rows9;
+        $lines9[$b9]['total'] = array_sum(array_column($rows9, 'amount'));
+    }
+    out(['totals' => $res9['totals'], 'buckets' => array_values($lines9),
+        'amount' => Pharmacy::offerAmount($cfg9), 'cfg' => $res9['cfg']]);
+
+case 'pharmacy_save':                    // δημιουργία / ενημέρωση της προσφοράς
+    $oid9 = (int) ($in['offer'] ?? 0);
+    $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
+    $cfg9 = Pharmacy::normalize($cfg9);
+    $cid9 = (int) ($in['client'] ?? 0) ?: null;
+    if ($cid9 && !Capsule::table('tblclients')->where('id', $cid9)->exists()) { $cid9 = null; }
+    $ed9 = Pharmacy::defaultEditions()[$cfg9['sel']];
+    $nm9 = trim((string) ($in['clientName'] ?? $cfg9['o']['client'] ?? ''));
+    if ($cid9 && $nm9 === '') { $nm9 = clientLabel($cid9); }
+    $cfg9['o']['client'] = $nm9;
+    $title9 = mb_substr(trim((string) ($in['title'] ?? '')) ?: ($ed9['name'] . ' — ' . ($nm9 ?: 'νέος πελάτης')), 0, 200);
+    $amount9 = Pharmacy::offerAmount($cfg9);
+
+    $row9 = ['title' => $title9, 'clientid' => $cid9, 'amount' => $amount9,
+        'kind' => 'pharmacyone', 'config' => json_encode($cfg9, JSON_UNESCAPED_UNICODE),
+        'updated_at' => date('Y-m-d H:i:s')];
+    if ($oid9) {
+        $ex9 = Db::offer($oid9);
+        if (!$ex9) { fail('offer', 404); }
+        if (!$FULL && (int) $ex9->assignee !== $adminId && (int) $ex9->created_by !== $adminId) {
+            fail('Η προσφορά ανήκει σε άλλον', 403);
+        }
+        Capsule::table('mod_cpm_offers')->where('id', $oid9)->update($row9);
+    } else {
+        $row9['stage'] = 'draft';
+        $row9['assignee'] = $adminId;
+        $row9['created_by'] = $adminId;
+        $row9['created_at'] = date('Y-m-d H:i:s');
+        $row9['expected_close'] = date('Y-m-d', strtotime('+' . max(1, (int) $cfg9['o']['validDays']) . ' days'));
+        $oid9 = (int) Capsule::table('mod_cpm_offers')->insertGetId($row9);
+    }
+    out(['ok' => true, 'offer' => $oid9, 'amount' => $amount9, 'title' => $title9]);
+
+case 'pharmacy_doc':                     // το έγγραφο της προσφοράς, έτοιμο για εκτύπωση
+    $oid9 = (int) ($_GET['offer'] ?? $in['offer'] ?? 0);
+    $cli9 = 0;
+    if ($oid9) {
+        $o9 = Db::offer($oid9);
+        if (!$o9 || $o9->kind !== 'pharmacyone') { fail('offer', 404); }
+        $cli9 = (int) $o9->clientid;
+        $cfg9 = json_decode((string) $o9->config, true) ?: [];
+        if ($cli9 && empty($cfg9['o']['client'])) { $cfg9['o']['client'] = clientLabel($cli9); }
+    } else {
+        $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
+    }
+    out(['html' => Pharmacy::docHtml($cfg9), 'amount' => Pharmacy::offerAmount($cfg9),
+        'cfg' => Pharmacy::normalize($cfg9), 'client' => $cli9]);
 
 /* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */
 case 'contacts':

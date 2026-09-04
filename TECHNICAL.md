@@ -60,6 +60,7 @@ views4.js   συντομεύσεις, πλάνο ημέρας, γνώση, chat,
             βιβλιοθήκη, το πλάνο μου, προσλήψεις, καταγραφή κλήσης
 views5.js   gantt, αναστολές, απόδοση, departments, modules
 views6.js   προαγορά χρόνου, δραστηριότητα, παράπονα
+views7.js   κοστολόγηση PharmacyOne (κοστολογητής → προσφορά)
 help.js     ο οδηγός χρήσης (το «user manual»)
 i18n.js     μεταφράσεις EL/EN
 ```
@@ -216,6 +217,11 @@ php -r 'require "init.php"; require_once "modules/addons/cloudonprojects/lib/Db.
 - **Ομάδα ≠ department.** Το department είναι *πού απευθύνεται* το αίτημα· η ομάδα είναι
   *ποιοι το αναλαμβάνουν*. Σχέση many-to-many μέσω `team_depts`.
 - **`mod_cpm_statuses` έχει στήλη `title`, όχι `name`.** Το `pluck('name','id')` σκάει με 500.
+- **`mod_cpm_offers.kind`** ξεχωρίζει τη γενική προσφορά (`plain`) από την κοστολογημένη
+  (`pharmacyone`), και το `config` κρατά τη ρύθμιση της κοστολόγησης ως JSON. Η προσφορά
+  παραμένει **μία δομή**: στάδια, `sent_at`/`replied_at`, follow-up και Quote δουλεύουν
+  ίδια και στις δύο. Το `kind` καθορίζει **μόνο** ποια οθόνη ανοίγει· μια προσφορά
+  `pharmacyone` που ανοίξει στη γενική φόρμα θα έχανε το υπολογισμένο ποσό.
 
 ---
 
@@ -257,6 +263,7 @@ php -r 'require "init.php"; require_once "modules/addons/cloudonprojects/lib/Db.
 | **Claude API** | Αξιολόγηση βιογραφικών, προσχέδια απαντήσεων, ταξινόμηση tickets | `ai_api_key`, μοντέλο `cv_ai_model` |
 | **Hetzner S3** | Αποθήκευση αρχείων· abstraction με local fallback | `lib/Storage.php` |
 | **ΑΑΔΕ RgWsPublic2** | Άντληση επωνυμίας/διεύθυνσης/ΔΟΥ από ΑΦΜ (SOAP 1.2) | `lib/Aade.php`, `afm.php` |
+| **Κοστολόγηση PharmacyOne** | Κατάλογος + τύποι στον server· η οθόνη μόνο ρωτάει, ώστε ποσό προσφοράς και έγγραφο να μην αποκλίνουν | `lib/Pharmacy.php`, `views7.js` |
 | **RustDesk / Guacamole** | Απομακρυσμένες συνδέσεις | ρυθμίσεις `rustdesk_*`, `guac_*` |
 | **WebRTC** | Τηλεδιάσκεψη P2P, χωρίς server μέσου | `meet.php`, `rtc_peers`, `rtc_msgs` |
 

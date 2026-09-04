@@ -454,6 +454,7 @@ R.offers = async function () {
   const shown = d.offers.filter(hit);
 
   const oChips = (o, sg) => `
+    ${o.kind === 'pharmacyone' ? '<span class="pill pill-ph">PharmacyOne</span>' : ''}
     ${o.clientName ? `<span>${I.user} ${esc(o.clientName)}</span>` : ''}
     ${o.value > 0 ? `<b style="color:var(--ink)">${fmtEur(o.value)}</b>` : ''}
     ${o.quote ? `<span class="pill pill-info">Q${o.quote}</span>` : ''}
@@ -557,6 +558,7 @@ R.offers = async function () {
       <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
         <input class="inp" id="ofQ" placeholder="Ψάξε προσφορά — τίτλο, πελάτη, αριθμό quote…" value="${esc(st.q)}"></div>
       <button class="btn btn-p btn-sm" id="newOffer">${I.plus} Νέα προσφορά</button>
+      <button class="btn btn-o btn-sm" id="newPharm" title="Κοστολόγηση PharmacyOne — γεννά κανονική προσφορά στο κύκλωμα">${I.doc} PharmacyOne</button>
     </div>
     <div class="kb-filters">
       <span class="crm-goal">${I.doc} <b>${fmtEur(openV)}</b><span class="mut"> ανοιχτές</span></span>
@@ -581,6 +583,7 @@ R.offers = async function () {
   $$('[data-goprojof]').forEach(b => b.onclick = e => { e.stopPropagation(); go('board', +b.dataset.goprojof); });
   $$('.lb-title[data-offer]').forEach(b => b.onclick = () => openOffer(d.offers.find(o => o.id === +b.dataset.offer), d));
   $('#newOffer').onclick = () => openOffer(null, d);
+  const npm = $('#newPharm'); if (npm) { npm.onclick = () => window.openPharmacy(0, null); }
   const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
   let oqt;
   $('#ofQ').oninput = () => { clearTimeout(oqt); oqt = setTimeout(() => { st.q = $('#ofQ').value.trim(); R.offers(); }, 300); };
@@ -707,6 +710,9 @@ function openTrack(o) {
 }
 
 function openOffer(o, d) {
+  /* Η προσφορά PharmacyOne γεννήθηκε από τον κοστολογητή· εκεί επιστρέφει κιόλας,
+     αλλιώς η επόμενη αποθήκευση θα έσβηνε το ποσό που βγήκε από τους υπολογισμούς. */
+  if (o && o.kind === 'pharmacyone' && window.openPharmacy) { window.openPharmacy(o.id, null); return; }
   closeDrawer();
   const isNew = !o; o = o || {stage: 'new'};
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει

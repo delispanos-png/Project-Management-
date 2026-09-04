@@ -1198,7 +1198,10 @@ function cardHtml(t) {
     </div>
     ${t.done && t.doneNote ? `<div class="tcard-done" title="${esc(t.doneNote)}">✔ ${esc(t.doneNote)}</div>` : ''}</div>`;
 }
-dnd('.tcard', '.kb-col', async (card, col) => {
+/* Οι κάρτες προσφορών δανείζονται τα ίδια class (.tcard/.kb-col) για την εμφάνιση,
+   και το delegation του dnd είναι καθολικό: χωρίς αυτό το φίλτρο, ένα κλικ σε προσφορά
+   ζητούσε task «NaN» και ένα σύρσιμο θα καλούσε move_task για ανύπαρκτη εργασία. */
+dnd('.tcard[data-task]', '.kb-col[data-status]', async (card, col) => {
   const st = +col.dataset.status;
   let note = '';
   if (S.boot.statuses.find(x => x.id === st && x.done)) {
