@@ -4114,6 +4114,14 @@ case 'delete_offer':
         fail('Η προσφορά ανήκει σε άλλον', 403);
     }
     Capsule::table('mod_cpm_offers')->where('id', (int) $od7->id)->delete();
+    /* Αν ήταν δεμένη σε WHMCS quote, βάζουμε tombstone ώστε το adoptQuotes()
+       να ΜΗΝ την ξαναϋιοθετήσει στην επόμενη φόρτωση (αλλιώς «ξαναγεννιόταν»
+       στο «Νέα»). Το ίδιο το quote στο WHMCS μένει άθικτο. */
+    if ((int) ($od7->quoteid ?? 0) > 0) {
+        Capsule::table('mod_cpm_offer_dismissed')->insertOrIgnore([
+            'quoteid' => (int) $od7->quoteid, 'admin_id' => $adminId,
+            'created_at' => date('Y-m-d H:i:s')]);
+    }
     logActivity('CPM: διαγραφή προσφοράς #' . (int) $od7->id . ($od7->quoteid ? ' (Quote #' . (int) $od7->quoteid . ' αμετάβλητο)' : ''));
     out(['ok' => true, 'quote' => (int) ($od7->quoteid ?? 0)]);
 

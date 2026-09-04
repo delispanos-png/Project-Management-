@@ -1203,6 +1203,21 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        /* ── Απορριφθέντα quotes (tombstone) ──
+           Τα WHMCS quotes είναι η πηγή αλήθειας και το adoptQuotes() τα
+           υιοθετεί ξανά σε κάθε φόρτωση. Όταν ο χρήστης ΔΙΑΓΡΑΨΕΙ μια προσφορά
+           που ήταν δεμένη σε quote, δεν φτάνει να σβήσουμε την καρτέλα — θα
+           ξαναεμφανιζόταν στο «Νέα». Κρατάμε εδώ ποια quotes «βγήκαν από το
+           pipeline» ώστε το adoptQuotes να τα αγνοεί. Το ίδιο το WHMCS quote
+           ΔΕΝ πειράζεται (λογιστική ακεραιότητα). */
+        if (!$s->hasTable('mod_cpm_offer_dismissed')) {
+            $s->create('mod_cpm_offer_dismissed', function ($t) {
+                $t->increments('id');
+                $t->integer('quoteid')->unsigned()->unique();   // tblquotes.id
+                $t->integer('admin_id')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         /* Οι σημειώσεις χειρισμού: τι έγινε, πότε, από ποιον. */
         if (!$s->hasTable('mod_cpm_complaint_notes')) {
             $s->create('mod_cpm_complaint_notes', function ($t) {
@@ -1928,6 +1943,10 @@ class Db
     {
         $known = Capsule::table('mod_cpm_offers')->whereNotNull('quoteid')->where('quoteid', '>', 0)
             ->pluck('quoteid')->all();
+        /* Quotes που ο χρήστης διέγραψε από το pipeline: να ΜΗΝ ξαναϋιοθετηθούν. */
+        if (Capsule::schema()->hasTable('mod_cpm_offer_dismissed')) {
+            $known = array_merge($known, Capsule::table('mod_cpm_offer_dismissed')->pluck('quoteid')->all());
+        }
         $n = 0;
         $q = Capsule::table('tblquotes');
         if ($known) { $q->whereNotIn('id', $known); }
