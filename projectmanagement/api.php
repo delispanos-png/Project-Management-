@@ -1409,6 +1409,20 @@ function cnp_file_ext_ok($name)
 {
     return true;
 }
+/* Η DB είναι utf8mb3: τα 4-byte emoji (📅 💬 🆘…) σε αποθηκευμένους τίτλους γίνονται
+   «????» (τα 3-byte ✅ ⭐ επιβιώνουν). Στην ΕΜΦΑΝΙΣΗ (JSON, όχι DB) κόβουμε το «????»
+   και βάζουμε εικονίδιο ανά τύπο ΜΟΝΟ όταν όντως χάθηκε — ώστε να μη διπλασιάζεται όταν
+   το emoji επιβίωσε. */
+function cnp_notif_display($type, $title)
+{
+    $t = preg_replace('/^\?{2,}\s*/u', '', (string) $title);
+    if ($t !== (string) $title) {   // υπήρχε «????» → το emoji χάθηκε → ξαναβάλ' το
+        $ic = ['assign' => '📌', 'comment' => '💬', 'done' => '✅', 'due' => '📅',
+            'help' => '🆘', 'recurring' => '🔁', 'info' => '🔔'][$type] ?? '🔔';
+        $t = $ic . ' ' . $t;
+    }
+    return $t;
+}
 /* Αυτόματος αριθμός προσφοράς: CLD-<έτος>-<ΕΕ><5ψήφιος αύξων>. Ο μετρητής ζει
    στις ρυθμίσεις· «peek» δείχνει τον επόμενο (για preview), «reserve» τον κρατά
    ατομικά στο save ώστε κάθε προσφορά να έχει μοναδικό αριθμό. */
@@ -3104,8 +3118,8 @@ case 'activity':
 case 'notifs':
     $ns = [];
     foreach (Db::notificationsFor($adminId, 15) as $n) {
-        $ns[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => $n->title, 'url' => $n->url,
-            'read' => (bool) $n->is_read, 'at' => $n->created_at];
+        $ns[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => cnp_notif_display($n->type, $n->title),
+            'url' => $n->url, 'read' => (bool) $n->is_read, 'at' => $n->created_at];
     }
     out(['unread' => Db::unreadCount($adminId), 'items' => $ns]);
 
@@ -3145,7 +3159,7 @@ case 'push_latest':                       // ο service worker τραβά τι �
     if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
     elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
     elseif (preg_match('#/project(?:management)?/#/(\w+)#', $u, $m)) { $spa = '/project/#/' . $m[1]; }
-    out(['id' => (int) $ln->id, 'title' => $ln->title, 'body' => '', 'url' => $spa, 'unread' => (bool) !$ln->is_read]);
+    out(['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => '', 'url' => $spa, 'unread' => (bool) !$ln->is_read]);
 
 
 /* ================= ACTIONS ================= */
