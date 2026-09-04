@@ -501,7 +501,7 @@ class Pharmacy
         $root = dirname(__DIR__, 4) . '/projectmanagement/doc-assets/';
         foreach (['entersoftone.svg', 'entersoftone.png'] as $f) {
             if (is_file($root . $f)) {
-                return ['src' => self::LOGO_DIR . $f, 'alt' => 'Entersoft One', 'tag' => '', 'w' => '56mm'];
+                return ['src' => self::LOGO_DIR . $f, 'alt' => 'Entersoft One', 'tag' => '', 'w' => '68mm'];
             }
         }
         return ['src' => self::LOGO_DIR . 'softone.png', 'alt' => 'SoftOne',
@@ -565,7 +565,7 @@ body{margin:0;padding:16px;background:#eef1f5;color:#1a1a1a;
 .pnum{position:absolute;right:18mm;bottom:10mm;font-size:10pt;color:#333}
 .lg{display:flex;align-items:flex-start;justify-content:space-between;gap:10mm;margin-bottom:9mm}
 .lg img.c{width:46mm;height:auto}
-.lg .s{text-align:right}
+.lg .s{text-align:right;align-self:center}
 .lg .s img{width:44mm;height:auto;display:block}
 .lg .s span{display:block;font-size:8pt;letter-spacing:.2em;color:#5a6672;margin-top:1.5mm}
 h1.sec{color:#2E74B5;font-size:16pt;font-weight:700;margin:0 0 5mm}
