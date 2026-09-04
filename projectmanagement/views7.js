@@ -104,12 +104,20 @@ async function openPharmacy(offerId, pre) {
     <div class="ph-foot">
       <div class="mut ph-sum" id="phSum"></div>
       <button class="btn btn-o" id="phPrint">${I.doc} Εκτύπωση</button>
+      ${st.offer ? '<button class="btn btn-danger" id="phDel">🗑 Διαγραφή</button>' : ''}
       <button class="btn btn-p" id="phSave">${st.offer ? 'Ενημέρωση προσφοράς' : 'Δημιουργία προσφοράς'}</button>
     </div>`;
     $$('[data-tab]', body).forEach(b => b.onclick = () => { st.tab = b.dataset.tab; shell(); paintNumbers(); });
     wireWho();
     $('#phPrint', body).onclick = printDoc;
     $('#phSave', body).onclick = save;
+    const pdl = $('#phDel', body); if (pdl) { pdl.onclick = async () => {
+      if (!(await window.CNP.cnpConfirm('Να διαγραφεί οριστικά αυτή η προσφορά PharmacyOne;', {ok: '🗑 Διαγραφή', cancel: 'Άκυρο'}))) { return; }
+      const r = await api('delete_offer', {offer: st.offer}).catch(e => ({err: e && e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast('Η προσφορά διαγράφηκε'); closeDrawer();
+      if (S.view === 'offers') { R.offers(); } else { go('offers'); }
+    }; }
     pane();
   };
 

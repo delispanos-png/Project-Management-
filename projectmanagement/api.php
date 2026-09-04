@@ -1653,7 +1653,7 @@ function cnp_action_cap($action)
             'campaign_add_lead', 'campaign_remove_lead', 'targets', 'save_ptarget', 'del_ptarget']);
         $add('clients.crm|admin.settings', ['lead_fields']);
         $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
-        $add('clients.offers', ['offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline',
+        $add('clients.offers', ['offers', 'save_offer', 'delete_offer', 'move_offer', 'offer_track', 'offer_timeline',
             'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc', 'pharmacy_ai_draft']);
         $add('clients.offers|projects.edit', ['project_from_offer']);
 
@@ -4105,6 +4105,17 @@ case 'offers':
                 ? (int) floor((strtotime((string) $o->quote_validuntil) - strtotime('today')) / 86400) : null];
     }
     out(['stages' => $stages, 'offers' => $offers]);
+
+case 'delete_offer':
+    $od7 = Db::offer((int) ($in['offer'] ?? 0));
+    if (!$od7) { fail('offer', 404); }
+    /* Διαγράφει μόνο την προσφορά του PM· το τυχόν δεμένο WHMCS Quote ΔΕΝ πειράζεται. */
+    if (!$FULL && (int) $od7->assignee !== $adminId && (int) $od7->created_by !== $adminId) {
+        fail('Η προσφορά ανήκει σε άλλον', 403);
+    }
+    Capsule::table('mod_cpm_offers')->where('id', (int) $od7->id)->delete();
+    logActivity('CPM: διαγραφή προσφοράς #' . (int) $od7->id . ($od7->quoteid ? ' (Quote #' . (int) $od7->quoteid . ' αμετάβλητο)' : ''));
+    out(['ok' => true, 'quote' => (int) ($od7->quoteid ?? 0)]);
 
 case 'move_offer':
     $o = Db::offer((int) ($in['offer'] ?? 0));

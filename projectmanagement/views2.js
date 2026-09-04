@@ -732,8 +732,9 @@ function openOffer(o, d) {
       </div>
       <label class="lbl" style="margin-top:11px">Σημειώσεις</label>
       ${rteHtml('oDescr', o.descr || '', 'Τι περιλαμβάνει η προσφορά…', {min: 120})}
-      <div style="margin-top:13px;display:flex;gap:9px;flex-wrap:wrap"><button class="btn btn-p" id="oSave">Αποθήκευση</button>
-        ${!isNew && o.stage === 'accepted' && S.boot.me.full ? `<button class="btn btn-o" id="oProj">${I.rocket} Δημιουργία έργου</button>` : ''}</div>
+      <div style="margin-top:13px;display:flex;gap:9px;flex-wrap:wrap;align-items:center"><button class="btn btn-p" id="oSave">Αποθήκευση</button>
+        ${!isNew && o.stage === 'accepted' && S.boot.me.full ? `<button class="btn btn-o" id="oProj">${I.rocket} Δημιουργία έργου</button>` : ''}
+        ${!isNew ? '<button class="btn btn-danger" id="oDel" style="margin-left:auto">🗑 Διαγραφή</button>' : ''}</div>
     </div></div>
     ${!isNew ? `<div class="card"><div class="card-h">${I.fileText} WHMCS Quote</div><div class="card-b">
       ${o.quote && S.boot.me.full ? `<p>Δεμένη με το <a href="/cloudonadminpanel/quotes.php?action=manage&id=${o.quote}" target="_blank"><b>Quote #${o.quote}</b></a>
@@ -752,6 +753,12 @@ function openOffer(o, d) {
       amount: $('#oAmount').value !== '' ? +$('#oAmount').value : null, stage: $('#oStage').value,
       expected: $('#oExp').value || null, descr: rteVal('oDescr')});
     toast('Αποθηκεύτηκε'); closeDrawer(); R.offers();
+  };
+  const odl = $('#oDel', dr); if (odl) odl.onclick = async () => {
+    if (!(await cnpConfirm('Να διαγραφεί οριστικά η προσφορά «' + esc(o.title || '') + '»;\nΤο τυχόν δεμένο WHMCS Quote δεν πειράζεται.', {ok: '🗑 Διαγραφή', cancel: 'Άκυρο'}))) { return; }
+    const r = await api('delete_offer', {offer: o.id}).catch(e => ({err: e && e.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('Η προσφορά διαγράφηκε'); closeDrawer(); R.offers();
   };
   const opj = $('#oProj', dr); if (opj) opj.onclick = async () => {
     const r = await api('project_from_offer', {offer: o.id}).catch(e => ({err: e.message}));
