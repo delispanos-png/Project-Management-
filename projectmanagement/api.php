@@ -3336,7 +3336,7 @@ case 'help_ask':
         if (!$ht) { $htask = null; }
     }
     $hid = Capsule::table('mod_cpm_help')->insertGetId([
-        'from_admin' => $adminId, 'to_admin' => $hto, 'task_id' => $htask,
+        'from_admin' => $adminId, 'to_admin' => $hto, 'task_id' => $htask, 'kind' => 'help',
         'message' => mb_substr($hmsg, 0, 2000), 'status' => 'open',
         'created_at' => date('Y-m-d H:i:s')]);
     /* Και ειδοποίηση στο καμπανάκι (μένει μέχρι να διαβαστεί) — το «μπαμ» popup το
@@ -3361,6 +3361,37 @@ case 'help_done':                         // τακτοποιήθηκε
         ->update(['status' => 'done', 'done_at' => date('Y-m-d H:i:s'),
             'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
     out(['ok' => true]);
+
+/* ---- Φωνή ομάδας: μόνιμο δωμάτιο (Discord-style) πάνω στο CloudOn Meet ---- */
+case 'voice_presence':                    // ποιος είναι μέσα στη φωνή τώρα
+    $vroom = 'mteamvoice';
+    Capsule::table('mod_cpm_rtc_peers')->where('last_seen', '<', date('Y-m-d H:i:s', time() - 40))->delete();
+    $vin = [];
+    foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $vroom)
+        ->where('last_seen', '>', date('Y-m-d H:i:s', time() - 35))->orderBy('id')->get() as $vp) {
+        $vin[] = ['adminId' => $vp->admin_id ? (int) $vp->admin_id : 0, 'name' => $vp->name];
+    }
+    out(['room' => $vroom, 'url' => 'meet.php?room=' . $vroom, 'in' => $vin]);
+
+case 'voice_call':                        // «έλα τώρα» — κάλεσε συναδέλφους στη φωνή
+    $vmsg = trim((string) ($in['message'] ?? '')) ?: 'Έλα στη φωνή της ομάδας — σε περιμένουμε.';
+    $vtargets = [];
+    if (($in['to'] ?? '') === 'all' || empty($in['to'])) {
+        foreach (Capsule::table('tbladmins')->where('disabled', 0)->where('id', '!=', $adminId)->pluck('id') as $tid) {
+            if (!cnp_is_bot(Db::adminName((int) $tid), '')) { $vtargets[] = (int) $tid; }
+        }
+    } else {
+        foreach ((array) $in['to'] as $tid) { $tid = (int) $tid; if ($tid > 0 && $tid !== $adminId) { $vtargets[] = $tid; } }
+    }
+    $vn = 0;
+    foreach (array_unique($vtargets) as $tid) {
+        Capsule::table('mod_cpm_help')->insertGetId([
+            'from_admin' => $adminId, 'to_admin' => $tid, 'task_id' => null, 'kind' => 'voice',
+            'message' => mb_substr($vmsg, 0, 500), 'status' => 'open', 'created_at' => date('Y-m-d H:i:s')]);
+        Db::pushNotification($tid, 'help', '🔊 ' . Db::adminName($adminId) . ' σε καλεί στη φωνή', '/project/#/chat');
+        $vn++;
+    }
+    out(['ok' => true, 'called' => $vn]);
 
 /* ---- CRM actions ---- */
 case 'move_lead':
@@ -10605,6 +10636,7 @@ case 'version':
         ->whereNull('seen_at')->where('status', 'open')->orderBy('id')->limit(5)->get() as $hr) {
         $alerts[] = ['id' => (int) $hr->id, 'fromId' => (int) $hr->from_admin,
             'from' => Db::adminName((int) $hr->from_admin), 'message' => $hr->message,
+            'kind' => $hr->kind ?: 'help',
             'taskId' => $hr->task_id ? (int) $hr->task_id : 0,
             'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
             'at' => $hr->created_at];

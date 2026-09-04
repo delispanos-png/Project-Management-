@@ -2150,3 +2150,27 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .help-ctx{margin-top:10px;font-size:12px;color:var(--mut);display:inline-flex;align-items:center;gap:6px}
 .help-f{margin-top:18px;display:flex;gap:9px;justify-content:center;flex-wrap:wrap}
 @media (prefers-reduced-motion:reduce){.help-alert,.help-ring{animation:none}}
+
+/* ═════════ 🔊 Φωνή ομάδας (Discord-style) ═════════ */
+.voicebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:9px 14px;margin-bottom:12px;border-radius:12px;
+  background:linear-gradient(135deg,#0c2544,#0b3d6e);color:#fff;box-shadow:var(--sh)}
+.voicebar .vb-l{display:flex;align-items:center;gap:9px;min-width:0;flex:1}
+.voicebar .vb-ic{font-size:16px}
+.voicebar .vb-l b{font-size:13.5px}
+.vb-pres{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12px}
+.vb-pres .mut{color:rgba(255,255,255,.6)}
+.vb-ava{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;
+  background:#ffffff28;color:#fff;font-size:9.5px;font-weight:800;border:1.5px solid #ffffff55;margin-left:-6px}
+.vb-ava:first-child{margin-left:0}
+.vb-cnt{margin-left:6px;font-weight:700;color:#8fd3ff}
+.voicebar .vb-r{display:flex;gap:7px;flex-wrap:wrap}
+.voicebar .btn-o{background:#ffffff1a;border-color:#ffffff44;color:#fff}
+.voicebar .btn-o:hover{background:#ffffff2e}
+@media(max-width:700px){.voicebar .vb-r{width:100%}.voicebar .vb-r .btn{flex:1}}
+/* το «μπαμ» σε φωνητική κλήση — μπλε αντί κόκκινο */
+.help-alert.voice{box-shadow:0 24px 80px rgba(0,0,0,.45),0 0 0 4px #0090dd55}
+.help-alert.voice::before{background:#0090dd}
+.help-alert.voice .help-ring{background:#0090dd18;animation:helpPulseB 1.3s infinite}
+.help-alert.voice .help-who b{color:#0a6faf}
+@keyframes helpPulseB{0%{box-shadow:0 0 0 0 #0090dd66}70%{box-shadow:0 0 0 18px #0090dd00}100%{box-shadow:0 0 0 0 #0090dd00}}

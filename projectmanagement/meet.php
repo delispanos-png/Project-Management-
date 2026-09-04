@@ -31,6 +31,25 @@ if (!$isGuest) {
         $team[] = ['id' => (int) $t->id, 'name' => trim($t->firstname . ' ' . $t->lastname)];
     }
 }
+/* ICE (STUN/TURN) από ρυθμίσεις του addon — ο TURN κουμπώνει χωρίς αλλαγή κώδικα.
+   Χωρίς TURN, δουλεύει σε LAN/ευνοϊκά δίκτυα· με TURN, από παντού (σπίτι/κινητό). */
+$cfgv = function ($k, $d = '') {
+    $v = \WHMCS\Database\Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', $k)->value('value');
+    return $v === null ? $d : trim((string) $v);
+};
+$iceServers = [];
+$stun = $cfgv('ice_stun');
+$stunList = $stun !== '' ? preg_split('/[\s,]+/', $stun) : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+foreach ($stunList as $su) { if ($su) { $iceServers[] = ['urls' => $su]; } }
+$turn = $cfgv('ice_turn');
+if ($turn !== '') {
+    $ts = ['urls' => array_values(array_filter(preg_split('/[\s,]+/', $turn)))];
+    $tu = $cfgv('ice_turn_user');
+    if ($tu !== '') { $ts['username'] = $tu; $ts['credential'] = $cfgv('ice_turn_pass'); }
+    $iceServers[] = $ts;
+}
+$iceJson = json_encode(['iceServers' => $iceServers]);
 ?><!DOCTYPE html>
 <html lang="el">
 <head>
@@ -186,7 +205,7 @@ const MT = <?= json_encode($isGuest ? $tok : '') ?>;
 const IS_GUEST = <?= $isGuest ? 'true' : 'false' ?>;
 const IS_REMOTE = <?= $isRemote ? 'true' : 'false' ?>;
 const API = 'api.php';
-const ICE = {iceServers: [{urls: 'stun:stun.l.google.com:19302'}, {urls: 'stun:stun1.l.google.com:19302'}]};
+const ICE = <?= $iceJson ?>;
 const $ = s => document.querySelector(s);
 
 /* Σύγχρονα line icons (Feather-style) */

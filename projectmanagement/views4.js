@@ -1021,12 +1021,21 @@ R.chat = async function () {
   const c = $('#content');
   const st = R.chat._st = R.chat._st || {ch: 'team', lastId: 0};
   clearInterval(R.chat._t);
+  clearInterval(R.chat._vt);
   const d = await api('chat_channels');
   const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
   const chAva = ch => `<span class="ch-av ${ch.kind !== 'dm' ? 'ch-av-grp' : ''}">${ch.kind === 'team' ? I.users : ch.kind === 'group' ? '#' : esc(ini(ch.name))}${ch.kind === 'dm' ? `<span class="ch-av-dot ${ch.status || 'online'}"></span>` : ''}</span>`;
   const chPresence = ch => ch.status === 'offline' ? '⚫ Offline' + (ch.reason ? ' · ' + esc(ch.reason) : '') : ch.status === 'away' ? '🟡 Away' + (ch.reason ? ' · ' + esc(ch.reason) : '') : '🟢 Online';
   const cur = d.channels.find(x => x.id === st.ch) || d.channels[0] || {name: 'Chat', kind: 'team'};
   c.innerHTML = `
+  <div class="voicebar">
+    <div class="vb-l"><span class="vb-ic">🔊</span><b>Φωνή ομάδας</b>
+      <span class="vb-pres" id="vbPres"><span class="mut">…</span></span></div>
+    <div class="vb-r">
+      <button class="btn btn-o btn-sm" id="vbCall" title="Στείλε «έλα τώρα» σε όλη την ομάδα">🔔 Κάλεσε την ομάδα</button>
+      <button class="btn btn-p btn-sm" id="vbJoin">🎙 Μπες στη φωνή</button>
+    </div>
+  </div>
   <div class="chat${st.mobileConv ? ' conv-open' : ''}">
     <div class="ch-left">
       <div class="ch-mystatus">
@@ -1105,6 +1114,26 @@ R.chat = async function () {
     toast(reason ? '⚫ Offline · ' + reason : '⚫ Είσαι offline');
     R.chat();
   };
+  /* ── Μπάρα φωνής ομάδας: μόνιμο δωμάτιο (πάνω στο CloudOn Meet) + παρουσία ── */
+  const vbJoin = $('#vbJoin'); if (vbJoin) { vbJoin.onclick = () => window.open(VOICE_URL, '_blank'); }
+  const vbCall = $('#vbCall'); if (vbCall) { vbCall.onclick = async () => {
+    vbCall.disabled = true;
+    const r = await api('voice_call', {to: 'all'}).catch(() => null);
+    vbCall.disabled = false;
+    toast(r && r.ok ? `Κάλεσα ${r.called} άτομα στη φωνή` : 'Δεν στάλθηκε', !(r && r.ok));
+  }; }
+  const paintVoice = async () => {
+    const box = $('#vbPres'); if (!box) { clearInterval(R.chat._vt); return; }
+    const r = await api('voice_presence').catch(() => null);
+    const list = (r && r.in) || [];
+    box.innerHTML = list.length
+      ? list.map(p => `<span class="vb-ava" title="${esc(p.name)}">${esc(adminIni(p.adminId) || (p.name || '?').slice(0, 2))}</span>`).join('')
+        + `<span class="vb-cnt">${list.length} μέσα</span>`
+      : '<span class="mut">κανείς μέσα τώρα</span>';
+  };
+  paintVoice();
+  R.chat._vt = setInterval(paintVoice, 10000);
+
   $('#chSt').onchange = async e => {
     if (e.target.value === 'offline') { goOffline(d.myReason); return; }
     await api('chat_status', {status: 'online'});
@@ -2766,21 +2795,25 @@ function helpBeep() {
   } catch (e) {}
 }
 
+const VOICE_URL = 'https://my.cloudon.gr/projectmanagement/meet.php?room=mteamvoice';
+
 function showHelpAlert(a) {
   if (!a || HELP_SHOWN.has(a.id)) { return; }
   HELP_SHOWN.add(a.id);
   api('help_seen', {id: a.id}).catch(() => {});     // μη ξαναχτυπήσει από επόμενο poll
+  const voice = a.kind === 'voice';
   const ovl = document.createElement('div');
   ovl.className = 'ovl show help-ovl';
-  ovl.innerHTML = `<div class="help-alert" onclick="event.stopPropagation()">
-    <div class="help-ring">🆘</div>
-    <div class="help-who"><b>${esc(a.from)}</b> χρειάζεται τη βοήθειά σου</div>
+  ovl.innerHTML = `<div class="help-alert${voice ? ' voice' : ''}" onclick="event.stopPropagation()">
+    <div class="help-ring">${voice ? '🔊' : '🆘'}</div>
+    <div class="help-who"><b>${esc(a.from)}</b> ${voice ? 'σε καλεί στη φωνή' : 'χρειάζεται τη βοήθειά σου'}</div>
     <div class="help-msg">${esc(a.message)}</div>
     ${a.taskTitle ? `<div class="help-ctx">${I.checkSquare} ${esc(a.taskTitle)}</div>` : ''}
     <div class="help-f">
-      ${a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε το θέμα</button>`
-        : `<button class="btn btn-o" id="haChat">${I.chat} Άνοιξε chat</button>`}
-      <button class="btn btn-p" id="haOk">Το είδα — καλώ τώρα</button>
+      ${voice
+        ? `<button class="btn btn-o" id="haOk">Όχι τώρα</button><button class="btn btn-p" id="haVoice">🎙 Μπες στη φωνή</button>`
+        : (a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε το θέμα</button>` : `<button class="btn btn-o" id="haChat">${I.chat} Άνοιξε chat</button>`)
+          + `<button class="btn btn-p" id="haOk">Το είδα — καλώ τώρα</button>`}
     </div></div>`;
   document.body.appendChild(ovl);
   helpBeep();
@@ -2799,6 +2832,7 @@ function showHelpAlert(a) {
   const ok = ovl.querySelector('#haOk'); if (ok) { ok.onclick = close; }
   const op = ovl.querySelector('#haOpen'); if (op) { op.onclick = () => { close(); openTask(a.taskId); }; }
   const ch = ovl.querySelector('#haChat'); if (ch) { ch.onclick = () => { close(); go('chat'); }; }
+  const hv = ovl.querySelector('#haVoice'); if (hv) { hv.onclick = () => { close(); window.open(VOICE_URL, '_blank'); go('chat'); }; }
 }
 
 window.CNP.quickHelp = quickHelp;

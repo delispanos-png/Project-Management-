@@ -1162,12 +1162,16 @@ class Db
                 $t->integer('from_admin')->unsigned()->index();
                 $t->integer('to_admin')->unsigned()->index();
                 $t->integer('task_id')->unsigned()->nullable();   // προαιρετικό «κομμάτι»
+                $t->string('kind', 8)->default('help');           // help|voice
                 $t->text('message');
                 $t->string('status', 10)->default('open')->index();  // open|done
                 $t->timestamp('seen_at')->nullable();
                 $t->timestamp('done_at')->nullable();
                 $t->timestamp('created_at')->nullable();
             });
+        }
+        if ($s->hasTable('mod_cpm_help') && !$s->hasColumn('mod_cpm_help', 'kind')) {
+            $s->table('mod_cpm_help', function ($t) { $t->string('kind', 8)->default('help')->after('task_id'); });
         }
         /* Οι σημειώσεις χειρισμού: τι έγινε, πότε, από ποιον. */
         if (!$s->hasTable('mod_cpm_complaint_notes')) {
