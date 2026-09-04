@@ -1116,12 +1116,7 @@ R.chat = async function () {
   };
   /* ── Μπάρα φωνής ομάδας: μόνιμο δωμάτιο (πάνω στο CloudOn Meet) + παρουσία ── */
   const vbJoin = $('#vbJoin'); if (vbJoin) { vbJoin.onclick = () => window.open(VOICE_URL, '_blank'); }
-  const vbCall = $('#vbCall'); if (vbCall) { vbCall.onclick = async () => {
-    vbCall.disabled = true;
-    const r = await api('voice_call', {to: 'all'}).catch(() => null);
-    vbCall.disabled = false;
-    toast(r && r.ok ? `Κάλεσα ${r.called} άτομα στη φωνή` : 'Δεν στάλθηκε', !(r && r.ok));
-  }; }
+  const vbCall = $('#vbCall'); if (vbCall) { vbCall.onclick = () => voiceCallDialog(); }
   const paintVoice = async () => {
     const box = $('#vbPres'); if (!box) { clearInterval(R.chat._vt); return; }
     const r = await api('voice_presence').catch(() => null);
@@ -2835,5 +2830,58 @@ function showHelpAlert(a) {
   const hv = ovl.querySelector('#haVoice'); if (hv) { hv.onclick = () => { close(); window.open(VOICE_URL, '_blank'); go('chat'); }; }
 }
 
+/* Ποιους να καλέσω στη φωνή — pop-up επιλογής (αντί για «όλους» τυφλά). */
+async function voiceCallDialog() {
+  closeDrawer();
+  const meId = S.boot.me.id;
+  const isBot = n => /support team|\bbot\b/i.test(n) || String(n).trim() === 'Cloud On';
+  const mates = (S.boot.admins || []).filter(a => a.id !== meId && !isBot(a.name));
+  const inRoom = new Set();
+  const pr = await api('voice_presence').catch(() => null);
+  if (pr && pr.in) { pr.in.forEach(p => p.adminId && inRoom.add(p.adminId)); }
+  const ovl = document.createElement('div'); ovl.className = 'ovl show';
+  ovl.innerHTML = `<div class="pal-box qh-box vcall-box" onclick="event.stopPropagation()">
+    <div class="qh-h"><b>🔊 Κάλεσε στη φωνή</b>
+      <span class="mut" style="font-size:11.5px">όσους διαλέξεις θα λάβουν δυνατό «έλα τώρα»</span></div>
+    <div class="qh-b">
+      <div class="vc-tools"><label class="vc-all"><input type="checkbox" id="vcAll"> Επίλεξε όλους</label>
+        <span class="mut" id="vcCnt" style="font-size:12px"></span></div>
+      <div class="vc-list">
+        ${mates.length ? mates.map(a => `<label class="vc-item${inRoom.has(a.id) ? ' in' : ''}">
+          <input type="checkbox" class="vc-chk" value="${a.id}" ${inRoom.has(a.id) ? 'disabled' : ''}>
+          <span class="vc-ava">${esc(adminIni(a.id) || (a.name || '?').slice(0, 2))}</span>
+          <span class="vc-nm">${esc(a.name)}</span>
+          ${inRoom.has(a.id) ? '<span class="vc-badge">μέσα</span>' : ''}</label>`).join('')
+          : '<div class="mut" style="padding:14px;text-align:center">Κανένας άλλος στην ομάδα.</div>'}
+      </div>
+      <label class="lbl" style="margin-top:12px">Μήνυμα <span class="mut" style="font-weight:400">— προαιρετικά</span></label>
+      <input class="inp" id="vcMsg" value="Έλα στη φωνή της ομάδας — σε περιμένουμε.">
+    </div>
+    <div class="qh-f"><button class="btn btn-o" id="vcX">Άκυρο</button>
+      <button class="btn btn-p" id="vcOk" disabled>Κάλεσε</button></div></div>`;
+  document.body.appendChild(ovl);
+  const q = sel => ovl.querySelector(sel);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onEsc, true); };
+  const onEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onEsc, true);
+  ovl.onclick = close; q('#vcX').onclick = close;
+  const boxes = () => [...ovl.querySelectorAll('.vc-chk')].filter(c => !c.disabled);
+  const picked = () => boxes().filter(c => c.checked).map(c => +c.value);
+  const refresh = () => { const n = picked().length;
+    q('#vcOk').disabled = !n; q('#vcOk').textContent = n ? `Κάλεσε (${n})` : 'Κάλεσε';
+    q('#vcCnt').textContent = n ? `${n} επιλεγμένοι` : ''; };
+  ovl.querySelectorAll('.vc-chk').forEach(c => c.onchange = refresh);
+  q('#vcAll').onchange = e => { boxes().forEach(c => c.checked = e.target.checked); refresh(); };
+  q('#vcOk').onclick = async () => {
+    const to = picked(); if (!to.length) { return; }
+    q('#vcOk').disabled = true;
+    const r = await api('voice_call', {to, message: q('#vcMsg').value.trim()}).catch(() => null);
+    toast(r && r.ok ? `Κάλεσα ${r.called} άτομα στη φωνή` : 'Δεν στάλθηκε', !(r && r.ok));
+    close();
+  };
+  setTimeout(() => q('#vcAll') && q('#vcAll').focus(), 60);
+}
+
 window.CNP.quickHelp = quickHelp;
 window.CNP.showHelpAlert = showHelpAlert;
+window.CNP.voiceCallDialog = voiceCallDialog;

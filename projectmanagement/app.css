@@ -2174,3 +2174,16 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .help-alert.voice .help-ring{background:#0090dd18;animation:helpPulseB 1.3s infinite}
 .help-alert.voice .help-who b{color:#0a6faf}
 @keyframes helpPulseB{0%{box-shadow:0 0 0 0 #0090dd66}70%{box-shadow:0 0 0 18px #0090dd00}100%{box-shadow:0 0 0 0 #0090dd00}}
+
+/* pop-up επιλογής «Κάλεσε στη φωνή» */
+.vcall-box .vc-tools{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.vc-all{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.vc-list{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
+.vc-item{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px;cursor:pointer}
+.vc-item:hover{background:var(--canvas)}
+.vc-item input{width:16px;height:16px;accent-color:var(--brand);cursor:pointer;flex:none}
+.vc-item.in{opacity:.7}
+.vc-ava{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;
+  background:var(--brand);color:#fff;font-size:10px;font-weight:800;flex:none;text-transform:uppercase}
+.vc-nm{flex:1;min-width:0;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vc-badge{font-size:10px;font-weight:700;color:#0e8a56;background:#16a26a1e;border-radius:20px;padding:2px 9px}
