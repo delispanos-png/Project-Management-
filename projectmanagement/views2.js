@@ -734,7 +734,8 @@ function openOffer(o, d) {
       ${rteHtml('oDescr', o.descr || '', 'Τι περιλαμβάνει η προσφορά…', {min: 120})}
       <div style="margin-top:13px;display:flex;gap:9px;flex-wrap:wrap;align-items:center"><button class="btn btn-p" id="oSave">Αποθήκευση</button>
         ${!isNew && o.stage === 'accepted' && S.boot.me.full ? `<button class="btn btn-o" id="oProj">${I.rocket} Δημιουργία έργου</button>` : ''}
-        ${!isNew ? '<button class="btn btn-danger" id="oDel" style="margin-left:auto">🗑 Διαγραφή</button>' : ''}</div>
+        ${!isNew && (cnpCan('clients.offer_delete') || (o.assignee && o.assignee === S.boot.me.id))
+          ? '<button class="btn btn-danger" id="oDel" style="margin-left:auto">🗑 Διαγραφή</button>' : ''}</div>
     </div></div>
     ${!isNew ? `<div class="card"><div class="card-h">${I.fileText} WHMCS Quote</div><div class="card-b">
       ${o.quote && S.boot.me.full ? `<p>Δεμένη με το <a href="/cloudonadminpanel/quotes.php?action=manage&id=${o.quote}" target="_blank"><b>Quote #${o.quote}</b></a>

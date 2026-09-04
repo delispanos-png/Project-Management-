@@ -1497,6 +1497,7 @@ function cnp_caps()
         'clients.card'    => ['screen', 'Πελάτης 360°', 'Καρτέλα πελάτη: υπηρεσίες, τιμολόγια, αιτήματα'],
         'clients.crm'     => ['screen', 'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
         'clients.offers'  => ['screen', 'Προσφορές', 'Δημιουργία και παρακολούθηση προσφορών'],
+        'clients.offer_delete' => ['power', 'Διαγραφή προσφορών', 'Οριστική αφαίρεση προσφοράς από το pipeline (το WHMCS quote μένει άθικτο)', 'clients.offers'],
         'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket από πάνω'],
         'clients.complaints' => ['screen', 'Παράπονα πελατών', 'Καταχώρηση και παρακολούθηση δυσαρέσκειας'],
         'clients.complaint_close' => ['power', 'Κλείσιμο παραπόνου', 'Έκβαση και αιτία — ποιος λογοδοτεί για τη λύση', 'clients.complaints'],
@@ -4109,9 +4110,15 @@ case 'offers':
 case 'delete_offer':
     $od7 = Db::offer((int) ($in['offer'] ?? 0));
     if (!$od7) { fail('offer', 404); }
-    /* Διαγράφει μόνο την προσφορά του PM· το τυχόν δεμένο WHMCS Quote ΔΕΝ πειράζεται. */
-    if (!$FULL && (int) $od7->assignee !== $adminId && (int) $od7->created_by !== $adminId) {
-        fail('Η προσφορά ανήκει σε άλλον', 403);
+    /* Διαγράφει μόνο την προσφορά του PM· το τυχόν δεμένο WHMCS Quote ΔΕΝ πειράζεται.
+       Δικαίωμα: Full admin, ή όποιος έχει τη ρητή δυνατότητα «Διαγραφή προσφορών»
+       (δίνεται ανά ομάδα), ή ο ιδιοκτήτης/δημιουργός της ίδιας της προσφοράς.
+       (Οι υιοθετημένες από WHMCS quotes δεν έχουν ιδιοκτήτη — γι' αυτό χρειάζεται
+       η ρητή δυνατότητα, ώστε αξιόπιστα άτομα να μπορούν να τις σβήνουν.) */
+    $canDel7 = $FULL || cnp_has_cap($adminId, $FULL, 'clients.offer_delete')
+        || (int) $od7->assignee === $adminId || (int) $od7->created_by === $adminId;
+    if (!$canDel7) {
+        fail('Δεν έχεις δικαίωμα διαγραφής προσφοράς — ζήτησέ το από διαχειριστή (δυνατότητα «Διαγραφή προσφορών»)', 403);
     }
     Capsule::table('mod_cpm_offers')->where('id', (int) $od7->id)->delete();
     /* Αν ήταν δεμένη σε WHMCS quote, βάζουμε tombstone ώστε το adoptQuotes()

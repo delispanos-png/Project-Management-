@@ -104,7 +104,7 @@ async function openPharmacy(offerId, pre) {
     <div class="ph-foot">
       <div class="mut ph-sum" id="phSum"></div>
       <button class="btn btn-o" id="phPrint">${I.doc} Εκτύπωση</button>
-      ${st.offer ? '<button class="btn btn-danger" id="phDel">🗑 Διαγραφή</button>' : ''}
+      ${st.offer && cnpCan('clients.offer_delete') ? '<button class="btn btn-danger" id="phDel">🗑 Διαγραφή</button>' : ''}
       <button class="btn btn-p" id="phSave">${st.offer ? 'Ενημέρωση προσφοράς' : 'Δημιουργία προσφοράς'}</button>
     </div>`;
     $$('[data-tab]', body).forEach(b => b.onclick = () => { st.tab = b.dataset.tab; shell(); paintNumbers(); });
