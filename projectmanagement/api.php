@@ -703,6 +703,45 @@ function cnp_offer_ensure_client(array $cfg, $adminId, array &$meta)
 }
 
 /**
+ * Εξασφαλίζει WHMCS quote για μια προσφορά, ώστε να φαίνεται native στο portal
+ * του πελάτη («Quotes», με accept/decline). Οι γραμμές έρχονται από το
+ * lineItems() του τύπου (itemized) — μία πηγή με τις μελλοντικές χρεώσεις.
+ * Idempotent: αν υπάρχει ήδη quote, το επιστρέφει.
+ *
+ * @return int quoteid ή 0.
+ */
+function cnp_offer_ensure_quote($offer, $type, array $cfg, $adminId)
+{
+    if ((int) ($offer->quoteid ?? 0) > 0) { return (int) $offer->quoteid; }
+    $cid = (int) ($offer->clientid ?? 0);
+    if (!$cid) { return 0; }
+    $items = $type->lineItems($cfg);
+    if (!$items) {
+        $items = [['desc' => $offer->title ?: 'Προσφορά', 'qty' => 1.0,
+            'unit' => (float) ($offer->amount ?? 0), 'taxable' => true]];
+    }
+    $li = [];
+    foreach ($items as $it) {
+        $li[] = ['desc' => (string) $it['desc'], 'qty' => (float) ($it['qty'] ?? 1),
+            'up' => (float) ($it['unit'] ?? 0), 'discount' => 0, 'taxable' => !empty($it['taxable'])];
+    }
+    $r = localAPI('CreateQuote', [
+        'subject' => $offer->title ?: 'Προσφορά', 'stage' => 'Delivered',
+        'validuntil' => $offer->expected_close ?: date('Y-m-d', strtotime('+30 days')),
+        'userid' => $cid,
+        'lineitems' => base64_encode(serialize($li)),
+    ], 'pdelis');
+    if (($r['result'] ?? '') === 'success' && !empty($r['quoteid'])) {
+        $qid = (int) $r['quoteid'];
+        Capsule::table('mod_cpm_offers')->where('id', (int) $offer->id)->update(['quoteid' => $qid]);
+        logActivity('CPM: δημιουργία WHMCS quote #' . $qid . ' από προσφορά #' . (int) $offer->id
+            . ' (portal πελάτη)');
+        return $qid;
+    }
+    return 0;
+}
+
+/**
  * Ασφαλές fetch URL που δίνει ο χρήστης (εισαγωγή γνώσης από τεκμηρίωση).
  * 🔒 SSRF: μόνο http/https, ΟΧΙ ιδιωτικά/loopback IP, όριο μεγέθους & redirects.
  */
@@ -4646,6 +4685,18 @@ case 'pharmacy_email':                   // αποστολή της προσφο
         }
     }
 
+    /* 4β) WHMCS quote: ώστε ο πελάτης να το βλέπει native στο portal («Quotes»),
+       itemized από τα lineItems του τύπου. Idempotent. */
+    $quoteCreated = false;
+    if ($oidE && $linkedCid) {
+        $oFresh = Db::offer($oidE);
+        if ($oFresh) {
+            $hadQuote = (int) ($oFresh->quoteid ?? 0) > 0;
+            $qidE = cnp_offer_ensure_quote($oFresh, $etype, $cfgE, $adminId);
+            if ($qidE && !$hadQuote) { $quoteCreated = true; }
+        }
+    }
+
     /* 5) Καταγραφή + tracking: σημειώνεται η αποστολή, μετακίνηση new/draft → sent. */
     if ($oidE && $oE) {
         $updE = [];
@@ -4661,7 +4712,8 @@ case 'pharmacy_email':                   // αποστολή της προσφο
     logActivity('CPM: αποστολή προσφοράς PharmacyOne' . ($proto ? ' ' . $proto : '') . ' στον πελάτη ' . $toE
         . ($oidE ? ' (offer #' . $oidE . ')' : '') . ($acct['created'] ? ' + νέος λογαριασμός MyCloudOn' : ''));
     out(['ok' => true, 'to' => $toE, 'client' => $linkedCid ?: null,
-        'accountCreated' => $acct['created'], 'credentialsSent' => $acct['emailed']]);
+        'accountCreated' => $acct['created'], 'credentialsSent' => $acct['emailed'],
+        'quoteCreated' => $quoteCreated]);
 
 /* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */
 case 'contacts':

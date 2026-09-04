@@ -1412,7 +1412,15 @@ round-trip καθαρό, credentials email = ίδιο proven PHPMailer path.
 έγγραφο). Τα `pharmacy_doc`/`pharmacy_email` δρομολογούν πλέον docHtml/docCss/amount/normalize
 **μέσω του registry** (μηδέν αλλαγή συμπεριφοράς — επαληθεύτηκε byte-identical). Κάθε τύπος
 δίνει **`lineItems()`** (γραμμές χρέωσης· PharmacyOne: annual+setup+έκπτωση, άθροισμα =
-offerAmount ακριβώς) — η γέφυρα για quote & Φάση 4 billing. Δες `docs/OFFERS-ARCHITECTURE.md`. *Επόμενο (Φάση 2):* το
+offerAmount ακριβώς) — η γέφυρα για quote & Φάση 4 billing. Δες `docs/OFFERS-ARCHITECTURE.md`.
+
+**Φάση 2a — WHMCS quote με την αποστολή (portal)** (5/9/2026). Με το «✉ Αποστολή», αφού
+εξασφαλιστεί ο πελάτης, δημιουργείται (idempotent) **WHMCS quote** ώστε ο πελάτης να το
+βλέπει native στο MyCloudOn («Quotes», με accept/decline). Helper `cnp_offer_ensure_quote()`
+χτίζει **itemized** γραμμές από το `lineItems()` του τύπου (PharmacyOne: ετήσια συνδρομή +
+εφάπαξ στήσιμο + έκπτωση· άθροισμα pre-tax = offerAmount, +ΦΠΑ στο quote total). Επαληθεύτηκε
+με CreateQuote→verify→DeleteQuote round-trip (temp καθαρίστηκαν). Το `pharmacy_email`
+επιστρέφει `quoteCreated`. *Επόμενο (Φάση 2):* το
 quote στο portal να δείχνει το δικό μας branded PDF (viewquote του cloudon template) + νήμα
 σχολίων/ερωτήσεων πελάτη↔ομάδας.
 
