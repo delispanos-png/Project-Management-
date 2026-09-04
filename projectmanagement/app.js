@@ -1362,7 +1362,7 @@ async function openTask(id) {
       </div>
       <label class="lbl" style="margin-top:12px">${I.doc || ''} <b>1. Το ζητούμενο</b> — τι ακριβώς πρέπει να γίνει</label>
       ${rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 260})}
-      <div style="display:flex;gap:9px;margin-top:13px;align-items:center">
+      <div style="display:flex;gap:9px;margin-top:13px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
