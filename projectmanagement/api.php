@@ -4145,7 +4145,8 @@ case 'pharmacy_doc':                     // το έγγραφο της προσ�
     } else {
         $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
     }
-    out(['html' => Pharmacy::docHtml($cfg9), 'amount' => Pharmacy::offerAmount($cfg9),
+    out(['html' => Pharmacy::docHtml($cfg9), 'css' => Pharmacy::docCss(),
+        'amount' => Pharmacy::offerAmount($cfg9),
         'cfg' => Pharmacy::normalize($cfg9), 'client' => $cli9]);
 
 /* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */

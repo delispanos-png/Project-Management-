@@ -259,7 +259,8 @@ async function openPharmacy(offerId, pre) {
   }
 
   const DOC_FIELDS = [
-    ['attn', 'Υπόψη (ονοματεπώνυμο)', 'text'], ['cphone', 'Τηλέφωνο πελάτη', 'text'],
+    ['attn', 'Υπόψη (ονοματεπώνυμο)', 'text'],
+    ['greeting', 'Χαιρετισμός επιστολής', 'text'], ['cphone', 'Τηλέφωνο πελάτη', 'text'],
     ['cemail', 'Email πελάτη', 'text'], ['address', 'Διεύθυνση έδρας', 'text'],
     ['doy', 'Δ.Ο.Υ.', 'text'], ['protocol', 'Αριθμός πρωτοκόλλου', 'text'],
     ['date', 'Ημερομηνία', 'date'], ['city', 'Πόλη', 'text'],
@@ -303,17 +304,14 @@ async function openPharmacy(offerId, pre) {
       fr.title = 'Προεπισκόπηση προσφοράς';
       box.append(fr);
     }
+    /* Το στυλ έρχεται από τον server μαζί με το περιεχόμενο: ένα έντυπο, μία πηγή. */
     fr.srcdoc = '<!doctype html><html lang="el"><head><meta charset="utf-8">'
+      + '<base href="/project/">'
       + '<title>' + esc('Προσφορά — ' + (st.clientName || 'PharmacyOne')) + '</title>'
-      + '<style>' + PH_DOC_CSS + '</style></head><body>' + r.html + '</body></html>';
-    fr.onload = () => {
-      const d2 = fr.contentDocument;
-      if (!d2 || !d2.body) { return; }
-      /* Σε υπολογιστή το έγγραφο ξετυλίγεται ολόκληρο (μία κύλιση)· σε κινητό κόβεται
-         σε παράθυρο, αλλιώς επτά σελίδες Α4 θάβουν τα κουμπιά. */
-      const full = d2.body.scrollHeight + 24;
-      fr.style.height = (window.innerWidth < 700 ? Math.min(full, Math.round(window.innerHeight * 0.7)) : full) + 'px';
-    };
+      + '<style>' + (r.css || '') + '</style></head><body>' + r.html + '</body></html>';
+    /* Δεκατρείς σελίδες Α4 δεν ξετυλίγονται μέσα σε πίνακα — το πλαίσιο γίνεται
+       αναγνώστης εγγράφου με δική του κύλιση, ώστε τα κουμπιά να μένουν ορατά. */
+    fr.style.height = Math.round(window.innerHeight * (window.innerWidth < 700 ? 0.66 : 0.6)) + 'px';
   }
 
   function printDoc() {
@@ -344,63 +342,6 @@ async function openPharmacy(offerId, pre) {
   shell();
   await recalc();
 }
-
-/* Το στυλ του εγγράφου — μπαίνει και στην προεπισκόπηση και στο παράθυρο εκτύπωσης,
-   ώστε αυτό που βλέπεις να είναι αυτό που τυπώνεται. */
-const PH_DOC_CSS = `
-body{margin:0;background:#eef1f5;color:#1b2430;font:13px/1.62 "Segoe UI",system-ui,sans-serif;padding:16px}
-@media print{body{background:#fff;padding:0}}
-.page{background:#fff;color:#1b2430;border:1px solid #d3dae1;border-radius:4px;
-  padding:38px 44px 44px;margin:0 auto 18px;max-width:820px}
-.page h3,.page h4,.page h5{color:#14507d;margin:0}
-.page h3{font-size:20px;font-weight:700;margin:0 0 14px;padding-bottom:7px;border-bottom:2px solid #14507d}
-.page h4{font-size:15px;font-weight:700;margin:22px 0 9px}
-.page h5{font-size:12.5px;font-weight:700;margin:18px 0 7px;text-transform:uppercase;letter-spacing:.05em}
-.page p{margin:0 0 10px;max-width:70ch}
-.page ul{margin:0 0 10px;padding-left:20px}
-.page ul.ticks{list-style:none;padding-left:2px}
-.page ul.ticks li::before{content:"✓";color:#00a94f;font-weight:700;margin-right:8px}
-.cover{text-align:center;padding:62px 44px 54px}
-.cover .kicker{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#4a5763}
-.cover .ctitle{font-size:26px;font-weight:800;line-height:1.25;margin:16px auto 6px;max-width:20ch;color:#14507d}
-.cover .cprod{font-size:19px;font-weight:600;margin-bottom:34px}
-.cover .cclient{font-size:22px;font-weight:700;padding:18px 20px;border-top:2px solid #14507d;
-  border-bottom:2px solid #14507d;max-width:34ch;margin:0 auto 36px}
-.cover .cmeta{font-size:13px;color:#4a5763;line-height:1.9}
-.letterhead{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap;margin-bottom:26px;font-size:12.5px}
-.letterhead div{line-height:1.75}
-.letterhead .lab{color:#4a5763}
-.sig{margin-top:26px;font-size:13px}
-.sig b{display:block;margin-top:26px;font-weight:600}
-table.doc{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 4px}
-table.doc th,table.doc td{border:1px solid #d3dae1;padding:7px 10px;vertical-align:top}
-table.doc thead th{background:#eef4f9;color:#14507d;font-size:11px;font-weight:700;
-  letter-spacing:.05em;text-transform:uppercase;text-align:left}
-table.doc td.n,table.doc th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;width:1%}
-table.doc tr.sum td{background:#e6f6ed;font-weight:700;border-top:2px solid #00a94f}
-table.doc tr.grand td{background:#14507d;color:#fff;font-weight:800;font-size:13.5px;border-color:#14507d}
-table.doc .qty{display:block;font-size:11px;color:#4a5763;margin-top:2px}
-table.doc tr.inc td{color:#4a5763}
-.docnote{font-size:11.5px;color:#4a5763;margin-top:12px}
-.terms{margin-top:16px;font-size:12.5px}
-.terms b{color:#14507d}
-.banks{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:12px}
-.bank{border:1px solid #d3dae1;border-radius:4px;padding:11px 13px;font-size:12px;line-height:1.7}
-.bank b{display:block;color:#14507d;font-size:12.5px;margin-bottom:3px}
-.acc{display:grid;gap:10px 26px;grid-template-columns:1fr 1fr;margin-top:16px;font-size:12.5px}
-.acc .row{border-bottom:1px solid #d3dae1;padding:9px 0 4px;color:#4a5763}
-.signbox{margin-top:40px;border:1px solid #d3dae1;border-radius:4px;height:120px;position:relative}
-.signbox span{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:11.5px;color:#4a5763}
-.remarks{margin-top:20px;border:1px solid #d3dae1;border-radius:4px;min-height:96px;padding:9px 11px}
-.remarks span{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4a5763}
-@page{size:A4;margin:14mm}
-@media print{
-  body{background:#fff}
-  .page{border:none;border-radius:0;padding:0 0 8mm;margin:0;break-after:page;page-break-after:always;font-size:11.5px}
-  .page:last-child{break-after:auto;page-break-after:auto}
-  .cover{padding:20mm 0 0}
-  table.doc tr{break-inside:avoid}
-}`;
 
 window.openPharmacy = openPharmacy;
 window.CNP.openPharmacy = openPharmacy;

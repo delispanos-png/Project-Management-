@@ -107,6 +107,7 @@
     'Τηλέφωνο πελάτη': 'Client phone', 'Email πελάτη': 'Client email',
     'Διεύθυνση έδρας': 'Registered address', 'Αριθμός πρωτοκόλλου': 'Reference number',
     'Ημερομηνία': 'Date', 'Πόλη': 'City', 'Υπογράφων': 'Signed by',
+    'Χαιρετισμός επιστολής': 'Letter salutation',
     'Υπόψη — έντυπο αποδοχής': 'Attn. — acceptance form',
     'Επιπλέον έκπτωση (€)': 'Extra discount (€)', 'ΦΠΑ %': 'VAT %',
     'Ισχύς (ημέρες)': 'Valid for (days)', 'Προκαταβολή %': 'Prepayment %',
