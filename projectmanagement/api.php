@@ -3323,6 +3323,45 @@ case 'remind':
 case 'request_update':
     out(['ok' => Notify::requestUpdate((int) ($in['task'] ?? 0), $adminId)]);
 
+/* ---- Ζήτα βοήθεια: επείγουσα προσωπική έκκληση σε συνάδελφο ---- */
+case 'help_ask':
+    $hto = (int) ($in['to'] ?? 0);
+    $hmsg = trim((string) ($in['message'] ?? ''));
+    $htask = (int) ($in['task'] ?? 0) ?: null;
+    if ($hto <= 0 || $hto === $adminId) { fail('Διάλεξε συνάδελφο'); }
+    if (!Capsule::table('tbladmins')->where('id', $hto)->where('disabled', 0)->exists()) { fail('Άκυρος συνάδελφος'); }
+    if ($hmsg === '') { fail('Γράψε τι χρειάζεσαι'); }
+    if ($htask) {
+        $ht = Db::task($htask);
+        if (!$ht) { $htask = null; }
+    }
+    $hid = Capsule::table('mod_cpm_help')->insertGetId([
+        'from_admin' => $adminId, 'to_admin' => $hto, 'task_id' => $htask,
+        'message' => mb_substr($hmsg, 0, 2000), 'status' => 'open',
+        'created_at' => date('Y-m-d H:i:s')]);
+    /* Και ειδοποίηση στο καμπανάκι (μένει μέχρι να διαβαστεί) — το «μπαμ» popup το
+       στήνει το frontend από το version. url → η εργασία αν υπάρχει, αλλιώς το chat. */
+    $hurl = $htask
+        ? 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $htask
+        : '/project/#/chat';
+    Db::pushNotification($hto, 'help', '🆘 ' . Db::adminName($adminId) . ' χρειάζεται τη βοήθειά σου', $hurl);
+    /* Email επίσης — αν λείπει από την οθόνη, να το δει και εκεί. */
+    Notify::helpAsked($hid);
+    out(['ok' => true, 'id' => $hid]);
+
+case 'help_seen':                         // ο παραλήπτης είδε το «μπαμ» → μη ξαναχτυπήσει
+    Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))
+        ->where('to_admin', $adminId)->whereNull('seen_at')
+        ->update(['seen_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'help_done':                         // τακτοποιήθηκε
+    Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))
+        ->where(function ($q) use ($adminId) { $q->where('to_admin', $adminId)->orWhere('from_admin', $adminId); })
+        ->update(['status' => 'done', 'done_at' => date('Y-m-d H:i:s'),
+            'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+    out(['ok' => true]);
+
 /* ---- CRM actions ---- */
 case 'move_lead':
     $l = Db::lead((int) ($in['lead'] ?? 0));
@@ -10559,8 +10598,19 @@ case 'version':
         }
     }
     $g6chat = (string) Capsule::table('mod_cpm_chat')->max('id');
+    /* «Ζήτα βοήθεια»: ανοιχτές εκκλήσεις προς εμένα που δεν έχω δει ακόμη το δυνατό
+       popup — το frontend τις εμφανίζει και μετά καλεί help_seen. */
+    $alerts = [];
+    foreach (Capsule::table('mod_cpm_help')->where('to_admin', $adminId)
+        ->whereNull('seen_at')->where('status', 'open')->orderBy('id')->limit(5)->get() as $hr) {
+        $alerts[] = ['id' => (int) $hr->id, 'fromId' => (int) $hr->from_admin,
+            'from' => Db::adminName((int) $hr->from_admin), 'message' => $hr->message,
+            'taskId' => $hr->task_id ? (int) $hr->task_id : 0,
+            'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
+            'at' => $hr->created_at];
+    }
     out(['v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
-        'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread]);
+        'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread, 'alerts' => $alerts]);
 
 /* ---- αναζήτηση πελάτη (autocomplete) ---- */
 case 'client_quick_add':                  // νέος πελάτης επί τόπου, από το πεδίο επιλογής

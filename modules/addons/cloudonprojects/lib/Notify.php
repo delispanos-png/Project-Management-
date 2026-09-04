@@ -156,6 +156,28 @@ class Notify
         return true;
     }
 
+    /** «Ζήτα βοήθεια»: email στον συνάδελφο (το δυνατό popup το κάνει το frontend). */
+    public static function helpAsked($helpId)
+    {
+        $h = Capsule::table('mod_cpm_help')->where('id', (int) $helpId)->first();
+        if (!$h) { return; }
+        $from = Db::adminName((int) $h->from_admin);
+        $link = $h->task_id
+            ? self::baseUrl() . '/cloudonadminpanel/addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $h->task_id
+            : self::baseUrl() . '/project/#/chat';
+        $ctx = '';
+        if ($h->task_id) {
+            $t = Db::task((int) $h->task_id);
+            if ($t) { $ctx = '<p style="color:#44566c">Σχετικά με: <b>' . htmlspecialchars($t->title) . '</b></p>'; }
+        }
+        self::send((int) $h->to_admin, '🆘 ' . $from . ' χρειάζεται τη βοήθειά σου',
+            '<p><b>' . htmlspecialchars($from) . '</b> ζητά τη βοήθειά σου:</p>'
+            . '<blockquote style="border-left:3px solid #e2515f;margin:8px 0;padding:6px 14px;color:#44566c;font-size:15px">'
+            . nl2br(htmlspecialchars($h->message)) . '</blockquote>' . $ctx
+            . '<p><a href="' . $link . '" style="background:#e2515f;color:#fff;padding:9px 18px;border-radius:8px;'
+            . 'text-decoration:none;font-weight:700">Άνοιξε &amp; απάντησε</a></p>');
+    }
+
     /** Στοχευμένο σχόλιο: «προς» άτομο (id) ή διαχειριστές (-1). */
     public static function commentTo($taskId, $byAdminId, $comment, $toAdmin)
     {

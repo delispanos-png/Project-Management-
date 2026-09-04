@@ -1151,6 +1151,24 @@ class Db
                 $t->tinyInteger('informed')->default(0);     // γύρισε κάποιος στον πελάτη;
             });
         }
+        /* ── Ζήτα βοήθεια ──
+           Ένας εμπλεκόμενος ζητά ζωντανά τη βοήθεια συναδέλφου: «κάλεσέ με, θέλω
+           να το συζητήσουμε». Δεν είναι task ούτε ticket — είναι μια επείγουσα
+           προσωπική έκκληση που πρέπει να «κάνει μπαμ» στην οθόνη του παραλήπτη.
+           seen_at = πότε ειδοποιήθηκε δυνατά (ώστε να μη ξαναχτυπήσει το popup). */
+        if (!$s->hasTable('mod_cpm_help')) {
+            $s->create('mod_cpm_help', function ($t) {
+                $t->increments('id');
+                $t->integer('from_admin')->unsigned()->index();
+                $t->integer('to_admin')->unsigned()->index();
+                $t->integer('task_id')->unsigned()->nullable();   // προαιρετικό «κομμάτι»
+                $t->text('message');
+                $t->string('status', 10)->default('open')->index();  // open|done
+                $t->timestamp('seen_at')->nullable();
+                $t->timestamp('done_at')->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         /* Οι σημειώσεις χειρισμού: τι έγινε, πότε, από ποιον. */
         if (!$s->hasTable('mod_cpm_complaint_notes')) {
             $s->create('mod_cpm_complaint_notes', function ($t) {

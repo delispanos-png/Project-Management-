@@ -25,6 +25,7 @@ const I = { // inline icons
   target: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>',
   chart: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10m6 10V4m6 16v-7m4 7H2"/></svg>',
   bell: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
+  sos: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M19.1 4.9l-4.2 4.2M9.1 14.9l-4.2 4.2"/></svg>',
   plus: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>',
   eye: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   play: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
@@ -346,6 +347,7 @@ function renderShell() {
       {icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall()},
       {icon: I.alert, label: 'Παράπονο πελάτη', on: () => window.CNP.quickCx && window.CNP.quickCx()},
       {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => go('time')},
+      {icon: I.sos, label: 'Ζήτα βοήθεια', on: () => window.CNP.quickHelp && window.CNP.quickHelp()},
     ]);
   };
   // ── Κατάσταση διαθεσιμότητας ──
@@ -1366,6 +1368,7 @@ async function openTask(id) {
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
+        <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
           ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
              title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
@@ -1565,6 +1568,7 @@ async function openTask(id) {
                      : 'Δεν θα ειδοποιείσαι πια για αυτή την εργασία'); openTask(id);
   };
   const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
+  const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
   const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
   const tp = $('#tStop', dr); if (tp) tp.onclick = async () => {
     const bill = await cnpConfirm('Να χρεωθεί ο χρόνος στον πελάτη;', {ok: I.coin + ' Χρεώσιμο', cancel: 'Χωρίς χρέωση'});
@@ -2425,6 +2429,8 @@ window.CNP = {S, api, esc, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSe
     try {
       const d = await api('version');
       updateBell(d.unread);
+      // 🆘 δυνατές εκκλήσεις βοήθειας — «κάνουν μπαμ» ό,τι κι αν κάνει ο χρήστης
+      if (Array.isArray(d.alerts) && window.CNP.showHelpAlert) { d.alerts.forEach(a => window.CNP.showHelpAlert(a)); }
       // 💬 badge στο Chat nav item
       const chatItem = document.querySelector('.sitem[data-nav="chat"]');
       if (chatItem) {

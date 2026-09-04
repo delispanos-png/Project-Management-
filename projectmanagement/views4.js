@@ -2693,3 +2693,113 @@ async function openCv(id) {
   }
   renderComms();
 }
+
+/* ═════════ 🆘 Ζήτα βοήθεια από συνάδελφο ═════════
+   Μια επείγουσα προσωπική έκκληση — «κάλεσέ με, θέλω τη βοήθειά σου σε αυτό».
+   Δεν είναι task ούτε ticket· ανοίγει δυνατή ειδοποίηση στην οθόνη του συναδέλφου. */
+const HELP_TPL = 'Κάλεσέ με, θέλω να το συζητήσουμε — χρειάζομαι τη βοήθειά σου σε αυτό το κομμάτι.';
+
+function quickHelp(pre) {
+  pre = pre || {};
+  closeDrawer();
+  const mates = (S.boot.admins || []).filter(a => a.id !== S.boot.me.id);
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.innerHTML = `<div class="pal-box qh-box" onclick="event.stopPropagation()">
+    <div class="qh-h"><b>${I.sos} Ζήτα βοήθεια</b>
+      <span class="mut" style="font-size:11.5px">θα «χτυπήσει» δυνατά στην οθόνη του συναδέλφου</span></div>
+    <div class="qh-b">
+      ${pre.taskTitle ? `<div class="qh-ctx">${I.checkSquare} Σχετικά με: <b>${esc(pre.taskTitle)}</b></div>` : ''}
+      <label class="lbl">Ποιον χρειάζεσαι</label>
+      <select class="inp" id="qhTo"><option value="">— διάλεξε συνάδελφο —</option>
+        ${mates.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+      <label class="lbl" style="margin-top:12px">Το μήνυμα</label>
+      <textarea class="inp" id="qhMsg" rows="4">${esc(HELP_TPL)}</textarea>
+      <div class="mut" style="font-size:11.5px;margin-top:6px">Γράψε συγκεκριμένα τι θέλεις να συζητήσετε.</div>
+    </div>
+    <div class="qh-f">
+      <button class="btn btn-o" id="qhX">Άκυρο</button>
+      <button class="btn btn-p" id="qhOk">${I.sos} Στείλε την έκκληση</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const q = s => ovl.querySelector(s);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onEsc, true); };
+  const onEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onEsc, true);
+  ovl.onclick = () => close();
+  q('#qhX').onclick = close;
+  if (pre.to) { q('#qhTo').value = String(pre.to); }
+  setTimeout(() => (pre.to ? q('#qhMsg') : q('#qhTo')).focus(), 60);
+  q('#qhOk').onclick = async () => {
+    const to = +q('#qhTo').value;
+    const message = q('#qhMsg').value.trim();
+    if (!to) { toast('Διάλεξε συνάδελφο', true); q('#qhTo').focus(); return; }
+    if (!message) { toast('Γράψε τι χρειάζεσαι', true); q('#qhMsg').focus(); return; }
+    q('#qhOk').disabled = true;
+    const r = await api('help_ask', {to, message, task: pre.task || 0}).catch(e => ({err: e && e.message}));
+    if (!r || r.err) { q('#qhOk').disabled = false; toast((r && r.err) || 'Δεν στάλθηκε', true); return; }
+    toast('Η έκκληση στάλθηκε — θα το δει αμέσως');
+    close();
+  };
+}
+
+/* Το δυνατό «μπαμ» στον παραλήπτη: μόλις το version φέρει ανοιχτή έκκληση.
+   Εμφανίζεται μία φορά (κρατάμε τα id που δείξαμε + το σημειώνουμε στον server). */
+const HELP_SHOWN = new Set();
+let helpTitleTimer = null;
+const HELP_TITLE0 = document.title;
+
+function helpBeep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) { return; }
+    const ac = new AC();
+    [0, 0.28].forEach(t => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.15, ac.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.22);
+      o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.24);
+    });
+    setTimeout(() => ac.close().catch(() => {}), 800);
+  } catch (e) {}
+}
+
+function showHelpAlert(a) {
+  if (!a || HELP_SHOWN.has(a.id)) { return; }
+  HELP_SHOWN.add(a.id);
+  api('help_seen', {id: a.id}).catch(() => {});     // μη ξαναχτυπήσει από επόμενο poll
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show help-ovl';
+  ovl.innerHTML = `<div class="help-alert" onclick="event.stopPropagation()">
+    <div class="help-ring">🆘</div>
+    <div class="help-who"><b>${esc(a.from)}</b> χρειάζεται τη βοήθειά σου</div>
+    <div class="help-msg">${esc(a.message)}</div>
+    ${a.taskTitle ? `<div class="help-ctx">${I.checkSquare} ${esc(a.taskTitle)}</div>` : ''}
+    <div class="help-f">
+      ${a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε το θέμα</button>`
+        : `<button class="btn btn-o" id="haChat">${I.chat} Άνοιξε chat</button>`}
+      <button class="btn btn-p" id="haOk">Το είδα — καλώ τώρα</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  helpBeep();
+  // αναβοσβήνει ο τίτλος της καρτέλας μέχρι να το κλείσει (ορατό ακόμη κι σε άλλη καρτέλα)
+  if (!helpTitleTimer) {
+    let on = false;
+    helpTitleTimer = setInterval(() => { on = !on; document.title = on ? '🆘 Βοήθεια!' : HELP_TITLE0; }, 900);
+  }
+  const close = () => {
+    ovl.remove();
+    if (!document.querySelector('.help-ovl') && helpTitleTimer) {
+      clearInterval(helpTitleTimer); helpTitleTimer = null; document.title = HELP_TITLE0;
+    }
+  };
+  ovl.onclick = close;
+  const ok = ovl.querySelector('#haOk'); if (ok) { ok.onclick = close; }
+  const op = ovl.querySelector('#haOpen'); if (op) { op.onclick = () => { close(); openTask(a.taskId); }; }
+  const ch = ovl.querySelector('#haChat'); if (ch) { ch.onclick = () => { close(); go('chat'); }; }
+}
+
+window.CNP.quickHelp = quickHelp;
+window.CNP.showHelpAlert = showHelpAlert;
