@@ -581,6 +581,123 @@ function cnp_clean_html($html, $max = 12000)
 }
 
 /**
+ * Ισχυρός, «φιλικός» κωδικός για νέο λογαριασμό πελάτη: κεφαλαία+πεζά+ψηφία+
+ * σύμβολο ώστε να περνά τους ελέγχους ισχύος του WHMCS.
+ */
+function cnp_gen_password()
+{
+    $lo = 'abcdefghjkmnpqrstuvwxyz'; $up = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    $di = '23456789'; $sy = '!@#$%&*';
+    $pick = function ($set, $n) {
+        $s = ''; $L = strlen($set);
+        for ($i = 0; $i < $n; $i++) { $s .= $set[random_int(0, $L - 1)]; }
+        return $s;
+    };
+    $raw = $pick($up, 2) . $pick($lo, 5) . $pick($di, 3) . $pick($sy, 1);
+    return str_shuffle($raw);
+}
+
+/**
+ * Βρίσκει ή δημιουργεί τον WHMCS πελάτη για μια προσφορά, από τα στοιχεία του
+ * εγγράφου (επωνυμία, ΑΦΜ, email, τηλέφωνο, διεύθυνση). Αν δημιουργηθεί νέος
+ * λογαριασμός, στέλνει αυτόματα τους κωδικούς σύνδεσης στο MyCloudOn.
+ *
+ * @param array $cfg   Το config της προσφοράς (κλειδί 'o' με τα στοιχεία).
+ * @param array $meta  (out) ['created'=>bool,'emailed'=>bool,'email'=>str,'reason'=>str]
+ * @return int  clientid ή 0 αν δεν ήταν εφικτό.
+ */
+function cnp_offer_ensure_client(array $cfg, $adminId, array &$meta)
+{
+    $meta = ['created' => false, 'emailed' => false, 'email' => '', 'reason' => ''];
+    $o = is_array($cfg['o'] ?? null) ? $cfg['o'] : [];
+    $company = trim((string) ($o['client'] ?? ''));
+    $contact = trim((string) ($o['attn'] ?? ''));
+    $email = filter_var(trim((string) ($o['cemail'] ?? '')), FILTER_VALIDATE_EMAIL);
+    $phone = trim((string) ($o['cphone'] ?? ''));
+    $afm = preg_replace('/\D+/', '', (string) ($o['afm'] ?? ''));
+    $address = trim((string) ($o['address'] ?? ''));
+    $city = trim((string) ($o['city'] ?? ''));
+    $doy = trim((string) ($o['doy'] ?? ''));
+    $meta['email'] = (string) $email;
+
+    if (!$email) { $meta['reason'] = 'no_email'; return 0; }
+
+    // Ήδη υπάρχων πελάτης με αυτό το email → σύνδεση, χωρίς νέους κωδικούς.
+    $existing = (int) Capsule::table('tblclients')->where('email', $email)->value('id');
+    if ($existing) { return $existing; }
+
+    // Ονοματεπώνυμο: προτεραιότητα στο πρόσωπο επικοινωνίας, αλλιώς από την επωνυμία.
+    $first = ''; $last = '';
+    if ($contact !== '') {
+        $parts = preg_split('/\s+/u', $contact, 2);
+        $first = $parts[0]; $last = $parts[1] ?? '-';
+    } elseif ($company !== '') {
+        $parts = preg_split('/\s+/u', $company, 2);
+        $first = $parts[0]; $last = $parts[1] ?? '-';
+    } else {
+        $meta['reason'] = 'no_name'; return 0;
+    }
+
+    // Διεύθυνση: το ΑΑΔΕ-string είναι «οδός, ΤΚ, πόλη» — βγάζουμε ΤΚ (5ψήφιο) & οδό.
+    $postcode = '00000'; $street = $address;
+    if (preg_match('/\b(\d{5})\b/', $address, $mz)) { $postcode = $mz[1]; }
+    $street = trim(preg_replace('/,?\s*\b\d{5}\b.*$/u', '', $address)) ?: ($address ?: '—');
+
+    $pass = cnp_gen_password();
+    $res = localAPI('AddClient', [
+        'firstname' => $first, 'lastname' => $last ?: '-',
+        'companyname' => $company, 'email' => $email,
+        'address1' => $street, 'city' => $city ?: '—', 'state' => $city ?: '—',
+        'postcode' => $postcode, 'country' => 'GR',
+        'phonenumber' => $phone ?: '0000000000',
+        'tax_id' => $afm,
+        'password2' => $pass,
+        'notes' => 'Δημιουργήθηκε αυτόματα από προσφορά (Project Manager)'
+            . ($afm ? ' — ΑΦΜ ' . $afm : '') . ($doy ? ', ΔΟΥ ' . $doy : ''),
+        'noemail' => true, 'skipvalidation' => true,
+    ], 'pdelis');
+    if (($res['result'] ?? '') !== 'success' || empty($res['clientid'])) {
+        $meta['reason'] = 'whmcs:' . ($res['message'] ?? 'fail');
+        return 0;
+    }
+    $cid = (int) $res['clientid'];
+    $meta['created'] = true;
+
+    // Αποστολή κωδικών σύνδεσης στο MyCloudOn.
+    $loginUrl = rtrim((string) (Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value')
+        ?: 'https://my.cloudon.gr/'), '/') . '/clientarea.php';
+    $who = $company ?: trim($first . ' ' . $last);
+    $body = 'Καλησπέρα σας,<br><br>'
+        . 'δημιουργήσαμε τον λογαριασμό σας στο <b>MyCloudOn</b>, ώστε να μπορείτε να δείτε '
+        . 'την προσφορά σας, τα προϊόντα/υπηρεσίες σας και τα αιτήματά σας.<br><br>'
+        . '<b>Σύνδεση:</b> <a href="' . htmlspecialchars($loginUrl) . '">' . htmlspecialchars($loginUrl) . '</a><br>'
+        . '<b>Email:</b> ' . htmlspecialchars($email) . '<br>'
+        . '<b>Κωδικός:</b> ' . htmlspecialchars($pass) . '<br><br>'
+        . 'Για την ασφάλειά σας, αλλάξτε τον κωδικό μετά την πρώτη σύνδεση '
+        . '(Λογαριασμός → Αλλαγή κωδικού).<br><br>'
+        . 'Με εκτίμηση,<br>Η ομάδα της CloudOn';
+    $wrap = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;'
+        . 'line-height:1.6;max-width:640px">' . $body . '</div>';
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom('noreply@cloudon.gr', 'CloudOn');
+        $mail->addAddress($email, $who);
+        $mail->isHTML(true);
+        $mail->Subject = 'Ο λογαριασμός σας στο MyCloudOn';
+        $mail->Body = $wrap;
+        $mail->AltBody = "Σύνδεση: $loginUrl\nEmail: $email\nΚωδικός: $pass";
+        $mail->send();
+        $meta['emailed'] = true;
+    } catch (\Throwable $e) {
+        $meta['reason'] = 'mail:' . $e->getMessage();
+    }
+    logActivity('CloudOn PM: αυτόματος πελάτης #' . $cid . ' «' . $who . '» από προσφορά (admin '
+        . $adminId . ')' . ($meta['emailed'] ? ' — κωδικοί στάλθηκαν' : ' — κωδικοί ΔΕΝ στάλθηκαν'));
+    return $cid;
+}
+
+/**
  * Ασφαλές fetch URL που δίνει ο χρήστης (εισαγωγή γνώσης από τεκμηρίωση).
  * 🔒 SSRF: μόνο http/https, ΟΧΙ ιδιωτικά/loopback IP, όριο μεγέθους & redirects.
  */
@@ -4504,7 +4621,23 @@ case 'pharmacy_email':                   // αποστολή της προσφο
         fail('Το email δεν στάλθηκε: ' . $errE);
     }
 
-    /* 4) Καταγραφή + tracking: σημειώνεται η αποστολή, μετακίνηση new/draft → sent. */
+    /* 4) Λογαριασμός πελάτη: με την αποστολή, εξασφαλίζουμε WHMCS account ώστε ο
+       πελάτης να μπαίνει στο MyCloudOn και να βλέπει την προσφορά του. Αν είναι
+       νέος, φεύγουν αυτόματα οι κωδικοί σύνδεσης. */
+    $acct = ['created' => false, 'emailed' => false];
+    $linkedCid = ($oE && (int) $oE->clientid > 0) ? (int) $oE->clientid : 0;
+    if (!$linkedCid) {
+        $cmeta = [];
+        $newCid = cnp_offer_ensure_client($cfgE, $adminId, $cmeta);
+        if ($newCid) {
+            $linkedCid = $newCid;
+            $acct['created'] = !empty($cmeta['created']);
+            $acct['emailed'] = !empty($cmeta['emailed']);
+            if ($oidE) { Capsule::table('mod_cpm_offers')->where('id', $oidE)->update(['clientid' => $newCid]); }
+        }
+    }
+
+    /* 5) Καταγραφή + tracking: σημειώνεται η αποστολή, μετακίνηση new/draft → sent. */
     if ($oidE && $oE) {
         $updE = [];
         if (empty($oE->sent_at)) { $updE['sent_at'] = date('Y-m-d'); }
@@ -4517,8 +4650,9 @@ case 'pharmacy_email':                   // αποστολή της προσφο
         }
     }
     logActivity('CPM: αποστολή προσφοράς PharmacyOne' . ($proto ? ' ' . $proto : '') . ' στον πελάτη ' . $toE
-        . ($oidE ? ' (offer #' . $oidE . ')' : ''));
-    out(['ok' => true, 'to' => $toE]);
+        . ($oidE ? ' (offer #' . $oidE . ')' : '') . ($acct['created'] ? ' + νέος λογαριασμός MyCloudOn' : ''));
+    out(['ok' => true, 'to' => $toE, 'client' => $linkedCid ?: null,
+        'accountCreated' => $acct['created'], 'credentialsSent' => $acct['emailed']]);
 
 /* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */
 case 'contacts':

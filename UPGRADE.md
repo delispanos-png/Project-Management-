@@ -1392,6 +1392,22 @@ tombstone → re-adopt 18→19 (επαναφορά)· δοκιμή σε επίπ
 **«Εστάλη»** (+ Quote→Delivered) και σημειώνει `sent_at`. Επαληθεύτηκε end-to-end:
 8-σέλιδο PDF 285KB, delivered μέσω plesk_virtual, temp files καθαρίζονται.
 
+**Αυτόματος λογαριασμός πελάτη + κωδικοί με την αποστολή προσφοράς (Φάση 1)** (5/9/2026).
+Με το πάτημα «✉ Αποστολή» της προσφοράς PharmacyOne, αν ο πελάτης δεν έχει ήδη WHMCS
+account, δημιουργείται **αυτόματα** από τα στοιχεία του εγγράφου (επωνυμία, πρόσωπο
+επικοινωνίας, ΑΦΜ→tax_id, τηλέφωνο, email, διεύθυνση — με split οδού/ΤΚ/πόλης) και του
+**φεύγουν αυτόματα οι κωδικοί** σύνδεσης στο MyCloudOn (auto-generated password, PHPMailer).
+Helpers στο api.php: `cnp_gen_password()` και `cnp_offer_ensure_client($cfg,$adminId,&$meta)`
+(find-by-email → αλλιώς AddClient· idempotent, δεν ξαναστέλνει κωδικούς σε υπάρχοντα). Το
+`pharmacy_email` καλεί τον helper μετά την επιτυχή αποστολή, συνδέει `offer.clientid`, και
+επιστρέφει `accountCreated`/`credentialsSent` (toasts στο UI). Έτσι ο πελάτης μπαίνει στο
+MyCloudOn και βλέπει native τα quotes/προϊόντα/αιτήματά του.
+
+Έλεγχος: address-split & password-gen (μονάδα), AddClient→verify(ΑΦΜ/διεύθυνση)→DeleteClient
+round-trip καθαρό, credentials email = ίδιο proven PHPMailer path. *Επόμενο (Φάση 2):* το
+quote στο portal να δείχνει το δικό μας branded PDF (viewquote του cloudon template) + νήμα
+σχολίων/ερωτήσεων πελάτη↔ομάδας.
+
 ⚠️ **Εξάρτηση υποδομής (εκτός git):** ο FPM user (`cloudon.gr_*`) δεν έχει πρόσβαση στα
 Playwright browsers του root (`/root/.cache/ms-playwright`, το /root είναι 700). Γι' αυτό
 αντιγράφηκαν σε **`/opt/pw-browsers`** (world-readable) και το `pharmacy_email` καλεί τον

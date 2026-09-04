@@ -257,6 +257,11 @@ async function openPharmacy(offerId, pre) {
       }
       close();
       toast('✉ Η προσφορά στάλθηκε στον πελάτη (' + to + ')');
+      if (r.accountCreated) {
+        toast(r.credentialsSent
+          ? '🔑 Δημιουργήθηκε λογαριασμός MyCloudOn — οι κωδικοί στάλθηκαν στον πελάτη'
+          : '⚠ Δημιουργήθηκε λογαριασμός, αλλά οι κωδικοί ΔΕΝ στάλθηκαν — έλεγξέ το', !r.credentialsSent);
+      }
       /* Αν ήταν αποθηκευμένη, το backend τη μετακίνησε σε «Εστάλη» — ανανέωσε τη λίστα. */
       if (st.offer && S.view === 'offers') { R.offers(); }
     };
