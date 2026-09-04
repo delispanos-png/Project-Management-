@@ -2029,11 +2029,15 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .ph-fields .field .inp[type=number]{padding-right:26px}
 
 .ph-mods{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));align-items:start}
-.ph-mod{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:var(--r-sm);
-  border:1px solid transparent;cursor:pointer;font-size:13px}
-.ph-mod:hover{background:var(--canvas)}
-.ph-mod.on{border-color:var(--brand);background:#0090dd12;color:var(--ink);font-weight:600}
-.ph-mod input{width:16px;height:16px;accent-color:var(--brand);cursor:pointer;flex:none}
+.ph-gh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.ph-gn{font-size:11px;font-weight:700;color:var(--mut);font-variant-numeric:tabular-nums}
+.ph-mod{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:7px 2px;border-bottom:1px dashed var(--line);cursor:pointer;font-size:13px}
+.ph-mod:last-child{border-bottom:none}
+.ph-mod:hover .ph-modn{color:var(--ink)}
+.ph-modn{min-width:0;flex:1}
+.ph-mod.on .ph-modn{color:var(--ink);font-weight:600}
+.ph-mod .switch{flex:0 0 42px}
 .ph-mini{width:82px;padding:4px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);
   color:var(--ink);font:inherit;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
 .ph-mini:focus{outline:none;border-color:var(--brand)}

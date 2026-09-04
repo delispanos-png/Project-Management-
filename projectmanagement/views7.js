@@ -198,15 +198,24 @@ async function openPharmacy(offerId, pre) {
         touch();
       });
     } else if (st.tab === 'modules') {
-      el.innerHTML = `<div class="ph-mods">${defs.groups.map(g => `<div class="card"><div class="card-b">
-        <label class="lbl" style="margin:0 0 8px">${esc(g.title)}</label>
+      /* Διακόπτης, όχι κουτάκι: εδώ δηλώνεις τι μπαίνει μέσα στην προσφορά, και το
+         «μέσα / έξω» θέλει να διαβάζεται με μια ματιά — και από απόσταση. */
+      el.innerHTML = `<div class="ph-mods">${defs.groups.map(g => {
+        const on = g.items.filter(it => st.cfg.yn[it.cell]).length;
+        return `<div class="card"><div class="card-b">
+        <div class="ph-gh"><label class="lbl" style="margin:0">${esc(g.title)}</label>
+          <span class="ph-gn" data-gn="${esc(g.title)}">${on}/${g.items.length}</span></div>
         ${g.items.map(it => `<label class="ph-mod${st.cfg.yn[it.cell] ? ' on' : ''}">
-          <input type="checkbox" data-yn="${it.cell}" ${st.cfg.yn[it.cell] ? 'checked' : ''}>
-          <span>${esc(it.lab)}</span></label>`).join('')}
-      </div></div>`).join('')}</div>`;
+          <span class="ph-modn">${esc(it.lab)}</span>
+          <span class="switch"><input type="checkbox" data-yn="${it.cell}" data-grp="${esc(g.title)}"
+            ${st.cfg.yn[it.cell] ? 'checked' : ''}><span></span></span></label>`).join('')}
+      </div></div>`; }).join('')}</div>`;
       $$('[data-yn]', el).forEach(ch => ch.onchange = () => {
         st.cfg.yn[ch.dataset.yn] = ch.checked ? 1 : 0;
         ch.closest('.ph-mod').classList.toggle('on', ch.checked);
+        const box = ch.closest('.card-b');
+        const cnt = $('.ph-gn', box);
+        if (cnt) { cnt.textContent = $$('[data-yn]:checked', box).length + '/' + $$('[data-yn]', box).length; }
         touch();
       });
     } else if (st.tab === 'rates') {
