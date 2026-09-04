@@ -1655,7 +1655,8 @@ function cnp_action_cap($action)
         $add('clients.crm|admin.settings', ['lead_fields']);
         $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
         $add('clients.offers', ['offers', 'save_offer', 'delete_offer', 'move_offer', 'offer_track', 'offer_timeline',
-            'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc', 'pharmacy_ai_draft']);
+            'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc', 'pharmacy_ai_draft',
+            'pharmacy_email']);
         $add('clients.offers|projects.edit', ['project_from_offer']);
 
         /* ── Υποστήριξη ── */
@@ -4414,6 +4415,110 @@ case 'pharmacy_doc':                     // το έγγραφο της προσ�
     out(['html' => Pharmacy::docHtml($cfg9), 'css' => Pharmacy::docCss(),
         'amount' => Pharmacy::offerAmount($cfg9),
         'cfg' => Pharmacy::normalize($cfg9), 'client' => $cli9]);
+
+case 'pharmacy_email':                   // αποστολή της προσφοράς στον πελάτη ως PDF συνημμένο
+    $oidE = (int) ($in['offer'] ?? 0);
+    $postedCfg = is_array($in['config'] ?? null) ? $in['config'] : null;
+    $oE = null;
+    if ($oidE) {
+        $oE = Db::offer($oidE);
+        if (!$oE || $oE->kind !== 'pharmacyone') { fail('offer', 404); }
+        if (!$FULL && (int) $oE->assignee !== $adminId && (int) $oE->created_by !== $adminId
+            && !cnp_has_cap($adminId, $FULL, 'clients.offer_delete')) {
+            fail('Δεν έχεις δικαίωμα αποστολής αυτής της προσφοράς', 403);
+        }
+    }
+    // Ζωντανό config αν στάλθηκε (τυχόν edits χωρίς αποθήκευση)· αλλιώς το αποθηκευμένο.
+    $cfgE = $postedCfg !== null ? $postedCfg : ($oE ? (json_decode((string) $oE->config, true) ?: []) : []);
+    $cfgN = Pharmacy::normalize($cfgE);
+    $toE = filter_var(trim((string) ($in['to'] ?? ($cfgN['o']['cemail'] ?? ''))), FILTER_VALIDATE_EMAIL);
+    if (!$toE) { fail('Δώσε έγκυρο email παραλήπτη'); }
+    $company = trim((string) ($cfgN['o']['client'] ?? '')) ?: 'σας';
+    $proto   = trim((string) ($cfgN['o']['protocol'] ?? ''));
+    $subjectE = mb_substr(trim((string) ($in['subject'] ?? '')), 0, 190)
+        ?: ('Οικονομική προσφορά CloudOn' . ($proto ? ' — ' . $proto : ''));
+    $coverE = trim((string) ($in['message'] ?? ''));
+
+    /* 1) Το έγγραφο ως αυτοτελές HTML (base = host, ώστε να φορτώσουν τα logos). */
+    $docHtml = '<!doctype html><html lang="el"><head><meta charset="utf-8">'
+        . '<base href="https://my.cloudon.gr/">'
+        . '<style>' . Pharmacy::docCss() . '</style></head><body>'
+        . Pharmacy::docHtml($cfgE) . '</body></html>';
+
+    /* 2) PDF μέσω του Chromium (Playwright) — pixel-perfect όπως το print. */
+    $tmpDir = sys_get_temp_dir();
+    $stampE = 'phof_' . bin2hex(random_bytes(6));
+    $htmlF = $tmpDir . '/' . $stampE . '.html';
+    $pdfF  = $tmpDir . '/' . $stampE . '.pdf';
+    file_put_contents($htmlF, $docHtml);
+    $nodeBin = '/opt/plesk/node/20/bin/node';
+    $renderJs = __DIR__ . '/../modules/addons/cloudonprojects/lib/pdf-render.js';
+    $cmdE = 'PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers HOME=' . escapeshellarg($tmpDir) . ' '
+        . escapeshellarg($nodeBin) . ' ' . escapeshellarg($renderJs) . ' '
+        . escapeshellarg($htmlF) . ' ' . escapeshellarg($pdfF) . ' 2>&1';
+    $outE = []; $rcE = 1;
+    exec($cmdE, $outE, $rcE);
+    @unlink($htmlF);
+    if ($rcE !== 0 || !is_file($pdfF) || filesize($pdfF) < 500) {
+        @unlink($pdfF);
+        logActivity('CPM: αποτυχία PDF προσφοράς — ' . implode(' | ', array_slice($outE, -3)));
+        fail('Αποτυχία δημιουργίας PDF — δοκίμασε ξανά ή ειδοποίησε διαχειριστή');
+    }
+
+    /* 3) Αποστολή email με το PDF συνημμένο (PHPMailer, τοπικός MTA). */
+    $adm = Capsule::table('tbladmins')->where('id', $adminId)->first(['firstname', 'lastname', 'email']);
+    $admEmail = filter_var((string) ($adm->email ?? ''), FILTER_VALIDATE_EMAIL);
+    $admName = trim((string) ($adm->firstname ?? '') . ' ' . (string) ($adm->lastname ?? '')) ?: 'CloudOn';
+    if ($coverE !== '') {
+        $bodyHtml = nl2br(strip_tags(cnp_clean_html($coverE), '<b><strong><i><em><br><a><p><ul><ol><li>'));
+    } else {
+        $bodyHtml = 'Αγαπητοί συνεργάτες,<br><br>'
+            . 'σας αποστέλλουμε συνημμένα την οικονομική μας προσφορά'
+            . ($proto ? ' (αρ. πρωτοκόλλου ' . htmlspecialchars($proto) . ')' : '') . '.<br><br>'
+            . 'Παραμένουμε στη διάθεσή σας για οποιαδήποτε διευκρίνιση.<br><br>'
+            . 'Με εκτίμηση,<br>' . htmlspecialchars($admName) . '<br>CloudOn';
+    }
+    $wrap = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;'
+        . 'line-height:1.6;max-width:640px">' . $bodyHtml . '</div>';
+    $fname = 'Prosfora' . ($proto ? '-' . preg_replace('/[^A-Za-z0-9\-]/', '', $proto) : '') . '.pdf';
+    $sentOk = false; $errE = '';
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom('noreply@cloudon.gr', 'CloudOn');
+        $mail->addAddress($toE);
+        if ($admEmail) { $mail->addReplyTo($admEmail, $admName); }
+        $mail->isHTML(true);
+        $mail->Subject = $subjectE;
+        $mail->Body = $wrap;
+        $mail->AltBody = trim(preg_replace('/\s*\n\s*/', "\n", strip_tags(str_ireplace(['<br>', '<br/>', '<br />'], "\n", $wrap))));
+        $mail->addAttachment($pdfF, $fname);
+        $mail->send();
+        $sentOk = true;
+    } catch (\Throwable $e) {
+        $errE = $e->getMessage();
+    }
+    @unlink($pdfF);
+    if (!$sentOk) {
+        logActivity('CPM: αποτυχία email προσφοράς προς ' . $toE . ' — ' . $errE);
+        fail('Το email δεν στάλθηκε: ' . $errE);
+    }
+
+    /* 4) Καταγραφή + tracking: σημειώνεται η αποστολή, μετακίνηση new/draft → sent. */
+    if ($oidE && $oE) {
+        $updE = [];
+        if (empty($oE->sent_at)) { $updE['sent_at'] = date('Y-m-d'); }
+        if ($updE) { Capsule::table('mod_cpm_offers')->where('id', $oidE)->update($updE); }
+        if (in_array((string) $oE->stage, ['new', 'draft'], true)) {
+            Db::moveOffer($oidE, 'sent', $adminId);
+            if ((int) ($oE->quoteid ?? 0) > 0) {
+                Capsule::table('tblquotes')->where('id', (int) $oE->quoteid)->update(['stage' => 'Delivered']);
+            }
+        }
+    }
+    logActivity('CPM: αποστολή προσφοράς PharmacyOne' . ($proto ? ' ' . $proto : '') . ' στον πελάτη ' . $toE
+        . ($oidE ? ' (offer #' . $oidE . ')' : ''));
+    out(['ok' => true, 'to' => $toE]);
 
 /* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */
 case 'contacts':

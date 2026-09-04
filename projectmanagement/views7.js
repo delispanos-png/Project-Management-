@@ -104,12 +104,14 @@ async function openPharmacy(offerId, pre) {
     <div class="ph-foot">
       <div class="mut ph-sum" id="phSum"></div>
       <button class="btn btn-o" id="phPrint">${I.doc} Εκτύπωση</button>
+      <button class="btn btn-o" id="phEmail" title="Αποστολή της προσφοράς στον πελάτη ως PDF">✉ Αποστολή</button>
       ${st.offer && cnpCan('clients.offer_delete') ? '<button class="btn btn-danger" id="phDel">🗑 Διαγραφή</button>' : ''}
       <button class="btn btn-p" id="phSave">${st.offer ? 'Ενημέρωση προσφοράς' : 'Δημιουργία προσφοράς'}</button>
     </div>`;
     $$('[data-tab]', body).forEach(b => b.onclick = () => { st.tab = b.dataset.tab; shell(); paintNumbers(); });
     wireWho();
     $('#phPrint', body).onclick = printDoc;
+    { const eb = $('#phEmail', body); if (eb) eb.onclick = openEmailDialog; }
     $('#phSave', body).onclick = save;
     const pdl = $('#phDel', body); if (pdl) { pdl.onclick = async () => {
       if (!(await window.CNP.cnpConfirm('Να διαγραφεί οριστικά αυτή η προσφορά PharmacyOne;', {ok: '🗑 Διαγραφή', cancel: 'Άκυρο'}))) { return; }
@@ -208,6 +210,55 @@ async function openPharmacy(offerId, pre) {
       if (r.summary) { toast('✨ ' + r.summary); }
       /* Βρέθηκε ΑΦΜ → άντλησε επίσημα στοιχεία από την ΑΑΔΕ (υπερισχύουν). */
       if (r.afm) { aade(r.afm); }
+    };
+  }
+
+  /* ── Αποστολή προσφοράς στον πελάτη (PDF συνημμένο) ── */
+  function openEmailDialog() {
+    if (!st.clientName.trim()) { toast('Δώσε πρώτα επωνυμία πελάτη', true); $('#phWho', body).focus(); return; }
+    const o = st.cfg.o || {};
+    const proto = o.protocol || '';
+    const defSubj = 'Οικονομική προσφορά CloudOn' + (proto ? ' — ' + proto : '');
+    const ov = document.createElement('div'); ov.className = 'ovl show';
+    ov.style.zIndex = '60';
+    ov.innerHTML = `<div class="pal-box ai-box" onclick="event.stopPropagation()">
+      <div class="ai-h"><b>✉ Αποστολή προσφοράς</b>
+        <span class="mut" style="font-size:11.5px">η προσφορά φεύγει ως PDF συνημμένο</span></div>
+      <div class="ai-b">
+        <label class="lbl">Email παραλήπτη</label>
+        <input class="inp" id="emTo" type="email" value="${esc(o.cemail || '')}" placeholder="π.χ. pharmacy@example.gr">
+        <label class="lbl" style="margin-top:9px">Θέμα</label>
+        <input class="inp" id="emSubj" value="${esc(defSubj)}">
+        <label class="lbl" style="margin-top:9px">Μήνυμα <span class="mut" style="font-weight:400">— προαιρετικό· αν το αφήσεις κενό μπαίνει τυπικό συνοδευτικό</span></label>
+        <textarea class="inp" id="emMsg" rows="4" placeholder="Αγαπητοί συνεργάτες, σας αποστέλλουμε συνημμένα την οικονομική μας προσφορά…"></textarea>
+        <div id="emErr" class="ai-msg" hidden></div>
+      </div>
+      <div class="ai-f"><button class="btn btn-o" id="emX">Άκυρο</button>
+        <button class="btn btn-p" id="emOk">✉ Αποστολή</button></div></div>`;
+    document.body.appendChild(ov);
+    const q = sel => ov.querySelector(sel);
+    const onEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onEsc, true); };
+    document.addEventListener('keydown', onEsc, true);
+    ov.onclick = close; q('#emX').onclick = close;
+    setTimeout(() => q('#emTo').focus(), 60);
+    q('#emOk').onclick = async () => {
+      const to = q('#emTo').value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+        const m = q('#emErr'); m.hidden = false; m.textContent = 'Δώσε έγκυρο email παραλήπτη'; q('#emTo').focus(); return;
+      }
+      const btn = q('#emOk'); btn.disabled = true; btn.textContent = '✉ Δημιουργία PDF & αποστολή…';
+      const r = await api('pharmacy_email', {offer: st.offer || 0, config: st.cfg,
+        to, subject: q('#emSubj').value.trim(), message: q('#emMsg').value.trim()})
+        .catch(e => ({err: e && e.message}));
+      if (!r || r.err) {
+        btn.disabled = false; btn.textContent = '✉ Αποστολή';
+        const m = q('#emErr'); m.hidden = false; m.textContent = (r && r.err) || 'Δεν στάλθηκε — δοκίμασε ξανά'; return;
+      }
+      close();
+      toast('✉ Η προσφορά στάλθηκε στον πελάτη (' + to + ')');
+      /* Αν ήταν αποθηκευμένη, το backend τη μετακίνησε σε «Εστάλη» — ανανέωσε τη λίστα. */
+      if (st.offer && S.view === 'offers') { R.offers(); }
     };
   }
 

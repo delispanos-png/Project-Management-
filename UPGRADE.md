@@ -1380,6 +1380,26 @@ tombstone → re-adopt 18→19 (επαναφορά)· δοκιμή σε επίπ
 κουμπί «🗑 Διαγραφή» (γενικές & PharmacyOne) εμφανίζεται μόνο σε όποιον έχει το δικαίωμα.
 Δεν επηρεάζει το WHMCS quote (μένει άθικτο).
 
+**Αποστολή προσφοράς PharmacyOne στον πελάτη με email (PDF)** (5/9/2026). Στον
+κοστολογητή προστέθηκε κουμπί **«✉ Αποστολή»**: ανοίγει διάλογο (παραλήπτης
+προσυμπληρωμένος από το email πελάτη, θέμα, προαιρετικό συνοδευτικό) και στέλνει την
+προσφορά **ως PDF συνημμένο**. Το PDF παράγεται **pixel-perfect** από το ίδιο HTML του
+«Εκτύπωση» μέσω **Chromium (Playwright)** — `modules/addons/cloudonprojects/lib/pdf-render.js`
+(A4, printBackground, preferCSSPageSize). Αποστολή με **PHPMailer** (τοπικός MTA) από
+`noreply@cloudon.gr`, Reply-To τον χειριστή. Action `pharmacy_email` (δικαίωμα
+`clients.offers`, με έλεγχο ιδιοκτησίας για αποθηκευμένες): στέλνει το **ζωντανό** config
+(τυχόν edits), και αν η προσφορά είναι αποθηκευμένη & σε στάδιο new/draft τη μετακινεί σε
+**«Εστάλη»** (+ Quote→Delivered) και σημειώνει `sent_at`. Επαληθεύτηκε end-to-end:
+8-σέλιδο PDF 285KB, delivered μέσω plesk_virtual, temp files καθαρίζονται.
+
+⚠️ **Εξάρτηση υποδομής (εκτός git):** ο FPM user (`cloudon.gr_*`) δεν έχει πρόσβαση στα
+Playwright browsers του root (`/root/.cache/ms-playwright`, το /root είναι 700). Γι' αυτό
+αντιγράφηκαν σε **`/opt/pw-browsers`** (world-readable) και το `pharmacy_email` καλεί τον
+node με `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`. Το playwright package φορτώνεται από
+`/opt/cloudon-visual-qa/node_modules` (chmod a+rX). Αν αναβαθμιστεί το Playwright/Chromium,
+ξανα-αντίγραψε το νέο chromium-* στο /opt/pw-browsers. Απαιτεί επίσης `exec()` ενεργό στο
+FPM pool (είναι) και λειτουργικό `mail()` (τοπικός MTA).
+
 **Διαγραφή προσφορών** (5/9/2026). Η επεξεργασία υπήρχε ήδη (κλικ σε προσφορά →
 φόρμα/κοστολογητής με αποθήκευση/ενημέρωση). Προστέθηκε **διαγραφή**: κουμπί «🗑 Διαγραφή»
 (κόκκινο, με επιβεβαίωση) στο drawer και των **γενικών** προσφορών (`#oDel`) και των
