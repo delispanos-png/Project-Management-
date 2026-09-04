@@ -355,3 +355,24 @@ add_hook('TicketStatusChange', 1, function ($vars) {
         . "Reply-To: " . $from . "\r\n";
     @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', chunk_split(base64_encode($html)), $headers);
 });
+
+/* MyCloudOn: κουμπί «Προβολή προσφοράς (CloudOn)» στο viewquote όταν το quote
+   είναι δεμένο με προσφορά του Project Manager (branded PDF, offer-view.php). */
+add_hook('ClientAreaPageViewQuote', 1, function ($vars) {
+    if (!cloudonprojects_ready()) {
+        return [];
+    }
+    $qid = (int) ($vars['quoteid'] ?? $vars['id'] ?? 0);
+    if (!$qid) {
+        return [];
+    }
+    try {
+        if (!Capsule::schema()->hasTable('mod_cpm_offers')) {
+            return [];
+        }
+        $has = Capsule::table('mod_cpm_offers')->where('quoteid', $qid)->exists();
+    } catch (\Throwable $e) {
+        return [];
+    }
+    return $has ? ['cloudonOfferPdf' => 'offer-view.php?q=' . $qid] : [];
+});

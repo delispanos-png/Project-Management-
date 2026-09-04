@@ -167,7 +167,9 @@
 
             <div class="pull-right btn-group btn-group-sm hidden-print">
                 <a href="javascript:window.print()" class="btn btn-default"><i class="fas fa-print"></i> {$LANG.print}</a>
-                <a href="dl.php?type=q&amp;id={$quoteid}" class="btn btn-default"><i class="fas fa-download"></i> {$LANG.invoicesdownload}</a>
+                {if $cloudonOfferPdf}<a href="{$cloudonOfferPdf}" target="_blank" class="btn btn-primary"><i class="fas fa-file-pdf"></i> Προβολή προσφοράς</a>
+                <a href="{$cloudonOfferPdf}&amp;dl=1" class="btn btn-default"><i class="fas fa-download"></i> {$LANG.invoicesdownload}</a>
+                {else}<a href="dl.php?type=q&amp;id={$quoteid}" class="btn btn-default"><i class="fas fa-download"></i> {$LANG.invoicesdownload}</a>{/if}
             </div>
 
         {/if}

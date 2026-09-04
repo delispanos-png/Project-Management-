@@ -136,7 +136,7 @@ status ενός quote γίνει **Accepted** και είναι δεμένο μ�
 | Φάση | Περιεχόμενο | Κατάσταση |
 |---|---|---|
 | 1 | Auto-account + κωδικοί με την αποστολή | ✅ LIVE |
-| 2 | Portal: quote + branded PDF στο `viewquote` (per-type) | ⏳ επόμενο |
+| 2 | Portal: quote (2a) + branded PDF στο `viewquote` + secure `offer-view.php` (2b) | ✅ |
 | 3 | Σχόλια/ερωτήσεις πελάτη ↔ ομάδας (+ειδοποιήσεις) | ⏳ |
 | 4 | Accepted → auto products + χρεώσεις (hook `QuoteStatusChange`) | ⏳ |
 | F0 | **Foundation**: `OfferType` interface + registry + PharmacyOne/Plain adapters, doc/email δρομολογημένα μέσω registry, `lineItems` έτοιμα | ✅ (η γενίκευση `create_quote` πάει με Φάση 2) |
