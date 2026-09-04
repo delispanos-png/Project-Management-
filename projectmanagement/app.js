@@ -1238,17 +1238,48 @@ async function openTask(id) {
       + `<optgroup label="${esc(dep.name)}">${inD.map(opt).join('')}</optgroup>`
       + (out.length ? `<optgroup label="Εκτός department">${out.map(opt).join('')}</optgroup>` : '');
   };
+  /* Χωρίς τόνους, ώστε η αναζήτηση στη συνομιλία να βρίσκει «Νικος» και «Νίκος». */
+  const norm = x => String(x || '').toLowerCase()
+    .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
+    .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω');
+  /* Σταθερό χρώμα avatar ανά όνομα — για να ξεχωρίζει ο ομιλητής με τη ματιά
+     όταν η κουβέντα έχει εκατοντάδες μηνύματα. */
+  const avColor = n => { let h = 0; for (const ch of String(n)) { h = (h * 31 + ch.charCodeAt(0)) % 360; } return `hsl(${h} 42% 46%)`; };
+  const dayLabel = iso => {
+    const ss = (iso || '').slice(0, 10); if (!ss) { return ''; }
+    const d0 = new Date(ss + 'T00:00:00'), now = new Date();
+    const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diff = Math.round((t0 - d0) / 86400000);
+    if (diff === 0) { return 'Σήμερα'; }
+    if (diff === 1) { return 'Χθες'; }
+    return d0.toLocaleDateString('el-GR', {day: 'numeric', month: 'long',
+      year: d0.getFullYear() === now.getFullYear() ? undefined : 'numeric'});
+  };
   /* Ένα μήνυμα της συνομιλίας μαζί με τα συνημμένα του. Οι εικόνες φαίνονται
-     επί τόπου — δεν έχει νόημα να ανοίγεις αρχείο για να δεις screenshot. */
-  const cmHtml = cm => `<div class="msg ${cm.byId === me.id ? 'mine' : ''}">
-    <div class="msg-h">${esc(cm.by)}${cm.to !== null ? ` <span class="pill pill-info">προς: ${cm.to === -1 ? 'Διαχειριστές' : esc(adminName(cm.to))}</span>` : ''}
-      <span class="mut">${tShort(cm.at)}</span></div>
+     επί τόπου — δεν έχει νόημα να ανοίγεις αρχείο για να δεις screenshot.
+     Τα data-* τροφοδοτούν την αναζήτηση και τα φίλτρα. */
+  const cmHtml = cm => {
+    const toMe = cm.to === me.id || cm.to === -1;
+    const hasF = (cm.files || []).length > 0;
+    return `<div class="msg ${cm.byId === me.id ? 'mine' : ''}" data-me="${toMe ? 1 : 0}" data-f="${hasF ? 1 : 0}" data-s="${esc(norm(cm.by + ' ' + cm.body))}">
+    <div class="msg-h"><span class="msg-av" style="background:${avColor(cm.by)}">${esc(adminIni(cm.byId) || (cm.by || '?').slice(0, 2))}</span><b>${esc(cm.by)}</b>${cm.to !== null ? ` <span class="msg-to">→ ${cm.to === -1 ? 'όλοι' : esc(adminName(cm.to))}</span>` : ''}<span class="mut msg-t">${tShort(cm.at)}</span></div>
     <div class="msg-b">${esc(cm.body)}</div>
-    ${(cm.files || []).length ? `<div class="msg-files">${cm.files.map(f => f.kind === 'image'
+    ${hasF ? `<div class="msg-files">${cm.files.map(f => f.kind === 'image'
       ? `<a href="${f.url}" target="_blank" class="msg-img" title="${esc(f.name)}"><img src="${f.url}" loading="lazy" alt="${esc(f.name)}"></a>`
       : `<a href="${f.url}&dl=1" class="msg-file" title="${esc(f.name)}">${f.kind === 'video' ? '🎬' : f.kind === 'audio' ? '🎵' : '📎'} ${esc(f.name)}</a>`
     ).join('')}</div>` : ''}
   </div>`;
+  };
+  /* Η ροή με διαχωριστικά ημέρας — αλλιώς 560 μηνύματα είναι ένας τοίχος. */
+  const threadHtml = () => {
+    let last = '', h = '';
+    (d.comments || []).forEach(cm => {
+      const day = (cm.at || '').slice(0, 10);
+      if (day !== last) { last = day; h += `<div class="msg-day"><span>${esc(dayLabel(cm.at))}</span></div>`; }
+      h += cmHtml(cm);
+    });
+    return h;
+  };
 
   /* Ο χρόνος ήταν χαμένος στη μέση της στήλης — ανεβαίνει στην κεφαλίδα, μαζί
      με την κατάσταση της χρέωσης, γιατί αυτά κοιτάς πρώτα. */
@@ -1399,9 +1430,21 @@ async function openTask(id) {
         <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)"></div>
     </div></div>
 
-    <div class="card tk-step tk-chat"><div class="card-h">${I.chat} <b>3. Επικοινωνία</b>
-      <span class="mut" style="font-weight:600;font-size:11px">— μεταξύ μας· ο πελάτης δεν τη βλέπει</span></div><div class="card-b">
-      <div id="dMsgs">${d.comments.map(cmHtml).join('') || '<div class="mut" style="font-size:12.5px">Καμία κουβέντα ακόμη.</div>'}</div>
+    <div class="card tk-conv">
+      <div class="tkc-head">
+        <div class="tkc-top">
+          <span class="tkc-ttl">${I.chat} Επικοινωνία <span class="tkc-cnt" id="cmCount">${(d.comments || []).length}</span></span>
+          <span class="mut" style="font-size:11px">μεταξύ μας · ο πελάτης δεν τη βλέπει</span>
+        </div>
+        <div class="tkc-search">${I.search}<input id="cmSearch" placeholder="Αναζήτηση στη συνομιλία…" autocomplete="off"><button type="button" id="cmSearchX" hidden>✕</button></div>
+        <div class="tkc-filters">
+          <button type="button" class="tkc-chip on" data-cf="all">Όλα</button>
+          <button type="button" class="tkc-chip" data-cf="me">Προς εμένα</button>
+          <button type="button" class="tkc-chip" data-cf="files">Με αρχεία</button>
+        </div>
+      </div>
+      <div class="tkc-scroll" id="dMsgs">${threadHtml()}<div class="tkc-empty" id="cmEmpty" hidden>Κανένα μήνυμα δεν ταιριάζει.</div></div>
+      <button type="button" class="tkc-jump" id="cmJump" hidden>↓ Νεότερα</button>
       <div class="cm-box">
         <textarea class="inp" id="cmBody" rows="3"
           placeholder="Γράψε μήνυμα…&#10;Enter = αποστολή · Shift+Enter = νέα γραμμή"></textarea>
@@ -1417,21 +1460,22 @@ async function openTask(id) {
           <button class="btn btn-p btn-sm" id="cmSend">Αποστολή</button>
         </div>
       </div>
-    </div></div>
+    </div>
 
     <details class="card"><summary class="card-h" style="cursor:pointer">${I.clock} Ιστορικό (${d.activity.length})</summary>
       <div class="card-b">${d.activity.map(a => `<div style="font-size:12px;padding:4px 0;border-bottom:1px dashed var(--line)">
         <b>${esc(a.detail || a.action)}</b> <span class="mut">— ${esc(a.by)} · ${tShort(a.at)}</span></div>`).join('')}</div></details>
   </div>`;
   document.body.append(ovl, dr);
-  /* Δύο στήλες: αριστερά η ροή (ζητούμενο → ενέργειες → επικοινωνία), δεξιά τα
-     βοηθητικά (χρόνος, εξαρτήσεις, αρχεία). Η αναδιάταξη γίνεται εδώ και όχι
-     στο template, ώστε η σειρά του DOM να μένει λογική και σε κινητό. */
+  /* Δύο στήλες: αριστερά ΜΟΝΟ η συνομιλία (το κέντρο της δουλειάς του χειριστή),
+     δεξιά ΟΛΕΣ οι πληροφορίες του έργου (ζητούμενο, πεδία, χρόνος, εξαρτήσεις,
+     αρχεία, ενέργειες, ιστορικό). Η αναδιάταξη γίνεται εδώ ώστε η σειρά του DOM
+     να μένει λογική και σε κινητό. */
   (() => {
     const body = $('.tk-modal-b', dr); if (!body) { return; }
     const main = document.createElement('div'); main.className = 'tk-col-main';
     const side = document.createElement('div'); side.className = 'tk-col-side';
-    [...body.children].forEach(el => (el.classList.contains('tk-side') ? side : main).appendChild(el));
+    [...body.children].forEach(el => (el.classList.contains('tk-conv') ? main : side).appendChild(el));
     body.append(main, side);
   })();
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
@@ -1609,6 +1653,55 @@ async function openTask(id) {
   $('#cmBody', dr).onkeydown = e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); cmSend(); }
   };
+
+  /* ── Πλοήγηση στη συνομιλία: ανοίγει στα πιο πρόσφατα, με ζωντανή αναζήτηση,
+     φίλτρα (όλα / προς εμένα / με αρχεία) και κουμπί «νεότερα». Χωρίς αυτά, μια
+     κουβέντα με εκατοντάδες μηνύματα ήταν αδύνατο να διαβαστεί. ── */
+  const sc = $('#dMsgs', dr);
+  if (sc) {
+    requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
+    const searchEl = $('#cmSearch', dr), cntEl = $('#cmCount', dr), emptyEl = $('#cmEmpty', dr);
+    const jump = $('#cmJump', dr), sx = $('#cmSearchX', dr);
+    const total = $$('#dMsgs .msg', dr).length;
+    let cf = 'all';
+    const apply = () => {
+      const q = norm((searchEl.value || '').trim());
+      let shown = 0;
+      $$('#dMsgs .msg', dr).forEach(m => {
+        const okQ = !q || (m.dataset.s || '').includes(q);
+        const okF = cf === 'all' || (cf === 'me' && m.dataset.me === '1') || (cf === 'files' && m.dataset.f === '1');
+        const vis = okQ && okF; m.hidden = !vis; if (vis) { shown++; }
+      });
+      $$('#dMsgs .msg-day', dr).forEach(sep => {
+        let el = sep.nextElementSibling, any = false;
+        while (el && !el.classList.contains('msg-day')) {
+          if (el.classList.contains('msg') && !el.hidden) { any = true; break; }
+          el = el.nextElementSibling;
+        }
+        sep.hidden = !any;
+      });
+      const filtered = q || cf !== 'all';
+      if (cntEl) { cntEl.textContent = filtered ? shown + ' / ' + total : total; }
+      if (sx) { sx.hidden = !searchEl.value; }
+      if (emptyEl) {
+        emptyEl.textContent = total ? 'Κανένα μήνυμα δεν ταιριάζει.' : 'Καμία κουβέντα ακόμη.';
+        emptyEl.hidden = !!total && shown > 0;
+      }
+    };
+    if (!total && emptyEl) { emptyEl.hidden = false; emptyEl.textContent = 'Καμία κουβέντα ακόμη.'; }
+    if (searchEl) { searchEl.oninput = apply; }
+    if (sx) { sx.onclick = () => { searchEl.value = ''; apply(); searchEl.focus(); }; }
+    $$('.tkc-chip', dr).forEach(c => c.onclick = () => {
+      cf = c.dataset.cf;
+      $$('.tkc-chip', dr).forEach(x => x.classList.toggle('on', x === c));
+      apply();
+      sc.scrollTop = (cf === 'all' && !(searchEl.value || '')) ? sc.scrollHeight : 0;
+    });
+    if (jump) {
+      sc.onscroll = () => { jump.hidden = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160; };
+      jump.onclick = () => { sc.scrollTo({top: sc.scrollHeight, behavior: 'smooth'}); };
+    }
+  }
 }
 /** Άμεσο κλείσιμο ΧΩΡΙΣ ερώτηση — το καλούν τα views ΜΕΤΑ από επιτυχή αποθήκευση. */
 function closeDrawer() {
