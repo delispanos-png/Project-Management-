@@ -17,6 +17,7 @@ use WHMCS\Module\Addon\CloudonProjects\Storage;
 use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
 use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
+use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
@@ -24,6 +25,10 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pharmacy.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferType.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PharmacyOneType.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PlainType.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferTypes.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
@@ -4529,9 +4534,12 @@ case 'pharmacy_doc':                     // το έγγραφο της προσ�
     } else {
         $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
     }
-    out(['html' => Pharmacy::docHtml($cfg9), 'css' => Pharmacy::docCss(),
-        'amount' => Pharmacy::offerAmount($cfg9),
-        'cfg' => Pharmacy::normalize($cfg9), 'client' => $cli9]);
+    // Δρομολόγηση μέσω του μητρώου τύπων (F0): ίδιο αποτέλεσμα με PharmacyOne,
+    // αλλά έτοιμο για κάθε τύπο προσφοράς.
+    $ptype9 = OfferTypes::get(isset($o9) && $o9 ? (string) $o9->kind : 'pharmacyone');
+    out(['html' => $ptype9->docHtml($cfg9), 'css' => $ptype9->docCss(),
+        'amount' => $ptype9->amount($cfg9),
+        'cfg' => $ptype9->normalize($cfg9), 'client' => $cli9]);
 
 case 'pharmacy_email':                   // αποστολή της προσφοράς στον πελάτη ως PDF συνημμένο
     $oidE = (int) ($in['offer'] ?? 0);
@@ -4547,7 +4555,8 @@ case 'pharmacy_email':                   // αποστολή της προσφο
     }
     // Ζωντανό config αν στάλθηκε (τυχόν edits χωρίς αποθήκευση)· αλλιώς το αποθηκευμένο.
     $cfgE = $postedCfg !== null ? $postedCfg : ($oE ? (json_decode((string) $oE->config, true) ?: []) : []);
-    $cfgN = Pharmacy::normalize($cfgE);
+    $etype = OfferTypes::get(($oE && $oE->kind) ? (string) $oE->kind : 'pharmacyone');
+    $cfgN = $etype->normalize($cfgE);
     $toE = filter_var(trim((string) ($in['to'] ?? ($cfgN['o']['cemail'] ?? ''))), FILTER_VALIDATE_EMAIL);
     if (!$toE) { fail('Δώσε έγκυρο email παραλήπτη'); }
     $company = trim((string) ($cfgN['o']['client'] ?? '')) ?: 'σας';
@@ -4559,8 +4568,8 @@ case 'pharmacy_email':                   // αποστολή της προσφο
     /* 1) Το έγγραφο ως αυτοτελές HTML (base = host, ώστε να φορτώσουν τα logos). */
     $docHtml = '<!doctype html><html lang="el"><head><meta charset="utf-8">'
         . '<base href="https://my.cloudon.gr/">'
-        . '<style>' . Pharmacy::docCss() . '</style></head><body>'
-        . Pharmacy::docHtml($cfgE) . '</body></html>';
+        . '<style>' . $etype->docCss() . '</style></head><body>'
+        . $etype->docHtml($cfgE) . '</body></html>';
 
     /* 2) PDF μέσω του Chromium (Playwright) — pixel-perfect όπως το print. */
     $tmpDir = sys_get_temp_dir();

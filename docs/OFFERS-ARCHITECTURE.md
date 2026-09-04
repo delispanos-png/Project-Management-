@@ -139,7 +139,7 @@ status ενός quote γίνει **Accepted** και είναι δεμένο μ�
 | 2 | Portal: quote + branded PDF στο `viewquote` (per-type) | ⏳ επόμενο |
 | 3 | Σχόλια/ερωτήσεις πελάτη ↔ ομάδας (+ειδοποιήσεις) | ⏳ |
 | 4 | Accepted → auto products + χρεώσεις (hook `QuoteStatusChange`) | ⏳ |
-| F0 | **Foundation**: `OfferType` interface + registry + generic `offer_*` actions (PharmacyOne/Plain adapters), γενίκευση `create_quote` με `lineItems` | ⏳ **προαπαιτούμενο των 2-4** |
+| F0 | **Foundation**: `OfferType` interface + registry + PharmacyOne/Plain adapters, doc/email δρομολογημένα μέσω registry, `lineItems` έτοιμα | ✅ (η γενίκευση `create_quote` πάει με Φάση 2) |
 | 5 | Νέος τύπος **E-commerce** (κατάλογος + έγγραφο) | ⏳ |
 
 **Σειρά εκτέλεσης**: F0 (μη-καταστροφικό, ξεκλειδώνει τα υπόλοιπα) → 2 → 3 → 4 → 5.

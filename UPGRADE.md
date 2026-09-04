@@ -1404,7 +1404,15 @@ Helpers στο api.php: `cnp_gen_password()` και `cnp_offer_ensure_client($cf
 MyCloudOn και βλέπει native τα quotes/προϊόντα/αιτήματά του.
 
 Έλεγχος: address-split & password-gen (μονάδα), AddClient→verify(ΑΦΜ/διεύθυνση)→DeleteClient
-round-trip καθαρό, credentials email = ίδιο proven PHPMailer path. *Επόμενο (Φάση 2):* το
+round-trip καθαρό, credentials email = ίδιο proven PHPMailer path. 
+
+**F0 — Foundation πολυτυπίας προσφορών** (5/9/2026). Νέο interface **`OfferType`**
+(`lib/offers/OfferType.php`) + μητρώο **`OfferTypes`**, με adapters **`PharmacyOneType`**
+(delegate 1:1 στο `Pharmacy.php`) και **`PlainType`** (γενική προσφορά με δικό της λιτό
+έγγραφο). Τα `pharmacy_doc`/`pharmacy_email` δρομολογούν πλέον docHtml/docCss/amount/normalize
+**μέσω του registry** (μηδέν αλλαγή συμπεριφοράς — επαληθεύτηκε byte-identical). Κάθε τύπος
+δίνει **`lineItems()`** (γραμμές χρέωσης· PharmacyOne: annual+setup+έκπτωση, άθροισμα =
+offerAmount ακριβώς) — η γέφυρα για quote & Φάση 4 billing. Δες `docs/OFFERS-ARCHITECTURE.md`. *Επόμενο (Φάση 2):* το
 quote στο portal να δείχνει το δικό μας branded PDF (viewquote του cloudon template) + νήμα
 σχολίων/ερωτήσεων πελάτη↔ομάδας.
 
