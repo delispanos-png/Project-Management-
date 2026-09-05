@@ -2424,6 +2424,8 @@ function cnpCan(cap) {
   if (!me) { return false; }
   if (me.full) { return true; }
   if ((me.caps || []).includes(cap)) { return true; }
+  // Η Διαγραφή δίνεται ΜΟΝΟ ρητά — δεν κληρονομείται από την πρόσβαση στο κύκλωμα.
+  if (cap.endsWith(".delete") || cap === "clients.offer_delete") { return false; }
   return (me.areas || []).includes(cap.includes(".") ? cap.split(".")[0] : cap);
 }
 

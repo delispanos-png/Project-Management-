@@ -1925,6 +1925,15 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   border-radius:999px;padding:2px 7px;flex:none}
 .perm-kind.screen{background:#0090dd18;color:#0374b0}
 .perm-kind.power{background:#7b5cd61e;color:#6a4bc4}
+.perm-kind.view{background:#5b6b8420;color:#4a5a74}
+.perm-kind.edit{background:#0090dd20;color:#0374b0}
+.perm-kind.delete{background:#e0552b22;color:#c23c17}
+/* Ο άξονας Προβολή/Επεξεργασία/Διαγραφή ξεχωρίζει οπτικά από τις λεπτομέρειες. */
+.perm-cap.axis{background:#f6f8fb}
+.perm-cap.axis .perm-lb{font-weight:650}
+.perm-cap.axis-delete{background:#e0552b0e}
+.perm-cap.axis-delete input{accent-color:#c23c17}
+.perm-cap.axis-delete .perm-lb{color:#9e3113}
 /* Όταν μια ενέργεια τραβάει μαζί της την οθόνη που προϋποθέτει. */
 .perm-flash{animation:permFlash .9s ease}
 @keyframes permFlash{0%,100%{background:transparent}30%{background:#16a26a30}}

@@ -1897,8 +1897,14 @@ R.teams = async function () {
    κλειδιά δυνατοτήτων. Ο γονέας είναι τσεκαρισμένος όταν είναι όλα τα παιδιά,
    και «μισός» (indeterminate) όταν είναι μερικά. */
 
-/** Έχει η ομάδα αυτή τη δυνατότητα; (το κλειδί ενότητας τις καλύπτει όλες) */
-const permHas = (list, cap) => list.includes(cap) || list.includes(cap.split('.')[0]);
+/** Έχει η ομάδα αυτή τη δυνατότητα; Το κλειδί κυκλώματος καλύπτει τις μη-delete·
+   η Διαγραφή δίνεται ΜΟΝΟ ρητά. */
+const permHas = (list, cap) => list.includes(cap)
+  || (!cap.endsWith('.delete') && cap !== 'clients.offer_delete' && list.includes(cap.split('.')[0]));
+/** Ετικέτα & άξονας δυνατότητας. */
+const permKindLabel = k => ({view: 'προβολή', edit: 'επεξεργασία', delete: 'διαγραφή',
+  screen: 'οθόνη', power: 'ενέργεια'}[k] || k);
+const permAxis = k => (k === 'view' || k === 'edit' || k === 'delete') ? 'axis axis-' + k : '';
 
 /** Σύνοψη για την κάρτα: «Πελάτες» ή «Έργα 3/8». */
 function tmSummary(t, d) {
@@ -1928,10 +1934,10 @@ function permTree(areaDefs, have) {
         <span class="perm-chev">▾</span>
       </summary>
       <div class="perm-caps">
-        ${ar.caps.map(c => `<label class="perm-cap ${permHas(have, c.id) ? 'on' : ''}" title="${esc(c.descr)}">
+        ${ar.caps.map(c => `<label class="perm-cap ${permAxis(c.kind)} ${permHas(have, c.id) ? 'on' : ''}" title="${esc(c.descr)}">
           <input type="checkbox" data-tar="${c.id}" data-kind="${c.kind}" data-needs="${c.needs || ''}" ${permHas(have, c.id) ? 'checked' : ''}>
           <span class="perm-lb">${esc(c.name)}</span>
-          <span class="perm-kind ${c.kind}">${c.kind === 'screen' ? 'οθόνη' : 'ενέργεια'}</span>
+          <span class="perm-kind ${c.kind}">${permKindLabel(c.kind)}</span>
         </label>`).join('')}
       </div></details>`;
   }).join('');
@@ -2010,13 +2016,17 @@ function openTeam(t, d) {
   const syncParents = () => {
     $$('.perm-grp', dr).forEach(g => {
       const kids = $$('[data-tar]', g);
+      /* Ο γονέας «όλο το κύκλωμα» αφορά τις ΜΗ-delete δυνατότητες· η Διαγραφή
+         δίνεται πάντα ρητά και μετριέται ξεχωριστά. */
+      const nonDel = kids.filter(x => x.dataset.kind !== 'delete');
+      const onNon = nonDel.filter(x => x.checked).length;
       const on = kids.filter(x => x.checked).length;
       const p = $('[data-parent]', g);
-      p.checked = on === kids.length && kids.length > 0;
-      p.indeterminate = on > 0 && on < kids.length;
+      p.checked = nonDel.length > 0 && onNon === nonDel.length;
+      p.indeterminate = onNon > 0 && onNon < nonDel.length;
       const n = $('.perm-n', g);
       n.textContent = on + '/' + kids.length;
-      n.className = 'perm-n' + (on === kids.length && kids.length ? ' all' : (on ? ' some' : ''));
+      n.className = 'perm-n' + (onNon === nonDel.length && nonDel.length ? ' all' : (on ? ' some' : ''));
       kids.forEach(k => k.closest('.perm-cap').classList.toggle('on', k.checked));
     });
     hint();
@@ -2046,7 +2056,11 @@ function openTeam(t, d) {
     syncParents();
   });
   $$('[data-parent]', dr).forEach(p => p.onchange = () => {
-    $$('[data-tar]', p.closest('.perm-grp')).forEach(k => { k.checked = p.checked; });
+    // «Όλο το κύκλωμα» = μη-delete δυνατότητες· η Διαγραφή μένει ρητή επιλογή.
+    $$('[data-tar]', p.closest('.perm-grp')).forEach(k => {
+      if (k.dataset.kind === 'delete') { return; }
+      k.checked = p.checked;
+    });
     syncParents();
   });
   $('#tmNone', dr).onclick = () => {
@@ -2055,7 +2069,9 @@ function openTeam(t, d) {
   };
   const applyCaps = list => {
     $$('[data-tar]', dr).forEach(k => {
-      k.checked = list.includes(k.dataset.tar) || list.includes(k.dataset.tar.split('.')[0]);
+      // Η Διαγραφή δίνεται μόνο ρητά — δεν προκύπτει από το κλειδί κυκλώματος του προτύπου.
+      k.checked = list.includes(k.dataset.tar)
+        || (k.dataset.kind !== 'delete' && list.includes(k.dataset.tar.split('.')[0]));
     });
     $$('.perm-grp', dr).forEach(g => {
       const kids = $$('[data-tar]', g);
