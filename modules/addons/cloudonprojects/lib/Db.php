@@ -1218,6 +1218,22 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        /* ── Σχόλια/ερωτήσεις προσφοράς (πελάτης ↔ ομάδα) ──
+           Νήμα πάνω στην προσφορά: ο πελάτης ρωτά από το portal, η ομάδα απαντά
+           από το PM. by_type ξεχωρίζει ποιος έγραψε· τα read_* για «αδιάβαστα». */
+        if (!$s->hasTable('mod_cpm_offer_comments')) {
+            $s->create('mod_cpm_offer_comments', function ($t) {
+                $t->increments('id');
+                $t->integer('offer_id')->unsigned()->index();
+                $t->integer('quoteid')->unsigned()->index();     // για γρήγορο lookup από το portal
+                $t->string('by_type', 8);                        // 'client' | 'admin'
+                $t->integer('by_id')->unsigned()->nullable();    // client id ή admin id
+                $t->text('body');
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('read_by_client_at')->nullable();
+                $t->timestamp('read_by_team_at')->nullable();
+            });
+        }
         /* Οι σημειώσεις χειρισμού: τι έγινε, πότε, από ποιον. */
         if (!$s->hasTable('mod_cpm_complaint_notes')) {
             $s->create('mod_cpm_complaint_notes', function ($t) {

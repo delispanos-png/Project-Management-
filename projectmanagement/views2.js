@@ -709,6 +709,49 @@ function openTrack(o) {
   };
 }
 
+/* Νήμα σχολίων/ερωτήσεων προσφοράς (ομάδα ↔ πελάτης). Κοινό — το καλεί και ο
+   κοστολογητής PharmacyOne (views7) μέσω window.CNP. Η απάντηση φεύγει και email. */
+async function openOfferComments(offerId) {
+  const ov = document.createElement('div'); ov.className = 'ovl show'; ov.style.zIndex = '60';
+  ov.innerHTML = `<div class="pal-box ai-box" onclick="event.stopPropagation()">
+    <div class="ai-h"><b>💬 Ερωτήσεις &amp; σχόλια πελάτη</b>
+      <span class="mut" style="font-size:11.5px">η απάντηση φεύγει και με email στον πελάτη</span></div>
+    <div class="ai-b"><div id="ocList" style="max-height:46vh;overflow:auto">Φόρτωση…</div></div>
+    <div class="ai-f" style="flex-direction:column;align-items:stretch;gap:8px">
+      <textarea class="inp" id="ocBody" rows="3" placeholder="Απάντηση προς τον πελάτη…"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-o" id="ocX">Κλείσιμο</button>
+        <button class="btn btn-p" id="ocSend">✉ Απάντηση</button></div>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const q = s => ov.querySelector(s);
+  const onEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onEsc, true);
+    if (window.R && window.R.offers && S.view === 'offers') { window.R.offers(); } };
+  document.addEventListener('keydown', onEsc, true);
+  ov.onclick = close; q('#ocX').onclick = close;
+  const load = async () => {
+    const r = await api('offer_comments&offer=' + offerId).catch(e => ({err: e && e.message}));
+    if (r.err) { q('#ocList').innerHTML = '<div class="mut">' + esc(r.err) + '</div>'; return; }
+    q('#ocList').innerHTML = (r.comments && r.comments.length)
+      ? r.comments.map(c => `<div style="margin-bottom:9px;padding:8px 11px;border-radius:9px;background:${c.mine ? '#eef7ee' : '#f4f6f9'}">
+          <div style="font-size:11.5px;color:#6b7a90"><b>${esc(c.who)}</b> · ${esc(tShort(c.at))}${c.byType === 'client' ? ' <span class="pill pill-warn" style="font-size:9px">πελάτης</span>' : ''}</div>
+          <div style="margin-top:2px;white-space:pre-wrap">${esc(c.body)}</div></div>`).join('')
+      : '<div class="mut">Καμία ερώτηση ακόμη.</div>';
+    q('#ocList').scrollTop = q('#ocList').scrollHeight;
+  };
+  q('#ocSend').onclick = async () => {
+    const body = q('#ocBody').value.trim(); if (!body) { return; }
+    const btn = q('#ocSend'); btn.disabled = true; btn.textContent = 'Αποστολή…';
+    const r = await api('offer_comment_add', {offer: offerId, body}).catch(e => ({err: e && e.message}));
+    btn.disabled = false; btn.textContent = '✉ Απάντηση';
+    if (r.err) { toast(r.err, true); return; }
+    q('#ocBody').value = ''; toast(r.emailed ? 'Η απάντηση στάλθηκε (+email)' : 'Η απάντηση καταχωρήθηκε'); load();
+  };
+  load();
+}
+window.CNP.openOfferComments = openOfferComments;
+
 function openOffer(o, d) {
   /* Η προσφορά PharmacyOne γεννήθηκε από τον κοστολογητή· εκεί επιστρέφει κιόλας,
      αλλιώς η επόμενη αποθήκευση θα έσβηνε το ποσό που βγήκε από τους υπολογισμούς. */
@@ -734,6 +777,7 @@ function openOffer(o, d) {
       ${rteHtml('oDescr', o.descr || '', 'Τι περιλαμβάνει η προσφορά…', {min: 120})}
       <div style="margin-top:13px;display:flex;gap:9px;flex-wrap:wrap;align-items:center"><button class="btn btn-p" id="oSave">Αποθήκευση</button>
         ${!isNew && o.stage === 'accepted' && S.boot.me.full ? `<button class="btn btn-o" id="oProj">${I.rocket} Δημιουργία έργου</button>` : ''}
+        ${!isNew ? '<button class="btn btn-o" id="oComments">💬 Ερωτήσεις</button>' : ''}
         ${!isNew && (cnpCan('clients.offer_delete') || (o.assignee && o.assignee === S.boot.me.id))
           ? '<button class="btn btn-danger" id="oDel" style="margin-left:auto">🗑 Διαγραφή</button>' : ''}</div>
     </div></div>
@@ -755,6 +799,7 @@ function openOffer(o, d) {
       expected: $('#oExp').value || null, descr: rteVal('oDescr')});
     toast('Αποθηκεύτηκε'); closeDrawer(); R.offers();
   };
+  const ocm = $('#oComments', dr); if (ocm) ocm.onclick = () => openOfferComments(o.id);
   const odl = $('#oDel', dr); if (odl) odl.onclick = async () => {
     if (!(await cnpConfirm('Να διαγραφεί οριστικά η προσφορά «' + esc(o.title || '') + '»;\nΤο τυχόν δεμένο WHMCS Quote δεν πειράζεται.', {ok: '🗑 Διαγραφή', cancel: 'Άκυρο'}))) { return; }
     const r = await api('delete_offer', {offer: o.id}).catch(e => ({err: e && e.message}));

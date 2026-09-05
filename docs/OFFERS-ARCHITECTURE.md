@@ -94,6 +94,8 @@ interface OfferType {
 
 ## 7. Accepted → αυτόματες χρεώσεις — Φάση 4 (η «καρδιά»)
 
+**Απόφαση (5/9/2026):** η ετήσια συνδρομή = **recurring WHMCS service** (auto-invoice κάθε χρόνο)· το setup = εφάπαξ γραμμή.
+
 **Σκανδάλη**: WHMCS hook **`QuoteStatusChange`** (ήδη χρησιμοποιούμε hooks). Όταν το
 status ενός quote γίνει **Accepted** και είναι δεμένο με προσφορά PM:
 
@@ -137,7 +139,7 @@ status ενός quote γίνει **Accepted** και είναι δεμένο μ�
 |---|---|---|
 | 1 | Auto-account + κωδικοί με την αποστολή | ✅ LIVE |
 | 2 | Portal: quote (2a) + branded PDF στο `viewquote` + secure `offer-view.php` (2b) | ✅ |
-| 3 | Σχόλια/ερωτήσεις πελάτη ↔ ομάδας (+ειδοποιήσεις) | ⏳ |
+| 3 | Σχόλια/ερωτήσεις πελάτη ↔ ομάδας (+ειδοποιήσεις) | ✅ |
 | 4 | Accepted → auto products + χρεώσεις (hook `QuoteStatusChange`) | ⏳ |
 | F0 | **Foundation**: `OfferType` interface + registry + PharmacyOne/Plain adapters, doc/email δρομολογημένα μέσω registry, `lineItems` έτοιμα | ✅ (η γενίκευση `create_quote` πάει με Φάση 2) |
 | 5 | Νέος τύπος **E-commerce** (κατάλογος + έγγραφο) | ⏳ |

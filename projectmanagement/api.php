@@ -1817,7 +1817,7 @@ function cnp_action_cap($action)
         $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
         $add('clients.offers', ['offers', 'save_offer', 'delete_offer', 'move_offer', 'offer_track', 'offer_timeline',
             'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc', 'pharmacy_ai_draft',
-            'pharmacy_email']);
+            'pharmacy_email', 'offer_comments', 'offer_comment_add']);
         $add('clients.offers|projects.edit', ['project_from_offer']);
 
         /* ── Υποστήριξη ── */
@@ -4391,6 +4391,77 @@ case 'offer_timeline':                   // επικοινωνίες + ορόσ�
     }
     usort($ev, function ($a, $b) { return strcmp((string) $b['at'], (string) $a['at']); });
     out(['events' => array_slice($ev, 0, 60)]);
+
+case 'offer_comments':                   // νήμα σχολίων/ερωτήσεων (ομάδα)
+    $ocO = Db::offer((int) ($_GET['offer'] ?? $in['offer'] ?? 0));
+    if (!$ocO) { fail('offer', 404); }
+    if (!$FULL && (int) $ocO->assignee !== $adminId && (int) $ocO->created_by !== $adminId) {
+        fail('offer', 403);
+    }
+    $ocRows = [];
+    foreach (Capsule::table('mod_cpm_offer_comments')->where('offer_id', (int) $ocO->id)
+                 ->orderBy('id')->get() as $c) {
+        $ocRows[] = ['id' => (int) $c->id, 'mine' => $c->by_type === 'admin',
+            'byType' => $c->by_type,
+            'who' => $c->by_type === 'client'
+                ? clientLabel((int) $ocO->clientid) : Db::adminName((int) $c->by_id),
+            'body' => (string) $c->body, 'at' => $c->created_at,
+            'unread' => ($c->by_type === 'client' && !$c->read_by_team_at)];
+    }
+    // Οι ερωτήσεις του πελάτη θεωρούνται διαβασμένες από την ομάδα μόλις ανοιχτεί το νήμα.
+    Capsule::table('mod_cpm_offer_comments')->where('offer_id', (int) $ocO->id)
+        ->where('by_type', 'client')->whereNull('read_by_team_at')
+        ->update(['read_by_team_at' => date('Y-m-d H:i:s')]);
+    out(['comments' => $ocRows, 'quote' => (int) ($ocO->quoteid ?? 0),
+        'clientId' => (int) ($ocO->clientid ?? 0)]);
+
+case 'offer_comment_add':                // απάντηση ομάδας στον πελάτη
+    $oaO = Db::offer((int) ($in['offer'] ?? 0));
+    if (!$oaO) { fail('offer', 404); }
+    if (!$FULL && (int) $oaO->assignee !== $adminId && (int) $oaO->created_by !== $adminId) {
+        fail('offer', 403);
+    }
+    $oaBody = trim((string) ($in['body'] ?? ''));
+    $oaBody = mb_substr(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $oaBody), 0, 4000);
+    if ($oaBody === '') { fail('Γράψε κείμενο'); }
+    $oaId = (int) Capsule::table('mod_cpm_offer_comments')->insertGetId([
+        'offer_id' => (int) $oaO->id, 'quoteid' => (int) ($oaO->quoteid ?? 0),
+        'by_type' => 'admin', 'by_id' => $adminId, 'body' => $oaBody,
+        'created_at' => date('Y-m-d H:i:s'), 'read_by_team_at' => date('Y-m-d H:i:s')]);
+    // Ειδοποίηση πελάτη με email (ώστε να δει την απάντηση στο portal).
+    $oaMailed = false;
+    $oaCli = (int) ($oaO->clientid ?? 0);
+    $oaMail = $oaCli ? filter_var((string) Capsule::table('tblclients')->where('id', $oaCli)->value('email'),
+        FILTER_VALIDATE_EMAIL) : '';
+    if ($oaMail && (int) ($oaO->quoteid ?? 0) > 0) {
+        $link = 'https://my.cloudon.gr/viewquote.php?id=' . (int) $oaO->quoteid . '#cloudon-comments';
+        $adm = Capsule::table('tbladmins')->where('id', $adminId)->first(['firstname', 'lastname', 'email']);
+        $admName = trim((string) ($adm->firstname ?? '') . ' ' . (string) ($adm->lastname ?? '')) ?: 'CloudOn';
+        $bodyHtml = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;line-height:1.6;max-width:640px">'
+            . 'Καλησπέρα σας,<br><br>έχετε νέα απάντηση για την προσφορά σας:<br><br>'
+            . '<div style="padding:11px 14px;border-left:3px solid #0097e4;background:#f4f8fc">'
+            . nl2br(htmlspecialchars($oaBody, ENT_QUOTES, 'UTF-8')) . '</div><br>'
+            . 'Δείτε την και απαντήστε εδώ: <a href="' . htmlspecialchars($link) . '">' . htmlspecialchars($link) . '</a><br><br>'
+            . 'Με εκτίμηση,<br>' . htmlspecialchars($admName) . '<br>CloudOn</div>';
+        try {
+            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+            $mail->CharSet = 'UTF-8';
+            $mail->setFrom('noreply@cloudon.gr', 'CloudOn');
+            $mail->addAddress($oaMail);
+            if (filter_var((string) ($adm->email ?? ''), FILTER_VALIDATE_EMAIL)) {
+                $mail->addReplyTo((string) $adm->email, $admName);
+            }
+            $mail->isHTML(true);
+            $mail->Subject = 'Απάντηση για την προσφορά σας — CloudOn';
+            $mail->Body = $bodyHtml;
+            $mail->AltBody = strip_tags(str_ireplace('<br>', "\n", $bodyHtml));
+            $mail->send();
+            $oaMailed = true;
+        } catch (\Throwable $e) {
+        }
+    }
+    logActivity('CPM: απάντηση σε ερώτηση προσφοράς #' . (int) $oaO->id . ($oaMailed ? ' (email στον πελάτη)' : ''));
+    out(['ok' => true, 'id' => $oaId, 'emailed' => $oaMailed]);
 
 case 'create_quote':
     $o = Db::offer((int) ($in['offer'] ?? 0));

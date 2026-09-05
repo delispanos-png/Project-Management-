@@ -356,8 +356,8 @@ add_hook('TicketStatusChange', 1, function ($vars) {
     @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', chunk_split(base64_encode($html)), $headers);
 });
 
-/* MyCloudOn: κουμπί «Προβολή προσφοράς (CloudOn)» στο viewquote όταν το quote
-   είναι δεμένο με προσφορά του Project Manager (branded PDF, offer-view.php). */
+/* MyCloudOn: στο viewquote, όταν το quote είναι δεμένο με προσφορά PM, δίνει
+   (α) κουμπί branded PDF (offer-view.php) και (β) νήμα σχολίων/ερωτήσεων. */
 add_hook('ClientAreaPageViewQuote', 1, function ($vars) {
     if (!cloudonprojects_ready()) {
         return [];
@@ -370,9 +370,37 @@ add_hook('ClientAreaPageViewQuote', 1, function ($vars) {
         if (!Capsule::schema()->hasTable('mod_cpm_offers')) {
             return [];
         }
-        $has = Capsule::table('mod_cpm_offers')->where('quoteid', $qid)->exists();
+        $offer = Capsule::table('mod_cpm_offers')->where('quoteid', $qid)->first(['id']);
     } catch (\Throwable $e) {
         return [];
     }
-    return $has ? ['cloudonOfferPdf' => 'offer-view.php?q=' . $qid] : [];
+    if (!$offer) {
+        return [];
+    }
+    // Τα σχόλια (αν υπάρχει ο πίνακας), με τον πελάτη ως «Εσείς».
+    $comments = [];
+    try {
+        if (Capsule::schema()->hasTable('mod_cpm_offer_comments')) {
+            foreach (Capsule::table('mod_cpm_offer_comments')->where('quoteid', $qid)
+                         ->orderBy('id')->get(['by_type', 'body', 'created_at']) as $c) {
+                $comments[] = [
+                    'mine' => $c->by_type === 'client',
+                    'who' => $c->by_type === 'client' ? 'Εσείς' : 'Ομάδα CloudOn',
+                    'body' => nl2br(htmlspecialchars((string) $c->body, ENT_QUOTES, 'UTF-8')),
+                    'at' => date('d/m/Y H:i', strtotime((string) $c->created_at)),
+                ];
+            }
+            // Οι απαντήσεις της ομάδας θεωρούνται διαβασμένες μόλις τις δει ο πελάτης.
+            Capsule::table('mod_cpm_offer_comments')->where('quoteid', $qid)
+                ->where('by_type', 'admin')->whereNull('read_by_client_at')
+                ->update(['read_by_client_at' => date('Y-m-d H:i:s')]);
+        }
+    } catch (\Throwable $e) {
+    }
+    return [
+        'cloudonOfferPdf' => 'offer-view.php?q=' . $qid,
+        'cloudonOfferQuoteId' => $qid,
+        'cloudonOfferComments' => $comments,
+        'cloudonOfferCommentPost' => 'offer-comment.php',
+    ];
 });

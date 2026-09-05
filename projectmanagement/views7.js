@@ -105,6 +105,7 @@ async function openPharmacy(offerId, pre) {
       <div class="mut ph-sum" id="phSum"></div>
       <button class="btn btn-o" id="phPrint">${I.doc} Εκτύπωση</button>
       <button class="btn btn-o" id="phEmail" title="Αποστολή της προσφοράς στον πελάτη ως PDF">✉ Αποστολή</button>
+      ${st.offer ? '<button class="btn btn-o" id="phComments" title="Ερωτήσεις & σχόλια πελάτη">💬 Ερωτήσεις</button>' : ''}
       ${st.offer && cnpCan('clients.offer_delete') ? '<button class="btn btn-danger" id="phDel">🗑 Διαγραφή</button>' : ''}
       <button class="btn btn-p" id="phSave">${st.offer ? 'Ενημέρωση προσφοράς' : 'Δημιουργία προσφοράς'}</button>
     </div>`;
@@ -112,6 +113,7 @@ async function openPharmacy(offerId, pre) {
     wireWho();
     $('#phPrint', body).onclick = printDoc;
     { const eb = $('#phEmail', body); if (eb) eb.onclick = openEmailDialog; }
+    { const cb = $('#phComments', body); if (cb && window.CNP.openOfferComments) cb.onclick = () => window.CNP.openOfferComments(st.offer); }
     $('#phSave', body).onclick = save;
     const pdl = $('#phDel', body); if (pdl) { pdl.onclick = async () => {
       if (!(await window.CNP.cnpConfirm('Να διαγραφεί οριστικά αυτή η προσφορά PharmacyOne;', {ok: '🗑 Διαγραφή', cancel: 'Άκυρο'}))) { return; }

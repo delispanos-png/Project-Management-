@@ -172,6 +172,30 @@
                 {else}<a href="dl.php?type=q&amp;id={$quoteid}" class="btn btn-default"><i class="fas fa-download"></i> {$LANG.invoicesdownload}</a>{/if}
             </div>
 
+            {if $cloudonOfferQuoteId}
+            <div class="clearfix"></div>
+            <div id="cloudon-comments" class="panel panel-default" style="margin-top:22px">
+                <div class="panel-heading"><h3 class="panel-title"><strong><i class="fas fa-comments"></i> Ερωτήσεις &amp; σχόλια</strong></h3></div>
+                <div class="panel-body">
+                    {if $cloudonOfferComments}
+                        {foreach from=$cloudonOfferComments item=c}
+                        <div style="margin-bottom:10px;padding:9px 13px;border-radius:9px;{if $c.mine}background:#eaf4ff;border:1px solid #cfe4fb{else}background:#f4f6f9;border:1px solid #e6ebf1{/if}">
+                            <div style="font-size:12px;color:#6b7a90"><strong>{$c.who}</strong> · {$c.at}</div>
+                            <div style="margin-top:3px">{$c.body}</div>
+                        </div>
+                        {/foreach}
+                    {else}
+                        <p class="text-muted">Έχετε κάποια ερώτηση για την προσφορά; Γράψτε μας εδώ και θα σας απαντήσουμε.</p>
+                    {/if}
+                    <form method="post" action="{$cloudonOfferCommentPost}" style="margin-top:12px">
+                        <input type="hidden" name="q" value="{$cloudonOfferQuoteId}">
+                        <div class="form-group"><textarea name="body" class="form-control" rows="3" placeholder="Η ερώτηση ή το σχόλιό σας…" required maxlength="4000"></textarea></div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane"></i> Αποστολή</button>
+                    </form>
+                </div>
+            </div>
+            {/if}
+
         {/if}
 
     </div>
