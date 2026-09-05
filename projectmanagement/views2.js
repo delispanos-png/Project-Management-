@@ -778,7 +778,7 @@ function openOffer(o, d) {
       <div style="margin-top:13px;display:flex;gap:9px;flex-wrap:wrap;align-items:center"><button class="btn btn-p" id="oSave">Αποθήκευση</button>
         ${!isNew && o.stage === 'accepted' && S.boot.me.full ? `<button class="btn btn-o" id="oProj">${I.rocket} Δημιουργία έργου</button>` : ''}
         ${!isNew ? '<button class="btn btn-o" id="oComments">💬 Ερωτήσεις</button>' : ''}
-        ${!isNew && (cnpCan('clients.offer_delete') || (o.assignee && o.assignee === S.boot.me.id))
+        ${!isNew && (cnpCan('clients.offers.delete') || (o.assignee && o.assignee === S.boot.me.id))
           ? '<button class="btn btn-danger" id="oDel" style="margin-left:auto">🗑 Διαγραφή</button>' : ''}</div>
     </div></div>
     ${!isNew ? `<div class="card"><div class="card-h">${I.fileText} WHMCS Quote</div><div class="card-b">
@@ -1261,7 +1261,7 @@ R.client360 = async function (cid) {
           </tr>`).join('')}</tbody></table>`
             : `<div class="empty" style="padding:16px">Κανένα έργο για αυτόν τον πελάτη.
                <div class="mut" style="font-size:11.5px;margin-top:5px">Φτιάξε ένα και μοίρασε τις εργασίες του στις ομάδες.</div></div>`}
-          ${(d.full || cnpCan('projects.edit')) ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
+          ${(d.full || cnpCan('projects.portfolio.edit')) ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="c3NewPj">${I.plus} Νέο έργο για ${esc(d.client.name)}</button></div>` : ''}
         </div></div>
 
       ${d.openTasks.length ? `<div class="card"><div class="card-h">${I.list} Ανοιχτές εργασίες <span class="kb-n" style="margin-left:auto">${d.openTasks.length}</span></div>
@@ -1920,25 +1920,39 @@ function tmSummary(t, d) {
 }
 
 /** Το δέντρο επιλογής μέσα στο συρτάρι. */
+/* Δέντρο ανά feature: κάθε «οθόνη με εγγραφές» (kind view) εμφανίζεται με inline
+   Προβολή/Επεξεργασία/Διαγραφή· οι καθαρές ενέργειες (kind power) ως ένα κουμπί. */
 function permTree(areaDefs, have) {
   return areaDefs.map(ar => {
+    const byId = {}; ar.caps.forEach(c => { byId[c.id] = c; });
+    const feats = ar.caps.filter(c => c.kind === 'view');
+    const actions = ar.caps.filter(c => c.kind === 'power');
     const on = ar.caps.filter(c => permHas(have, c.id)).length;
-    const all = on === ar.caps.length;
-    /* Ανοιχτή μόνο η ενότητα που είναι μισή — εκεί υπάρχει κάτι να δεις. */
-    return `<details class="perm-grp" data-area="${ar.id}" ${on && !all ? 'open' : ''}>
+    const nonDel = ar.caps.filter(c => c.kind !== 'delete');
+    const allNon = nonDel.length > 0 && nonDel.every(c => permHas(have, c.id));
+    const chk = id => permHas(have, id) ? 'checked' : '';
+    const ax = (c, kind, lbl) => c ? `<label class="pax pax-${kind} ${permHas(have, c.id) ? 'on' : ''}" title="${esc(c.descr)}">
+        <input type="checkbox" data-tar="${c.id}" data-kind="${kind}" data-needs="${c.needs || ''}" ${chk(c.id)}><span>${lbl}</span></label>` : '';
+    const featRows = feats.map(f => `<div class="perm-feat">
+        <label class="pax pax-view ${permHas(have, f.id) ? 'on' : ''}" title="${esc(f.descr)}">
+          <input type="checkbox" data-tar="${f.id}" data-kind="view" ${chk(f.id)}>
+          <span class="perm-feat-lb">${esc(f.name)}</span></label>
+        <div class="perm-axis">${ax(byId[f.id + '.edit'], 'edit', 'Επεξεργασία')}${ax(byId[f.id + '.delete'], 'delete', 'Διαγραφή')}</div>
+      </div>`).join('');
+    const actRows = actions.map(c => `<label class="perm-cap ${permHas(have, c.id) ? 'on' : ''}" title="${esc(c.descr)}">
+        <input type="checkbox" data-tar="${c.id}" data-kind="power" data-needs="${c.needs || ''}" ${chk(c.id)}>
+        <span class="perm-lb">${esc(c.name)}</span><span class="perm-kind power">ενέργεια</span></label>`).join('');
+    return `<details class="perm-grp" data-area="${ar.id}" ${on && !allNon ? 'open' : ''}>
       <summary>
         <label class="perm-parent" onclick="event.stopPropagation()">
-          <input type="checkbox" data-parent="${ar.id}" ${all ? 'checked' : ''}></label>
+          <input type="checkbox" data-parent="${ar.id}" ${allNon ? 'checked' : ''}></label>
         <b>${esc(ar.name)}</b>
-        <span class="perm-n ${all ? 'all' : (on ? 'some' : '')}">${on}/${ar.caps.length}</span>
+        <span class="perm-n ${allNon ? 'all' : (on ? 'some' : '')}">${on}/${ar.caps.length}</span>
         <span class="perm-chev">▾</span>
       </summary>
       <div class="perm-caps">
-        ${ar.caps.map(c => `<label class="perm-cap ${permAxis(c.kind)} ${permHas(have, c.id) ? 'on' : ''}" title="${esc(c.descr)}">
-          <input type="checkbox" data-tar="${c.id}" data-kind="${c.kind}" data-needs="${c.needs || ''}" ${permHas(have, c.id) ? 'checked' : ''}>
-          <span class="perm-lb">${esc(c.name)}</span>
-          <span class="perm-kind ${c.kind}">${permKindLabel(c.kind)}</span>
-        </label>`).join('')}
+        ${featRows}
+        ${actRows ? `<div class="perm-actions-sep">Ενέργειες</div>${actRows}` : ''}
       </div></details>`;
   }).join('');
 }

@@ -509,7 +509,7 @@ function cnp_cx_watchers($exceptId = 0)
         ->get(['id', 'firstname', 'lastname', 'username']) as $a) {
         if ((int) $a->id === (int) $exceptId) { continue; }
         if (cnp_is_bot(trim($a->firstname . ' ' . $a->lastname), $a->username)) { continue; }
-        if (Db::isFullAccess($a->id) || cnp_has_cap($a->id, false, 'clients.complaint_close')) {
+        if (Db::isFullAccess($a->id) || cnp_has_cap($a->id, false, 'clients.complaints.edit')) {
             $ids[] = (int) $a->id;
         }
     }
@@ -1509,7 +1509,7 @@ function cnp_dept_split($taskQuery, array $doneIds)
    Διαγραφή: μόνο διαχειριστής — παίρνει μαζί εργασίες, χρόνο και ιστορικό. */
 function cnp_can_create_project($adminId, $isFull)
 {
-    return cnp_has_cap($adminId, $isFull, 'projects.edit');
+    return cnp_has_cap($adminId, $isFull, 'projects.portfolio.edit');
 }
 function cnp_can_edit_project($adminId, $isFull, $proj)
 {
@@ -1658,85 +1658,92 @@ function cnp_caps()
        την πρόσβαση στο κύκλωμα (βλ. cnp_has_cap). Ακολουθούν οι λεπτομερείς
        δυνατότητες (screen/power) για ψιλότερο έλεγχο. */
     $c = [
-        // ── Πελάτες ──
-        'clients.view'    => ['view',   'Προβολή', 'Δες το κύκλωμα Πελάτες (καρτέλα 360°, CRM, προσφορές, παράπονα)'],
-        'clients.edit'    => ['edit',   'Επεξεργασία', 'Δημιουργία & αλλαγή στοιχείων πελάτη/CRM/προσφορών', 'clients.view'],
-        'clients.delete'  => ['delete', 'Διαγραφή', 'Οριστική διαγραφή στοιχείων του κυκλώματος Πελάτες', 'clients.view'],
-        'clients.card'    => ['screen', 'Πελάτης 360°', 'Καρτέλα πελάτη: υπηρεσίες, τιμολόγια, αιτήματα', 'clients.view'],
-        'clients.crm'     => ['screen', 'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι', 'clients.view'],
-        'clients.offers'  => ['screen', 'Προσφορές', 'Δημιουργία και παρακολούθηση προσφορών', 'clients.view'],
-        'clients.offer_delete' => ['delete', 'Διαγραφή προσφορών', 'Ρητή διαγραφή προσφοράς από το pipeline (το WHMCS quote μένει άθικτο)', 'clients.offers'],
-        'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket από πάνω', 'clients.view'],
-        'clients.complaints' => ['screen', 'Παράπονα πελατών', 'Καταχώρηση και παρακολούθηση δυσαρέσκειας', 'clients.view'],
-        'clients.complaint_close' => ['power', 'Κλείσιμο παραπόνου', 'Έκβαση και αιτία — ποιος λογοδοτεί για τη λύση', 'clients.complaints'],
+        // ═══ ΠΕΛΑΤΕΣ ═══
+        'clients.card'          => ['view',   'Πελάτης 360°', 'Καρτέλα πελάτη: υπηρεσίες, τιμολόγια, αιτήματα'],
+        'clients.card.edit'     => ['edit',   'Επεξεργασία', 'Αλλαγή στοιχείων πελάτη', 'clients.card'],
+        'clients.card.delete'   => ['delete', 'Διαγραφή', 'Διαγραφή πελάτη', 'clients.card'],
+        'clients.crm'           => ['view',   'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
+        'clients.crm.edit'      => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή leads, επαφών, καμπανιών, στόχων', 'clients.crm'],
+        'clients.crm.delete'    => ['delete', 'Διαγραφή', 'Διαγραφή leads/επαφών/καμπανιών', 'clients.crm'],
+        'clients.offers'        => ['view',   'Προσφορές', 'Παρακολούθηση προσφορών (pipeline)'],
+        'clients.offers.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή/αποστολή προσφορών & quotes', 'clients.offers'],
+        'clients.offers.delete' => ['delete', 'Διαγραφή', 'Διαγραφή προσφοράς από το pipeline (το WHMCS quote μένει)', 'clients.offers'],
+        'clients.complaints'    => ['view',   'Παράπονα πελατών', 'Προβολή δυσαρέσκειας πελατών'],
+        'clients.complaints.edit'   => ['edit',   'Επεξεργασία', 'Καταχώρηση, χειρισμός & κλείσιμο παραπόνου', 'clients.complaints'],
+        'clients.complaints.delete' => ['delete', 'Διαγραφή', 'Διαγραφή παραπόνου', 'clients.complaints'],
+        'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket', 'clients.card'],
         'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
         'clients.import'  => ['power',  'Εισαγωγή / εξαγωγή leads', 'Μαζική εισαγωγή από CSV και εξαγωγή', 'clients.crm'],
 
-        // ── Υποστήριξη ──
-        'support.view'    => ['view',   'Προβολή', 'Δες το κύκλωμα Υποστήριξη (tickets, βάση γνώσης)'],
-        'support.edit'    => ['edit',   'Επεξεργασία', 'Απάντηση/διαχείριση tickets & άρθρων', 'support.view'],
-        'support.delete'  => ['delete', 'Διαγραφή', 'Οριστική διαγραφή στοιχείων του κυκλώματος Υποστήριξη', 'support.view'],
-        'support.tickets' => ['screen', 'Tickets', 'Προβολή, απάντηση, ανάθεση, κατηγοριοποίηση', 'support.view'],
-        'support.kb'      => ['screen', 'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων', 'support.view'],
-        'support.kb_edit' => ['power',  'Επεξεργασία βάσης γνώσης', 'Σύνταξη, μαζική εισαγωγή άρθρων', 'support.kb'],
+        // ═══ ΥΠΟΣΤΗΡΙΞΗ ═══
+        'support.tickets'        => ['view',   'Tickets', 'Προβολή αιτημάτων υποστήριξης'],
+        'support.tickets.edit'   => ['edit',   'Επεξεργασία', 'Απάντηση, εσωτερική σημείωση, ανάθεση, κατηγοριοποίηση, αλλαγή status', 'support.tickets'],
+        'support.tickets.delete' => ['delete', 'Διαγραφή', 'Διαγραφή/απόκρυψη ticket', 'support.tickets'],
+        'support.kb'         => ['view',   'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων'],
+        'support.kb.edit'    => ['edit',   'Επεξεργασία', 'Σύνταξη & μαζική εισαγωγή άρθρων', 'support.kb'],
+        'support.kb.delete'  => ['delete', 'Διαγραφή', 'Διαγραφή άρθρων', 'support.kb'],
 
-        // ── Έργα & υλοποιήσεις ──
-        'projects.view'      => ['view',   'Προβολή', 'Δες το κύκλωμα Έργα (portfolio, board, λίστα, χρονοδιάγραμμα)'],
-        'projects.edit'      => ['edit',   'Επεξεργασία', 'Νέο έργο, αλλαγή στοιχείων, αρχειοθέτηση, εργασίες', 'projects.view'],
-        'projects.delete'    => ['delete', 'Διαγραφή', 'Οριστική διαγραφή έργου και των εργασιών του', 'projects.view'],
-        'projects.portfolio' => ['screen', 'Έργα πελατών', 'Λίστα έργων, καρτέλα έργου, σημειώσεις PM', 'projects.view'],
-        'projects.board'     => ['screen', 'Board, λίστα, χρονοδιάγραμμα', 'Οι εργασίες: προβολή και διαχείριση', 'projects.view'],
-        'projects.modules'   => ['screen', 'Modules', 'Τα προϊόντα μας με τα checklist παράδοσης', 'projects.view'],
-        'projects.depts'     => ['screen', 'Departments', 'Φόρτος και εργασίες ανά τμήμα', 'projects.view'],
-        'projects.share'     => ['power',  'Κοινοποίηση σε πελάτη', 'Δημόσιος σύνδεσμος προόδου έργου', 'projects.portfolio'],
-        'projects.recurring' => ['power',  'Επαναλαμβανόμενες εργασίες', 'Ορισμός εργασιών που ξαναγεννιούνται', 'projects.board'],
+        // ═══ ΕΡΓΑ & ΥΛΟΠΟΙΗΣΕΙΣ ═══
+        'projects.portfolio'        => ['view',   'Έργα πελατών', 'Λίστα έργων, καρτέλα έργου, σημειώσεις PM'],
+        'projects.portfolio.edit'   => ['edit',   'Επεξεργασία', 'Νέο έργο, αλλαγή στοιχείων, αρχειοθέτηση', 'projects.portfolio'],
+        'projects.portfolio.delete' => ['delete', 'Διαγραφή', 'Οριστική διαγραφή έργου και των εργασιών του', 'projects.portfolio'],
+        'projects.board'        => ['view',   'Board, λίστα, χρονοδιάγραμμα', 'Οι εργασίες: προβολή'],
+        'projects.board.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή εργασιών, εξαρτήσεις, checklist, Gantt', 'projects.board'],
+        'projects.board.delete' => ['delete', 'Διαγραφή', 'Διαγραφή εργασιών/εξαρτήσεων', 'projects.board'],
+        'projects.modules'        => ['view',   'Modules', 'Τα προϊόντα μας με τα checklist παράδοσης'],
+        'projects.modules.edit'   => ['edit',   'Επεξεργασία', 'Templates, βήματα, ανάθεση modules', 'projects.modules'],
+        'projects.modules.delete' => ['delete', 'Διαγραφή', 'Διαγραφή template ή βήματος', 'projects.modules'],
+        'projects.depts'    => ['view',   'Departments', 'Φόρτος και εργασίες ανά τμήμα'],
+        'projects.share'    => ['power',  'Κοινοποίηση σε πελάτη', 'Δημόσιος σύνδεσμος προόδου έργου', 'projects.portfolio'],
+        'projects.recurring' => ['power', 'Επαναλαμβανόμενες εργασίες', 'Ορισμός εργασιών που ξαναγεννιούνται', 'projects.board'],
 
-        // ── Προαγορά χρόνου ──
-        'prepaid.view'     => ['view',   'Προβολή', 'Δες το κύκλωμα Προαγορά (υπόλοιπα & ακάλυπτα)'],
-        'prepaid.edit'     => ['edit',   'Επεξεργασία', 'Συμβόλαια, πιστώσεις/διορθώσεις, αναφορές', 'prepaid.view'],
-        'prepaid.delete'   => ['delete', 'Διαγραφή', 'Οριστική διαγραφή στοιχείων του κυκλώματος Προαγορά', 'prepaid.view'],
-        'prepaid.contract' => ['power',  'Συμβόλαια προαγοράς', 'Άνοιγμα και επεξεργασία συμβολαίου πελάτη', 'prepaid.view'],
-        'prepaid.move'     => ['power',  'Πίστωση / διόρθωση ωρών', 'Χειροκίνητη κίνηση στο υπόλοιπο', 'prepaid.view'],
+        // ═══ ΠΡΟΑΓΟΡΑ ΧΡΟΝΟΥ ═══
+        'prepaid.view'        => ['view',   'Υπόλοιπα & ακάλυπτα', 'Πόσο έχει ο κάθε πελάτης, τι δεν καλύφθηκε'],
+        'prepaid.view.edit'   => ['edit',   'Επεξεργασία', 'Συμβόλαια προαγοράς, πιστώσεις/διορθώσεις ωρών', 'prepaid.view'],
+        'prepaid.view.delete' => ['delete', 'Διαγραφή', 'Διαγραφή συμβολαίου/κίνησης', 'prepaid.view'],
         'prepaid.offer'    => ['power',  'Προσφορά από ακάλυπτα', 'Μετατροπή ακάλυπτου χρόνου σε προσφορά', 'prepaid.view'],
         'prepaid.report'   => ['power',  'Αποστολή αναφοράς', 'Προεπισκόπηση και αποστολή στον πελάτη', 'prepaid.view'],
 
-        // ── Αναφορές & απόδοση ──
-        'reports.view'      => ['view',   'Προβολή', 'Δες το κύκλωμα Αναφορές (δραστηριότητα, πλάνο, KPI, ρίζες, απόδοση)'],
-        'reports.edit'      => ['edit',   'Επεξεργασία', 'Ενέργειες μέσα στις αναφορές (όπου υπάρχουν)', 'reports.view'],
-        'reports.delete'    => ['delete', 'Διαγραφή', 'Οριστική διαγραφή στοιχείων του κυκλώματος Αναφορές', 'reports.view'],
-        'reports.activity'  => ['screen', 'Δραστηριότητα', 'Τι κάνει η ομάδα αυτή τη στιγμή', 'reports.view'],
-        'reports.triage'    => ['screen', 'Πλάνο ημέρας', 'Τι πρέπει να πιαστεί σήμερα, με σειρά', 'reports.view'],
-        'reports.kpi'       => ['screen', 'KPI Dashboard', 'Οι αριθμοί της εξυπηρέτησης', 'reports.view'],
-        'reports.rootcause' => ['screen', 'Ανάλυση ριζών', 'Γιατί ξαναέρχονται τα ίδια αιτήματα', 'reports.view'],
-        'reports.perf'      => ['screen', 'Απόδοση χειριστών', 'Ποιος παραδίδει, πόσο και πόσο γρήγορα', 'reports.view'],
+        // ═══ ΑΝΑΦΟΡΕΣ & ΑΠΟΔΟΣΗ (μόνο προβολή) ═══
+        'reports.activity'  => ['view', 'Δραστηριότητα', 'Τι κάνει η ομάδα αυτή τη στιγμή'],
+        'reports.triage'    => ['view', 'Πλάνο ημέρας', 'Τι πρέπει να πιαστεί σήμερα, με σειρά'],
+        'reports.kpi'       => ['view', 'KPI Dashboard', 'Οι αριθμοί της εξυπηρέτησης'],
+        'reports.rootcause' => ['view', 'Ανάλυση ριζών', 'Γιατί ξαναέρχονται τα ίδια αιτήματα'],
+        'reports.perf'      => ['view', 'Απόδοση χειριστών', 'Ποιος παραδίδει, πόσο και πόσο γρήγορα'],
 
-        // ── Οικονομικά ──
-        'finance.view'       => ['view',   'Προβολή', 'Δες το κύκλωμα Οικονομικά (κερδοφορία, πληρωμές, αναστολές)'],
-        'finance.edit'       => ['edit',   'Επεξεργασία', 'Ενέργειες οικονομικών (αναστολές, εγκρίσεις, πακέτα)', 'finance.view'],
-        'finance.delete'     => ['delete', 'Διαγραφή', 'Οριστική διαγραφή στοιχείων του κυκλώματος Οικονομικά', 'finance.view'],
-        'finance.profit'     => ['screen', 'Κερδοφορία', 'Έσοδα, κόστος εργασίας, έξοδα ανά πελάτη', 'finance.view'],
-        'finance.paytrace'   => ['screen', 'Συμφωνία πληρωμών', 'Ιχνηλάτηση πληρωμών και λογιστικός έλεγχος', 'finance.view'],
-        'finance.suspend'    => ['screen', 'Αναστολές', 'Ποιες υπηρεσίες πρέπει να πέσουν', 'finance.view'],
-        'finance.suspend_do' => ['power',  'Εκτέλεση αναστολής', 'Πραγματική αναστολή υπηρεσίας και ειδοποίηση', 'finance.suspend'],
-        'finance.billing_ok' => ['power',  'Έγκριση χρέωσης χρόνου', 'Ξεκλείδωμα χρεώσιμης εργασίας για κλείσιμο — το δίνει το λογιστήριο', 'finance.view'],
-        'finance.packages'   => ['power',  'Πακέτα υποστήριξης πελάτη', 'Ανάθεση πελάτη σε πακέτο SLA', 'finance.view'],
+        // ═══ ΟΙΚΟΝΟΜΙΚΑ ═══
+        'finance.profit'        => ['view',   'Κερδοφορία', 'Έσοδα, κόστος εργασίας, έξοδα ανά πελάτη'],
+        'finance.profit.edit'   => ['edit',   'Επεξεργασία', 'Καταχώρηση/διαγραφή εξόδων', 'finance.profit'],
+        'finance.paytrace'   => ['view', 'Συμφωνία πληρωμών', 'Ιχνηλάτηση πληρωμών και λογιστικός έλεγχος'],
+        'finance.suspend'        => ['view',   'Αναστολές', 'Ποιες υπηρεσίες πρέπει να πέσουν'],
+        'finance.suspend.edit'   => ['edit',   'Εκτέλεση αναστολής', 'Πραγματική αναστολή υπηρεσίας και ειδοποίηση', 'finance.suspend'],
+        'finance.billing_ok' => ['power', 'Έγκριση χρέωσης χρόνου', 'Ξεκλείδωμα χρεώσιμης εργασίας για κλείσιμο — το δίνει το λογιστήριο', 'finance.profit'],
+        'finance.packages'   => ['power', 'Πακέτα υποστήριξης πελάτη', 'Ανάθεση πελάτη σε πακέτο SLA', 'finance.profit'],
 
-        // ── Προσλήψεις ──
-        'hr.view' => ['view',   'Προβολή', 'Δες το κύκλωμα Προσλήψεις (βιογραφικά, θέσεις)'],
-        'hr.edit' => ['edit',   'Επεξεργασία', 'Αξιολόγηση υποψηφίων, δημιουργία θέσεων/αγγελιών', 'hr.view'],
-        'hr.delete' => ['delete', 'Διαγραφή', 'Οριστική διαγραφή στοιχείων του κυκλώματος Προσλήψεις', 'hr.view'],
-        'hr.cv'   => ['screen', 'Βιογραφικά', 'Υποψήφιοι, αξιολόγηση, συνεντεύξεις', 'hr.view'],
-        'hr.jobs' => ['power',  'Θέσεις & αγγελίες', 'Δημιουργία και δημοσίευση θέσεων', 'hr.cv'],
+        // ═══ ΠΡΟΣΛΗΨΕΙΣ ═══
+        'hr.cv'          => ['view',   'Βιογραφικά', 'Υποψήφιοι, προβολή'],
+        'hr.cv.edit'     => ['edit',   'Επεξεργασία', 'Αξιολόγηση, σχόλια, προγραμματισμός συνέντευξης, email', 'hr.cv'],
+        'hr.cv.delete'   => ['delete', 'Διαγραφή', 'Διαγραφή υποψηφίου', 'hr.cv'],
+        'hr.jobs'        => ['view',   'Θέσεις & αγγελίες', 'Προβολή θέσεων/αγγελιών'],
+        'hr.jobs.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία & δημοσίευση θέσεων', 'hr.jobs'],
+        'hr.jobs.delete' => ['delete', 'Διαγραφή', 'Διαγραφή θέσης/αγγελίας', 'hr.jobs'],
 
-        // ── Σύστημα ──
-        'admin.view'     => ['view',   'Προβολή', 'Δες το κύκλωμα Σύστημα (ομάδες, χρήστες, ρυθμίσεις, automations)'],
-        'admin.edit'     => ['edit',   'Επεξεργασία', 'Αλλαγές σε ομάδες/χρήστες/ρυθμίσεις/automations', 'admin.view'],
-        'admin.delete'   => ['delete', 'Διαγραφή', 'Οριστική διαγραφή ομάδας/χρήστη/κανόνα στο Σύστημα', 'admin.view'],
-        'admin.teams'    => ['screen', 'Ομάδες & δικαιώματα', 'Δημιουργία ομάδων, μέλη, δικαιώματα', 'admin.view'],
-        'admin.users'    => ['power',  'Λίστα χειριστών', 'Ποιος υπάρχει και τι βλέπει (χωρίς αλλαγές λογαριασμού)', 'admin.view'],
-        'admin.settings' => ['screen', 'Ρυθμίσεις εφαρμογής', 'Status, τύποι, κατηγορίες, απαντήσεις, πεδία, όρια', 'admin.view'],
-        'admin.autos'    => ['power',  'Automations', 'Κανόνες που εκτελούνται μόνοι τους', 'admin.view'],
-        'admin.wh'       => ['power',  'Departments & status WHMCS', 'Πειράζει ρυθμίσεις του ίδιου του WHMCS', 'admin.view'],
+        // ═══ ΣΥΣΤΗΜΑ ═══
+        'admin.teams'        => ['view',   'Ομάδες & δικαιώματα', 'Προβολή ομάδων, μελών, δικαιωμάτων'],
+        'admin.teams.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή ομάδων, μέλη, δικαιώματα, πρότυπα', 'admin.teams'],
+        'admin.teams.delete' => ['delete', 'Διαγραφή', 'Διαγραφή ομάδας ή προτύπου', 'admin.teams'],
+        'admin.users'        => ['view',   'Λίστα χειριστών', 'Ποιος υπάρχει και τι βλέπει'],
+        'admin.users.edit'   => ['edit',   'Επεξεργασία', 'Πρόσβαση, στοιχεία, κωδικός, ενεργοποίηση χειριστή', 'admin.users'],
+        'admin.users.delete' => ['delete', 'Διαγραφή', 'Διαγραφή χειριστή', 'admin.users'],
+        'admin.settings'        => ['view',   'Ρυθμίσεις εφαρμογής', 'Status, τύποι, κατηγορίες, απαντήσεις, πεδία, όρια'],
+        'admin.settings.edit'   => ['edit',   'Επεξεργασία', 'Αλλαγή status/τύπων/κατηγοριών/απαντήσεων/πεδίων/ορίων', 'admin.settings'],
+        'admin.settings.delete' => ['delete', 'Διαγραφή', 'Διαγραφή status/τύπου/κατηγορίας/απάντησης/πεδίου', 'admin.settings'],
+        'admin.autos'        => ['view',   'Automations', 'Προβολή κανόνων που εκτελούνται μόνοι τους'],
+        'admin.autos.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή automations', 'admin.autos'],
+        'admin.autos.delete' => ['delete', 'Διαγραφή', 'Διαγραφή automation', 'admin.autos'],
+        'admin.wh'        => ['view',   'Departments & status WHMCS', 'Προβολή ρυθμίσεων WHMCS'],
+        'admin.wh.edit'   => ['edit',   'Επεξεργασία', 'Αλλαγή departments & ticket status στο WHMCS', 'admin.wh'],
+        'admin.wh.delete' => ['delete', 'Διαγραφή', 'Διαγραφή department ή ticket status στο WHMCS', 'admin.wh'],
     ];
     return $c;
 }
@@ -1761,40 +1768,46 @@ function cnp_has_cap($adminId, $isFull, $cap)
         return true;
     }
     $mine = cnp_admin_areas($adminId, $isFull);
-    // Ρητή κατοχή του κλειδιού → πάντα ναι.
     if (in_array($cap, $mine, true)) {
-        return true;
+        return true;                          // ρητή κατοχή
     }
+    // Το (legacy/άμεσο) κλειδί ΚΥΚΛΩΜΑΤΟΣ καλύπτει κάθε ΜΗ-διαγραφική δυνατότητα
+    // του — ώστε ομάδες με πρόσβαση σε ολόκληρο κύκλωμα να έχουν Προβολή+Επεξ.
+    // Η ΔΙΑΓΡΑΦΗ δίνεται πάντα ρητά (δεν κληρονομείται ποτέ).
     $caps = cnp_caps();
-    $kind = $caps[$cap][0] ?? '';
-    // Η ΔΙΑΓΡΑΦΗ δίνεται ΜΟΝΟ ρητά — δεν κληρονομείται από το κύκλωμα ούτε από
-    // άλλες δυνατότητες. (Το ρητό κλειδί καλύφθηκε ήδη παραπάνω.)
-    if ($kind === 'delete') {
+    if (($caps[$cap][0] ?? '') === 'delete') {
         return false;
     }
     $area = strpos($cap, '.') !== false ? substr($cap, 0, strpos($cap, '.')) : $cap;
-    // Το κλειδί ολόκληρου του κυκλώματος καλύπτει κάθε μη-διαγραφική δυνατότητα.
-    if (in_array($area, $mine, true)) {
-        return true;
-    }
-    // Χωρίς ολόκληρο το κύκλωμα: η Προβολή/Επεξεργασία προκύπτει κι από επιμέρους
-    // δυνατότητες (όποιος βλέπει έστω μία οθόνη «βλέπει» το κύκλωμα· όποιος έχει
-    // μία ενέργεια «επεξεργάζεται»).
-    if ($kind === 'view' || $kind === 'edit') {
-        foreach ($mine as $k) {
-            if (strpos((string) $k, $area . '.') !== 0) {
-                continue;
+    return in_array($area, $mine, true);
+}
+
+/**
+ * Επεκτείνει τα αποθηκευμένα κλειδιά σε ΡΗΤΕΣ δυνατότητες ανά feature, ώστε οι
+ * υπάρχουσες ομάδες να κρατήσουν Προβολή+Επεξεργασία (ΟΧΙ Διαγραφή), χωρίς να
+ * πειράξουμε τα αποθηκευμένα δεδομένα:
+ *   • κλειδί κυκλώματος «X»            → όλες οι μη-delete δυνατότητες του X
+ *   • κλειδί feature-προβολής «X.f»    → και το «X.f.edit» (view+edit)
+ * Ό,τι είναι ήδη ρητό (edit/delete/action) μένει ως έχει. Ιδεμποτές.
+ */
+function cnp_perm_migrate(array $keys)
+{
+    $caps = cnp_caps();
+    $areas = cnp_area_keys();
+    $out = [];
+    foreach ($keys as $k) {
+        if (in_array($k, $areas, true)) {
+            foreach (cnp_caps_of($k) as $ck => $cv) {
+                if (($cv[0] ?? '') !== 'delete') { $out[] = $ck; }   // view+edit+actions, όχι delete
             }
-            $kk = $caps[$k][0] ?? '';
-            if ($kind === 'view') {
-                return true;
-            }
-            if ($kind === 'edit' && in_array($kk, ['edit', 'power'], true)) {
-                return true;
-            }
+            continue;
+        }
+        $out[] = $k;
+        if (($caps[$k][0] ?? '') === 'view' && isset($caps[$k . '.edit'])) {
+            $out[] = $k . '.edit';                                   // feature-view → +edit (compat)
         }
     }
-    return false;
+    return array_values(array_intersect(array_keys($caps), array_unique($out)));
 }
 
 /** Όλες οι δυνατότητες που ισχύουν πραγματικά για έναν χειριστή (authoritative). */
@@ -1830,27 +1843,10 @@ function cnp_perm_keys()
  */
 function cnp_perm_clean(array $in)
 {
-    $ok = array_values(array_intersect(cnp_perm_keys(), cnp_area_alias($in)));
-    $caps = cnp_caps();
-    $out = [];
-    foreach (cnp_area_keys() as $ar) {
-        $areaCaps = array_keys(cnp_caps_of($ar));
-        // Η ΔΙΑΓΡΑΦΗ μένει ΠΑΝΤΑ ρητή — δεν διπλώνεται ποτέ στο κλειδί του κυκλώματος.
-        $nonDel = array_values(array_filter($areaCaps, function ($k) use ($caps) {
-            return ($caps[$k][0] ?? '') !== 'delete';
-        }));
-        $del = array_values(array_filter($areaCaps, function ($k) use ($caps) {
-            return ($caps[$k][0] ?? '') === 'delete';
-        }));
-        $mineNon = array_values(array_intersect($ok, $nonDel));
-        $out = array_merge($out, array_values(array_intersect($ok, $del)));   // ρητά delete
-        if (in_array($ar, $ok, true) || (count($nonDel) && count($mineNon) === count($nonDel))) {
-            $out[] = $ar;                       // ολόκληρο το κύκλωμα (χωρίς delete)
-        } else {
-            $out = array_merge($out, $mineNon); // επιμέρους μη-delete
-        }
-    }
-    return array_values(array_unique($out));
+    /* Μοντέλο ανά feature: αποθηκεύουμε ΑΚΡΙΒΩΣ τις επιλεγμένες δυνατότητες
+       (χωρίς δίπλωμα σε κλειδί κυκλώματος), ώστε να μπορείς να δώσεις π.χ. μόνο
+       «Πελάτης 360° → Προβολή». Δεκτά και τα (legacy) κλειδιά κυκλώματος. */
+    return array_values(array_unique(array_intersect(cnp_perm_keys(), cnp_area_alias($in))));
 }
 function cnp_action_cap($action)
 {
@@ -1861,95 +1857,105 @@ function cnp_action_cap($action)
             foreach ($acts as $a) { $map[$a] = $cap; }
         };
 
-        /* ── Πελάτες ── */
+        /* ── ΠΕΛΑΤΕΣ ── */
         $add('clients.card', ['client360']);
         $add('clients.card|reports.triage', ['client_health']);
-        $add('clients.card|finance.packages', ['client_package_set']);
+        $add('clients.card.edit|finance.packages', ['client_package_set']);
         $add('clients.new', ['client_quick_add']);
         $add('clients.calls', ['call_log', 'call_who', 'call_recent']);
-        $add('clients.complaints', ['complaints', 'complaint', 'complaint_save',
-            'complaint_status', 'complaint_note']);
-        $add('clients.complaint_close', ['complaint_resolve']);
-        $add('clients.crm', ['crm_overview', 'crm_reports', 'leads_dupes', 'save_lead', 'lead_merge',
-            'lead_score', 'lead_timeline', 'lead_tasks', 'lead_task_save', 'lead_task_toggle',
-            'lead_task_del', 'lead_products', 'lead_product_save', 'lead_product_del',
-            'lead_value_save', 'move_lead', 'hot_leads', 'my_crm_tasks', 'comms', 'interaction',
-            'followup_done', 'campaigns', 'campaign_save', 'campaign_del', 'campaign_detail',
-            'campaign_add_lead', 'campaign_remove_lead', 'targets', 'save_ptarget', 'del_ptarget']);
+        $add('clients.complaints', ['complaints', 'complaint']);
+        $add('clients.complaints.edit', ['complaint_save', 'complaint_status', 'complaint_note', 'complaint_resolve']);
+        $add('clients.crm', ['crm_overview', 'crm_reports', 'leads_dupes', 'lead_score', 'lead_timeline',
+            'lead_tasks', 'lead_products', 'hot_leads', 'my_crm_tasks', 'comms', 'campaigns',
+            'campaign_detail', 'targets']);
+        $add('clients.crm.edit', ['save_lead', 'lead_merge', 'lead_task_save', 'lead_task_toggle',
+            'lead_task_del', 'lead_product_save', 'lead_product_del', 'lead_value_save', 'move_lead',
+            'interaction', 'followup_done', 'campaign_save', 'campaign_del', 'campaign_add_lead',
+            'campaign_remove_lead', 'save_ptarget', 'del_ptarget']);
         $add('clients.crm|admin.settings', ['lead_fields']);
         $add('clients.import', ['leads_export', 'leads_import_preview', 'leads_import_commit']);
-        $add('clients.offers', ['offers', 'save_offer', 'move_offer', 'offer_track', 'offer_timeline',
-            'create_quote', 'pharmacy_defs', 'pharmacy_calc', 'pharmacy_save', 'pharmacy_doc', 'pharmacy_ai_draft',
-            'pharmacy_email', 'offer_comments', 'offer_comment_add']);
-        $add('clients.delete|clients.offer_delete', ['delete_offer']);
-        $add('clients.offers|projects.edit', ['project_from_offer']);
+        $add('clients.offers', ['offers', 'offer_track', 'offer_timeline', 'offer_comments',
+            'pharmacy_defs', 'pharmacy_calc', 'pharmacy_doc']);
+        $add('clients.offers.edit', ['save_offer', 'move_offer', 'create_quote', 'pharmacy_save',
+            'pharmacy_ai_draft', 'pharmacy_email', 'offer_comment_add']);
+        $add('clients.offers.delete', ['delete_offer']);
+        $add('clients.offers|projects.portfolio.edit', ['project_from_offer']);
 
-        /* ── Υποστήριξη ── */
-        $add('support.tickets', ['tickets', 'ticket', 'ticket_reply', 'ticket_note', 'ticket_refer',
-            'ticket_att', 'ticket_classify', 'classify_suggest']);
-        $add('support.tickets|reports.triage', ['ticket_update']);
+        /* ── ΥΠΟΣΤΗΡΙΞΗ ── */
+        $add('support.tickets', ['tickets', 'ticket', 'ticket_att']);
+        $add('support.tickets.edit', ['ticket_reply', 'ticket_note', 'ticket_refer', 'ticket_classify',
+            'classify_suggest', 'ticket_update']);
         $add('support.kb', ['kb_list', 'kb_get', 'kb_match', 'kb_draft', 'kb_bulk']);
-        $add('support.kb|support.tickets', ['kb_use']);   // χρήση άρθρου μέσα σε απάντηση
-        $add('support.kb_edit', ['kb_save', 'kb_import_probe', 'kb_import_commit']);
-        $add('support.delete|support.kb_edit', ['kb_del']);
+        $add('support.kb|support.tickets', ['kb_use']);
+        $add('support.kb.edit', ['kb_save', 'kb_import_probe', 'kb_import_commit']);
+        $add('support.kb.delete', ['kb_del']);
 
-        /* ── Έργα & υλοποιήσεις ── */
-        $add('projects.portfolio', ['portfolio', 'project_modules', 'project_pm_notes']);
-        $add('projects.board', ['board', 'list', 'gantt', 'gantt_move', 'quick_task',
-            'dep_add', 'dep_del', 'check_add', 'ptodos', 'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
-        $add('projects.edit', ['save_project', 'archive_project']);
-        $add('projects.delete', ['project_delete']);
-        $add('projects.modules', ['templates', 'template_save', 'template_del', 'template_step_save',
-            'template_step_del', 'template_step_move', 'template_clone', 'project_add_modules']);
+        /* ── ΕΡΓΑ & ΥΛΟΠΟΙΗΣΕΙΣ ── */
+        $add('projects.portfolio', ['portfolio', 'project_modules']);
+        $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
+        $add('projects.portfolio.delete', ['project_delete']);
+        $add('projects.board', ['board', 'list', 'gantt', 'ptodos']);
+        $add('projects.board.edit', ['gantt_move', 'quick_task', 'dep_add', 'dep_del', 'check_add',
+            'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
+        $add('projects.modules', ['templates']);
+        $add('projects.modules.edit', ['template_save', 'template_step_save', 'template_step_move',
+            'template_clone', 'project_add_modules']);
+        $add('projects.modules.delete', ['template_del', 'template_step_del']);
         $add('projects.depts', ['depts_load', 'dept_view']);
         $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
         $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);
         $add('projects.recurring|reports.triage', ['recurrent']);
-        $add('projects.portfolio|finance.profit', ['add_expense', 'del_expense']);
+        $add('finance.profit.edit|projects.portfolio.edit', ['add_expense', 'del_expense']);
 
-        /* ── Προαγορά χρόνου ── */
+        /* ── ΠΡΟΑΓΟΡΑ ΧΡΟΝΟΥ ── */
         $add('prepaid.view', ['prepaid', 'prepaid_client']);
-        $add('prepaid.contract', ['prepaid_save']);
-        $add('prepaid.move', ['prepaid_move']);
+        $add('prepaid.view.edit', ['prepaid_save', 'prepaid_move']);
         $add('prepaid.offer', ['prepaid_offer', 'prepaid_offer_cover']);
         $add('prepaid.report', ['prepaid_report', 'prepaid_report_send']);
 
-        /* ── Αναφορές & απόδοση ── */
+        /* ── ΑΝΑΦΟΡΕΣ & ΑΠΟΔΟΣΗ ── */
         $add('reports.activity', ['activity']);
         $add('reports.triage', ['triage']);
         $add('reports.kpi', ['kpi']);
         $add('reports.rootcause', ['rootcause']);
         $add('reports.perf', ['perf']);
 
-        /* ── Οικονομικά ── */
+        /* ── ΟΙΚΟΝΟΜΙΚΑ ── */
         $add('finance.profit', ['profit']);
         $add('finance.paytrace', ['pay_trace', 'pay_trace_export', 'pay_statement',
             'pay_statement_csv', 'fin_audit', 'fin_audit_csv']);
         $add('finance.suspend', ['suspend_queue', 'suspend_notice']);
-        $add('finance.suspend_do', ['suspend_mark', 'suspend_do', 'suspend_notice_send']);
+        $add('finance.suspend.edit', ['suspend_mark', 'suspend_do', 'suspend_notice_send']);
         $add('finance.billing_ok', ['task_billing_ok']);
 
-        /* ── Προσλήψεις ── */
-        $add('hr.cv', ['cv_list', 'cv_get', 'cv_add', 'cv_update', 'cv_ai', 'cv_email', 'cv_file',
-            'cv_photo', 'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval']);
+        /* ── ΠΡΟΣΛΗΨΕΙΣ ── */
+        $add('hr.cv', ['cv_list', 'cv_get']);
+        $add('hr.cv.edit', ['cv_add', 'cv_update', 'cv_ai', 'cv_email', 'cv_file', 'cv_photo',
+            'cv_schedule', 'cv_interview_kit', 'cv_interview_save', 'cv_interview_eval']);
         $add('hr.cv|hr.jobs', ['cv_jobs']);
-        $add('hr.jobs', ['cv_job_save', 'cv_job_draft', 'cv_job_views',
+        $add('hr.jobs.edit', ['cv_job_save', 'cv_job_draft', 'cv_job_views',
             'cv_job_image_upload', 'cv_job_image_delete']);
-        $add('hr.delete|hr.jobs', ['cv_job_del']);
+        $add('hr.jobs.delete', ['cv_job_del']);
 
-        /* ── Σύστημα ── */
-        $add('admin.teams', ['teams', 'save_team', 'team_member_add', 'team_member_del',
-            'user_areas_save', 'preset_save', 'preset_del']);
-        $add('admin.users', ['users', 'addon_access_grant',
-            'user_save', 'user_pass', 'user_toggle']);
-        $add('admin.delete', ['del_team', 'user_del']);
-        $add('admin.settings', ['settings_get', 'settings_save', 'status_save', 'status_del',
-            'type_save', 'type_del', 'tcats', 'tcat_save', 'tcat_del', 'tcat_reorder',
-            'canned_save', 'canned_del', 'lead_field_save', 'lead_field_del',
-            'tquotas', 'tquota_save', 'tquota_del', 'storage_test']);
-        $add('admin.autos', ['autos', 'auto_save', 'auto_del', 'auto_recipes', 'auto_recipe_add']);
-        $add('admin.wh', ['wh_ticket_manage', 'wh_dept_save', 'wh_dept_del', 'wh_tstatus_save',
-            'wh_tstatus_del']);
+        /* ── ΣΥΣΤΗΜΑ ── */
+        $add('admin.teams', ['teams']);
+        $add('admin.teams.edit', ['save_team', 'team_member_add', 'team_member_del',
+            'user_areas_save', 'preset_save']);
+        $add('admin.teams.delete', ['del_team', 'preset_del']);
+        $add('admin.users', ['users']);
+        $add('admin.users.edit', ['addon_access_grant', 'user_save', 'user_pass', 'user_toggle']);
+        $add('admin.users.delete', ['user_del']);
+        $add('admin.settings', ['settings_get', 'tcats', 'tquotas']);
+        $add('admin.settings.edit', ['settings_save', 'status_save', 'type_save', 'tcat_save',
+            'tcat_reorder', 'canned_save', 'lead_field_save', 'tquota_save', 'storage_test']);
+        $add('admin.settings.delete', ['status_del', 'type_del', 'tcat_del', 'canned_del',
+            'lead_field_del', 'tquota_del']);
+        $add('admin.autos', ['autos', 'auto_recipes']);
+        $add('admin.autos.edit', ['auto_save', 'auto_recipe_add']);
+        $add('admin.autos.delete', ['auto_del']);
+        $add('admin.wh', ['wh_ticket_manage']);
+        $add('admin.wh.edit', ['wh_dept_save', 'wh_tstatus_save']);
+        $add('admin.wh.delete', ['wh_dept_del', 'wh_tstatus_del']);
     }
     return $map[$action] ?? null;
 }
@@ -3811,7 +3817,7 @@ case 'complaints':
             return ['id' => $k, 'name' => $v[0], 'color' => $v[1]];
         }, array_keys(cnp_cx_cats()), cnp_cx_cats()),
         'sources' => cnp_cx_sources(),
-        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaint_close'),
+        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaints.edit'),
         'admins' => array_map(function ($a) { return ['id' => (int) $a->id,
             'name' => trim($a->firstname . ' ' . $a->lastname)]; }, Db::admins()->all()),
         'summary' => ['open' => $openN, 'critical' => $critN, 'month' => $newN,
@@ -3831,7 +3837,7 @@ case 'complaint':
     out(['cx' => cnp_cx_row($cx9) + ['detail' => $cx9->detail, 'resolution' => $cx9->resolution,
             'cause' => $cx9->cause, 'lead' => (int) $cx9->lead_id, 'project' => (int) $cx9->project_id],
         'notes' => $notes9,
-        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaint_close')]);
+        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaints.edit')]);
 
 case 'complaint_save':
     $cxid = (int) ($in['id'] ?? 0);
@@ -4344,7 +4350,7 @@ case 'delete_offer':
        (δίνεται ανά ομάδα), ή ο ιδιοκτήτης/δημιουργός της ίδιας της προσφοράς.
        (Οι υιοθετημένες από WHMCS quotes δεν έχουν ιδιοκτήτη — γι' αυτό χρειάζεται
        η ρητή δυνατότητα, ώστε αξιόπιστα άτομα να μπορούν να τις σβήνουν.) */
-    $canDel7 = $FULL || cnp_has_cap($adminId, $FULL, 'clients.offer_delete')
+    $canDel7 = $FULL || cnp_has_cap($adminId, $FULL, 'clients.offers.delete')
         || (int) $od7->assignee === $adminId || (int) $od7->created_by === $adminId;
     if (!$canDel7) {
         fail('Δεν έχεις δικαίωμα διαγραφής προσφοράς — ζήτησέ το από διαχειριστή (δυνατότητα «Διαγραφή προσφορών»)', 403);
@@ -4726,7 +4732,7 @@ case 'pharmacy_email':                   // αποστολή της προσφο
         $oE = Db::offer($oidE);
         if (!$oE || $oE->kind !== 'pharmacyone') { fail('offer', 404); }
         if (!$FULL && (int) $oE->assignee !== $adminId && (int) $oE->created_by !== $adminId
-            && !cnp_has_cap($adminId, $FULL, 'clients.offer_delete')) {
+            && !cnp_has_cap($adminId, $FULL, 'clients.offers.delete')) {
             fail('Δεν έχεις δικαίωμα αποστολής αυτής της προσφοράς', 403);
         }
     }
@@ -5615,7 +5621,7 @@ case 'portfolio':
     }
     out(['projects' => $projs, 'depts' => $depts, 'teams' => $teamsL,
         'canManage' => $FULL,
-        'canDelete' => cnp_has_cap($adminId, $FULL, 'projects.delete'),
+        'canDelete' => cnp_has_cap($adminId, $FULL, 'projects.portfolio.delete'),
         'canShare' => cnp_has_cap($adminId, $FULL, 'projects.share'),
         'canRecur' => cnp_has_cap($adminId, $FULL, 'projects.recurring'),
         'canCreate' => cnp_can_create_project($adminId, $FULL)]);      // νέο έργο
