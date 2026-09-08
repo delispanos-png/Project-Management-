@@ -1,0 +1,56 @@
+{
+    "invoice": {
+        "id": 3820,
+        "userid": 197,
+        "invoicenum": "PF20263787",
+        "date": "2026-09-02",
+        "duedate": "2026-09-12",
+        "datepaid": "0000-00-00 00:00:00",
+        "last_capture_attempt": "0000-00-00 00:00:00",
+        "date_refunded": "0000-00-00 00:00:00",
+        "date_cancelled": "0000-00-00 00:00:00",
+        "subtotal": "65.37",
+        "credit": "0.00",
+        "tax": "14.63",
+        "tax2": "0.00",
+        "total": "80.00",
+        "taxrate": "24.000",
+        "taxrate2": "0.000",
+        "status": "Unpaid",
+        "paymentmethod": "paypal",
+        "paymethodid": null,
+        "notes": "",
+        "created_at": "2026-09-02 09:00:37",
+        "updated_at": "2026-09-02 09:00:37"
+    },
+    "items": [
+        {
+            "id": 9004,
+            "invoiceid": 3820,
+            "userid": 197,
+            "type": "Hosting",
+            "relid": 1436,
+            "description": "Cloudon VPS 1 General Purpose (DE)  - mayvps.co (12\/09\/2026 - 11\/10\/2026)\nLocation: Nuremberg\nPanel: Without Panel\nExtra IPs: 5 x IP 5.00 €\nOperating System: AlmaLinux 9\nBackups: Όχι",
+            "amount": "60.97",
+            "taxed": 1,
+            "duedate": "2026-09-12",
+            "paymentmethod": "paypal",
+            "notes": ""
+        },
+        {
+            "id": 9008,
+            "invoiceid": 3820,
+            "userid": 197,
+            "type": "cnp_gwfee",
+            "relid": 0,
+            "description": "Χρέωση διεκπεραίωσης PayPal",
+            "amount": "4.40",
+            "taxed": 0,
+            "duedate": "2026-09-12",
+            "paymentmethod": "",
+            "notes": ""
+        }
+    ],
+    "when": "2026-09-07T20:12:59+03:00",
+    "reason": "remove VAT — client 197 non-EU tax exempt"
+}
