@@ -616,16 +616,12 @@ function cnp_send_login_credentials($email, $whoName, $pass, $adminId)
         ?: 'https://my.cloudon.gr/'), '/') . '/clientarea.php';
     $adm = Capsule::table('tbladmins')->where('id', $adminId)->first(['firstname', 'lastname', 'email']);
     $admName = trim((string) ($adm->firstname ?? '') . ' ' . (string) ($adm->lastname ?? '')) ?: 'CloudOn';
-    $body = 'Καλησπέρα σας,<br><br>'
-        . 'δημιουργήσαμε τον λογαριασμό σας στο <b>MyCloudOn</b>, ώστε να μπορείτε να δείτε '
-        . 'τις προσφορές σας, τα προϊόντα/υπηρεσίες σας και τα αιτήματά σας.<br><br>'
-        . '<b>Σύνδεση:</b> <a href="' . htmlspecialchars($loginUrl) . '">' . htmlspecialchars($loginUrl) . '</a><br>'
-        . '<b>Email:</b> ' . htmlspecialchars($email) . '<br>'
-        . '<b>Κωδικός:</b> ' . htmlspecialchars((string) $pass) . '<br><br>'
-        . 'Για την ασφάλειά σας, αλλάξτε τον κωδικό μετά την πρώτη σύνδεση '
-        . '(Λογαριασμός → Αλλαγή κωδικού).<br><br>Με εκτίμηση,<br>Η ομάδα της CloudOn';
-    $wrap = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;'
-        . 'line-height:1.6;max-width:640px">' . $body . '</div>';
+    $wrap = cnp_credentials_email_html($loginUrl, $email, (string) $pass, (string) $whoName, $admName);
+    $alt = "Καλωσορίσατε στο MyCloudOn\n\n"
+        . "Δημιουργήσαμε τον λογαριασμό σας για να βλέπετε προσφορές, υπηρεσίες, τιμολόγια και αιτήματα.\n\n"
+        . "ΣΥΝΔΕΣΗ: $loginUrl\nUsername (email): $email\nΚωδικός: $pass\n\n"
+        . "Βήματα: 1) Ανοίξτε τον σύνδεσμο  2) Βάλτε το email & τον κωδικό  3) Αλλάξτε κωδικό (Λογαριασμός → Αλλαγή κωδικού).\n\n"
+        . "Με εκτίμηση,\nΗ ομάδα της CloudOn";
     try {
         $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
         $mail->CharSet = 'UTF-8';
@@ -635,14 +631,121 @@ function cnp_send_login_credentials($email, $whoName, $pass, $adminId)
             $mail->addReplyTo((string) $adm->email, $admName);
         }
         $mail->isHTML(true);
-        $mail->Subject = 'Ο λογαριασμός σας στο MyCloudOn';
+        $mail->Subject = 'Καλωσορίσατε στο MyCloudOn — τα στοιχεία σύνδεσής σας';
         $mail->Body = $wrap;
-        $mail->AltBody = "Σύνδεση: $loginUrl\nEmail: $email\nΚωδικός: $pass";
+        $mail->AltBody = $alt;
         $mail->send();
         return true;
     } catch (\Throwable $e) {
         return false;
     }
+}
+
+/**
+ * Το εικαστικό HTML του email καλωσορίσματος/κωδικών (table-based, inline styles
+ * για συμβατότητα με email clients· λογότυπα από απόλυτα https URLs).
+ */
+function cnp_credentials_email_html($loginUrl, $email, $pass, $whoName, $admName)
+{
+    $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
+    $logo = 'https://my.cloudon.gr/project/apply-assets/cloudon-logo-white.png';
+    $brand = '#0090dd'; $brandD = '#0072ad'; $ink = '#0b1f3a'; $mut = '#6b7a90';
+    $line = '#e6ecf3'; $soft = '#f4f8fc';
+    $font = "font-family:'Segoe UI',Arial,Helvetica,sans-serif";
+    $btn = '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto"><tr>'
+        . '<td style="border-radius:10px;background:' . $brand . '">'
+        . '<a href="' . $e($loginUrl) . '" target="_blank" style="display:inline-block;padding:14px 30px;'
+        . $font . ';font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px">'
+        . '➜ Σύνδεση στο MyCloudOn</a></td></tr></table>';
+
+    $row = function ($label, $value, $mono = false) use ($ink, $mut, $line, $font) {
+        return '<tr>'
+            . '<td style="padding:11px 16px;border-bottom:1px solid ' . $line . ';' . $font . ';font-size:12px;'
+            . 'color:' . $mut . ';text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;vertical-align:top;width:120px">' . $label . '</td>'
+            . '<td style="padding:11px 16px;border-bottom:1px solid ' . $line . ';' . $font . ';font-size:15px;'
+            . 'color:' . $ink . ';font-weight:700;' . ($mono ? "font-family:'Courier New',monospace;letter-spacing:1px;" : '')
+            . 'word-break:break-all">' . $value . '</td></tr>';
+    };
+    $step = function ($n, $txt) use ($brand, $ink, $font) {
+        return '<tr><td style="padding:5px 10px 5px 0;vertical-align:top;width:30px">'
+            . '<div style="width:26px;height:26px;border-radius:50%;background:' . $brand . ';color:#fff;'
+            . $font . ';font-size:14px;font-weight:700;text-align:center;line-height:26px">' . $n . '</div></td>'
+            . '<td style="padding:7px 0;' . $font . ';font-size:14px;color:' . $ink . ';line-height:1.5">' . $txt . '</td></tr>';
+    };
+    $feat = function ($ico, $txt) use ($ink, $font) {
+        return '<tr><td style="padding:4px 8px 4px 0;font-size:16px;vertical-align:top">' . $ico . '</td>'
+            . '<td style="padding:4px 0;' . $font . ';font-size:14px;color:' . $ink . ';line-height:1.5">' . $txt . '</td></tr>';
+    };
+
+    return ''
+    . '<div style="display:none;max-height:0;overflow:hidden;opacity:0">Τα στοιχεία σύνδεσής σας στο MyCloudOn — username, κωδικός & σύνδεσμος.</div>'
+    . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f7;padding:24px 12px;margin:0">'
+    . '<tr><td align="center">'
+    . '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid ' . $line . '">'
+
+    // ── Header (λογότυπο σε brand φόντο) ──
+    . '<tr><td style="background:' . $brand . ';background:linear-gradient(135deg,' . $brand . ' 0%,' . $brandD . ' 100%);padding:30px 32px;text-align:center">'
+    . '<img src="' . $logo . '" alt="CloudOn" width="185" style="width:185px;max-width:60%;height:auto;display:inline-block"></td></tr>'
+
+    // ── Hero ──
+    . '<tr><td style="padding:30px 32px 6px;text-align:center">'
+    . '<div style="' . $font . ';font-size:23px;font-weight:800;color:' . $ink . '">Καλωσορίσατε στο MyCloudOn 🎉</div>'
+    . '<div style="' . $font . ';font-size:14.5px;color:' . $mut . ';line-height:1.6;margin-top:8px">'
+    . 'Αγαπητέ/ή ' . $e($whoName) . ',<br>δημιουργήσαμε τον προσωπικό σας λογαριασμό. Από εδώ βλέπετε τις '
+    . '<b style="color:' . $ink . '">προσφορές</b>, τις <b style="color:' . $ink . '">υπηρεσίες</b>, τα '
+    . '<b style="color:' . $ink . '">τιμολόγια</b> και τα <b style="color:' . $ink . '">αιτήματά</b> σας.</div></td></tr>'
+
+    // ── Credentials card ──
+    . '<tr><td style="padding:22px 32px 6px">'
+    . '<div style="' . $font . ';font-size:12px;font-weight:800;color:' . $mut . ';text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">🔐 Στοιχεία σύνδεσης</div>'
+    . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ' . $line . ';border-radius:12px;overflow:hidden;background:' . $soft . '">'
+    . $row('Σύνδεσμος', '<a href="' . $e($loginUrl) . '" target="_blank" style="color:' . $brandD . ';text-decoration:none">' . $e($loginUrl) . '</a>')
+    . $row('Username', $e($email))
+    . $row('Κωδικός', $e($pass), true)
+    . '</table>'
+    . '<div style="' . $font . ';font-size:11.5px;color:' . $mut . ';margin-top:6px">Το <b>username</b> είναι το email σας.</div></td></tr>'
+
+    // ── CTA ──
+    . '<tr><td style="padding:20px 32px 6px;text-align:center">' . $btn . '</td></tr>'
+
+    // ── Πώς να συνδεθείτε ──
+    . '<tr><td style="padding:22px 32px 6px">'
+    . '<div style="' . $font . ';font-size:15px;font-weight:800;color:' . $ink . ';margin-bottom:8px">Πώς να συνδεθείτε</div>'
+    . '<table role="presentation" cellpadding="0" cellspacing="0" width="100%">'
+    . $step('1', 'Πατήστε το κουμπί «Σύνδεση» ή ανοίξτε τον σύνδεσμο παραπάνω.')
+    . $step('2', 'Βάλτε το <b>email</b> σας ως username και τον <b>κωδικό</b> που σας δώσαμε.')
+    . $step('3', 'Για την ασφάλειά σας, αλλάξτε τον κωδικό: <b>Λογαριασμός → Αλλαγή κωδικού</b>.')
+    . '</table></td></tr>'
+
+    // ── Τι θα βρείτε ──
+    . '<tr><td style="padding:18px 32px 6px">'
+    . '<div style="border:1px solid ' . $line . ';border-radius:12px;padding:16px 18px">'
+    . '<div style="' . $font . ';font-size:15px;font-weight:800;color:' . $ink . ';margin-bottom:8px">Τι θα βρείτε μέσα</div>'
+    . '<table role="presentation" cellpadding="0" cellspacing="0" width="100%">'
+    . $feat('📄', '<b>Προσφορές</b> — δείτε, κατεβάστε PDF, σχολιάστε ή ρωτήστε μας.')
+    . $feat('🖥️', '<b>Υπηρεσίες &amp; προϊόντα</b> — τα ενεργά σας πακέτα και οι ημερομηνίες ανανέωσης.')
+    . $feat('🧾', '<b>Τιμολόγια</b> — ιστορικό χρεώσεων και εξοφλήσεων.')
+    . $feat('💬', '<b>Αιτήματα υποστήριξης</b> — ανοίξτε ticket και δείτε τις απαντήσεις μας.')
+    . '</table></div></td></tr>'
+
+    // ── Security note ──
+    . '<tr><td style="padding:16px 32px 8px">'
+    . '<div style="background:#fff8ec;border:1px solid #f2d9a8;border-radius:10px;padding:12px 15px;' . $font . ';font-size:13px;color:#8a6d3b;line-height:1.5">'
+    . '🛡️ <b>Ασφάλεια:</b> μην κοινοποιείτε ποτέ τον κωδικό σας. Η CloudOn δεν θα σας τον ζητήσει ποτέ. Αλλάξτε τον μετά την πρώτη σύνδεση.</div></td></tr>'
+
+    // ── Sign-off ──
+    . '<tr><td style="padding:14px 32px 24px;' . $font . ';font-size:14px;color:' . $ink . ';line-height:1.6">'
+    . 'Καλή αρχή!<br><b>' . $e($admName) . '</b><br><span style="color:' . $mut . '">Ομάδα CloudOn</span></td></tr>'
+
+    // ── Footer ──
+    . '<tr><td style="background:#0b1f3a;padding:22px 32px;text-align:center">'
+    . '<div style="' . $font . ';font-size:16px;font-weight:800;color:#ffffff;letter-spacing:.3px">Cloud<span style="color:' . $brand . '">On</span></div>'
+    . '<div style="' . $font . ';font-size:12px;color:#9fb2cc;line-height:1.7;margin-top:6px">'
+    . '<a href="https://cloudon.gr" style="color:#9fb2cc;text-decoration:none">cloudon.gr</a> &nbsp;·&nbsp; '
+    . '<a href="' . $e($loginUrl) . '" style="color:#9fb2cc;text-decoration:none">MyCloudOn</a><br>'
+    . 'Αυτό το email στάλθηκε αυτόματα με τη δημιουργία του λογαριασμού σας.</div></td></tr>'
+
+    . '</table></td></tr></table>';
 }
 
 /**
