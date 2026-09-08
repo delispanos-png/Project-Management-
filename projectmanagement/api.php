@@ -603,6 +603,49 @@ function cnp_gen_password()
 }
 
 /**
+ * Στέλνει τους κωδικούς σύνδεσης στο MyCloudOn σε νέο πελάτη (email με login
+ * URL + κωδικό + οδηγία αλλαγής). Επαναχρησιμοποιείται από προσφορές & νέο πελάτη.
+ */
+function cnp_send_login_credentials($email, $whoName, $pass, $adminId)
+{
+    $email = filter_var((string) $email, FILTER_VALIDATE_EMAIL);
+    if (!$email) {
+        return false;
+    }
+    $loginUrl = rtrim((string) (Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value')
+        ?: 'https://my.cloudon.gr/'), '/') . '/clientarea.php';
+    $adm = Capsule::table('tbladmins')->where('id', $adminId)->first(['firstname', 'lastname', 'email']);
+    $admName = trim((string) ($adm->firstname ?? '') . ' ' . (string) ($adm->lastname ?? '')) ?: 'CloudOn';
+    $body = 'Καλησπέρα σας,<br><br>'
+        . 'δημιουργήσαμε τον λογαριασμό σας στο <b>MyCloudOn</b>, ώστε να μπορείτε να δείτε '
+        . 'τις προσφορές σας, τα προϊόντα/υπηρεσίες σας και τα αιτήματά σας.<br><br>'
+        . '<b>Σύνδεση:</b> <a href="' . htmlspecialchars($loginUrl) . '">' . htmlspecialchars($loginUrl) . '</a><br>'
+        . '<b>Email:</b> ' . htmlspecialchars($email) . '<br>'
+        . '<b>Κωδικός:</b> ' . htmlspecialchars((string) $pass) . '<br><br>'
+        . 'Για την ασφάλειά σας, αλλάξτε τον κωδικό μετά την πρώτη σύνδεση '
+        . '(Λογαριασμός → Αλλαγή κωδικού).<br><br>Με εκτίμηση,<br>Η ομάδα της CloudOn';
+    $wrap = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#243447;'
+        . 'line-height:1.6;max-width:640px">' . $body . '</div>';
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom('noreply@cloudon.gr', 'CloudOn');
+        $mail->addAddress($email, (string) $whoName);
+        if (filter_var((string) ($adm->email ?? ''), FILTER_VALIDATE_EMAIL)) {
+            $mail->addReplyTo((string) $adm->email, $admName);
+        }
+        $mail->isHTML(true);
+        $mail->Subject = 'Ο λογαριασμός σας στο MyCloudOn';
+        $mail->Body = $wrap;
+        $mail->AltBody = "Σύνδεση: $loginUrl\nEmail: $email\nΚωδικός: $pass";
+        $mail->send();
+        return true;
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
  * Βρίσκει ή δημιουργεί τον WHMCS πελάτη για μια προσφορά, από τα στοιχεία του
  * εγγράφου (επωνυμία, ΑΦΜ, email, τηλέφωνο, διεύθυνση). Αν δημιουργηθεί νέος
  * λογαριασμός, στέλνει αυτόματα τους κωδικούς σύνδεσης στο MyCloudOn.
@@ -11340,6 +11383,13 @@ case 'client_quick_add':                  // νέος πελάτης επί τό
     if (Capsule::table('tblclients')->where('email', $qMail)->exists()) {
         fail('Υπάρχει ήδη πελάτης με αυτό το email');
     }
+    // Πύλη πελάτη + κωδικοί: θέλει ΠΡΑΓΜΑΤΙΚΟ email.
+    $qPortal = !empty($in['portal']);
+    if ($qPortal && $placeholder) {
+        fail('Για πρόσβαση στην πύλη χρειάζεται πραγματικό email πελάτη');
+    }
+    $qAfm = preg_replace('/\D+/', '', (string) ($in['afm'] ?? ''));
+    $qDoy = trim((string) ($in['doy'] ?? ''));
     /* Αν δεν δόθηκε ονοματεπώνυμο, το βγάζουμε από την επωνυμία — το WHMCS τα
        θέλει υποχρεωτικά και χωρίς αυτά η κλήση αποτυγχάνει. */
     if ($qFirst === '' && $qLast === '') {
@@ -11351,16 +11401,20 @@ case 'client_quick_add':                  // νέος πελάτης επί τό
     } elseif ($qFirst === '') {
         $qFirst = '-';
     }
+    $qPass = $qPortal ? cnp_gen_password() : bin2hex(random_bytes(10));
     $res = localAPI('AddClient', [
         'firstname' => $qFirst, 'lastname' => $qLast,
         'companyname' => $qName, 'email' => $qMail,
         'address1' => trim((string) ($in['address'] ?? '')) ?: '—',
         'city' => trim((string) ($in['city'] ?? '')) ?: '—',
-        'state' => '—', 'postcode' => trim((string) ($in['postcode'] ?? '')) ?: '00000',
+        'state' => trim((string) ($in['city'] ?? '')) ?: '—',
+        'postcode' => trim((string) ($in['postcode'] ?? '')) ?: '00000',
         'country' => strtoupper(substr(trim((string) ($in['country'] ?? 'GR')), 0, 2)) ?: 'GR',
         'phonenumber' => trim((string) ($in['phone'] ?? '')) ?: '0000000000',
-        'password2' => bin2hex(random_bytes(10)),
+        'tax_id' => mb_strlen($qAfm) === 9 ? $qAfm : '',
+        'password2' => $qPass,
         'notes' => 'Δημιουργήθηκε από το Project Manager'
+            . ($qAfm ? ' — ΑΦΜ ' . $qAfm : '') . ($qDoy ? ', ΔΟΥ ' . $qDoy : '')
             . ($placeholder ? ' — ΠΡΟΣΟΧΗ: προσωρινό email, χρειάζεται συμπλήρωση.' : ''),
         'noemail' => true, 'skipvalidation' => true,
     ], 'pdelis');
@@ -11368,10 +11422,18 @@ case 'client_quick_add':                  // νέος πελάτης επί τό
         fail('WHMCS: ' . ($res['message'] ?? 'αποτυχία δημιουργίας'));
     }
     $newId = (int) $res['clientid'];
+    // Πρόσβαση πύλης: αποστολή κωδικών σύνδεσης (ίδιο μονοπάτι με τις προσφορές).
+    $credSent = false;
+    if ($qPortal) {
+        $cmeta2 = [];
+        $credSent = cnp_send_login_credentials($qMail, $qName ?: trim($qFirst . ' ' . $qLast), $qPass, $adminId);
+    }
     logActivity('CloudOn PM: νέος πελάτης #' . $newId . ' «' . ($qName ?: $qFirst . ' ' . $qLast)
-        . '» από admin ' . $adminId . ($placeholder ? ' (προσωρινό email)' : ''));
+        . '» από admin ' . $adminId . ($placeholder ? ' (προσωρινό email)' : '')
+        . ($qPortal ? ($credSent ? ' + κωδικοί πύλης' : ' + πύλη (κωδικοί ΔΕΝ στάλθηκαν)') : ''));
     out(['ok' => true, 'id' => $newId, 'name' => $qName ?: trim($qFirst . ' ' . $qLast),
         'email' => $placeholder ? '' : $qMail, 'placeholderEmail' => $placeholder,
+        'portal' => $qPortal, 'credentialsSent' => $credSent,
         'label' => ($qName ?: trim($qFirst . ' ' . $qLast)) . ' (#' . $newId . ')']);
 
 case 'client_search':

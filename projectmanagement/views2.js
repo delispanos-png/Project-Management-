@@ -826,22 +826,50 @@ window.CNP.clientAuto = clientAuto;   // το χρησιμοποιεί και τ
 /* Νέος πελάτης χωρίς να φύγεις από τη φόρμα. Ό,τι χρειάζεται το WHMCS και δεν
    το ξέρουμε ακόμη (διεύθυνση, ΤΚ, τηλέφωνο) μπαίνει ως placeholder — ο σκοπός
    είναι να υπάρξει η καρτέλα ώστε να κρεμαστούν lead, προσφορά και έργο. */
+const NC_COUNTRIES = [['GR','Ελλάδα'],['CY','Κύπρος'],['DE','Γερμανία'],['FR','Γαλλία'],
+  ['IT','Ιταλία'],['ES','Ισπανία'],['NL','Ολλανδία'],['BG','Βουλγαρία'],['RO','Ρουμανία'],
+  ['GB','Ην. Βασίλειο'],['US','ΗΠΑ'],['MA','Μαρόκο'],['AE','ΗΑΕ'],['CH','Ελβετία'],['AU','Αυστραλία']];
+
 function openNewClient(prefill, onDone) {
   const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 320;
-  ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:560px" onclick="event.stopPropagation()">
+  ovl.innerHTML = `<div class="pal-box" style="margin:8vh auto 0;max-width:600px;max-height:86vh;overflow:auto" onclick="event.stopPropagation()">
     <div style="padding:20px 22px">
       <b style="font-size:15.5px;color:var(--ink)">${I.user} Νέος πελάτης</b>
       <div class="mut" style="font-size:12px;margin-top:5px;line-height:1.6">
-        Δημιουργείται καρτέλα στο WHMCS ώστε να κρεμαστούν πάνω της lead, προσφορές και έργα.
-        Μόνο η <b>επωνυμία</b> είναι υποχρεωτική — τα υπόλοιπα συμπληρώνονται όποτε τα μάθουμε.</div>
-      <label class="lbl" style="margin-top:13px">Επωνυμία ή ονοματεπώνυμο</label>
+        Δημιουργείται καρτέλα στο WHMCS. Για ελληνική επιχείρηση, δώσε ΑΦΜ και αντλούμε τα στοιχεία από την ΑΑΔΕ.</div>
+      <div class="td-seg" style="margin-top:12px">
+        <button data-mode="gr" class="on">🇬🇷 Ελληνική επιχείρηση (ΑΦΜ)</button>
+        <button data-mode="manual">Ιδιώτης / Εξωτερικό (χειροκίνητα)</button>
+      </div>
+      <div id="ncAfmRow" style="margin-top:12px">
+        <label class="lbl">ΑΦΜ</label>
+        <div style="display:flex;gap:8px">
+          <input class="inp" id="ncAfm" maxlength="9" inputmode="numeric" placeholder="9 ψηφία" style="flex:1">
+          <button class="btn btn-o" id="ncAade">Άντληση ΑΑΔΕ</button>
+        </div>
+        <div id="ncAfmSt" class="mut" style="font-size:11.5px;margin-top:5px"></div>
+      </div>
+      <label class="lbl" style="margin-top:12px">Επωνυμία ή ονοματεπώνυμο</label>
       <input class="inp" id="ncComp" value="${esc(prefill || '')}" placeholder="π.χ. ΠΑΠΑΔΟΠΟΥΛΟΣ ΑΕ">
       <div class="frow" style="margin-top:11px">
         <div><label class="lbl">Όνομα επαφής</label><input class="inp" id="ncFirst" placeholder="προαιρετικό"></div>
         <div><label class="lbl">Επώνυμο επαφής</label><input class="inp" id="ncLast" placeholder="προαιρετικό"></div>
-        <div><label class="lbl">Email</label><input class="inp" id="ncMail" type="email" placeholder="αν δεν το ξέρεις, άφησέ το κενό"></div>
+        <div><label class="lbl">Email</label><input class="inp" id="ncMail" type="email" placeholder="για πύλη/κωδικούς: υποχρεωτικό"></div>
         <div><label class="lbl">Τηλέφωνο</label><input class="inp" id="ncPhone" placeholder="προαιρετικό"></div>
       </div>
+      <div class="frow" style="margin-top:11px">
+        <div style="flex:2"><label class="lbl">Διεύθυνση</label><input class="inp" id="ncAddr" placeholder="οδός & αριθμός"></div>
+        <div><label class="lbl">Πόλη</label><input class="inp" id="ncCity"></div>
+        <div><label class="lbl">ΤΚ</label><input class="inp" id="ncZip"></div>
+        <div id="ncDoyWrap"><label class="lbl">ΔΟΥ</label><input class="inp" id="ncDoy"></div>
+        <div id="ncCountryWrap" style="display:none"><label class="lbl">Χώρα</label>
+          <select class="inp" id="ncCountry">${NC_COUNTRIES.map(c => `<option value="${c[0]}">${esc(c[1])}</option>`).join('')}</select></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="ncPortal" style="margin-top:2px">
+        <span><b>Πρόσβαση στην πύλη πελατών</b> + αυτόματη αποστολή κωδικών σύνδεσης στο email
+          <span class="mut" style="display:block;font-size:11px">Ο πελάτης θα μπορεί να μπαίνει στο MyCloudOn και να βλέπει προσφορές/υπηρεσίες.</span></span>
+      </label>
       <div id="ncWarn" class="mut" style="font-size:11.5px;margin-top:8px"></div>
       <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
         <button class="btn btn-o" id="ncNo">Άκυρο</button>
@@ -849,25 +877,68 @@ function openNewClient(prefill, onDone) {
     </div></div>`;
   document.body.appendChild(ovl);
   const done = () => ovl.remove();
+  let mode = 'gr';
   $('#ncNo', ovl).onclick = done;
-  const warn = () => {
-    $('#ncWarn', ovl).innerHTML = $('#ncMail', ovl).value.trim() ? ''
-      : '<span style="color:var(--warn)">Χωρίς email θα μπει προσωρινό — σημειώνεται στην καρτέλα ώστε να συμπληρωθεί.</span>';
+  ovl.onclick = done;
+  const applyMode = () => {
+    $('#ncAfmRow', ovl).style.display = mode === 'gr' ? '' : 'none';
+    $('#ncDoyWrap', ovl).style.display = mode === 'gr' ? '' : 'none';
+    $('#ncCountryWrap', ovl).style.display = mode === 'gr' ? 'none' : '';
   };
-  $('#ncMail', ovl).oninput = warn; warn();
+  $$('.td-seg [data-mode]', ovl).forEach(b => b.onclick = () => {
+    mode = b.dataset.mode; $$('.td-seg [data-mode]', ovl).forEach(x => x.classList.toggle('on', x === b)); applyMode();
+  });
+  applyMode();
+  /* ΑΑΔΕ: ΑΦΜ → στοιχεία επιχείρησης (ίδιο endpoint με register/PharmacyOne). */
+  const aade = async () => {
+    const afm = ($('#ncAfm', ovl).value || '').replace(/\D/g, '');
+    const st = $('#ncAfmSt', ovl);
+    if (afm.length !== 9) { st.textContent = 'Δώσε 9ψήφιο ΑΦΜ'; return; }
+    st.textContent = 'Αναζήτηση στο μητρώο ΑΑΔΕ…';
+    const r = await fetch('afm.php?afm=' + afm, {credentials: 'same-origin'}).then(x => x.json()).catch(() => null);
+    if (!r || !r.ok) { st.textContent = 'ΑΑΔΕ: ' + ((r && r.error) || 'χωρίς αποτέλεσμα'); return; }
+    const d = r.data || {};
+    if (d.name) { $('#ncComp', ovl).value = d.name; }
+    if (d.street) { $('#ncAddr', ovl).value = d.street; }
+    if (d.city) { $('#ncCity', ovl).value = d.city; }
+    if (d.postcode) { $('#ncZip', ovl).value = d.postcode; }
+    if (d.doy) { $('#ncDoy', ovl).value = d.doy; }
+    st.innerHTML = (d.active === false ? '<span style="color:var(--warn)">⚠ ανενεργό ΑΦΜ — </span>' : '✓ ')
+      + esc(d.name || '') + (d.is_company ? ' <span class="mut">(επιχείρηση)</span>' : ' <span class="mut">(ιδιώτης)</span>');
+  };
+  $('#ncAade', ovl).onclick = aade;
+  $('#ncAfm', ovl).onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); aade(); } };
+  const warn = () => {
+    const portal = $('#ncPortal', ovl).checked, mail = $('#ncMail', ovl).value.trim();
+    $('#ncWarn', ovl).innerHTML = portal && !mail
+      ? '<span style="color:var(--bad)">Για την πύλη χρειάζεται πραγματικό email.</span>'
+      : (!mail ? '<span style="color:var(--warn)">Χωρίς email θα μπει προσωρινό.</span>' : '');
+  };
+  $('#ncMail', ovl).oninput = warn; $('#ncPortal', ovl).onchange = warn; warn();
   $('#ncGo', ovl).onclick = async () => {
+    const btn = $('#ncGo', ovl); btn.disabled = true;
     const r = await api('client_quick_add', {
       company: $('#ncComp', ovl).value, first: $('#ncFirst', ovl).value,
-      last: $('#ncLast', ovl).value, email: $('#ncMail', ovl).value,
-      phone: $('#ncPhone', ovl).value,
-    }).catch(e => ({err: e.message}));
+      last: $('#ncLast', ovl).value, email: $('#ncMail', ovl).value, phone: $('#ncPhone', ovl).value,
+      address: $('#ncAddr', ovl).value, city: $('#ncCity', ovl).value, postcode: $('#ncZip', ovl).value,
+      country: mode === 'gr' ? 'GR' : $('#ncCountry', ovl).value,
+      afm: mode === 'gr' ? ($('#ncAfm', ovl).value || '').replace(/\D/g, '') : '',
+      doy: mode === 'gr' ? $('#ncDoy', ovl).value : '',
+      portal: $('#ncPortal', ovl).checked ? 1 : '',
+    }).catch(e => ({err: e && e.message}));
+    btn.disabled = false;
     if (r.err) { toast(r.err, true); return; }
     toast(`Δημιουργήθηκε ο πελάτης #${r.id}${r.placeholderEmail ? ' — συμπλήρωσε email' : ''}`);
+    if (r.portal) {
+      toast(r.credentialsSent ? '🔑 Στάλθηκαν οι κωδικοί πύλης στον πελάτη'
+        : '⚠ Πύλη ενεργή αλλά οι κωδικοί ΔΕΝ στάλθηκαν', !r.credentialsSent);
+    }
     done();
     if (onDone) { onDone(r); }
   };
-  setTimeout(() => $('#ncComp', ovl).focus(), 40);
+  setTimeout(() => $('#ncAfm', ovl).focus(), 40);
 }
+window.CNP.openNewClient = openNewClient;
 
 /* ── Επιλογή πελάτη ────────────────────────────────────────────────────────
    Το `<datalist>` δέχεται και ελεύθερο κείμενο: αν ο χρήστης έγραφε όνομα
@@ -1211,9 +1282,11 @@ function openTargetDrawer(card, d) {
 R.client360 = async function (cid) {
   setTop('Πελάτης 360°', 'Το πλήρες ιστορικό ενός πελάτη');
   const c = $('#content');
-  c.innerHTML = `<div class="card" style="padding:13px 16px;display:flex;gap:9px">
-    <input class="inp" id="c3Q" placeholder="Πληκτρολόγησε ID, όνομα, επωνυμία ή email…" autocomplete="off" style="max-width:400px"></div>
+  c.innerHTML = `<div class="card" style="padding:13px 16px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+    <input class="inp" id="c3Q" placeholder="Πληκτρολόγησε ID, όνομα, επωνυμία ή email…" autocomplete="off" style="max-width:400px;flex:1">
+    ${cnpCan('clients.new') ? `<button class="btn btn-p" id="c3New">${I.plus} Νέος πελάτης</button>` : ''}</div>
     <div id="c3Res"></div>`;
+  { const nb = $('#c3New'); if (nb) nb.onclick = () => openNewClient('', r => go('client360', r.id)); }
   const typeIco = {task: '🟦', task_done: '✅', time: '⏱', time_bill: '💶', ticket: '🎫',
     sc_plus: '🔋', sc_minus: '🪫', offer: '📄', offer_won: '🏆', offer_lost: '❌', payment: '💰', contact: '💬'};
   const show = async (id, months) => {
