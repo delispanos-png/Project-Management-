@@ -648,7 +648,7 @@ function cnp_send_login_credentials($email, $whoName, $pass, $adminId)
 function cnp_credentials_email_html($loginUrl, $email, $pass, $whoName, $admName)
 {
     $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
-    $logo = 'https://my.cloudon.gr/project/apply-assets/cloudon-logo-white.png';
+    $logoColor = 'https://my.cloudon.gr/assets/img/logo.png';
     $brand = '#0090dd'; $brandD = '#0072ad'; $ink = '#0b1f3a'; $mut = '#6b7a90';
     $line = '#e6ecf3'; $soft = '#f4f8fc';
     $font = "font-family:'Segoe UI',Arial,Helvetica,sans-serif";
@@ -683,9 +683,11 @@ function cnp_credentials_email_html($loginUrl, $email, $pass, $whoName, $admName
     . '<tr><td align="center">'
     . '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid ' . $line . '">'
 
-    // ── Header (λογότυπο σε brand φόντο) ──
-    . '<tr><td style="background:' . $brand . ';background:linear-gradient(135deg,' . $brand . ' 0%,' . $brandD . ' 100%);padding:30px 32px;text-align:center">'
-    . '<img src="' . $logo . '" alt="CloudOn" width="185" style="width:185px;max-width:60%;height:auto;display:inline-block"></td></tr>'
+    // ── Λεπτή brand λωρίδα (ταυτότητα χωρίς να χάνεται το λογότυπο) ──
+    . '<tr><td style="background:' . $brand . ';height:6px;line-height:6px;font-size:0">&nbsp;</td></tr>'
+    // ── Header: έγχρωμο λογότυπο σε λευκό, πάντα ευδιάκριτο ──
+    . '<tr><td style="background:#ffffff;padding:30px 32px 24px;text-align:center;border-bottom:1px solid ' . $line . '">'
+    . '<img src="' . $logoColor . '" alt="CloudOn" width="178" style="width:178px;max-width:62%;height:auto;display:inline-block"></td></tr>'
 
     // ── Hero ──
     . '<tr><td style="padding:30px 32px 6px;text-align:center">'
