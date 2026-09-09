@@ -151,3 +151,23 @@ function pm_verify_rsvp($tok)
     $payload = implode('.', array_slice($p, 0, 4));
     return hash_equals(hash_hmac('sha256', $payload, pm_secret()), $p[4]) ? [(int) $p[1], (int) $p[2]] : false;
 }
+
+/**
+ * Ενιαία «έκδοση build» των assets του SPA (max filemtime). Χρησιμοποιείται ΚΑΙ
+ * στο index.php (για το ?v= cache-busting) ΚΑΙ στο api.php (action 'version'),
+ * ώστε ο browser να καταλαβαίνει μόνος του πότε υπάρχει νεότερη έκδοση και να
+ * κάνει reload — τέλος στα «βλέπω ακόμη το παλιό» λόγω cache.
+ */
+function cnp_asset_version()
+{
+    static $v = null;
+    if ($v !== null) { return $v; }
+    $files = ['app.js', 'app.css', 'views2.js', 'views3.js', 'views4.js',
+        'views5.js', 'views6.js', 'views7.js', 'help.js', 'i18n.js'];
+    $max = 0;
+    foreach ($files as $f) {
+        $m = @filemtime(__DIR__ . '/' . $f);
+        if ($m && $m > $max) { $max = $m; }
+    }
+    return $v = '1.0.' . $max;
+}

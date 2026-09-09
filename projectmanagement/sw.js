@@ -1,7 +1,13 @@
 /* CloudOn Projects — service worker: PWA + Web Push (VAPID, no-payload).
-   Το push είναι «κενό» (ξυπνά μόνο)· εδώ τραβάμε τι να δείξουμε από τον server. */
+   Το push είναι «κενό» (ξυπνά μόνο)· εδώ τραβάμε τι να δείξουμε από τον server.
+   sw build: 2026-09-09b (bump για να αναλάβει ο νέος SW και να ξεμπλοκάρει cache) */
 self.addEventListener('install', e => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil((async () => {
+  await self.clients.claim();
+  /* Καθάρισε τυχόν παλιές caches από προηγούμενες εκδόσεις SW — δεν θέλουμε καμία.
+     (Ο έλεγχος νέας έκδοσης & το reload γίνονται app-side, γραφικά, χωρίς loop.) */
+  try { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch (x) {}
+})()));
 self.addEventListener('fetch', e => { /* network passthrough — καμία cache παγίδα */ });
 
 self.addEventListener('push', e => {

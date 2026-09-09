@@ -2515,12 +2515,42 @@ window.CNP = {S, api, esc, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSe
       }
     });
   }
+  /* 🔄 Αυτόματος έλεγχος έκδοσης: όταν γίνει deploy νεότερο app, ο browser το
+     καταλαβαίνει μόνος του και φορτώνει το φρέσκο — τέλος στα «βλέπω ακόμη το
+     παλιό» λόγω cache. Δεν διακόπτουμε τον χρήστη ενώ γράφει ή με ανοιχτό πάνελ. */
+  let cnpNewBuild = false;
+  const cnpUpdBanner = () => {
+    if (document.getElementById('cnpUpd')) { return; }
+    const b = document.createElement('div');
+    b.id = 'cnpUpd';
+    b.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;'
+      + 'background:#131e33;color:#fff;padding:10px 15px;border-radius:12px;font-size:13px;font-weight:600;'
+      + 'box-shadow:0 12px 34px rgba(0,0,0,.4);display:flex;gap:11px;align-items:center';
+    const btn = document.createElement('button');
+    btn.textContent = 'Ανανέωση τώρα';
+    btn.style.cssText = 'background:#0090dd;color:#fff;border:0;border-radius:8px;padding:6px 12px;'
+      + 'font-weight:700;cursor:pointer;font-size:12.5px';
+    btn.onclick = () => location.reload();
+    b.append(document.createTextNode('🔄 Νέα έκδοση διαθέσιμη '), btn);
+    document.body.appendChild(b);
+  };
+  const cnpMaybeReload = () => {
+    cnpUpdBanner();
+    const tag = ((document.activeElement || {}).tagName || '').toLowerCase();
+    const busy = tag === 'input' || tag === 'textarea'
+      || document.querySelector('.drawer.show') || document.querySelector('.ovl.show');
+    if (!busy) { try { location.reload(); } catch (e) { location.href = location.href; } }
+  };
+  window.addEventListener('focus', () => { if (cnpNewBuild) { cnpMaybeReload(); } });
   // realtime: version polling ανά 12" → σιωπηλό refresh όταν αλλάξει κάτι από συναδέλφους
   let lastV = null;
   setInterval(async () => {
     try {
       const d = await api('version');
       updateBell(d.unread);
+      // Νεότερη έκδοση deployed → ανανέωση (ήπια, όταν δεν ενοχλεί).
+      if (d.build && window.CNP_BUILD && d.build !== window.CNP_BUILD) { cnpNewBuild = true; }
+      if (cnpNewBuild) { cnpMaybeReload(); }
       // 🆘 δυνατές εκκλήσεις βοήθειας — «κάνουν μπαμ» ό,τι κι αν κάνει ο χρήστης
       if (Array.isArray(d.alerts) && window.CNP.showHelpAlert) { d.alerts.forEach(a => window.CNP.showHelpAlert(a)); }
       // 💬 badge στο Chat nav item

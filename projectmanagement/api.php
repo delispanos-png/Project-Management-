@@ -11492,6 +11492,7 @@ case 'version':
             'at' => $hr->created_at];
     }
     out(['v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
+        'build' => cnp_asset_version(),
         'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread, 'alerts' => $alerts]);
 
 /* ---- αναζήτηση πελάτη (autocomplete) ---- */
