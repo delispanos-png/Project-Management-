@@ -364,6 +364,11 @@ async function openPharmacy(offerId, pre) {
             <div class="n"><input class="ph-mini" type="number" min="0" step="5"
               data-ed="${i}" data-f="extraUser" value="${st.cfg.ed[i].extraUser}"></div>`).join('')}
         </div>
+        ${defs.canEditBase ? `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-p btn-sm" id="phBaseSave">💾 Αποθήκευση ως βασικός τιμοκατάλογος</button>
+          <button class="btn btn-o btn-sm" id="phBaseReset">↺ Εργοστασιακές τιμές</button>
+          <span class="mut" style="font-size:11px">Ορίζει τις προεπιλεγμένες τιμές για <b>όλες τις νέες</b> προσφορές (οι ήδη αποθηκευμένες δεν αλλάζουν).</span>
+        </div>` : ''}
       </div></div>`;
       $$('[data-r]', el).forEach(inp => inp.oninput = () => {
         const v = parseFloat(inp.value); const n = isFinite(v) ? v : 0;
@@ -382,6 +387,29 @@ async function openPharmacy(offerId, pre) {
         st.cfg.ed[+inp.dataset.ed][inp.dataset.f] = isFinite(v) ? v : 0;
         touch();
       });
+      /* ── Βασικός (γενικός) τιμοκατάλογος — μόνο διαχειριστής ── */
+      { const bs = $('#phBaseSave', el); if (bs) bs.onclick = async () => {
+        if (!(await window.CNP.cnpConfirm('Να γίνουν οι ΤΡΕΧΟΥΣΕΣ τιμές ο βασικός τιμοκατάλογος για ΟΛΕΣ τις νέες προσφορές;\n\nΟι ήδη αποθηκευμένες προσφορές ΔΕΝ αλλάζουν.',
+          {ok: '💾 Αποθήκευση', cancel: 'Άκυρο'}))) { return; }
+        bs.disabled = true;
+        const r = await api('pharmacy_catalog_save', {rates: st.cfg.r, editions: st.cfg.ed}).catch(e => ({err: e && e.message}));
+        bs.disabled = false;
+        if (r && r.err) { toast(r.err, true); return; }
+        PH = null;                       // η επόμενη προσφορά ξεκινά με τις νέες προεπιλογές
+        toast('✅ Ο βασικός τιμοκατάλογος αποθηκεύτηκε');
+      }; }
+      { const br = $('#phBaseReset', el); if (br) br.onclick = async () => {
+        if (!(await window.CNP.cnpConfirm('Επαναφορά στις εργοστασιακές τιμές του τιμοκαταλόγου;', {ok: '↺ Επαναφορά', cancel: 'Άκυρο', danger: true}))) { return; }
+        const r = await api('pharmacy_catalog_reset', {}).catch(e => ({err: e && e.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        PH = null;
+        const nd = await phDefs();       // φρέσκα εργοστασιακά defs
+        Object.assign(defs, nd);
+        st.cfg.r = Object.assign({}, nd.defaults.r);
+        st.cfg.ed = nd.editions.map(e => ({price: e.price, extraUser: e.extraUser}));
+        pane(); await recalc();
+        toast('↺ Επαναφορά εργοστασιακών τιμών');
+      }; }
     } else {
       docPane();
     }

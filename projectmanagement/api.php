@@ -4723,7 +4723,22 @@ case 'pharmacy_defs':                    // ο κατάλογος: παράμε�
             'r' => Pharmacy::defaultRates()],
         'hourRate' => Pharmacy::HOUR_RATE,
         'nextProtocol' => cnp_offer_protocol_peek(),
+        'canEditBase' => $FULL,          // ποιος βλέπει «Αποθήκευση βασικού τιμοκαταλόγου»
         'me' => Db::adminName($adminId)]);
+
+case 'pharmacy_catalog_save':            // ΓΕΝΙΚΟΣ τιμοκατάλογος — ισχύει για όλες τις νέες προσφορές
+    if (!$FULL) { fail('Μόνο διαχειριστής μπορεί να αλλάξει τον βασικό τιμοκατάλογο', 403); }
+    Pharmacy::saveBaseCatalog(
+        is_array($in['rates'] ?? null) ? $in['rates'] : [],
+        is_array($in['editions'] ?? null) ? $in['editions'] : []);
+    logActivity('CPM: αλλαγή ΒΑΣΙΚΟΥ τιμοκαταλόγου PharmacyOne (admin ' . $adminId . ')');
+    out(['ok' => true, 'rates' => Pharmacy::defaultRates(), 'editions' => Pharmacy::defaultEditions()]);
+
+case 'pharmacy_catalog_reset':           // επαναφορά εργοστασιακών τιμών
+    if (!$FULL) { fail('Μόνο διαχειριστής', 403); }
+    Pharmacy::resetBaseCatalog();
+    logActivity('CPM: επαναφορά εργοστασιακού τιμοκαταλόγου PharmacyOne (admin ' . $adminId . ')');
+    out(['ok' => true, 'rates' => Pharmacy::defaultRates(), 'editions' => Pharmacy::defaultEditions()]);
 
 case 'pharmacy_calc':                    // ζωντανή προεπισκόπηση καθώς αλλάζεις παραμέτρους
     $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];

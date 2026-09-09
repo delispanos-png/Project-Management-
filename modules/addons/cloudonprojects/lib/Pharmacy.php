@@ -82,7 +82,9 @@ class Pharmacy
         ];
     }
 
-    public static function defaultRates()
+    /** Οι εργοστασιακές τιμές (από το φύλλο) — η βάση πάνω στην οποία εφαρμόζεται
+        ο αποθηκευμένος βασικός τιμοκατάλογος. */
+    public static function factoryRates()
     {
         return ['S3' => 200, 'S4' => 200, 'S5' => 200, 'S6' => 200, 'S7' => 475, 'S8' => 50,
             'S9' => 1200, 'S10' => 120, 'S11' => 250, 'S12' => 250, 'S13' => 2500, 'S14' => 50,
@@ -92,6 +94,71 @@ class Pharmacy
             'S34' => 120, 'S35' => 850,
             'T13' => 0.2, 'T15' => 0.3, 'T22' => 0.3, 'T23' => 0.3, 'T24' => 0.3, 'T25' => 0.3,
             'T35' => 0.3];
+    }
+
+    /** Ο ΙΣΧΥΩΝ βασικός τιμοκατάλογος = εργοστασιακά + αποθηκευμένες αλλαγές. */
+    public static function defaultRates()
+    {
+        static $memo = null;
+        if ($memo !== null) { return $memo; }
+        $base = self::factoryRates();
+        $ov = self::catalogOverride()['r'] ?? [];
+        foreach ($base as $k => $v) {
+            if (isset($ov[$k]) && is_numeric($ov[$k])) { $base[$k] = (float) $ov[$k]; }
+        }
+        return $memo = $base;
+    }
+
+    /** Ο αποθηκευμένος βασικός τιμοκατάλογος (setting pharmacy_catalog), αν υπάρχει. */
+    private static function catalogOverride()
+    {
+        static $loaded = false; static $data = [];
+        if ($loaded) { return $data; }
+        $loaded = true;
+        try {
+            $raw = \WHMCS\Database\Capsule::table('tbladdonmodules')
+                ->where('module', 'cloudonprojects')->where('setting', 'pharmacy_catalog')->value('value');
+            $d = json_decode((string) $raw, true);
+            if (is_array($d)) { $data = $d; }
+        } catch (\Throwable $e) {
+        }
+        return $data;
+    }
+
+    /** Αποθηκεύει τον βασικό τιμοκατάλογο (τιμές γραμμών + τιμές εκδόσεων). Μόνο
+        γνωστά κλειδιά, αριθμητικά, μη-αρνητικά. */
+    public static function saveBaseCatalog(array $rates, array $editions)
+    {
+        $r = [];
+        foreach (self::factoryRates() as $k => $v) {
+            if (isset($rates[$k]) && is_numeric($rates[$k])) {
+                $r[$k] = ($k[0] === 'T') ? max(0, min(1, (float) $rates[$k])) : max(0, round((float) $rates[$k], 4));
+            }
+        }
+        $ed = [];
+        foreach (self::factoryEditions() as $i => $e) {
+            $ed[$i] = [
+                'price'     => isset($editions[$i]['price']) && is_numeric($editions[$i]['price']) ? max(0, (float) $editions[$i]['price']) : $e['price'],
+                'extraUser' => isset($editions[$i]['extraUser']) && is_numeric($editions[$i]['extraUser']) ? max(0, (float) $editions[$i]['extraUser']) : $e['extraUser'],
+            ];
+        }
+        $json = json_encode(['r' => $r, 'ed' => $ed], JSON_UNESCAPED_UNICODE);
+        $t = \WHMCS\Database\Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudonprojects')->where('setting', 'pharmacy_catalog');
+        if ($t->exists()) { $t->update(['value' => $json]); }
+        else {
+            \WHMCS\Database\Capsule::table('tbladdonmodules')
+                ->insert(['module' => 'cloudonprojects', 'setting' => 'pharmacy_catalog', 'value' => $json]);
+        }
+        return true;
+    }
+
+    /** Επαναφορά εργοστασιακών (διαγραφή override). */
+    public static function resetBaseCatalog()
+    {
+        \WHMCS\Database\Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudonprojects')->where('setting', 'pharmacy_catalog')->delete();
+        return true;
     }
 
     /** Ο τιμοκατάλογος: [κελί τιμής, περιγραφή, κελί ετήσιας αναπροσαρμογής]. */
@@ -115,7 +182,8 @@ class Pharmacy
         ];
     }
 
-    public static function defaultEditions()
+    /** Εργοστασιακές εκδόσεις (τιμές από το φύλλο). */
+    public static function factoryEditions()
     {
         return [
             ['key' => 'B',  'name' => 'PharmacyOne Β',       'soft1' => 'Soft1 Express',      'cat' => 'Β', 'price' => 700,  'extraUser' => 120],
@@ -123,6 +191,20 @@ class Pharmacy
             ['key' => 'D',  'name' => 'PharmacyOne Plus Β',  'soft1' => 'Soft1 Business',     'cat' => 'Β', 'price' => 1200, 'extraUser' => 165],
             ['key' => 'E',  'name' => 'PharmacyOne Plus ΒΓ', 'soft1' => 'Soft1 Business',     'cat' => 'Γ', 'price' => 1400, 'extraUser' => 165],
         ];
+    }
+
+    /** Οι ΙΣΧΥΟΥΣΕΣ εκδόσεις = εργοστασιακά + αποθηκευμένες τιμές. */
+    public static function defaultEditions()
+    {
+        static $memo = null;
+        if ($memo !== null) { return $memo; }
+        $e = self::factoryEditions();
+        $ov = self::catalogOverride()['ed'] ?? [];
+        foreach ($e as $i => $row) {
+            if (isset($ov[$i]['price']) && is_numeric($ov[$i]['price'])) { $e[$i]['price'] = (float) $ov[$i]['price']; }
+            if (isset($ov[$i]['extraUser']) && is_numeric($ov[$i]['extraUser'])) { $e[$i]['extraUser'] = (float) $ov[$i]['extraUser']; }
+        }
+        return $memo = $e;
     }
 
     /** Λειτουργικότητα ανά έκδοση (A5:E24 του φύλλου). */
