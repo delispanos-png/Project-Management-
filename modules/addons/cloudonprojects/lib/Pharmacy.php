@@ -309,6 +309,15 @@ class Pharmacy
         foreach (self::defaultRates() as $k => $v) {
             $out['r'][$k] = isset($cfg['r'][$k]) && is_numeric($cfg['r'][$k]) ? (float) $cfg['r'][$k] : $v;
         }
+        // Έκπτωση ανά γραμμή τιμοκαταλόγου (μόνο για τιμές S*, όχι για τα T* που
+        // είναι ποσοστά προμήθειας). Ποσοστό 0-0.99, εφαρμόζεται στην τιμή.
+        $out['rd'] = [];
+        foreach (self::defaultRates() as $k => $v) {
+            if (isset($k[0]) && $k[0] === 'S') {
+                $d = isset($cfg['rd'][$k]) && is_numeric($cfg['rd'][$k]) ? (float) $cfg['rd'][$k] : 0;
+                $out['rd'][$k] = max(0, min(0.99, $d));
+            }
+        }
         $out['ed'] = [];
         foreach (self::defaultEditions() as $i => $e) {
             $out['ed'][$i] = $e;
@@ -343,20 +352,31 @@ class Pharmacy
      * @return array{annual:array, oneoff:array, totals:array}
      *   annual/oneoff: πίνακας [γραμμή][έκδοση] με ποσά
      */
+    /** Εφαρμόζει την έκπτωση ανά γραμμή στις τιμές (S*) — οι τύποι δουλεύουν με
+        τις «καθαρές» τιμές, άρα η έκπτωση περνά παντού όπου χρησιμοποιείται η τιμή. */
+    private static function effRates(array $r, array $rd)
+    {
+        foreach ($rd as $k => $d) {
+            if ($d > 0 && isset($r[$k])) { $r[$k] = $r[$k] * (1 - $d); }
+        }
+        return $r;
+    }
+
     public static function calc($cfg)
     {
         $c = self::normalize($cfg);
         $p = $c['p']; $r = $c['r']; $yn = $c['yn'];
+        $rEff = self::effRates($r, $c['rd'] ?? []);
         $annual = [];
         foreach (self::annualRows() as $rw) {
             $line = [];
-            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[4], $p, $r, $e, $i, $yn); }
+            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[4], $p, $rEff, $e, $i, $yn); }
             $annual[] = $line;
         }
         $oneoff = [];
         foreach (self::oneoffRows() as $rw) {
             $line = [];
-            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[5], $p, $r, $e, $i, $yn); }
+            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[5], $p, $rEff, $e, $i, $yn); }
             $oneoff[] = $line;
         }
         $totals = [];
@@ -378,17 +398,18 @@ class Pharmacy
     public static function bucketLines($res, $i)
     {
         $c = $res['cfg']; $p = $c['p']; $r = $c['r']; $yn = $c['yn']; $e = $c['ed'][$i];
+        $rEff = self::effRates($r, $c['rd'] ?? []);
         $out = [1 => [], 2 => [], 3 => [], 4 => [], 5 => []];
         foreach (self::annualRows() as $ri => $rw) {
             $v = $res['annual'][$ri][$i];
             if (abs($v) < 0.005) { continue; }
-            $qty = $rw[3] ? call_user_func($rw[3], $p, $r, $e, $i, $yn) : '';
+            $qty = $rw[3] ? call_user_func($rw[3], $p, $rEff, $e, $i, $yn) : '';
             $out[$rw[1]][] = ['k' => $rw[0], 'lab' => $rw[2], 'qty' => $qty, 'amount' => $v];
         }
         foreach (self::oneoffRows() as $ri => $rw) {
             $v = $res['oneoff'][$ri][$i];
             if (abs($v) < 0.005) { continue; }
-            $qty = $rw[4] ? call_user_func($rw[4], $p, $r, $e, $i, $yn)
+            $qty = $rw[4] ? call_user_func($rw[4], $p, $rEff, $e, $i, $yn)
                 : ($rw[2] ? '× ' . self::fmtHrs($v / self::HOUR_RATE) . ' ώρες · τιμή ' . self::fmtEur(self::HOUR_RATE) : '');
             $out[$rw[1]][] = ['k' => $rw[0], 'lab' => $rw[3], 'qty' => $qty, 'amount' => $v];
         }

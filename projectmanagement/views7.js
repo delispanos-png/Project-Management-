@@ -350,9 +350,9 @@ async function openPharmacy(offerId, pre) {
             <div class="ph-rl">${esc(d.lab)}</div>
             <div class="n"><input class="ph-mini" type="number" min="0" step="1"
               data-r="${d.cell}" data-k="num" value="${st.cfg.r[d.cell]}"></div>
-            <div class="n">${d.adj
-              ? `<input class="ph-mini" type="number" min="0" step="1" data-r="${d.adj}" data-k="pct"
-                   value="${Math.round(st.cfg.r[d.adj] * 1000) / 10}">` : '<span class="mut">—</span>'}</div>`).join('')}
+            <div class="n"><input class="ph-mini" type="number" min="0" max="99" step="1"
+              data-rd="${d.cell}" title="Έκπτωση % στη γραμμή"
+              value="${Math.round(((st.cfg.rd && st.cfg.rd[d.cell]) || 0) * 1000) / 10}"></div>`).join('')}
         </div>
         <label class="lbl" style="margin-top:16px">Τιμή έκδοσης & επιπλέον χρήστη</label>
         <div class="ph-rates">
@@ -368,6 +368,13 @@ async function openPharmacy(offerId, pre) {
       $$('[data-r]', el).forEach(inp => inp.oninput = () => {
         const v = parseFloat(inp.value); const n = isFinite(v) ? v : 0;
         st.cfg.r[inp.dataset.r] = inp.dataset.k === 'pct' ? n / 100 : n;
+        touch();
+      });
+      $$('[data-rd]', el).forEach(inp => inp.oninput = () => {
+        const v = parseFloat(inp.value); let n = isFinite(v) ? v : 0;
+        n = Math.max(0, Math.min(99, n));
+        if (!st.cfg.rd) { st.cfg.rd = {}; }
+        st.cfg.rd[inp.dataset.rd] = n / 100;
         touch();
       });
       $$('[data-ed]', el).forEach(inp => inp.oninput = () => {
