@@ -1264,6 +1264,10 @@ async function openTask(id) {
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   closeDrawer();
   const t = d.task, me = S.boot.me;
+  /* Το «ζητούμενο» το επεξεργάζεται μόνο ο δημιουργός της εργασίας ή Full admin·
+     οι υπόλοιποι το βλέπουν read-only (ο server επιβάλλει τον ίδιο κανόνα). */
+  const creatorId = d.creatorId || 0;
+  const canEditBrief = !!(me.full || (creatorId && me.id === creatorId));
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
   /* Το department δεν εκτελεί — εκτελεί ένας άνθρωπος από τις ομάδες που το
@@ -1330,8 +1334,17 @@ async function openTask(id) {
   dr.innerHTML = `
   <div class="drawer-h">
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
-    <h2>${esc(t.title)}</h2>
-    <span class="pill" id="dStPill" style="background:${statusOf(t.status).color || '#8291a9'}22;color:${statusOf(t.status).color || '#8291a9'};font-weight:700">${esc(statusOf(t.status).title || '—')}</span>
+    <div class="tk-head-main">
+      <div class="tk-head-t">
+        <h2>${esc(t.title)}</h2>
+        ${d.owner ? `<a class="tk-cust-tag" href="#/client360/${d.owner.id}" data-navclose
+           title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
+        <span class="pill" id="dStPill" style="background:${statusOf(t.status).color || '#8291a9'}22;color:${statusOf(t.status).color || '#8291a9'};font-weight:700">${esc(statusOf(t.status).title || '—')}</span>
+      </div>
+      ${(d.path && d.path.length) ? `<div class="tk-crumb" title="Διαδρομή φακέλων">${
+        d.path.map(p => `<a href="#/board/${p.id}" data-navclose>${esc(p.name)}</a>`).join('<span class="tk-crumb-sep">›</span>')
+      }</div>` : ''}
+    </div>
     <span class="tk-hdr">
       <span class="tk-hdr-i" title="Καταγεγραμμένος χρόνος${t.est ? ' / εκτίμηση' : ''}">⏱ <b>${fmtMin(d.total)}</b>${t.est ? `<small>/ ~${fmtMin(t.est)}</small>` : ''}</span>
       ${billMins ? `<span class="tk-hdr-i ${t.billOk ? 'ok' : 'warn'}" title="${t.billOk ? 'Εγκρίθηκε από το λογιστήριο' : 'Χρεώσιμος χρόνος — χρειάζεται έγκριση λογιστηρίου πριν κλείσει'}">💶 <b>${fmtMin(billMins)}</b> ${t.billOk ? '✔' : '⏳'}</span>` : ''}
@@ -1343,6 +1356,10 @@ async function openTask(id) {
     <button class="drawer-x" id="dX">✕</button>
   </div>
   <div class="drawer-b tk-modal-b">
+    ${d.owner ? `<div class="card tk-custcard"><div class="card-b">
+      <a class="tk-cust-big" href="#/client360/${d.owner.id}" data-navclose>${I.user} ${esc(d.owner.name)}</a>
+      <div class="mut" style="font-size:11.5px;margin-top:2px">${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}</div>
+    </div></div>` : ''}
     ${t.done ? `<div class="card done-card"><div class="card-b">
       <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
       ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
@@ -1402,16 +1419,12 @@ async function openTask(id) {
         <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
         <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
       </div>
-      <label class="lbl" style="margin-top:12px">${I.doc || ''} <b>1. Το ζητούμενο</b> — τι ακριβώς πρέπει να γίνει</label>
-      ${rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 260})}
       <div style="display:flex;gap:9px;margin-top:13px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
         <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-          ${d.owner ? `<a class="pill pill-info" href="#/client360/${d.owner.id}" data-navclose
-             title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
           ${d.project.none
             ? '<span class="pill pill-mut" title="Η εργασία ανήκει μόνο σε department, δεν είναι μέρος έργου">Χωρίς έργο</span>'
             : `<a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>`}
@@ -1473,6 +1486,19 @@ async function openTask(id) {
         <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)"></div>
     </div></div>
 
+    <div class="card tk-brief"><div class="card-h">${I.doc || ''} <b>Το ζητούμενο</b>
+      <span class="mut" style="font-weight:600;font-size:11px">— τι ακριβώς πρέπει να γίνει</span>
+      ${canEditBrief ? '' : '<span class="pill pill-mut" style="margin-left:auto;flex:none" title="Το ορίζει μόνο ο δημιουργός της εργασίας">read-only</span>'}</div>
+      <div class="card-b">
+        ${canEditBrief
+          ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 200})
+            + `<div style="display:flex;gap:9px;margin-top:11px;align-items:center;flex-wrap:wrap">
+                 <button class="btn btn-p btn-sm" id="dBriefSave">Αποθήκευση ζητουμένου</button>
+                 <span class="mut" id="dBriefHint" style="font-size:11px"></span></div>`
+          : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? d.descr : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>
+             <div class="mut" style="font-size:11px;margin-top:8px">Το ζητούμενο το ορίζει ο δημιουργός της εργασίας.</div>`}
+      </div></div>
+
     <div class="card tk-conv">
       <div class="tkc-head">
         <div class="tkc-top">
@@ -1510,15 +1536,17 @@ async function openTask(id) {
         <b>${esc(a.detail || a.action)}</b> <span class="mut">— ${esc(a.by)} · ${tShort(a.at)}</span></div>`).join('')}</div></details>
   </div>`;
   document.body.append(ovl, dr);
-  /* Δύο στήλες: αριστερά ΜΟΝΟ η συνομιλία (το κέντρο της δουλειάς του χειριστή),
-     δεξιά ΟΛΕΣ οι πληροφορίες του έργου (ζητούμενο, πεδία, χρόνος, εξαρτήσεις,
+  /* Δύο στήλες: αριστερά (main) το ΖΗΤΟΥΜΕΝΟ καρφιτσωμένο πάνω και από κάτω η
+     ΣΥΝΟΜΙΛΙΑ — αυτό είναι το πρώτο που κοιτάς όταν ανοίγεις εργασία. Δεξιά
+     (side) όλες οι υπόλοιπες πληροφορίες (πελάτης, πεδία, χρόνος, εξαρτήσεις,
      αρχεία, ενέργειες, ιστορικό). Η αναδιάταξη γίνεται εδώ ώστε η σειρά του DOM
-     να μένει λογική και σε κινητό. */
+     να μένει λογική και σε κινητό (όπου οι στήλες στοιβάζονται). */
   (() => {
     const body = $('.tk-modal-b', dr); if (!body) { return; }
     const main = document.createElement('div'); main.className = 'tk-col-main';
     const side = document.createElement('div'); side.className = 'tk-col-side';
-    [...body.children].forEach(el => (el.classList.contains('tk-conv') ? main : side).appendChild(el));
+    const toMain = el => el.classList.contains('tk-conv') || el.classList.contains('tk-brief');
+    [...body.children].forEach(el => (toMain(el) ? main : side).appendChild(el));
     body.append(main, side);
   })();
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
@@ -1538,13 +1566,23 @@ async function openTask(id) {
      ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
   $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
   $('#dSave', dr).onclick = async () => {
-    await api('save_task', {task: id, title: $('#fTitle').value, descr: rteVal('fDescr'),
+    await api('save_task', {task: id, title: $('#fTitle').value,
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
       type: +$('#fType').value || 0, ball: +$('#fBall').value || 0,
       dept: +(($('#fDept') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
+  /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
+     ώστε ο συντάκτης να σώζει το κείμενο χωρίς να κλείνει το παράθυρο. */
+  { const bsv = $('#dBriefSave', dr); if (bsv) bsv.onclick = async () => {
+    bsv.disabled = true;
+    const r = await api('save_task', {task: id, descr: rteVal('fDescr')}).catch(e => ({err: e && e.message}));
+    bsv.disabled = false;
+    if (r && r.err) { toast(r.err, true); return; }
+    const h = $('#dBriefHint', dr); if (h) { h.textContent = '✓ αποθηκεύτηκε'; setTimeout(() => { h.textContent = ''; }, 2500); }
+    toast('Το ζητούμενο αποθηκεύτηκε');
+  }; }
   /* Αλλαγή κατάστασης από μέσα στην εργασία, όπως στα tickets: ισχύει αμέσως,
      δεν περιμένει «Αποθήκευση». Αν η νέα κατάσταση είναι τελική, ζητάει δυο
      λόγια για το πώς έκλεισε. */

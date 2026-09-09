@@ -1642,9 +1642,23 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 /* ── Παράθυρο εργασίας: κεντρικό modal αντί για πλαϊνό συρτάρι ──────
    Το συρτάρι έδινε 620px και η περιγραφή με τη συνομιλία στριμώχνονταν.
    Εδώ το πλάτος διπλασιάζεται και η ροή διαβάζεται κάθετα. */
-.drawer.tk-modal{width:min(1340px,96vw);height:min(90vh,1000px);max-height:none}
-.tk-modal .drawer-h{gap:10px;flex-wrap:wrap}
-.tk-modal .drawer-h h2{flex:1 1 220px;min-width:0}
+/* Πλήρης (maximized) προβολή — η εργασία θέλει όλη την οθόνη, όχι μικρό pop-up */
+.drawer.tk-modal{width:97vw;height:95vh;max-width:none;max-height:none}
+.tk-modal .drawer-h{gap:10px;flex-wrap:wrap;align-items:flex-start}
+/* Κεφαλίδα: πάνω ο τίτλος + tag πελάτη + κατάσταση, από κάτω η διαδρομή φακέλων */
+.tk-head-main{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.tk-head-t{display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-width:0}
+.tk-modal .drawer-h .tk-head-t h2{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis}
+.tk-cust-tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;
+  padding:3px 10px;border-radius:20px;background:#0090dd1e;color:#0374b0;
+  border:1px solid #0090dd33;white-space:nowrap;text-decoration:none;max-width:240px;
+  overflow:hidden;text-overflow:ellipsis}
+.tk-cust-tag:hover{background:#0090dd2e}
+.tk-crumb{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11.5px;color:var(--mut)}
+.tk-crumb a{color:var(--mut);text-decoration:none;padding:1px 5px;border-radius:5px;
+  max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk-crumb a:hover{color:var(--brand);background:#0090dd12;text-decoration:underline}
+.tk-crumb-sep{color:#c3ccd8;font-size:11px}
 /* χρόνος & χρέωση στην κεφαλίδα */
 .tk-hdr{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .tk-hdr-i{display:inline-flex;gap:5px;align-items:baseline;font-size:12px;padding:3px 10px;
@@ -1665,6 +1679,17 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-col-side .frow{grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:10px 12px}
 .tk-col-side .frow > div{min-width:0}
 .tk-col-side .inp{max-width:100%}
+/* Κάρτα πελάτη — πρώτη, ευδιάκριτη, στην κορυφή του δεξιού panel */
+.tk-custcard .card-b{padding:11px 13px}
+.tk-cust-big{display:inline-flex;align-items:center;gap:7px;font-weight:800;font-size:14.5px;
+  color:var(--ink);text-decoration:none}
+.tk-cust-big:hover{color:var(--brand)}
+/* «Ζητούμενο» καρφιτσωμένο πάνω στη main στήλη· η συνομιλία γεμίζει το υπόλοιπο */
+.tk-col-main{gap:14px}
+.tk-col-main > .tk-brief{flex:0 0 auto;max-height:46%;display:flex;flex-direction:column;margin:0}
+.tk-col-main > .tk-brief > .card-b{overflow:auto;min-height:0}
+.tk-brief-ro{font-size:13.5px;line-height:1.55;color:var(--ink);word-break:break-word}
+.tk-brief-ro img{max-width:100%}
 .tk-col-side input[type=date]{min-width:0}
 .tk-col-side .pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tk-col-side > .card{margin:0 0 12px}
@@ -1730,6 +1755,8 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .tk-modal-b{flex-direction:column;overflow:auto;align-items:stretch}
   .tk-col-main,.tk-col-side{flex:1 1 auto;width:100%;max-width:none;min-height:auto;overflow:visible}
   .tk-col-main > .tk-conv{overflow:visible;min-height:70vh}
+  .tk-col-main > .tk-brief{max-height:none}
+  .tk-col-main > .tk-brief > .card-b{overflow:visible}
   .tkc-scroll{overflow:visible;background:var(--card)}
   .tkc-jump{display:none}
 }

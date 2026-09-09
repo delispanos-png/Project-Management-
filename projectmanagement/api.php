@@ -2635,7 +2635,20 @@ case 'task':
     /* Από την εργασία πρέπει να γυρνάς στον πελάτη — είτε μέσω του έργου του
        είτε μέσω του ticket από το οποίο γεννήθηκε. */
     $ownerId = $proj->clientid ? (int) $proj->clientid : (int) ($ticket['clientId'] ?? 0);
+    /* Διαδρομή φακέλων (breadcrumb): ανεβαίνουμε την ιεραρχία parent_id του έργου,
+       από τη ρίζα προς το τρέχον. Guard κατά κύκλων. Κενή για εργασία χωρίς έργο. */
+    $path = [];
+    if ($t->project_id && (int) $proj->id) {
+        $seen = [];
+        $cur = $proj;
+        while ($cur && (int) $cur->id && !in_array((int) $cur->id, $seen, true)) {
+            $seen[] = (int) $cur->id;
+            array_unshift($path, ['id' => (int) $cur->id, 'name' => (string) $cur->name]);
+            $cur = isset($cur->parent_id) && $cur->parent_id ? Db::project($cur->parent_id) : null;
+        }
+    }
     out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
+        'creatorId' => (int) $t->created_by, 'path' => $path,
         'depts' => cnp_depts(),
         'owner' => $ownerId ? ['id' => $ownerId, 'name' => clientLabel($ownerId),
             'via' => $proj->clientid ? 'project' : 'ticket'] : null,
@@ -3624,6 +3637,11 @@ case 'save_task':
         $data['title'] = mb_substr(trim((string) $in['title']), 0, 200);
     }
     if (array_key_exists('descr', $in)) {
+        /* Το «ζητούμενο» το ορίζει ΜΟΝΟ ο δημιουργός της εργασίας (ή Full admin).
+           Οι υπόλοιποι το βλέπουν read-only — δεν το αλλάζουν. */
+        if (!$FULL && (int) $t->created_by !== $adminId) {
+            fail('Το ζητούμενο το αλλάζει μόνο ο δημιουργός της εργασίας', 403);
+        }
         $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
     }
     foreach (['due_date' => 'due', 'schedule_date' => 'sched'] as $col => $k) {
