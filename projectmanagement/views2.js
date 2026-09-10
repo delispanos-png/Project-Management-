@@ -3459,7 +3459,9 @@ async function loadVault() {
         ${d.full ? `<td style="text-align:left;font-size:11px" class="mut">${esc(v.ownerName)}</td>` : ''}
         <td style="text-align:right;white-space:nowrap">${v.canEdit ? `<button class="btn btn-sm btn-o" data-vedit="${v.id}" style="padding:3px 7px">${I.edit}</button>
           <button class="btn btn-sm btn-o" data-vdel="${v.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button>` : '<span class="mut" style="font-size:10px">κοινό</span>'}</td></tr>`).join('')}
-      </tbody></table></div>` : '<div class="empty" style="padding:22px">Καμία καταχώρηση ακόμη — πάτα «Νέος κωδικός»</div>');
+      </tbody></table></div>` : (_vaultMine && d.full
+        ? '<div class="empty" style="padding:22px">Δεν έχεις δικούς σου κωδικούς.<div class="mut" style="font-size:11.5px;margin-top:5px">Πάτα «Όλων των χειριστών» για να δεις και τους κοινούς της ομάδας.</div></div>'
+        : '<div class="empty" style="padding:22px">Καμία καταχώρηση ακόμη — πάτα «Νέος κωδικός»</div>'));
     $$('[data-vscope]', box).forEach(b => b.onclick = () => { _vaultMine = b.dataset.vscope === '1'; loadVault(); });
     $$('[data-vreveal]', box).forEach(b => b.onclick = async () => {
       const sp = box.querySelector(`.vpw[data-vid="${b.dataset.vreveal}"]`);

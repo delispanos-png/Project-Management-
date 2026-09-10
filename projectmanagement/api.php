@@ -9223,11 +9223,15 @@ case 'lead_task_del':
 /* ============ 🔐 ΘΥΡΙΔΑ ΚΩΔΙΚΩΝ (ανά χειριστή· admin βλέπει όλα) ============ */
 case 'vault_list':
     $kinds = cnp_vault_kinds();
-    $mine = !empty($_GET['mine']) || !$FULL;         // restricted: δικά του + κοινά
+    $mine = !empty($_GET['mine']) || !$FULL;
     $q = Capsule::table('mod_cpm_vault');
-    if ($mine) {
-        // δικά μου Ή κοινά (ομάδας)
+    if (!$FULL) {
+        // Περιορισμένος χειριστής: ΠΑΝΤΑ δικά του Ή κοινά (ομάδας) — ποτέ ιδιωτικά άλλων.
         $q->where(function ($w) use ($adminId) { $w->where('admin_id', $adminId)->orWhere('shared', 1); });
+    } elseif ($mine) {
+        // Πλήρης διαχειριστής + «Μόνο δικά μου»: ΑΥΣΤΗΡΑ δικά του — όχι κοινόχρηστα άλλων,
+        // αλλιώς αν όλες οι καταχωρήσεις είναι κοινές το φίλτρο δεν άλλαζε τίποτα.
+        $q->where('admin_id', $adminId);
     }
     $rows = $q->orderBy('descr')->get();
     $cids = array_values(array_filter($rows->pluck('client_id')->all()));
