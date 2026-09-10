@@ -2257,3 +2257,32 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .ai-msg{margin-top:10px;padding:9px 12px;border-radius:9px;background:#e2515f14;border:1px solid #e2515f55;
   color:#c33240;font-size:12.5px}
 .ai-f{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end}
+
+/* ── Λίστα πελατών ─────────────────────────────────────────────── */
+.cl-wrap{overflow-x:auto}
+.cl-table{width:100%}
+.cl-table th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);
+  font-weight:700;text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.cl-table td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.cl-table tbody tr:last-child td{border-bottom:0}
+.cl-table tbody tr:hover{background:var(--tint,#f6f8fb)}
+.cl-table .cl-num{text-align:center;white-space:nowrap}
+.cl-table th.cl-num{text-align:center}
+.cl-who{display:flex;align-items:center;gap:10px;min-width:0}
+.cl-name{font-weight:700;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:260px}
+.cl-name:hover{color:var(--brand)}
+.cl-sub{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+.cl-contact{font-size:12.5px;max-width:240px;overflow:hidden}
+.cl-contact div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl-act{padding:3px 10px;font-size:16px;line-height:1}
+.cl-pag{display:flex;gap:12px;align-items:center;justify-content:center;padding:14px 6px;font-size:12.5px}
+/* κινητό: κάρτες */
+.cl-cards{display:flex;flex-direction:column;gap:10px}
+.cl-card{padding:0}
+.cl-card .cl-c-top{display:flex;align-items:center;gap:10px;padding:12px 13px 8px}
+.cl-c-name{font-weight:700;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl-c-meta{display:flex;flex-wrap:wrap;gap:4px 12px;padding:0 13px 8px;font-size:12px}
+.cl-c-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 10px}
+.cl-c-acts{display:flex;gap:8px;align-items:center;padding:10px 13px;border-top:1px solid var(--line)}
+.cl-c-acts .cl-act{margin-left:auto}

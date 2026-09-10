@@ -174,6 +174,7 @@ function renderShell() {
       ['profile', I.contact || I.user, 'Το προφίλ μου'],
     ]],
     ['Πελάτες', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
+      ['clientlist', I.users || I.list, 'Λίστα πελατών', 'clients.card'],
       ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
       ['crm', I.target, 'CRM & leads', 'clients.crm'],
       ['offers', I.doc, 'Προσφορές', 'clients.offers'],
@@ -276,7 +277,7 @@ function renderShell() {
       // ── bottom tab bar (μόνο κινητό): ΟΛΟ το μενού σε μία μπάρα που σέρνεται ──
       const flat = nav.flatMap(([, items]) => items);
       const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', calendar: 'Ημερολόγιο', todos: 'Πλάνο',
-        library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης',
+        library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης', clientlist: 'Πελάτες',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Έργα', offers: 'Προσφορές',
         profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
@@ -2473,7 +2474,7 @@ function cnpDenied(err) {
     <div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`;
 }
 window.CNP = {S, api, esc, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
-  adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, $, $$};
+  adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {

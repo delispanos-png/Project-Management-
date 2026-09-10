@@ -940,6 +940,237 @@ function openNewClient(prefill, onDone) {
 }
 window.CNP.openNewClient = openNewClient;
 
+/* ── Επεξεργασία πελάτη (αλλαγή χαρακτηριστικών) ──────────────────────────────
+   Ίδιο modal chrome με το «Νέος πελάτης». Σώζει μέσω WHMCS UpdateClient +
+   custom fields (ΑΦΜ #1, ΔΟΥ #82). Έχει και «Άντληση ΑΑΔΕ» που συμπληρώνει. */
+async function openEditClient(id, onDone) {
+  if (!cnpCan('clients.card.edit')) { toast('Δεν έχεις δικαίωμα επεξεργασίας πελάτη', true); return; }
+  const r = await api('client_get&id=' + id).catch(() => null);
+  if (!r || !r.client) { toast('Δεν βρέθηκε ο πελάτης', true); return; }
+  const c = r.client;
+  const stOpt = {Active: 'Ενεργός', Inactive: 'Ανενεργός', Closed: 'Κλειστός'};
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+  ovl.innerHTML = `<div class="pal-box" style="margin:7vh auto 0;max-width:640px;max-height:88vh;overflow:auto" onclick="event.stopPropagation()">
+    <div style="padding:20px 22px">
+      <b style="font-size:15.5px;color:var(--ink)">${I.edit} Επεξεργασία πελάτη <span class="mut" style="font-weight:400">#${c.id}</span></b>
+      <label class="lbl" style="margin-top:12px">Επωνυμία</label>
+      <input class="inp" id="ecComp" value="${esc(c.company)}">
+      <div class="frow" style="margin-top:11px">
+        <div><label class="lbl">Όνομα επαφής</label><input class="inp" id="ecFirst" value="${esc(c.first)}"></div>
+        <div><label class="lbl">Επώνυμο επαφής</label><input class="inp" id="ecLast" value="${esc(c.last)}"></div>
+        <div><label class="lbl">Email</label><input class="inp" id="ecMail" type="email" value="${esc(c.email)}"></div>
+        <div><label class="lbl">Τηλέφωνο</label><input class="inp" id="ecPhone" value="${esc(c.phone)}"></div>
+        <div><label class="lbl">Κινητό</label><input class="inp" id="ecMob" value="${esc(c.mobile)}"></div>
+        <div><label class="lbl">Κατάσταση</label><select class="inp" id="ecStatus">
+          ${Object.keys(stOpt).map(s => `<option value="${s}" ${c.status === s ? 'selected' : ''}>${stOpt[s]}</option>`).join('')}</select></div>
+      </div>
+      <div class="frow" style="margin-top:11px">
+        <div style="flex:2"><label class="lbl">Διεύθυνση</label><input class="inp" id="ecAddr" value="${esc(c.address)}"></div>
+        <div><label class="lbl">Πόλη</label><input class="inp" id="ecCity" value="${esc(c.city)}"></div>
+        <div><label class="lbl">ΤΚ</label><input class="inp" id="ecZip" value="${esc(c.postcode)}"></div>
+        <div><label class="lbl">Χώρα</label><input class="inp" id="ecCountry" maxlength="2" value="${esc(c.country || 'GR')}"></div>
+      </div>
+      <div class="frow" style="margin-top:11px">
+        <div style="flex:1.4"><label class="lbl">ΑΦΜ</label>
+          <div style="display:flex;gap:7px"><input class="inp" id="ecAfm" inputmode="numeric" value="${esc(c.afm)}" style="flex:1">
+            <button class="btn btn-o" id="ecAade" title="Άντληση στοιχείων από το μητρώο ΑΑΔΕ">${I.repeat} ΑΑΔΕ</button></div></div>
+        <div><label class="lbl">ΔΟΥ</label><input class="inp" id="ecDoy" value="${esc(c.doy)}"></div>
+      </div>
+      <div id="ecMsg" class="mut" style="font-size:11.5px;margin-top:8px;min-height:16px"></div>
+      <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
+        <button class="btn btn-o" id="ecNo">Άκυρο</button>
+        <button class="btn btn-p" id="ecGo">${I.check || ''} Αποθήκευση αλλαγών</button></div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const done = () => ovl.remove();
+  $('#ecNo', ovl).onclick = done; ovl.onclick = done;
+  /* ΑΑΔΕ μέσα στο modal — απλώς συμπληρώνει τα πεδία, ο χρήστης πατά Αποθήκευση. */
+  const aade = async () => {
+    const afm = ($('#ecAfm', ovl).value || '').replace(/\D/g, '');
+    const msg = $('#ecMsg', ovl);
+    if (afm.length !== 9) { msg.textContent = 'Δώσε έγκυρο 9ψήφιο ΑΦΜ'; return; }
+    msg.textContent = 'Αναζήτηση στο μητρώο ΑΑΔΕ…';
+    const a = await fetch('afm.php?afm=' + afm, {credentials: 'same-origin'}).then(x => x.json()).catch(() => null);
+    if (!a || !a.ok) { msg.textContent = 'ΑΑΔΕ: ' + ((a && a.error) || 'χωρίς αποτέλεσμα'); return; }
+    const dd = a.data || {};
+    if (dd.name) { $('#ecComp', ovl).value = dd.name; }
+    if (dd.street) { $('#ecAddr', ovl).value = dd.street; }
+    if (dd.city) { $('#ecCity', ovl).value = dd.city; }
+    if (dd.postcode) { $('#ecZip', ovl).value = dd.postcode; }
+    if (dd.doy) { $('#ecDoy', ovl).value = dd.doy; }
+    msg.innerHTML = (dd.active === false ? '<span style="color:var(--warn)">⚠ ανενεργό ΑΦΜ — </span>' : '✓ ')
+      + esc(dd.name || '') + ' — πάτησε <b>Αποθήκευση</b> για να καταχωρηθούν';
+  };
+  $('#ecAade', ovl).onclick = aade;
+  $('#ecAfm', ovl).onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); aade(); } };
+  $('#ecGo', ovl).onclick = async () => {
+    const btn = $('#ecGo', ovl); btn.disabled = true;
+    const res = await api('client_update', {id,
+      company: $('#ecComp', ovl).value, first: $('#ecFirst', ovl).value, last: $('#ecLast', ovl).value,
+      email: $('#ecMail', ovl).value, phone: $('#ecPhone', ovl).value, mobile: $('#ecMob', ovl).value,
+      address: $('#ecAddr', ovl).value, city: $('#ecCity', ovl).value, postcode: $('#ecZip', ovl).value,
+      country: $('#ecCountry', ovl).value, afm: $('#ecAfm', ovl).value, doy: $('#ecDoy', ovl).value,
+      status: $('#ecStatus', ovl).value}).catch(e => ({err: e && e.message}));
+    btn.disabled = false;
+    if (res && res.err) { $('#ecMsg', ovl).innerHTML = '<span style="color:var(--bad)">' + esc(res.err) + '</span>'; return; }
+    toast('Ο πελάτης ενημερώθηκε'); done(); if (onDone) { onDone(res); }
+  };
+  setTimeout(() => $('#ecComp', ovl).focus(), 40);
+}
+window.CNP.openEditClient = openEditClient;
+
+/* ── Αυτόματη ενημέρωση πελάτη από το μητρώο ΑΑΔΕ (με επιβεβαίωση αλλαγών) ── */
+async function clientAadeSync(id, afm, curName, onDone) {
+  if (!cnpCan('clients.card.edit')) { toast('Δεν έχεις δικαίωμα επεξεργασίας πελάτη', true); return; }
+  let a = (afm || '').replace(/\D/g, '');
+  if (a.length !== 9) {
+    const cg = await api('client_get&id=' + id).catch(() => null);
+    a = ((cg && cg.client && cg.client.afm) || '').replace(/\D/g, '');
+  }
+  if (a.length !== 9) {
+    a = (prompt('ΑΦΜ πελάτη (9 ψηφία) για άντληση από ΑΑΔΕ:', '') || '').replace(/\D/g, '');
+    if (a.length !== 9) { if (a) { toast('Μη έγκυρο ΑΦΜ', true); } return; }
+  }
+  toast('Άντληση από ΑΑΔΕ…');
+  const r = await fetch('afm.php?afm=' + a, {credentials: 'same-origin'}).then(x => x.json()).catch(() => null);
+  if (!r || !r.ok || !r.data) { toast('ΑΑΔΕ: ' + ((r && r.error) || 'χωρίς αποτέλεσμα'), true); return; }
+  const dd = r.data;
+  const ch = [];
+  if (dd.name) { ch.push('• Επωνυμία: ' + dd.name); }
+  if (dd.street) { ch.push('• Διεύθυνση: ' + dd.street); }
+  if (dd.city) { ch.push('• Πόλη: ' + dd.city); }
+  if (dd.postcode) { ch.push('• ΤΚ: ' + dd.postcode); }
+  if (dd.doy) { ch.push('• ΔΟΥ: ' + dd.doy); }
+  if (!ch.length) { toast('Το μητρώο δεν επέστρεψε στοιχεία', true); return; }
+  const ok = await cnpConfirm('Ενημέρωση του πελάτη «' + esc(curName || ('#' + id)) + '» από το μητρώο ΑΑΔΕ;\n\n' + ch.join('\n'),
+    {ok: I.repeat + ' Ενημέρωση', cancel: 'Άκυρο'});
+  if (!ok) { return; }
+  const res = await api('client_update', {id, afm: a,
+    company: dd.name || undefined, address: dd.street || undefined,
+    city: dd.city || undefined, postcode: dd.postcode || undefined, doy: dd.doy || undefined})
+    .catch(e => ({err: e && e.message}));
+  if (res && res.err) { toast(res.err, true); return; }
+  toast('✓ Ο πελάτης ενημερώθηκε από ΑΑΔΕ');
+  if (onDone) { onDone(res); }
+}
+window.CNP.clientAadeSync = clientAadeSync;
+
+/* ── ΛΙΣΤΑ ΠΕΛΑΤΩΝ: όλοι (ενεργοί/ανενεργοί/κλειστοί), αναζήτηση, ομαδοποίηση
+   ανά κατάσταση, μετρήσεις, και ⋯ ενέργειες ανά πελάτη (έργο/task/προσφορά/
+   κλήση/παράπονο/επεξεργασία/ΑΑΔΕ). ── */
+R.clientlist = async function () {
+  setTop('Λίστα πελατών', 'Όλοι οι πελάτες — ενεργοί & ανενεργοί, με γρήγορες ενέργειες');
+  const c = $('#content');
+  /* Προεπιλογή: μόνο ΕΝΕΡΓΟΙ πελάτες. Ο χρήστης αλλάζει tab (Όλοι/Ανενεργοί/
+     Κλειστοί) για να δει/ψάξει και τους υπόλοιπους. */
+  const st = R.clientlist._st = R.clientlist._st || {q: '', status: 'Active', page: 1};
+  c.innerHTML = skel(6, 84);
+  const d = await api('clients&status=' + encodeURIComponent(st.status) + '&q=' + encodeURIComponent(st.q) + '&page=' + st.page).catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div></div>'; return; }
+  const rows = d.clients;
+  const stTabs = [['', 'Όλοι', d.counts.all], ['Active', 'Ενεργοί', d.counts.Active],
+    ['Inactive', 'Ανενεργοί', d.counts.Inactive], ['Closed', 'Κλειστοί', d.counts.Closed]];
+  const stPill = s => s === 'Active' ? 'pill-ok' : s === 'Closed' ? 'pill-bad' : 'pill-mut';
+  const stLbl = s => ({Active: 'Ενεργός', Inactive: 'Ανενεργός', Closed: 'Κλειστός'}[s] || s);
+  const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
+  const MOB = matchMedia('(max-width:768px)').matches;
+  const actBtn = id => `<button class="btn btn-o btn-ico cl-act" data-clact="${id}" title="Ενέργειες">⋯</button>`;
+
+  const head = `
+    <div class="card kb-search">
+      <div class="kb-srow">
+        <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+          <input class="inp" id="clQ" placeholder="Αναζήτηση: όνομα, επωνυμία, email, τηλέφωνο, #ID…" value="${esc(st.q)}" autocomplete="off"></div>
+        ${d.canNew ? `<button class="btn btn-p btn-sm" id="clNew">${I.plus} Νέος πελάτης</button>` : ''}
+      </div>
+      <div class="kb-filters">
+        ${stTabs.map(([k, lbl, n]) => `<button class="kb-chip ${st.status === k ? 'on' : ''}" data-clst="${k}">${lbl} <span class="kb-n">${n}</span></button>`).join('')}
+      </div>
+    </div>`;
+
+  let body;
+  if (!rows.length) {
+    body = `<div class="card"><div class="empty" style="padding:44px 20px">
+      <div class="big">${I.users || I.user}</div>
+      <b style="color:var(--ink);font-size:15px">Κανένας πελάτης με αυτά τα φίλτρα</b>
+      <div class="mut" style="font-size:12.5px;margin-top:6px">Δοκίμασε άλλη αναζήτηση ή κατάσταση.</div></div></div>`;
+  } else if (MOB) {
+    body = `<div class="cl-cards">${rows.map(cl => `
+      <div class="card cl-card">
+        <div class="cl-c-top">
+          <span class="ava" style="flex:none">${esc(ini(cl.name))}</span>
+          <div style="flex:1;min-width:0">
+            <a href="#/client360/${cl.id}" class="cl-c-name">${esc(cl.name)}</a>
+            <div class="mut" style="font-size:11.5px">#${cl.id}${cl.afm ? ' · ΑΦΜ ' + esc(cl.afm) : ''}</div></div>
+          <span class="pill ${stPill(cl.status)}">${stLbl(cl.status)}</span>
+        </div>
+        <div class="cl-c-meta">
+          ${cl.email ? `<span class="mut">${esc(cl.email)}</span>` : ''}
+          ${cl.phone ? `<span class="mut">${esc(cl.phone)}</span>` : ''}</div>
+        <div class="cl-c-chips">
+          <span class="pill pill-info">${cl.services} υπηρ.</span>
+          <span class="pill pill-mut">${cl.projects} έργα</span>
+          ${cl.tickets ? `<span class="pill pill-warn">${cl.tickets} tickets</span>` : ''}
+          ${cl.owed > 0 ? `<span class="pill pill-bad">οφειλή ${fmtEur(cl.owed)}</span>` : ''}</div>
+        <div class="cl-c-acts">
+          <a class="btn btn-o btn-sm" href="#/client360/${cl.id}">${I.user} 360°</a>${actBtn(cl.id)}</div>
+      </div>`).join('')}</div>`;
+  } else {
+    body = `<div class="card" style="padding:0;overflow:hidden">
+      <div class="cl-wrap"><table class="tbl cl-table"><thead><tr>
+        <th>Πελάτης</th><th>Επικοινωνία</th><th>Κατάσταση</th>
+        <th class="cl-num">Υπηρ.</th><th class="cl-num">Έργα</th><th class="cl-num">Tickets</th>
+        <th class="cl-num">Οφειλή</th><th></th></tr></thead><tbody>
+        ${rows.map(cl => `<tr>
+          <td><div class="cl-who"><span class="ava" style="flex:none">${esc(ini(cl.name))}</span>
+            <div style="min-width:0"><a href="#/client360/${cl.id}" class="cl-name">${esc(cl.name)}</a>
+              <div class="mut cl-sub">#${cl.id}${cl.afm ? ' · ΑΦΜ ' + esc(cl.afm) : ''}${cl.city ? ' · ' + esc(cl.city) : ''}</div></div></div></td>
+          <td class="cl-contact">${cl.email ? `<div>${esc(cl.email)}</div>` : ''}${cl.phone ? `<div class="mut">${esc(cl.phone)}</div>` : (cl.email ? '' : '<span class="mut">—</span>')}</td>
+          <td><span class="pill ${stPill(cl.status)}">${stLbl(cl.status)}</span></td>
+          <td class="cl-num">${cl.services || '<span class="mut">—</span>'}</td>
+          <td class="cl-num">${cl.projects || '<span class="mut">—</span>'}</td>
+          <td class="cl-num">${cl.tickets ? `<span class="pill pill-warn">${cl.tickets}</span>` : '<span class="mut">—</span>'}</td>
+          <td class="cl-num">${cl.owed > 0 ? `<span class="pill pill-bad">${fmtEur(cl.owed)}</span>` : '<span class="mut">—</span>'}</td>
+          <td class="cl-num">${actBtn(cl.id)}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  }
+  const pag = d.pages > 1 ? `<div class="cl-pag">
+      <button class="btn btn-o btn-sm" id="clPrev" ${st.page <= 1 ? 'disabled' : ''}>← Προηγ.</button>
+      <span class="mut">Σελίδα ${st.page} / ${d.pages} · ${d.total} πελάτες</span>
+      <button class="btn btn-o btn-sm" id="clNext" ${st.page >= d.pages ? 'disabled' : ''}>Επόμ. →</button></div>`
+    : `<div class="cl-pag mut">${d.total} πελάτες</div>`;
+
+  c.innerHTML = head + body + pag;
+
+  let qt;
+  $('#clQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#clQ').value.trim(); st.page = 1; R.clientlist(); }, 300); };
+  $$('[data-clst]').forEach(b => b.onclick = () => { st.status = b.dataset.clst; st.page = 1; R.clientlist(); });
+  { const nb = $('#clNew'); if (nb) nb.onclick = () => openNewClient('', () => { st.page = 1; R.clientlist(); }); }
+  { const pv = $('#clPrev'); if (pv) pv.onclick = () => { if (st.page > 1) { st.page--; R.clientlist(); } }; }
+  { const nx = $('#clNext'); if (nx) nx.onclick = () => { if (st.page < d.pages) { st.page++; R.clientlist(); } }; }
+  $$('[data-clact]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const cl = rows.find(x => x.id === +b.dataset.clact); if (!cl) { return; }
+    const items = [{icon: I.user, label: 'Άνοιγμα 360°', on: () => go('client360', cl.id)}];
+    if (cnpCan('clients.card.edit')) { items.push({icon: I.edit, label: 'Επεξεργασία στοιχείων', on: () => openEditClient(cl.id, () => R.clientlist())}); }
+    if (cnpCan('clients.card.edit')) { items.push({icon: I.repeat, label: 'Ενημέρωση από ΑΑΔΕ', on: () => clientAadeSync(cl.id, cl.afm, cl.name, () => R.clientlist())}); }
+    if (cnpCan('projects.portfolio.edit')) { items.push({icon: I.rocket, label: 'Νέο έργο', on: () => { R.projects._pre = {client: cl.id, clientName: cl.name}; go('projects'); }}); }
+    if (cnpCan('projects.board')) { items.push({icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()}); }
+    if (cnpCan('clients.offers.edit')) {
+      items.push({icon: I.doc, label: 'Νέα προσφορά', on: async () => {
+        const od = await api('offers').catch(() => null); if (!od) { toast('Σφάλμα', true); return; }
+        openOffer(null, od);
+        const ci = $('#oClientId'), cn = $('#oClient'); if (ci) { ci.value = cl.id; } if (cn) { cn.value = cl.name; }
+      }});
+      if (window.openPharmacy) { items.push({icon: I.doc, label: 'Νέα προσφορά PharmacyOne', on: () => window.openPharmacy(0, {client: cl.id, clientName: cl.name})}); }
+    }
+    if (cnpCan('clients.calls')) { items.push({icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall({client: cl.id, name: cl.name, phone: cl.phone})}); }
+    if (cnpCan('clients.complaints.edit')) { items.push({icon: I.alert, label: 'Νέο παράπονο', on: () => window.CNP.quickCx && window.CNP.quickCx({client: cl.id, name: cl.name})}); }
+    items.push({icon: I.monitor, label: 'Απομακρυσμένη σύνδεση', on: () => window.CNP.startRemote && window.CNP.startRemote(cl.id, cl.name, 0, {email: cl.email || ''})});
+    window.CNP.miniMenu(b, items);
+  });
+};
+
 /* ── Επιλογή πελάτη ────────────────────────────────────────────────────────
    Το `<datalist>` δέχεται και ελεύθερο κείμενο: αν ο χρήστης έγραφε όνομα
    χωρίς να επιλέξει, το id έμενε κενό και η εγγραφή αποθηκευόταν σιωπηλά
@@ -1311,6 +1542,8 @@ R.client360 = async function (cid) {
       </div>
       <div class="c3-hero-acts">
         ${d.client.phone ? `<a class="btn btn-o btn-sm" href="tel:${esc(d.client.phone)}">${I.phone || '📞'} Κλήση</a>` : ''}
+        ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Edit">${I.edit} Επεξεργασία</button>` : ''}
+        ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Aade" title="Αυτόματη ενημέρωση στοιχείων από το μητρώο ΑΑΔΕ">${I.repeat} Ενημέρωση ΑΑΔΕ</button>` : ''}
         <button class="btn btn-p btn-sm" id="c3Rt">${I.monitor} Remote</button>
       </div>
     </div>
@@ -1417,6 +1650,10 @@ R.client360 = async function (cid) {
     if (npj) npj.onclick = () => { R.projects._pre = {client: id, clientName: d.client.name}; go('projects'); };
     const rtb = $('#c3Rt');
     if (rtb) rtb.onclick = () => window.CNP.startRemote(id, d.client.name, 0, {email: d.client.email || ''});
+    const ceb = $('#c3Edit');
+    if (ceb) ceb.onclick = () => openEditClient(id, () => show(id, months));
+    const cab = $('#c3Aade');
+    if (cab) cab.onclick = () => clientAadeSync(id, null, d.client.name, () => show(id, months));
     const pkSel = $('#c3Pk');
     if (pkSel) pkSel.onchange = async () => {
       await api('client_package_set', {client: id, package: +pkSel.value});

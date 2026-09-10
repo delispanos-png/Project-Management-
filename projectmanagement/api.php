@@ -2006,7 +2006,8 @@ function cnp_action_cap($action)
         };
 
         /* ── ΠΕΛΑΤΕΣ ── */
-        $add('clients.card', ['client360']);
+        $add('clients.card', ['client360', 'clients', 'client_get']);
+        $add('clients.card.edit', ['client_update']);
         $add('clients.card|reports.triage', ['client_health']);
         $add('clients.card.edit|finance.packages', ['client_package_set']);
         $add('clients.new', ['client_quick_add']);
@@ -11574,6 +11575,118 @@ case 'client_quick_add':                  // νέος πελάτης επί τό
         'email' => $placeholder ? '' : $qMail, 'placeholderEmail' => $placeholder,
         'portal' => $qPortal, 'credentialsSent' => $credSent,
         'label' => ($qName ?: trim($qFirst . ' ' . $qLast)) . ' (#' . $newId . ')']);
+
+case 'clients':                           // πλήρης λίστα πελατών (ενεργοί/ανενεργοί/κλειστοί)
+    $q = trim((string) ($_GET['q'] ?? $in['q'] ?? ''));
+    $status = (string) ($_GET['status'] ?? $in['status'] ?? '');   // Active|Inactive|Closed|'' (όλοι)
+    $page = max(1, (int) ($_GET['page'] ?? $in['page'] ?? 1));
+    $per = 40;
+    /* Πλήθη ανά κατάσταση για τα tabs. */
+    $counts = ['all' => 0, 'Active' => 0, 'Inactive' => 0, 'Closed' => 0];
+    foreach (Capsule::table('tblclients')->select('status', Capsule::raw('count(*) c'))->groupBy('status')->get() as $r) {
+        if (isset($counts[$r->status])) { $counts[$r->status] = (int) $r->c; }
+        $counts['all'] += (int) $r->c;
+    }
+    $base = Capsule::table('tblclients');
+    if (in_array($status, ['Active', 'Inactive', 'Closed'], true)) { $base->where('status', $status); }
+    if ($q !== '') {
+        if (ctype_digit($q)) {
+            $base->where('id', (int) $q);
+        } else {
+            $like = '%' . $q . '%';
+            $base->where(function ($w) use ($like) {
+                $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+                  ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like)
+                  ->orWhere('phonenumber', 'like', $like);
+            });
+        }
+    }
+    $total = (clone $base)->count();
+    $rows = $base->orderByRaw("CASE status WHEN 'Active' THEN 0 WHEN 'Inactive' THEN 1 ELSE 2 END")
+        ->orderBy('companyname')->orderBy('lastname')
+        ->offset(($page - 1) * $per)->limit($per)
+        ->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'phonenumber', 'status', 'datecreated', 'city', 'country']);
+    $ids = [];
+    foreach ($rows as $r) { $ids[] = (int) $r->id; }
+    /* Μετρήσεις σε παρτίδες — ένα query το καθένα για όλη τη σελίδα. */
+    $svc = []; $tk = []; $pj = []; $owed = []; $afm = []; $doy = [];
+    if ($ids) {
+        foreach (Capsule::table('tblhosting')->whereIn('userid', $ids)->whereIn('domainstatus', ['Active', 'Suspended'])
+                 ->select('userid', Capsule::raw('count(*) c'))->groupBy('userid')->get() as $r) { $svc[(int) $r->userid] = (int) $r->c; }
+        foreach (Capsule::table('tbltickets')->whereIn('userid', $ids)->whereNotIn('status', ['Closed', 'Cancelled'])
+                 ->select('userid', Capsule::raw('count(*) c'))->groupBy('userid')->get() as $r) { $tk[(int) $r->userid] = (int) $r->c; }
+        foreach (Capsule::table('mod_cpm_projects')->whereIn('clientid', $ids)
+                 ->select('clientid', Capsule::raw('count(*) c'))->groupBy('clientid')->get() as $r) { $pj[(int) $r->clientid] = (int) $r->c; }
+        foreach (Capsule::table('tblinvoices')->whereIn('userid', $ids)->where('status', 'Unpaid')
+                 ->select('userid', Capsule::raw('sum(total) t'), Capsule::raw('count(*) c'))->groupBy('userid')->get() as $r) {
+            $owed[(int) $r->userid] = ['a' => (float) $r->t, 'c' => (int) $r->c];
+        }
+        foreach (Capsule::table('tblcustomfieldsvalues')->where('fieldid', 1)->whereIn('relid', $ids)->get(['relid', 'value']) as $r) { $afm[(int) $r->relid] = (string) $r->value; }
+        foreach (Capsule::table('tblcustomfieldsvalues')->where('fieldid', 82)->whereIn('relid', $ids)->get(['relid', 'value']) as $r) { $doy[(int) $r->relid] = (string) $r->value; }
+    }
+    $dec = function ($s) { return html_entity_decode((string) $s, ENT_QUOTES); };
+    $list = [];
+    foreach ($rows as $r) {
+        $cid = (int) $r->id;
+        $nm = $r->companyname ?: trim($r->firstname . ' ' . $r->lastname);
+        $list[] = ['id' => $cid, 'name' => $dec($nm), 'company' => $dec($r->companyname),
+            'first' => $dec($r->firstname), 'last' => $dec($r->lastname),
+            'email' => (string) $r->email, 'phone' => (string) $r->phonenumber,
+            'status' => (string) $r->status, 'active' => $r->status === 'Active',
+            'city' => $dec($r->city), 'country' => (string) $r->country, 'created' => $r->datecreated,
+            'afm' => html_entity_decode($afm[$cid] ?? '', ENT_QUOTES),
+            'doy' => html_entity_decode($doy[$cid] ?? '', ENT_QUOTES),
+            'services' => $svc[$cid] ?? 0, 'tickets' => $tk[$cid] ?? 0, 'projects' => $pj[$cid] ?? 0,
+            'owed' => round($owed[$cid]['a'] ?? 0, 2), 'owedCount' => $owed[$cid]['c'] ?? 0];
+    }
+    out(['clients' => $list, 'total' => $total, 'page' => $page, 'per' => $per,
+        'pages' => max(1, (int) ceil($total / $per)), 'counts' => $counts,
+        'canEdit' => cnp_has_cap($adminId, $FULL, 'clients.card.edit'),
+        'canNew' => cnp_has_cap($adminId, $FULL, 'clients.new')]);
+
+case 'client_get':                        // επεξεργάσιμα πεδία ενός πελάτη
+    $cid = (int) ($_GET['id'] ?? $in['id'] ?? 0);
+    $c = Capsule::table('tblclients')->where('id', $cid)->first();
+    if (!$c) { fail('client', 404); }
+    $cf = [];
+    foreach (Capsule::table('tblcustomfieldsvalues')->whereIn('fieldid', [1, 82, 88])->where('relid', $cid)->get(['fieldid', 'value']) as $r) {
+        $cf[(int) $r->fieldid] = html_entity_decode((string) $r->value, ENT_QUOTES);
+    }
+    $dec = function ($s) { return html_entity_decode((string) $s, ENT_QUOTES); };
+    out(['client' => ['id' => $cid, 'company' => $dec($c->companyname),
+        'first' => $dec($c->firstname), 'last' => $dec($c->lastname),
+        'email' => (string) $c->email, 'phone' => (string) $c->phonenumber,
+        'address' => $dec($c->address1), 'city' => $dec($c->city),
+        'postcode' => (string) $c->postcode, 'country' => (string) $c->country,
+        'status' => (string) $c->status, 'afm' => $cf[1] ?? (string) $c->tax_id,
+        'doy' => $cf[82] ?? '', 'mobile' => $cf[88] ?? '']]);
+
+case 'client_update':                     // αποθήκευση αλλαγών πελάτη (incl. status + ΑΦΜ/ΔΟΥ)
+    $cid = (int) ($in['id'] ?? 0);
+    $c = Capsule::table('tblclients')->where('id', $cid)->first();
+    if (!$c) { fail('client', 404); }
+    $upd = ['clientid' => $cid];
+    $has = false;
+    foreach (['companyname' => 'company', 'firstname' => 'first', 'lastname' => 'last',
+              'email' => 'email', 'address1' => 'address', 'city' => 'city',
+              'postcode' => 'postcode', 'phonenumber' => 'phone'] as $col => $k) {
+        if (array_key_exists($k, $in)) { $upd[$col] = trim((string) $in[$k]); $has = true; }
+    }
+    if (array_key_exists('country', $in)) { $upd['country'] = strtoupper(substr(trim((string) $in['country']), 0, 2)) ?: 'GR'; $has = true; }
+    if (array_key_exists('status', $in) && in_array($in['status'], ['Active', 'Inactive', 'Closed'], true)) { $upd['status'] = $in['status']; $has = true; }
+    if (isset($upd['email']) && $upd['email'] !== '' && !filter_var($upd['email'], FILTER_VALIDATE_EMAIL)) { fail('Μη έγκυρο email'); }
+    /* ΑΦΜ (custom #1 + tax_id) & ΔΟΥ (#82) & Κινητό (#88) μέσω customfields. */
+    $cf = [];
+    if (array_key_exists('afm', $in)) { $a = preg_replace('/\s+/', '', (string) $in['afm']); $cf[1] = $a; $upd['tax_id'] = preg_replace('/\D+/', '', $a); $has = true; }
+    if (array_key_exists('doy', $in)) { $cf[82] = trim((string) $in['doy']); $has = true; }
+    if (array_key_exists('mobile', $in)) { $cf[88] = trim((string) $in['mobile']); $has = true; }
+    if ($cf) { $upd['customfields'] = base64_encode(serialize($cf)); }
+    if (!$has) { fail('Τίποτα προς αλλαγή'); }
+    $res = localAPI('UpdateClient', $upd, 'pdelis');
+    if (($res['result'] ?? '') !== 'success') { fail('WHMCS: ' . ($res['message'] ?? 'αποτυχία ενημέρωσης')); }
+    logActivity('CloudOn PM: ενημέρωση στοιχείων πελάτη #' . $cid . ' από admin ' . $adminId);
+    out(['ok' => true, 'id' => $cid, 'name' => (Capsule::table('tblclients')->where('id', $cid)->value('companyname')
+        ?: trim($upd['firstname'] ?? $c->firstname) . ' ' . trim($upd['lastname'] ?? $c->lastname))]);
 
 case 'client_search':
     $q = trim($_GET['q'] ?? '');
