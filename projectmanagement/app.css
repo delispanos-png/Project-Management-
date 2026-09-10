@@ -2142,17 +2142,52 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .ph-modn{min-width:0;flex:1}
 .ph-mod.on .ph-modn{color:var(--ink);font-weight:600}
 .ph-mod .switch{flex:0 0 42px}
+/* Τεμάχια δίπλα στον διακόπτη — η στήλη «Τεμ» του φύλλου κοστολόγησης. */
+.ph-modq{flex:0 0 58px;width:58px;text-align:right;font-variant-numeric:tabular-nums}
+.ph-mod:not(.on) .ph-modq{opacity:.45}
 .ph-mini{width:82px;padding:4px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);
   color:var(--ink);font:inherit;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
 .ph-mini:focus{outline:none;border-color:var(--brand)}
 
+/* Ο διακανονισμός: μία γραμμή ανά δόση — τύπος, ποσό, πότε. */
+.ph-plan{margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
+.ph-plan-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;
+  font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+.ph-plan-sum{font-weight:600;letter-spacing:0;text-transform:none;font-size:12px;color:var(--mut)}
+.ph-plan-sum.ok{color:var(--ok)}
+.ph-plan-r{display:grid;grid-template-columns:64px 96px 1fr 30px;gap:8px;align-items:center;margin-bottom:7px}
+.ph-plan-r .ph-mini{width:100%}
+.ph-plan-x{border:none;background:none;cursor:pointer;color:var(--mut);font-size:14px;line-height:1;
+  padding:6px;border-radius:8px}
+.ph-plan-x:hover{color:var(--bad);background:rgba(226,81,95,.1)}
+@media (max-width:700px){.ph-plan-r{grid-template-columns:56px 80px 1fr 26px;gap:6px}}
+/* Στην καρτέλα «Έγγραφο» τα πεδία μαζεύονται σε μια γραμμή: η προσφορά θέλει σελίδα. */
+.ph-docf{margin-bottom:10px}
+.ph-docf > summary{cursor:pointer;padding:11px 15px;font-size:11.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--mut);list-style:none;user-select:none}
+.ph-docf > summary::-webkit-details-marker{display:none}
+.ph-docf > summary::before{content:"▸";display:inline-block;width:14px;color:var(--brand)}
+.ph-docf[open] > summary::before{content:"▾"}
+.ph-docf > summary:hover{color:var(--ink)}
+/* Περιοχή μέσα στην καρτέλα: τίτλος + τα πεδία της. Η δεύτερη και μετά χωρίζονται
+   με λεπτή γραμμή, ώστε «εκπτώσεις» ή «πληρωμή» να εντοπίζονται με μια ματιά. */
+.ph-sec{margin:0 0 9px}
+.ph-fields + .ph-sec{margin-top:20px;padding-top:15px;border-top:1px solid var(--line)}
+/* Μικρή διευκρίνιση κάτω από ένα πεδίο — π.χ. ότι ο 1ος χρήστης δεν χρεώνεται. */
+.ph-fields .ph-hint{display:block;margin-top:4px;font-size:11px;line-height:1.35;color:var(--mut)}
 .ph-rates{display:grid;grid-template-columns:1fr 118px 118px;gap:0 12px;align-items:center;font-size:13px}
+/* Ο τιμοκατάλογος έχει τέσσερις στήλες: τιμή, ετήσια αναπροσαρμογή, έκπτωση. */
+.ph-rates.r4{grid-template-columns:1fr 96px 128px 96px}
 .ph-rates .ph-rh{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);
   padding:0 0 6px;border-bottom:1px solid var(--line);margin-bottom:5px}
 .ph-rates .ph-rl{padding:5px 0;min-width:0}
 .ph-rates .n{text-align:right;padding:5px 0}
 .ph-rates .ph-rh.n{padding:0 0 6px}
 .ph-rates .ph-mini{width:100%}
+/* Η γραμμή που δουλεύεις, φωτισμένη — οι σκιές γεμίζουν τα κενά του πλέγματος. */
+.ph-rates .hot{background:rgba(0,144,221,.09);
+  box-shadow:6px 0 0 rgba(0,144,221,.09),-6px 0 0 rgba(0,144,221,.09)}
+.ph-rates .ph-rl.hot{color:var(--ink);font-weight:700}
 
 .ph-doc{margin-top:12px}
 .ph-frame{width:100%;height:520px;border:1px solid var(--line);border-radius:var(--r);background:#eef1f5;display:block}
@@ -2175,6 +2210,7 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
   .ph-sum{flex:1 1 100%;order:-1;text-align:center}
   .ph-foot .btn{flex:1 1 auto}
   .ph-rates{grid-template-columns:1fr 92px 84px;gap:0 8px;font-size:12.5px}
+  .ph-rates.r4{grid-template-columns:1fr 72px 84px 72px;gap:0 6px}
 }
 
 /* ═════════ 🆘 Ζήτα βοήθεια ═════════ */

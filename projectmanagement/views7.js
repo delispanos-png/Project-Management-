@@ -48,6 +48,7 @@ async function openPharmacy(offerId, pre) {
     clientName: (pre && pre.name) || '',
     tab: 'setup',
     cfg: {p: Object.assign({}, defs.defaults.p), yn: Object.assign({}, defs.defaults.yn),
+      q: Object.assign({}, defs.defaults.q || {}), rd: Object.assign({}, defs.defaults.rd || {}),
       r: Object.assign({}, defs.defaults.r), sel: 2,
       ed: defs.editions.map(e => ({price: e.price, extraUser: e.extraUser})),
       o: {seller: defs.me || '', city: 'Αθήνα', vat: 24, validDays: 30, prepay: 50, discount: 0,
@@ -95,11 +96,12 @@ async function openPharmacy(offerId, pre) {
       </div>
       <div id="phPick"></div>
       <div class="td-seg ph-tabs">
-        ${[['setup', 'Παράμετροι'], ['modules', 'Modules'], ['rates', 'Τιμοκατάλογος'], ['doc', 'Έγγραφο']]
+        ${[['setup', 'Παράμετροι'], ['modules', 'Modules'], ['rates', 'Τιμοκατάλογος'],
+           ['pay', 'Πληρωμή'], ['doc', 'Έγγραφο']]
           .map(([k, l]) => `<button data-tab="${k}" class="${st.tab === k ? 'on' : ''}">${l}</button>`).join('')}
       </div>
     </div>
-    <div id="phCards" class="ph-cards"></div>
+    <div id="phCards" class="ph-cards"${st.tab === 'doc' ? ' hidden' : ''}></div>
     <div id="phPane"></div>
     <div class="ph-foot">
       <div class="mut ph-sum" id="phSum"></div>
@@ -298,25 +300,60 @@ async function openPharmacy(offerId, pre) {
         + (d ? ` − έκπτωση ${phMoney(d)}` : '')
         + ` → <b style="color:var(--ink)">${phMoney(st.calc.amount)}</b> προ ΦΠΑ`;
     }
+    /* Οι ώρες τηλεφωνικής υποστήριξης δείχνουν αμέσως τι κοστίζουν — αλλιώς έπρεπε να
+       κατέβεις στο έντυπο για να δεις το αποτέλεσμα μιας αλλαγής. */
+    const sup = $('[data-hint="M6"]', body);
+    if (sup && st.calc.buckets) {
+      let v = null;
+      st.calc.buckets.forEach(b => (b.rows || []).forEach(r => { if (+r.k === 29) { v = +r.amount; } }));
+      if (v !== null) {
+        sup.textContent = `${st.cfg.p.M6} ώρες → ${phMoney(v)} / έτος (με το πάγιο ανά εταιρεία & υποκατάστημα)`;
+      }
+    }
     if (st.tab === 'doc') { docPane(); }
+    if (st.tab === 'pay') { planSum(); }
   }
+
+  /* Μια περιοχή ανά τίτλο, με τη σειρά που έρχονται τα πεδία. */
+  const byGroup = (list, key, dflt) => {
+    const out = [];
+    list.forEach(d => {
+      const t = (typeof key === 'function' ? key(d) : d[key]) || dflt;
+      let g = out.find(x => x.t === t);
+      if (!g) { g = {t, items: []}; out.push(g); }
+      g.items.push(d);
+    });
+    return out;
+  };
 
   /* ── τα φύλλα ── */
   function pane() {
     const el = $('#phPane', body);
     if (st.tab === 'setup') {
-      el.innerHTML = `<div class="card"><div class="card-b">
-        <label class="lbl" style="margin:0 0 9px">Παράμετροι εγκατάστασης</label>
-        <div class="ph-fields">${defs.params.map(d => {
-          const v = st.cfg.p[d.cell];
-          const val = d.type === 'pct' ? Math.round(v * 1000) / 10 : v;
-          return `<div class="field"><label>${esc(d.lab)}</label>
-            <input class="inp" type="number" min="0" step="${d.type === 'pct' ? '1' : '1'}"
-              data-p="${d.cell}" data-k="${d.type}" value="${val}">${d.type === 'pct' ? '<span class="ph-pct">%</span>' : ''}</div>`;
-        }).join('')}</div></div></div>`;
+      const fld = d => {
+        const v = st.cfg.p[d.cell];
+        const val = d.type === 'pct' ? Math.round(v * 1000) / 10 : v;
+        return `<div class="field"><label>${esc(d.lab)}</label>
+          <input class="inp" type="number" min="0" step="1"
+            data-p="${d.cell}" data-k="${d.type}" value="${val}">${d.type === 'pct' ? '<span class="ph-pct">%</span>' : ''}
+          ${d.hint ? `<span class="ph-hint" data-hint="${d.cell}">${esc(d.hint)}</span>` : ''}</div>`;
+      };
+      el.innerHTML = `<div class="card"><div class="card-b">${
+        byGroup(defs.params, 'grp', 'Παράμετροι εγκατάστασης').map(g =>
+          `<label class="lbl ph-sec">${esc(g.t)}</label>
+           <div class="ph-fields">${g.items.map(fld).join('')}</div>`).join('')
+      }</div></div>`;
       $$('[data-p]', el).forEach(inp => inp.oninput = () => {
         const v = parseFloat(inp.value); const n = isFinite(v) ? v : 0;
-        st.cfg.p[inp.dataset.p] = inp.dataset.k === 'pct' ? n / 100 : n;
+        const cell = inp.dataset.p, prev = st.cfg.p[cell];
+        st.cfg.p[cell] = inp.dataset.k === 'pct' ? n / 100 : n;
+        /* Οι ώρες τηλεφωνικής ακολουθούν τους χρήστες (2 ανά χρήστη) όσο κανείς δεν τις
+           έχει πειράξει· μόλις γράψεις δικό σου νούμερο, μένει αυτό. */
+        if (cell === 'I4' && +st.cfg.p.M6 === +prev * 2) {
+          st.cfg.p.M6 = n * 2;
+          const hi = $('[data-p="M6"]', el);
+          if (hi) { hi.value = n * 2; }
+        }
         touch();
       });
     } else if (st.tab === 'modules') {
@@ -329,12 +366,47 @@ async function openPharmacy(offerId, pre) {
           <span class="ph-gn" data-gn="${esc(g.title)}">${on}/${g.items.length}</span></div>
         ${g.items.map(it => `<label class="ph-mod${st.cfg.yn[it.cell] ? ' on' : ''}">
           <span class="ph-modn">${esc(it.lab)}</span>
+          <input class="ph-mini ph-modq" type="number" min="0" step="1" data-q="${it.cell}"
+            placeholder="τεμ" title="Τεμάχια — 0 κλείνει την υπηρεσία"
+            value="${st.cfg.yn[it.cell] ? (((st.cfg.q && +st.cfg.q[it.cell]) > 0) ? st.cfg.q[it.cell] : 1) : ''}">
           <span class="switch"><input type="checkbox" data-yn="${it.cell}" data-grp="${esc(g.title)}"
             ${st.cfg.yn[it.cell] ? 'checked' : ''}><span></span></span></label>`).join('')}
       </div></div>`; }).join('')}</div>`;
+      /* Τα τεμάχια δίπλα στον διακόπτη: η στήλη «Τεμ» του φύλλου. Κενό = ό,τι λέει ο
+         τύπος (π.χ. ανά εταιρεία), ώστε οι παλιές προσφορές να μένουν ακριβώς ίδιες. */
+      $$('[data-q]', el).forEach(inp => {
+        inp.onclick = e => e.stopPropagation();
+        inp.oninput = () => {
+          const v = parseFloat(inp.value); const n = isFinite(v) && v > 0 ? v : 0;
+          const cell = inp.dataset.q;
+          if (!st.cfg.q) { st.cfg.q = {}; }
+          st.cfg.q[cell] = n;
+          /* Η ποσότητα είναι ο διακόπτης: 0 τεμάχια σημαίνει «δεν το δίνουμε». */
+          const want = n > 0 ? 1 : 0;
+          if (st.cfg.yn[cell] !== want && inp.value !== '') {
+            st.cfg.yn[cell] = want;
+            const ch = $(`[data-yn="${cell}"]`, el);
+            if (ch) {
+              ch.checked = !!want;
+              ch.closest('.ph-mod').classList.toggle('on', !!want);
+              const box = ch.closest('.card-b'); const cnt = $('.ph-gn', box);
+              if (cnt) { cnt.textContent = $$('[data-yn]:checked', box).length + '/' + $$('[data-yn]', box).length; }
+            }
+          }
+          touch();
+        };
+      });
       $$('[data-yn]', el).forEach(ch => ch.onchange = () => {
         st.cfg.yn[ch.dataset.yn] = ch.checked ? 1 : 0;
         ch.closest('.ph-mod').classList.toggle('on', ch.checked);
+        /* Ανοίγεις μια υπηρεσία → μία άδεια. Θες κι άλλες, ανεβάζεις τον αριθμό. */
+        if (!st.cfg.q) { st.cfg.q = {}; }
+        const qi = $(`[data-q="${ch.dataset.yn}"]`, el);
+        if (ch.checked) {
+          if (!(+st.cfg.q[ch.dataset.yn] > 0)) { st.cfg.q[ch.dataset.yn] = 1; if (qi) { qi.value = 1; } }
+        } else {
+          st.cfg.q[ch.dataset.yn] = 0; if (qi) { qi.value = ''; }
+        }
         const box = ch.closest('.card-b');
         const cnt = $('.ph-gn', box);
         if (cnt) { cnt.textContent = $$('[data-yn]:checked', box).length + '/' + $$('[data-yn]', box).length; }
@@ -343,15 +415,25 @@ async function openPharmacy(offerId, pre) {
     } else if (st.tab === 'rates') {
       el.innerHTML = `<div class="card"><div class="card-b">
         <label class="lbl" style="margin:0 0 4px">Τιμοκατάλογος</label>
-        <div class="mut" style="font-size:11.5px;margin-bottom:11px">Οι αλλαγές ισχύουν μόνο για αυτή την προσφορά — ο γενικός τιμοκατάλογος δεν πειράζεται.</div>
-        <div class="ph-rates">
-          <div class="ph-rh">Περιγραφή</div><div class="ph-rh n">Τιμή €</div><div class="ph-rh n">Έκπτωση %</div>
+        <div class="mut" style="font-size:11.5px;margin-bottom:11px;line-height:1.5">
+          Οι αλλαγές ισχύουν μόνο για αυτή την προσφορά — ο γενικός τιμοκατάλογος δεν πειράζεται.<br>
+          <b>Ετήσια αναπροσαρμογή</b>: το ποσοστό της τιμής που ξαναχρεώνεται κάθε χρόνο ως υποστήριξη
+          (Courier 550 € → 30% = 165 € / έτος). <b>Έκπτωση</b>: μειώνει την ίδια την τιμή.
+        </div>
+        <div class="ph-rates r4">
+          <div class="ph-rh">Περιγραφή</div><div class="ph-rh n">Τιμή €</div>
+          <div class="ph-rh n">Ετήσια αναπροσαρμογή %</div><div class="ph-rh n">Έκπτωση %</div>
           ${defs.rates.map(d => `
             <div class="ph-rl">${esc(d.lab)}</div>
             <div class="n"><input class="ph-mini" type="number" min="0" step="1"
               data-r="${d.cell}" data-k="num" value="${st.cfg.r[d.cell]}"></div>
+            <div class="n">${d.adj
+              ? `<input class="ph-mini" type="number" min="0" max="100" step="1"
+                  data-r="${d.adj}" data-k="pct" title="Ετήσια αναπροσαρμογή — % της τιμής, κάθε χρόνο"
+                  value="${Math.round(((st.cfg.r[d.adj]) || 0) * 1000) / 10}">`
+              : '<span class="mut">—</span>'}</div>
             <div class="n"><input class="ph-mini" type="number" min="0" max="99" step="1"
-              data-rd="${d.cell}" title="Έκπτωση % στη γραμμή"
+              data-rd="${d.cell}" title="Έκπτωση % επί της τιμής"
               value="${Math.round(((st.cfg.rd && st.cfg.rd[d.cell]) || 0) * 1000) / 10}"></div>`).join('')}
         </div>
         <label class="lbl" style="margin-top:16px">Τιμή έκδοσης & επιπλέον χρήστη</label>
@@ -387,19 +469,40 @@ async function openPharmacy(offerId, pre) {
         st.cfg.ed[+inp.dataset.ed][inp.dataset.f] = isFinite(v) ? v : 0;
         touch();
       });
+      /* Ο τιμοκατάλογος είναι μακρύς και οι τιμές είναι δεξιά, το είδος αριστερά: όταν
+         μπαίνεις σε ένα κουτί, φωτίζεται όλη η γραμμή για να ξέρεις τι αλλάζεις. */
+      const rowOf = inp => {
+        let c = inp.parentElement;
+        while (c && !c.classList.contains('ph-rl')) { c = c.previousElementSibling; }
+        const cells = [];
+        while (c) {
+          cells.push(c);
+          c = c.nextElementSibling;
+          if (!c || c.classList.contains('ph-rl') || c.classList.contains('ph-rh')) { break; }
+        }
+        return cells;
+      };
+      $$('.ph-rates input', el).forEach(inp => {
+        inp.onfocus = () => rowOf(inp).forEach(c => c.classList.add('hot'));
+        inp.onblur = () => $$('.ph-rates .hot', el).forEach(c => c.classList.remove('hot'));
+      });
       /* ── Βασικός (γενικός) τιμοκατάλογος — μόνο διαχειριστής ── */
       { const bs = $('#phBaseSave', el); if (bs) bs.onclick = async () => {
-        if (!(await window.CNP.cnpConfirm('Να γίνουν οι ΤΡΕΧΟΥΣΕΣ τιμές ο βασικός τιμοκατάλογος για ΟΛΕΣ τις νέες προσφορές;\n\nΟι ήδη αποθηκευμένες προσφορές ΔΕΝ αλλάζουν.',
+        if (!(await window.CNP.cnpConfirm('Να γίνουν οι ΤΡΕΧΟΥΣΕΣ τιμές ΚΑΙ οι εκπτώσεις (CloudOn / υπηρεσιών / Soft1) ο βασικός τιμοκατάλογος για ΟΛΕΣ τις νέες προσφορές;\n\nΟι ήδη αποθηκευμένες προσφορές ΔΕΝ αλλάζουν.',
           {ok: '💾 Αποθήκευση', cancel: 'Άκυρο'}))) { return; }
         bs.disabled = true;
-        const r = await api('pharmacy_catalog_save', {rates: st.cfg.r, editions: st.cfg.ed}).catch(e => ({err: e && e.message}));
+        /* Η πολιτική εκπτώσεων ταξιδεύει μαζί με τις τιμές: αλλιώς κάθε νέα προσφορά
+           ξεκινούσε με άλλα ποσοστά από αυτά που μόλις όρισε ο διαχειριστής. */
+        const disc = {L4: st.cfg.p.L4, J8: st.cfg.p.J8, K8: st.cfg.p.K8};
+        const r = await api('pharmacy_catalog_save',
+          {rates: st.cfg.r, editions: st.cfg.ed, disc, rd: st.cfg.rd || {}}).catch(e => ({err: e && e.message}));
         bs.disabled = false;
         if (r && r.err) { toast(r.err, true); return; }
         PH = null;                       // η επόμενη προσφορά ξεκινά με τις νέες προεπιλογές
         toast('✅ Ο βασικός τιμοκατάλογος αποθηκεύτηκε');
       }; }
       { const br = $('#phBaseReset', el); if (br) br.onclick = async () => {
-        if (!(await window.CNP.cnpConfirm('Επαναφορά στις εργοστασιακές τιμές του τιμοκαταλόγου;', {ok: '↺ Επαναφορά', cancel: 'Άκυρο', danger: true}))) { return; }
+        if (!(await window.CNP.cnpConfirm('Επαναφορά στις εργοστασιακές τιμές;\n\nΜηδενίζονται και οι εκπτώσεις: ανά γραμμή τιμοκαταλόγου, και τα τρία ποσοστά (αδειών CloudOn, υπηρεσιών, αδειών Soft1) γυρνούν στα εργοστασιακά.', {ok: '↺ Επαναφορά', cancel: 'Άκυρο', danger: true}))) { return; }
         const r = await api('pharmacy_catalog_reset', {}).catch(e => ({err: e && e.message}));
         if (r && r.err) { toast(r.err, true); return; }
         PH = null;
@@ -407,42 +510,160 @@ async function openPharmacy(offerId, pre) {
         Object.assign(defs, nd);
         st.cfg.r = Object.assign({}, nd.defaults.r);
         st.cfg.ed = nd.editions.map(e => ({price: e.price, extraUser: e.extraUser}));
+        st.cfg.rd = Object.assign({}, nd.defaults.rd || {});   // εκπτώσεις ανά γραμμή
+        ['L4', 'J8', 'K8'].forEach(k => { st.cfg.p[k] = nd.defaults.p[k]; });
         pane(); await recalc();
-        toast('↺ Επαναφορά εργοστασιακών τιμών');
+        toast('↺ Επαναφορά εργοστασιακών τιμών & εκπτώσεων');
       }; }
+    } else if (st.tab === 'pay') {
+      payPane();
     } else {
       docPane();
     }
   }
 
+  /* [κλειδί, ετικέτα, τύπος, επιλογές|null, περιοχή] — οι περιοχές είναι ο λόγος που ο
+     διακανονισμός πληρωμής βρίσκεται με μια ματιά και δεν χάνεται μέσα σε 18 κουτιά. */
+  const F_CLIENT = 'Στοιχεία πελάτη', F_DOC = 'Στοιχεία εγγράφου', F_PAY = 'Οικονομικοί όροι & πληρωμή';
   const DOC_FIELDS = [
-    ['attn', 'Υπόψη (ονοματεπώνυμο)', 'text'],
-    ['greeting', 'Χαιρετισμός επιστολής', 'text'], ['cphone', 'Τηλέφωνο πελάτη', 'text'],
-    ['cemail', 'Email πελάτη', 'text'], ['address', 'Διεύθυνση έδρας', 'text'],
-    ['doy', 'Δ.Ο.Υ.', 'text'], ['protocol', 'Αριθμός πρωτοκόλλου', 'text'],
-    ['date', 'Ημερομηνία', 'date'], ['city', 'Πόλη', 'text'],
-    ['seller', 'Υπογράφων', 'text'], ['acceptAttn', 'Υπόψη — έντυπο αποδοχής', 'text'],
-    ['discount', 'Επιπλέον έκπτωση (€)', 'num'], ['vat', 'ΦΠΑ %', 'num'],
-    ['validDays', 'Ισχύς (ημέρες)', 'num'], ['prepay', 'Προκαταβολή %', 'num'],
+    ['attn', 'Υπόψη (ονοματεπώνυμο)', 'text', null, F_CLIENT],
+    ['cphone', 'Τηλέφωνο πελάτη', 'text', null, F_CLIENT],
+    ['cemail', 'Email πελάτη', 'text', null, F_CLIENT],
+    ['address', 'Διεύθυνση έδρας', 'text', null, F_CLIENT],
+    ['doy', 'Δ.Ο.Υ.', 'text', null, F_CLIENT],
+    ['city', 'Πόλη', 'text', null, F_CLIENT],
+
+    ['protocol', 'Αριθμός πρωτοκόλλου', 'text', null, F_DOC],
+    ['date', 'Ημερομηνία', 'date', null, F_DOC],
+    ['seller', 'Υπογράφων', 'text', null, F_DOC],
+    ['acceptAttn', 'Υπόψη — έντυπο αποδοχής', 'text', null, F_DOC],
+    ['greeting', 'Χαιρετισμός επιστολής', 'text', null, F_DOC],
+    ['validDays', 'Ισχύς (ημέρες)', 'num', null, F_DOC],
+
+    ['discount', 'Επιπλέον έκπτωση (€)', 'num', null, F_PAY],
+    ['vat', 'ΦΠΑ %', 'num', null, F_PAY],
+    ['payMethod', 'Τρόπος εξόφλησης', 'sel',
+      ['Τραπεζική κατάθεση', 'Μετρητά', 'Κάρτα (POS / e-banking)', 'Επιταγή'], F_PAY],
+    ['subCycle', 'Χρέωση ετήσιας συνδρομής', 'sel',
+      ['Ετησίως προκαταβολικά', 'Ανά εξάμηνο', 'Μηνιαία'], F_PAY],
   ];
 
-  async function docPane() {
-    const el = $('#phPane', body);
-    if (!el.querySelector('#phDocFields')) {
-      el.innerHTML = `<div class="card"><div class="card-b">
-        <label class="lbl" style="margin:0 0 9px">Στοιχεία εγγράφου</label>
-        <div class="ph-fields" id="phDocFields">${DOC_FIELDS.map(([k, lab, t]) =>
-          `<div class="field"><label>${esc(lab)}</label>
-            <input class="inp" type="${t === 'date' ? 'date' : (t === 'num' ? 'number' : 'text')}"
-              data-o="${k}" data-k="${t}" value="${esc(st.cfg.o[k] === undefined ? '' : st.cfg.o[k])}"></div>`).join('')}
-        </div></div></div>
-        <div class="ph-doc" id="phDoc"><div class="skel" style="height:300px"></div></div>`;
-      $$('[data-o]', el).forEach(inp => inp.oninput = () => {
+  /* ── Διακανονισμός πληρωμής ──
+     Κάθε συμφωνία έχει άλλο ρυθμό: 50/50, προκαταβολή και τρεις δόσεις, ένα σταθερό ποσό
+     στην παράδοση. Ο πίνακας δέχεται ό,τι κλείσει ο πωλητής και το γράφει στο έντυπο. */
+  const planRow = (r, x) => `<div class="ph-plan-r" data-x="${x}">
+    <select class="ph-mini" data-pl="t">
+      <option value="pct"${r.t !== 'eur' ? ' selected' : ''}>%</option>
+      <option value="eur"${r.t === 'eur' ? ' selected' : ''}>€</option>
+    </select>
+    <input class="ph-mini" type="number" min="0" step="any" data-pl="v" value="${+r.v || 0}">
+    <input class="inp" type="text" data-pl="w" value="${esc(r.w || '')}"
+      placeholder="π.χ. 60 ημέρες μετά την παράδοση">
+    <button type="button" class="ph-plan-x" title="Διαγραφή δόσης">✕</button>
+  </div>`;
+
+  const planBlock = () => `<div class="ph-plan" id="phPlan">
+    <div class="ph-plan-h"><span>Δόσεις πληρωμής</span><span class="ph-plan-sum" id="phPlanSum"></span></div>
+    <div id="phPlanRows">${(st.cfg.o.plan || []).map(planRow).join('')}</div>
+    <button type="button" class="btn btn-o btn-sm" id="phPlanAdd">+ Δόση</button>
+  </div>`;
+
+  /* Τι αθροίζουν οι δόσεις — πράσινο όταν καλύπτουν ακριβώς την αξία της προσφοράς. */
+  function planSum() {
+    const el = $('#phPlanSum', body);
+    if (!el) { return; }
+    const total = (st.calc && st.calc.amount) || 0;
+    let sum = 0;
+    (st.cfg.o.plan || []).forEach(r => { sum += r.t === 'eur' ? (+r.v || 0) : total * (+r.v || 0) / 100; });
+    const rest = total - sum;
+    el.textContent = phMoney(sum) + (Math.abs(rest) > 0.01 ? ' · υπόλοιπο ' + phMoney(rest) : ' · καλύπτει το σύνολο');
+    el.classList.toggle('ok', Math.abs(rest) <= 0.01);
+  }
+
+  function wirePlan(el) {
+    const read = () => {
+      st.cfg.o.plan = $$('.ph-plan-r', el).map(r => ({
+        t: $('[data-pl="t"]', r).value === 'eur' ? 'eur' : 'pct',
+        v: parseFloat($('[data-pl="v"]', r).value) || 0,
+        w: $('[data-pl="w"]', r).value,
+      }));
+      planSum();
+    };
+    const redraw = () => {
+      const box = $('#phPlanRows', el);
+      if (box) { box.innerHTML = (st.cfg.o.plan || []).map(planRow).join(''); wirePlan(el); }
+      planSum();
+      clearTimeout(phTimer);
+      phTimer = setTimeout(async () => { await recalc(); renderDoc(); }, 320);
+    };
+    $$('.ph-plan-r [data-pl]', el).forEach(inp => {
+      inp.oninput = () => { read(); clearTimeout(phTimer);
+        phTimer = setTimeout(async () => { await recalc(); renderDoc(); }, 400); };
+      inp.onchange = inp.oninput;
+    });
+    $$('.ph-plan-x', el).forEach(b => b.onclick = () => {
+      const x = +b.closest('.ph-plan-r').dataset.x;
+      st.cfg.o.plan = (st.cfg.o.plan || []).filter((r, i) => i !== x);
+      redraw();
+    });
+    const add = $('#phPlanAdd', el);
+    if (add) { add.onclick = () => {
+      st.cfg.o.plan = (st.cfg.o.plan || []).concat([{t: 'pct', v: 0, w: ''}]);
+      redraw();
+    }; }
+  }
+
+  const dfld = ([k, lab, t, opts]) => {
+    const v = st.cfg.o[k] === undefined ? '' : st.cfg.o[k];
+    const ctl = t === 'sel'
+      ? `<select class="inp" data-o="${k}" data-k="sel">${opts.map(o =>
+          `<option${String(o) === String(v) ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+      : `<input class="inp" type="${t === 'date' ? 'date' : (t === 'num' ? 'number' : 'text')}"
+          data-o="${k}" data-k="${t}" value="${esc(v)}">`;
+    return `<div class="field"><label>${esc(lab)}</label>${ctl}</div>`;
+  };
+
+  /* Κάθε πεδίο του εγγράφου ξαναγράφει τη ρύθμιση και ανανεώνει την προεπισκόπηση. */
+  function wireDocFields(el) {
+    $$('[data-o]', el).forEach(inp => {
+      const upd = () => {
         const k = inp.dataset.k;
         st.cfg.o[inp.dataset.o] = k === 'num' ? (parseFloat(inp.value) || 0) : inp.value;
         clearTimeout(phTimer);
         phTimer = setTimeout(async () => { await recalc(); renderDoc(); }, 320);
-      });
+      };
+      inp.oninput = upd;
+      inp.onchange = upd;          // τα select δεν στέλνουν πάντα input
+    });
+  }
+
+  /* ── Η καρτέλα «Πληρωμή»: όροι και δόσεις μαζί, εκεί που τα ψάχνεις ── */
+  function payPane() {
+    const el = $('#phPane', body);
+    el.innerHTML = `<div class="card"><div class="card-b">
+      <label class="lbl ph-sec">Οικονομικοί όροι</label>
+      <div class="ph-fields">${DOC_FIELDS.filter(d => d[4] === F_PAY).map(dfld).join('')}</div>
+      ${planBlock()}
+    </div></div>`;
+    wireDocFields(el);
+    wirePlan(el);
+    planSum();
+  }
+
+  async function docPane() {
+    const el = $('#phPane', body);
+    if (!el.querySelector('#phDocFields')) {
+      el.innerHTML = `<details class="card ph-docf">
+        <summary>Στοιχεία εγγράφου &amp; οικονομικοί όροι — πάτα για επεξεργασία</summary>
+        <div class="card-b" id="phDocFields">${
+        byGroup(DOC_FIELDS.filter(d => d[4] !== F_PAY), d => d[4], 'Στοιχεία εγγράφου').map(g =>
+          `<label class="lbl ph-sec">${esc(g.t)}</label>
+           <div class="ph-fields">${g.items.map(dfld).join('')}</div>`).join('')
+      }</div></details>
+        <div class="ph-doc" id="phDoc"><div class="skel" style="height:300px"></div></div>`;
+      { const dt = el.querySelector('.ph-docf');
+        if (dt) { dt.ontoggle = () => renderDoc(); } }
+      wireDocFields(el);
     }
     renderDoc();
   }
@@ -466,17 +687,28 @@ async function openPharmacy(offerId, pre) {
       + '<base href="/project/">'
       + '<title>' + esc('Προσφορά — ' + (st.clientName || 'PharmacyOne')) + '</title>'
       + '<style>' + (r.css || '') + '</style></head><body>' + r.html + '</body></html>';
-    /* Δεκατρείς σελίδες Α4 δεν ξετυλίγονται μέσα σε πίνακα — το πλαίσιο γίνεται
-       αναγνώστης εγγράφου με δική του κύλιση, ώστε τα κουμπιά να μένουν ορατά. */
-    fr.style.height = Math.round(window.innerHeight * (window.innerWidth < 700 ? 0.66 : 0.6)) + 'px';
+    /* Δεκαοκτώ σελίδες Α4 δεν ξετυλίγονται μέσα σε πίνακα — το πλαίσιο γίνεται
+       αναγνώστης εγγράφου με δική του κύλιση, ώστε τα κουμπιά να μένουν ορατά. Με τα
+       πεδία κλειστά παίρνει σχεδόν όλο το ύψος: εκεί διαβάζεις την προσφορά. */
+    const openF = !!body.querySelector('.ph-docf[open]');
+    const f = window.innerWidth < 700 ? (openF ? 0.6 : 0.72) : (openF ? 0.58 : 0.82);
+    fr.style.height = Math.round(window.innerHeight * f) + 'px';
+    /* Το srcdoc φορτώνει ασύγχρονα — περίμενέ το, αλλιώς η εκτύπωση βρίσκει άδειο πλαίσιο. */
+    await new Promise(done => {
+      let fired = false;
+      const ok = () => { if (!fired) { fired = true; done(); } };
+      fr.addEventListener('load', ok, {once: true});
+      setTimeout(ok, 1500);
+    });
   }
 
-  function printDoc() {
+  async function printDoc() {
+    /* Αν τυπώσεις από άλλη καρτέλα, το πλαίσιο κρατά παλιό έγγραφο: ξαναφτιάξ' το. */
+    if (st.tab !== 'doc') { st.tab = 'doc'; shell(); paintNumbers(); }
+    await recalc();
+    await renderDoc();
     const fr = body.querySelector('.ph-frame');
-    if (!fr || !fr.contentWindow) {
-      toast('Άνοιξε πρώτα την καρτέλα «Έγγραφο»', true);
-      st.tab = 'doc'; shell(); paintNumbers(); return;
-    }
+    if (!fr || !fr.contentWindow) { toast('Δεν παρήχθη το έγγραφο — δοκίμασε ξανά', true); return; }
     fr.contentWindow.focus();
     fr.contentWindow.print();
   }

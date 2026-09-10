@@ -4726,7 +4726,8 @@ case 'create_quote':
    διαφέρει η τιμή της προσφοράς από τους αριθμούς που διαβάζει ο πελάτης. */
 case 'pharmacy_defs':                    // ο κατάλογος: παράμετροι, modules, τιμοκατάλογος
     out(['params' => array_map(function ($d) {
-            return ['cell' => $d[0], 'lab' => $d[1], 'type' => $d[2]];
+            return ['cell' => $d[0], 'lab' => $d[1], 'type' => $d[2], 'hint' => $d[3] ?? '',
+                'grp' => $d[4] ?? 'Παράμετροι εγκατάστασης'];
         }, Pharmacy::paramDefs()),
         'groups' => array_map(function ($g) {
             return ['title' => $g['title'], 'items' => array_map(function ($it) {
@@ -4739,7 +4740,8 @@ case 'pharmacy_defs':                    // ο κατάλογος: παράμε�
         'editions' => Pharmacy::defaultEditions(),
         'features' => array_map(function ($f) { return ['lab' => $f[0], 'on' => $f[1]]; }, Pharmacy::features()),
         'defaults' => ['p' => Pharmacy::defaultParams(), 'yn' => Pharmacy::defaultModules(),
-            'r' => Pharmacy::defaultRates()],
+            'q' => Pharmacy::defaultQty(), 'r' => Pharmacy::defaultRates(),
+            'rd' => Pharmacy::defaultLineDiscounts()],
         'hourRate' => Pharmacy::HOUR_RATE,
         'nextProtocol' => cnp_offer_protocol_peek(),
         'canEditBase' => $FULL,          // ποιος βλέπει «Αποθήκευση βασικού τιμοκαταλόγου»
@@ -4749,15 +4751,19 @@ case 'pharmacy_catalog_save':            // ΓΕΝΙΚΟΣ τιμοκατάλο�
     if (!$FULL) { fail('Μόνο διαχειριστής μπορεί να αλλάξει τον βασικό τιμοκατάλογο', 403); }
     Pharmacy::saveBaseCatalog(
         is_array($in['rates'] ?? null) ? $in['rates'] : [],
-        is_array($in['editions'] ?? null) ? $in['editions'] : []);
+        is_array($in['editions'] ?? null) ? $in['editions'] : [],
+        is_array($in['disc'] ?? null) ? $in['disc'] : [],
+        is_array($in['rd'] ?? null) ? $in['rd'] : []);
     logActivity('CPM: αλλαγή ΒΑΣΙΚΟΥ τιμοκαταλόγου PharmacyOne (admin ' . $adminId . ')');
-    out(['ok' => true, 'rates' => Pharmacy::defaultRates(), 'editions' => Pharmacy::defaultEditions()]);
+    out(['ok' => true, 'rates' => Pharmacy::defaultRates(), 'editions' => Pharmacy::defaultEditions(),
+        'params' => Pharmacy::defaultParams()]);
 
 case 'pharmacy_catalog_reset':           // επαναφορά εργοστασιακών τιμών
     if (!$FULL) { fail('Μόνο διαχειριστής', 403); }
     Pharmacy::resetBaseCatalog();
     logActivity('CPM: επαναφορά εργοστασιακού τιμοκαταλόγου PharmacyOne (admin ' . $adminId . ')');
-    out(['ok' => true, 'rates' => Pharmacy::defaultRates(), 'editions' => Pharmacy::defaultEditions()]);
+    out(['ok' => true, 'rates' => Pharmacy::defaultRates(), 'editions' => Pharmacy::defaultEditions(),
+        'params' => Pharmacy::defaultParams()]);
 
 case 'pharmacy_calc':                    // ζωντανή προεπισκόπηση καθώς αλλάζεις παραμέτρους
     $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
@@ -4800,9 +4806,10 @@ case 'pharmacy_ai_draft':                 // ✨ Copilot: από περιγρα�
         . "- Χρησιμοποίησε ΜΟΝΟ κλειδιά από τους παραπάνω καταλόγους. Μη βγάζεις τιμές/ποσά — ο υπολογισμός γίνεται αλλού.\n"
         . "- Αν δεν αναφέρεται κάτι, ΜΗΝ το βάζεις (θα πάρει προεπιλογή). Χρήστες: αν δεν λέει, βάλε 1.\n"
         . "- Αναγνώρισε ΣΤΟΙΧΕΙΑ ΠΕΛΑΤΗ από την περιγραφή: επωνυμία, ΑΦΜ (9 ψηφία), υπόψη (ονοματεπώνυμο), τηλέφωνο, email, διεύθυνση, Δ.Ο.Υ., πόλη. Ό,τι δεν υπάρχει → κενό.\n"
-        . "- Διάλεξε 'edition' που ταιριάζει (default 2 αν αβέβαιο).\n\n"
+        . "- Διάλεξε 'edition' που ταιριάζει (default 2 αν αβέβαιο).\n"
+        . "- 'qty': τεμάχια ανά module όταν η περιγραφή λέει πλήθος (π.χ. 3 σταθμοί picking → {\"L22\":3}). Αλλιώς παράλειψέ το.\n\n"
         . "Σχήμα JSON:\n"
-        . "{\"edition\":2,\"params\":{\"I4\":3},\"modules\":[\"N16\"],"
+        . "{\"edition\":2,\"params\":{\"I4\":3},\"modules\":[\"N16\"],\"qty\":{\"L22\":2},"
         . "\"client\":{\"name\":\"\",\"afm\":\"\",\"attn\":\"\",\"phone\":\"\",\"email\":\"\",\"address\":\"\",\"doy\":\"\",\"city\":\"\"},"
         . "\"summary\":\"μία πρόταση στα ελληνικά: τι κατάλαβα\"}\n\n"
         . "ΠΕΡΙΓΡΑΦΗ ΠΕΛΑΤΗ:\n" . $descD;
@@ -4820,7 +4827,7 @@ case 'pharmacy_ai_draft':                 // ✨ Copilot: από περιγρα�
     $okMods = [];
     foreach (Pharmacy::moduleGroups() as $g) { foreach ($g['items'] as $it) { $okMods[$it[0]] = true; } }
 
-    $cfgD = ['p' => [], 'yn' => [], 'sel' => 2, 'o' => []];
+    $cfgD = ['p' => [], 'yn' => [], 'q' => [], 'sel' => 2, 'o' => []];
     $cfgD['sel'] = (isset($aiD['edition']) && (int) $aiD['edition'] >= 0 && (int) $aiD['edition'] <= 3) ? (int) $aiD['edition'] : 2;
     foreach ((array) ($aiD['params'] ?? []) as $cell => $val) {
         if (!isset($okParams[$cell]) || !is_numeric($val)) { continue; }
@@ -4831,6 +4838,13 @@ case 'pharmacy_ai_draft':                 // ✨ Copilot: από περιγρα�
     }
     foreach ((array) ($aiD['modules'] ?? []) as $cell) {
         if (isset($okMods[(string) $cell])) { $cfgD['yn'][(string) $cell] = 1; }
+    }
+    /* Τεμάχια ανά module (στήλη «Τεμ» του φύλλου) — δηλωμένη ποσότητα σημαίνει και «μέσα». */
+    foreach ((array) ($aiD['qty'] ?? []) as $cell => $val) {
+        if (!isset($okMods[(string) $cell]) || !is_numeric($val)) { continue; }
+        $qv = max(0, min(9999, (float) $val));
+        $cfgD['q'][(string) $cell] = $qv;
+        if ($qv > 0) { $cfgD['yn'][(string) $cell] = 1; }
     }
     $cl = is_array($aiD['client'] ?? null) ? $aiD['client'] : [];
     $afmD = preg_replace('/\D+/', '', (string) ($cl['afm'] ?? ''));

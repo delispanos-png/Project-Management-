@@ -21,6 +21,12 @@ namespace WHMCS\Module\Addon\CloudonProjects;
 class Pharmacy
 {
     const HOUR_RATE = 80;                        // χρέωση ώρας υπηρεσιών
+    /** Πώς εξοφλείται η προσφορά — η πρώτη τιμή είναι η προεπιλογή. */
+    const PAY_METHODS = ['Τραπεζική κατάθεση', 'Μετρητά', 'Κάρτα (POS / e-banking)', 'Επιταγή'];
+    /** Πώς τιμολογείται η ετήσια συνδρομή. */
+    const SUB_CYCLES = ['Ετησίως προκαταβολικά', 'Ανά εξάμηνο', 'Μηνιαία'];
+    /** Τα τρία ποσοστά έκπτωσης — αδειών CloudOn, υπηρεσιών, αδειών Soft1. */
+    const DISC_CELLS = ['L4', 'J8', 'K8'];
     const SETUP_RATE = [15, 25, 25, 30];         // ανά έκδοση, ώρα παραμετροποίησης
     const MYDATA_SETUP = [200, 200, 250, 250];   // ανά έκδοση, στήσιμο myData
 
@@ -28,33 +34,53 @@ class Pharmacy
 
     public static function defaultParams()
     {
-        return ['I4' => 4, 'J4' => 1, 'K4' => 1, 'L4' => 0.2,
+        /* Οι εκπτώσεις ξεκινούν όπως το φύλλο 2026 V2: αδειών CloudOn 0%, υπηρεσιών 20%,
+           αδειών Soft1 15% — εκτός αν έχει οριστεί άλλη πολιτική στον βασικό τιμοκατάλογο. */
+        $p = ['I4' => 4, 'M4' => 4, 'J4' => 1, 'K4' => 1, 'L4' => 0,
             'I6' => 0, 'J6' => 0, 'K6' => 0, 'L6' => 0,
-            'I8' => 3, 'J8' => 0.2, 'K8' => 0.2, 'L8' => 0,
+            'I8' => 3, 'J8' => 0.2, 'K8' => 0.15, 'L8' => 0, 'M6' => 8,
             'I10' => 0, 'J10' => 0, 'K10' => 0, 'L10' => 0, 'I12' => 0];
+        $d = self::catalogOverride()['disc'] ?? null;
+        if (is_array($d)) {
+            foreach (self::DISC_CELLS as $k) {
+                if (isset($d[$k]) && is_numeric($d[$k])) { $p[$k] = max(0, min(0.99, (float) $d[$k])); }
+            }
+        }
+        return $p;
     }
 
-    /** Τα πεδία της φόρμας, με τη σειρά που εμφανίζονται. */
+    /**
+     * Τα πεδία της φόρμας: [κελί, ετικέτα, τύπος, διευκρίνιση, περιοχή].
+     * Η σειρά είναι και η σειρά εμφάνισης· οι περιοχές μαζεύουν τα όμοια μεταξύ τους,
+     * ώστε να μη χρειάζεται να σαρώνεις 18 κουτιά για να βρεις μια έκπτωση.
+     */
     public static function paramDefs()
     {
+        $A = 'Χρήστες & άδειες';
+        $B = 'Εξοπλισμός & διασυνδέσεις';
+        $C = 'Εκπτώσεις';
         return [
-            ['I4', 'Αριθμός users', 'num'],
-            ['J4', 'Υποκαταστήματα', 'num'],
-            ['K4', 'Εταιρείες', 'num'],
-            ['L4', 'Έκπτωση επί των αδειών CloudOn', 'pct'],
-            ['I6', 'Αριθμός Price Checker', 'num'],
-            ['J6', 'Courier Module', 'num'],
-            ['K6', 'Αρ. POS Connector', 'num'],
-            ['L6', 'Διασυνδέσεις POS', 'num'],
-            ['I8', 'GB', 'num'],
-            ['J8', 'Έκπτωση επί των υπηρεσιών', 'pct'],
-            ['K8', 'Έκπτωση επί των αδειών Soft1', 'pct'],
-            ['L8', 'Αριθμός RWA', 'num'],
-            ['I10', 'Αρ. Η/Υ', 'num'],
-            ['J10', 'E-Shop', 'num'],
-            ['K10', 'Αρ. εκτυπωτών', 'num'],
-            ['L10', 'Αρ. Picking & Packing modules', 'num'],
-            ['I12', 'Cash Guard', 'num'],
+            ['I4', 'SoftOne user', 'num', 'ο 1ος περιλαμβάνεται στη βασική άδεια — χρεώνονται οι υπόλοιποι', $A],
+            ['M4', 'PharmacyOne user', 'num', 'χρεώνονται όλοι, ανά χρήστη', $A],
+            ['J4', 'Υποκαταστήματα', 'num', '', $A],
+            ['K4', 'Εταιρείες', 'num', '', $A],
+            ['I8', 'GB', 'num', 'επιπλέον χώρος cloud', $A],
+            ['M6', 'Ώρες τηλεφωνικής υποστήριξης', 'num', 'προεπιλογή 2 ώρες ανά χρήστη — άλλαξέ τις ελεύθερα', $A],
+
+            ['I10', 'Αρ. Η/Υ', 'num', '', $B],
+            ['K10', 'Αρ. εκτυπωτών', 'num', '', $B],
+            ['J10', 'E-Shop', 'num', '', $B],
+            ['J6', 'Courier Module', 'num', 'πόσες εταιρείες courier', $B],
+            ['I6', 'Αριθμός Price Checker', 'num', '', $B],
+            ['K6', 'Αρ. POS Connector', 'num', '', $B],
+            ['L6', 'Διασυνδέσεις POS', 'num', '', $B],
+            ['L10', 'Αρ. Picking & Packing modules', 'num', '', $B],
+            ['I12', 'Cash Guard', 'num', '', $B],
+            ['L8', 'Αριθμός RWA', 'num', '', $B],
+
+            ['L4', 'Έκπτωση επί των αδειών CloudOn', 'pct', '', $C],
+            ['J8', 'Έκπτωση επί των υπηρεσιών', 'pct', '', $C],
+            ['K8', 'Έκπτωση επί των αδειών Soft1', 'pct', '', $C],
         ];
     }
 
@@ -67,6 +93,12 @@ class Pharmacy
         return $o;
     }
 
+    /** Ποσότητα ανά module (οι στήλες «Τεμ» του φύλλου). 0 = «όσο λέει ο τύπος». */
+    public static function defaultQty()
+    {
+        return self::defaultModules();
+    }
+
     public static function moduleGroups()
     {
         return [
@@ -75,7 +107,8 @@ class Pharmacy
             ['title' => 'CloudOn Modules', 'items' => [
                 ['L16', 'Logi Scoup'], ['L17', 'Data Box'], ['L18', 'IQVIA'],
                 ['L19', 'RWA module'], ['L20', 'Price Checker'], ['L21', 'Διασύνδεση με E-shop'],
-                ['L22', 'Picking and Packing module'], ['L23', 'E-Label'], ['L24', 'Courier Module']]],
+                ['L22', 'Picking and Packing module'], ['L23', 'E-Label'], ['L24', 'Courier Module'],
+                ['L25', 'WMS Lite']]],
             ['title' => 'CloudOn Marketplace', 'items' => [
                 ['N16', 'Skroutz'], ['N17', 'einvoice Skroutz'], ['N18', 'Shopflix'],
                 ['N19', 'Wolt'], ['N20', 'E-Food'], ['N21', 'Cash Guard'], ['N22', 'Skroutz FBS']]],
@@ -86,12 +119,18 @@ class Pharmacy
         ο αποθηκευμένος βασικός τιμοκατάλογος. */
     public static function factoryRates()
     {
-        return ['S3' => 200, 'S4' => 200, 'S5' => 200, 'S6' => 200, 'S7' => 475, 'S8' => 50,
+        return ['S3' => 250, 'S4' => 250, 'S5' => 250, 'S6' => 250, 'S7' => 475, 'S8' => 50,
             'S9' => 1200, 'S10' => 120, 'S11' => 250, 'S12' => 250, 'S13' => 2500, 'S14' => 50,
-            'S15' => 550, 'S16' => 250, 'S17' => 120, 'S19' => 100, 'S20' => 250, 'S21' => 350,
+            'S15' => 550, 'S16' => 250, 'S17' => 120, 'S19' => 150, 'S20' => 250, 'S21' => 350,
             'S22' => 550, 'S23' => 550, 'S24' => 550, 'S25' => 550, 'S26' => 30, 'S27' => 50,
             'S28' => 30, 'S29' => 250, 'S30' => 150, 'S31' => 60, 'S32' => 500, 'S33' => 25,
-            'S34' => 120, 'S35' => 850,
+            'S34' => 120, 'S35' => 850, 'S36' => 350, 'S37' => 20, 'S38' => 100,
+            /* Ετήσια αναπροσαρμογή: τι ποσοστό της τιμής ξαναχρεώνεται κάθε χρόνο.
+               Όπου το φύλλο δεν ορίζει ποσοστό, η γραμμή είναι καθαρά ετήσια άδεια — 100%. */
+            'T3' => 1, 'T4' => 1, 'T5' => 1, 'T6' => 1, 'T7' => 1, 'T8' => 1,
+            'T10' => 1, 'T11' => 1, 'T12' => 1, 'T14' => 1, 'T16' => 1, 'T17' => 1,
+            'T19' => 1, 'T20' => 1, 'T21' => 1, 'T27' => 1, 'T29' => 1, 'T30' => 1,
+            'T34' => 1, 'T36' => 1, 'T37' => 1, 'T38' => 1,
             'T13' => 0.2, 'T15' => 0.3, 'T22' => 0.3, 'T23' => 0.3, 'T24' => 0.3, 'T25' => 0.3,
             'T35' => 0.3];
     }
@@ -107,6 +146,18 @@ class Pharmacy
             if (isset($ov[$k]) && is_numeric($ov[$k])) { $base[$k] = (float) $ov[$k]; }
         }
         return $memo = $base;
+    }
+
+    /** Οι ΠΡΟΕΠΙΛΕΓΜΕΝΕΣ εκπτώσεις ανά γραμμή τιμοκαταλόγου (0 αν δεν έχει οριστεί). */
+    public static function defaultLineDiscounts()
+    {
+        $ov = self::catalogOverride()['rd'] ?? [];
+        $out = [];
+        foreach (self::factoryRates() as $k => $v) {
+            if ($k[0] !== 'S') { continue; }
+            $out[$k] = (isset($ov[$k]) && is_numeric($ov[$k])) ? max(0, min(0.99, (float) $ov[$k])) : 0;
+        }
+        return $out;
     }
 
     /** Ο αποθηκευμένος βασικός τιμοκατάλογος (setting pharmacy_catalog), αν υπάρχει. */
@@ -127,7 +178,7 @@ class Pharmacy
 
     /** Αποθηκεύει τον βασικό τιμοκατάλογο (τιμές γραμμών + τιμές εκδόσεων). Μόνο
         γνωστά κλειδιά, αριθμητικά, μη-αρνητικά. */
-    public static function saveBaseCatalog(array $rates, array $editions)
+    public static function saveBaseCatalog(array $rates, array $editions, array $disc = [], array $lineDisc = [])
     {
         $r = [];
         foreach (self::factoryRates() as $k => $v) {
@@ -142,7 +193,19 @@ class Pharmacy
                 'extraUser' => isset($editions[$i]['extraUser']) && is_numeric($editions[$i]['extraUser']) ? max(0, (float) $editions[$i]['extraUser']) : $e['extraUser'],
             ];
         }
-        $json = json_encode(['r' => $r, 'ed' => $ed], JSON_UNESCAPED_UNICODE);
+        $ds = [];
+        foreach (self::DISC_CELLS as $k) {
+            if (isset($disc[$k]) && is_numeric($disc[$k])) { $ds[$k] = max(0, min(0.99, (float) $disc[$k])); }
+        }
+        /* Και η έκπτωση ανά γραμμή: αν η πολιτική λέει «Courier πάντα -10%», να μην
+           χρειάζεται να τη γράφει ξανά ο πωλητής σε κάθε προσφορά. */
+        $rd = [];
+        foreach (self::factoryRates() as $k => $v) {
+            if ($k[0] === 'S' && isset($lineDisc[$k]) && is_numeric($lineDisc[$k]) && $lineDisc[$k] > 0) {
+                $rd[$k] = max(0, min(0.99, (float) $lineDisc[$k]));
+            }
+        }
+        $json = json_encode(['r' => $r, 'ed' => $ed, 'disc' => $ds, 'rd' => $rd], JSON_UNESCAPED_UNICODE);
         $t = \WHMCS\Database\Capsule::table('tbladdonmodules')
             ->where('module', 'cloudonprojects')->where('setting', 'pharmacy_catalog');
         if ($t->exists()) { $t->update(['value' => $json]); }
@@ -165,20 +228,23 @@ class Pharmacy
     public static function rateRows()
     {
         return [
-            ['S3', 'PharmacyOne B User', null], ['S4', 'PharmacyOne G User', null],
-            ['S5', 'PharmacyOne Plus B User', null], ['S6', 'PharmacyOne Plus G User', null],
-            ['S7', 'Αξία Ομάδας Εταιρειών', null], ['S8', 'Κόστος ανά GB', null],
-            ['S9', 'Βασικό Π.Σ. S1', null], ['S10', 'My Data Express', null],
-            ['S11', 'My Data Business', null], ['S12', 'Sql Connector', null],
-            ['S13', 'Διασύνδεση με E-shop', 'T13'], ['S14', 'Price Checker', null],
-            ['S15', 'Courier Module', 'T15'], ['S16', 'Picking and Packing module', null],
-            ['S17', 'DataBox', null], ['S19', 'Logi Scoup', null], ['S20', 'RWA module', null],
-            ['S21', 'E-Label', null], ['S22', 'Skroutz', 'T22'], ['S23', 'Shopflix', 'T23'],
+            ['S3', 'PharmacyOne B User', 'T3'], ['S4', 'PharmacyOne G User', 'T4'],
+            ['S5', 'PharmacyOne Plus B User', 'T5'], ['S6', 'PharmacyOne Plus G User', 'T6'],
+            ['S7', 'Αξία Ομάδας Εταιρειών', 'T7'], ['S8', 'Κόστος ανά GB', 'T8'],
+            ['S9', 'Βασικό Π.Σ. S1', null], ['S10', 'My Data Express', 'T10'],
+            ['S11', 'My Data Business', 'T11'], ['S12', 'Sql Connector', 'T12'],
+            ['S13', 'Διασύνδεση με E-shop', 'T13'], ['S14', 'Price Checker', 'T14'],
+            ['S15', 'Courier Module', 'T15'], ['S16', 'Picking and Packing module', 'T16'],
+            ['S17', 'DataBox', 'T17'], ['S19', 'Logi Scoup', 'T19'], ['S20', 'RWA module', 'T20'],
+            ['S21', 'E-Label', 'T21'], ['S22', 'Skroutz', 'T22'], ['S23', 'Shopflix', 'T23'],
             ['S24', 'Wolt', 'T24'], ['S25', 'E-Food', 'T25'], ['S26', 'Printer', null],
-            ['S27', 'Αρ. POS Connector', null], ['S28', 'PharmacyOne Conf Per User', null],
-            ['S29', 'einvoice Skroutz', null], ['S30', 'IQVIA', null],
+            ['S27', 'Αρ. POS Connector', 'T27'], ['S28', 'PharmacyOne Conf Per User', null],
+            ['S29', 'einvoice Skroutz', 'T29'], ['S30', 'IQVIA', 'T30'],
             ['S31', 'Παραμετροποίηση POS', null], ['S32', 'Παραμετροποίηση ECOS', null],
-            ['S33', 'Pc', null], ['S34', 'Cash Guard', null], ['S35', 'Skroutz FBS', 'T35'],
+            ['S33', 'Pc', null], ['S34', 'Cash Guard', 'T34'], ['S35', 'Skroutz FBS', 'T35'],
+            ['S36', 'WMS Lite', 'T36'],
+            ['S37', 'Ώρα τηλεφωνικής υποστήριξης', 'T37'],
+            ['S38', 'Τηλεφωνική υποστήριξη ανά εταιρεία / υποκατάστημα', 'T38'],
         ];
     }
 
@@ -186,10 +252,10 @@ class Pharmacy
     public static function factoryEditions()
     {
         return [
-            ['key' => 'B',  'name' => 'PharmacyOne Β',       'soft1' => 'Soft1 Express',      'cat' => 'Β', 'price' => 700,  'extraUser' => 120],
-            ['key' => 'C',  'name' => 'PharmacyOne ΒΓ',      'soft1' => 'Soft1 Express Plus', 'cat' => 'Γ', 'price' => 800,  'extraUser' => 120],
-            ['key' => 'D',  'name' => 'PharmacyOne Plus Β',  'soft1' => 'Soft1 Business',     'cat' => 'Β', 'price' => 1200, 'extraUser' => 165],
-            ['key' => 'E',  'name' => 'PharmacyOne Plus ΒΓ', 'soft1' => 'Soft1 Business',     'cat' => 'Γ', 'price' => 1400, 'extraUser' => 165],
+            ['key' => 'B',  'name' => 'PharmacyOne I',       'soft1' => 'Soft1 Express',      'cat' => 'Β', 'price' => 750,  'extraUser' => 120],
+            ['key' => 'C',  'name' => 'PharmacyOne II',      'soft1' => 'Soft1 Express Plus', 'cat' => 'Γ', 'price' => 850,  'extraUser' => 120],
+            ['key' => 'D',  'name' => 'PharmacyOne Plus I',  'soft1' => 'Soft1 Business',     'cat' => 'Β', 'price' => 1300, 'extraUser' => 165],
+            ['key' => 'E',  'name' => 'PharmacyOne Plus II', 'soft1' => 'Soft1 Business',     'cat' => 'Γ', 'price' => 1500, 'extraUser' => 165],
         ];
     }
 
@@ -215,7 +281,7 @@ class Pharmacy
             ['Αγορές, Διαχείριση Προμηθευτών, Πιστωτών', [1, 1, 1, 1]],
             ['Γεν. Λογιστική', [0, 1, 0, 1]],
             ['Έσοδα – Έξοδα', [1, 0, 1, 0]],
-            ['Χρημ. Συναλλαγές', [1, 1, 1, 1]],
+            ['Οικ. Συναλλαγές', [1, 1, 1, 1]],
             ['GroupSets', [1, 1, 1, 1]],
             ['Παρτίδες', [0, 0, 1, 1]],
             ['Business Units', [0, 0, 1, 1]],
@@ -242,10 +308,54 @@ class Pharmacy
 
     private static function y($yn, $k) { return !empty($yn[$k]) ? 1 : 0; }
 
-    private static function marketplaces($yn, $r)
+    /**
+     * Η ΕΤΗΣΙΑ αξία μιας γραμμής τιμοκαταλόγου: η τιμή επί το ποσοστό ετήσιας
+     * αναπροσαρμογής. Χωρίς δηλωμένο ποσοστό ξαναχρεώνεται ολόκληρη (100%) — έτσι
+     * δουλεύουν οι καθαρές ετήσιες άδειες.
+     */
+    private static function ar($r, $k)
     {
-        return self::y($yn, 'N16') * $r['S22'] + self::y($yn, 'N18') * $r['S23']
-             + self::y($yn, 'N19') * $r['S24'] + self::y($yn, 'N20') * $r['S25'];
+        $t = 'T' . substr($k, 1);
+        return $r[$k] * (isset($r[$t]) ? (float) $r[$t] : 1);
+    }
+
+    /** Η δηλωμένη ποσότητα ενός module· αν δεν δηλώθηκε, η προεπιλογή του τύπου. */
+    private static function q($q, $k, $def = 1)
+    {
+        $v = isset($q[$k]) && is_numeric($q[$k]) ? (float) $q[$k] : 0;
+        return $v > 0 ? $v : $def;
+    }
+
+    /** Οι χρήστες PharmacyOne (H6 του φύλλου) — όσοι ακριβώς γράφτηκαν. */
+    private static function phUsers($p)
+    {
+        return isset($p['M4']) ? max(0, (float) $p['M4']) : 0;
+    }
+
+    /** Οι ώρες ετήσιας τηλεφωνικής υποστήριξης — όσες δηλώθηκαν (φύλλο: 2 ανά χρήστη). */
+    private static function supHours($p)
+    {
+        return isset($p['M6']) ? max(0, (float) $p['M6']) : (float) $p['I4'] * 2;
+    }
+
+    /** Ώρες υπηρεσιών: το φύλλο στρογγυλοποιεί ΠΑΝΤΑ προς τα πάνω (ROUNDUP(αξία/80)). */
+    private static function hrs($v) { return (int) ceil(((float) $v) / self::HOUR_RATE - 0.00001); }
+
+    private static function marketplaces($yn, $r, $q = [])
+    {
+        return self::y($yn, 'N16') * $r['S22'] * self::q($q, 'N16')
+             + self::y($yn, 'N18') * $r['S23'] * self::q($q, 'N18')
+             + self::y($yn, 'N19') * $r['S24'] * self::q($q, 'N19')
+             + self::y($yn, 'N20') * $r['S25'] * self::q($q, 'N20');
+    }
+
+    /** Η ετήσια υποστήριξη marketplaces — κάθε κανάλι με το δικό του ποσοστό. */
+    private static function marketplacesAnnual($yn, $r, $q = [])
+    {
+        return self::y($yn, 'N16') * self::ar($r, 'S22') * self::q($q, 'N16')
+             + self::y($yn, 'N18') * self::ar($r, 'S23') * self::q($q, 'N18')
+             + self::y($yn, 'N19') * self::ar($r, 'S24') * self::q($q, 'N19')
+             + self::y($yn, 'N20') * self::ar($r, 'S25') * self::q($q, 'N20');
     }
 
     private static function fmtPct($v) { return round($v * 1000) / 10 . '%'; }
@@ -255,6 +365,13 @@ class Pharmacy
     }
     private static function fmtHrs($v) { return number_format($v, 1, ',', '.'); }
 
+    /** Ποσότητα χωρίς περιττά δεκαδικά: 3 και όχι 3,0. */
+    private static function fmtQty($v)
+    {
+        $v = (float) $v;
+        return $v == (int) $v ? (string) (int) $v : number_format($v, 1, ',', '.');
+    }
+
     /**
      * Ετήσιες γραμμές (κόστος αδειών & ετήσιων υπηρεσιών).
      * `b` = κάδος προσφοράς. `$i` = δείκτης έκδοσης 0..3.
@@ -263,70 +380,89 @@ class Pharmacy
     {
         return [
             [29, 5, 'Soft1 Υπηρεσίες Ετήσιας Τηλεφωνικής Υποστήριξης',
-                function ($p, $r, $e, $i, $yn) { return '× ' . ($p['I4'] * 2) . ' ώρες · έκπτ. ' . self::fmtPct($p['J8']); },
-                function ($p, $r, $e, $i, $yn) { return (100 * $p['K4'] * $p['J4']) + ($p['I4'] * 2 * 20) * (1 - $p['J8']); }],
+                function ($p, $r) { return '× ' . self::fmtQty(self::supHours($p)) . ' ώρες · τιμή '
+                    . self::fmtEur($r['S37']) . ' · έκπτ. ' . self::fmtPct($p['J8']); },
+                function ($p, $r) { return (self::ar($r, 'S38') * $p['K4'] * $p['J4'])
+                    + (self::supHours($p) * self::ar($r, 'S37')) * (1 - $p['J8']); }],
             [30, 2, 'CloudOn Module Συνταγογράφησης (PharmacyOne)',
-                function ($p, $r) { return '× ' . $p['I4'] . ' τεμ. · τιμή ' . self::fmtEur($r['S3']) . ' · έκπτ. ' . self::fmtPct($p['L4']); },
-                function ($p, $r) { return ($r['S3'] * $p['I4']) * (1 - $p['L4']); }],
+                function ($p, $r) { return '× ' . self::phUsers($p) . ' χρήστες · τιμή ' . self::fmtEur($r['S3']) . ' · έκπτ. ' . self::fmtPct($p['L4']); },
+                function ($p, $r) { return (self::ar($r, 'S3') * self::phUsers($p)) * (1 - $p['L4']); }],
             [31, 1, 'Soft1 Cloud extra user',
                 function ($p, $r, $e) { return '× ' . max($p['I4'] - 1, 0) . ' τεμ. · τιμή ' . self::fmtEur($e['extraUser']) . ' · έκπτ. ' . self::fmtPct($p['K8']); },
                 function ($p, $r, $e) { return $e['extraUser'] * ($p['I4'] - 1) * (1 - $p['K8']); }],
             [32, 1, 'Soft1 — βασικός συνδυασμός (περιλαμβάνει 1 χρήστη)',
-                function ($p, $r, $e) { return '× ' . $p['K4'] . ' εταιρεία(ες) · τιμή ' . self::fmtEur($e['price']) . ' · έκπτ. ' . self::fmtPct($p['K8']); },
-                function ($p, $r, $e) { return $e['price'] * $p['K4'] * (1 - $p['K8']); }],
+                function ($p, $r, $e) { return '× 1 άδεια · τιμή ' . self::fmtEur($e['price']) . ' · έκπτ. ' . self::fmtPct($p['K8']); },
+                function ($p, $r, $e) { return $e['price'] * (1 - $p['K8']); }],
             [33, 1, 'Soft1 OpEn myData Live',
                 function ($p, $r, $e, $i) { return '× ' . $p['K4'] . ' τεμ. · τιμή ' . self::fmtEur($i < 2 ? $r['S10'] : $r['S11']); },
-                function ($p, $r, $e, $i) { return ($i < 2 ? $r['S10'] : $r['S11']) * $p['K4']; }],
+                function ($p, $r, $e, $i) { return self::ar($r, $i < 2 ? 'S10' : 'S11') * $p['K4']; }],
             [34, 1, 'Soft1 1GB Extra Cloud Disk',
                 function ($p, $r) { return '× ' . $p['I8'] . ' GB · τιμή ' . self::fmtEur($r['S8']); },
-                function ($p, $r) { return $r['S8'] * $p['I8']; }],
+                function ($p, $r) { return self::ar($r, 'S8') * $p['I8']; }],
             [35, 1, 'Soft1 Ομάδες Εταιρειών',
                 function ($p, $r) { return '× 1 τεμ. · τιμή ' . self::fmtEur($r['S7']) . ' · έκπτ. ' . self::fmtPct($p['K8']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'J16') * $r['S7'] * (1 - $p['K8']); }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'J16') * self::ar($r, 'S7') * (1 - $p['K8']); }],
             [36, 1, 'Soft1 Sql Connector',
-                function ($p, $r) { return '× ' . $p['K4'] . ' τεμ. · τιμή ' . self::fmtEur($r['S12']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'J17') * $r['S12'] * $p['K4'] * (1 - $p['K8']); }],
+                function ($p, $r) { return '× 1 τεμ. · τιμή ' . self::fmtEur($r['S12']); },
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'J17') * self::ar($r, 'S12') * (1 - $p['K8']); }],
             [37, 5, 'Ετήσια υπηρεσία υποστήριξης διασύνδεσης με E-shop',
                 function ($p, $r) { return '× ' . $p['J10'] . ' · ' . self::fmtPct($r['T13']) . ' επί ' . self::fmtEur($r['S13']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L21') * $r['S13'] * $p['J10'] * (1 - $p['J8']) * $r['T13']; }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L21') * self::ar($r, 'S13') * $p['J10'] * (1 - $p['J8']); }],
             /* Το B38 του φύλλου χρησιμοποιεί (1-L4), τα C/D/E (1-K8). Διατηρείται. */
             [38, 2, 'CloudOn Price Checker — ετήσια άδεια',
                 function ($p, $r) { return '× ' . $p['I6'] . ' τεμ. · τιμή ' . self::fmtEur($r['S14']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L20') * $r['S14'] * $p['I6'] * (1 - ($i === 0 ? $p['L4'] : $p['K8'])); }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L20') * self::ar($r, 'S14') * $p['I6'] * (1 - ($i === 0 ? $p['L4'] : $p['K8'])); }],
             [39, 5, 'Ετήσια παροχή υπηρεσιών για Courier Module',
                 function ($p, $r) { return '× ' . $p['J6'] . ' · ' . self::fmtPct($r['T15']) . ' επί ' . self::fmtEur($r['S15']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L24') * $r['S15'] * $p['J6'] * (1 - $p['J8']) * $r['T15']; }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L24') * self::ar($r, 'S15') * $p['J6'] * (1 - $p['L4']); }],
             [40, 5, 'Ετήσιο κόστος ενημέρωσης δεδομένων (OTC & παραφάρμακα)',
                 function ($p, $r) { return 'Data Box / Logi Scoup · έκπτ. ' . self::fmtPct($p['L4']); },
-                function ($p, $r, $e, $i, $yn) { return (self::y($yn, 'L17') * $r['S17'] + self::y($yn, 'L16') * $r['S19']) * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return (self::y($yn, 'L17') * self::ar($r, 'S17') * self::q($q, 'L17')
+                    + self::y($yn, 'L16') * self::ar($r, 'S19') * self::q($q, 'L16')) * (1 - $p['L4']); }],
             [41, 2, 'CloudOn RWA Module — ετήσια άδεια',
                 function ($p, $r) { return '× ' . $p['L8'] . ' τεμ. · τιμή ' . self::fmtEur($r['S20']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L19') * $r['S20'] * $p['L8'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L19') * self::ar($r, 'S20') * $p['L8'] * (1 - $p['L4']); }],
             [42, 2, 'CloudOn E-Label — ετήσια άδεια',
-                function ($p, $r) { return '× ' . ($p['K4'] * $p['J4']) . ' τεμ. · τιμή ' . self::fmtEur($r['S21']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L23') * $r['S21'] * $p['K4'] * $p['J4'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return '× ' . self::q($q, 'L23', $p['K4'] * $p['J4']) . ' τεμ. · τιμή ' . self::fmtEur($r['S21']); },
+                function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'L23') * self::ar($r, 'S21') * self::q($q, 'L23', $p['K4'] * $p['J4']) * (1 - $p['L4']); }],
             [43, 5, 'Ετήσια υπηρεσία υποστήριξης Marketplaces',
-                function ($p, $r, $e, $i, $yn) { return self::fmtPct($r['T22']) . ' επί ' . self::fmtEur(self::marketplaces($yn, $r)); },
-                function ($p, $r, $e, $i, $yn) { return self::marketplaces($yn, $r) * $r['T22'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return 'επί ' . self::fmtEur(self::marketplaces($yn, $r, $q)) . ' αξίας διασυνδέσεων'; },
+                function ($p, $r, $e, $i, $yn, $q) { return self::marketplacesAnnual($yn, $r, $q) * (1 - $p['L4']); }],
             [44, 1, 'Soft1 POS Connector',
                 function ($p, $r) { return '× ' . $p['K6'] . ' τεμ. · τιμή ' . self::fmtEur($r['S27']); },
-                function ($p, $r) { return $r['S27'] * $p['K6']; }],
+                function ($p, $r) { return self::ar($r, 'S27') * $p['K6'] * (1 - $p['L4']); }],
             [45, 2, 'CloudOn einvoice Skroutz — ετήσια άδεια',
-                function ($p, $r) { return '× ' . $p['K4'] . ' τεμ. · τιμή ' . self::fmtEur($r['S29']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'N17') * $r['S29'] * $p['K4'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return '× ' . self::q($q, 'N17', $p['K4']) . ' τεμ. · τιμή ' . self::fmtEur($r['S29']); },
+                function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'N17') * self::ar($r, 'S29') * self::q($q, 'N17', $p['K4']) * (1 - $p['L4']); }],
             [46, 2, 'CloudOn IQVIA — ετήσια άδεια',
-                function ($p, $r) { return '× ' . $p['K4'] . ' τεμ. · τιμή ' . self::fmtEur($r['S30']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L18') * $r['S30'] * $p['K4'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return '× ' . self::q($q, 'L18', $p['K4']) . ' τεμ. · τιμή ' . self::fmtEur($r['S30']); },
+                function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'L18') * self::ar($r, 'S30') * self::q($q, 'L18', $p['K4']) * (1 - $p['L4']); }],
             [47, 1, 'CloudOn Picking / Packing module',
-                function ($p, $r) { return '× ' . $p['L10'] . ' τεμ. · τιμή ' . self::fmtEur($r['S16']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L22') * $r['S16'] * $p['L10'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return '× ' . self::q($q, 'L22', $p['L10']) . ' τεμ. · τιμή ' . self::fmtEur($r['S16']); },
+                function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'L22') * self::ar($r, 'S16') * self::q($q, 'L22', $p['L10']) * (1 - $p['L4']); }],
             [48, 2, 'CloudOn Cash Guard — ετήσια άδεια',
                 function ($p, $r) { return '× ' . $p['I12'] . ' τεμ. · τιμή ' . self::fmtEur($r['S34']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'N21') * $r['S34'] * $p['I12'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'N21') * self::ar($r, 'S34') * $p['I12'] * (1 - $p['L4']); }],
             [49, 5, 'Ετήσια υπηρεσία υποστήριξης Skroutz FBS',
                 function ($p, $r) { return self::fmtPct($r['T35']) . ' επί ' . self::fmtEur($r['S35']); },
-                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'N22') * $r['S35'] * $p['K4'] * $r['T35'] * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn) { return self::y($yn, 'N22') * self::ar($r, 'S35') * $p['K4'] * (1 - $p['L4']); }],
+            [50, 2, 'CloudOn WMS Lite — ετήσια άδεια',
+                function ($p, $r, $e, $i, $yn, $q) { return '× ' . self::q($q, 'L25') . ' τεμ. · τιμή ' . self::fmtEur($r['S36']); },
+                function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'L25') * self::ar($r, 'S36') * self::q($q, 'L25') * (1 - $p['K8']); }],
         ];
+    }
+
+    /**
+     * Ποια γραμμή τιμοκαταλόγου τροφοδοτεί κάθε ετήσια γραμμή — μόνο για όσες η ετικέτα
+     * τους δεν αναφέρει ήδη το ποσοστό (e-shop, courier, marketplaces, FBS το λένε μόνες).
+     */
+    private static function annualRateKey($k, $i)
+    {
+        if ($k === 33) { return $i < 2 ? 'S10' : 'S11'; }
+        $m = [30 => 'S3', 34 => 'S8', 35 => 'S7', 36 => 'S12', 38 => 'S14', 41 => 'S20',
+            42 => 'S21', 44 => 'S27', 45 => 'S29', 46 => 'S30', 47 => 'S16', 48 => 'S34',
+            50 => 'S36'];
+        return $m[$k] ?? null;
     }
 
     /** Εφάπαξ γραμμές. `hrs` = να εμφανιστούν αντίστοιχες ώρες υπηρεσιών. */
@@ -340,7 +476,7 @@ class Pharmacy
             [31, 3, 1, 'CloudOn Κατασκευή Εκτυπωτικών — Report Soft1', null,
                 function ($p, $r) { return 150 * $p['J4'] * $p['K4'] * (1 - $p['J8']); }],
             [32, 3, 1, 'Soft1 Υπηρεσίες Παραμετροποίησης PharmacyOne', null,
-                function ($p, $r) { return ($p['I4'] * $r['S28']) * (1 - $p['J8']) + 60 * (1 - $p['L4']); }],
+                function ($p, $r) { return (self::phUsers($p) * $r['S28']) * (1 - $p['J8']) + 60 * (1 - $p['L4']); }],
             [33, 3, 1, 'Soft1 Εκπαίδευση', null,
                 function ($p, $r) { return ($p['I4'] * 2) * 20 * (1 - $p['J8']) + 200 * (1 - $p['L4']); }],
             [34, 3, 1, 'Υπηρεσίες παραμετροποίησης myData', null,
@@ -351,9 +487,11 @@ class Pharmacy
             [36, 4, 0, 'CloudOn Courier Module',
                 function ($p, $r) { return '× ' . $p['J6'] . ' τεμ. · τιμή ' . self::fmtEur($r['S15']); },
                 function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L24') * $r['S15'] * $p['J6'] * (1 - $p['L4']); }],
+            [44, 3, 1, 'Παραμετροποίηση WMS Lite', null,
+                function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'L25') * $r['S36'] * self::q($q, 'L25') * (1 - $p['J8']); }],
             [37, 4, 0, 'CloudOn modules Marketplaces — διαχείριση παραγγελιών',
                 function ($p, $r) { return 'Skroutz / Shopflix / Wolt / E-Food'; },
-                function ($p, $r, $e, $i, $yn) { return self::marketplaces($yn, $r) * (1 - $p['L4']); }],
+                function ($p, $r, $e, $i, $yn, $q) { return self::marketplaces($yn, $r, $q) * (1 - $p['L4']); }],
             [38, 3, 0, 'Τεχνική υποστήριξη & παραμετροποίηση εξοπλισμού',
                 function ($p, $r) { return $p['I10'] . ' Η/Υ · ' . $p['K10'] . ' εκτυπωτές'; },
                 function ($p, $r) { return (($r['S33'] * $p['I10']) + ($r['S26'] * $p['K10'])) * (1 - $p['J8']); }],
@@ -361,7 +499,7 @@ class Pharmacy
                 function ($p, $r, $e, $i, $yn) { return self::y($yn, 'L20') * $r['S14'] * 2 * (1 - $p['L4']); }],
             [40, 3, 0, 'Παραμετροποίηση POS',
                 function ($p, $r) { return '× ' . $p['L6'] . ' διασυνδέσεις · τιμή ' . self::fmtEur($r['S31']); },
-                function ($p, $r) { return $p['L6'] * $r['S31']; }],
+                function ($p, $r) { return $p['L6'] * $r['S31'] * (1 - $p['L4']); }],
             [41, 3, 0, 'Παραμετροποίηση παρόχου ηλεκτρονικής τιμολόγησης (ECOS)', null,
                 function ($p, $r, $e, $i, $yn) { return self::y($yn, 'J18') * $r['S32'] * $p['K4'] * (1 - $p['J8']); }],
             [42, 3, 0, 'Παραμετροποίηση Cash Guard', null,
@@ -383,9 +521,20 @@ class Pharmacy
         foreach (self::defaultParams() as $k => $v) {
             $out['p'][$k] = isset($cfg['p'][$k]) && is_numeric($cfg['p'][$k]) ? (float) $cfg['p'][$k] : $v;
         }
+        /* Οι προσφορές που φτιάχτηκαν πριν υπάρξει το πεδίο «PharmacyOne user» δεν το
+           έχουν καθόλου· τότε χρεώνονταν όσοι και οι χρήστες Soft1. Το κρατάμε, ώστε
+           ανοίγοντας μια παλιά προσφορά να μη μετακινηθεί ούτε ένα ευρώ. */
+        if (!isset($cfg['p']['M4']) || !is_numeric($cfg['p']['M4'])) { $out['p']['M4'] = $out['p']['I4']; }
+        if (!isset($cfg['p']['M6']) || !is_numeric($cfg['p']['M6'])) { $out['p']['M6'] = $out['p']['I4'] * 2; }
         $out['yn'] = [];
         foreach (self::defaultModules() as $k => $v) {
             $out['yn'][$k] = !empty($cfg['yn'][$k]) ? 1 : 0;
+        }
+        /* Ποσότητα ανά module (στήλη «Τεμ» του φύλλου). 0 = η προεπιλογή του τύπου,
+           ώστε οι ήδη αποθηκευμένες προσφορές να μη μετακινηθούν ούτε κατά ένα ευρώ. */
+        $out['q'] = [];
+        foreach (self::defaultQty() as $k => $v) {
+            $out['q'][$k] = isset($cfg['q'][$k]) && is_numeric($cfg['q'][$k]) ? max(0, (float) $cfg['q'][$k]) : 0;
         }
         $out['r'] = [];
         foreach (self::defaultRates() as $k => $v) {
@@ -394,9 +543,10 @@ class Pharmacy
         // Έκπτωση ανά γραμμή τιμοκαταλόγου (μόνο για τιμές S*, όχι για τα T* που
         // είναι ποσοστά προμήθειας). Ποσοστό 0-0.99, εφαρμόζεται στην τιμή.
         $out['rd'] = [];
+        $rdDef = self::defaultLineDiscounts();
         foreach (self::defaultRates() as $k => $v) {
             if (isset($k[0]) && $k[0] === 'S') {
-                $d = isset($cfg['rd'][$k]) && is_numeric($cfg['rd'][$k]) ? (float) $cfg['rd'][$k] : 0;
+                $d = isset($cfg['rd'][$k]) && is_numeric($cfg['rd'][$k]) ? (float) $cfg['rd'][$k] : ($rdDef[$k] ?? 0);
                 $out['rd'][$k] = max(0, min(0.99, $d));
             }
         }
@@ -423,11 +573,78 @@ class Pharmacy
             'city' => (string) ($o['city'] ?? 'Αθήνα'),
             'discount' => (float) ($o['discount'] ?? 0), 'vat' => (float) ($o['vat'] ?? 24),
             'validDays' => (int) ($o['validDays'] ?? 30), 'prepay' => (float) ($o['prepay'] ?? 50),
+            'payMethod' => in_array((string) ($o['payMethod'] ?? ''), self::PAY_METHODS, true)
+                ? (string) $o['payMethod'] : self::PAY_METHODS[0],
+            'installments' => max(0, min(36, (int) ($o['installments'] ?? 0))),
+            'subCycle' => in_array((string) ($o['subCycle'] ?? ''), self::SUB_CYCLES, true)
+                ? (string) $o['subCycle'] : self::SUB_CYCLES[0],
+            'plan' => self::normPlan($o),
             'tel' => (string) ($o['tel'] ?? '+30 210 72 22 560'),
             'fax' => (string) ($o['fax'] ?? '+30 210 63 91 532'),
             'client' => (string) ($o['client'] ?? ''),
         ];
         return $out;
+    }
+
+    /**
+     * Ο διακανονισμός: όσες δόσεις θέλει η συμφωνία, καθεμιά σε ποσοστό ή σε ευρώ, με
+     * δική της περιγραφή («με την ανάθεση», «60 ημέρες μετά την παράδοση», …).
+     * Παλιές προσφορές δεν έχουν πίνακα — τους τον φτιάχνουμε από προκαταβολή/δόσεις,
+     * ώστε το έντυπο να βγάζει ό,τι έβγαζε πάντα.
+     *
+     * @return array<int,array{t:string,v:float,w:string}>
+     */
+    private static function normPlan(array $o)
+    {
+        $rows = [];
+        if (is_array($o['plan'] ?? null)) {
+            foreach ($o['plan'] as $r) {
+                if (!is_array($r)) { continue; }
+                $t = (($r['t'] ?? 'pct') === 'eur') ? 'eur' : 'pct';
+                $v = is_numeric($r['v'] ?? null) ? max(0, (float) $r['v']) : 0;
+                $w = mb_substr(trim((string) ($r['w'] ?? '')), 0, 140);
+                if ($v <= 0 && $w === '') { continue; }
+                $rows[] = ['t' => $t, 'v' => $v, 'w' => $w];
+                if (count($rows) >= 12) { break; }
+            }
+        }
+        if ($rows) { return $rows; }
+        /* Χωρίς πίνακα: η παλιά λογική «προκαταβολή με την ανάθεση, υπόλοιπο στην παράδοση». */
+        $pre = max(0, min(100, (float) ($o['prepay'] ?? 50)));
+        $inst = max(0, min(36, (int) ($o['installments'] ?? 0)));
+        $rest = 100 - $pre;
+        $rows[] = ['t' => 'pct', 'v' => $pre, 'w' => 'Με την ανάθεση του έργου'];
+        if ($rest > 0) {
+            if ($inst > 1) {
+                for ($x = 1; $x <= $inst; $x++) {
+                    $rows[] = ['t' => 'pct', 'v' => $rest / $inst,
+                        'w' => 'Δόση ' . $x . ' από ' . $inst . ' — μηνιαία, με πρώτη την παράδοση'];
+                }
+            } else {
+                $rows[] = ['t' => 'pct', 'v' => $rest, 'w' => 'Με την παράδοση του έργου'];
+            }
+        }
+        return $rows;
+    }
+
+    /** Τα ευρώ κάθε δόσης πάνω στην τελική αξία. */
+    public static function planRows(array $plan, $final)
+    {
+        $out = []; $sum = 0;
+        foreach ($plan as $r) {
+            $eur = round($r['t'] === 'eur' ? $r['v'] : $final * $r['v'] / 100, 2);
+            $sum += $eur;
+            $out[] = ['lab' => $r['t'] === 'eur' ? self::fmtEur($r['v']) : self::fmtPct($r['v'] / 100),
+                'eur' => $eur, 'w' => $r['w']];
+        }
+        /* Τα ποσοστά σπάνια δίνουν στρογγυλά λεπτά: η τελευταία δόση απορροφά τη διαφορά,
+           ώστε οι δόσεις να αθροίζουν ΑΚΡΙΒΩΣ στο ποσό της προσφοράς. */
+        $d = round($final - $sum, 2);
+        if ($out && abs($d) > 0.001 && abs($d) <= 0.05) {
+            $out[count($out) - 1]['eur'] = round($out[count($out) - 1]['eur'] + $d, 2);
+            $sum = round($sum + $d, 2);
+        }
+        return ['rows' => $out, 'sum' => $sum, 'rest' => round($final - $sum, 2)];
     }
 
     /**
@@ -447,18 +664,18 @@ class Pharmacy
     public static function calc($cfg)
     {
         $c = self::normalize($cfg);
-        $p = $c['p']; $r = $c['r']; $yn = $c['yn'];
+        $p = $c['p']; $r = $c['r']; $yn = $c['yn']; $q = $c['q'] ?? [];
         $rEff = self::effRates($r, $c['rd'] ?? []);
         $annual = [];
         foreach (self::annualRows() as $rw) {
             $line = [];
-            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[4], $p, $rEff, $e, $i, $yn); }
+            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[4], $p, $rEff, $e, $i, $yn, $q); }
             $annual[] = $line;
         }
         $oneoff = [];
         foreach (self::oneoffRows() as $rw) {
             $line = [];
-            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[5], $p, $rEff, $e, $i, $yn); }
+            foreach ($c['ed'] as $i => $e) { $line[] = (float) call_user_func($rw[5], $p, $rEff, $e, $i, $yn, $q); }
             $oneoff[] = $line;
         }
         $totals = [];
@@ -479,20 +696,42 @@ class Pharmacy
     /** Οι γραμμές της επιλεγμένης έκδοσης, ομαδοποιημένες σε κάδους. */
     public static function bucketLines($res, $i)
     {
-        $c = $res['cfg']; $p = $c['p']; $r = $c['r']; $yn = $c['yn']; $e = $c['ed'][$i];
+        $c = $res['cfg']; $p = $c['p']; $r = $c['r']; $yn = $c['yn']; $e = $c['ed'][$i]; $q = $c['q'] ?? [];
         $rEff = self::effRates($r, $c['rd'] ?? []);
         $out = [1 => [], 2 => [], 3 => [], 4 => [], 5 => []];
         foreach (self::annualRows() as $ri => $rw) {
             $v = $res['annual'][$ri][$i];
             if (abs($v) < 0.005) { continue; }
-            $qty = $rw[3] ? call_user_func($rw[3], $p, $rEff, $e, $i, $yn) : '';
+            $qty = $rw[3] ? call_user_func($rw[3], $p, $rEff, $e, $i, $yn, $q) : '';
+            /* Αν η γραμμή δεν ξαναχρεώνεται ολόκληρη, πες το — αλλιώς ο πελάτης διαβάζει
+               «3 τεμ. × 250 €» και δίπλα 375 € και δεν του βγαίνει. */
+            $rk = self::annualRateKey($rw[0], $i);
+            if ($rk !== null) {
+                $tf = (float) ($rEff['T' . substr($rk, 1)] ?? 1);
+                if (abs($tf - 1) > 0.0001) {
+                    $qty .= ($qty ? ' · ' : '') . 'ετήσια αναπροσαρμογή ' . self::fmtPct($tf);
+                }
+            }
             $out[$rw[1]][] = ['k' => $rw[0], 'lab' => $rw[2], 'qty' => $qty, 'amount' => $v];
         }
+        /* Το εφάπαξ στήσιμο μιας διασύνδεσης φέρνει μαζί του ετήσια υποστήριξη: courier
+           550 € τώρα → 165 €/έτος μετά, e-shop 2.500 € → 400 €/έτος. Το γράφουμε πάνω στη
+           γραμμή, γιατί ο πελάτης ρωτά «και του χρόνου τι πληρώνω;» πριν καν φύγει η προσφορά. */
+        $rec = [35 => 37, 36 => 39, 37 => 43, 43 => 49];   // κλειδί εφάπαξ → κλειδί ετήσιας
+        $annIx = [];
+        foreach (self::annualRows() as $ai => $ar) { $annIx[$ar[0]] = $ai; }
         foreach (self::oneoffRows() as $ri => $rw) {
             $v = $res['oneoff'][$ri][$i];
             if (abs($v) < 0.005) { continue; }
-            $qty = $rw[4] ? call_user_func($rw[4], $p, $rEff, $e, $i, $yn)
-                : ($rw[2] ? '× ' . self::fmtHrs($v / self::HOUR_RATE) . ' ώρες · τιμή ' . self::fmtEur(self::HOUR_RATE) : '');
+            $qty = $rw[4] ? call_user_func($rw[4], $p, $rEff, $e, $i, $yn, $q)
+                : ($rw[2] ? '× ' . self::hrs($v) . ' ώρες · τιμή ' . self::fmtEur(self::HOUR_RATE) : '');
+            if (isset($rec[$rw[0]], $annIx[$rec[$rw[0]]])) {
+                $av = $res['annual'][$annIx[$rec[$rw[0]]]][$i];
+                if ($av > 0.005) {
+                    $qty .= ($qty ? ' · ' : '') . 'ετήσια υποστήριξη από το 2ο έτος: '
+                        . self::fmtEur($av) . ' / έτος';
+                }
+            }
             $out[$rw[1]][] = ['k' => $rw[0], 'lab' => $rw[3], 'qty' => $qty, 'amount' => $v];
         }
         return $out;
@@ -505,6 +744,28 @@ class Pharmacy
         $c = $res['cfg'];
         $pre = $res['totals'][$c['sel']]['first'];
         return max(0, round($pre - (float) $c['o']['discount'], 2));
+    }
+
+    /**
+     * Πόσα τεμάχια «πιάνει» κάθε module, όπως ακριβώς μπαίνουν στους τύπους. Δίνει στο
+     * έντυπο τη δυνατότητα να γράψει «Courier Module · 2 τεμ.» χωρίς να ξαναϋπολογίζει.
+     *
+     * @return array<string,float> κελί module => τεμάχια (0 = δεν δίνεται)
+     */
+    public static function moduleQty(array $c)
+    {
+        $p = $c['p']; $q = $c['q'] ?? []; $yn = $c['yn'];
+        $m = ['J16' => 1, 'J17' => 1, 'J18' => $p['K4'],
+            'L16' => self::q($q, 'L16'), 'L17' => self::q($q, 'L17'),
+            'L18' => self::q($q, 'L18', $p['K4']), 'L19' => $p['L8'], 'L20' => $p['I6'],
+            'L21' => $p['J10'], 'L22' => self::q($q, 'L22', $p['L10']),
+            'L23' => self::q($q, 'L23', $p['K4'] * $p['J4']), 'L24' => $p['J6'],
+            'L25' => self::q($q, 'L25'), 'N16' => self::q($q, 'N16'),
+            'N17' => self::q($q, 'N17', $p['K4']), 'N18' => self::q($q, 'N18'),
+            'N19' => self::q($q, 'N19'), 'N20' => self::q($q, 'N20'),
+            'N21' => $p['I12'], 'N22' => $p['K4']];
+        foreach ($m as $k => $v) { if (empty($yn[$k])) { $m[$k] = 0; } }
+        return $m;
     }
 
     public static function activeModules($cfg)
@@ -589,6 +850,26 @@ class Pharmacy
             . $mo[(int) date('n', $ts)] . ' ' . date('Y', $ts);
     }
     private static function plural($n, $one, $many) { return $n == 1 ? $one : $many; }
+
+    /**
+     * Τα στοιχεία του παραλήπτη κάτω από την επωνυμία. Μπαίνουν μόνο όσα έχουν
+     * συμπληρωθεί — μια προσφορά με κενό «ΑΦΜ:» δείχνει πρόχειρη.
+     */
+    private static function toDetails(array $o)
+    {
+        $bits = [];
+        if (trim((string) $o['address']) !== '') { $bits[] = self::e($o['address']); }
+        $tax = [];
+        if (trim((string) $o['afm']) !== '') { $tax[] = 'ΑΦΜ ' . self::e($o['afm']); }
+        if (trim((string) $o['doy']) !== '') { $tax[] = 'Δ.Ο.Υ. ' . self::e($o['doy']); }
+        if ($tax) { $bits[] = implode(' · ', $tax); }
+        $con = [];
+        if (trim((string) $o['cphone']) !== '') { $con[] = 'τηλ. ' . self::e($o['cphone']); }
+        if (trim((string) $o['cemail']) !== '') { $con[] = self::e($o['cemail']); }
+        if ($con) { $bits[] = implode(' · ', $con); }
+        if (trim((string) $o['attn']) !== '') { $bits[] = 'Υπόψη: ' . self::e($o['attn']); }
+        return $bits ? '<div class="tod">' . implode('<br>', $bits) . '</div>' : '';
+    }
 
     /** Τα λογότυπα ζουν ως στατικά αρχεία — το έγγραφο μένει ελαφρύ σε κάθε προεπισκόπηση. */
     const LOGO_DIR     = '/project/doc-assets/';
@@ -680,7 +961,7 @@ class Pharmacy
         $rows = array_merge($extraTop, $lines);
         if (!$rows) { return []; }
         $total = 0;
-        foreach ($lines as $l) { $total += $l['amount']; }
+        foreach ($lines as $l) { $total += $l['amount'] ?? 0; }
         $head = '<table class="p"><thead><tr><th>' . $bk[0] . '</th><th class="n">'
             . self::e($bk[2] ?: 'Αξία') . '</th></tr></thead><tbody>';
         $cont = '<table class="p"><thead><tr><th>' . $bk[0]
@@ -721,7 +1002,7 @@ class Pharmacy
         $rows = array_merge($extraTop, $lines);
         if (!$rows) { return ''; }
         $total = 0;
-        foreach ($lines as $l) { $total += $l['amount']; }
+        foreach ($lines as $l) { $total += $l['amount'] ?? 0; }
         $h = '<table class="p"><thead><tr><th>' . $bk[0] . '</th><th class="n">'
             . self::e($bk[2] ?: 'Αξία') . '</th></tr></thead><tbody>';
         foreach ($rows as $l) {
@@ -817,6 +1098,7 @@ b{color:var(--ink);font-weight:600}
 .cover .to .k{font-size:8pt;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 .cover .to .v{font-size:16pt;font-weight:700;color:var(--ink);line-height:1.3;margin-top:2mm;
   letter-spacing:-.01em}
+.cover .tod{margin-top:3mm;font-size:9.5pt;line-height:1.5;color:var(--body)}
 .cover .meta{display:flex;gap:14mm;margin-top:12mm;padding-top:7mm;border-top:1px solid var(--line)}
 .cover .meta .k{font-size:8pt;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
   color:var(--mut);margin-bottom:1.6mm}
@@ -993,7 +1275,8 @@ CSS;
             . '<h1>Για την εγκατάσταση και λειτουργία του πληροφοριακού συστήματος</h1>'
             . '<div class="prod">' . self::e($prod) . '</div></div>'
             . '<div class="body"><div class="to"><div class="k">Προς</div>'
-            . '<div class="v">' . self::e(mb_strtoupper($company, 'UTF-8')) . '</div></div>'
+            . '<div class="v">' . self::e(mb_strtoupper($company, 'UTF-8')) . '</div>'
+            . self::toDetails($o) . '</div>'
             . '<div class="meta">'
             . '<div><div class="k">Ημερομηνία</div><div class="v">' . self::e($date) . '</div></div>'
             . '<div><div class="k">Αρ. Πρωτοκόλλου</div><div class="v">'
@@ -1099,8 +1382,7 @@ CSS;
             . '<p>Η εξαιρετική λειτουργική πληρότητα της νέας γενιάς λογισμικού <b>Soft1 Open Enterprise '
             . 'Edition</b> είναι σε θέση να δημιουργήσει ανταγωνιστικά πλεονεκτήματα και να υποστηρίξει '
             . 'αποτελεσματικά κάθε επιχειρησιακό μοντέλο λειτουργίας, παρέχοντας τη δυνατότητα διαμόρφωσης '
-            . 'μιας σύγχρονης μηχανογράφησης με ουσιαστικά οφέλη και πλεονεκτήματα για την επιχείρηση.</p>',
-            ++$n);
+            . 'μιας σύγχρονης μηχανογράφησης με ουσιαστικά οφέλη και πλεονεκτήματα για την επιχείρηση.</p>');
 
         /* ── 6-7. Προτεινόμενο λογισμικό + ο πίνακας των ενοτήτων ── */
         $tbl = self::soft1Table();
@@ -1146,6 +1428,52 @@ CSS;
             $from = $to;
         }
 
+        /* ── 7β. Τι περιλαμβάνει το πακέτο και τι προστίθεται επιπλέον ──
+           Ο πελάτης πρέπει να ξεχωρίζει με μια ματιά τι έρχεται μέσα στην έκδοση από
+           αυτά που ενεργοποιούμε πάνω της· αλλιώς τα βλέπει όλα ως «χρεώσεις». */
+        $incHead = '<h2 class="sub"><span class="num">2.1.1</span>Η έκδοση '
+            . self::e($e['name']) . ' — τι περιλαμβάνει</h2>';
+        $incTbl = '<table class="m"><thead><tr><th>' . self::e($e['name'])
+            . '</th><th class="n">Περιλαμβάνεται</th></tr></thead><tbody>'
+            . '<tr class="grp"><td colspan="2">Λογιστική κατηγορία ' . self::e($e['cat'])
+            . ' · ' . self::e($e['soft1']) . '</td></tr>';
+        foreach (self::features() as $f) {
+            $onF = !empty($f[1][$i]);
+            $incTbl .= '<tr' . ($onF ? '' : ' class="off"') . '><td>' . self::e($f[0]) . '</td>'
+                . '<td class="n"><span class="' . ($onF ? 'dot' : 'ring') . '"></span></td></tr>';
+        }
+        $incTbl .= '</tbody></table>';
+
+        $mq = self::moduleQty($c);
+        $exBody = ''; $exRows = 0;
+        foreach (self::moduleGroups() as $g) {
+            $rows = '';
+            foreach ($g['items'] as $it) {
+                if (empty($c['yn'][$it[0]])) { continue; }
+                $rows .= '<tr><td>' . self::e($it[1]) . '</td><td class="n">'
+                    . self::fmtQty(max(1, $mq[$it[0]] ?? 1)) . ' τεμ.</td></tr>';
+                $exRows++;
+            }
+            if ($rows !== '') {
+                $exBody .= '<tr class="grp"><td colspan="2">' . self::e($g['title']) . '</td></tr>' . $rows;
+                $exRows++;
+            }
+        }
+        $exHead = '<h3 class="sub3">Επιπλέον modules &amp; διασυνδέσεις που ενεργοποιούνται</h3>';
+        $ex = $exBody === ''
+            ? $exHead . '<p class="mut">Δεν ενεργοποιούνται επιπλέον modules — η προσφορά '
+                . 'περιλαμβάνει μόνο τη λειτουργικότητα της έκδοσης.</p>'
+            : $exHead . '<table class="m"><thead><tr><th>CloudOn / SoftOne modules</th>'
+                . '<th class="n">Ποσότητα</th></tr></thead><tbody>' . $exBody . '</tbody></table>';
+        $incMm = 24 + self::MM_MTHEAD + (count(self::features()) + 1) * self::MM_MROW;
+        $exMm  = 26 + self::MM_MTHEAD + max($exRows, 1) * self::MM_MROW;
+        if ($incMm + $exMm <= $ROOM) {
+            $P[] = self::mk($incHead . $incTbl . $ex);
+        } else {
+            $P[] = self::mk($incHead . $incTbl);
+            $P[] = self::mk($ex);
+        }
+
         /* ── 8-10. Οικονομική προσφορά ── */
         $bk = self::buckets();
         /* Ο βασικός συνδυασμός πρώτος, ο extra user από κάτω ως περιλαμβανόμενος,
@@ -1185,10 +1513,12 @@ CSS;
             $held++;
         }
         /* Η 2.3 είναι σύντομη — μπαίνει στο υπόλοιπο της τελευταίας σελίδας αν χωρά. */
+        $h3 = 0;
+        foreach ($lines[3] as $l) { $h3 += self::hrs($l['amount']); }
         $tail23 = '<h2 class="sub"><span class="num">2.3</span>Υπηρεσίες Υλοποίησης Έργου</h2>'
             . '<p>Το κόστος των υπηρεσιών υλοποίησης του έργου, όπως αναλύεται λεπτομερώς στην παράγραφο '
             . '<b>2.2</b> «Οικονομική Προσφορά - Υπηρεσίες Παραμετροποίησης», ανέρχεται σε <b>'
-            . self::fmtEur($bt[3]) . '</b> και αντιστοιχεί σε <b>' . self::fmtHrs($bt[3] / self::HOUR_RATE)
+            . self::fmtEur($bt[3]) . '</b> και αντιστοιχεί σε <b>' . $h3
             . '</b> ώρες εργασίας.</p>'
             . '<p>Ο σχεδιασμός και η υλοποίηση του έργου θα βασιστεί στις λειτουργικές / τεχνικές '
             . 'δυνατότητες και προδιαγραφές των εφαρμογών Soft1.</p>'
@@ -1208,13 +1538,27 @@ CSS;
             $sum .= '<tr><td class="l">' . self::e($bk[$b][1]) . '</td><td class="n">'
                 . self::fmtEur($bt[$b]) . '</td></tr>';
         }
-        $sum .= '<tr class="plain"><td class="l">Τελική Αξία Έργου Προ-έκπτωσης</td><td class="n">'
-            . self::fmtEur($pre) . '</td></tr>'
-            . ($disc ? '<tr class="disc"><td class="l">Έκπτωση επί της Αξίας του Λογισμικού και των '
-                . 'Υπηρεσιών</td><td class="n">-' . self::fmtEur($disc) . '</td></tr>' : '')
+        /* Πόσο θα κόστιζε χωρίς τις εκπτώσεις που δώσαμε — η αξία τους αλλιώς δεν φαίνεται
+           πουθενά, αφού είναι ήδη ενσωματωμένη μέσα σε κάθε γραμμή. */
+        $zc = $c;
+        $zc['p']['L4'] = 0; $zc['p']['J8'] = 0; $zc['p']['K8'] = 0; $zc['rd'] = [];
+        $zt = self::calc($zc);
+        $gross = $zt['totals'][$i]['first'];
+        $saved = $gross - $pre;
+        $sum .= ($disc ? '<tr class="plain"><td class="l">Σύνολο</td><td class="n">'
+                . self::fmtEur($pre) . '</td></tr>'
+                . '<tr class="disc"><td class="l">Επιπλέον έκπτωση προσφοράς</td><td class="n">-'
+                . self::fmtEur($disc) . '</td></tr>' : '')
             . '</tbody></table>'
             . '<div class="grand"><span class="k">Τελική Αξία Έργου</span>'
             . '<span class="v">' . self::fmtEur($fin) . '</span></div>'
+            . ($saved > 0.005
+                ? '<p class="mut" style="margin-top:4mm">Στις παραπάνω αξίες έχουν <b>ήδη ενσωματωθεί '
+                    . 'εκπτώσεις συνολικής αξίας ' . self::fmtEur($saved) . '</b> — αδειών CloudOn '
+                    . self::fmtPct($p['L4']) . ', υπηρεσιών ' . self::fmtPct($p['J8']) . ', αδειών Soft1 '
+                    . self::fmtPct($p['K8']) . '. Χωρίς αυτές η αξία του έργου θα ανερχόταν σε '
+                    . self::fmtEur($gross) . '.</p>'
+                : '')
             . '<div class="terms">'
             . '<div class="cell"><div class="k">Αξίες</div><div class="v">Όλες οι παραπάνω αξίες '
             . 'επιβαρύνονται με ΦΠΑ ' . (float) $o['vat'] . '%.</div></div>'
@@ -1231,17 +1575,70 @@ CSS;
         $mark['2.4'] = count($P) + 1;
         $P[] = self::mk($sum);
 
+        /* Η ανάλυση του ετήσιου: ό,τι ξαναχρεώνεται κάθε χρόνο σε ΕΝΑΝ πίνακα — άδειες
+           Soft1, άδειες CloudOn και ετήσιες υπηρεσίες (τηλεφωνική υποστήριξη, ενημερώσεις,
+           courier, e-shop). Χωρίς αυτόν ο πελάτης έβλεπε μόνο ένα άθροισμα. */
+        $annAll = array_merge($lines[1], $lines[2], $lines[5]);
+        $annSum = '<h3 class="sub3"><span class="num">2.4.3</span>Ανάλυση ετήσιου επαναλαμβανόμενου κόστους</h3>'
+            . '<p class="mut">Οι παρακάτω αξίες επαναλαμβάνονται κάθε έτος. Το εφάπαξ κόστος '
+            . 'παραμετροποίησης και διασυνδέσεων (' . self::fmtEur($bt[3] + $bt[4]) . ') χρεώνεται '
+            . 'μόνο στο πρώτο έτος.</p>'
+            . '<table class="s"><thead><tr><th>Περιγραφή</th><th class="n">Αξία / έτος</th></tr></thead><tbody>';
+        foreach ($annAll as $l) {
+            $annSum .= '<tr><td class="l">' . self::e($l['lab'])
+                . ($l['qty'] ? ' <span class="mut">· ' . self::e($l['qty']) . '</span>' : '')
+                . '</td><td class="n">' . self::fmtEur($l['amount']) . '</td></tr>';
+        }
+        $annSum .= '</tbody></table>'
+            . '<div class="grand"><span class="k">Ετήσιο επαναλαμβανόμενο κόστος</span>'
+            . '<span class="v">' . self::fmtEur($bt[1] + $bt[2] + $bt[5]) . '</span></div>';
+        $mark['2.4.3'] = count($P) + 1;
+        $P[] = self::mk($annSum);
+
         /* ── 12. Τρόπος πληρωμής ── */
-        $rest = 100 - (float) $o['prepay'];
         $mark['2.5'] = count($P) + 1;
+        /* Ο διακανονισμός όπως τον όρισε ο πωλητής — μία γραμμή ανά δόση. */
+        $pl = self::planRows($o['plan'], $fin);
+        $steps = '';
+        foreach ($pl['rows'] as $st) {
+            $steps .= '<div class="step"><div class="pc">' . self::e($st['lab']) . '</div>'
+                . '<div class="pl">' . ($st['w'] !== '' ? self::e($st['w']) . ' — ' : '')
+                . '<b>' . self::fmtEur($st['eur']) . '</b></div></div>';
+        }
+        if (abs($pl['rest']) > 0.01) {
+            $steps .= '<div class="step"><div class="pc">—</div><div class="pl">Υπόλοιπο προς '
+                . 'διακανονισμό — <b>' . self::fmtEur($pl['rest']) . '</b></div></div>';
+        }
+        /* Η συνδρομή δεν είναι μέρος του έργου: τιμολογείται χωριστά και επαναλαμβάνεται. */
+        $annEur = $bt[1] + $bt[2] + $bt[5];
+        $subDiv = ['Ετησίως προκαταβολικά' => [1, 'ανά έτος'], 'Ανά εξάμηνο' => [2, 'ανά εξάμηνο'],
+            'Μηνιαία' => [12, 'ανά μήνα']];
+        $sc = $subDiv[$o['subCycle']] ?? $subDiv['Ετησίως προκαταβολικά'];
         $P[] = self::mk('<h2 class="sub"><span class="num">2.5</span>Τρόπος Πληρωμής</h2>'
-            . '<p>Η εξόφληση της αξίας των εφαρμογών λογισμικού <b>' . self::e($prod) . '</b> και του '
-            . 'κόστους των υπηρεσιών υλοποίησης γίνεται ως εξής:</p>'
-            . '<div class="pay">'
-            . '<div class="step"><div class="pc">' . (float) $o['prepay'] . '%</div>'
-            . '<div class="pl">της συνολικής αξίας του έργου μετρητοίς με την <b>ανάθεση</b> του έργου.</div></div>'
-            . '<div class="step"><div class="pc">' . $rest . '%</div>'
-            . '<div class="pl">του συνολικού ποσού με την <b>παράδοση</b> του έργου.</div></div></div>'
+            . '<p>Ο παρακάτω διακανονισμός αφορά τη <b>συνολική αξία του πρώτου έτους</b> — '
+            . 'το εφάπαξ κόστος παραμετροποίησης &amp; διασυνδέσεων μαζί με την πρώτη ετήσια '
+            . 'συνδρομή του λογισμικού <b>' . self::e($prod) . '</b>:</p>'
+            . '<table class="s"><tbody>'
+            . '<tr><td class="l">Εφάπαξ κόστος έναρξης (παραμετροποίηση &amp; διασυνδέσεις)</td>'
+            . '<td class="n">' . self::fmtEur($bt[3] + $bt[4]) . '</td></tr>'
+            . '<tr><td class="l">Ετήσια συνδρομή &amp; υποστήριξη — 1ο έτος</td>'
+            . '<td class="n">' . self::fmtEur($bt[1] + $bt[2] + $bt[5]) . '</td></tr>'
+            . ($disc ? '<tr class="disc"><td class="l">Έκπτωση προσφοράς</td><td class="n">-'
+                . self::fmtEur($disc) . '</td></tr>' : '')
+            . '<tr class="plain"><td class="l">Συνολικό ποσό προς εξόφληση (1ο έτος, προ ΦΠΑ)</td>'
+            . '<td class="n">' . self::fmtEur($fin) . '</td></tr>'
+            . '</tbody></table>'
+            . '<p>Η εξόφλησή του γίνεται ως εξής:</p>'
+            . '<div class="pay">' . $steps . '</div>'
+            . '<table class="s"><tbody>'
+            . '<tr><td class="l">Τρόπος εξόφλησης</td><td class="n">' . self::e($o['payMethod']) . '</td></tr>'
+            . '<tr><td class="l">Ετήσια συνδρομή &amp; υποστήριξη — <b>από το 2ο έτος</b></td><td class="n">'
+            . self::fmtEur($annEur / $sc[0]) . ' ' . $sc[1] . '</td></tr>'
+            . '</tbody></table>'
+            . '<p class="mut">Η ετήσια συνδρομή τιμολογείται ' . mb_strtolower($o['subCycle'], 'UTF-8')
+            . ', με πρώτη χρέωση την ημερομηνία έναρξης παραγωγικής λειτουργίας, και ανανεώνεται '
+            . 'αυτόματα κάθε έτος. Οι εφάπαξ υπηρεσίες παραμετροποίησης και διασύνδεσης χρεώνονται '
+            . 'μία μόνο φορά.</p>'
             . '<h3 class="sub3">Τραπεζικοί λογαριασμοί CLOUDON IKE</h3>'
             . '<div class="banks">'
             . '<div class="bank"><div class="nm">Eurobank</div>'
