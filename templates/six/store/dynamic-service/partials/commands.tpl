@@ -1,7 +1,3 @@
-{if $shouldDisplayUpgradeButton}
-    {include file="$template/store/dynamic-service/partials/upgrade-button.tpl"}
-{/if}
-
 <div id="js-global-command-result" class="mb-3"></div>
 
 <div class="row">

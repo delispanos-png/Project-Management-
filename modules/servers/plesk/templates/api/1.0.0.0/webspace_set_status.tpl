@@ -1,5 +1,5 @@
 <!-- Copyright 1999-2016. Parallels IP Holdings GmbH. -->
-<domain>
+<webspace>
     <set>
         <filter>
             <name><?php echo $domain; ?></name>
@@ -10,4 +10,4 @@
             </gen_setup>
         </values>
     </set>
-</domain>
+</webspace>

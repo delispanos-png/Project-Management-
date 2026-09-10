@@ -106,6 +106,14 @@ if ($userid) {
     }
 
     $results = Capsule::table('tblaccounts')
+        ->select(
+            'tblaccounts.id',
+            'tblaccounts.date',
+            'tblaccounts.description',
+            'tblaccounts.amountin',
+            'tblaccounts.amountout',
+            'tblaccounts.invoiceid'
+        )
         ->leftJoin('tblbillingnotes', 'tblaccounts.billingnoteid', '=', 'tblbillingnotes.id')
         ->leftJoin('tblinvoices', 'tblaccounts.invoiceid', '=', 'tblinvoices.id')
         ->where('tblaccounts.userid', '=', $userid)
@@ -188,8 +196,14 @@ uksort(
 );
 $previousBalance = null;
 foreach ($statement as $entry) {
-    /** @var Carbon $carbonDate */
+    /** @var Carbon|false $carbonDate */
     $carbonDate = $entry['date'];
+    // Skip entries without a resolvable date (eg: a transaction whose linked
+    // invoice has been deleted), as they cannot be placed on the statement
+    // timeline and safeCreateFromMySqlDate() returns false for them.
+    if (!$carbonDate instanceof Carbon) {
+        continue;
+    }
     // only update the total balance to include previous balance through to ending date of report
     if ($carbonDate->lte($dateto)) {
         $balance += ($entry['credits'] - $entry['debits']);

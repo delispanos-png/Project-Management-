@@ -185,7 +185,7 @@ INSERT INTO `tblconfiguration` VALUES (1,'Language','english','0000-00-00 00:00:
 (180,'BannedSubdomainPrefixes','mail,mx,gapps,gmail,webmail,cpanel,whm,ftp,clients,billing,members,login,accounts,access','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (181,'FreeDomainAutoRenewRequiresProduct','on','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (182,'DomainToDoListEntries','on','0000-00-00 00:00:00','0000-00-00 00:00:00'),
-(183,'Version','9.0.6-release.1','0000-00-00 00:00:00','2021-01-07 10:30:00'),
+(183,'Version','9.0.8-release.1','0000-00-00 00:00:00','2021-01-07 10:30:00'),
 (184,'OrderDaysGrace','0','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (185,'OrderFormSidebarToggle','1','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (187,'UpdaterLatestVersion','7.5.1-release.1','2018-04-18 10:21:38','2018-04-18 10:21:38'),

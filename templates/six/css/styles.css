@@ -4196,6 +4196,23 @@ div[menuitemname='Active Products/Services'] .btn-view-more.disabled {
     display: none;
 }
 
+/*
+ * Defined unconditionally (not media-query scoped) to cancel the preceding
+ * .d-none on Bootstrap 3 markup; the hidden-* / visible-* !important rules
+ * remain the sole arbiter of responsive visibility. Wrapping this in a
+ * min-width query would silently reintroduce the hidden price at narrow
+ * widths.
+ */
+.d-sm-block,
+.d-md-block,
+.d-lg-block {
+    display: block;
+}
+
+.d-md-inline-block {
+    display: inline-block;
+}
+
 .checkout-error-feedback > p {
     margin-bottom: 1em;
 }

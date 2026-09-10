@@ -47,8 +47,16 @@
                             </div>
                         </div>
 
-                        {if $showRenewServiceButton === true || $showcancelbutton === true || $packagesupgrade === true}
+                        {if $showRenewServiceButton === true || $showcancelbutton === true || $packagesupgrade === true || $dynamicUpgradeUrl}
                             <div class="row product-actions-wrapper">
+                                {if $dynamicUpgradeUrl}
+                                    <div class="col-xs-12">
+                                        <a href="{$dynamicUpgradeUrl}" class="btn btn-block btn-success">
+                                            <i class="fas fa-level-up"></i>
+                                            {lang key='upgrade'}
+                                        </a>
+                                    </div>
+                                {/if}
                                 {if $packagesupgrade}
                                     <div class="col-xs-12">
                                         <a href="upgrade.php?type=package&amp;id={$id}" class="btn btn-block btn-success">

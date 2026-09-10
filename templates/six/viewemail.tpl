@@ -20,7 +20,7 @@
             {/if}
         </div>
         <div class="panel-body main-content">
-            <iframe width="100%" height="300" frameborder="0" srcdoc="{$message|escape}"></iframe>
+            <iframe width="100%" height="300" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="{$message|escape}"></iframe>
         </div>
         <div class="panel-footer">
             <p class="text-center">

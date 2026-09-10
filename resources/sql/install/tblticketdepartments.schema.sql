@@ -24,6 +24,9 @@ CREATE TABLE `tblticketdepartments` (
   `mail_auth_config` text,
   `feedback_request` tinyint(1) NOT NULL DEFAULT '0',
   `prevent_client_closure` tinyint(1) NOT NULL DEFAULT '0',
+  `mail_import_message_cap` smallint(5) unsigned NOT NULL DEFAULT '500',
+  `mail_import_total_attachment_mb` smallint(5) unsigned NOT NULL DEFAULT '500',
+  `mail_import_max_attachment_mb` smallint(5) unsigned NOT NULL DEFAULT '25',
   PRIMARY KEY (`id`),
   KEY `name` (`name`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;

@@ -20,7 +20,7 @@
             {/if}
         </div>
         <div class="card-body">
-            <iframe width="100%" height="380" frameborder="0" srcdoc="{$message|escape}"></iframe>
+            <iframe width="100%" height="380" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="{$message|escape}"></iframe>
         </div>
         <div class="card-footer text-center">
             <button type="button" class="btn btn-primary" onclick="window.close()">
