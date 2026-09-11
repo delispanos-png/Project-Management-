@@ -1192,9 +1192,10 @@ R.chat = async function () {
       div.className = 'ch-m' + (m.by === S.boot.me.id ? ' me' : '');
       div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>
         ${m.body ? esc(m.body).replace(/\n/g, '<br>') : ''}
-        ${m.file ? `<div style="margin-top:4px"><a href="${m.file.url || ('api.php?a=chat_file&id=' + m.file.id)}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
+        ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${fu}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
-          ${m.file.kind === 'video' ? `<video src="${m.file.url}" controls preload="metadata" style="width:100%;max-width:340px;max-height:240px;border-radius:8px;background:#000;margin-top:5px"></video>` : m.file.kind === 'image' ? `<img src="${m.file.url}" loading="lazy" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:5px;display:block">` : ''}</div>` : ''}`;
+          <a class="ch-dl" href="${fu}&dl=1" download="${esc(m.file.name)}" title="Λήψη αρχείου">${I.download}</a>
+          ${m.file.kind === 'video' ? `<video src="${fu}" controls preload="metadata" style="width:100%;max-width:340px;max-height:240px;border-radius:8px;background:#000;margin-top:5px"></video>` : m.file.kind === 'image' ? `<img src="${fu}" loading="lazy" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:5px;display:block">` : ''}</div>`; })() : ''}`;
       box.appendChild(div);
     });
     if (msgs.length && (stick || st.lastId === msgs[msgs.length - 1].id)) box.scrollTop = box.scrollHeight;
