@@ -17,6 +17,7 @@ use WHMCS\Module\Addon\CloudonProjects\Storage;
 use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
 use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
+use WHMCS\Module\Addon\CloudonProjects\Pbx;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
@@ -25,8 +26,10 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pharmacy.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PharmacyOneType.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PbxType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PlainType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferTypes.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
@@ -2135,6 +2138,9 @@ function cnp_action_cap($action)
             'pharmacy_defs', 'pharmacy_calc', 'pharmacy_doc']);
         $add('clients.offers.edit', ['save_offer', 'move_offer', 'create_quote', 'pharmacy_save',
             'pharmacy_ai_draft', 'pharmacy_email', 'offer_comment_add']);
+        $add('clients.offers', ['pbx_defs', 'pbx_calc', 'pbx_doc']);
+        $add('clients.offers.edit', ['pbx_save', 'pbx_email']);
+        $add('admin.settings.edit', ['pbx_catalog_save', 'pbx_catalog_reset']);
         $add('clients.offers.delete', ['delete_offer']);
         $add('clients.offers|projects.portfolio.edit', ['project_from_offer']);
 
@@ -5100,13 +5106,15 @@ case 'pharmacy_doc':                     // το έγγραφο της προσ�
         'amount' => $ptype9->amount($cfg9),
         'cfg' => $ptype9->normalize($cfg9), 'client' => $cli9]);
 
+case 'pbx_email':                        // τηλεφωνικό κέντρο: ίδια ροή αποστολής, άλλος τύπος
 case 'pharmacy_email':                   // αποστολή της προσφοράς στον πελάτη ως PDF συνημμένο
+    $kindE = $action === 'pbx_email' ? 'pbx' : 'pharmacyone';
     $oidE = (int) ($in['offer'] ?? 0);
     $postedCfg = is_array($in['config'] ?? null) ? $in['config'] : null;
     $oE = null;
     if ($oidE) {
         $oE = Db::offer($oidE);
-        if (!$oE || $oE->kind !== 'pharmacyone') { fail('offer', 404); }
+        if (!$oE || $oE->kind !== $kindE) { fail('offer', 404); }
         if (!$FULL && (int) $oE->assignee !== $adminId && (int) $oE->created_by !== $adminId
             && !cnp_has_cap($adminId, $FULL, 'clients.offers.delete')) {
             fail('Δεν έχεις δικαίωμα αποστολής αυτής της προσφοράς', 403);
@@ -5114,7 +5122,7 @@ case 'pharmacy_email':                   // αποστολή της προσφο
     }
     // Ζωντανό config αν στάλθηκε (τυχόν edits χωρίς αποθήκευση)· αλλιώς το αποθηκευμένο.
     $cfgE = $postedCfg !== null ? $postedCfg : ($oE ? (json_decode((string) $oE->config, true) ?: []) : []);
-    $etype = OfferTypes::get(($oE && $oE->kind) ? (string) $oE->kind : 'pharmacyone');
+    $etype = OfferTypes::get(($oE && $oE->kind) ? (string) $oE->kind : $kindE);
     $cfgN = $etype->normalize($cfgE);
     $toE = filter_var(trim((string) ($in['to'] ?? ($cfgN['o']['cemail'] ?? ''))), FILTER_VALIDATE_EMAIL);
     if (!$toE) { fail('Δώσε έγκυρο email παραλήπτη'); }
@@ -5229,11 +5237,80 @@ case 'pharmacy_email':                   // αποστολή της προσφο
             }
         }
     }
-    logActivity('CPM: αποστολή προσφοράς PharmacyOne' . ($proto ? ' ' . $proto : '') . ' στον πελάτη ' . $toE
+    logActivity('CPM: αποστολή προσφοράς ' . $etype->label() . ($proto ? ' ' . $proto : '') . ' στον πελάτη ' . $toE
         . ($oidE ? ' (offer #' . $oidE . ')' : '') . ($acct['created'] ? ' + νέος λογαριασμός MyCloudOn' : ''));
     out(['ok' => true, 'to' => $toE, 'client' => $linkedCid ?: null,
         'accountCreated' => $acct['created'], 'credentialsSent' => $acct['emailed'],
         'quoteCreated' => $quoteCreated]);
+
+/* ================= ΤΗΛΕΦΩΝΙΚΑ ΚΕΝΤΡΑ (3CX / Yeastar) — ξεχωριστό από PharmacyOne ================= */
+case 'pbx_defs':                         // πλατφόρμες, κατηγορίες, βασικός τιμοκατάλογος
+    out(['platforms' => Pbx::platforms(), 'cats' => Pbx::CATS, 'items' => Pbx::defaultItems(),
+        'payMethods' => Pbx::PAY_METHODS, 'intro' => Pbx::DEFAULT_INTRO, 'delivery' => Pbx::DEFAULT_DELIVERY,
+        'nextProtocol' => cnp_offer_protocol_peek(), 'canEditBase' => $FULL, 'me' => Db::adminName($adminId)]);
+
+case 'pbx_catalog_save':                 // ΒΑΣΙΚΟΣ τιμοκατάλογος τηλεφωνικών κέντρων (όλες οι νέες προσφορές)
+    if (!$FULL) { fail('Μόνο διαχειριστής μπορεί να αλλάξει τον βασικό τιμοκατάλογο', 403); }
+    Pbx::saveBaseCatalog(is_array($in['items'] ?? null) ? $in['items'] : []);
+    logActivity('CPM: αλλαγή ΒΑΣΙΚΟΥ τιμοκαταλόγου τηλεφωνικών κέντρων (admin ' . $adminId . ')');
+    out(['ok' => true, 'items' => Pbx::defaultItems()]);
+
+case 'pbx_catalog_reset':
+    if (!$FULL) { fail('Μόνο διαχειριστής', 403); }
+    Pbx::resetBaseCatalog();
+    logActivity('CPM: επαναφορά εργοστασιακού τιμοκαταλόγου τηλεφωνικών κέντρων (admin ' . $adminId . ')');
+    out(['ok' => true, 'items' => Pbx::defaultItems()]);
+
+case 'pbx_calc':                         // ζωντανή προεπισκόπηση — ο υπολογισμός γίνεται ΜΟΝΟ εδώ
+    $rP = Pbx::calc(is_array($in['config'] ?? null) ? $in['config'] : []);
+    out(['cfg' => $rP['cfg'], 'lines' => $rP['lines'], 'missing' => $rP['missing'],
+        'totals' => ['rec' => $rP['rec'], 'once' => $rP['once'], 'raw' => $rP['raw'], 'discAmt' => $rP['discAmt'],
+            'net' => $rP['net'], 'vat' => $rP['vat'], 'gross' => $rP['gross'], 'y2net' => $rP['y2net'], 'y2' => $rP['y2']],
+        'amount' => $rP['net']]);
+
+case 'pbx_save':                         // δημιουργία / ενημέρωση προσφοράς τηλεφωνικού κέντρου
+    $oidP = (int) ($in['offer'] ?? 0);
+    $cfgP = Pbx::normalize(is_array($in['config'] ?? null) ? $in['config'] : []);
+    $cidP = (int) ($in['client'] ?? 0) ?: null;
+    if ($cidP && !Capsule::table('tblclients')->where('id', $cidP)->exists()) { $cidP = null; }
+    $nmP = trim((string) ($in['clientName'] ?? $cfgP['o']['client'] ?? ''));
+    if ($cidP && $nmP === '') { $nmP = clientLabel($cidP); }
+    $cfgP['o']['client'] = $nmP;
+    $protP = trim((string) ($cfgP['o']['protocol'] ?? ''));
+    if (!$oidP && ($protP === '' || substr($protP, -1) === '-')) { $cfgP['o']['protocol'] = cnp_offer_protocol_reserve(); }
+    $platP = Pbx::platforms()[$cfgP['plat']]['name'];
+    $titleP = mb_substr(trim((string) ($in['title'] ?? '')) ?: ('Τηλ. κέντρο ' . $platP . ' — ' . ($nmP ?: 'νέος πελάτης')), 0, 200);
+    $amountP = Pbx::offerAmount($cfgP);
+    $rowP = ['title' => $titleP, 'clientid' => $cidP, 'amount' => $amountP, 'kind' => 'pbx',
+        'config' => json_encode($cfgP, JSON_UNESCAPED_UNICODE), 'updated_at' => date('Y-m-d H:i:s')];
+    if ($oidP) {
+        $exP = Db::offer($oidP);
+        if (!$exP || $exP->kind !== 'pbx') { fail('offer', 404); }
+        if (!$FULL && (int) $exP->assignee !== $adminId && (int) $exP->created_by !== $adminId) { fail('Η προσφορά ανήκει σε άλλον', 403); }
+        Capsule::table('mod_cpm_offers')->where('id', $oidP)->update($rowP);
+    } else {
+        $rowP['stage'] = 'draft'; $rowP['assignee'] = $adminId; $rowP['created_by'] = $adminId;
+        $rowP['created_at'] = date('Y-m-d H:i:s');
+        $rowP['expected_close'] = date('Y-m-d', strtotime('+' . max(1, (int) $cfgP['o']['validDays']) . ' days'));
+        $oidP = (int) Capsule::table('mod_cpm_offers')->insertGetId($rowP);
+    }
+    out(['ok' => true, 'offer' => $oidP, 'amount' => $amountP, 'title' => $titleP]);
+
+case 'pbx_doc':                          // το έγγραφο (αποθηκευμένη προσφορά ή ζωντανή ρύθμιση)
+    $oidP = (int) ($_GET['offer'] ?? $in['offer'] ?? 0);
+    $cliP = 0;
+    if ($oidP) {
+        $oP = Db::offer($oidP);
+        if (!$oP || $oP->kind !== 'pbx') { fail('offer', 404); }
+        $cliP = (int) $oP->clientid;
+        $cfgP = json_decode((string) $oP->config, true) ?: [];
+        if ($cliP && empty($cfgP['o']['client'])) { $cfgP['o']['client'] = clientLabel($cliP); }
+    } else {
+        $cfgP = is_array($in['config'] ?? null) ? $in['config'] : [];
+    }
+    $tP = OfferTypes::get('pbx');
+    out(['html' => $tP->docHtml($cfgP), 'css' => $tP->docCss(), 'amount' => $tP->amount($cfgP),
+        'cfg' => $tP->normalize($cfgP), 'client' => $cliP]);
 
 /* ================= CRM: ΕΠΑΦΕΣ / ΕΠΙΚΟΙΝΩΝΙΕΣ ================= */
 case 'contacts':

@@ -1540,3 +1540,17 @@ Audit όλου του κυκλώματος δικαιωμάτων (`projectmanag
 κάθε νέα ενέργεια API. Οι αφύλακτες ενέργειες είναι ΣΚΟΠΙΜΑ οι προσωπικές οθόνες
 (boot, myday, todos, vault, library, profile, notifs, push, search, version, mentions,
 remote_active) + οι row-level (task/board μέσω canSeeTask/canSeeProject).
+
+## Προσφορές τηλεφωνικών κέντρων 3CX / Yeastar (12/9/2026)
+
+Νέος τύπος προσφοράς `kind='pbx'`, **ξεχωριστός** από το PharmacyOne (καμία αλλαγή στη λογική/έγγραφο PharmacyOne).
+
+| Τι | Πού |
+|---|---|
+| Μηχανή υπολογισμού + έγγραφο | `modules/addons/cloudonprojects/lib/Pbx.php` (νέο) |
+| Τύπος στο μητρώο προσφορών | `lib/offers/PbxType.php` (νέο) + εγγραφή στο `OfferTypes.php` |
+| API | `pbx_defs`, `pbx_calc`, `pbx_save`, `pbx_doc` (clients.offers[.edit]), `pbx_email` (κοινή ροή με `pharmacy_email` — ίδιο `case`, `$kindE`), `pbx_catalog_save/reset` (admin.settings.edit) |
+| Οθόνη | `projectmanagement/views8.js` (νέο) — `window.openPbx(offerId, {client, name})`· κουμπί «Τηλ. κέντρο» στις Προσφορές, μενού πελάτη, pill `.pill-pbx` |
+| Βασικός τιμοκατάλογος | `tbladdonmodules` setting `pbx_catalog` (JSON override ανά είδος)· εργοστασιακές τιμές 3CX από προσφορά 11/8/2026, Yeastar = 0,00 € επίτηδες |
+
+Αναβάθμιση WHMCS: δεν αγγίζει core· τα αρχεία ζουν στο addon + `/projectmanagement/`.

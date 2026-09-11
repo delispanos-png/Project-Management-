@@ -2402,3 +2402,48 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
   .tk-col-main > .tk-step{min-height:auto}
   .tk-step-list{overflow:visible}
 }
+
+/* ═══════════ Κοστολόγηση τηλεφωνικού κέντρου (views8.js) — ξεχωριστό από PharmacyOne ═══════════ */
+.pill-pbx{background:#0094d41e;color:var(--brand)}
+html[data-theme="dark"] .pill-pbx{background:#0094d42e;color:#6cc4f2}
+.pbx-tiles .ph-card{cursor:default}
+.pbx-tiles .ph-card:hover{transform:none;border-color:var(--line)}
+.pbx-tiles .ph-card.on{border-color:var(--brand)}
+.pbx-tile .ph-big{font-size:21px;font-weight:800;margin:4px 0 2px}
+.pbx-plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.pbx-plat{position:relative;display:block;border:1.5px solid var(--line);border-radius:var(--r);padding:12px 14px;cursor:pointer;background:var(--card)}
+.pbx-plat:hover{border-color:var(--brand)}
+.pbx-plat input{position:absolute;opacity:0;pointer-events:none}
+.pbx-plat-n{font-weight:700;font-size:14.5px;display:flex;align-items:center;gap:8px}
+.pbx-plat-d{display:block;font-size:12px;color:var(--mut);margin-top:3px;line-height:1.45}
+.pbx-dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--line);flex:none}
+.pbx-plat.sel{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset;background:rgba(0,144,221,.06)}
+.pbx-plat.sel .pbx-dot{border-color:var(--brand);background:var(--brand)}
+.pbx-items{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.pbx-row{display:grid;grid-template-columns:1fr 92px 96px 104px;gap:0 8px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);font-size:13px}
+.pbx-row.head{background:var(--canvas);border-top:0;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+.pbx-row .n{text-align:right;font-variant-numeric:tabular-nums}
+.pbx-row .ph-mini{width:100%}
+.pbx-row .pbx-nm label{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.pbx-row .pbx-nm input{margin-top:3px}
+.pbx-row .pbx-nm small{display:block;color:var(--mut);font-size:11.5px;margin-top:2px;line-height:1.4}
+.pbx-row .pbx-nm small.pbx-needs{display:none;color:#9a5b12;font-weight:600}
+.pbx-row.needs .pbx-nm small.pbx-needs{display:block}
+.pbx-row.needs .pbx-up{color:#9a5b12;font-weight:600}
+.pbx-row.off{opacity:.45}
+.pbx-row .pbx-up{color:var(--mut)}
+.pbx-grp{background:var(--canvas);padding:7px 12px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--brand);font-weight:700;border-top:1px solid var(--line)}
+.pbx-perext,.pbx-once{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:2px}
+.pbx-perext{color:var(--brand);background:rgba(0,144,221,.1)}
+.pbx-once{color:var(--mut);background:var(--canvas);border:1px solid var(--line)}
+.pbx-alert{background:#fbf0e2;border:1px solid #c79a3c;border-left-width:3px;border-radius:var(--r);padding:10px 14px;font-size:13px;color:#31454f;margin:0 0 12px}
+html[data-theme="dark"] .pbx-alert{background:#3a2c14;color:#f1e3c8}
+.pbx-alert b{color:#9a5b12}
+.pbx-alert a{color:var(--brand);cursor:pointer;text-decoration:underline}
+.pbx-zero{color:#9a5b12}
+.pbx-chk{display:flex;gap:8px;align-items:center;font-size:13px;padding:8px 0}
+.ph-fields .field.pbx-wide{grid-column:1 / -1}
+@media (max-width:640px){
+  .pbx-row{grid-template-columns:1fr 70px 84px}
+  .pbx-row .pbx-up{display:none}
+}

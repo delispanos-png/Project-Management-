@@ -17,7 +17,7 @@ class OfferTypes
     {
         if (self::$reg !== null) { return; }
         self::$reg = [];
-        foreach ([new PharmacyOneType(), new PlainType()] as $t) {
+        foreach ([new PharmacyOneType(), new PbxType(), new PlainType()] as $t) {
             self::$reg[$t->key()] = $t;
         }
     }

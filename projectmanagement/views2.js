@@ -457,6 +457,7 @@ R.offers = async function () {
 
   const oChips = (o, sg) => `
     ${o.kind === 'pharmacyone' ? '<span class="pill pill-ph">PharmacyOne</span>' : ''}
+    ${o.kind === 'pbx' ? '<span class="pill pill-pbx">Τηλ. κέντρο</span>' : ''}
     ${o.clientName ? `<span>${I.user} ${esc(o.clientName)}</span>` : ''}
     ${o.value > 0 ? `<b style="color:var(--ink)">${fmtEur(o.value)}</b>` : ''}
     ${o.quote ? `<span class="pill pill-info">Q${o.quote}</span>` : ''}
@@ -561,6 +562,7 @@ R.offers = async function () {
         <input class="inp" id="ofQ" placeholder="Ψάξε προσφορά — τίτλο, πελάτη, αριθμό quote…" value="${esc(st.q)}"></div>
       <button class="btn btn-p btn-sm" id="newOffer">${I.plus} Νέα προσφορά</button>
       <button class="btn btn-o btn-sm" id="newPharm" title="Κοστολόγηση PharmacyOne — γεννά κανονική προσφορά στο κύκλωμα">${I.doc} PharmacyOne</button>
+      <button class="btn btn-o btn-sm" id="newPbx" title="Κοστολόγηση τηλεφωνικού κέντρου 3CX / Yeastar — γεννά κανονική προσφορά στο κύκλωμα">${I.phone} Τηλ. κέντρο</button>
     </div>
     <div class="kb-filters">
       <span class="crm-goal">${I.doc} <b>${fmtEur(openV)}</b><span class="mut"> ανοιχτές</span></span>
@@ -586,6 +588,7 @@ R.offers = async function () {
   $$('.lb-title[data-offer]').forEach(b => b.onclick = () => openOffer(d.offers.find(o => o.id === +b.dataset.offer), d));
   $('#newOffer').onclick = () => openOffer(null, d);
   const npm = $('#newPharm'); if (npm) { npm.onclick = () => window.openPharmacy(0, null); }
+  const npx = $('#newPbx'); if (npx) { npx.onclick = () => window.openPbx(0, null); }
   const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
   let oqt;
   $('#ofQ').oninput = () => { clearTimeout(oqt); oqt = setTimeout(() => { st.q = $('#ofQ').value.trim(); R.offers(); }, 300); };
@@ -758,6 +761,7 @@ function openOffer(o, d) {
   /* Η προσφορά PharmacyOne γεννήθηκε από τον κοστολογητή· εκεί επιστρέφει κιόλας,
      αλλιώς η επόμενη αποθήκευση θα έσβηνε το ποσό που βγήκε από τους υπολογισμούς. */
   if (o && o.kind === 'pharmacyone' && window.openPharmacy) { window.openPharmacy(o.id, null); return; }
+  if (o && o.kind === 'pbx' && window.openPbx) { window.openPbx(o.id, null); return; }
   closeDrawer();
   const isNew = !o; o = o || {stage: 'new'};
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
@@ -1164,7 +1168,8 @@ R.clientlist = async function () {
         openOffer(null, od);
         const ci = $('#oClientId'), cn = $('#oClient'); if (ci) { ci.value = cl.id; } if (cn) { cn.value = cl.name; }
       }});
-      if (window.openPharmacy) { items.push({icon: I.doc, label: 'Νέα προσφορά PharmacyOne', on: () => window.openPharmacy(0, {client: cl.id, clientName: cl.name})}); }
+      if (window.openPharmacy) { items.push({icon: I.doc, label: 'Νέα προσφορά PharmacyOne', on: () => window.openPharmacy(0, {client: cl.id, name: cl.name})}); }
+      if (window.openPbx) { items.push({icon: I.phone, label: 'Νέα προσφορά τηλεφωνικού κέντρου', on: () => window.openPbx(0, {client: cl.id, name: cl.name})}); }
     }
     if (cnpCan('clients.calls')) { items.push({icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall({client: cl.id, name: cl.name, phone: cl.phone})}); }
     if (cnpCan('clients.complaints.edit')) { items.push({icon: I.alert, label: 'Νέο παράπονο', on: () => window.CNP.quickCx && window.CNP.quickCx({client: cl.id, name: cl.name})}); }

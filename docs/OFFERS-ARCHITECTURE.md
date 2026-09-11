@@ -36,6 +36,8 @@ interface OfferType {
 - **Registry** `OfferTypes::get(string $kind): OfferType` + `OfferTypes::all()`.
 - `PharmacyOneType` = adapter γύρω από το υπάρχον `lib/Pharmacy.php` (μηδέν αλλαγή λογικής).
 - `PlainType` = ελεύθερο κείμενο + ένα ποσό (το σημερινό `kind='plain'`).
+- `PbxType` (12/9/2026) = τηλεφωνικά κέντρα 3CX / Yeastar — adapter γύρω από `lib/Pbx.php`, δικός του
+  τιμοκατάλογος (`pbx_catalog`), έγγραφο και lineItems (ετήσια → annually, εφάπαξ → onetime).
 - `EcommerceType` = νέος τύπος (Φάση 5) — δικός του κατάλογος/έγγραφο.
 - Κοινό «κέλυφος» εγγράφου (logos CloudOn/συνεργάτη, cover, οικονομική πρόταση, όροι)
   σε base helper ώστε κάθε τύπος να ορίζει μόνο το «σώμα» του (reuse `lib/Cover.php`).

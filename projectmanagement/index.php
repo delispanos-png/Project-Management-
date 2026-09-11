@@ -181,6 +181,7 @@ $v = cnp_asset_version();
 <script type="module" src="views5.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="views6.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="views7.js?v=<?= htmlspecialchars($v) ?>"></script>
+<script type="module" src="views8.js?v=<?= htmlspecialchars($v) ?>"></script>
 <script type="module" src="help.js?v=<?= htmlspecialchars($v) ?>"></script>
 </body>
 </html>
