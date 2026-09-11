@@ -1189,6 +1189,8 @@ table.p .q{display:block;font-size:8pt;color:var(--mut);margin-top:.8mm;font-wei
 table.p td.nt{font-size:8pt;font-weight:700;letter-spacing:.08em;color:var(--acc-d);white-space:nowrap}
 table.p th .cont{font-weight:400;letter-spacing:.1em;color:var(--mut);text-transform:none}
 .note{font-size:9pt;color:var(--mut)}
+/* Η διευκρίνιση «προ ΦΠΑ» κάτω από τις δόσεις: πρέπει να διαβάζεται, όχι να χάνεται. */
+.vatnote{margin-top:4mm;color:var(--ink);font-size:9.5pt}
 
 /* ── συγκεντρωτικοί ── */
 table.s{width:100%;border-collapse:collapse;font-size:10.5pt;table-layout:fixed;margin-bottom:5mm}
@@ -1662,6 +1664,10 @@ CSS;
             . '</tbody></table>'
             . '<p>Η εξόφλησή του γίνεται ως εξής:</p>'
             . '<div class="pay">' . $steps . '</div>'
+            /* Ρητή διευκρίνιση: οι δόσεις είναι προ ΦΠΑ — να μη δημιουργείται
+               παρανόηση για το τελικό πληρωτέο (απόφαση 11/9/2026). */
+            . '<p class="note vatnote"><b>Τα παραπάνω ποσά δεν περιλαμβάνουν ΦΠΑ '
+            . (float) $o['vat'] . '%.</b></p>'
             . '<table class="s"><tbody>'
             . '<tr><td class="l">Τρόπος εξόφλησης</td><td class="n">' . self::e($o['payMethod']) . '</td></tr>'
             . '<tr><td class="l">Ετήσια συνδρομή &amp; υποστήριξη — <b>από το 2ο έτος</b></td><td class="n">'
