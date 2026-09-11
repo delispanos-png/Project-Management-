@@ -2216,6 +2216,40 @@ function cnp_action_cap($action)
     }
     return $map[$action] ?? null;
 }
+/**
+ * ΑΝΟΙΧΤΕΣ ενέργειες: ΜΟΝΟ προσωπικές οθόνες ή row-level έλεγχοι μέσα στην ίδια
+ * την ενέργεια. Ο φύλακας είναι DENY-BY-DEFAULT (12/9/2026): ό,τι δεν είναι ούτε
+ * στο cnp_action_cap ούτε εδώ, απορρίπτεται με 403 «δεν έχει δηλωθεί» — ώστε κάθε
+ * ΝΕΟ feature να μπαίνει υποχρεωτικά στο μοντέλο δικαιωμάτων.
+ */
+function cnp_open_actions()
+{
+    return [
+        // σύνδεση/σφυγμός
+        'boot', 'version', 'topstats', 'notifs', 'notif_read', 'push_pubkey', 'push_subscribe',
+        'push_unsubscribe', 'push_latest', 'ksearch', 'search', 'mynext',
+        // Η μέρα μου / πλάνο / χρόνος μου
+        'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
+        'todo_toggle', 'todo_del', 'todo_clear_done', 'todo_seed', 'worknote_save', 'time',
+        'mentions', 'mention_read',
+        // προφίλ
+        'profile', 'profile_save', 'profile_pass', 'profile_pref',
+        // κωδικοί & βιβλιοθήκη (προσωπικά)
+        'vault_list', 'vault_save', 'vault_reveal', 'vault_del', 'lib_list', 'lib_save',
+        'lib_upload', 'lib_get', 'lib_pin', 'lib_del', 'manual_img',
+        // εργασίες: row-level (canSeeTask / cnp_task_write_ok)
+        'task', 'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
+        'check_toggle', 'watch', 'remind', 'request_update', 'help_ask', 'help_seen',
+        'help_done',
+        // αρχεία (row-level μέσα στην ενέργεια)
+        'file_presign_put', 'file_confirm', 'file_upload', 'file_list', 'file_get',
+        'file_delete',
+        // βοηθήματα AI / έτοιμες απαντήσεις (χωρίς δεδομένα κυκλώματος)
+        'ai_proofread', 'ai_suggest', 'ai_summary',
+        // header chip remote (δικιά μου ενεργή συνεδρία)
+        'remote_active',
+    ];
+}
 /* Ο πίνακας γράφει «α|β» όταν μια ενέργεια πατάει δικαιολογημένα σε δύο ενότητες
    — π.χ. η «υγεία πελάτη» φαίνεται και στους Πελάτες και στο Πλάνο ημέρας.
    Φτάνει το ένα από τα δύο δικαιώματα. */
@@ -2242,6 +2276,11 @@ if ($needCap !== null) {
         }, $want));
         fail('Δεν έχεις δικαίωμα για «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
     }
+} elseif (!in_array($action, cnp_open_actions(), true)) {
+    /* Deny-by-default: ενέργεια που κανείς δεν δήλωσε σε cap ούτε ως προσωπική.
+       Έτσι ένα ξεχασμένο νέο feature ΔΕΝ βγαίνει ελεύθερο — δεν δουλεύει, και ο
+       προγραμματιστής το βλέπει αμέσως. */
+    fail('Η ενέργεια «' . $action . '» δεν έχει δηλωθεί στα δικαιώματα (cnp_action_cap ή cnp_open_actions)', 403);
 }
 
 switch ($action) {

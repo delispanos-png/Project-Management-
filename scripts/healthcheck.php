@@ -295,6 +295,33 @@ if ($cronPhp) {
 }
 
 /* ------------------------------------------------------------------ */
+
+/* ── Δικαιώματα PM: κάλυψη (ΚΑΝΟΝΑΣ 12/9/2026 — κάθε νέα ενέργεια δηλώνεται) ── */
+section('Δικαιώματα PM — κάλυψη ενεργειών');
+(function () {
+    $api = @file_get_contents(ROOTDIR . '/projectmanagement/api.php');
+    if (!$api) { warn('api.php', 'δεν διαβάστηκε'); return; }
+    $m0 = strpos($api, 'function cnp_action_cap('); $m1 = strpos($api, "\n}\n", $m0);
+    $mapped = [];
+    if (preg_match_all("/\\\$add\\('([^']+)',\\s*\\[(.*?)\\]\\);/s", substr($api, $m0, $m1 - $m0), $mm, PREG_SET_ORDER)) {
+        foreach ($mm as $x) { if (preg_match_all("/'([^']+)'/", $x[2], $aa)) { foreach ($aa[1] as $a) { $mapped[$a] = $x[1]; } } }
+    }
+    $o0 = strpos($api, 'function cnp_open_actions('); $o1 = strpos($api, "\n}\n", $o0);
+    preg_match_all("/'([a-z0-9_]+)'/", substr($api, $o0, $o1 - $o0), $oo); $open = array_flip($oo[1]);
+    preg_match_all("/^case '([a-z0-9_]+)':/m", $api, $cc); $cases = array_unique($cc[1]);
+    $undeclared = [];
+    foreach ($cases as $c) { if ($c === 'event_rsvp_public') { continue; } if (!isset($mapped[$c]) && !isset($open[$c])) { $undeclared[] = $c; } }
+    if ($undeclared) { bad('Ενέργειες ΧΩΡΙΣ δήλωση (θα απορρίπτονται με 403 μέχρι να δηλωθούν)', implode(', ', $undeclared)); }
+    else { ok('Κάθε ενέργεια API είναι δηλωμένη', count($cases) . ' ενέργειες · ' . count($mapped) . ' με cap · ' . count($open) . ' προσωπικές'); }
+    // caps που δεν φυλάνε καμία ενέργεια = κουτάκι που λέει ψέματα
+    $c0 = strpos($api, 'function cnp_caps('); $c1 = strpos($api, 'function cnp_caps_of(');
+    preg_match_all("/^\\s+'([a-z]+\\.[a-z_.]+)'\\s+=>\\s+\\['(view|edit|delete|power)'/m", substr($api, $c0, $c1 - $c0), $kk);
+    $used = []; foreach ($mapped as $cap) { foreach (explode('|', $cap) as $k) { $used[$k] = 1; } }
+    $dead = array_values(array_filter($kk[1], function ($k) use ($used) { return !isset($used[$k]); }));
+    if ($dead) { warn('Δυνατότητες που δεν φυλάνε καμία ενέργεια', implode(', ', $dead)); }
+    else { ok('Κάθε δυνατότητα φυλάει τουλάχιστον μία ενέργεια', count($kk[1]) . ' δυνατότητες'); }
+})();
+
 echo "\n" . str_repeat('─', 72) . "\n";
 if ($fails === 0 && $warns === 0) {
     echo "\033[32mΌλα εντάξει.\033[0m\n\n";
