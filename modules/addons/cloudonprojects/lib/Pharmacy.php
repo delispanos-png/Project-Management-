@@ -348,6 +348,20 @@ class Pharmacy
     /** Ώρες υπηρεσιών: το φύλλο στρογγυλοποιεί ΠΑΝΤΑ προς τα πάνω (ROUNDUP(αξία/80)). */
     private static function hrs($v) { return (int) ceil(((float) $v) / self::HOUR_RATE - 0.00001); }
 
+    /** Τα ΕΝΕΡΓΑ marketplaces μόνο — η ετικέτα δεν πρέπει να διαφημίζει κανάλια
+        που δεν μπαίνουν στην προσφορά (απόφαση 11/9/2026). */
+    private static function marketplaceNames($yn, $q = [])
+    {
+        $map = ['N16' => 'Skroutz', 'N18' => 'Shopflix', 'N19' => 'Wolt', 'N20' => 'E-Food'];
+        $on = [];
+        foreach ($map as $cell => $name) {
+            if (!self::y($yn, $cell)) { continue; }
+            $n = (float) self::q($q, $cell);
+            $on[] = $name . ($n > 1 ? ' ×' . self::fmtQty($n) : '');
+        }
+        return $on;
+    }
+
     private static function marketplaces($yn, $r, $q = [])
     {
         return self::y($yn, 'N16') * $r['S22'] * self::q($q, 'N16')
@@ -500,7 +514,7 @@ class Pharmacy
             [44, 3, 1, 'Παραμετροποίηση WMS Lite', null,
                 function ($p, $r, $e, $i, $yn, $q) { return self::y($yn, 'L25') * $r['S36'] * self::q($q, 'L25') * (1 - $p['J8']); }],
             [37, 4, 0, 'CloudOn modules Marketplaces — διαχείριση παραγγελιών',
-                function ($p, $r) { return 'Skroutz / Shopflix / Wolt / E-Food'; },
+                function ($p, $r, $e, $i, $yn, $q) { return implode(' / ', self::marketplaceNames($yn, $q)); },
                 function ($p, $r, $e, $i, $yn, $q) { return self::marketplaces($yn, $r, $q) * (1 - $p['L4']); }],
             [38, 3, 0, 'Τεχνική υποστήριξη & παραμετροποίηση εξοπλισμού',
                 function ($p, $r) { return $p['I10'] . ' Η/Υ · ' . $p['K10'] . ' εκτυπωτές'; },
@@ -1233,17 +1247,21 @@ table.s tr.disc td.n{color:var(--red);font-weight:700}
 .box .v{height:22mm}
 .box.sg .v{height:29mm}
 
-@page{size:A4;margin:12mm 14mm}
+/* Περιθώριο χαρτιού = 0 και τα περιθώρια μπαίνουν ως padding στη ΣΕΛΙΔΑ. Έτσι το
+   banner του εξωφύλλου πιάνει όλο το πλάτος του χαρτιού. Με @page margin, το
+   Chromium έκοβε στο περιθώριο ό,τι έβγαινε έξω (το παλιό margin:0 -14mm δεν
+   είχε κανένα αποτέλεσμα στο PDF). */
+@page{size:A4;margin:0}
 @media print{
   body{background:#fff;padding:0}
-  .page{width:auto;min-height:262mm;margin:0;padding:0 0 16mm;box-shadow:none;
+  .page{width:auto;min-height:296mm;margin:0;padding:12mm 14mm 16mm;box-shadow:none;
     break-after:page;page-break-after:always}
   .page.cover{padding:0}
-  .cover .clogos{padding:0 0 10mm}
-  .cover .hero{padding:18mm 14mm;margin:0 -14mm}
-  .cover .body{padding:14mm 0 0}
+  .cover .clogos{padding:12mm 14mm 10mm}
+  .cover .hero{padding:18mm 14mm;margin:0}
+  .cover .body{padding:14mm 14mm 0}
   .page:last-child{break-after:auto;page-break-after:auto}
-  .foot{left:0;right:0;bottom:2mm}
+  .foot{left:14mm;right:14mm;bottom:6mm}
   table.m tr,table.p tr,table.s tr,.bank,.box,.grand{break-inside:avoid;page-break-inside:avoid}
   h1.sec,h2.sub,h3.sub3{break-after:avoid;page-break-after:avoid}
 }
