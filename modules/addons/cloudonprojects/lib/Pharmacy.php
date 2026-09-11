@@ -1631,8 +1631,13 @@ CSS;
 
         /* ── 12. Τρόπος πληρωμής ── */
         $mark['2.5'] = count($P) + 1;
-        /* Ο διακανονισμός όπως τον όρισε ο πωλητής — μία γραμμή ανά δόση. */
-        $pl = self::planRows($o['plan'], $fin);
+        /* Ο διακανονισμός όπως τον όρισε ο πωλητής — μία γραμμή ανά δόση.
+           Οι δόσεις είναι ΠΟΣΑ ΚΑΤΑΘΕΣΗΣ: υπολογίζονται στο ΜΕΙΚΤΟ ποσό (με ΦΠΑ),
+           γιατί αυτό ακριβώς καταθέτει ο πελάτης (απόφαση 11/9/2026). */
+        $vatPct = (float) $o['vat'];
+        $vatEur = round($fin * $vatPct / 100, 2);
+        $gross  = round($fin + $vatEur, 2);
+        $pl = self::planRows($o['plan'], $gross);
         $steps = '';
         foreach ($pl['rows'] as $st) {
             $steps .= '<div class="step"><div class="pc">' . self::e($st['lab']) . '</div>'
@@ -1659,15 +1664,22 @@ CSS;
             . '<td class="n">' . self::fmtEur($bt[1] + $bt[2] + $bt[5]) . '</td></tr>'
             . ($disc ? '<tr class="disc"><td class="l">Έκπτωση προσφοράς</td><td class="n">-'
                 . self::fmtEur($disc) . '</td></tr>' : '')
-            . '<tr class="plain"><td class="l">Συνολικό ποσό προς εξόφληση (1ο έτος, προ ΦΠΑ)</td>'
+            . '<tr><td class="l">Συνολικό ποσό (1ο έτος, προ ΦΠΑ)</td>'
             . '<td class="n">' . self::fmtEur($fin) . '</td></tr>'
+            . ($vatPct > 0 ? '<tr><td class="l">ΦΠΑ ' . $vatPct . '%</td>'
+                . '<td class="n">' . self::fmtEur($vatEur) . '</td></tr>' : '')
+            . '<tr class="plain"><td class="l">Συνολικό πληρωτέο'
+            . ($vatPct > 0 ? ' (με ΦΠΑ)' : '') . '</td>'
+            . '<td class="n">' . self::fmtEur($gross) . '</td></tr>'
             . '</tbody></table>'
             . '<p>Η εξόφλησή του γίνεται ως εξής:</p>'
             . '<div class="pay">' . $steps . '</div>'
-            /* Ρητή διευκρίνιση: οι δόσεις είναι προ ΦΠΑ — να μη δημιουργείται
-               παρανόηση για το τελικό πληρωτέο (απόφαση 11/9/2026). */
-            . '<p class="note vatnote"><b>Τα παραπάνω ποσά δεν περιλαμβάνουν ΦΠΑ '
-            . (float) $o['vat'] . '%.</b></p>'
+            /* Τα ποσά των δόσεων είναι πληρωτέα (με ΦΠΑ) — λέγεται ρητά ώστε να μην
+               υπάρχει καμία αμφιβολία για το τι κατατίθεται. */
+            . ($vatPct > 0
+                ? '<p class="note vatnote"><b>Τα ποσά των δόσεων περιλαμβάνουν ΦΠΑ '
+                    . $vatPct . '% — είναι τα ποσά που καταβάλλονται.</b></p>'
+                : '<p class="note vatnote"><b>Τα ποσά των δόσεων δεν επιβαρύνονται με ΦΠΑ.</b></p>')
             . '<table class="s"><tbody>'
             . '<tr><td class="l">Τρόπος εξόφλησης</td><td class="n">' . self::e($o['payMethod']) . '</td></tr>'
             . '<tr><td class="l">Ετήσια συνδρομή &amp; υποστήριξη — <b>από το 2ο έτος</b></td><td class="n">'
