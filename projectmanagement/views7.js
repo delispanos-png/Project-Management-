@@ -304,10 +304,16 @@ async function openPharmacy(offerId, pre) {
        κατέβεις στο έντυπο για να δεις το αποτέλεσμα μιας αλλαγής. */
     const sup = $('[data-hint="M6"]', body);
     if (sup && st.calc.buckets) {
+      /* Ταίριασμα στην ΕΤΙΚΕΤΑ, όχι στο k: το k=29 υπάρχει και στις εφάπαξ γραμμές
+         (Παραμετροποίηση) — η αρίθμηση εφάπαξ/ετήσιων είναι ανεξάρτητη. */
       let v = null;
-      st.calc.buckets.forEach(b => (b.rows || []).forEach(r => { if (+r.k === 29) { v = +r.amount; } }));
+      st.calc.buckets.forEach(b => (b.rows || []).forEach(r => {
+        if (/Τηλεφωνικ/i.test(r.lab || '')) { v = +r.amount; }
+      }));
       if (v !== null) {
-        sup.textContent = `${st.cfg.p.M6} ώρες → ${phMoney(v)} / έτος (με το πάγιο ανά εταιρεία & υποκατάστημα)`;
+        const h = +st.cfg.p.M6 || 0;
+        const rate = h ? v / h : (+(st.cfg.r && st.cfg.r.S37) || 0);
+        sup.textContent = `${h} ώρες × ${phMoney(rate)} / ώρα → ${phMoney(v)} / έτος`;
       }
     }
     if (st.tab === 'doc') { docPane(); }
@@ -345,15 +351,10 @@ async function openPharmacy(offerId, pre) {
       }</div></div>`;
       $$('[data-p]', el).forEach(inp => inp.oninput = () => {
         const v = parseFloat(inp.value); const n = isFinite(v) ? v : 0;
-        const cell = inp.dataset.p, prev = st.cfg.p[cell];
+        const cell = inp.dataset.p;
         st.cfg.p[cell] = inp.dataset.k === 'pct' ? n / 100 : n;
-        /* Οι ώρες τηλεφωνικής ακολουθούν τους χρήστες (2 ανά χρήστη) όσο κανείς δεν τις
-           έχει πειράξει· μόλις γράψεις δικό σου νούμερο, μένει αυτό. */
-        if (cell === 'I4' && +st.cfg.p.M6 === +prev * 2) {
-          st.cfg.p.M6 = n * 2;
-          const hi = $('[data-p="M6"]', el);
-          if (hi) { hi.value = n * 2; }
-        }
+        /* Οι ώρες τηλεφωνικής ΔΕΝ ακολουθούν πια τους χρήστες — τις ορίζει
+           αποκλειστικά ο χρήστης (απόφαση 11/9/2026). */
         touch();
       });
     } else if (st.tab === 'modules') {
