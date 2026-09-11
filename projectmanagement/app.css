@@ -1672,7 +1672,9 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
    πληροφορίες του έργου. Κάθε στήλη κυλά μόνη της — το σώμα δεν κυλά. */
 .tk-modal-b{display:flex;gap:16px;align-items:stretch;overflow:hidden;min-height:0}
 .tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0}
-.tk-col-side{flex:0 0 clamp(360px,40%,560px);min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;
+/* Δεξιά στήλη: συμπαγής, σχεδιασμένη να ΧΩΡΑ χωρίς scroll. Το overflow:auto μένει
+   μόνο ως δίχτυ ασφαλείας σε πολύ χαμηλές οθόνες — δεν είναι ο κανόνας. */
+.tk-col-side{flex:0 0 clamp(330px,35%,470px);min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;
   padding:1px 4px 2px 0;display:flex;flex-direction:column}
 /* Στη στενή δεξιά στήλη, τα πεδία συρρικνώνονται αντί να ξεχειλίζουν: τα date
    inputs έχουν μεγάλο εγγενές πλάτος και χωρίς min-width:0 έσπρωχναν τη στήλη. */
@@ -1684,12 +1686,29 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-cust-big{display:inline-flex;align-items:center;gap:7px;font-weight:800;font-size:14.5px;
   color:var(--ink);text-decoration:none}
 .tk-cust-big:hover{color:var(--brand)}
-/* «Ζητούμενο» καρφιτσωμένο πάνω στη main στήλη· η συνομιλία γεμίζει το υπόλοιπο */
-.tk-col-main{gap:14px}
-.tk-col-main > .tk-brief{flex:0 0 auto;max-height:46%;display:flex;flex-direction:column;margin:0}
-.tk-col-main > .tk-brief > .card-b{overflow:auto;min-height:0}
-.tk-brief-ro{font-size:13.5px;line-height:1.55;color:var(--ink);word-break:break-word}
+/* Κύρια στήλη: ΖΗΤΟΥΜΕΝΟ πάνω (ένα μόνο scroll, μέσα στον editor — όχι δεύτερο
+   στην κάρτα) και από κάτω οι ΕΝΕΡΓΕΙΕΣ που γεμίζουν το υπόλοιπο. Το ΜΟΝΟ που
+   κυλά στην καρτέλα είναι η λίστα ενεργειών· το πεδίο νέου βήματος και τα
+   συνημμένα μένουν σταθερά από κάτω, ώστε να διαβάζεις ό,τι γράφεις. */
+.tk-col-main{gap:12px}
+.tk-col-main > .tk-brief{flex:0 0 auto;max-height:none;display:flex;flex-direction:column;margin:0}
+.tk-col-main > .tk-brief > .card-b{overflow:visible;min-height:0;padding-top:10px}
+.tk-brief .rte{min-height:110px;max-height:34vh}
+.tk-brief-foot{display:flex;gap:9px;margin-top:9px;align-items:center;flex-wrap:wrap}
+.tk-brief-ro{font-size:13.5px;line-height:1.55;color:var(--ink);word-break:break-word;max-height:34vh;overflow:auto}
 .tk-brief-ro img{max-width:100%}
+.tk-col-main > .tk-step{flex:1 1 0;min-height:150px;display:flex;flex-direction:column;margin:0}
+.tk-col-main > .tk-step > .card-b{flex:1;min-height:0;display:flex;flex-direction:column;padding:0}
+.tk-step-list{flex:1;min-height:0;overflow-y:auto;padding:8px 14px}
+.tk-step-list .chk{align-items:flex-start;padding:7px 0}
+.tk-step-list .chk input{margin-top:1px}
+.tk-step-list .chk span{flex:1;min-width:0;white-space:normal;word-break:break-word;line-height:1.45}
+.tk-step-foot{flex:none;padding:9px 14px 10px;border-top:1px solid var(--line);background:var(--card);
+  display:flex;flex-direction:column;gap:7px}
+.tk-att summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--mut);display:flex;align-items:center;gap:5px;user-select:none;padding:3px 0}
+.tk-att summary svg{width:13px;height:13px}
+.tk-att > div{margin-top:6px}
+.tk-brief .tk-att{margin-top:10px}
 .tk-col-side input[type=date]{min-width:0}
 .tk-col-side .pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tk-col-side > .card{margin:0 0 12px}
@@ -2333,3 +2352,53 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
   transition:background .15s,color .15s,border-color .15s}
 .ch-dl svg{width:13px;height:13px}
 .ch-dl:hover{background:var(--brand);color:#fff;border-color:var(--brand)}
+
+/* ── Καρτέλα task: κεφαλίδα με #αριθμό, τίτλο επί τόπου, κατάσταση-κουμπί, flags, επιβλέποντα ── */
+.tk-id{font-weight:800;font-size:13px;color:var(--brand);background:#0090dd14;border:1px solid #0090dd33;
+  border-radius:8px;padding:2px 8px;font-variant-numeric:tabular-nums;flex:none;white-space:nowrap}
+.tk-ttl-edit{border:0;background:transparent;color:var(--mut);cursor:pointer;padding:3px 5px;border-radius:6px;line-height:1;flex:none}
+.tk-ttl-edit svg{width:14px;height:14px}
+.tk-ttl-edit:hover{background:#8595ac22;color:var(--ink)}
+.tk-ttl-inp{font-size:17px;font-weight:800;flex:1 1 260px;min-width:200px;padding:5px 9px}
+.tk-st{border:0;cursor:pointer;font-weight:700}
+.tk-st:hover{filter:brightness(.94)}
+.tk-flag{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;letter-spacing:.02em;
+  padding:2px 8px;border-radius:7px;white-space:nowrap;flex:none;text-transform:uppercase;line-height:1.5}
+.tk-flag svg{width:12px;height:12px}
+.tk-flag-tk{background:#e0552b1c;color:#c2451c;border:1px solid #e0552b44}
+.tk-flag-of{background:#7b5cd61c;color:#5f43b8;border:1px solid #7b5cd644}
+.tcard .tk-flag,.kb-trow .tk-flag{font-size:9.5px;padding:1px 6px}
+.tk-idc{font-size:10.5px;font-weight:700;color:var(--mut);font-variant-numeric:tabular-nums;flex:none}
+.tk-sub{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--mut)}
+.tk-sup{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.tk-sup svg{width:13px;height:13px}
+.tk-sup b{color:var(--ink)}
+/* Συμπαγής δεξιά στήλη — χρόνος πάνω-πάνω, πεδία σε δύο στήλες, μικρότερα κουμπιά */
+.tk-col-side > .card{margin:0 0 10px}
+.tk-time .card-b{padding:9px 12px 10px}
+.tk-time-row{display:grid;grid-template-columns:76px auto 1fr auto;gap:7px;align-items:center}
+.tk-time-row .inp{padding:6px 8px;font-size:12.5px;min-width:0}
+.tk-bill{display:inline-flex;gap:5px;align-items:center;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer}
+.tk-bill input{width:16px;height:16px;accent-color:var(--warn)}
+.tk-bill svg{width:13px;height:13px}
+.tk-log{display:flex;gap:8px;font-size:11.5px;padding:3px 0;align-items:baseline;min-width:0}
+.tk-frow{grid-template-columns:1fr 1fr;gap:7px 10px;margin-bottom:0}
+.tk-frow .lbl{font-size:10px;margin-bottom:2px}
+.tk-frow .inp{padding:6px 8px;font-size:12.5px}
+.tk-offer{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:12.5px;cursor:pointer;
+  padding:7px 10px;border:1px dashed #7b5cd655;border-radius:9px;background:#7b5cd60d}
+.tk-offer input{width:16px;height:16px;accent-color:#7b5cd6}
+.tk-offer svg{width:14px;height:14px;color:#5f43b8}
+.tk-actions{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+.tk-actions .btn{padding:6px 11px;font-size:12.5px}
+.tk-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tk-tkd > summary{list-style:none}
+.tk-tkd > summary::-webkit-details-marker{display:none}
+.tk-tkd .card-h{gap:8px}
+.tk-tkd .tkthread{max-height:200px;overflow:auto}
+@media (max-width:900px){
+  .tk-time-row{grid-template-columns:1fr 1fr}
+  .tk-frow{grid-template-columns:1fr}
+  .tk-col-main > .tk-step{min-height:auto}
+  .tk-step-list{overflow:visible}
+}

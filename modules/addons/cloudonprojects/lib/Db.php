@@ -1468,6 +1468,7 @@ class Db
         $q = Capsule::table('mod_cpm_tasks as t')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->select('t.*', 'p.name as project_name', 'p.color as project_color');
+        if (!empty($f['id']))         { $q->where('t.id', (int) $f['id']); }   // αναζήτηση με #αριθμό
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['status_id']))  { $q->where('t.status_id', (int) $f['status_id']); }
         if (!empty($f['assignee']))   { $q->where('t.assignee', (int) $f['assignee']); }

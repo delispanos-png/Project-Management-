@@ -1566,6 +1566,8 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'dept' => isset($t->dept_id) && $t->dept_id ? (int) $t->dept_id : null,
         'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
         'delivery' => !empty($t->is_delivery),
+        'isOffer' => !empty($t->is_offer),                       // αφορά προσφορά → προτεραιότητα
+        'creator' => isset($t->created_by) && $t->created_by ? (int) $t->created_by : null,   // ο επιβλέπων
         'billOk' => !empty($t->billing_ok),
         'billOkBy' => isset($t->billing_ok_by) && $t->billing_ok_by ? (int) $t->billing_ok_by : null,
         'billOkAt' => $t->billing_ok_at ?? null,
@@ -1576,6 +1578,62 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'mins' => $minsMap !== null ? (int) ($minsMap[(int) $t->id] ?? 0) : null,
         'check' => $checkMap !== null ? ($checkMap[(int) $t->id] ?? null) : null,
     ];
+}
+
+/**
+ * «@Όνομα» μέσα σε κείμενο (ζητούμενο, ενέργεια) → ειδοποίηση στον αναφερόμενο.
+ * Αντικαθιστά τα εσωτερικά μηνύματα της εργασίας: γράφεις @Νίκος και ο Νίκος το
+ * βλέπει στο dashboard του και στο καμπανάκι (GoodDay-style «πρόσεξέ με»).
+ * Ταιριάζει username, όνομα, επώνυμο ή «όνομα επώνυμο», χωρίς τόνους/πεζά.
+ * Επιστρέφει τα ids που ειδοποιήθηκαν (ποτέ τον ίδιο τον συντάκτη).
+ */
+function cnp_notify_mentions($text, $taskId, $byAdminId, $where = '')
+{
+    $plain = html_entity_decode(strip_tags((string) $text), ENT_QUOTES, 'UTF-8');
+    if (strpos($plain, '@') === false) {
+        return [];
+    }
+    $norm = function ($s) {
+        $s = mb_strtolower(trim((string) $s), 'UTF-8');
+        return strtr($s, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ϊ' => 'ι', 'ΐ' => 'ι',
+            'ό' => 'ο', 'ύ' => 'υ', 'ϋ' => 'υ', 'ΰ' => 'υ', 'ώ' => 'ω', 'ς' => 'σ']);
+    };
+    $admins = [];
+    foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'username', 'firstname', 'lastname']) as $a) {
+        $admins[] = ['id' => (int) $a->id, 'keys' => array_values(array_filter(array_unique([
+            $norm($a->username), $norm($a->firstname), $norm($a->lastname),
+            $norm($a->firstname . ' ' . $a->lastname), $norm($a->firstname . $a->lastname)])))];
+    }
+    preg_match_all('/@([\p{L}\p{N}_.\-]+(?:\s[\p{L}]+)?)/u', $plain, $m);
+    $hit = [];
+    foreach ($m[1] as $tok) {
+        $cands = [$norm($tok)];
+        if (strpos($tok, ' ') !== false) { $cands[] = $norm(explode(' ', $tok)[0]); }
+        foreach ($admins as $a) {
+            foreach ($cands as $c) {
+                if ($c === '' || mb_strlen($c) < 3) { continue; }
+                foreach ($a['keys'] as $k) {
+                    if ($k === $c || strpos($k, $c) === 0) { $hit[$a['id']] = true; continue 3; }
+                }
+            }
+        }
+    }
+    unset($hit[(int) $byAdminId]);
+    if (!$hit) {
+        return [];
+    }
+    $t = Db::task((int) $taskId);
+    if (!$t) {
+        return [];
+    }
+    $by = Db::adminName($byAdminId);
+    foreach (array_keys($hit) as $aid) {
+        Db::pushNotification($aid, 'mention',
+            $by . ' σε ανέφερε' . ($where !== '' ? ' (' . $where . ')' : '') . ' στην εργασία #' . (int) $taskId
+            . ' «' . mb_substr((string) $t->title, 0, 80) . '»',
+            'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $taskId);
+    }
+    return array_keys($hit);
 }
 /* ───────── Departments ─────────
    Ένα και μόνο μητρώο: τα ticket departments του WHMCS — πού απευθύνεται το
@@ -3618,8 +3676,12 @@ case 'quick_task':
         fail('input');
     }
     $sid = (int) ($in['status'] ?? 0);
+    /* Ο ΕΠΙΒΛΕΠΩΝ (action_user) είναι ΠΑΝΤΑ όποιος άνοιξε την εργασία — παίρνεται
+       αυτόματα από τον χρήστη, δεν το ορίζει κανείς για λογαριασμό άλλου. */
     $new = ['project_id' => $pid ?: null, 'title' => $title,
-        'status_id' => Db::status($sid) ? $sid : Db::firstStatusId()];
+        'status_id' => Db::status($sid) ? $sid : Db::firstStatusId(),
+        'action_user' => $adminId,
+        'is_offer' => !empty($in['is_offer']) ? 1 : 0];
     if ((int) ($in['dept'] ?? 0)) {
         $new['dept_id'] = (int) $in['dept'];
     }
@@ -3644,6 +3706,10 @@ case 'save_task':
             fail('Το ζητούμενο το αλλάζει μόνο ο δημιουργός της εργασίας', 403);
         }
         $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
+        cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο');   // @Όνομα → «πρόσεξέ με»
+    }
+    if (array_key_exists('is_offer', $in)) {
+        $data['is_offer'] = !empty($in['is_offer']) ? 1 : 0;   // αφορά προσφορά → προτεραιότητα
     }
     foreach (['due_date' => 'due', 'schedule_date' => 'sched'] as $col => $k) {
         if (array_key_exists($k, $in)) {
@@ -3769,6 +3835,7 @@ case 'check_add':
         fail('input');
     }
     $id = Db::addCheckItem($tid, $title);
+    cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     out(['ok' => true, 'id' => $id]);
 
 case 'check_toggle':
@@ -4263,6 +4330,10 @@ case 'list':
           'assignee' => (int) ($_GET['fa'] ?? 0),
           'priority' => ($_GET['fr'] ?? '') !== '' ? (int) $_GET['fr'] : '',
           'q' => trim($_GET['q'] ?? ''), 'open_only' => (int) ($_GET['open'] ?? 1)];
+    /* «#123» ή σκέτο «123» = αναζήτηση με αριθμό εργασίας — βρίσκει ΚΑΙ κλειστές. */
+    if (preg_match('/^#?(\d{1,9})$/', $f['q'], $mId)) {
+        $f['id'] = (int) $mId[1]; $f['q'] = ''; $f['open_only'] = 0;
+    }
     if (!$FULL) {
         $f['restrict_admin'] = $adminId;
     }
@@ -7607,6 +7678,21 @@ case 'ticket_note':
     out(['ok' => true]);
 
 /* ================= UNIFIED SEARCH (⌘K) ================= */
+/* ── @mentions: «πρόσεξέ με» (GoodDay-style). Ο αναφερόμενος παίρνει ειδοποίηση
+   (καμπανάκι + Web Push) και τη βλέπει στο dashboard του («Η μέρα μου»). ── */
+case 'mentions':                         // ανοιχτές αναφορές προς εμένα
+    $items = [];
+    foreach (Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)
+        ->where('type', 'mention')->where('is_read', 0)->orderByDesc('id')->limit(15)->get() as $n) {
+        $taskId = preg_match('/[?&]id=(\d+)/', (string) $n->url, $mm) ? (int) $mm[1] : 0;
+        $items[] = ['id' => (int) $n->id, 'text' => $n->title, 'at' => $n->created_at, 'taskId' => $taskId];
+    }
+    out(['items' => $items]);
+
+case 'mention_read':                     // την είδα → φεύγει από το dashboard
+    Db::markNotifRead($adminId, (int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
 case 'search':
     $q = trim($_GET['q'] ?? '');
     if (mb_strlen($q) < 2) {
@@ -7614,6 +7700,14 @@ case 'search':
     }
     $like = '%' . $q . '%';
     $tasks = [];
+    /* «#123» → η εργασία με αυτόν τον αριθμό, πρώτη-πρώτη (και αν είναι κλειστή). */
+    if (preg_match('/^#?(\d{1,9})$/', $q, $mId)) {
+        $tq = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->where('t.id', (int) $mId[1])->select('t.id', 't.title', 't.assignee', 't.project_id', 'p.name as pname', 'p.color as pcolor')->first();
+        if ($tq && ($FULL || (int) $tq->assignee === $adminId || Db::canSeeProject($adminId, $tq->project_id))) {
+            $tasks[] = ['id' => (int) $tq->id, 'title' => '#' . $tq->id . ' ' . $tq->title, 'pname' => cnp_pn($tq->pname), 'pcolor' => $tq->pcolor ?: '#8595ac'];
+        }
+    }
     $tqq = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('t.title', 'like', $like)->orderBy('t.id', 'desc')->limit(6)
         ->select('t.id', 't.title', 't.assignee', 't.project_id', 'p.name as pname', 'p.color as pcolor');

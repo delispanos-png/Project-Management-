@@ -1230,13 +1230,15 @@ function cardHtml(t) {
     <div class="tcard-t">${ty ? `<i class="fas ${ty.icon}" style="color:${ty.color};margin-right:4px"></i>` : ''}${esc(t.title)}</div>
     <div class="tcard-m">
       <span class="dot" style="background:${['#8595ac', '#eba63c', '#e2515f'][t.prio]}"></span>
+      <span class="tk-idc" title="Αριθμός εργασίας">#${t.id}</span>
+      ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket — προτεραιότητα">${I.ticket} ticket</span>` : ''}
+      ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} προσφορά</span>` : ''}
       ${t.assignee ? `<span class="ava" title="${esc(adminName(t.assignee))}">${esc(adminIni(t.assignee))}</span>` : ''}
-      ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}">⚡${esc(adminIni(t.ball))}</span>` : ''}
+      ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Επιβλέπων: ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
       ${t.due ? `<span class="${over ? 'pill pill-bad' : ''}">${I.cal} ${dShort(t.due)}</span>` : ''}
       ${t.mins ? `<span>⏱ ${fmtMin(t.mins)}</span>` : ''}
       ${t.est ? `<span class="mut">~${fmtMin(t.est)}</span>` : ''}
       ${t.check ? `<span class="${t.check[0] >= t.check[1] ? 'pill pill-ok' : ''}">☑ ${t.check[0]}/${t.check[1]}</span>` : ''}
-      ${t.ticket ? '<span>' + I.ticket + ' </span>' : ''}
       ${t.blocked ? `<span class="pill pill-bad" title="Μπλοκάρεται από ${t.blocked} tasks">⛓ ${t.blocked}</span>` : ''}
     </div>
     ${t.done && t.doneNote ? `<div class="tcard-done" title="${esc(t.doneNote)}">✔ ${esc(t.doneNote)}</div>` : ''}</div>`;
@@ -1332,24 +1334,38 @@ async function openTask(id) {
      με την κατάσταση της χρέωσης, γιατί αυτά κοιτάς πρώτα. */
   const billMins = (d.timelogs || []).filter(l => l.billable && !l.running)
     .reduce((a, l) => a + (l.charged || l.mins || 0), 0);
+  const stO = statusOf(t.status);
+  /* Ο επιβλέπων = όποιος άνοιξε την εργασία (ορίζεται αυτόματα, δεν επιλέγεται). */
+  const supId = creatorId || t.ball || 0;
+  const chkDone = d.check.filter(x => x.done).length;
+  const tkD = d.ticket || null;
   dr.innerHTML = `
   <div class="drawer-h">
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
     <div class="tk-head-main">
-      <div class="tk-head-t">
-        <h2>${esc(t.title)}</h2>
+      <div class="tk-head-t" id="dTitleBox">
+        <span class="tk-id" title="Αριθμός εργασίας — γράψε #${t.id} στην αναζήτηση (Ctrl+K) ή στη λίστα">#${t.id}</span>
+        <h2 id="dTitle">${esc(t.title)}</h2>
+        <button type="button" class="tk-ttl-edit" id="dTitleEdit" title="Αλλαγή τίτλου">${I.edit}</button>
         ${d.owner ? `<a class="tk-cust-tag" href="#/client360/${d.owner.id}" data-navclose
            title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
-        <span class="pill" id="dStPill" style="background:${statusOf(t.status).color || '#8291a9'}22;color:${statusOf(t.status).color || '#8291a9'};font-weight:700">${esc(statusOf(t.status).title || '—')}</span>
+        <button type="button" class="pill tk-st" id="dStPill" style="background:${stO.color || '#8291a9'}22;color:${stO.color || '#8291a9'}" title="Αλλαγή κατάστασης">${esc(stO.title || '—')} ▾</button>
+        ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>` : ''}
+        ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} Προσφορά</span>` : ''}
       </div>
-      ${(d.path && d.path.length) ? `<div class="tk-crumb" title="Διαδρομή φακέλων">${
-        d.path.map(p => `<a href="#/board/${p.id}" data-navclose>${esc(p.name)}</a>`).join('<span class="tk-crumb-sep">›</span>')
-      }</div>` : ''}
+      <div class="tk-sub">
+        ${supId ? `<span class="tk-sup" title="Άνοιξε την εργασία και έχει την ευθύνη να την παρακολουθεί — ορίζεται αυτόματα από τον χρήστη">${I.eye} Επιβλέπων: <b>${esc(adminName(supId))}</b></span>` : ''}
+        ${(d.path && d.path.length) ? `<span class="tk-crumb" title="Διαδρομή φακέλων">${
+          d.path.map(p => `<a href="#/board/${p.id}" data-navclose>${esc(p.name)}</a>`).join('<span class="tk-crumb-sep">›</span>')
+        }</span>` : ''}
+      </div>
     </div>
     <span class="tk-hdr">
       <span class="tk-hdr-i" title="Καταγεγραμμένος χρόνος${t.est ? ' / εκτίμηση' : ''}">⏱ <b>${fmtMin(d.total)}</b>${t.est ? `<small>/ ~${fmtMin(t.est)}</small>` : ''}</span>
       ${billMins ? `<span class="tk-hdr-i ${t.billOk ? 'ok' : 'warn'}" title="${t.billOk ? 'Εγκρίθηκε από το λογιστήριο' : 'Χρεώσιμος χρόνος — χρειάζεται έγκριση λογιστηρίου πριν κλείσει'}">💶 <b>${fmtMin(billMins)}</b> ${t.billOk ? '✔' : '⏳'}</span>` : ''}
-      ${d.timerHere ? '<span class="tk-hdr-i live">▶ τρέχει</span>' : ''}
+      ${d.timerHere ? `<span class="tk-hdr-i live">▶ <span class="timer-live" id="tLive" style="font-size:12.5px"></span></span><button class="btn btn-sm btn-danger" id="tStop">${I.stop} Stop</button>`
+        : d.timerElsewhere ? `<span class="tk-hdr-i warn" title="Τρέχει χρονόμετρο σε άλλη εργασία">τρέχει αλλού</span><button class="btn btn-sm btn-ok" id="tStart">${I.play} Εδώ</button>`
+        : `<button class="btn btn-sm btn-ok" id="tStart" title="Ξεκίνα χρονόμετρο σε αυτή την εργασία">${I.play} Start</button>`}
     </span>
     <button class="btn btn-sm ${d.watching ? 'btn-p' : 'btn-o'}" id="dWatch"
       title="${d.watching ? 'Την παρακολουθείς — ειδοποιήσεις σε κάθε αλλαγή. Κλικ για διακοπή.' : 'Παρακολούθηση: ειδοποίηση σε κάθε αλλαγή αυτής της εργασίας.'}"
@@ -1357,23 +1373,119 @@ async function openTask(id) {
     <button class="drawer-x" id="dX">✕</button>
   </div>
   <div class="drawer-b tk-modal-b">
-    ${d.owner ? `<div class="card tk-custcard"><div class="card-b">
-      <a class="tk-cust-big" href="#/client360/${d.owner.id}" data-navclose>${I.user} ${esc(d.owner.name)}</a>
-      <div class="mut" style="font-size:11.5px;margin-top:2px">${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}</div>
-    </div></div>` : ''}
+    <div class="card tk-brief"><div class="card-h">${I.doc || ''} <b>Το ζητούμενο</b>
+      <span class="mut" style="font-weight:600;font-size:11px">— τι ακριβώς πρέπει να γίνει · γράψε <b>@Όνομα</b> για να ειδοποιήσεις συνάδελφο</span>
+      ${canEditBrief ? '' : '<span class="pill pill-mut" style="margin-left:auto;flex:none" title="Το ορίζει μόνο ο δημιουργός της εργασίας">read-only</span>'}</div>
+      <div class="card-b">
+        ${canEditBrief
+          ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι… (@Όνομα = ειδοποίηση)', {min: 110})
+            + `<div class="tk-brief-foot"><button class="btn btn-p btn-sm" id="dBriefSave">Αποθήκευση ζητουμένου</button><span class="mut" id="dBriefHint" style="font-size:11px"></span></div>`
+          : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? d.descr : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>`}
+        <details class="tk-att" open><summary>${I.clip} Συνημμένα ζητουμένου</summary>
+          <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
+      </div></div>
+
+    <div class="card tk-step"><div class="card-h">${I.checkSquare} <b>Ενέργειες</b>
+      <span class="pill ${chkDone && chkDone >= d.check.length ? 'pill-ok' : 'pill-mut'}" style="flex:none">${chkDone}/${d.check.length}</span>
+      <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα· η πρόοδος φαίνεται στην κάρτα · <b>@Όνομα</b> σε βήμα = ειδοποίηση</span></div>
+      <div class="card-b">
+        <div id="dCheck" class="tk-step-list">
+          ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${esc(it.title)}</span></div>`).join('')
+            || '<div class="mut" style="font-size:12.5px;padding:6px 0">Καμία ενέργεια ακόμη — γράψε το πρώτο βήμα από κάτω.</div>'}
+        </div>
+        <div class="tk-step-foot">
+          <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)">
+          <details class="tk-att"><summary>${I.clip} Συνημμένα ενεργειών</summary>
+            <div id="dCheckFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
+        </div>
+      </div></div>
+
     ${t.done ? `<div class="card done-card"><div class="card-b">
       <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
       ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
       <button class="btn btn-sm btn-o" id="dReopen" style="margin-top:9px">↩ Ξανάνοιγμα</button>
     </div></div>` : ''}
-    ${d.ticket ? (() => {
-      const tk = d.ticket;
+
+    <div class="card tk-side tk-time"><div class="card-h">⏱ Χρόνος
+      <span class="mut" style="font-weight:600">${fmtMin(d.total)}${t.est ? ' / ~' + fmtMin(t.est) : ''}</span>
+      ${d.timelogs.length > 3 ? `<span class="mut" style="margin-left:auto;font-size:11px">${d.timelogs.length} καταχωρήσεις</span>` : ''}</div>
+    <div class="card-b">
+      ${t.est ? `<div class="bar" style="margin-bottom:9px"><span class="${d.total > t.est ? 'bad' : d.total > t.est * .8 ? 'warn' : 'ok'}" style="width:${Math.min(100, Math.round(d.total / t.est * 100))}%"></span></div>` : ''}
+      <div class="tk-time-row">
+        <input class="inp" id="tMins" type="number" min="1" placeholder="λεπτά">
+        <label class="tk-bill" title="Χρεώσιμος χρόνος προς τον πελάτη — χρειάζεται έγκριση λογιστηρίου"><input type="checkbox" id="tBill" ${d.owner ? 'checked' : ''}> ${I.coin} Χρεώσιμο</label>
+        <input class="inp" id="tNote" placeholder="σημείωση">
+        <button class="btn btn-sm btn-p" id="tAdd">Καταχώρηση</button>
+      </div>
+      ${d.scClient ? `<div class="mut" style="font-size:11px;margin-top:6px">Πελάτης: <b>${esc(d.scClient)}</b> — τα χρεώσιμα αφαιρούν προαγορά</div>` : ''}
+      ${billMins ? `<div class="bill-gate ${t.billOk ? 'ok' : ''}">
+        <div><b>${t.billOk ? '✔ Η χρέωση εγκρίθηκε' : '⏳ Εκκρεμεί έγκριση λογιστηρίου'}</b>
+          <div class="mut" style="font-size:11px">${t.billOk
+            ? `${esc(t.billOkBy ? adminName(t.billOkBy) : '')}${t.billOkAt ? ' · ' + tShort(t.billOkAt) : ''}`
+            : `${fmtMin(billMins)} χρεώσιμος χρόνος — η εργασία δεν κλείνει πριν εγκριθεί`}</div></div>
+        ${cnpCan('finance.billing_ok')
+          ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
+          : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
+      </div>` : ''}
+      ${d.timelogs.length ? `<div style="margin-top:8px">${d.timelogs.slice(0, 3).map(l =>
+        `<div class="tk-log">
+          <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
+          ${l.billable ? `<span class="pill pill-warn" style="font-size:9.5px">χρέωση ${fmtMin(l.charged || l.mins)}</span>` : '<span class="mut">χωρίς χρέωση</span>'}
+          <span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(l.by)}${l.note ? ' · ' + esc(l.note) : ''}</span>
+          <span class="mut" style="margin-left:auto;flex:none">${tShort(l.at)}</span></div>`).join('')}</div>` : ''}
+    </div></div>
+
+    <div class="card tk-side"><div class="card-b">
+      <div class="frow tk-frow">
+        <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span></label>
+          <select class="inp" id="fAssignee">${admOpts(t.assignee, t.dept)}</select></div>
+        <div><label class="lbl">Προτεραιότητα</label>
+          <select class="inp" id="fPrio">
+            ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+        <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
+          ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Department</label>
+          <select class="inp" id="fDept"><option value="">— χωρίς department —</option>
+          ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
+        <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
+        <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
+      </div>
+      <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
+        <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>
+      <div class="tk-actions">
+        <button class="btn btn-p" id="dSave">Αποθήκευση</button>
+        ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
+        ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
+        <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
+      </div>
+      <div class="tk-pills">
+        ${d.project.none
+          ? '<span class="pill pill-mut" title="Η εργασία ανήκει μόνο σε department, δεν είναι μέρος έργου">Χωρίς έργο</span>'
+          : `<a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>`}
+        ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες του department">${esc(u.name)}</a>` : ''; })()}
+      </div>
+    </div></div>
+
+    <div class="card tk-side"><div class="card-h">${I.link} Εξαρτήσεις <span class="mut" style="font-weight:600;font-size:11px">— πρέπει να τελειώσουν πρώτα</span></div>
+      <div class="card-b" id="dDeps">
+      ${(d.deps || []).map(dp => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px">
+        <span>${dp.done ? '✅' : '⏳'}</span>
+        <a style="flex:1;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" data-dgo="${dp.id}">${esc(dp.title)}</a>
+        <button class="btn btn-sm btn-o" data-ddel="${dp.depId}">✕</button></div>`).join('')}
+      <div style="display:flex;gap:7px;margin-top:6px">
+        <select class="inp" id="depSel" style="flex:1;font-size:12px;padding:6px 8px"><option value="">— διάλεξε task που μας μπλοκάρει —</option></select>
+        <button class="btn btn-sm btn-o" id="depAdd">+</button></div>
+    </div></div>
+
+    ${tkD ? (() => {
+      const tk = tkD;
       const md = (window.CNP && window.CNP.mdToHtml) || (x => esc(x).replace(/\n/g, '<br>'));
       const wl = h => h >= 48 ? Math.floor(h / 24) + ' ημέρες' : (h >= 24 ? '1 ημέρα' : h + 'ω');
-      return `<div class="card tkbox">
-        <div class="card-h">${I.ticket} <b>#${esc(tk.tid)}</b>
-          <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tk.title)}</span>
-          <span class="pill pill-info" style="margin-left:auto;flex:none">${esc(tk.status)}</span></div>
+      return `<details class="card tkbox tk-tkd">
+        <summary class="card-h" style="cursor:pointer">${I.ticket} <b>Ticket #${esc(tk.tid)}</b>
+          <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(tk.title)}</span>
+          <span class="pill pill-info" style="margin-left:auto;flex:none">${esc(tk.status)}</span></summary>
         <div class="card-b">
           <div class="tkmeta">
             ${tk.client ? `<span>${I.user} ${esc(tk.client)}</span>` : ''}
@@ -1392,161 +1504,27 @@ async function openTask(id) {
           </div>
           ${tk.total > (tk.msgs || []).length
             ? `<div class="mut" style="font-size:11.5px;margin-top:6px">…και ${tk.total - tk.msgs.length} παλαιότερα μηνύματα</div>` : ''}
-          <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
             <button class="btn btn-sm btn-p" data-ibgo="${tk.id}">${I.ticket} Άνοιγμα &amp; απάντηση</button>
             ${tk.clientId ? `<button class="btn btn-sm btn-o" data-c360="${tk.clientId}">${I.user} Πελάτης 360°</button>` : ''}
           </div>
-        </div></div>`;
+        </div></details>`;
     })() : ''}
-    <div class="card"><div class="card-b">
-      <label class="lbl">Τίτλος</label>
-      <input class="inp" id="fTitle" value="${esc(t.title)}">
-      <div class="frow" style="margin-top:12px">
-        <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span></label>
-          <select class="inp" id="fAssignee">${admOpts(t.assignee, t.dept)}</select></div>
-        <div><label class="lbl">Κατάσταση</label>
-          <select class="inp" id="fStatus">${S.boot.statuses.map(st =>
-            `<option value="${st.id}" ${st.id === t.status ? 'selected' : ''}>${esc(st.title)}${st.done ? ' ✔' : ''}</option>`).join('')}</select></div>
-        <div><label class="lbl">⚡ Η μπάλα σε</label><select class="inp" id="fBall">${admOpts(t.ball, t.dept)}</select></div>
-        <div><label class="lbl">Προτεραιότητα</label>
-          <select class="inp" id="fPrio">
-            ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
-        <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
-          ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Department <span class="mut" style="font-weight:400">— πού απευθύνεται</span></label>
-          <select class="inp" id="fDept"><option value="">— χωρίς department —</option>
-          ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
-        <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
-        <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
-      </div>
-      <div style="display:flex;gap:9px;margin-top:13px;align-items:center;flex-wrap:wrap">
-        <button class="btn btn-p" id="dSave">Αποθήκευση</button>
-        ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
-        ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
-        <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
-        <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-          ${d.project.none
-            ? '<span class="pill pill-mut" title="Η εργασία ανήκει μόνο σε department, δεν είναι μέρος έργου">Χωρίς έργο</span>'
-            : `<a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>`}
-          ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες του department">${esc(u.name)}</a>` : ''; })()}
-        </span>
-      </div>
-    </div></div>
-
-    <div class="card tk-side"><div class="card-h">⏱ Χρόνος <span class="mut" style="font-weight:600">${fmtMin(d.total)}${t.est ? ' / ~' + fmtMin(t.est) : ''}</span>
-      <span style="flex:1"></span>
-      ${d.timerHere ? `<span class="timer-live" id="tLive"></span><button class="btn btn-sm btn-danger" id="tStop">${I.stop} Stop</button>`
-        : d.timerElsewhere ? `<span class="pill pill-warn">τρέχει αλλού</span><button class="btn btn-sm btn-ok" id="tStart">${I.play} Εδώ</button>`
-        : `<button class="btn btn-sm btn-ok" id="tStart">${I.play} Start</button>`}
-    </div>
-    <div class="card-b" style="padding-top:10px">
-      ${t.est ? `<div class="bar" style="margin-bottom:12px"><span class="${d.total > t.est ? 'bad' : d.total > t.est * .8 ? 'warn' : 'ok'}" style="width:${Math.min(100, Math.round(d.total / t.est * 100))}%"></span></div>` : ''}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input class="inp" id="tMins" type="number" min="1" placeholder="λεπτά" style="width:90px">
-        <label style="display:flex;gap:5px;align-items:center;font-size:12.5px"><input type="checkbox" id="tBill" ${d.scClient ? 'checked' : ''}> Χρεώσιμο</label>
-        <input class="inp" id="tNote" placeholder="σημείωση" style="flex:1;min-width:120px">
-        <button class="btn btn-sm btn-o" id="tAdd">Καταχώρηση</button>
-      </div>
-      ${d.scClient ? `<div class="mut" style="font-size:11.5px;margin-top:7px">Πελάτης: <b>${esc(d.scClient)}</b> — τα χρεώσιμα αφαιρούν προαγορά</div>` : ''}
-      ${billMins ? `<div class="bill-gate ${t.billOk ? 'ok' : ''}">
-        <div><b>${t.billOk ? '✔ Η χρέωση εγκρίθηκε' : '⏳ Εκκρεμεί έγκριση λογιστηρίου'}</b>
-          <div class="mut" style="font-size:11px">${t.billOk
-            ? `${esc(t.billOkBy ? adminName(t.billOkBy) : '')}${t.billOkAt ? ' · ' + tShort(t.billOkAt) : ''}`
-            : `${fmtMin(billMins)} χρεώσιμος χρόνος — η εργασία δεν κλείνει πριν εγκριθεί`}</div></div>
-        ${cnpCan('finance.billing_ok')
-          ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
-          : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
-      </div>` : ''}
-      ${d.timelogs.length ? `<div style="margin-top:12px">${d.timelogs.slice(0, 6).map(l =>
-        `<div style="display:flex;gap:9px;font-size:12px;padding:4px 0" class="${l.running ? '' : ''}">
-          <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
-          ${l.billable ? `<span class="pill pill-warn">χρέωση ${fmtMin(l.charged || l.mins)}</span>` : '<span class="mut">χωρίς χρέωση</span>'}
-          <span class="mut">${esc(l.by)}${l.note ? ' · ' + esc(l.note) : ''}</span>
-          <span class="mut" style="margin-left:auto">${tShort(l.at)}</span></div>`).join('')}</div>` : ''}
-    </div></div>
-
-    <div class="card tk-side"><div class="card-h">${I.link} Εξαρτήσεις <span class="mut" style="font-weight:600;font-size:11px">— πρέπει να τελειώσουν πρώτα</span></div>
-      <div class="card-b" id="dDeps">
-      ${(d.deps || []).map(dp => `<div style="display:flex;gap:8px;align-items:center;padding:4px 0">
-        <span>${dp.done ? '✅' : '⏳'}</span>
-        <a style="flex:1;cursor:pointer" data-dgo="${dp.id}">${esc(dp.title)}</a>
-        <button class="btn btn-sm btn-o" data-ddel="${dp.depId}">✕</button></div>`).join('')}
-      <div style="display:flex;gap:7px;margin-top:8px">
-        <select class="inp" id="depSel" style="flex:1"><option value="">— διάλεξε task που μας μπλοκάρει —</option></select>
-        <button class="btn btn-sm btn-o" id="depAdd">+</button></div>
-    </div></div>
-
-    <div class="card tk-side"><div class="card-h">${I.clip} Αρχεία <span class="mut" style="font-weight:600;font-size:11px">— γενικά της εργασίας</span></div><div class="card-b" id="dFiles">
-      <div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>
-
-    <div class="card tk-step"><div class="card-h">${I.checkSquare} <b>2. Ενέργειες</b>
-      <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα· η πρόοδος φαίνεται στην κάρτα</span></div><div class="card-b" id="dCheck">
-      ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${esc(it.title)}</span></div>`).join('')}
-      <div style="display:flex;gap:8px;margin-top:9px">
-        <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)"></div>
-    </div></div>
-
-    <div class="card tk-brief"><div class="card-h">${I.doc || ''} <b>Το ζητούμενο</b>
-      <span class="mut" style="font-weight:600;font-size:11px">— τι ακριβώς πρέπει να γίνει</span>
-      ${canEditBrief ? '' : '<span class="pill pill-mut" style="margin-left:auto;flex:none" title="Το ορίζει μόνο ο δημιουργός της εργασίας">read-only</span>'}</div>
-      <div class="card-b">
-        ${canEditBrief
-          ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι…', {min: 200})
-            + `<div style="display:flex;gap:9px;margin-top:11px;align-items:center;flex-wrap:wrap">
-                 <button class="btn btn-p btn-sm" id="dBriefSave">Αποθήκευση ζητουμένου</button>
-                 <span class="mut" id="dBriefHint" style="font-size:11px"></span></div>`
-          : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? d.descr : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>
-             <div class="mut" style="font-size:11px;margin-top:8px">Το ζητούμενο το ορίζει ο δημιουργός της εργασίας.</div>`}
-      </div></div>
-
-    <div class="card tk-conv">
-      <div class="tkc-head">
-        <div class="tkc-top">
-          <span class="tkc-ttl">${I.chat} Επικοινωνία <span class="tkc-cnt" id="cmCount">${(d.comments || []).length}</span></span>
-          <span class="mut" style="font-size:11px">μεταξύ μας · ο πελάτης δεν τη βλέπει</span>
-        </div>
-        <div class="tkc-search">${I.search}<input id="cmSearch" placeholder="Αναζήτηση στη συνομιλία…" autocomplete="off"><button type="button" id="cmSearchX" hidden>✕</button></div>
-        <div class="tkc-filters">
-          <button type="button" class="tkc-chip on" data-cf="all">Όλα</button>
-          <button type="button" class="tkc-chip" data-cf="me">Προς εμένα</button>
-          <button type="button" class="tkc-chip" data-cf="files">Με αρχεία</button>
-        </div>
-      </div>
-      <div class="tkc-scroll" id="dMsgs">${threadHtml()}<div class="tkc-empty" id="cmEmpty" hidden>Κανένα μήνυμα δεν ταιριάζει.</div></div>
-      <button type="button" class="tkc-jump" id="cmJump" hidden>↓ Νεότερα</button>
-      <div class="cm-box">
-        <textarea class="inp" id="cmBody" rows="3"
-          placeholder="Γράψε μήνυμα…&#10;Enter = αποστολή · Shift+Enter = νέα γραμμή"></textarea>
-        <div class="cm-row">
-          <select class="inp" id="cmTo" title="Υποχρεωτικό — σε ποιον απευθύνεται">
-            <option value="">— διάλεξε παραλήπτη —</option>
-            <option value="-1">Διαχειριστές (όλοι)</option>
-            ${S.boot.admins.filter(a => a.id !== me.id).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
-          <input type="file" id="cmFiles" multiple hidden>
-          <button class="btn btn-o btn-sm" id="cmAttach" title="Επισύναψη στο μήνυμα">${I.clip} Αρχεία</button>
-          <span class="mut" id="cmFileN" style="font-size:11.5px"></span>
-          <span style="flex:1"></span>
-          <button class="btn btn-p btn-sm" id="cmSend">Αποστολή</button>
-        </div>
-      </div>
-    </div>
 
     <details class="card"><summary class="card-h" style="cursor:pointer">${I.clock} Ιστορικό (${d.activity.length})</summary>
       <div class="card-b">${d.activity.map(a => `<div style="font-size:12px;padding:4px 0;border-bottom:1px dashed var(--line)">
         <b>${esc(a.detail || a.action)}</b> <span class="mut">— ${esc(a.by)} · ${tShort(a.at)}</span></div>`).join('')}</div></details>
   </div>`;
   document.body.append(ovl, dr);
-  /* Δύο στήλες: αριστερά (main) το ΖΗΤΟΥΜΕΝΟ καρφιτσωμένο πάνω και από κάτω η
-     ΣΥΝΟΜΙΛΙΑ — αυτό είναι το πρώτο που κοιτάς όταν ανοίγεις εργασία. Δεξιά
-     (side) όλες οι υπόλοιπες πληροφορίες (πελάτης, πεδία, χρόνος, εξαρτήσεις,
-     αρχεία, ενέργειες, ιστορικό). Η αναδιάταξη γίνεται εδώ ώστε η σειρά του DOM
-     να μένει λογική και σε κινητό (όπου οι στήλες στοιβάζονται). */
+  /* Δύο στήλες. Αριστερά (main): ΖΗΤΟΥΜΕΝΟ πάνω και από κάτω οι ΕΝΕΡΓΕΙΕΣ — το
+     μόνο που κυλά είναι η λίστα ενεργειών. Δεξιά (side), συμπαγώς και χωρίς
+     scroll: χρόνος, πεδία, εξαρτήσεις, ticket (κλειστό), ιστορικό (κλειστό).
+     Τίτλος/πελάτης/κατάσταση ζουν ΜΟΝΟ στην κεφαλίδα — όχι δεύτερη φορά. */
   (() => {
     const body = $('.tk-modal-b', dr); if (!body) { return; }
     const main = document.createElement('div'); main.className = 'tk-col-main';
     const side = document.createElement('div'); side.className = 'tk-col-side';
-    const toMain = el => el.classList.contains('tk-conv') || el.classList.contains('tk-brief');
+    const toMain = el => el.classList.contains('tk-brief') || el.classList.contains('tk-step');
     [...body.children].forEach(el => (toMain(el) ? main : side).appendChild(el));
     body.append(main, side);
   })();
@@ -1556,7 +1534,7 @@ async function openTask(id) {
   /* Αλλάζεις department → αλλάζουν και οι υποψήφιοι για ανάθεση. */
   const fDep = $('#fDept', dr);
   if (fDep) fDep.onchange = () => {
-    ['fAssignee', 'fBall'].forEach(id => {
+    ['fAssignee'].forEach(id => {
       const el = $('#' + id, dr); if (!el) { return; }
       const keep = el.value;
       el.innerHTML = admOpts(keep, +fDep.value || 0);
@@ -1567,11 +1545,12 @@ async function openTask(id) {
      ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
   $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
   $('#dSave', dr).onclick = async () => {
-    await api('save_task', {task: id, title: $('#fTitle').value,
+    await api('save_task', {task: id,
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
-      type: +$('#fType').value || 0, ball: +$('#fBall').value || 0,
+      type: +$('#fType').value || 0,
       dept: +(($('#fDept') || {}).value) || 0,
-      assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value});
+      assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
+      is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
@@ -1584,22 +1563,19 @@ async function openTask(id) {
     const h = $('#dBriefHint', dr); if (h) { h.textContent = '✓ αποθηκεύτηκε'; setTimeout(() => { h.textContent = ''; }, 2500); }
     toast('Το ζητούμενο αποθηκεύτηκε');
   }; }
-  /* Αλλαγή κατάστασης από μέσα στην εργασία, όπως στα tickets: ισχύει αμέσως,
-     δεν περιμένει «Αποθήκευση». Αν η νέα κατάσταση είναι τελική, ζητάει δυο
-     λόγια για το πώς έκλεισε. */
-  const stSel = $('#fStatus', dr); if (stSel) stSel.onchange = async () => {
-    const to = +stSel.value, prev = t.status;
-    const fin = S.boot.statuses.find(x => x.id === to && x.done);
-    let note = '';
-    if (fin) {
-      note = await askDone($('#fTitle').value || t.title);
-      if (note === null) { stSel.value = prev; return; }
-    }
-    const r = await api('move_task', {task: id, status: to, note}).catch(e => ({ok: false, error: e && e.message}));
-    if (!r.ok) { stSel.value = prev; toast(r.error || 'Δεν επιτρέπεται', true); return; }
-    toast('Κατάσταση: ' + (statusOf(to).title || '—'));
-    openTask(id);
-    if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+  /* Αλλαγή κατάστασης από το κουμπί της κεφαλίδας (μία μόνο θέση): ισχύει αμέσως.
+     Αν η νέα κατάσταση είναι τελική, ζητάει δυο λόγια για το πώς έκλεισε. */
+  const stPill = $('#dStPill', dr); if (stPill) stPill.onclick = () => {
+    miniMenu(stPill, S.boot.statuses.map(s => ({dot: s.color || '#8291a9', label: s.title + (s.done ? ' ✔' : ''), on: async () => {
+      const to = s.id; if (to === t.status) { return; }
+      let note = '';
+      if (s.done) { note = await askDone(dr.dataset.title || t.title); if (note === null) { return; } }
+      const r = await api('move_task', {task: id, status: to, note}).catch(e => ({ok: false, error: e && e.message}));
+      if (!r.ok) { toast(r.error || 'Δεν επιτρέπεται', true); return; }
+      toast('Κατάσταση: ' + (statusOf(to).title || '—'));
+      openTask(id);
+      if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+    }})));
   };
 
   /* Ολοκλήρωση με δυο λόγια. Στέλνει τη μετακίνηση στην «τελική» στήλη — έτσι
@@ -1607,7 +1583,7 @@ async function openTask(id) {
   const dn = $('#dDone', dr); if (dn) dn.onclick = async () => {
     const fin = S.boot.statuses.find(x => x.done);
     if (!fin) { toast('Δεν υπάρχει στήλη ολοκλήρωσης', true); return; }
-    const note = await askDone($('#fTitle').value || t.title);
+    const note = await askDone((dr.dataset.title || t.title));
     if (note === null) { return; }
     const r = await api('move_task', {task: id, status: fin.id, note}).catch(e => ({ok: false, error: e && e.message}));
     if (!r.ok) { toast(r.error || 'Δεν επιτρέπεται', true); return; }
@@ -1704,87 +1680,31 @@ async function openTask(id) {
     await api('check_toggle', {id: +cb.dataset.chk});
     cb.closest('.chk').classList.toggle('done', cb.checked);
   });
-  /* Συνομιλία: Enter στέλνει, Shift+Enter αλλάζει γραμμή. Ο παραλήπτης είναι
-     υποχρεωτικός — μήνυμα «προς κανέναν» δεν το διαβάζει κανείς. Τα συνημμένα
-     κρέμονται στο ΜΗΝΥΜΑ, οπότε ανεβαίνουν αφού πάρουμε το id του. */
-  let cmPicked = [];
-  const cmFileIn = $('#cmFiles', dr), cmN = $('#cmFileN', dr);
-  if (cmFileIn) {
-    $('#cmAttach', dr).onclick = () => cmFileIn.click();
-    cmFileIn.onchange = () => {
-      cmPicked = [...cmFileIn.files];
-      cmN.textContent = cmPicked.length ? `${cmPicked.length} αρχεί${cmPicked.length === 1 ? 'ο' : 'α'}` : '';
-    };
-  }
-  const cmSend = async () => {
-    const body = $('#cmBody', dr).value.trim();
-    const to = $('#cmTo', dr).value;
-    if (!body && !cmPicked.length) { return; }
-    if (to === '') { toast('Διάλεξε παραλήπτη', true); $('#cmTo', dr).focus(); return; }
-    const r = await api('comment', {task: id, body: body || '(συνημμένο)', to: +to}).catch(e => ({err: e.message}));
-    if (r.err) { toast(r.err, true); return; }
-    for (const f of cmPicked) {
-      const fd = new FormData();
-      fd.append('module', 'task'); fd.append('ref_type', 'comment'); fd.append('ref_id', r.id); fd.append('file', f);
-      await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
-        .then(x => x.json()).catch(() => null);
-    }
-    toast(cmPicked.length ? 'Στάλθηκε με συνημμένα' : 'Στάλθηκε');
-    openTask(id);
-  };
-  $('#cmSend', dr).onclick = cmSend;
-  $('#cmBody', dr).onkeydown = e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); cmSend(); }
-  };
-
-  /* ── Πλοήγηση στη συνομιλία: ανοίγει στα πιο πρόσφατα, με ζωντανή αναζήτηση,
-     φίλτρα (όλα / προς εμένα / με αρχεία) και κουμπί «νεότερα». Χωρίς αυτά, μια
-     κουβέντα με εκατοντάδες μηνύματα ήταν αδύνατο να διαβαστεί. ── */
-  const sc = $('#dMsgs', dr);
-  if (sc) {
-    requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
-    const searchEl = $('#cmSearch', dr), cntEl = $('#cmCount', dr), emptyEl = $('#cmEmpty', dr);
-    const jump = $('#cmJump', dr), sx = $('#cmSearchX', dr);
-    const total = $$('#dMsgs .msg', dr).length;
-    let cf = 'all';
-    const apply = () => {
-      const q = norm((searchEl.value || '').trim());
-      let shown = 0;
-      $$('#dMsgs .msg', dr).forEach(m => {
-        const okQ = !q || (m.dataset.s || '').includes(q);
-        const okF = cf === 'all' || (cf === 'me' && m.dataset.me === '1') || (cf === 'files' && m.dataset.f === '1');
-        const vis = okQ && okF; m.hidden = !vis; if (vis) { shown++; }
-      });
-      $$('#dMsgs .msg-day', dr).forEach(sep => {
-        let el = sep.nextElementSibling, any = false;
-        while (el && !el.classList.contains('msg-day')) {
-          if (el.classList.contains('msg') && !el.hidden) { any = true; break; }
-          el = el.nextElementSibling;
+  /* Τίτλος: αλλάζει επί τόπου από την κεφαλίδα — δεν υπάρχει πια δεύτερο πεδίο δεξιά. */
+  { const te = $('#dTitleEdit', dr);
+    if (te) te.onclick = () => {
+      const h2 = $('#dTitle', dr); if (!h2 || $('#dTitleInp', dr)) { return; }
+      const inp = document.createElement('input'); inp.className = 'inp tk-ttl-inp'; inp.id = 'dTitleInp';
+      inp.value = dr.dataset.title || t.title; h2.replaceWith(inp); inp.focus(); inp.select();
+      let fin = false;
+      const done = async save => {
+        if (fin) { return; } fin = true;
+        const v = inp.value.trim();
+        if (save && v && v !== (dr.dataset.title || t.title)) {
+          const r = await api('save_task', {task: id, title: v}).catch(e => ({err: e && e.message}));
+          if (r && r.err) { toast(r.err, true); } else { dr.dataset.title = v; toast('Ο τίτλος άλλαξε'); }
         }
-        sep.hidden = !any;
-      });
-      const filtered = q || cf !== 'all';
-      if (cntEl) { cntEl.textContent = filtered ? shown + ' / ' + total : total; }
-      if (sx) { sx.hidden = !searchEl.value; }
-      if (emptyEl) {
-        emptyEl.textContent = total ? 'Κανένα μήνυμα δεν ταιριάζει.' : 'Καμία κουβέντα ακόμη.';
-        emptyEl.hidden = !!total && shown > 0;
-      }
-    };
-    if (!total && emptyEl) { emptyEl.hidden = false; emptyEl.textContent = 'Καμία κουβέντα ακόμη.'; }
-    if (searchEl) { searchEl.oninput = apply; }
-    if (sx) { sx.onclick = () => { searchEl.value = ''; apply(); searchEl.focus(); }; }
-    $$('.tkc-chip', dr).forEach(c => c.onclick = () => {
-      cf = c.dataset.cf;
-      $$('.tkc-chip', dr).forEach(x => x.classList.toggle('on', x === c));
-      apply();
-      sc.scrollTop = (cf === 'all' && !(searchEl.value || '')) ? sc.scrollHeight : 0;
-    });
-    if (jump) {
-      sc.onscroll = () => { jump.hidden = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160; };
-      jump.onclick = () => { sc.scrollTo({top: sc.scrollHeight, behavior: 'smooth'}); };
-    }
+        const h = document.createElement('h2'); h.id = 'dTitle'; h.textContent = dr.dataset.title || t.title;
+        inp.replaceWith(h);
+      };
+      inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') { done(false); } };
+      inp.onblur = () => done(true);
+    }; }
+  /* Συνημμένα ενεργειών: ίδιος μηχανισμός αρχείων, δικό τους «καλάθι» (ref_type=check). */
+  if ($('#dCheckFiles', dr) && window.cnpAttachments) {
+    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id});
   }
+
 }
 /** Άμεσο κλείσιμο ΧΩΡΙΣ ερώτηση — το καλούν τα views ΜΕΤΑ από επιτυχή αποθήκευση. */
 function closeDrawer() {
@@ -1878,12 +1798,23 @@ async function vMyDay() {
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
   const d = await api('myday');
   const mt = await api('my_todos').catch(() => ({todos: []}));
+  /* «@εσύ»: αναφορές σε εργασίες που περιμένουν την προσοχή μου (GoodDay-style). */
+  const mn = await api('mentions').catch(() => ({items: []}));
+  const mentions = mn.items || [];
   const st = d.stats;
   const coachCol = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)'};
   const coach = d.coach || [];
   const queue = d.queue || [];
   const waitLbl = h => h >= 48 ? Math.floor(h / 24) + ' ημέρες' : (h >= 24 ? '1 ημέρα' : h + 'ω');
   c.innerHTML = `
+  ${mentions.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--brand)">
+    <div class="card-h">📣 Σε ανέφεραν
+      <span class="mut" style="font-weight:600;font-size:11.5px">— κάποιος έγραψε «@εσύ» σε εργασία· κλικ για να τη δεις</span></div>
+    <div class="card-b" style="padding-top:6px">
+    ${mentions.map(m => `<div class="qrow" data-mtask="${m.taskId}" data-mid="${m.id}">
+      <span class="qt">${esc(m.text)}</span>
+      <span class="mut" style="flex:none;font-size:11px">${tShort(m.at)}</span></div>`).join('')}
+    </div></div>` : ''}
   ${queue.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--bad)">
     <div class="card-h">${I.compass} Η σειρά της ημέρας
       <span class="mut" style="font-weight:600;font-size:11.5px">— ξεκίνα από πάνω· πρώτα το SLA, μετά όποιος περιμένει περισσότερο</span>
@@ -1994,6 +1925,12 @@ async function vMyDay() {
   $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
   $$('#content [data-gotodos]').forEach(a => a.onclick = () => go('todos'));
   $$('#content [data-goinbox]').forEach(a => a.onclick = () => go('inbox'));
+  /* Κλικ σε αναφορά: σημειώνεται ως διαβασμένη (φεύγει από εδώ) και ανοίγει η εργασία. */
+  $$('#content [data-mtask]').forEach(r => r.onclick = async () => {
+    await api('mention_read', {id: +r.dataset.mid}).catch(() => {});
+    if (+r.dataset.mtask) { openTask(+r.dataset.mtask); }
+    r.remove();
+  });
   $$('#content [data-qtk]').forEach(r => r.onclick = () => go('inbox', r.dataset.qtk));
   $$('#content [data-dltask]').forEach(r => r.onclick = () => openTask(+r.dataset.dltask));
   $$('#content [data-dlproj]').forEach(r => r.onclick = () => go('board', +r.dataset.dlproj));
