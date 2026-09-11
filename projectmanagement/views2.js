@@ -272,6 +272,8 @@ function openEvent(ev, ymRefresh) {
 }
 
 R.calendar = async function (ym) {
+  /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
+  if (!cnpCan('team.calendar')) { setTop('Ημερολόγιο'); $('#content').innerHTML = cnpDenied({message: 'Το κοινό ημερολόγιο δίνεται από το κύκλωμα «Η ομάδα → Ημερολόγιο»'}); return; }
   setTop('Ημερολόγιο ομάδας', 'Meetings · ραντεβού · άδειες · λήξεις tasks — η διαθεσιμότητα όλων');
   const c = $('#content');
   c.innerHTML = skel(1, 400);
@@ -2302,6 +2304,9 @@ function openTeam(t, d) {
         <button class="btn btn-o btn-sm" id="tmPresetSave" title="Αποθήκευση της τρέχουσας επιλογής ως πρότυπο">${I.save} Ως πρότυπο</button>
         <button class="btn btn-o btn-sm" id="tmNone" title="Ξεκαθάρισμα όλων">Κανένα</button>
       </div>
+      <div class="mut" style="font-size:11px;margin:0 0 7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="pill pill-ok" style="font-size:9.5px;flex:none">πάντα</span>
+        <span><b>Τα δικά μου</b> (Η μέρα μου, Το πλάνο μου, Ο χρόνος μου, Βιβλιοθήκη, Κωδικοί, Προφίλ) — προσωπικές οθόνες, διαθέσιμες σε κάθε χειριστή χωρίς δικαίωμα. Όλα τα άλλα κυκλώματα δίνονται από εδώ.</span></div>
       <div id="tmTree">${permTree(d.areaDefs, t.areas)}</div>
       <div class="mut" style="font-size:11px;margin-top:8px" id="tmAreaHint"></div>
       <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
@@ -2351,13 +2356,13 @@ function openTeam(t, d) {
       const n = $('.perm-n', g);
       n.textContent = on + '/' + kids.length;
       n.className = 'perm-n' + (onNon === nonDel.length && nonDel.length ? ' all' : (on ? ' some' : ''));
-      kids.forEach(k => k.closest('.perm-cap').classList.toggle('on', k.checked));
+      kids.forEach(k => k.closest('.perm-cap, .pax').classList.toggle('on', k.checked));
     });
     hint();
   };
   const hint = () => {
     const n = areasNow().length;
-    const scr = $$('[data-tar]', dr).filter(x => x.checked && x.dataset.kind === 'screen').length;
+    const scr = $$('[data-tar]', dr).filter(x => x.checked && x.dataset.kind === 'view').length;
     const who = t.members.length === 1 ? 'Το μέλος θα βλέπει' : 'Τα ' + t.members.length + ' μέλη θα βλέπουν';
     $('#tmAreaHint', dr).innerHTML = n
       ? `${who} <b>${scr}</b> ${scr === 1 ? 'οθόνη' : 'οθόνες'} και <b>${n - scr}</b> ${n - scr === 1 ? 'ειδική ενέργεια' : 'ειδικές ενέργειες'}.`
@@ -2369,8 +2374,8 @@ function openTeam(t, d) {
       const need = $(`[data-tar="${ch.dataset.needs}"]`, dr);
       if (need && !need.checked) {
         need.checked = true;
-        need.closest('.perm-cap').classList.add('perm-flash');
-        setTimeout(() => need.closest('.perm-cap').classList.remove('perm-flash'), 900);
+        need.closest('.perm-cap, .pax').classList.add('perm-flash');
+        setTimeout(() => need.closest('.perm-cap, .pax').classList.remove('perm-flash'), 900);
       }
     }
     if (!ch.checked) {

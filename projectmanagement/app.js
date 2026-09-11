@@ -192,11 +192,13 @@ function renderShell() {
       ['templates', I.box, 'Modules', 'projects.modules'],
       ['units', I.tree, 'Departments', 'projects.depts'],
     ]],
+    /* «Η ομάδα» είναι πλέον κανονικό κύκλωμα δικαιωμάτων (team.*) — δίνεται από
+       τις ομάδες όπως όλα τα άλλα, δεν είναι «ανοιχτό σε όλους». */
     ['Η ομάδα', 'συνεννόηση και διαθεσιμότητα', [
-      ['chat', I.chat || I.ticket, 'Chat'],
-      ['calendar', I.cal, 'Ημερολόγιο'],
-      ['standup', I.clipboard, 'Standup'],
-      ['remotebook', I.monitor, 'Απομακρυσμένες'],
+      ['chat', I.chat || I.ticket, 'Chat', 'team.chat'],
+      ['calendar', I.cal, 'Ημερολόγιο', 'team.calendar'],
+      ['standup', I.clipboard, 'Standup', 'team.standup'],
+      ['remotebook', I.monitor, 'Απομακρυσμένες', 'team.remote'],
     ]],
     ['Προαγορά χρόνου', 'πόσο χρόνο έχουν αγοράσει, πόσο έχει μείνει, τι δεν καλύφθηκε', [
       ['prepaid', I.clock, 'Υπόλοιπα πελατών', 'prepaid.view'],
@@ -573,6 +575,8 @@ function rbAgo(dt) {
 }
 
 window.R.remotebook = async function () {
+  /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
+  if (!cnpCan('team.remote')) { setTop('Απομακρυσμένες'); $('#content').innerHTML = cnpDenied({message: 'Το βιβλίο απομακρυσμένων δίνεται από το κύκλωμα «Η ομάδα → Απομακρυσμένες»'}); return; }
   setTop('Απομακρυσμένες', 'Αποθηκευμένες συνδέσεις πελατών — ένα κλικ για σύνδεση');
   const c = $('#content');
   const st = R.remotebook._s = R.remotebook._s || {q: '', form: false, edit: null};
@@ -1531,6 +1535,21 @@ async function openTask(id) {
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
   $('#dX').onclick = () => cnpAskClose(dr);
+  /* Χωρίς «Board: επεξεργασία» και χωρίς να είναι δική του εργασία (ανάδοχος/
+     επιβλέπων/δημιουργός), η καρτέλα είναι ΜΟΝΟ για διάβασμα — ό,τι θα απέρριπτε
+     ο server δεν προσφέρεται καν (12/9/2026). Κρύβουμε αντί να αφαιρούμε, ώστε
+     οι handlers από κάτω να δένουν χωρίς σφάλμα. */
+  const canWork = !!(me.full || cnpCan('projects.board.edit') || [t.assignee, t.creator, t.ball].includes(me.id));
+  if (!canWork) {
+    ['#dSave', '#dDone', '#dAsk', '#dTitleEdit', '#dBriefSave', '#tStart', '#tStop', '#depAdd', '#dBillOk']
+      .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
+    $$('.tk-time-row, .tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
+    $$('#dCheck input[data-chk], .tk-frow .inp, #fOffer', dr).forEach(e => { e.disabled = true; });
+    const stp = $('#dStPill', dr); if (stp) { stp.disabled = true; stp.style.cursor = 'default'; stp.textContent = stp.textContent.replace(' ▾', ''); }
+    const ro = $('#fDescr', dr); if (ro) { ro.contentEditable = 'false'; }
+    const bh = $('.tk-brief .card-h', dr);
+    if (bh) { bh.insertAdjacentHTML('beforeend', '<span class="pill pill-mut" style="margin-left:auto;flex:none" title="Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία">μόνο προβολή</span>'); }
+  }
   /* Αλλάζεις department → αλλάζουν και οι υποψήφιοι για ανάθεση. */
   const fDep = $('#fDept', dr);
   if (fDep) fDep.onchange = () => {

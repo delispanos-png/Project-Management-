@@ -1020,6 +1020,8 @@ function openImport(products, reload) {
 
 /* ═════════ 💬 ΕΣΩΤΕΡΙΚΟ CHAT ═════════ */
 R.chat = async function () {
+  /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
+  if (!cnpCan('team.chat')) { setTop('Chat'); $('#content').innerHTML = cnpDenied({message: 'Η συνομιλία της ομάδας δίνεται από το κύκλωμα «Η ομάδα → Chat»'}); return; }
   setTop('Chat', 'Εσωτερική επικοινωνία ομάδας — με αρχεία');
   const c = $('#content');
   const st = R.chat._st = R.chat._st || {ch: 'team', lastId: 0};
@@ -1325,6 +1327,8 @@ R.rootcause = async function (days) {
 
 // ═══════════════ 🏃 STANDUP DASHBOARD — απασχόληση περιόδου + on-time ═══════════════
 R.standup = async function () {
+  /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
+  if (!cnpCan('team.standup')) { setTop('Standup'); $('#content').innerHTML = cnpDenied({message: 'Το standup δίνεται από το κύκλωμα «Η ομάδα → Standup»'}); return; }
   setTop('Standup', 'Ανοιχτά projects & tickets — τι είναι, πού ανήκει, τι πρέπει να ξέρεις');
   const c = $('#content');
   c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:120px"></div>'.repeat(2) + '</div>';

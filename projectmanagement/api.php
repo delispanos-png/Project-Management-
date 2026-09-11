@@ -1110,12 +1110,17 @@ function cnp_area_defs()
 {
     /* Ένα δικαίωμα = μία ενότητα του μενού, με το ίδιο όνομα. Η σειρά εδώ είναι
        η σειρά του μενού, ώστε η καρτέλα της ομάδας να διαβάζεται σαν το μενού.
-       Οι ενότητες «Τα δικά μου» και «Η ομάδα» δεν έχουν δικαίωμα: είναι η δική
-       σου δουλειά και η συνεννόηση, τα βλέπουν όλοι. */
+       Η ενότητα «Τα δικά μου» (Η μέρα μου, πλάνο, χρόνος, βιβλιοθήκη, κωδικοί,
+       προφίλ) ΔΕΝ έχει δικαίωμα: είναι προσωπικές οθόνες, τις βλέπει κάθε
+       χειριστής. Όλα τα υπόλοιπα κυκλώματα δίνονται από τις ΟΜΑΔΕΣ. */
     return [
         'clients'  => ['Πελάτες', 'Πελάτης 360°, CRM & leads, προσφορές, επικοινωνίες, καμπάνιες'],
         'support'  => ['Υποστήριξη', 'Tickets και βάση γνώσης'],
         'projects' => ['Έργα & υλοποιήσεις', 'Έργα, board, λίστα, χρονοδιάγραμμα, modules, departments'],
+        /* Η «Η ομάδα» ήταν εκτός μοντέλου (chat/ημερολόγιο/standup/remote τα έβλεπαν
+           όλοι, χωρίς δικαίωμα). Μπήκε ως κανονικό κύκλωμα (12/9/2026) ώστε να
+           φαίνονται ΟΛΑ τα κυκλώματα και να δίνονται με λεπτομέρεια. */
+        'team'     => ['Η ομάδα', 'Chat & φωνή, κοινό ημερολόγιο, standup, απομακρυσμένες συνδέσεις'],
         /* Η «Διοίκηση» ήταν μία ενιαία ενότητα, οπότε για να δώσεις σε έναν
            project manager το KPI έπρεπε να του δώσεις και τα οικονομικά και τις
            ρυθμίσεις. Σπασμένη σε τρία, δίνεται κατά ενότητα. */
@@ -1862,21 +1867,20 @@ function cnp_caps()
     /* Κάθε κύκλωμα ξεκινά με την ΤΡΙΑΔΑ: Προβολή (view) / Επεξεργασία (edit) /
        Διαγραφή (delete). Η Διαγραφή δίνεται ΠΑΝΤΑ ρητά — δεν κληρονομείται από
        την πρόσβαση στο κύκλωμα (βλ. cnp_has_cap). Ακολουθούν οι λεπτομερείς
-       δυνατότητες (screen/power) για ψιλότερο έλεγχο. */
+       δυνατότητες (screen/power) για ψιλότερο έλεγχο.
+       ΚΑΝΟΝΑΣ (12/9/2026): μπαίνει «Διαγραφή» ΜΟΝΟ όπου υπάρχει πραγματική
+       ενέργεια διαγραφής στο API — αλλιώς το κουτάκι λέει ψέματα. */
     $c = [
         // ═══ ΠΕΛΑΤΕΣ ═══
         'clients.card'          => ['view',   'Πελάτης 360°', 'Καρτέλα πελάτη: υπηρεσίες, τιμολόγια, αιτήματα'],
         'clients.card.edit'     => ['edit',   'Επεξεργασία', 'Αλλαγή στοιχείων πελάτη', 'clients.card'],
-        'clients.card.delete'   => ['delete', 'Διαγραφή', 'Διαγραφή πελάτη', 'clients.card'],
         'clients.crm'           => ['view',   'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
         'clients.crm.edit'      => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή leads, επαφών, καμπανιών, στόχων', 'clients.crm'],
-        'clients.crm.delete'    => ['delete', 'Διαγραφή', 'Διαγραφή leads/επαφών/καμπανιών', 'clients.crm'],
         'clients.offers'        => ['view',   'Προσφορές', 'Παρακολούθηση προσφορών (pipeline)'],
         'clients.offers.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή/αποστολή προσφορών & quotes', 'clients.offers'],
         'clients.offers.delete' => ['delete', 'Διαγραφή', 'Διαγραφή προσφοράς από το pipeline (το WHMCS quote μένει)', 'clients.offers'],
         'clients.complaints'    => ['view',   'Παράπονα πελατών', 'Προβολή δυσαρέσκειας πελατών'],
         'clients.complaints.edit'   => ['edit',   'Επεξεργασία', 'Καταχώρηση, χειρισμός & κλείσιμο παραπόνου', 'clients.complaints'],
-        'clients.complaints.delete' => ['delete', 'Διαγραφή', 'Διαγραφή παραπόνου', 'clients.complaints'],
         'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket', 'clients.card'],
         'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
         'clients.import'  => ['power',  'Εισαγωγή / εξαγωγή leads', 'Μαζική εισαγωγή από CSV και εξαγωγή', 'clients.crm'],
@@ -1884,7 +1888,6 @@ function cnp_caps()
         // ═══ ΥΠΟΣΤΗΡΙΞΗ ═══
         'support.tickets'        => ['view',   'Tickets', 'Προβολή αιτημάτων υποστήριξης'],
         'support.tickets.edit'   => ['edit',   'Επεξεργασία', 'Απάντηση, εσωτερική σημείωση, ανάθεση, κατηγοριοποίηση, αλλαγή status', 'support.tickets'],
-        'support.tickets.delete' => ['delete', 'Διαγραφή', 'Διαγραφή/απόκρυψη ticket', 'support.tickets'],
         'support.kb'         => ['view',   'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων'],
         'support.kb.edit'    => ['edit',   'Επεξεργασία', 'Σύνταξη & μαζική εισαγωγή άρθρων', 'support.kb'],
         'support.kb.delete'  => ['delete', 'Διαγραφή', 'Διαγραφή άρθρων', 'support.kb'],
@@ -1895,7 +1898,6 @@ function cnp_caps()
         'projects.portfolio.delete' => ['delete', 'Διαγραφή', 'Οριστική διαγραφή έργου και των εργασιών του', 'projects.portfolio'],
         'projects.board'        => ['view',   'Board, λίστα, χρονοδιάγραμμα', 'Οι εργασίες: προβολή'],
         'projects.board.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή εργασιών, εξαρτήσεις, checklist, Gantt', 'projects.board'],
-        'projects.board.delete' => ['delete', 'Διαγραφή', 'Διαγραφή εργασιών/εξαρτήσεων', 'projects.board'],
         'projects.modules'        => ['view',   'Modules', 'Τα προϊόντα μας με τα checklist παράδοσης'],
         'projects.modules.edit'   => ['edit',   'Επεξεργασία', 'Templates, βήματα, ανάθεση modules', 'projects.modules'],
         'projects.modules.delete' => ['delete', 'Διαγραφή', 'Διαγραφή template ή βήματος', 'projects.modules'],
@@ -1903,10 +1905,18 @@ function cnp_caps()
         'projects.share'    => ['power',  'Κοινοποίηση σε πελάτη', 'Δημόσιος σύνδεσμος προόδου έργου', 'projects.portfolio'],
         'projects.recurring' => ['power', 'Επαναλαμβανόμενες εργασίες', 'Ορισμός εργασιών που ξαναγεννιούνται', 'projects.board'],
 
+        // ═══ Η ΟΜΑΔΑ (συνεννόηση & διαθεσιμότητα) ═══
+        'team.chat'          => ['view',   'Chat', 'Εσωτερική συνομιλία ομάδας — ανάγνωση & αποστολή, ομάδες συνομιλίας'],
+        'team.voice'         => ['power',  'Φωνή ομάδας', 'Είσοδος στο δωμάτιο φωνής και κλήσεις προς συναδέλφους', 'team.chat'],
+        'team.calendar'      => ['view',   'Ημερολόγιο', 'Κοινό ημερολόγιο: ραντεβού, meetings, άδειες (προβολή & RSVP)'],
+        'team.calendar.edit' => ['edit',   'Επεξεργασία', 'Δημιουργία, αλλαγή και διαγραφή γεγονότων', 'team.calendar'],
+        'team.standup'       => ['view',   'Standup', 'Ημερήσια/εβδομαδιαία σύνοψη και ατζέντα της ομάδας'],
+        'team.remote'        => ['view',   'Απομακρυσμένες', 'Βιβλίο απομακρυσμένων συνδέσεων πελατών (προβολή)'],
+        'team.remote.edit'   => ['edit',   'Εκτέλεση', 'Έναρξη/τερματισμός remote συνεδρίας, αποθήκευση ID, αποστολή link στον πελάτη', 'team.remote'],
+
         // ═══ ΠΡΟΑΓΟΡΑ ΧΡΟΝΟΥ ═══
         'prepaid.view'        => ['view',   'Υπόλοιπα & ακάλυπτα', 'Πόσο έχει ο κάθε πελάτης, τι δεν καλύφθηκε'],
         'prepaid.view.edit'   => ['edit',   'Επεξεργασία', 'Συμβόλαια προαγοράς, πιστώσεις/διορθώσεις ωρών', 'prepaid.view'],
-        'prepaid.view.delete' => ['delete', 'Διαγραφή', 'Διαγραφή συμβολαίου/κίνησης', 'prepaid.view'],
         'prepaid.offer'    => ['power',  'Προσφορά από ακάλυπτα', 'Μετατροπή ακάλυπτου χρόνου σε προσφορά', 'prepaid.view'],
         'prepaid.report'   => ['power',  'Αποστολή αναφοράς', 'Προεπισκόπηση και αποστολή στον πελάτη', 'prepaid.view'],
 
@@ -1929,7 +1939,6 @@ function cnp_caps()
         // ═══ ΠΡΟΣΛΗΨΕΙΣ ═══
         'hr.cv'          => ['view',   'Βιογραφικά', 'Υποψήφιοι, προβολή'],
         'hr.cv.edit'     => ['edit',   'Επεξεργασία', 'Αξιολόγηση, σχόλια, προγραμματισμός συνέντευξης, email', 'hr.cv'],
-        'hr.cv.delete'   => ['delete', 'Διαγραφή', 'Διαγραφή υποψηφίου', 'hr.cv'],
         'hr.jobs'        => ['view',   'Θέσεις & αγγελίες', 'Προβολή θέσεων/αγγελιών'],
         'hr.jobs.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία & δημοσίευση θέσεων', 'hr.jobs'],
         'hr.jobs.delete' => ['delete', 'Διαγραφή', 'Διαγραφή θέσης/αγγελίας', 'hr.jobs'],
@@ -2032,6 +2041,28 @@ function cnp_admin_caps($adminId, $isFull)
 }
 
 /**
+ * Μπορεί να ΑΛΛΑΞΕΙ την εργασία; «Board: επεξεργασία» ή δική του (ανάδοχος /
+ * επιβλέπων / δημιουργός). Η ΠΡΟΒΟΛΗ (canSeeTask) δεν αρκεί — πριν, όποιος
+ * έβλεπε μια εργασία μπορούσε και να την αλλάξει, οπότε το κουτάκι
+ * «Επεξεργασία» στα δικαιώματα δεν δάγκωνε (12/9/2026).
+ */
+function cnp_task_write_ok($adminId, $isFull, $t)
+{
+    if ($isFull) {
+        return true;
+    }
+    if (!$t) {
+        return false;
+    }
+    foreach (['assignee', 'action_user', 'created_by'] as $f) {
+        if (isset($t->$f) && (int) $t->$f === (int) $adminId) {
+            return true;
+        }
+    }
+    return cnp_has_cap($adminId, $isFull, 'projects.board.edit');
+}
+
+/**
  * Ενέργεια API → δυνατότητα. Με «α|β» όταν μια ενέργεια πατάει δικαιολογημένα
  * σε δύο δυνατότητες (φτάνει η μία). Ό,τι δεν είναι εδώ μένει ελεύθερο —
  * κανόνας: δεν μπαίνει ποτέ ενέργεια που καλείται από προσωπική οθόνη.
@@ -2065,6 +2096,25 @@ function cnp_action_cap($action)
 
         /* ── ΠΕΛΑΤΕΣ ── */
         $add('clients.card', ['client360', 'clients', 'client_get']);
+        /* Διαρροές που έκλεισαν 12/9/2026: ενέργειες που επέστρεφαν δεδομένα
+           κυκλώματος σε όποιον είχε απλώς login. */
+        $add('clients.crm', ['crm', 'contacts']);
+        $add('clients.crm|clients.card', ['people']);
+        $add('clients.crm.edit|clients.card.edit', ['person_save', 'person_del']);
+        $add('clients.card|clients.crm|clients.offers', ['client_search']);
+        $add('admin.settings.edit', ['pharmacy_catalog_save', 'pharmacy_catalog_reset']);
+        $add('support.tickets', ['canned']);
+
+        /* ── Η ΟΜΑΔΑ (νέο κύκλωμα 12/9/2026) ── */
+        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_file', 'chat_status',
+            'chat_group_save', 'chat_group_del']);
+        $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
+            'rtc_leave', 'rtc_invite', 'meet_room']);
+        $add('team.calendar', ['calendar', 'event_rsvp']);
+        $add('team.calendar.edit', ['event_save', 'event_del']);
+        $add('team.standup', ['standup', 'agenda']);
+        $add('team.remote', ['remote_book', 'remote_peer']);
+        $add('team.remote.edit', ['remote_start', 'remote_stop', 'remote_save_peer', 'remote_send_client', 'rdp_file']);
         $add('clients.card.edit', ['client_update']);
         $add('clients.card|reports.triage', ['client_health']);
         $add('clients.card.edit|finance.packages', ['client_package_set']);
@@ -3624,6 +3674,9 @@ case 'move_task':
     if (!$t || !Db::canSeeTask($adminId, $t)) {
         fail('task', 403);
     }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
     $stChk = Db::status((int) ($in['status'] ?? 0));
     if ($stChk && $stChk->is_done) {
         $bm = Db::blockedMap([$t->id]);
@@ -3695,6 +3748,9 @@ case 'save_task':
     if (!$t || !Db::canSeeTask($adminId, $t)) {
         fail('task', 403);
     }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
     $data = [];
     if (array_key_exists('title', $in)) {
         $data['title'] = mb_substr(trim((string) $in['title']), 0, 200);
@@ -3757,6 +3813,9 @@ case 'comment':
     if (!$t || !Db::canSeeTask($adminId, $t) || $body === '') {
         fail('input');
     }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
     /* Παραλήπτης υποχρεωτικός. Δεκτό συγκεκριμένο admin (>0) ή -1 = όλοι οι
        διαχειριστές (broadcast — το χειρίζεται το Notify::commentTo). Απορρίπτεται
        μόνο το «κανένας» (κενό/0), αλλιώς το μήνυμα δεν το διαβάζει κανείς. */
@@ -3797,6 +3856,9 @@ case 'timer_start':
     if (!$t || !Db::canSeeTask($adminId, $t)) {
         fail('task', 403);
     }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
     $r = Db::startTimer($tid, $adminId);
     foreach ($r['stopped'] as $sid) {
         Time::push($sid);
@@ -3823,6 +3885,9 @@ case 'time_add':
     if (!$t || !Db::canSeeTask($adminId, $t) || $mins <= 0) {
         fail('input');
     }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
     $eid = Db::addTime($tid, $adminId, $mins, !empty($in['billable']), trim($in['note'] ?? ''));
     Time::push($eid);
     out(['ok' => true]);
@@ -3842,6 +3907,9 @@ case 'check_toggle':
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$ci || !Db::canSeeTask($adminId, Db::task((int) $ci->task_id))) {
         fail('checklist', 403);
+    }
+    if (!cnp_task_write_ok($adminId, $FULL, Db::task((int) $ci->task_id))) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     $it = Db::toggleCheckItem((int) ($in['id'] ?? 0));
     out(['ok' => (bool) $it]);
@@ -7884,6 +7952,11 @@ case 'file_delete':
     if (!$rec) { fail('file', 404); }
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('forbidden', 403); }
     if ($rec['module'] === 'library' && !cnp_lib_can($adminId, (int) $rec['ref_id'], true)) { fail('forbidden', 403); }
+    /* Πριν, όποιος είχε πρόσβαση στο module διέγραφε ΟΠΟΙΟΔΗΠΟΤΕ αρχείο με το id.
+       Τώρα: ο ίδιος που το ανέβασε, ή Full, ή «Board: επεξεργασία». */
+    if (!$FULL && (int) ($rec['uploaded_by'] ?? 0) !== $adminId && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) {
+        fail('Μόνο όποιος ανέβασε το αρχείο μπορεί να το διαγράψει', 403);
+    }
     Storage::delete($rec['id']);
     out(['ok' => true]);
 
