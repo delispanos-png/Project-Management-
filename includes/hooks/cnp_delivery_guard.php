@@ -21,6 +21,7 @@ if (!defined('WHMCS')) {
 }
 
 /** Ειδοποίηση ομάδας: πάντα στο WHMCS Activity Log + best-effort PM bell. */
+if (!function_exists('cnp_guard_notify')) {
 function cnp_guard_notify($title, $url = null)
 {
     if (function_exists('logActivity')) {
@@ -43,8 +44,10 @@ function cnp_guard_notify($title, $url = null)
     } catch (\Throwable $e) {
     }
 }
+}
 
 /** Το τιμολόγιο ενεργοποίησης μιας υπηρεσίας (μέσω της παραγγελίας της). */
+if (!function_exists('cnp_service_invoice')) {
 function cnp_service_invoice($serviceid)
 {
     $orderid = (int) Capsule::table('tblhosting')->where('id', (int) $serviceid)->value('orderid');
@@ -56,6 +59,7 @@ function cnp_service_invoice($serviceid)
         return null;
     }
     return Capsule::table('tblinvoices')->where('id', $invid)->first(['id', 'status', 'total', 'userid']);
+}
 }
 
 /* ── 1) ΜΠΛΟΚ παράδοσης σε ανεξόφλητο τιμολόγιο ── */

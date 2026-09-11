@@ -79,6 +79,15 @@
 | `hz_terminate_on_status.php` | αλλαγή κατάστασης υπηρεσίας | Τερματισμός υπηρεσιών | Υπηρεσίες δεν τερματίζονται |
 | `hz_ticket_priority.php`, `hz_menu_availability.php`, `hz_location_filter.php`, `hz_service_icons.php`, `hz_homepage_categories.php`, `hz_mobile_css.php`, `hz_a11y_forms.php`, `hz_nav_a11y.php` | διάφορα ClientArea | Προσαρμογές εμφάνισης/ροής | Αισθητικό |
 | `mask_admin_passwords.php` | admin | Απόκρυψη κωδικών στο admin | Ασφάλεια — εμφανίζονται κωδικοί |
+| `cnp_delivery_guard.php` | `PreModuleCreate` | **Δεν παραδίδεται VM σε ανεξόφλητο τιμολόγιο** (abortcmd) | Παραδίδονται μηχανήματα χωρίς πληρωμή — **οικονομική διαρροή** |
+| `cnp_suspend_guard.php` | `PreModuleSuspend` | **Ακυρώνει αυτόματη αναστολή όταν ο πελάτης ΔΕΝ χρωστάει** + διορθώνει τη `nextduedate` (abortcmd) | Ξανακλείνουν VM εξοφλημένων πελατών — **διακοπή υπηρεσίας σε συνεπή πελάτη** |
+| `cnp_non_eu_tax_exempt.php` | `ClientAdd` | Νέος εκτός-ΕΕ πελάτης → `taxexempt=1` | Χρεώνεται λάθος ΦΠΑ σε τρίτες χώρες |
+| `cnp_heartbeat.php` | cron/σφυγμός | Χρονοσήμανση στους δικούς μας πίνακες | Χάνεται η ένδειξη «ζωντανού» συστήματος |
+
+> ⚠️ **Προσοχή στα `cnp_*guard`**: το `cnp_delivery_guard.php` ορίζει τις κοινές
+> `cnp_guard_notify()` / `cnp_service_invoice()`. Είναι πλέον τυλιγμένες σε
+> `function_exists()` — **μην τις ξαναδηλώσεις** σε άλλο hook, αλλιώς fatal σε
+> ΟΛΟ το WHMCS (συνέβη 11/9/2026).
 
 **`example.php`, `index.php`, `zz_debug_productsave.php`** δεν είναι δικά μας ή
 είναι διαγνωστικά· μπορούν να αγνοηθούν.
