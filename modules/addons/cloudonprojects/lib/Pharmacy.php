@@ -27,6 +27,9 @@ class Pharmacy
     const SUB_CYCLES = ['Ετησίως προκαταβολικά', 'Ανά εξάμηνο', 'Μηνιαία'];
     /** Τα τρία ποσοστά έκπτωσης — αδειών CloudOn, υπηρεσιών, αδειών Soft1. */
     const DISC_CELLS = ['L4', 'J8', 'K8'];
+    /** Γραμμές τιμοκαταλόγου που ΚΑΜΙΑ εκπτωτική πολιτική δεν αγγίζει (απόφαση
+        11/9/2026): η ώρα τηλεφωνικής υποστήριξης χρεώνεται πάντα στην τιμή της. */
+    const NO_DISCOUNT_CELLS = ['S37'];
     const SETUP_RATE = [15, 25, 25, 30];         // ανά έκδοση, ώρα παραμετροποίησης
     const MYDATA_SETUP = [200, 200, 250, 250];   // ανά έκδοση, στήσιμο myData
 
@@ -201,6 +204,7 @@ class Pharmacy
            χρειάζεται να τη γράφει ξανά ο πωλητής σε κάθε προσφορά. */
         $rd = [];
         foreach (self::factoryRates() as $k => $v) {
+            if (in_array($k, self::NO_DISCOUNT_CELLS, true)) { continue; }   // προστατευμένη γραμμή
             if ($k[0] === 'S' && isset($lineDisc[$k]) && is_numeric($lineDisc[$k]) && $lineDisc[$k] > 0) {
                 $rd[$k] = max(0, min(0.99, (float) $lineDisc[$k]));
             }
@@ -663,6 +667,9 @@ class Pharmacy
     private static function effRates(array $r, array $rd)
     {
         foreach ($rd as $k => $d) {
+            /* Προστατευμένες γραμμές: καμία έκπτωση (ούτε της προσφοράς ούτε της
+               εκπτωτικής πολιτικής) δεν μειώνει την τιμή τους. */
+            if (in_array($k, self::NO_DISCOUNT_CELLS, true)) { continue; }
             if ($d > 0 && isset($r[$k])) { $r[$k] = $r[$k] * (1 - $d); }
         }
         return $r;

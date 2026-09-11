@@ -433,9 +433,11 @@ async function openPharmacy(offerId, pre) {
                   data-r="${d.adj}" data-k="pct" title="Ετήσια αναπροσαρμογή — % της τιμής, κάθε χρόνο"
                   value="${Math.round(((st.cfg.r[d.adj]) || 0) * 1000) / 10}">`
               : '<span class="mut">—</span>'}</div>
-            <div class="n"><input class="ph-mini" type="number" min="0" max="99" step="1"
-              data-rd="${d.cell}" title="Έκπτωση % επί της τιμής"
-              value="${Math.round(((st.cfg.rd && st.cfg.rd[d.cell]) || 0) * 1000) / 10}"></div>`).join('')}
+            <div class="n">${d.noDisc
+              ? `<span class="mut" title="Η γραμμή αυτή χρεώνεται πάντα στην τιμή της — καμία εκπτωτική πολιτική δεν την επηρεάζει">—</span>`
+              : `<input class="ph-mini" type="number" min="0" max="99" step="1"
+                  data-rd="${d.cell}" title="Έκπτωση % επί της τιμής"
+                  value="${Math.round(((st.cfg.rd && st.cfg.rd[d.cell]) || 0) * 1000) / 10}">`}</div>`).join('')}
         </div>
         <label class="lbl" style="margin-top:16px">Τιμή έκδοσης & επιπλέον χρήστη</label>
         <div class="ph-rates">

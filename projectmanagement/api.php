@@ -4735,7 +4735,9 @@ case 'pharmacy_defs':                    // ο κατάλογος: παράμε�
             }, $g['items'])];
         }, Pharmacy::moduleGroups()),
         'rates' => array_map(function ($d) {
-            return ['cell' => $d[0], 'lab' => $d[1], 'adj' => $d[2]];
+            // noDisc: γραμμή που καμία εκπτωτική πολιτική δεν αγγίζει
+            return ['cell' => $d[0], 'lab' => $d[1], 'adj' => $d[2],
+                'noDisc' => in_array($d[0], Pharmacy::NO_DISCOUNT_CELLS, true)];
         }, Pharmacy::rateRows()),
         'editions' => Pharmacy::defaultEditions(),
         'features' => array_map(function ($f) { return ['lab' => $f[0], 'on' => $f[1]]; }, Pharmacy::features()),
