@@ -2323,10 +2323,13 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .cl-c-acts{display:flex;gap:8px;align-items:center;padding:10px 13px;border-top:1px solid var(--line)}
 .cl-c-acts .cl-act{margin-left:auto}
 
-/* Κουμπί λήψης συνημμένου στο chat */
-.ch-dl{display:inline-flex;align-items:center;margin-left:7px;padding:2px 6px;border-radius:7px;
-  color:var(--mut);text-decoration:none;line-height:1;vertical-align:middle;
-  border:1px solid transparent;transition:background .15s,color .15s,border-color .15s}
-.ch-dl:hover{background:#0090dd16;color:var(--brand);border-color:#0090dd33}
-.ch-m.me .ch-dl{color:#ffffffb0}
-.ch-m.me .ch-dl:hover{background:#ffffff2e;color:#fff;border-color:#ffffff4d}
+/* Κουμπί λήψης συνημμένου στο chat — ΚΑΙ οι δύο φούσκες είναι ανοιχτόχρωμες με
+   σκούρο κείμενο, οπότε το εικονίδιο πρέπει να είναι ευδιάκριτο chip σε brand χρώμα
+   (λευκό εικονίδιο εξαφανιζόταν στο γαλάζιο των δικών μας μηνυμάτων). */
+.ch-dl{display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  margin-left:8px;padding:3px 9px;border-radius:8px;font-size:11.5px;font-weight:700;
+  color:#0b6ea8;background:#0090dd1f;border:1px solid #0090dd4d;
+  text-decoration:none;line-height:1;vertical-align:middle;white-space:nowrap;
+  transition:background .15s,color .15s,border-color .15s}
+.ch-dl svg{width:13px;height:13px}
+.ch-dl:hover{background:var(--brand);color:#fff;border-color:var(--brand)}
