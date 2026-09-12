@@ -10061,7 +10061,8 @@ case 'balance_reminder':                 // σύνθεση υπενθύμιση�
             . ($overdue > 0.5
                 ? "Για να μη διακοπεί η λειτουργία των υπηρεσιών σας, παρακαλούμε να τακτοποιήσετε το ληξιπρόθεσμο υπόλοιπο "
                   . ($pastDue ? 'άμεσα, καθώς η προθεσμία εξόφλησης έχει ήδη παρέλθει. ' : ($suspDate ? 'έως τις ' . cnp_d($suspDate) . '. ' : 'το συντομότερο. '))
-                  . "Μετά την ημερομηνία αυτή οι υπηρεσίες που συνδέονται με τα παραπάνω παραστατικά τίθενται αυτόματα σε αναστολή.\n\n"
+                  . ($pastDue ? "Οι υπηρεσίες που συνδέονται με τα παραπάνω παραστατικά μπορεί να τεθούν σε αναστολή ανά πάσα στιγμή.\n\n"
+                      : "Μετά την ημερομηνία αυτή οι υπηρεσίες που συνδέονται με τα παραπάνω παραστατικά τίθενται αυτόματα σε αναστολή.\n\n")
                 : "Η εξόφληση μέχρι την ημερομηνία λήξης εξασφαλίζει την αδιάλειπτη λειτουργία των υπηρεσιών σας.\n\n")
             . "Μπορείτε να δείτε και να εξοφλήσετε τα παραστατικά από τον λογαριασμό σας στο https://my.cloudon.gr "
             . "(τραπεζική κατάθεση, κάρτα ή PayPal).\n\n"
@@ -10075,7 +10076,8 @@ case 'balance_reminder':                 // σύνθεση υπενθύμιση�
             . ($overdue > 0.5
                 ? "To avoid any interruption of your services, please settle the overdue balance "
                   . ($pastDue ? 'immediately, as the payment deadline has already passed. ' : ($suspDate ? 'by ' . cnp_d($suspDate) . '. ' : 'as soon as possible. '))
-                  . "After that date the services linked to the above invoices are automatically suspended.\n\n"
+                  . ($pastDue ? "The services linked to the above invoices may be suspended at any time.\n\n"
+                      : "After that date the services linked to the above invoices are automatically suspended.\n\n")
                 : "Paying by the due date keeps your services running without interruption.\n\n")
             . "You can review and pay your invoices at https://my.cloudon.gr (bank transfer, card or PayPal).\n\n"
             . "If payment has already been made, please ignore this message or send us the receipt so we can allocate it.\n";
