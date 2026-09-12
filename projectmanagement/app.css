@@ -2447,3 +2447,10 @@ html[data-theme="dark"] .pbx-alert{background:#3a2c14;color:#f1e3c8}
   .pbx-row{grid-template-columns:1fr 70px 84px}
   .pbx-row .pbx-up{display:none}
 }
+
+/* ═══════════ Ανοιχτά υπόλοιπα (R.balances) ═══════════ */
+.bl-tbl td.n,.bl-tbl th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bl-tbl tr.bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+.bl-tbl tr.warn td:first-child{box-shadow:inset 3px 0 0 #e0a020}
+.nt-s b{font-variant-numeric:tabular-nums}
+.tbl-wrap{overflow-x:auto}

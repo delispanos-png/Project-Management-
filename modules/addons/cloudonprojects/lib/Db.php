@@ -121,6 +121,22 @@ class Db
             });
         }
 
+        /* Υπενθυμίσεις εξόφλησης που στάλθηκαν από τα «Ανοιχτά υπόλοιπα»: σε ποιον,
+           για ποια παραστατικά, πόσα χρωστούσε τότε, από ποιο κανάλι. Έτσι φαίνεται
+           «ειδοποιήθηκε στις …» και δεν στέλνουμε δύο φορές την ίδια μέρα. */
+        if (!$s->hasTable('mod_cpm_pay_reminders')) {
+            $s->create('mod_cpm_pay_reminders', function ($t) {
+                $t->increments('id');
+                $t->integer('client_id')->unsigned()->index();
+                $t->string('invoices', 500)->nullable();
+                $t->decimal('amount', 12, 2)->default(0);
+                $t->string('channel', 12)->default('email');
+                $t->integer('ticket_id')->unsigned()->nullable();
+                $t->integer('admin_id')->unsigned();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
         /* Τι αποφασίσαμε χειροκίνητα για κάθε υπηρεσία με ληξιπρόθεσμη οφειλή.
            Όσο ο αυτοματισμός καλύπτει μόνο ένα μέρος των υπηρεσιών, η απόφαση
            παίρνεται από άνθρωπο και πρέπει να μένει ίχνος ποιος και πότε. */

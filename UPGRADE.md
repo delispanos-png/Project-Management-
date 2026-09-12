@@ -1554,3 +1554,18 @@ remote_active) + οι row-level (task/board μέσω canSeeTask/canSeeProject).
 | Βασικός τιμοκατάλογος | `tbladdonmodules` setting `pbx_catalog` (JSON override ανά είδος)· εργοστασιακές τιμές 3CX από προσφορά 11/8/2026, Yeastar = 0,00 € επίτηδες |
 
 Αναβάθμιση WHMCS: δεν αγγίζει core· τα αρχεία ζουν στο addon + `/projectmanagement/`.
+
+## Ανοιχτά υπόλοιπα & υπενθυμίσεις εξόφλησης (12/9/2026)
+
+Νέα οθόνη «Οικονομικά → Ανοιχτά υπόλοιπα» (`R.balances`, views5.js): ανά πελάτη όλα τα ανεξόφλητα παραστατικά
+(πραγματικό ανοιχτό = αξία − πληρωμές − πίστωση, ίδια αριθμητική με τις Αναστολές), υπηρεσίες σε κίνδυνο,
+εκτιμώμενη ημερομηνία αναστολής (λήξη + `AutoSuspensionDays`), και «Υπενθύμιση εξόφλησης» προς τον πελάτη.
+
+| Τι | Πού |
+|---|---|
+| API | `balances`, `balance_reminder` (finance.balances) · `balance_reminder_send` (finance.balances.edit) |
+| Helper | `cnp_open_balances($cid)`, `cnp_client_lang()` στο api.php |
+| Αποστολή | email μέσω `localAPI('SendEmail', customtype=general)` → φαίνεται στο Email Log του πελάτη στο WHMCS· ή ticket (OpenTicket, τμήμα Accounting) |
+| Πίνακας | `mod_cpm_pay_reminders` (Db::install) — ποιος/πότε/πόσα/κανάλι, για «ειδοποιήθηκε στις …» |
+
+Δεν αγγίζει core WHMCS.

@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, suStat, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -275,6 +275,201 @@ R.gantt = async function () {
    υπηρεσιών), οπότε τιμωρεί άνισα όποιον τυχαίνει να φιλοξενείται στη Hetzner.
    Μέχρι να ολοκληρωθεί η μετάβαση, η απόφαση παίρνεται εδώ — ανά ΠΕΛΑΤΗ, με τα
    πραγματικά ανοιχτά ποσά, και μένει ίχνος ποιος έκανε τι. */
+/* ═════════ 💶 ΑΝΟΙΧΤΑ ΥΠΟΛΟΙΠΑ ═════════
+   Οι Αναστολές ξεκινούν από την υπηρεσία που πρέπει να πέσει. Εδώ ξεκινάς από
+   τον ΠΕΛΑΤΗ: τι χρωστά, από πότε, ποιες υπηρεσίες του κινδυνεύουν — και το
+   εργαλείο είναι μια ευγενική υπενθύμιση ΠΡΙΝ φτάσουμε στην αναστολή. */
+R.balances = async function () {
+  setTop('Ανοιχτά υπόλοιπα', 'Τι χρωστά κάθε πελάτης — υπενθύμιση εξόφλησης πριν διακοπούν οι υπηρεσίες');
+  const c = $('#content');
+  if (!cnpCan('finance.balances')) { c.innerHTML = cnpDenied ? cnpDenied({message: 'Χρειάζεται δικαίωμα «Ανοιχτά υπόλοιπα»'}) : '<div class="empty" style="padding:44px">Χωρίς δικαίωμα.</div>'; return; }
+  const canSend = cnpCan('finance.balances.edit');
+  c.innerHTML = '<div class="skel" style="height:220px"></div>';
+  const st = R.balances._s = R.balances._s || {open: {}, f: 'all', q: ''};
+  const norm = s => String(s || '').toLowerCase().replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι').replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
+
+  const load = async () => {
+    const d = await api('balances').catch(() => null);
+    if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
+    const all = d.rows;
+    const rows = all.filter(r => {
+      if (st.f === 'risk' && !r.risk) { return false; }
+      if (st.f === 'overdue' && !(r.overdue > 0.5)) { return false; }
+      if (st.f === 'notdue' && r.overdue > 0.5) { return false; }
+      if (st.q && !norm(r.name + ' ' + r.email + ' ' + r.invs.map(i => i.num).join(' ')).includes(norm(st.q))) { return false; }
+      return true;
+    });
+    const daysPill = r => {
+      if (r.overdue <= 0.5) { return `<span class="pill pill-ok" title="Κανένα ληξιπρόθεσμο">λήγει σε ${-r.days} ημ.</span>`; }
+      return `<span class="pill ${r.ripe ? 'pill-bad' : 'pill-warn'}" title="Παλαιότερο ληξιπρόθεσμο">${r.days} ημ. καθυστέρηση</span>`;
+    };
+    const suspPill = r => {
+      if (r.overdue <= 0.5 || !r.suspendDate) { return ''; }
+      const past = r.suspendDate < today();
+      return `<span class="pill ${past ? 'pill-bad' : 'pill-warn'}" title="Όριο WHMCS: ${d.grace} ημέρες μετά τη λήξη">${past ? '⏻ πέρασε το όριο' : '⏻ αναστολή ' + esc(dFull(r.suspendDate))}</span>`;
+    };
+    const remPill = r => r.reminded
+      ? `<span class="pill pill-info" title="Υπενθύμιση ${esc(dFull(r.reminded.at))} από ${esc(r.reminded.by)} (${r.reminded.channel === 'ticket' ? 'ticket' : 'email'}) για ${fmtEur(r.reminded.amount)}">✉ υπενθύμιση ${esc(dShort(r.reminded.at))}</span>` : '';
+    const notPill = r => r.notified
+      ? `<span class="pill pill-warn" title="Ειδοποίηση αναστολής ${esc(dFull(r.notified.at))} από ${esc(r.notified.by)}">⚠ ειδοποίηση αναστολής</span>` : '';
+    const filt = [['all', 'Όλοι'], ['risk', 'Κινδυνεύουν'], ['overdue', 'Ληξιπρόθεσμα'], ['notdue', 'Δεν έληξαν']];
+
+    c.innerHTML = `
+      <div class="grid g4" style="--n:5;margin-bottom:14px">
+        ${suStat(I.users, d.sum.clients, 'πελάτες με υπόλοιπο', d.sum.clients ? 'var(--bad)' : 'var(--ok)')}
+        ${suStat(I.coin, fmtEur(d.sum.open), 'ανοιχτά συνολικά', 'var(--ink)')}
+        ${suStat(I.alert, fmtEur(d.sum.overdue), 'ληξιπρόθεσμα', 'var(--bad)')}
+        ${suStat(I.fire || I.alert, d.sum.risk, 'κινδυνεύουν με αναστολή', d.sum.risk ? '#e0a020' : 'var(--ok)')}
+        ${suStat(I.clock, d.sum.notDue, 'μόνο μη ληξιπρόθεσμα', 'var(--brand)')}
+      </div>
+      <div class="card kb-search" style="margin-bottom:12px">
+        <div class="kb-srow">
+          <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
+            <input class="inp" id="blQ" placeholder="Πελάτης, email ή αριθμός παραστατικού…" value="${esc(st.q)}"></div>
+          <button class="btn btn-sm btn-o" data-bexp>${Object.values(st.open).some(Boolean) ? '⊟ Κλείσιμο όλων' : '⊞ Άνοιγμα όλων'}</button>
+        </div>
+        <div class="kb-filters">
+          ${filt.map(([k, l]) => `<button class="kb-chip${st.f === k ? ' on' : ''}" data-bf="${k}">${l} <b>${all.filter(r => k === 'all' || (k === 'risk' ? r.risk : (k === 'overdue' ? r.overdue > 0.5 : r.overdue <= 0.5))).length}</b></button>`).join('')}
+          <span class="mut" style="font-size:11.5px;align-self:center;margin-left:auto">Ποσά = πραγματικά ανοιχτά ανά παραστατικό (αξία − πληρωμές − πίστωση). Όριο αναστολής WHMCS: <b>${d.grace} ημέρες</b> μετά τη λήξη.</span>
+        </div>
+      </div>
+      ${rows.map(r => `
+        <div class="card" style="margin-bottom:12px;border-left:4px solid ${r.risk ? 'var(--bad)' : (r.overdue > 0.5 ? '#e0a020' : 'var(--ok)')}">
+          <div class="card-h susp-h" data-bg="${r.client}">
+            <b style="color:var(--ink)">${esc(r.name)}</b>
+            <a href="${esc(r.adminUrl)}" target="_blank" class="mut" style="text-decoration:none;flex:none" title="Άνοιγμα πελάτη στο WHMCS">↗</a>
+            ${daysPill(r)}
+            <b style="color:${r.overdue > 0.5 ? 'var(--bad)' : 'var(--ink)'}">${fmtEur(r.open)}</b>
+            ${r.overdue > 0.5 && r.notDue > 0.5 ? `<span class="mut" style="font-size:11.5px">ληξιπρόθεσμα ${fmtEur(r.overdue)}</span>` : ''}
+            <span class="mut" style="font-size:11.5px">${r.invs.length} ${r.invs.length === 1 ? 'παραστατικό' : 'παραστατικά'} · ${r.activeServices} ${r.activeServices === 1 ? 'ενεργή υπηρεσία' : 'ενεργές υπηρεσίες'}${r.autoServices ? ` (${r.autoServices} με αυτόματη αναστολή)` : ''}</span>
+            ${suspPill(r)}
+            ${r.badDue ? '<span class="pill pill-warn" title="Παραστατικό με λανθασμένο έτος στην ημ. λήξης — διόρθωσέ το στο WHMCS">λάθος ημ. λήξης</span>' : ''}
+            <span style="flex:1"></span>
+            ${notPill(r)}${remPill(r)}
+            ${canSend ? `<button class="btn btn-sm ${r.reminded ? 'btn-o' : 'btn-p'}" data-bremind="${r.client}" ${r.email ? '' : 'disabled title="Ο πελάτης δεν έχει email στο WHMCS"'}>✉ Υπενθύμιση εξόφλησης</button>` : ''}
+            <span class="kb-gchev ${st.open[r.client] ? 'open' : ''}">${I.chev}</span>
+          </div>
+          <div class="card-b" ${st.open[r.client] ? '' : 'style="display:none"'}>
+            <div class="tbl-wrap"><table class="tbl bl-tbl">
+              <thead><tr><th>Παραστατικό</th><th>Έκδοση</th><th>Λήξη</th><th>Κατάσταση</th><th class="n">Αξία</th><th class="n">Πληρωμένα</th><th class="n">Υπόλοιπο</th></tr></thead>
+              <tbody>${r.invs.map(i => `<tr class="${i.days > 0 ? (i.days >= d.grace ? 'bad' : 'warn') : ''}">
+                <td><a href="/cloudonadminpanel/index.php/billing/invoice/${i.id}" target="_blank" style="color:var(--brand)">${esc(i.num)}</a>${i.badDue ? ' ⚠' : ''}</td>
+                <td>${esc(dFull(i.issued))}</td><td>${esc(dFull(i.due))}</td>
+                <td>${i.days > 0 ? `<span class="pill ${i.days >= d.grace ? 'pill-bad' : 'pill-warn'}">${i.days} ημ.</span>` : `<span class="pill pill-ok">σε ${-i.days} ημ.</span>`}</td>
+                <td class="n">${fmtEur(i.gross)}</td><td class="n mut">${i.paid > 0.005 ? fmtEur(i.paid) : '—'}</td><td class="n"><b>${fmtEur(i.open)}</b></td></tr>`).join('')}
+              </tbody></table></div>
+            ${r.services.length ? `<div class="mut" style="font-size:11.5px;margin-top:9px">Υπηρεσίες: ${r.services.map(x =>
+              `<span class="pill ${x.status === 'Suspended' ? 'pill-bad' : (x.exempt ? 'pill-info' : 'pill-mut')}" title="${esc(x.product)} · ${fmtEur(x.amount)}/${esc(x.cycle)} · επόμενη πληρωμή ${esc(dFull(x.nextDue))}${x.auto ? ' · module ' + esc(x.module) : ''}">${esc(x.label)}${x.status === 'Suspended' ? ' · σε αναστολή' : (x.exempt ? ' · εξαιρείται' : '')}</span>`).join(' ')}</div>` : ''}
+          </div></div>`).join('')}
+      ${rows.length ? '' : `<div class="empty" style="padding:44px">${all.length ? 'Κανείς με αυτά τα φίλτρα' : 'Κανένα ανοιχτό υπόλοιπο 🎉'}</div>`}`;
+
+    let qt;
+    $('#blQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#blQ').value.trim(); load(); }, 300); };
+    $$('[data-bf]').forEach(b => b.onclick = () => { st.f = b.dataset.bf; load(); });
+    const ex = $('[data-bexp]');
+    if (ex) { ex.onclick = () => { const any = Object.values(st.open).some(Boolean); st.open = {}; if (!any) { rows.forEach(r => { st.open[r.client] = true; }); } load(); }; }
+    $$('.susp-h[data-bg]').forEach(h => h.onclick = e => {
+      if (e.target.closest('a,button')) { return; }
+      const k = h.dataset.bg; st.open[k] = !st.open[k];
+      h.nextElementSibling.style.display = st.open[k] ? '' : 'none';
+      h.querySelector('.kb-gchev').classList.toggle('open', !!st.open[k]);
+    });
+    $$('[data-bremind]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const r = all.find(x => x.client === +b.dataset.bremind);
+      if (r) { openReminder(r, load); }
+    });
+  };
+  load();
+};
+
+/* Διάλογος υπενθύμισης: γλώσσα, κανάλι (email ή ticket), ποια παραστατικά, πάγιο
+   κείμενο ή AI. Φεύγει προς πελάτη → πάντα επιβεβαίωση με το όνομά του. */
+function openReminder(r, done) {
+  const ovl = document.createElement('div'); ovl.className = 'ovl show';
+  ovl.innerHTML = `<div class="pal-box nt-box" onclick="event.stopPropagation()">
+    <div class="nt-h"><b>✉ Υπενθύμιση εξόφλησης</b>
+      <span class="mut">${esc(r.name)} · ${fmtEur(r.open)}</span><span style="flex:1"></span>
+      <button class="drawer-x" id="rmX">✕</button></div>
+    <div class="nt-b">
+      <div class="frow">
+        <div><label class="lbl">Κανάλι</label><select class="inp" id="rmCh">
+          <option value="email">Email στον πελάτη (${esc(r.email)})</option>
+          <option value="ticket">Ticket (λογιστήριο) — απαντά ο πελάτης</option></select></div>
+        <div><label class="lbl">Γλώσσα</label><select class="inp" id="rmLang">
+          <option value="">— αυτόματα (${r.lang === 'el' ? 'Ελληνικά' : 'English'}) —</option>
+          <option value="el">Ελληνικά</option><option value="en">English</option></select></div>
+      </div>
+      <label class="lbl" style="margin-top:12px">Παραστατικά που θα αναφερθούν</label>
+      <div class="nt-svc">
+        ${r.invs.map(i => `<label class="nt-s"><input type="checkbox" class="rmI" value="${i.id}" checked>
+          <span>${esc(i.num)} <span class="mut">λήξη ${esc(dFull(i.due))} · ${i.days > 0 ? i.days + ' ημ. καθυστέρηση' : 'δεν έληξε'}</span></span>
+          <b style="margin-left:auto">${fmtEur(i.open)}</b></label>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn btn-sm btn-o" id="rmAll">Όλα</button>
+        <button class="btn btn-sm btn-o" id="rmOver">Μόνο ληξιπρόθεσμα</button>
+      </div>
+      <label class="lbl" style="margin-top:14px">Κείμενο</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px">
+        <button class="btn btn-sm btn-p" id="rmTpl">📄 Πάγιο κείμενο</button>
+        <button class="btn btn-sm btn-o" id="rmAi">✨ Με AI</button>
+        <span class="mut" style="font-size:11.5px;align-self:center">Το AI κρατά ακριβώς τα ποσά, τις ημερομηνίες και τους συνδέσμους πληρωμής.</span>
+      </div>
+      <input class="inp" id="rmSubj" placeholder="Θέμα" style="margin-bottom:7px">
+      <textarea class="inp" id="rmBody" rows="14" style="width:100%;resize:vertical;font-family:inherit" placeholder="Πάτα «Πάγιο κείμενο» ή «Με AI» για να συνταχθεί…"></textarea>
+      <div class="mut" style="font-size:11.5px;margin-top:6px" id="rmInfo"></div>
+    </div>
+    <div class="nt-f">
+      <button class="btn btn-o" id="rmCopy">⧉ Αντιγραφή</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-o" id="rmCancel">Άκυρο</button>
+      <button class="btn btn-p" id="rmSend" disabled>Αποστολή</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const close = () => ovl.remove();
+  $('#rmX', ovl).onclick = close; $('#rmCancel', ovl).onclick = close; ovl.onclick = close;
+  $('#rmAll', ovl).onclick = () => $$('.rmI', ovl).forEach(x => x.checked = true);
+  $('#rmOver', ovl).onclick = () => $$('.rmI', ovl).forEach(x => { const i = r.invs.find(v => v.id === +x.value); x.checked = !!(i && i.days > 0); });
+  $('#rmCh', ovl).onchange = () => { $('#rmSend', ovl).textContent = $('#rmCh', ovl).value === 'ticket' ? 'Αποστολή ως ticket' : 'Αποστολή email'; };
+  const picked = () => $$('.rmI', ovl).filter(x => x.checked).map(x => +x.value);
+  const compose = async mode => {
+    const ids = picked();
+    if (!ids.length) { toast('Διάλεξε τουλάχιστον ένα παραστατικό', true); return; }
+    let draft = '';
+    if (mode === 'ai') {
+      draft = await cnpDialog({title: '✨ AI', body: 'Θέλεις να προσθέσεις κάτι δικό σου; (προαιρετικό)',
+        input: $('#rmBody', ovl).value.trim(), rows: 4, max: 1500, ok: 'Σύνταξη', cancel: 'Άκυρο',
+        placeholder: 'π.χ. να αναφέρω ότι μιλήσαμε τηλεφωνικά και θα πληρώσουν την Παρασκευή'});
+      if (draft === null) { return; }
+    }
+    $('#rmBody', ovl).value = 'Σύνταξη…';
+    const x = await api('balance_reminder', {client: r.client, invoices: ids, lang: $('#rmLang', ovl).value, mode, draft}).catch(e => ({err: e.message}));
+    if (x.err) { $('#rmBody', ovl).value = ''; toast(x.err, true); return; }
+    $('#rmSubj', ovl).value = x.subject;
+    $('#rmBody', ovl).value = x.body;
+    $('#rmInfo', ovl).innerHTML = `Παραλήπτης <b>${esc(x.email)}</b> · υπόλοιπο ${fmtEur(x.total)}${x.overdue > 0.5 ? ` (ληξιπρόθεσμα ${fmtEur(x.overdue)})` : ''}`
+      + (x.suspendDate ? ` · προθεσμία πριν την αναστολή <b>${esc(dFull(x.suspendDate))}</b>` : '')
+      + (x.lastReminder ? ` · <span style="color:#e0a020">τελευταία υπενθύμιση ${esc(dFull(x.lastReminder.at))} από ${esc(x.lastReminder.by)}</span>` : '');
+    $('#rmSend', ovl).disabled = false;
+    $('#rmCh', ovl).onchange();
+  };
+  $('#rmTpl', ovl).onclick = () => compose('template');
+  $('#rmAi', ovl).onclick = () => compose('ai');
+  $('#rmCopy', ovl).onclick = async () => { await navigator.clipboard.writeText($('#rmSubj', ovl).value + '\n\n' + $('#rmBody', ovl).value); toast('Αντιγράφηκε'); };
+  $('#rmSend', ovl).onclick = async () => {
+    const ch = $('#rmCh', ovl).value;
+    if (!await cnpConfirm(`Να σταλεί η υπενθύμιση στον πελάτη «${r.name}» (${r.email})${ch === 'ticket' ? ' ως ticket' : ''};`, {ok: 'Αποστολή', cancel: 'Όχι'})) { return; }
+    const btn = $('#rmSend', ovl); btn.disabled = true;
+    const x = await api('balance_reminder_send', {client: r.client, invoices: picked(), channel: ch, lang: $('#rmLang', ovl).value,
+      subject: $('#rmSubj', ovl).value, body: $('#rmBody', ovl).value}).catch(e => ({err: e.message}));
+    if (x.err) { btn.disabled = false; toast(x.err, true); return; }
+    toast(ch === 'ticket' ? 'Στάλθηκε — ticket #' + (x.tid || x.ticket) : '✉ Η υπενθύμιση στάλθηκε στο ' + x.email);
+    close(); done && done();
+  };
+  compose('template');
+}
+
 R.suspend = async function () {
   /* Η εκτέλεση της αναστολής είναι δική της δυνατότητα — άλλος βλέπει τη
      λίστα, άλλος πατάει το κουμπί. */

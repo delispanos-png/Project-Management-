@@ -214,6 +214,7 @@ function renderShell() {
     ['Οικονομικά', 'τι μπαίνει, τι βγαίνει, τι δεν πληρώθηκε', [
       ['profit', I.coin, 'Κερδοφορία', 'finance.profit'],
       ['paytrace', I.search || I.coin, 'Συμφωνία πληρωμών', 'finance.paytrace'],
+      ['balances', I.receipt, 'Ανοιχτά υπόλοιπα', 'finance.balances'],
       ['suspend', I.alert, 'Αναστολές', 'finance.suspend'],
     ]],
     ['Προσλήψεις', 'υποψήφιοι & αξιολογήσεις', [
