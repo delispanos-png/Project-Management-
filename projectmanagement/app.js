@@ -1593,6 +1593,13 @@ async function openTask(id) {
     ['#dSave', '#dDone', '#dAsk', '#dTitleEdit', '#dBriefSave', '#tStart', '#tStop', '#depAdd', '#dBillOk']
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
     $$('.tk-time-row, .tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
+    /* Το πεδίο των ενεργειών κρύβεται — αλλά χωρίς εξήγηση μοιάζει με βλάβη. */
+    const sl = $('#dCheck', dr);
+    if (sl) {
+      sl.insertAdjacentHTML('afterend', '<div class="mut" style="padding:10px 14px;font-size:12px;'
+        + 'border-top:1px solid var(--line)">🔒 Δεν μπορείς να γράψεις εδώ: η εργασία δεν είναι δική σου '
+        + '(ανάθεση/επίβλεψη/δημιουργία) και δεν έχεις «Board: επεξεργασία».</div>');
+    }
     $$('#dCheck input[data-chk], .tk-frow .inp, #fOffer', dr).forEach(e => { e.disabled = true; });
     const stp = $('#dStPill', dr); if (stp) { stp.disabled = true; stp.style.cursor = 'default'; stp.textContent = stp.textContent.replace(' ▾', ''); }
     const ro = $('#fDescr', dr); if (ro) { ro.contentEditable = 'false'; }

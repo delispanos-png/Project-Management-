@@ -1676,11 +1676,13 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
    και ύψος. Χωρίς μεγέθυνση η διάταξη μένει όπως ήταν: η δεξιά στήλη ακέραιη. */
 .tk-steps-max > .tk-col-side,.tk-steps-max .tk-brief{display:none}
 .tk-steps-max > .tk-col-main{flex:1 1 100%}
-.tk-col-main > .tk-step{flex:1 1 0;min-height:340px;margin:0}
+/* Οι «Ενέργειες» δεν επιτρέπεται να βγουν εκτός στήλης: εκεί κάτω είναι το πεδίο
+   γραφής. Μικρότερο υποχρεωτικό ύψος και στήλη που κυλά, ώστε να μη χάνεται ποτέ. */
+.tk-col-main > .tk-step{flex:1 1 auto;min-height:clamp(230px,38vh,420px);margin:0}
 .tk-step-max{margin-left:auto;flex:none;border:1px solid var(--line);background:var(--card);
   border-radius:8px;width:26px;height:24px;cursor:pointer;color:var(--mut);font-size:12px;line-height:1}
 .tk-step-max:hover{color:var(--ink);border-color:var(--brand)}
-.tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0}
+.tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 /* Δεξιά στήλη: συμπαγής, σχεδιασμένη να ΧΩΡΑ χωρίς scroll. Το overflow:auto μένει
    μόνο ως δίχτυ ασφαλείας σε πολύ χαμηλές οθόνες — δεν είναι ο κανόνας. */
 .tk-col-side{flex:0 0 clamp(330px,35%,470px);min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;
@@ -1700,7 +1702,10 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
    κυλά στην καρτέλα είναι η λίστα ενεργειών· το πεδίο νέου βήματος και τα
    συνημμένα μένουν σταθερά από κάτω, ώστε να διαβάζεις ό,τι γράφεις. */
 .tk-col-main{gap:12px}
-.tk-col-main > .tk-brief{flex:0 0 auto;max-height:none;display:flex;flex-direction:column;margin:0}
+/* Ένα «ζητούμενο» που είναι ολόκληρο email δεν πρέπει να τρώει τη στήλη και να
+   σπρώχνει το πεδίο των ενεργειών εκτός οθόνης — κυλά μέσα του. */
+.tk-col-main > .tk-brief{flex:0 1 auto;max-height:46vh;overflow-y:auto;display:flex;
+  flex-direction:column;margin:0}
 .tk-col-main > .tk-brief > .card-b{overflow:visible;min-height:0;padding-top:10px}
 .tk-brief .rte{min-height:110px;max-height:34vh}
 .tk-brief-foot{display:flex;gap:9px;margin-top:9px;align-items:center;flex-wrap:wrap}
