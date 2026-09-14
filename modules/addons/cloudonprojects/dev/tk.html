@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="el"><head><meta charset="utf-8">
+<title>Έλεγχος διάταξης καρτέλας εργασίας</title>
+<link rel="stylesheet" href="../../../../projectmanagement/app.css">
+</head><body>
+<!-- Αναπαραγωγή της ΠΡΑΓΜΑΤΙΚΗΣ καρτέλας: μεγάλο «ζητούμενο» (σαν το #117),
+     βήματα με μεγάλο κείμενο και κώδικα, γεμάτη δεξιά στήλη. -->
+<div class="drawer tk-modal show">
+  <div class="drawer-h"><h2>#117 ΑΝΑΦΟΡΕΣ ΛΙΑΝΙΚΗΣ</h2><button class="drawer-x">✕</button></div>
+  <div class="drawer-b tk-modal-b">
+
+    <div class="tk-col-main">
+      <div class="card tk-brief">
+        <div class="card-h">Το ζητούμενο</div>
+        <div class="card-b">
+          <div class="tk-brief-ro" id="briefRo"></div>
+          <div class="tk-brief-foot"><button class="btn btn-p">Αποθήκευση ζητουμένου</button></div>
+        </div>
+      </div>
+
+      <div class="card tk-step">
+        <div class="card-h" id="stepHdr">☑ <b>Ενέργειες</b>
+          <span class="pill pill-mut">2/4</span>
+          <button type="button" class="tk-step-max" id="maxBtn">⤢</button></div>
+        <div class="card-b">
+          <div id="dCheck" class="tk-step-list"></div>
+          <div class="tk-step-foot">
+            <textarea class="inp chk-new" id="chkNew" rows="1" placeholder="Τι έκανες…"></textarea>
+            <details class="tk-att"><summary>Συνημμένα ενεργειών</summary><div>—</div></details>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tk-col-side" id="side">
+      <div class="card"><div class="card-h">⏱ Χρόνος</div><div class="card-b">
+        <div class="tk-time-row"><input class="inp" placeholder="λεπτά">
+          <label class="tk-bill"><input type="checkbox" checked> Χρεώσιμο</label>
+          <input class="inp" placeholder="σημείωση"><button class="btn btn-sm btn-p">Καταχώρηση</button></div>
+      </div></div>
+      <div class="card"><div class="card-b"><div class="frow tk-frow">
+        <div><label class="lbl">Ανάθεση</label><select class="inp"><option>Kleon Karolos</option></select></div>
+        <div><label class="lbl">Προτεραιότητα</label><select class="inp"><option>Κανονική</option></select></div>
+        <div><label class="lbl">Τύπος</label><select class="inp"><option>Εργασία</option></select></div>
+        <div><label class="lbl">Department</label><select class="inp"><option>Support</option></select></div>
+        <div><label class="lbl">Έναρξη</label><input class="inp" type="date"></div>
+        <div><label class="lbl">Λήξη</label><input class="inp" type="date"></div>
+      </div>
+      <div style="display:flex;gap:9px"><button class="btn btn-p" id="saveBtn">Αποθήκευση</button>
+        <button class="btn btn-ok">Ολοκλήρωση</button></div></div></div>
+      <div class="card"><div class="card-h">🔗 Εξαρτήσεις</div><div class="card-b">
+        <select class="inp"><option>— διάλεξε task —</option></select></div></div>
+      <div class="card"><div class="card-h">🕘 Ιστορικό (5)</div><div class="card-b">—</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Γέμισμα με ρεαλιστικό περιεχόμενο */
+const email = `From: Kostas Georgiadis <k.georgiadis@avgerinoscosmetics.gr>
+Sent: Thursday, September 10, 2026 11:03 AM
+To: Vasilis Vakrinos <support@cloudon.gr>
+Subject: ΑΝΑΦΟΡΕΣ ΛΙΑΝΙΚΗΣ
+
+Καλημέρα σας,
+`.replace(/\n/g, '<br>') + Array.from({length: 14}, (_, i) =>
+  `Παράγραφος ${i + 1}: Θα ήθελα να δείτε τα εξής reports αναφορικά με τη Λιανική μας, ` +
+  `ώστε να μπορώ να έχω μία αναφορά τι κατηγορίες πουλάει μία πωλήτρια σε μία εκτύπωση.`).join('<br><br>');
+document.getElementById('briefRo').innerHTML = email;
+
+const longStep = 'Πρέπει να είναι θέμα της boxnow. Ο ανοσια έχει ως location id 751. Από αυτό το location '
+  + 'γίνεται το pick-up και πηγαίνει ένας διανομέας το πακέτο στο ντουλάπι. Για κάποιον λόγο έχουμε αυτό '
+  + 'το σφάλμα Invalid request origin location reference. Make sure you are referencing a valid location '
+  + 'id that belongs to your account and is enabled for pickups.';
+const code = '{\n  "data": [\n    {\n      "id": "2",\n      "type": "any-apm",\n      "image": null,\n'
+  + '      "name": "BOX NOW Locker",\n      "enabled": true\n    }\n  ]\n}';
+const esc = s => s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const rows = [
+  ['τεστ', 1], ['τεστ', 1], [longStep, 0], [code, 0],
+];
+document.getElementById('dCheck').innerHTML = rows.map((r, i) => {
+  const isCode = r[0].includes('\n');
+  return `<div class="chk ${r[1] ? 'done' : ''}" data-crow="${i}">
+    <input type="checkbox" ${r[1] ? 'checked' : ''}>
+    <span data-ctext="${i}">${isCode ? `<pre class="chk-code">${esc(r[0])}</pre>` : esc(r[0])}</span>
+    <span class="chk-acts"><button class="chk-act">✎</button><button class="chk-act">🗑</button></span>
+  </div>`;
+}).join('');
+
+/* Η ίδια λογική μεγέθυνσης με την εφαρμογή */
+const body = document.querySelector('.tk-modal-b');
+const set = on => { body.classList.toggle('tk-steps-max', on);
+  document.getElementById('maxBtn').innerHTML = on ? '⤡' : '⤢'; };
+document.getElementById('maxBtn').onclick = e => { e.stopPropagation(); set(!body.classList.contains('tk-steps-max')); };
+document.getElementById('stepHdr').onclick = e => { if (!e.target.closest('button')) { set(!body.classList.contains('tk-steps-max')); } };
+</script>
+</body></html>
