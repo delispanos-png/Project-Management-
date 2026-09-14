@@ -1709,7 +1709,15 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
    μεγάλη γραμμή να μη διαλύει τη στήλη. */
 .chk-code{margin:3px 0 0;padding:8px 10px;border-radius:8px;background:var(--canvas);
   border:1px solid var(--line);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  color:var(--ink);white-space:pre;overflow-x:auto;max-height:260px;overflow-y:auto}
+  color:var(--ink);white-space:pre;overflow-x:auto;max-height:420px;overflow-y:auto}
+/* Διόρθωση/διαγραφή βήματος: εμφανίζονται στο πέρασμα, δεν γεμίζουν τη λίστα. */
+.chk-acts{flex:none;display:flex;gap:2px;opacity:0;transition:opacity .12s}
+.chk:hover .chk-acts,.chk:focus-within .chk-acts{opacity:1}
+.chk-act{border:none;background:none;cursor:pointer;color:var(--mut);padding:3px;border-radius:6px;line-height:0}
+.chk-act svg{width:13px;height:13px}
+.chk-act:hover{background:var(--line);color:var(--ink)}
+.chk-act-del:hover{color:var(--bad)}
+@media (hover:none){.chk-acts{opacity:.55}}
 .chk.done .chk-code{opacity:.6}
 .chk-new{resize:vertical;min-height:38px;max-height:240px;line-height:1.5;font-family:inherit}
 .tk-step-foot{flex:none;padding:9px 14px 10px;border-top:1px solid var(--line);background:var(--card);

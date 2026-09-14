@@ -2307,7 +2307,8 @@ function cnp_open_actions()
         'lib_upload', 'lib_get', 'lib_pin', 'lib_del', 'manual_img',
         // εργασίες: row-level (canSeeTask / cnp_task_write_ok)
         'task', 'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
-        'check_toggle', 'check_add', 'time_bill', 'watch', 'remind', 'request_update', 'help_ask', 'help_seen',
+        'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
+        'request_update', 'help_ask', 'help_seen',
         'help_done',
         // αρχεία (row-level μέσα στην ενέργεια)
         'file_presign_put', 'file_confirm', 'file_upload', 'file_list', 'file_get',
@@ -4034,6 +4035,30 @@ case 'check_add':
     $id = Db::addCheckItem($tid, mb_substr($title, 0, 8000));   // χωράει stack trace / snippet
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     out(['ok' => true, 'id' => $id]);
+
+case 'check_edit':                       // διόρθωση βήματος (τυπογραφικό, συμπλήρωση, κομμένο κείμενο)
+    $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
+    $title = trim((string) ($in['title'] ?? ''));
+    if (!$ci || $title === '') { fail('input'); }
+    $t = Db::task((int) $ci->task_id);
+    if (!$t || !Db::canSeeTask($adminId, $t)) { fail('input'); }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)
+        ->update(['title' => mb_substr($title, 0, 8000)]);
+    out(['ok' => true]);
+
+case 'check_del':
+    $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ci) { fail('input'); }
+    $t = Db::task((int) $ci->task_id);
+    if (!$t || !Db::canSeeTask($adminId, $t)) { fail('input'); }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->delete();
+    out(['ok' => true]);
 
 case 'check_toggle':
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();

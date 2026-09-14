@@ -1406,7 +1406,13 @@ async function openTask(id) {
       <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα· η πρόοδος φαίνεται στην κάρτα · <b>@Όνομα</b> σε βήμα = ειδοποίηση</span></div>
       <div class="card-b">
         <div id="dCheck" class="tk-step-list">
-          ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${stepHtml(it.title)}</span></div>`).join('')
+          ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}" data-crow="${it.id}">
+            <input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}>
+            <span data-ctext="${it.id}">${stepHtml(it.title)}</span>
+            <span class="chk-acts">
+              <button type="button" class="chk-act" data-cedit="${it.id}" title="Διόρθωση">${I.edit}</button>
+              <button type="button" class="chk-act chk-act-del" data-cdelstep="${it.id}" title="Διαγραφή">${I.trash}</button>
+            </span></div>`).join('')
             || '<div class="mut" style="font-size:12.5px;padding:6px 0">Καμία ενέργεια ακόμη — γράψε το πρώτο βήμα από κάτω.</div>'}
         </div>
         <div class="tk-step-foot">
@@ -1715,6 +1721,33 @@ async function openTask(id) {
   if ($('#dFiles', dr) && window.cnpAttachments) {
     window.cnpAttachments($('#dFiles', dr), {module: 'task', refType: 'task', refId: id});
   }
+  /* Διόρθωση επί τόπου: το βήμα γίνεται πεδίο, Enter αποθηκεύει, Esc ακυρώνει. */
+  $$('[data-cedit]', dr).forEach(b => b.onclick = () => {
+    const cid = +b.dataset.cedit;
+    const it = (d.check || []).find(x => x.id === cid); if (!it) { return; }
+    const span = dr.querySelector(`[data-ctext="${cid}"]`); if (!span) { return; }
+    const ta = document.createElement('textarea');
+    ta.className = 'inp chk-new'; ta.value = it.title; ta.rows = 1;
+    span.replaceWith(ta);
+    ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px';
+    ta.focus();
+    ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px'; };
+    ta.onkeydown = async e => {
+      if (e.key === 'Escape') { e.preventDefault(); openTask(id); return; }
+      if (e.key !== 'Enter' || e.shiftKey) { return; }
+      e.preventDefault();
+      const v = ta.value.trim(); if (!v) { return; }
+      const r = await api('check_edit', {id: cid, title: v}).catch(er => ({err: (er && er.message) || 'σφάλμα'}));
+      if (r && r.err) { toast(r.err, true); return; }
+      openTask(id);
+    };
+  });
+  $$('[data-cdelstep]', dr).forEach(b => b.onclick = async () => {
+    if (!await cnpConfirm('Διαγραφή βήματος;', {danger: true})) { return; }
+    const r = await api('check_del', {id: +b.dataset.cdelstep}).catch(er => ({err: (er && er.message) || 'σφάλμα'}));
+    if (r && r.err) { toast(r.err, true); return; }
+    openTask(id);
+  });
   { const ta = $('#chkNew', dr);
     const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px'; };
     ta.oninput = grow;

@@ -1786,7 +1786,9 @@ class Db
     {
         $sort = 1 + (int) Capsule::table('mod_cpm_checklist')->where('task_id', (int) $taskId)->max('sort');
         return (int) Capsule::table('mod_cpm_checklist')->insertGetId([
-            'task_id' => (int) $taskId, 'title' => mb_substr($title, 0, 200), 'done' => 0, 'sort' => $sort,
+            /* Το βήμα κρατά ό,τι γράφτηκε: ένα stack trace ή ένα JSON δεν έχει νόημα
+               κομμένο στους 200 χαρακτήρες. Το ανώτατο όριο μπαίνει στο API. */
+            'task_id' => (int) $taskId, 'title' => $title, 'done' => 0, 'sort' => $sort,
         ]);
     }
 
