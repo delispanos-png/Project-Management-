@@ -2575,7 +2575,8 @@ function cnpPalette() {
     if (!d || q.value.trim() !== v) { return; }
     items = [];
     (d.clients || []).forEach(c => items.push({group: 'Πελάτες', icon: '🏢', title: c.name,
-      sub: c.email || ('#' + c.id), go: () => go('client360', c.id)}));
+      sub: [c.afm ? 'ΑΦΜ ' + c.afm : '', c.email, '#' + c.id].filter(Boolean).join(' · '),
+      go: () => go('client360', c.id)}));
     (d.tasks || []).forEach(t => items.push({group: 'Εργασίες', icon: '🟦', title: t.title,
       sub: t.pname || '', go: () => openTask(t.id)}));
     (d.tickets || []).forEach(t => items.push({group: 'Tickets', icon: '🎫', title: t.title,

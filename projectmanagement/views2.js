@@ -979,7 +979,10 @@ async function openEditClient(id, onDone) {
       <div class="frow" style="margin-top:11px">
         <div><label class="lbl">Όνομα επαφής</label><input class="inp" id="ecFirst" value="${esc(c.first)}"></div>
         <div><label class="lbl">Επώνυμο επαφής</label><input class="inp" id="ecLast" value="${esc(c.last)}"></div>
-        <div><label class="lbl">Email</label><input class="inp" id="ecMail" type="email" value="${esc(c.email)}"></div>
+        <div><label class="lbl">Email</label><input class="inp" id="ecMail" type="email" value="${esc(c.email)}"
+          placeholder="${c.tmpEmail ? 'λείπει — μπήκε προσωρινή διεύθυνση' : ''}">
+          ${c.tmpEmail ? `<div class="mut" style="font-size:11px;margin-top:3px;color:var(--warn)">
+            ⚠ Ο πελάτης δεν έχει email. Μέχρι να συμπληρωθεί κρατάμε προσωρινή διεύθυνση που δεν παραδίδεται πουθενά.</div>` : ''}</div>
         <div><label class="lbl">Τηλέφωνο</label><input class="inp" id="ecPhone" value="${esc(c.phone)}"></div>
         <div><label class="lbl">Κινητό</label><input class="inp" id="ecMob" value="${esc(c.mobile)}"></div>
         <div><label class="lbl">Κατάσταση</label><select class="inp" id="ecStatus">

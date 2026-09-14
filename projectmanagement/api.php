@@ -2105,6 +2105,21 @@ function cnp_admin_caps($adminId, $isFull)
  * έβλεπε μια εργασία μπορούσε και να την αλλάξει, οπότε το κουτάκι
  * «Επεξεργασία» στα δικαιώματα δεν δάγκωνε (12/9/2026).
  */
+/**
+ * Το ΑΦΜ ζει σε δύο σημεία: στο custom field #1 («VAT ID», 89 πελάτες) και στο
+ * tblclients.tax_id (11). Η αναζήτηση κοιτά και τα δύο — αλλιώς δεν βρίσκει σχεδόν
+ * κανέναν. Δέχεται και μερική πληκτρολόγηση, με ή χωρίς πρόθεμα χώρας.
+ */
+function cnp_afm_where($w, $like)
+{
+    $w->orWhere('tax_id', 'like', $like)
+      ->orWhereIn('id', function ($q) use ($like) {
+          $q->select('relid')->from('tblcustomfieldsvalues')
+            ->where('fieldid', 1)->where('value', 'like', $like);
+      });
+    return $w;
+}
+
 function cnp_task_write_ok($adminId, $isFull, $t)
 {
     if ($isFull) {
@@ -8257,9 +8272,13 @@ case 'search':
         foreach (Capsule::table('tblclients')->where(function ($w) use ($like) {
             $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
               ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
-        })->limit(6)->get(['id', 'firstname', 'lastname', 'companyname', 'email']) as $c) {
-            $clients[] = ['id' => (int) $c->id, 'email' => (string) $c->email,
-                'name' => $c->companyname ?: trim($c->firstname . ' ' . $c->lastname)];
+            cnp_afm_where($w, $like);
+        })->limit(6)->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'tax_id']) as $c) {
+            $mail9 = preg_match('/@noreply\.cloudon\.gr$/i', (string) $c->email) ? '' : (string) $c->email;
+            $clients[] = ['id' => (int) $c->id, 'email' => $mail9,
+                'afm' => (string) $c->tax_id,
+                'name' => html_entity_decode($c->companyname ?: trim($c->firstname . ' ' . $c->lastname),
+                    ENT_QUOTES, 'UTF-8')];
         }
     }
     out(['tasks' => $tasks, 'tickets' => $tickets, 'leads' => $leads, 'clients' => $clients]);
@@ -12387,6 +12406,9 @@ case 'client_quick_add':                  // νέος πελάτης επί τό
         'country' => strtoupper(substr(trim((string) ($in['country'] ?? 'GR')), 0, 2)) ?: 'GR',
         'phonenumber' => trim((string) ($in['phone'] ?? '')) ?: '0000000000',
         'tax_id' => mb_strlen($qAfm) === 9 ? $qAfm : '',
+        /* Η καρτέλα διαβάζει ΑΦΜ από το custom #1 και ΔΟΥ από το #82. Χωρίς αυτά η
+           άντληση ΑΑΔΕ «χανόταν» και χρειαζόταν δεύτερη αποθήκευση για να φανεί. */
+        'customfields' => base64_encode(serialize(array_filter([1 => $qAfm, 82 => $qDoy]))),
         'password2' => $qPass,
         'notes' => 'Δημιουργήθηκε από το Project Manager'
             . ($qAfm ? ' — ΑΦΜ ' . $qAfm : '') . ($qDoy ? ', ΔΟΥ ' . $qDoy : '')
@@ -12433,6 +12455,7 @@ case 'clients':                           // πλήρης λίστα πελατ�
                 $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
                   ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like)
                   ->orWhere('phonenumber', 'like', $like);
+                cnp_afm_where($w, $like);
             });
         }
     }
@@ -12488,9 +12511,14 @@ case 'client_get':                        // επεξεργάσιμα πεδία
         $cf[(int) $r->fieldid] = html_entity_decode((string) $r->value, ENT_QUOTES);
     }
     $dec = function ($s) { return html_entity_decode((string) $s, ENT_QUOTES); };
+    /* Το placeholder email («lead+…@noreply.cloudon.gr») το βάζουμε ΕΜΕΙΣ επειδή το
+       WHMCS απαιτεί μοναδικό email — δεν είναι διεύθυνση πελάτη και δεν πρέπει να
+       εμφανίζεται σαν τέτοια, ούτε να καταλήγει σε επικοινωνία. */
+    $isTmp = (bool) preg_match('/@noreply\.cloudon\.gr$/i', (string) $c->email);
     out(['client' => ['id' => $cid, 'company' => $dec($c->companyname),
         'first' => $dec($c->firstname), 'last' => $dec($c->lastname),
-        'email' => (string) $c->email, 'phone' => (string) $c->phonenumber,
+        'email' => $isTmp ? '' : (string) $c->email, 'tmpEmail' => $isTmp,
+        'phone' => (string) $c->phonenumber,
         'address' => $dec($c->address1), 'city' => $dec($c->city),
         'postcode' => (string) $c->postcode, 'country' => (string) $c->country,
         'status' => (string) $c->status, 'afm' => $cf[1] ?? (string) $c->tax_id,
@@ -12509,7 +12537,11 @@ case 'client_update':                     // αποθήκευση αλλαγών
     }
     if (array_key_exists('country', $in)) { $upd['country'] = strtoupper(substr(trim((string) $in['country']), 0, 2)) ?: 'GR'; $has = true; }
     if (array_key_exists('status', $in) && in_array($in['status'], ['Active', 'Inactive', 'Closed'], true)) { $upd['status'] = $in['status']; $has = true; }
-    if (isset($upd['email']) && $upd['email'] !== '' && !filter_var($upd['email'], FILTER_VALIDATE_EMAIL)) { fail('Μη έγκυρο email'); }
+    /* Κενό email: αν ο πελάτης κρατά ακόμη προσωρινή διεύθυνση, την αφήνουμε ήσυχη —
+       το WHMCS απαιτεί μοναδικό email και δεν δέχεται κενό. Αν είχε πραγματικό, δεν
+       το σβήνουμε κατά λάθος από μια φόρμα που άνοιξε άδεια. */
+    if (array_key_exists('email', $upd) && trim($upd['email']) === '') { unset($upd['email']); }
+    if (isset($upd['email']) && !filter_var($upd['email'], FILTER_VALIDATE_EMAIL)) { fail('Μη έγκυρο email'); }
     /* ΑΦΜ (custom #1 + tax_id) & ΔΟΥ (#82) & Κινητό (#88) μέσω customfields. */
     $cf = [];
     if (array_key_exists('afm', $in)) { $a = preg_replace('/\s+/', '', (string) $in['afm']); $cf[1] = $a; $upd['tax_id'] = preg_replace('/\D+/', '', $a); $has = true; }
@@ -12531,13 +12563,20 @@ case 'client_search':
         /* Μόνο ΕΝΕΡΓΟΙ πελάτες (απόφαση 14/9/2026): νέο έργο/προσφορά/κράτηση δεν
            ανοίγει σε Inactive/Closed. Με &all=1 έρχονται όλοι (π.χ. αναζήτηση ιστορικού). */
         if (($_GET['all'] ?? '') !== '1') { $cq->where('status', 'Active'); }
+        /* Εννιαψήφιο = ΑΦΜ (έτσι το γράφει ο κόσμος), αλλιώς id. Στη γενική αναζήτηση
+           μπαίνει και το ΑΦΜ ως κείμενο, για μερική πληκτρολόγηση. */
+        $like = '%' . $q . '%';
         if (ctype_digit($q)) {
-            $cq->where('id', (int) $q);
+            /* Εννιαψήφιο = ΑΦΜ όπως το γράφει ο κόσμος· μικρότερο = πιθανό id. */
+            $cq->where(function ($w) use ($q, $like) {
+                $w->where('id', (int) $q);
+                cnp_afm_where($w, $like);
+            });
         } else {
-            $like = '%' . $q . '%';
             $cq->where(function ($w) use ($like) {
                 $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
                   ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
+                cnp_afm_where($w, $like);
             });
         }
         foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'status']) as $c) {
