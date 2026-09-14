@@ -197,7 +197,7 @@ class Db
 
         if (!$s->hasColumn('mod_cpm_tasks', 'completed_note')) {
             $s->table('mod_cpm_tasks', function ($t) {
-                $t->string('completed_note', 500)->nullable();          // δυο λόγια για το πώς έκλεισε
+                $t->text('completed_note')->nullable();                 // δυο λόγια για το πώς έκλεισε
                 $t->integer('completed_by')->unsigned()->nullable();    // ποιος την έκλεισε
             });
         }
@@ -1411,6 +1411,15 @@ class Db
             }
         }
 
+        /* Ίδιος λόγος με τις «Ενέργειες»: μια σημείωση ολοκλήρωσης μπορεί κάλλιστα να
+           ξεπεράσει τους 500 χαρακτήρες — και τότε κοβόταν σιωπηλά. */
+        if ($s->hasColumn('mod_cpm_tasks', 'completed_note')) {
+            $col = Capsule::select("SHOW COLUMNS FROM mod_cpm_tasks LIKE 'completed_note'");
+            if ($col && stripos($col[0]->Type, 'varchar') !== false) {
+                Capsule::statement('ALTER TABLE mod_cpm_tasks MODIFY completed_note TEXT NULL');
+            }
+        }
+
         /* Η ραχοκοκαλιά πελάτης → προϊόν → τμήμα → έργο. Δες lib/Catalog.php. */
         Catalog::install();
     }
@@ -1586,7 +1595,7 @@ class Db
         $upd['completed_at'] = $new->is_done ? date('Y-m-d H:i:s') : null;
         if ($new->is_done) {
             $note = trim((string) $note);
-            if ($note !== '') { $upd['completed_note'] = mb_substr($note, 0, 500); }
+            if ($note !== '') { $upd['completed_note'] = $note; }   // TEXT — χωρίς κόψιμο
             $upd['completed_by'] = $adminId ? (int) $adminId : null;
             /* Η «μπάλα» καθαρίζει: κλεισμένη εργασία δεν πρέπει να ζητάει
                ενέργεια από κανέναν — αλλιώς μένει στο «Η μπάλα σε εμένα». */

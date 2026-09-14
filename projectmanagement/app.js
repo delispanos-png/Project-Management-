@@ -925,7 +925,7 @@ function cnpDialog(opts) {
     ovl.innerHTML = `<div class="pal-box" style="margin:22vh auto 0;max-width:440px" role="dialog">
       <div style="padding:20px 22px 18px">
         ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${o.title}</b>` : ''}
-        ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap">${o.body}</div>` : ''}
+        ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap;max-height:46vh;overflow:auto">${o.body}</div>` : ''}
         ${o.input !== null ? (o.rows
           ? `<textarea class="inp" id="cnpDlgIn" rows="${+o.rows}" maxlength="${+o.max || 2000}" placeholder="${esc(o.placeholder || '')}" style="margin-top:12px;width:100%;resize:vertical">${esc(o.input || '')}</textarea>`
           : `<input class="inp" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
