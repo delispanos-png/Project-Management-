@@ -1547,29 +1547,24 @@ async function openTask(id) {
      Τίτλος/πελάτης/κατάσταση ζουν ΜΟΝΟ στην κεφαλίδα — όχι δεύτερη φορά. */
   (() => {
     const body = $('.tk-modal-b', dr); if (!body) { return; }
-    const top = document.createElement('div'); top.className = 'tk-row-top';
     const main = document.createElement('div'); main.className = 'tk-col-main';
     const side = document.createElement('div'); side.className = 'tk-col-side';
-    /* Οι «Ενέργειες» είναι το ημερολόγιο της εργασίας: παίρνουν ΟΛΟ το πλάτος από
-       κάτω, όχι μισή στήλη. Πάνω μένουν το ζητούμενο και τα πεδία. */
-    let steps = null;
-    [...body.children].forEach(el => {
-      if (el.classList.contains('tk-step')) { steps = el; }
-      else { (el.classList.contains('tk-brief') ? main : side).appendChild(el); }
-    });
-    top.append(main, side);
-    body.append(top);
-    if (steps) { body.append(steps); }
-    /* Μεγέθυνση προς τα πάνω: με ένα κλικ οι ενέργειες καλύπτουν την καρτέλα, ώστε
-       να διαβάζεται μια μεγάλη απάντηση χωρίς κύλιση. Η επιλογή θυμάται. */
+    const toMain = el => el.classList.contains('tk-brief') || el.classList.contains('tk-step');
+    [...body.children].forEach(el => (toMain(el) ? main : side).appendChild(el));
+    body.append(main, side);
+    /* Μεγέθυνση (πρόταση Διονύση): με ένα κλικ στην κεφαλίδα των «Ενεργειών» το
+       ζητούμενο και η δεξιά στήλη μαζεύονται, και οι ενέργειες παίρνουν ΟΛΗ την
+       καρτέλα — για να διαβάζεται μια μεγάλη απάντηση χωρίς κύλιση. Θυμάται. */
+    const steps = main.querySelector('.tk-step');
     const hdr = steps && steps.querySelector('.card-h');
     if (hdr) {
       const btn = document.createElement('button');
-      btn.type = 'button'; btn.className = 'tk-step-max'; btn.title = 'Μεγέθυνση / επαναφορά';
+      btn.type = 'button'; btn.className = 'tk-step-max';
       const sync = () => {
         const on = body.classList.contains('tk-steps-max');
         btn.innerHTML = on ? '⤡' : '⤢';
-        btn.setAttribute('aria-label', on ? 'Επαναφορά ύψους' : 'Μεγέθυνση ενεργειών');
+        btn.title = on ? 'Επαναφορά — ξαναφέρνει το ζητούμενο και τα πεδία' : 'Μεγέθυνση σε όλη την καρτέλα';
+        btn.setAttribute('aria-label', btn.title);
       };
       const set = on => {
         body.classList.toggle('tk-steps-max', on);
@@ -1578,7 +1573,6 @@ async function openTask(id) {
       };
       btn.onclick = e => { e.stopPropagation(); set(!body.classList.contains('tk-steps-max')); };
       hdr.appendChild(btn);
-      /* Κλικ στην κεφαλίδα (όχι σε κουμπί) κάνει το ίδιο — όπως το ζήτησε ο Διονύσης. */
       hdr.onclick = e => { if (!e.target.closest('button,a,input')) { set(!body.classList.contains('tk-steps-max')); } };
       hdr.style.cursor = 'pointer';
       let want = '0';

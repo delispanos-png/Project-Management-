@@ -1670,20 +1670,17 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-hdr-i.live{border-color:var(--brand);color:var(--brand);font-weight:700}
 /* Δύο στήλες: αριστερά η συνομιλία (το κέντρο της δουλειάς), δεξιά όλες οι
    πληροφορίες του έργου. Κάθε στήλη κυλά μόνη της — το σώμα δεν κυλά. */
-/* Η καρτέλα εργασίας σε δύο ζώνες: πάνω το ζητούμενο και τα πεδία, κάτω οι
-   «Ενέργειες» σε ΟΛΟ το πλάτος — εκεί γράφεται και διαβάζεται τι έγινε. */
-.tk-modal-b{display:flex;flex-direction:column;gap:14px;align-items:stretch;overflow:hidden;min-height:0}
-.tk-row-top{display:flex;gap:16px;align-items:stretch;min-height:0;flex:0 1 auto;max-height:44%}
-.tk-modal-b > .tk-step{flex:1 1 auto;min-height:230px;margin:0}
-/* Μεγέθυνση: η πάνω ζώνη μαζεύεται και οι ενέργειες παίρνουν όλη την καρτέλα. */
-.tk-steps-max > .tk-row-top{display:none}
-.tk-steps-max > .tk-step{flex:1 1 100%}
+.tk-modal-b{display:flex;gap:16px;align-items:stretch;overflow:hidden;min-height:0}
+/* Μεγέθυνση των «Ενεργειών» (⤢ ή κλικ στην κεφαλίδα, πρόταση Διονύση): το ζητούμενο
+   και η δεξιά στήλη μαζεύονται, και οι ενέργειες παίρνουν ΟΛΗ την καρτέλα — πλάτος
+   και ύψος. Χωρίς μεγέθυνση η διάταξη μένει όπως ήταν: η δεξιά στήλη ακέραιη. */
+.tk-steps-max > .tk-col-side,.tk-steps-max .tk-brief{display:none}
+.tk-steps-max > .tk-col-main{flex:1 1 100%}
+.tk-col-main > .tk-step{flex:1 1 0;min-height:340px;margin:0}
 .tk-step-max{margin-left:auto;flex:none;border:1px solid var(--line);background:var(--card);
   border-radius:8px;width:26px;height:24px;cursor:pointer;color:var(--mut);font-size:12px;line-height:1}
 .tk-step-max:hover{color:var(--ink);border-color:var(--brand)}
-/* Η πάνω ζώνη έχει πλέον ορισμένο ύψος: αν το ζητούμενο είναι μεγάλο, κυλά μέσα
-   της — δεν σπρώχνει τις ενέργειες εκτός οθόνης. */
-.tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0}
 /* Δεξιά στήλη: συμπαγής, σχεδιασμένη να ΧΩΡΑ χωρίς scroll. Το overflow:auto μένει
    μόνο ως δίχτυ ασφαλείας σε πολύ χαμηλές οθόνες — δεν είναι ο κανόνας. */
 .tk-col-side{flex:0 0 clamp(330px,35%,470px);min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;
@@ -1714,14 +1711,17 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-step-list{flex:1;min-height:0;overflow-y:auto;padding:8px 14px}
 .tk-step-list .chk{align-items:flex-start;padding:7px 0}
 .tk-step-list .chk input{margin-top:1px}
-.tk-step-list .chk span{flex:1;min-width:0;white-space:normal;word-break:break-word;line-height:1.55}
+/* ΜΟΝΟ το κείμενο του βήματος απλώνεται. Ο παλιός κανόνας έπιανε κάθε <span> μέσα
+   στη γραμμή — άρα και τα κουμπιά ✎/🗑 — και τους χάριζε τον μισό χώρο. */
+.tk-step-list .chk > span[data-ctext]{flex:1 1 auto;min-width:0;white-space:normal;
+  word-break:break-word;line-height:1.55}
 /* Κώδικας ή stack trace μέσα σε βήμα: μονόστοιχα, με δική του κύλιση ώστε μια
    μεγάλη γραμμή να μη διαλύει τη στήλη. */
 .chk-code{margin:3px 0 0;padding:8px 10px;border-radius:8px;background:var(--canvas);
   border:1px solid var(--line);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   color:var(--ink);white-space:pre;overflow-x:auto;max-height:420px;overflow-y:auto}
 /* Διόρθωση/διαγραφή βήματος: εμφανίζονται στο πέρασμα, δεν γεμίζουν τη λίστα. */
-.chk-acts{flex:none;display:flex;gap:2px;opacity:0;transition:opacity .12s}
+.tk-step-list .chk > .chk-acts,.chk-acts{flex:0 0 auto;display:flex;gap:2px;opacity:0;transition:opacity .12s}
 .chk:hover .chk-acts,.chk:focus-within .chk-acts{opacity:1}
 .chk-act{border:none;background:none;cursor:pointer;color:var(--mut);padding:3px;border-radius:6px;line-height:0}
 .chk-act svg{width:13px;height:13px}
@@ -1799,7 +1799,6 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .drawer.show{transform:none}
   .drawer.tk-modal{width:100vw;height:100vh}
   .tk-modal-b{flex-direction:column;overflow:auto;align-items:stretch}
-  .tk-row-top{flex-direction:column;max-height:none;overflow:visible}
   .tk-col-main,.tk-col-side{flex:1 1 auto;width:100%;max-width:none;min-height:auto;overflow:visible}
   .tk-col-main > .tk-conv{overflow:visible;min-height:70vh}
   .tk-col-main > .tk-brief{max-height:none}
@@ -2463,7 +2462,7 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 @media (max-width:900px){
   .tk-time-row{grid-template-columns:1fr 1fr}
   .tk-frow{grid-template-columns:1fr}
-  .tk-modal-b > .tk-step{min-height:240px}
+  .tk-col-main > .tk-step{min-height:240px}
   .tk-step-list{overflow:visible}
 }
 
