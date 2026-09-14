@@ -187,7 +187,7 @@ function renderShell() {
     ['Έργα & υλοποιήσεις', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
       ['projects', I.folder, 'Έργα πελατών', 'projects.portfolio'],
       ['board', I.board, 'Board', 'projects.board'],
-      ['list', I.list, 'Λίστα εργασιών', 'projects.board'],
+      ['list', I.list, 'Όλα τα tasks', 'projects.board'],
       ['gantt', I.gantt, 'Χρονοδιάγραμμα', 'projects.board'],
       ['templates', I.box, 'Modules', 'projects.modules'],
       ['units', I.tree, 'Departments', 'projects.depts'],
@@ -1299,6 +1299,14 @@ async function openTask(id) {
   /* Σταθερό χρώμα avatar ανά όνομα — για να ξεχωρίζει ο ομιλητής με τη ματιά
      όταν η κουβέντα έχει εκατοντάδες μηνύματα. */
   const avColor = n => { let h = 0; for (const ch of String(n)) { h = (h * 31 + ch.charCodeAt(0)) % 360; } return `hsl(${h} 42% 46%)`; };
+  /* Ένα βήμα είναι είτε μια φράση είτε ένα κομμάτι κώδικα/λάθους. Ό,τι έχει αλλαγές
+     γραμμής ή ```fences βγαίνει σε μονόστοιχο μπλοκ — αλλιώς δεν διαβάζεται. */
+  const stepHtml = txt => {
+    const v = String(txt || '');
+    const fence = v.match(/^```[a-zA-Z0-9+#-]*\r?\n?([\s\S]*?)```\s*$/);
+    const code = fence ? fence[1] : (v.includes('\n') ? v : null);
+    return code !== null ? `<pre class="chk-code">${esc(code.replace(/\s+$/, ''))}</pre>` : esc(v);
+  };
   const dayLabel = iso => {
     const ss = (iso || '').slice(0, 10); if (!ss) { return ''; }
     const d0 = new Date(ss + 'T00:00:00'), now = new Date();
@@ -1354,6 +1362,9 @@ async function openTask(id) {
         <button type="button" class="tk-ttl-edit" id="dTitleEdit" title="Αλλαγή τίτλου">${I.edit}</button>
         ${d.owner ? `<a class="tk-cust-tag" href="#/client360/${d.owner.id}" data-navclose
            title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
+        ${d.project && !d.project.none ? `<a class="tk-cust-tag tk-pj-tag" href="#/board/${d.project.id}" data-navclose
+           title="Το έργο στο οποίο ανήκει η εργασία${d.project.product ? ' · προϊόν: ' + esc(d.project.product) : ''}">📁 ${esc(d.project.name)}${
+             d.project.product ? ` <span class="tk-pj-prod">· ${esc(d.project.product)}</span>` : ''}</a>` : ''}
         <button type="button" class="pill tk-st" id="dStPill" style="background:${stO.color || '#8291a9'}22;color:${stO.color || '#8291a9'}" title="Αλλαγή κατάστασης">${esc(stO.title || '—')} ▾</button>
         ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>` : ''}
         ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} Προσφορά</span>` : ''}
@@ -1395,11 +1406,12 @@ async function openTask(id) {
       <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα· η πρόοδος φαίνεται στην κάρτα · <b>@Όνομα</b> σε βήμα = ειδοποίηση</span></div>
       <div class="card-b">
         <div id="dCheck" class="tk-step-list">
-          ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${esc(it.title)}</span></div>`).join('')
+          ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}"><input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}><span>${stepHtml(it.title)}</span></div>`).join('')
             || '<div class="mut" style="font-size:12.5px;padding:6px 0">Καμία ενέργεια ακόμη — γράψε το πρώτο βήμα από κάτω.</div>'}
         </div>
         <div class="tk-step-foot">
-          <input class="inp" id="chkNew" placeholder="Νέο βήμα… (Enter)">
+          <textarea class="inp chk-new" id="chkNew" rows="1"
+            placeholder="Τι έκανες ή τι πρέπει να γίνει… (Enter = καταχώρηση · Shift+Enter = νέα γραμμή · \`\`\` για κώδικα)"></textarea>
           <details class="tk-att"><summary>${I.clip} Συνημμένα ενεργειών</summary>
             <div id="dCheckFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
         </div>
@@ -1432,10 +1444,12 @@ async function openTask(id) {
           ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
           : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
       </div>` : ''}
-      ${d.timelogs.length ? `<div style="margin-top:8px">${d.timelogs.slice(0, 3).map(l =>
+      ${d.timelogs.length ? `<div style="margin-top:8px" id="tLogs">${d.timelogs.map(l =>
         `<div class="tk-log">
           <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
-          ${l.billable ? `<span class="pill pill-warn" style="font-size:9.5px">χρέωση ${fmtMin(l.charged || l.mins)}</span>` : '<span class="mut">χωρίς χρέωση</span>'}
+          ${l.running ? '' : `<button type="button" class="pill ${l.billable ? 'pill-warn' : 'pill-mut'} tk-billtog"
+            data-tbill="${l.id}" data-on="${l.billable ? 1 : 0}" style="font-size:9.5px"
+            title="Κλικ για αλλαγή — χρεώσιμο ή όχι">${l.billable ? 'χρέωση ' + fmtMin(l.charged || l.mins) : 'χωρίς χρέωση'}</button>`}
           <span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(l.by)}${l.note ? ' · ' + esc(l.note) : ''}</span>
           <span class="mut" style="margin-left:auto;flex:none">${tShort(l.at)}</span></div>`).join('')}</div>` : ''}
     </div></div>
@@ -1657,6 +1671,15 @@ async function openTask(id) {
       el.textContent = `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
     tick(); timerInt = setInterval(tick, 1000);
   }
+  /* Η χρέωση διορθώνεται επί τόπου: ένα λάθος κλικ στο χρονόμετρο δεν πρέπει να
+     κοστίζει χρεώσιμο χρόνο που δεν τιμολογήθηκε ποτέ. */
+  $$('[data-tbill]', dr).forEach(b => b.onclick = async () => {
+    const on = b.dataset.on !== '1';
+    const r = await api('time_bill', {id: +b.dataset.tbill, billable: on}).catch(e => ({err: (e && e.message) || 'σφάλμα'}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast(on ? 'Χρεώσιμο ✓' : 'Χωρίς χρέωση');
+    openTask(id);
+  });
   $('#tAdd', dr).onclick = async () => {
     const m = +$('#tMins').value; if (!m) return;
     await api('time_add', {task: id, mins: m, billable: $('#tBill').checked, note: $('#tNote').value});
@@ -1692,10 +1715,18 @@ async function openTask(id) {
   if ($('#dFiles', dr) && window.cnpAttachments) {
     window.cnpAttachments($('#dFiles', dr), {module: 'task', refType: 'task', refId: id});
   }
-  $('#chkNew', dr).onkeydown = async e => {
-    if (e.key !== 'Enter' || !e.target.value.trim()) return;
-    await api('check_add', {task: id, title: e.target.value.trim()}); openTask(id);
-  };
+  { const ta = $('#chkNew', dr);
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px'; };
+    ta.oninput = grow;
+    ta.onkeydown = async e => {
+      if (e.key !== 'Enter' || e.shiftKey) { return; }
+      e.preventDefault();
+      const v = ta.value.trim(); if (!v) { return; }
+      const r = await api('check_add', {task: id, title: v}).catch(er => ({err: (er && er.message) || 'σφάλμα'}));
+      if (r && r.err) { toast(r.err, true); return; }
+      openTask(id);
+    };
+  }
   $$('#dCheck input[data-chk]', dr).forEach(cb => cb.onchange = async () => {
     await api('check_toggle', {id: +cb.dataset.chk});
     cb.closest('.chk').classList.toggle('done', cb.checked);
@@ -1722,7 +1753,7 @@ async function openTask(id) {
     }; }
   /* Συνημμένα ενεργειών: ίδιος μηχανισμός αρχείων, δικό τους «καλάθι» (ref_type=check). */
   if ($('#dCheckFiles', dr) && window.cnpAttachments) {
-    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id});
+    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id, paste: true});
   }
 
 }
@@ -2430,7 +2461,89 @@ function cnpDenied(err) {
   return `<div class="empty"><div class="big">${I.lock}</div>${esc(msg) || 'Δεν έχεις πρόσβαση σε αυτή την οθόνη'}
     <div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`;
 }
-window.CNP = {S, api, esc, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+/* ═══ Αναζήτηση παντού (Ctrl+K) ═══
+   Το κουμπί υπήρχε από την αρχή, η υλοποίηση όχι — έψαχνες πελάτη και δεν άνοιγε
+   τίποτα. Ένα πεδίο, τέσσερις ομάδες αποτελεσμάτων, πλοήγηση με βελάκια. */
+function cnpPalette() {
+  if (document.getElementById('palOvl')) { return; }
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.id = 'palOvl'; ovl.style.zIndex = 260;
+  ovl.innerHTML = `<div class="pal-box" style="margin:10vh auto 0;max-width:540px" onclick="event.stopPropagation()">
+    <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;gap:9px;align-items:center">
+      <span style="font-size:15px">🔎</span>
+      <input class="inp" id="palQ" autocomplete="off" style="border:none;box-shadow:none;font-size:15px;padding:4px 0"
+        placeholder="Πελάτης, εργασία, ticket, lead… (ή #123 για εργασία)">
+      <kbd style="font-size:10px;color:var(--mut)">Esc</kbd>
+    </div>
+    <div id="palRes" style="max-height:62vh;overflow:auto;padding:6px"></div></div>`;
+  document.body.append(ovl);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey, true); };
+  ovl.onclick = close;
+  const res = ovl.querySelector('#palRes'), q = ovl.querySelector('#palQ');
+  let items = [], cur = 0, tmr = null;
+
+  const paint = () => {
+    if (!items.length) {
+      res.innerHTML = `<div class="mut" style="padding:16px;text-align:center;font-size:12.5px">${
+        q.value.trim().length < 2 ? 'Γράψε τουλάχιστον δύο χαρακτήρες' : 'Κανένα αποτέλεσμα'}</div>`;
+      return;
+    }
+    let last = '', h = '';
+    items.forEach((it, i) => {
+      if (it.group !== last) {
+        last = it.group;
+        h += `<div class="mut" style="padding:9px 10px 4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${esc(it.group)}</div>`;
+      }
+      h += `<a href="javascript:" class="pal-row${i === cur ? ' on' : ''}" data-i="${i}">
+        <span class="pal-ic">${it.icon}</span>
+        <span class="pal-t">${esc(it.title)}</span>
+        ${it.sub ? `<span class="mut pal-s">${esc(it.sub)}</span>` : ''}</a>`;
+    });
+    res.innerHTML = h;
+    res.querySelectorAll('[data-i]').forEach(a => {
+      a.onmouseenter = () => { cur = +a.dataset.i; paint(); };
+      a.onclick = () => { const it = items[+a.dataset.i]; close(); it.go(); };
+    });
+    const on = res.querySelector('.pal-row.on'); if (on && on.scrollIntoView) { on.scrollIntoView({block: 'nearest'}); }
+  };
+
+  const run = async () => {
+    const v = q.value.trim();
+    if (v.length < 2) { items = []; paint(); return; }
+    const d = await api('search&q=' + encodeURIComponent(v)).catch(() => null);
+    if (!d || q.value.trim() !== v) { return; }
+    items = [];
+    (d.clients || []).forEach(c => items.push({group: 'Πελάτες', icon: '🏢', title: c.name,
+      sub: c.email || ('#' + c.id), go: () => go('client360', c.id)}));
+    (d.tasks || []).forEach(t => items.push({group: 'Εργασίες', icon: '🟦', title: t.title,
+      sub: t.pname || '', go: () => openTask(t.id)}));
+    (d.tickets || []).forEach(t => items.push({group: 'Tickets', icon: '🎫', title: t.title,
+      sub: '#' + t.tid + ' · ' + (t.status || ''), go: () => go('inbox', t.id)}));
+    (d.leads || []).forEach(l => items.push({group: 'Leads', icon: '🎯', title: l.name,
+      sub: l.stage || '', go: () => go('crm')}));
+    cur = 0; paint();
+  };
+
+  const onKey = e => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (!items.length) { return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); cur = (cur + 1) % items.length; paint(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cur = (cur - 1 + items.length) % items.length; paint(); }
+    else if (e.key === 'Enter') { e.preventDefault(); const it = items[cur]; close(); it.go(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  q.oninput = () => { clearTimeout(tmr); tmr = setTimeout(run, 220); };
+  paint();
+  setTimeout(() => q.focus(), 40);
+}
+/* Ctrl/⌘+K από παντού — εκτός αν γράφεις ήδη κάπου αλλού. */
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault(); cnpPalette();
+  }
+}, true);
+
+window.CNP = {S, api, esc, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu, $, $$};
 
 /* ───────── init ───────── */

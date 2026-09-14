@@ -2154,8 +2154,11 @@ function cnp_action_cap($action)
         };
 
         /* ── ΠΕΛΑΤΕΣ ── */
-        $add('clients.card', ['client360', 'clients', 'client_get', 'client_tree', 'catalog_products']);
+        $add('clients.card', ['client360', 'clients', 'client_get', 'client_tree', 'catalog_products',
+            'client_contacts']);
         $add('clients.card.edit|projects.portfolio.edit', ['client_product_set']);
+        $add('clients.card.edit', ['client_contact_save', 'client_contact_del',
+            'client_branch_save', 'client_branch_del']);
         /* Διαρροές που έκλεισαν 12/9/2026: ενέργειες που επέστρεφαν δεδομένα
            κυκλώματος σε όποιον είχε απλώς login. */
         $add('clients.crm', ['crm', 'contacts']);
@@ -2215,7 +2218,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
         $add('projects.board', ['board', 'list', 'gantt', 'ptodos']);
-        $add('projects.board.edit', ['gantt_move', 'quick_task', 'dep_add', 'dep_del', 'check_add',
+        $add('projects.board.edit', ['gantt_move', 'quick_task', 'dep_add', 'dep_del',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
         $add('projects.modules.edit', ['template_save', 'template_step_save', 'template_step_move',
@@ -2304,7 +2307,7 @@ function cnp_open_actions()
         'lib_upload', 'lib_get', 'lib_pin', 'lib_del', 'manual_img',
         // εργασίες: row-level (canSeeTask / cnp_task_write_ok)
         'task', 'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
-        'check_toggle', 'watch', 'remind', 'request_update', 'help_ask', 'help_seen',
+        'check_toggle', 'check_add', 'time_bill', 'watch', 'remind', 'request_update', 'help_ask', 'help_seen',
         'help_done',
         // αρχεία (row-level μέσα στην ενέργεια)
         'file_presign_put', 'file_confirm', 'file_upload', 'file_list', 'file_get',
@@ -2867,6 +2870,8 @@ case 'task':
             'via' => $proj->clientid ? 'project' : 'ticket'] : null,
         'project' => ['id' => (int) $proj->id, 'name' => $proj->name, 'color' => $proj->color,
             'none' => !$t->project_id,
+            'product' => (isset($proj->product_id) && $proj->product_id)
+                ? Capsule::table('mod_cpm_products')->where('id', $proj->product_id)->value('name') : null,
             'kind' => (string) $proj->kind, 'pstatus' => (string) $proj->pstatus,
             'due' => $proj->due_date, 'clientId' => $proj->clientid ? (int) $proj->clientid : null],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
@@ -3982,6 +3987,24 @@ case 'timer_stop':
     }
     out(['ok' => true, 'mins' => $e ? (int) Db::timelog($running->id)->minutes : 0]);
 
+case 'time_bill':                        // διόρθωση «χρεώσιμο/όχι» σε καταχώρηση χρόνου
+    $lid = (int) ($in['id'] ?? 0);
+    $lg = $lid ? Db::timelog($lid) : null;
+    if (!$lg) { fail('timelog', 404); }
+    $t = Db::task((int) $lg->task_id);
+    if (!$t || !Db::canSeeTask($adminId, $t)) { fail('input'); }
+    /* Τη χρέωση τη διορθώνει όποιος κατέγραψε τον χρόνο ή όποιος γράφει στην εργασία —
+       αλλιώς ένα λάθος κλικ στο χρονόμετρο έμενε για πάντα. */
+    if ((int) $lg->admin_id !== $adminId && !cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Μόνο όποιος κατέγραψε τον χρόνο ή ο υπεύθυνος της εργασίας', 403);
+    }
+    $bill9 = !empty($in['billable']);
+    Db::updateTimelog($lid, ['billable' => $bill9 ? 1 : 0]);
+    Time::push($lid);
+    Db::logActivity((int) $lg->task_id, $adminId, 'billing',
+        ($bill9 ? 'Σημάνθηκε χρεώσιμος' : 'Σημάνθηκε μη χρεώσιμος') . ' χρόνος ' . (int) $lg->minutes . "'");
+    out(['ok' => true, 'billable' => $bill9]);
+
 case 'time_add':
     $tid = (int) ($in['task'] ?? 0);
     $mins = (int) ($in['mins'] ?? 0);
@@ -4003,7 +4026,12 @@ case 'check_add':
     if (!$t || !Db::canSeeTask($adminId, $t) || $title === '') {
         fail('input');
     }
-    $id = Db::addCheckItem($tid, $title);
+    /* Όποιος εκτελεί την εργασία πρέπει να μπορεί να γράψει τι έκανε — αλλιώς το
+       «τι έγινε» το ξέρει μόνο αυτός. Ίδιος έλεγχος με το check_toggle. */
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    $id = Db::addCheckItem($tid, mb_substr($title, 0, 8000));   // χωράει stack trace / snippet
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     out(['ok' => true, 'id' => $id]);
 
@@ -4500,6 +4528,8 @@ case 'call_log':                         // η καταχώρηση
 case 'list':
     $f = ['project_id' => (int) ($_GET['fp'] ?? 0), 'status_id' => (int) ($_GET['fs'] ?? 0),
           'assignee' => (int) ($_GET['fa'] ?? 0),
+          'client' => (int) ($_GET['fc'] ?? 0), 'creator' => (int) ($_GET['fb'] ?? 0),
+          'product' => (int) ($_GET['fpr'] ?? 0), 'dept' => (int) ($_GET['fd'] ?? 0),
           'priority' => ($_GET['fr'] ?? '') !== '' ? (int) $_GET['fr'] : '',
           'q' => trim($_GET['q'] ?? ''), 'open_only' => (int) ($_GET['open'] ?? 1)];
     /* «#123» ή σκέτο «123» = αναζήτηση με αριθμό εργασίας — βρίσκει ΚΑΙ κλειστές. */
@@ -4518,6 +4548,9 @@ case 'list':
         $d['pname'] = cnp_pn($t->project_name);
         $d['pcolor'] = $t->project_color ?: '#8595ac';
         $d['mins'] = (int) ($mins[(int) $t->id] ?? 0);
+        $d['creator'] = (int) $t->created_by;
+        $d['client'] = isset($t->clientid) && $t->clientid ? (int) $t->clientid : null;
+        $d['clientName'] = isset($t->clientid) && $t->clientid ? clientLabel($t->clientid) : '';
         $list[] = $d;
     }
     out(['tasks' => $list]);
@@ -7223,6 +7256,67 @@ case 'client_product_set':              // χειροκίνητη προσθήκ
     }
     out(['ok' => true]);
 
+case 'client_contacts':                 // τηλέφωνα, emails και υποκαταστήματα ενός πελάτη
+    $cid = (int) ($_GET['client'] ?? $in['client'] ?? 0);
+    if (!$cid) { fail('client'); }
+    $cl = Capsule::table('tblclients')->where('id', $cid)
+        ->first(['id', 'email', 'phonenumber', 'address1', 'city']);
+    if (!$cl) { fail('client', 404); }
+    $br = Capsule::table('mod_cpm_client_branches')->where('clientid', $cid)
+        ->orderBy('sort')->orderBy('id')->get()->map(function ($b) {
+            return ['id' => (int) $b->id, 'name' => $b->name, 'address' => (string) $b->address,
+                'city' => (string) $b->city, 'note' => (string) $b->note, 'active' => (int) $b->active];
+        })->all();
+    $ct = Capsule::table('mod_cpm_client_contacts')->where('clientid', $cid)
+        ->orderBy('kind')->orderBy('sort')->orderBy('id')->get()->map(function ($c) {
+            return ['id' => (int) $c->id, 'kind' => $c->kind, 'value' => $c->value,
+                'label' => (string) $c->label, 'branch' => $c->branch_id ? (int) $c->branch_id : null];
+        })->all();
+    out(['whmcs' => ['email' => (string) $cl->email, 'phone' => (string) $cl->phonenumber,
+            'address' => trim($cl->address1 . ' ' . $cl->city)],
+        'contacts' => $ct, 'branches' => $br]);
+
+case 'client_contact_save':
+    $cid = (int) ($in['client'] ?? 0);
+    $val = trim((string) ($in['value'] ?? ''));
+    $kind = ($in['kind'] ?? 'phone') === 'email' ? 'email' : 'phone';
+    if (!$cid || $val === '') { fail('Λείπει τιμή'); }
+    if ($kind === 'email' && !filter_var($val, FILTER_VALIDATE_EMAIL)) { fail('Μη έγκυρο email'); }
+    $row = ['clientid' => $cid, 'kind' => $kind, 'value' => mb_substr($val, 0, 160),
+        'label' => mb_substr(trim((string) ($in['label'] ?? '')), 0, 60),
+        'branch_id' => (int) ($in['branch'] ?? 0) ?: null];
+    $id = (int) ($in['id'] ?? 0);
+    if ($id) { Capsule::table('mod_cpm_client_contacts')->where('id', $id)->update($row); }
+    else { $id = (int) Capsule::table('mod_cpm_client_contacts')
+        ->insertGetId($row + ['created_at' => date('Y-m-d H:i:s')]); }
+    out(['ok' => true, 'id' => $id]);
+
+case 'client_contact_del':
+    Capsule::table('mod_cpm_client_contacts')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
+
+case 'client_branch_save':
+    $cid = (int) ($in['client'] ?? 0);
+    $nm = trim((string) ($in['name'] ?? ''));
+    if (!$cid || $nm === '') { fail('Δώσε όνομα υποκαταστήματος'); }
+    $row = ['clientid' => $cid, 'name' => mb_substr($nm, 0, 120),
+        'address' => mb_substr(trim((string) ($in['address'] ?? '')), 0, 200),
+        'city' => mb_substr(trim((string) ($in['city'] ?? '')), 0, 80),
+        'note' => mb_substr(trim((string) ($in['note'] ?? '')), 0, 300),
+        'active' => empty($in['inactive']) ? 1 : 0];
+    $id = (int) ($in['id'] ?? 0);
+    if ($id) { Capsule::table('mod_cpm_client_branches')->where('id', $id)->update($row); }
+    else { $id = (int) Capsule::table('mod_cpm_client_branches')
+        ->insertGetId($row + ['created_at' => date('Y-m-d H:i:s')]); }
+    out(['ok' => true, 'id' => $id]);
+
+case 'client_branch_del':
+    $bid = (int) ($in['id'] ?? 0);
+    /* Τα στοιχεία επικοινωνίας του υποκαταστήματος δεν χάνονται — ξεκρεμιούνται. */
+    Capsule::table('mod_cpm_client_contacts')->where('branch_id', $bid)->update(['branch_id' => null]);
+    Capsule::table('mod_cpm_client_branches')->where('id', $bid)->delete();
+    out(['ok' => true]);
+
 case 'client_health':                   // ❤️ υγεία πελατών — ποιοι «καίγονται»
     $since = date('Y-m-d', strtotime('-90 days'));
     $stats = [];
@@ -8132,12 +8226,15 @@ case 'search':
         $leads[] = ['id' => (int) $l->id, 'name' => $l->company ?: $l->contact, 'stage' => $l->stage];
     }
     $clients = [];
-    if ($FULL) {
+    /* Ο πελάτης είναι η πρώτη λέξη που γράφει κανείς στην αναζήτηση. Φτάνει να έχει
+       πρόσβαση στην καρτέλα — δεν χρειάζεται να είναι διαχειριστής. */
+    if (cnp_has_cap($adminId, $FULL, 'clients.card')) {
         foreach (Capsule::table('tblclients')->where(function ($w) use ($like) {
             $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
               ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
-        })->limit(5)->get(['id', 'firstname', 'lastname', 'companyname']) as $c) {
-            $clients[] = ['id' => (int) $c->id, 'name' => $c->companyname ?: trim($c->firstname . ' ' . $c->lastname)];
+        })->limit(6)->get(['id', 'firstname', 'lastname', 'companyname', 'email']) as $c) {
+            $clients[] = ['id' => (int) $c->id, 'email' => (string) $c->email,
+                'name' => $c->companyname ?: trim($c->firstname . ' ' . $c->lastname)];
         }
     }
     out(['tasks' => $tasks, 'tickets' => $tickets, 'leads' => $leads, 'clients' => $clients]);

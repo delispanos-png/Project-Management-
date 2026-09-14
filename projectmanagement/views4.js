@@ -2514,7 +2514,7 @@ function cnpAttachments(host, opts) {
     <div id="cnpaList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
     <div id="cnpaDrop" class="cnpa-drop" style="border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:.15s">
       <input type="file" id="cnpaInput" multiple style="display:none" ${opts.accept ? `accept="${opts.accept}"` : ''}>
-      <div class="cnpa-drop-main" style="font-size:13px;color:var(--mut)">📎 <b style="color:var(--brand)">Επισύναψη</b> — έγγραφα, εικόνες, <b>βίντεο</b><span class="cnpa-drop-drag"> (ή σύρε εδώ)</span></div>
+      <div class="cnpa-drop-main" style="font-size:13px;color:var(--mut)">📎 <b style="color:var(--brand)">Επισύναψη</b> — έγγραφα, εικόνες, <b>βίντεο</b><span class="cnpa-drop-drag"> (ή σύρε εδώ${opts.paste ? ', ή <b>Ctrl+V</b> για screenshot' : ''})</span></div>
       <div class="cnpa-drop-sub mut" style="font-size:11px;margin-top:3px">Τα βίντεο/μεγάλα ανεβαίνουν κατευθείαν στο cloud storage</div>
     </div>
     <div id="cnpaProg" style="display:none;margin-top:10px"></div>`;
@@ -2525,6 +2525,28 @@ function cnpAttachments(host, opts) {
   ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor = 'var(--brand)'; drop.style.background = '#0090dd0a'; }));
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor = 'var(--line)'; drop.style.background = ''; }));
   drop.addEventListener('drop', e => { [...(e.dataTransfer && e.dataTransfer.files || [])].forEach(uploadOne); });
+  /* Snipping tool → Ctrl+V. Η εικόνα του προχείρου δεν έχει όνομα αρχείου· της δίνουμε
+     ώρα και λεπτό, γιατί «image.png» τρεις φορές δεν λέει τίποτα σε κανέναν. */
+  if (opts.paste) {
+    const zone = host.closest('.drawer') || host.closest('.ovl') || host;
+    const onPaste = e => {
+      if (!host.isConnected) { document.removeEventListener('paste', onPaste, true); return; }
+      if (!zone.contains(e.target)) { return; }
+      const items = [...((e.clipboardData || {}).items || [])].filter(i => i.type.startsWith('image/'));
+      if (!items.length) { return; }
+      e.preventDefault();
+      items.forEach(it => {
+        const blob = it.getAsFile(); if (!blob) { return; }
+        const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        const d = new Date();
+        const nm = 'screenshot-' + d.toISOString().slice(0, 10) + '-'
+          + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0')
+          + String(d.getSeconds()).padStart(2, '0') + '.' + ext;
+        uploadOne(new File([blob], nm, {type: blob.type}));
+      });
+    };
+    document.addEventListener('paste', onPaste, true);
+  }
   api('file_list&module=' + encodeURIComponent(opts.module) + '&ref_type=' + encodeURIComponent(opts.refType || '') + '&ref_id=' + (opts.refId || 0)).then(d => { files = d.files || []; renderList(); }).catch(() => {});
 }
 window.cnpAttachments = cnpAttachments;   // reusable σε όλα τα views (ES modules)

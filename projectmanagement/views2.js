@@ -8,7 +8,7 @@ const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:
 
 /* ═════════ ΛΙΣΤΑ TASKS ═════════ */
 R.list = async function () {
-  setTop('Λίστα tasks');
+  setTop('Όλα τα tasks', 'Ευρετήριο με φίλτρα — πελάτης, ποιος το άνοιξε, ποιος το χειρίζεται');
   const c = $('#content');
   const f = R.list._f = R.list._f || {open: 1};
   c.innerHTML = `
@@ -17,33 +17,48 @@ R.list = async function () {
       ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     <select class="inp" id="lfS" style="width:auto"><option value="">— status —</option>
       ${S.boot.statuses.map(s => `<option value="${s.id}" ${f.fs == s.id ? 'selected' : ''}>${esc(s.title)}</option>`).join('')}</select>
-    <select class="inp" id="lfA" style="width:auto"><option value="">— χειριστής —</option>
+    <select class="inp" id="lfA" style="width:auto"><option value="">— ποιος το χειρίζεται —</option>
       ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+    <select class="inp" id="lfB" style="width:auto"><option value="">— ποιος το άνοιξε —</option>
+      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fb == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+    <span style="position:relative">
+      <input class="inp" id="lfCli" list="lfCliL" autocomplete="off" placeholder="— πελάτης —"
+        style="width:190px" value="${esc(f.fcName || '')}"><datalist id="lfCliL"></datalist>
+      <input type="hidden" id="lfC" value="${f.fc || ''}"></span>
     <input class="inp" id="lfQ" placeholder="αναζήτηση…" style="width:180px" value="${esc(f.q || '')}">
     <label style="display:flex;gap:5px;align-items:center;font-size:12.5px">
       <input type="checkbox" id="lfO" ${f.open ? 'checked' : ''}> μόνο ανοιχτά</label>
     <button class="btn btn-p btn-sm" id="lfGo">Φίλτρο</button>
   </div><div id="lRes">${skel(1, 300)}</div>`;
-  $('#lfGo').onclick = () => {
+  /* Ο πελάτης γράφεται και επιλέγεται — το id κρατιέται κρυφό, όπως παντού αλλού. */
+  if (window.CNP.clientAuto) { window.CNP.clientAuto('lfCli', 'lfCliL', 'lfC'); }
+  const apply = () => {
     R.list._f = {fp: $('#lfP').value, fs: $('#lfS').value, fa: $('#lfA').value,
+      fb: $('#lfB').value, fc: $('#lfC').value, fcName: $('#lfCli').value,
       q: $('#lfQ').value, open: $('#lfO').checked ? 1 : 0};
     R.list();
   };
-  const qs = Object.entries(f).filter(([, v]) => v !== '' && v != null).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+  $('#lfGo').onclick = apply;
+  $('#lfQ').onkeydown = e => { if (e.key === 'Enter') { apply(); } };
+  const qs = Object.entries(f).filter(([k, v]) => k !== 'fcName' && v !== '' && v != null)
+    .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   const d = await api('list&' + qs);
   $('#lRes').innerHTML = `<div class="card"><table class="tbl"><thead><tr>
-    <th>Task</th><th>Project</th><th>Status</th><th>Χειριστής</th><th>Λήξη</th><th>Χρόνος</th></tr></thead><tbody>
+    <th>Task</th><th>Πελάτης</th><th>Project</th><th>Status</th><th>Άνοιξε</th><th>Χειρίζεται</th><th>Λήξη</th><th>Χρόνος</th></tr></thead><tbody>
     ${d.tasks.length ? d.tasks.map(t => {
       const st = statusOf(t.status), over = t.due && t.due < today() && !t.done;
       return `<tr data-task="${t.id}" style="cursor:pointer">
         <td><span class="dot" style="background:${prioDot(t.prio)};margin-right:7px"></span><b>${esc(t.title)}</b>
           ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}">⚡${esc(adminIni(t.ball))}</span>` : ''}</td>
+        <td>${t.clientName ? esc(t.clientName) : '<span class="mut">—</span>'}</td>
         <td><span class="dot" style="background:${t.pcolor};margin-right:5px"></span>${esc(t.pname)}</td>
         <td><span class="pill" style="background:${st.color}22;color:${st.color}">${esc(st.title)}</span></td>
+        <td>${t.creator ? esc(adminName(t.creator)) : '—'}</td>
         <td>${t.assignee ? esc(adminName(t.assignee)) : '—'}</td>
         <td class="${over ? 'pill pill-bad' : ''}">${t.due ? dShort(t.due) : '—'}</td>
         <td>${t.mins ? fmtMin(t.mins) : '—'}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="empty">Κανένα task</td></tr>'}</tbody></table></div>`;
+    }).join('') : '<tr><td colspan="8" class="empty">Κανένα task με αυτά τα φίλτρα</td></tr>'}</tbody></table>
+    <div class="mut" style="padding:9px 14px;font-size:11.5px;border-top:1px solid var(--line)">${d.tasks.length} εργασίες</div></div>`;
   $$('#lRes tr[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
 };
 
@@ -1516,6 +1531,100 @@ function openTargetDrawer(card, d) {
   });
 }
 
+/* Επικοινωνία πελάτη: ένα τηλέφωνο δεν φτάνει ποτέ — υπάρχει το λογιστήριο, ο
+   τεχνικός, ο ιδιοκτήτης, και συχνά υποκαταστήματα με δικά τους στοιχεία. Τα
+   στοιχεία του WHMCS μένουν η επίσημη έδρα· εδώ ζει η καθημερινή επικοινωνία. */
+async function cnpClientContacts(box, cid) {
+  if (!box) { return; }
+  const canEdit = cnpCan('clients.card.edit');
+  let d = null, tab = 0;                       // 0 = έδρα, αλλιώς id υποκαταστήματος
+  const load = async () => {
+    d = await api('client_contacts&client=' + cid).catch(() => null);
+    paint();
+  };
+  const row = c => `<span class="c3-chip">
+    <span class="c3-chip-i">${c.kind === 'email' ? '✉' : '📞'}</span>
+    ${c.kind === 'email' ? `<a href="mailto:${esc(c.value)}">${esc(c.value)}</a>`
+      : `<a href="tel:${esc(c.value)}">${esc(c.value)}</a>`}
+    ${c.label ? `<span class="mut">· ${esc(c.label)}</span>` : ''}
+    ${canEdit ? `<button type="button" class="c3-chip-x" data-cdel="${c.id}" title="Διαγραφή">✕</button>` : ''}
+  </span>`;
+  const paint = () => {
+    if (!d) { box.innerHTML = '<div class="mut">Δεν φορτώθηκε</div>'; return; }
+    const branches = d.branches || [];
+    const mine = (d.contacts || []).filter(c => (c.branch || 0) === tab);
+    const cur = branches.find(b => b.id === tab);
+    box.innerHTML = `
+      <div class="c3-tabs">
+        <button type="button" class="c3-tab ${tab === 0 ? 'on' : ''}" data-tab="0">🏛 Έδρα</button>
+        ${branches.map(b => `<button type="button" class="c3-tab ${tab === b.id ? 'on' : ''}" data-tab="${b.id}">
+          🏪 ${esc(b.name)}${b.active ? '' : ' <span class="mut">(ανενεργό)</span>'}</button>`).join('')}
+        ${canEdit ? '<button type="button" class="c3-tab c3-tab-add" id="c3BrAdd">+ Υποκατάστημα</button>' : ''}
+      </div>
+      <div class="c3-tabbody">
+        ${tab === 0
+          ? `<div class="mut" style="font-size:11.5px;margin-bottom:7px">Από το WHMCS:
+              ${d.whmcs.phone ? '📞 ' + esc(d.whmcs.phone) : ''} ${d.whmcs.email ? '· ✉ ' + esc(d.whmcs.email) : ''}
+              ${d.whmcs.address ? '· 📍 ' + esc(d.whmcs.address) : ''}</div>`
+          : `<div class="c3-br-h">
+              <div><b>${esc(cur ? cur.name : '')}</b>
+                <div class="mut" style="font-size:11.5px">${esc([cur && cur.address, cur && cur.city].filter(Boolean).join(', ') || 'χωρίς διεύθυνση')}${
+                  cur && cur.note ? ' · ' + esc(cur.note) : ''}</div></div>
+              ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px">
+                <button class="btn btn-o btn-sm" id="c3BrEdit">${I.edit} Επεξεργασία</button>
+                <button class="btn btn-o btn-sm" id="c3BrDel" style="color:var(--bad)">${I.trash}</button></span>` : ''}
+            </div>`}
+        <div class="c3-chips">${mine.length ? mine.map(row).join('')
+          : '<span class="mut" style="font-size:12px">Κανένα στοιχείο επικοινωνίας ακόμη.</span>'}</div>
+        ${canEdit ? `<div class="c3-addrow">
+          <select class="inp" id="c3CKind" style="width:auto"><option value="phone">📞 Τηλέφωνο</option><option value="email">✉ Email</option></select>
+          <input class="inp" id="c3CVal" placeholder="τιμή…" style="min-width:170px">
+          <input class="inp" id="c3CLab" placeholder="ετικέτα (λογιστήριο, τεχνικός…)" style="min-width:160px">
+          <button class="btn btn-p btn-sm" id="c3CAdd">Προσθήκη</button></div>` : ''}
+      </div>`;
+
+    box.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = +b.dataset.tab; paint(); });
+    box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
+      if (!await cnpConfirm('Διαγραφή στοιχείου;', {danger: true})) { return; }
+      await api('client_contact_del', {id: +b.dataset.cdel}); load();
+    });
+    const add = box.querySelector('#c3CAdd');
+    if (add) { add.onclick = async () => {
+      const v = box.querySelector('#c3CVal').value.trim();
+      if (!v) { box.querySelector('#c3CVal').focus(); return; }
+      const r = await api('client_contact_save', {client: cid, kind: box.querySelector('#c3CKind').value,
+        value: v, label: box.querySelector('#c3CLab').value, branch: tab})
+        .catch(e => ({err: (e && e.message) || 'σφάλμα'}));
+      if (r && r.err) { toast(r.err, true); return; }
+      load();
+    }; }
+    const brAdd = box.querySelector('#c3BrAdd');
+    if (brAdd) { brAdd.onclick = () => branchDialog(null); }
+    const brEd = box.querySelector('#c3BrEdit');
+    if (brEd) { brEd.onclick = () => branchDialog(cur); }
+    const brDel = box.querySelector('#c3BrDel');
+    if (brDel) { brDel.onclick = async () => {
+      if (!await cnpConfirm('Διαγραφή υποκαταστήματος; Τα στοιχεία επικοινωνίας του μένουν στην έδρα.',
+        {danger: true})) { return; }
+      await api('client_branch_del', {id: tab}); tab = 0; load();
+    }; }
+  };
+  const branchDialog = async b => {
+    const nm = await cnpPrompt(b ? 'Όνομα υποκαταστήματος' : 'Νέο υποκατάστημα — όνομα',
+      {input: b ? b.name : '', ok: 'Αποθήκευση', placeholder: 'π.χ. Κατάστημα Γλυφάδας'});
+    if (nm === null || !String(nm).trim()) { return; }
+    const ad = await cnpPrompt('Διεύθυνση (προαιρετικά)',
+      {input: b ? b.address : '', ok: 'Αποθήκευση', placeholder: 'οδός, αριθμός, πόλη'});
+    if (ad === null) { return; }
+    const r = await api('client_branch_save', {client: cid, id: b ? b.id : 0, name: nm, address: ad})
+      .catch(e => ({err: (e && e.message) || 'σφάλμα'}));
+    if (r && r.err) { toast(r.err, true); return; }
+    if (!b && r.id) { tab = r.id; }
+    load();
+  };
+  load();
+}
+
 /* Το δέντρο πελάτη → προϊόν → τμήμα: η ίδια ραχοκοκαλιά που έχουν tickets, έργα και
    προσφορές — εδώ φαίνεται ολόκληρη με μια ματιά. */
 async function cnpClientTree(box, cid) {
@@ -1596,6 +1705,8 @@ R.client360 = async function (cid) {
     <div class="card"><div class="card-h">${I.box} Τα προϊόντα του πελάτη
       <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">προϊόν → τμήμα → δουλειά</span></div>
       <div class="card-b" id="c3Tree"><div class="skel" style="height:70px"></div></div></div>
+    <div class="card"><div class="card-h">${I.phone || '📞'} Επικοινωνία &amp; υποκαταστήματα</div>
+      <div class="card-b" id="c3Contacts"><div class="skel" style="height:60px"></div></div></div>
     <div class="grid g4">
       <div class="stat info"><b>${d.summary.services}</b><small>Ενεργές υπηρεσίες</small></div>
       <div class="stat ${d.summary.openTasks ? 'info' : ''}"><b>${d.summary.openTasks}</b><small>Ανοιχτά tasks</small></div>
@@ -1693,6 +1804,7 @@ R.client360 = async function (cid) {
       }).join('') || '<div class="empty">Καμία δραστηριότητα</div>'}
     </div></div>`;
     cnpClientTree($('#c3Tree'), id);
+    cnpClientContacts($('#c3Contacts'), id);
     $$('#c3Res [data-m]').forEach(b => b.onclick = () => show(id, +b.dataset.m));
     $$('#c3Res [data-c3task]').forEach(a => a.onclick = () => openTask(+a.dataset.c3task));
     const npj = $('#c3NewPj');

@@ -1365,6 +1365,52 @@ class Db
                 'setting' => 'areas_menu_v2', 'value' => 'done']);
         }
 
+        /* Ένας πελάτης δεν έχει ένα τηλέφωνο και ένα email: έχει λογιστήριο, τεχνικό,
+           ιδιοκτήτη — και συχνά υποκαταστήματα με δικά τους στοιχεία. Το WHMCS κρατά
+           ένα ζευγάρι· εδώ κρατάμε όσα χρειάζεται η καθημερινή δουλειά. */
+        if (!$s->hasTable('mod_cpm_client_contacts')) {
+            $s->create('mod_cpm_client_contacts', function ($t) {
+                $t->increments('id');
+                $t->integer('clientid')->unsigned()->index();
+                $t->integer('branch_id')->unsigned()->nullable()->index();   // ανήκει σε υποκατάστημα
+                $t->string('kind', 8)->default('phone');      // phone | email
+                $t->string('value', 160);
+                $t->string('label', 60)->nullable();          // «λογιστήριο», «τεχνικός», …
+                $t->integer('sort')->default(0);
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_client_branches')) {
+            $s->create('mod_cpm_client_branches', function ($t) {
+                $t->increments('id');
+                $t->integer('clientid')->unsigned()->index();
+                $t->string('name', 120);
+                $t->string('address', 200)->nullable();
+                $t->string('city', 80)->nullable();
+                $t->string('note', 300)->nullable();
+                $t->tinyInteger('active')->default(1);
+                $t->integer('sort')->default(0);
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
+        /* «Ακυρωμένο»: εργασία που δεν θα γίνει ποτέ. Μετράει ως κλειστή (δεν κρέμεται
+           στις ανοιχτές) αλλά ξεχωρίζει από το «Ολοκληρώθηκε» στις αναφορές. */
+        if ($s->hasTable('mod_cpm_statuses')
+            && !Capsule::table('mod_cpm_statuses')->where('title', 'Ακυρωμένο')->exists()) {
+            Capsule::table('mod_cpm_statuses')->insert(['title' => 'Ακυρωμένο',
+                'color' => '#8595ac', 'sort' => 10, 'is_done' => 1]);
+        }
+
+        /* Οι «Ενέργειες» δέχονται πλέον πολλές γραμμές και κώδικα — το varchar(200)
+           έκοβε ένα stack trace στη μέση. */
+        if ($s->hasTable('mod_cpm_checklist')) {
+            $col = Capsule::select("SHOW COLUMNS FROM mod_cpm_checklist LIKE 'title'");
+            if ($col && stripos($col[0]->Type, 'varchar') !== false) {
+                Capsule::statement('ALTER TABLE mod_cpm_checklist MODIFY title TEXT NOT NULL');
+            }
+        }
+
         /* Η ραχοκοκαλιά πελάτης → προϊόν → τμήμα → έργο. Δες lib/Catalog.php. */
         Catalog::install();
     }
@@ -1487,11 +1533,20 @@ class Db
     {
         $q = Capsule::table('mod_cpm_tasks as t')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-            ->select('t.*', 'p.name as project_name', 'p.color as project_color');
+            ->select('t.*', 'p.name as project_name', 'p.color as project_color', 'p.clientid');
         if (!empty($f['id']))         { $q->where('t.id', (int) $f['id']); }   // αναζήτηση με #αριθμό
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['status_id']))  { $q->where('t.status_id', (int) $f['status_id']); }
         if (!empty($f['assignee']))   { $q->where('t.assignee', (int) $f['assignee']); }
+        /* Ο πελάτης κρέμεται στο έργο· ο δημιουργός είναι αυτός που άνοιξε την εργασία. */
+        if (!empty($f['client']))     { $q->where('p.clientid', (int) $f['client']); }
+        if (!empty($f['creator']))    { $q->where('t.created_by', (int) $f['creator']); }
+        if (!empty($f['product'])) {
+            $q->where(function ($w) use ($f) {
+                $w->where('t.product_id', (int) $f['product'])->orWhere('p.product_id', (int) $f['product']);
+            });
+        }
+        if (!empty($f['dept']))       { $q->where('t.dept_id', (int) $f['dept']); }
         if (isset($f['priority']) && $f['priority'] !== '') { $q->where('t.priority', (int) $f['priority']); }
         if (!empty($f['q'])) {
             $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $f['q']) . '%';
