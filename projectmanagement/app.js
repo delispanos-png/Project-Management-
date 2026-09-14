@@ -1450,7 +1450,8 @@ async function openTask(id) {
           ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
           : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
       </div>` : ''}
-      ${d.timelogs.length ? `<div style="margin-top:8px" id="tLogs">${d.timelogs.map(l =>
+      ${d.timelogs.length ? `<div class="mut" style="font-size:10.5px;margin-top:8px">Για να αλλάξεις χρέωση σε καταχώρηση που έγινε, πάτα το σημάδι «χρέωση» / «χωρίς χρέωση» δίπλα της.</div>
+      <div style="margin-top:4px" id="tLogs">${d.timelogs.map(l =>
         `<div class="tk-log">
           <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
           ${l.running ? '' : `<button type="button" class="pill ${l.billable ? 'pill-warn' : 'pill-mut'} tk-billtog"

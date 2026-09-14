@@ -4036,6 +4036,15 @@ case 'time_bill':                        // διόρθωση «χρεώσιμο/
     }
     $bill9 = !empty($in['billable']);
     Db::updateTimelog($lid, ['billable' => $bill9 ? 1 : 0]);
+    /* Η καταχώρηση έχει ήδη περάσει στο πακέτο ωρών του πελάτη (worklog + χρέωση).
+       Το push αγνοεί ό,τι έχει ήδη περάσει — άρα το «χωρίς χρέωση» άλλαζε μόνο το
+       σημαδάκι και ο πελάτης χρεωνόταν κανονικά (bug 14/9/2026). Τώρα: αναίρεση της
+       παλιάς χρέωσης, καθαρισμός, και ξανά push με τη νέα σήμανση. */
+    if ($lg->sc_worklog_id || (int) $lg->charged_minutes > 0 || (int) $lg->cover_minutes > 0) {
+        Time::reverse($lid);
+        Db::updateTimelog($lid, ['sc_worklog_id' => null, 'charged_minutes' => 0,
+            'cover' => null, 'cover_offer_id' => null, 'cover_minutes' => 0]);
+    }
     Time::push($lid);
     Db::logActivity((int) $lg->task_id, $adminId, 'billing',
         ($bill9 ? 'Σημάνθηκε χρεώσιμος' : 'Σημάνθηκε μη χρεώσιμος') . ' χρόνος ' . (int) $lg->minutes . "'");
