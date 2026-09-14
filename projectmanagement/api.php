@@ -12253,6 +12253,9 @@ case 'client_search':
     $res = [];
     if (mb_strlen($q) >= 2) {
         $cq = Capsule::table('tblclients')->limit(12);
+        /* Μόνο ΕΝΕΡΓΟΙ πελάτες (απόφαση 14/9/2026): νέο έργο/προσφορά/κράτηση δεν
+           ανοίγει σε Inactive/Closed. Με &all=1 έρχονται όλοι (π.χ. αναζήτηση ιστορικού). */
+        if (($_GET['all'] ?? '') !== '1') { $cq->where('status', 'Active'); }
         if (ctype_digit($q)) {
             $cq->where('id', (int) $q);
         } else {
@@ -12263,7 +12266,8 @@ case 'client_search':
             });
         }
         foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'status']) as $c) {
-            $nm = $c->companyname ?: trim($c->firstname . ' ' . $c->lastname);
+            // Το WHMCS κρατά τις επωνυμίες HTML-escaped («&amp;») — η οθόνη κάνει δικό της esc.
+            $nm = html_entity_decode($c->companyname ?: trim($c->firstname . ' ' . $c->lastname), ENT_QUOTES, 'UTF-8');
             $res[] = ['id' => (int) $c->id, 'name' => $nm, 'email' => (string) $c->email,
                 'status' => (string) $c->status,
                 // Το `label` κρατιέται όπως ήταν — το διαβάζουν παλιές κλήσεις.

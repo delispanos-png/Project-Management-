@@ -1137,6 +1137,11 @@ function openClone(tp, d) {
     <input class="inp" id="clCli" autocomplete="off" placeholder="όνομα, επωνυμία ή email…">
     <input type="hidden" id="clCliId"><div id="clCliS" class="mut" style="font-size:11px;margin-top:3px"></div>
 
+    <div id="clProjBox" hidden>
+      <label class="lbl" style="margin-top:13px">${I.folder} Έργο <span class="mut" style="font-weight:400">— νέο, ή υπάρχον ανοιχτό έργο του πελάτη</span></label>
+      <select class="inp" id="clProj"><option value="0">— Νέο έργο —</option></select>
+    </div>
+
     <label class="lbl" style="margin-top:13px">${I.box} Modules που περιλαμβάνει η υλοποίηση</label>
     <div class="mut" style="font-size:11.5px;margin-bottom:6px">Κάθε module φέρνει τα βήματά του ως εργασίες, με το checklist του.</div>
     <div class="mod-pick">${active.map(m => `<label class="mod-opt ${tp && tp.id === m.id ? 'on' : ''}">
@@ -1158,6 +1163,24 @@ function openClone(tp, d) {
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
   $('#dX').onclick = () => closeDrawer();
   window.CNP.clientAuto('clCli', null, 'clCliId', 'clCliS');
+  /* Μόλις διαλέξει πελάτη: τα ΑΝΟΙΧΤΑ έργα του σε drop-down — τα modules μπορούν να
+     μπουν σε υπάρχον έργο (π.χ. ελλιπές) αντί να ανοίγει πάντα καινούργιο. */
+  const projSel = $('#clProj', dr), projBox = $('#clProjBox', dr);
+  const fillProjects = cid => {
+    const open = (S.boot.projects || []).filter(p => p.client === cid && p.pstatus !== 'done');
+    projSel.innerHTML = '<option value="0">— Νέο έργο —</option>' + open.map(p =>
+      `<option value="${p.id}">${esc(p.name)}${p.pstatus === 'new' ? ' · νέο' : ''}</option>`).join('');
+    projBox.hidden = false;
+    projSel.onchange();
+  };
+  projSel.onchange = () => {
+    const existing = +projSel.value > 0;
+    $('#clName', dr).closest('div').hidden = existing;          // όνομα/υπεύθυνος μόνο για νέο έργο
+    $('#clMgr', dr).closest('div').hidden = existing;
+    $('#clGo', dr).innerHTML = existing ? `${I.plus} Προσθήκη στο έργο` : `${I.rocket} Δημιουργία έργου`;
+  };
+  $('#clCli', dr).addEventListener('cpick', e => fillProjects(+e.detail.id));
+  $('#clCli', dr).addEventListener('input', () => { if (!+$('#clCliId', dr).value) { projBox.hidden = true; projSel.value = '0'; projSel.onchange(); } });
   const picked = () => $$('[data-mod]', dr).filter(x => x.checked).map(x => +x.dataset.mod);
   const summary = () => {
     const ids = picked(), ms = active.filter(m => ids.includes(m.id));
@@ -1176,10 +1199,12 @@ function openClone(tp, d) {
     const cid = +$('#clCliId', dr).value || 0, ids = picked();
     if (!cid) { toast('Διάλεξε πελάτη από τη λίστα', true); $('#clCli', dr).focus(); return; }
     if (!ids.length) { toast('Διάλεξε τουλάχιστον ένα module', true); return; }
-    const r = await api('project_add_modules', {project: 0, client: cid, modules: ids, start: $('#clStart', dr).value,
+    const pid = +projSel.value || 0;
+    const r = await api('project_add_modules', {project: pid, client: cid, modules: ids, start: $('#clStart', dr).value,
       name: $('#clName', dr).value.trim(), manager: +$('#clMgr', dr).value || 0}).catch(e => ({err: e.message}));
     if (r.err) { toast(r.err, true); return; }
-    toast(`Έργο με ${r.modules} module${r.modules === 1 ? '' : 's'} και ${r.tasks} εργασίες`);
+    toast(pid ? `Προστέθηκαν ${r.modules} module${r.modules === 1 ? '' : 's'} — ${r.tasks} εργασίες στο έργο`
+      : `Έργο με ${r.modules} module${r.modules === 1 ? '' : 's'} και ${r.tasks} εργασίες`);
     closeDrawer(); S.boot = await api('boot'); go('board', r.project);
   };
 }
