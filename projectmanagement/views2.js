@@ -2636,7 +2636,8 @@ R.projects = async function () {
   const cRow = p => `<tr class="${p.archived ? 'mut' : ''}">
     <td><span class="dot" style="background:${p.health ? hC[p.health] : p.color};width:11px;height:11px;margin-right:8px"></span>
       <a href="#/board/${p.id}" style="font-weight:700">${esc(p.name)}</a>
-      ${p.offerId ? `<span class="pill pill-mut" title="Από προσφορά">${I.briefcase} </span>` : ''}</td>
+      ${p.offerId ? `<span class="pill pill-mut" title="Από προσφορά">${I.briefcase} </span>` : ''}
+      ${noProd(p) ? `<span class="pill pill-warn" title="Γενική εργασία — δεν έχει δεθεί ακόμη με προϊόν. Άνοιξε το έργο (✎) και διάλεξε προϊόν όταν ανοίξει το είδος.">χωρίς προϊόν</span>` : ''}</td>
     <td>${esc(p.clientName || '—')}</td>
     <td>${p.pstatus ? `<span class="pill pill-info">${psL[p.pstatus]}</span>` : '—'}</td>
     <td class="${p.due && p.due < today() && p.pstatus !== 'done' ? 'pill pill-bad' : ''}">${p.due ? dShort(p.due) : '—'}</td>
@@ -2665,7 +2666,11 @@ R.projects = async function () {
   const norm = s => String(s || '').toLowerCase()
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
-  const hit = p => !st.q || norm([p.name, p.clientName, psL[p.pstatus] || ''].join(' ')).includes(norm(st.q));
+  /* «Χωρίς προϊόν»: έργο πελάτη που δεν δέθηκε ακόμη με είδος — δουλεύει κανονικά,
+     αλλά θέλει δέσιμο όταν ανοίξει το προϊόν. Το φίλτρο δείχνει τι εκκρεμεί. */
+  const noProd = p => p.kind === 'client' && !p.product && !p.archived;
+  const hit = p => (!st.q || norm([p.name, p.clientName, psL[p.pstatus] || ''].join(' ')).includes(norm(st.q)))
+    && (!st.noprod || noProd(p));
 
   const pjCard = (p, depth) => `<div class="pj-card${p.archived ? ' mut' : ''}">
     <div class="pj-top">
@@ -2674,6 +2679,7 @@ R.projects = async function () {
       <a href="#/board/${p.id}" class="pj-name">${depth ? '↳ ' : ''}${esc(p.name)}</a>
       ${p.pstatus ? `<span class="kb-tag" style="background:#0090dd18;color:#0374b0">${psL[p.pstatus]}</span>` : ''}
       ${p.offerId ? `<span class="kb-tag kb-tag-mut" title="Από προσφορά">${I.briefcase}</span>` : ''}
+      ${noProd(p) ? '<span class="pill pill-warn" title="Δεν έχει δεθεί ακόμη με προϊόν">χωρίς προϊόν</span>' : ''}
     </div>
     <div class="pj-meta">
       ${p.clientName ? `<span>${I.user} ${esc(p.clientName)}</span>` : ''}
@@ -2731,6 +2737,7 @@ R.projects = async function () {
     <div class="kb-srow">
       <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
         <input class="inp" id="prQ" placeholder="Ψάξε έργο — όνομα, πελάτη, κατάσταση…" value="${esc(st.q)}"></div>
+      ${clientPjs.some(noProd) ? `<button class="btn btn-sm ${st.noprod ? 'btn-p' : 'btn-o'}" id="prNoProd" title="Έργα πελατών που δεν έχουν δεθεί με προϊόν">⚠ Χωρίς προϊόν <b>${clientPjs.filter(noProd).length}</b></button>` : ''}
       ${d.canRecur ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
       ${d.canCreate ? `<button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
     </div>
@@ -2785,8 +2792,8 @@ R.projects = async function () {
         <div><label class="lbl">Τύπος</label><select class="inp" id="pjKind">
           <option value="client" ${p.kind !== 'dept' ? 'selected' : ''}>Έργο πελάτη</option>
           <option value="dept" ${p.kind === 'dept' ? 'selected' : ''}>Ουρά department (παλαιό)</option></select></div>
-        <div><label class="lbl">Προϊόν <span class="mut" style="font-weight:400">— σε ποιο προϊόν του πελάτη αφορά</span></label>
-          <select class="inp" id="pjProd"><option value="">— διάλεξε προϊόν —</option></select>
+        <div><label class="lbl">Προϊόν <span class="mut" style="font-weight:400">— προαιρετικό· δένεται και αργότερα</span></label>
+          <select class="inp" id="pjProd"><option value="">— χωρίς προϊόν (γενική εργασία) —</option></select>
           <div id="pjProdS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
         <div><label class="lbl">Τμήμα <span class="mut" style="font-weight:400">— ποιο το αναλαμβάνει</span></label>
           <select class="inp" id="pjDept"><option value="">— διάλεξε τμήμα —</option>
@@ -2873,14 +2880,14 @@ R.projects = async function () {
       const opt = x => `<option value="${x.id}" ${+x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`;
       const mine = cat.products.filter(x => owned.includes(+x.id));
       const rest = cat.products.filter(x => !owned.includes(+x.id));
-      sel.innerHTML = '<option value="">— διάλεξε προϊόν —</option>'
+      sel.innerHTML = '<option value="">— χωρίς προϊόν (γενική εργασία) —</option>'
         + (mine.length ? `<optgroup label="Τα προϊόντα του πελάτη">${mine.map(opt).join('')}</optgroup>` : '')
         + (rest.length ? `<optgroup label="Υπόλοιπος κατάλογος — θα προστεθεί στον πελάτη">${rest.map(opt).join('')}</optgroup>` : '');
       const st = $('#pjProdS', dr);
       if (st) {
         st.textContent = !cid ? 'διάλεξε πρώτα πελάτη'
-          : (mine.length ? mine.length + ' προϊόντα στην καρτέλα του πελάτη'
-                         : 'ο πελάτης δεν έχει δηλωμένα προϊόντα — διάλεξε από τον κατάλογο');
+          : (mine.length ? mine.length + ' προϊόντα στην καρτέλα του πελάτη · χωρίς προϊόν = γενική εργασία, τη δένεις όποτε ανοίξει το είδος'
+                         : 'ο πελάτης δεν έχει δηλωμένα προϊόντα — διάλεξε από τον κατάλογο ή άφησέ το κενό και δέσε το αργότερα');
       }
     };
     loadProds();
@@ -3138,10 +3145,6 @@ R.projects = async function () {
          σώζονται όπως είναι, για να συμπληρωθούν με την ησυχία τους. */
       const prod = $('#pjProd') ? +$('#pjProd').value || 0 : (p.product || 0);
       const dept = $('#pjDept') ? +$('#pjDept').value || 0 : (p.dept || 0);
-      if (!p.id && kind === 'client' && !prod) {
-        toast('Διάλεξε προϊόν — σε ποιο προϊόν του πελάτη αφορά το έργο;', true);
-        $('#pjProd').focus(); return;
-      }
       if (!p.id && kind === 'client' && !dept) {
         toast('Διάλεξε τμήμα — ποιο αναλαμβάνει το έργο;', true);
         $('#pjDept').focus(); return;
@@ -3162,6 +3165,7 @@ R.projects = async function () {
       if (isNew && r && r.id) { go('board', r.id); } else { R.projects(); }
     };
   };
+  { const np = $('#prNoProd'); if (np) { np.onclick = () => { st.noprod = !st.noprod; R.projects(); }; } }
   $('#prNew').onclick = () => openProj(null);
   /* Έρχεσαι από την καρτέλα πελάτη με «Νέο έργο» — ο πελάτης είναι ήδη γνωστός. */
   if (R.projects._pre) {
