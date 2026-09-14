@@ -1670,8 +1670,20 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-hdr-i.live{border-color:var(--brand);color:var(--brand);font-weight:700}
 /* Δύο στήλες: αριστερά η συνομιλία (το κέντρο της δουλειάς), δεξιά όλες οι
    πληροφορίες του έργου. Κάθε στήλη κυλά μόνη της — το σώμα δεν κυλά. */
-.tk-modal-b{display:flex;gap:16px;align-items:stretch;overflow:hidden;min-height:0}
-.tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0}
+/* Η καρτέλα εργασίας σε δύο ζώνες: πάνω το ζητούμενο και τα πεδία, κάτω οι
+   «Ενέργειες» σε ΟΛΟ το πλάτος — εκεί γράφεται και διαβάζεται τι έγινε. */
+.tk-modal-b{display:flex;flex-direction:column;gap:14px;align-items:stretch;overflow:hidden;min-height:0}
+.tk-row-top{display:flex;gap:16px;align-items:stretch;min-height:0;flex:0 1 auto;max-height:44%}
+.tk-modal-b > .tk-step{flex:1 1 auto;min-height:230px;margin:0}
+/* Μεγέθυνση: η πάνω ζώνη μαζεύεται και οι ενέργειες παίρνουν όλη την καρτέλα. */
+.tk-steps-max > .tk-row-top{display:none}
+.tk-steps-max > .tk-step{flex:1 1 100%}
+.tk-step-max{margin-left:auto;flex:none;border:1px solid var(--line);background:var(--card);
+  border-radius:8px;width:26px;height:24px;cursor:pointer;color:var(--mut);font-size:12px;line-height:1}
+.tk-step-max:hover{color:var(--ink);border-color:var(--brand)}
+/* Η πάνω ζώνη έχει πλέον ορισμένο ύψος: αν το ζητούμενο είναι μεγάλο, κυλά μέσα
+   της — δεν σπρώχνει τις ενέργειες εκτός οθόνης. */
+.tk-col-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 /* Δεξιά στήλη: συμπαγής, σχεδιασμένη να ΧΩΡΑ χωρίς scroll. Το overflow:auto μένει
    μόνο ως δίχτυ ασφαλείας σε πολύ χαμηλές οθόνες — δεν είναι ο κανόνας. */
 .tk-col-side{flex:0 0 clamp(330px,35%,470px);min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;
@@ -1697,10 +1709,8 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-brief-foot{display:flex;gap:9px;margin-top:9px;align-items:center;flex-wrap:wrap}
 .tk-brief-ro{font-size:13.5px;line-height:1.55;color:var(--ink);word-break:break-word;max-height:34vh;overflow:auto}
 .tk-brief-ro img{max-width:100%}
-/* Οι «Ενέργειες» είναι το ημερολόγιο της εργασίας: εκεί διαβάζεις τι έγινε. Παίρνει
-   το μεγαλύτερο μέρος της στήλης, όχι ένα λουρί 150px. */
-.tk-col-main > .tk-step{flex:1 1 0;min-height:340px;display:flex;flex-direction:column;margin:0}
-.tk-col-main > .tk-step > .card-b{flex:1;min-height:0;display:flex;flex-direction:column;padding:0}
+.tk-step{display:flex;flex-direction:column}
+.tk-step > .card-b{flex:1;min-height:0;display:flex;flex-direction:column;padding:0}
 .tk-step-list{flex:1;min-height:0;overflow-y:auto;padding:8px 14px}
 .tk-step-list .chk{align-items:flex-start;padding:7px 0}
 .tk-step-list .chk input{margin-top:1px}
@@ -1789,6 +1799,7 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
   .drawer.show{transform:none}
   .drawer.tk-modal{width:100vw;height:100vh}
   .tk-modal-b{flex-direction:column;overflow:auto;align-items:stretch}
+  .tk-row-top{flex-direction:column;max-height:none;overflow:visible}
   .tk-col-main,.tk-col-side{flex:1 1 auto;width:100%;max-width:none;min-height:auto;overflow:visible}
   .tk-col-main > .tk-conv{overflow:visible;min-height:70vh}
   .tk-col-main > .tk-brief{max-height:none}
@@ -2452,7 +2463,7 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 @media (max-width:900px){
   .tk-time-row{grid-template-columns:1fr 1fr}
   .tk-frow{grid-template-columns:1fr}
-  .tk-col-main > .tk-step{min-height:240px}
+  .tk-modal-b > .tk-step{min-height:240px}
   .tk-step-list{overflow:visible}
 }
 
