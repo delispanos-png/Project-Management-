@@ -23,7 +23,9 @@ $_COOKIE = [];                                   // init.php δεν βλέπει
 @ini_set('session.use_cookies', '0');            // κανένα Set-Cookie από το WHMCS session
 @ini_set('session.use_only_cookies', '0');
 
-define('WHMCS', true);
+/* Τα cron ορίζουν κι αυτά το WHMCS πριν μας φορτώσουν (cv_autoeval.php) — χωρίς
+   τον έλεγχο έβγαινε warning σε κάθε εκτέλεση. */
+defined('WHMCS') || define('WHMCS', true);
 require_once __DIR__ . '/../init.php';
 
 if (session_status() === PHP_SESSION_ACTIVE) {
