@@ -1127,7 +1127,9 @@ function openStep(tplId, s2, d) {
    Με tp δοσμένο, το module είναι προεπιλεγμένο· χωρίς, διαλέγεις από όλα. */
 function openClone(tp, d) {
   closeDrawer();
-  const active = d.templates.filter(x => x.active && x.steps.length);
+  /* Όλα τα ενεργά modules — και χωρίς βήματα: η ανάθεση στον πελάτη έχει νόημα
+     ακόμη κι αν τα βήματα οριστούν αργότερα (τότε το έργο ανοίγει με 0 εργασίες). */
+  const active = d.templates.filter(x => x.active);
   const ovl = document.createElement('div'); ovl.className = 'ovl';
   const dr = document.createElement('div'); dr.className = 'drawer';
   dr.innerHTML = `
@@ -1142,16 +1144,18 @@ function openClone(tp, d) {
       <select class="inp" id="clProj"><option value="0">— Νέο έργο —</option></select>
     </div>
 
-    <label class="lbl" style="margin-top:13px">${I.box} Modules που περιλαμβάνει η υλοποίηση</label>
-    <div class="mut" style="font-size:11.5px;margin-bottom:6px">Κάθε module φέρνει τα βήματά του ως εργασίες, με το checklist του.</div>
-    <div class="mod-pick">${active.map(m => `<label class="mod-opt ${tp && tp.id === m.id ? 'on' : ''}">
-      <input type="checkbox" data-mod="${m.id}" ${tp && tp.id === m.id ? 'checked' : ''}>
+    <label class="lbl" style="margin-top:13px">${I.box} Module <span class="mut" style="font-weight:400">— τι ανοίγει για αυτόν τον πελάτη</span></label>
+    <select class="inp" id="clMod">${active.map(m => `<option value="${m.id}" ${tp && tp.id === m.id ? 'selected' : ''}>${esc(m.name)} · ${m.steps.length} βήματα${m.checks.length ? ' · ☑ ' + m.checks.length + ' παράδοσης' : ''}${m.budget ? ' · ' + fmtEur(m.budget) : ''}</option>`).join('')
+      || '<option value="0">— Κανένα ενεργό module —</option>'}</select>
+    <div class="mut" style="font-size:11.5px;margin-top:5px">Κάθε module φέρνει τα βήματά του ως εργασίες, με το checklist του.</div>
+    ${active.length > 1 ? `<details style="margin-top:9px"><summary class="mut" style="cursor:pointer;font-size:12px">+ Επιπλέον modules στην ίδια υλοποίηση</summary>
+    <div class="mod-pick" style="margin-top:7px">${active.map(m => `<label class="mod-opt" data-modrow="${m.id}">
+      <input type="checkbox" data-mod="${m.id}">
       <span class="dot" style="background:${m.color};width:9px;height:9px"></span>
-      <b>${esc(m.name)}</b><small class="mut">${m.steps.length} βήματα${m.checks.length ? ' · ☑ ' + m.checks.length + ' παράδοσης' : ''}${m.budget ? ' · ' + fmtEur(m.budget) : ''}</small></label>`).join('')
-      || '<div class="mut">Κανένα ενεργό module με βήματα.</div>'}</div>
+      <b>${esc(m.name)}</b><small class="mut">${m.steps.length} βήματα</small></label>`).join('')}</div></details>` : ''}
 
     <div class="frow" style="margin-top:12px">
-      <div><label class="lbl">Ονομασία έργου <span class="mut" style="font-weight:400">— κενό = αυτόματη</span></label><input class="inp" id="clName" placeholder="<modules> — <πελάτης>"></div>
+      <div><label class="lbl">Ονομασία νέου έργου <span class="mut" style="font-weight:400">— κενό = «module — πελάτης»</span></label><input class="inp" id="clName" placeholder="π.χ. PharmacyOne GR — Φαρμακείο Χ"></div>
       <div><label class="lbl">Ημερομηνία έναρξης</label><input type="date" class="inp" id="clStart" value="${today()}"></div>
       <div><label class="lbl">Υπεύθυνος έργου</label><select class="inp" id="clMgr">
         ${d.admins.map(x => `<option value="${x.id}" ${x.id === S.boot.me.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
@@ -1181,7 +1185,9 @@ function openClone(tp, d) {
   };
   $('#clCli', dr).addEventListener('cpick', e => fillProjects(+e.detail.id));
   $('#clCli', dr).addEventListener('input', () => { if (!+$('#clCliId', dr).value) { projBox.hidden = true; projSel.value = '0'; projSel.onchange(); } });
-  const picked = () => $$('[data-mod]', dr).filter(x => x.checked).map(x => +x.dataset.mod);
+  const modSel = $('#clMod', dr);
+  const picked = () => { const main = +modSel.value || 0; const extra = $$('[data-mod]', dr).filter(x => x.checked).map(x => +x.dataset.mod);
+    return [...new Set([main, ...extra].filter(Boolean))]; };
   const summary = () => {
     const ids = picked(), ms = active.filter(m => ids.includes(m.id));
     const steps = ms.reduce((a, m) => a + m.steps.length + (m.checks.length ? 1 : 0), 0);
@@ -1191,14 +1197,17 @@ function openClone(tp, d) {
     $('#clSum', dr).innerHTML = ms.length
       ? `<b>${ms.length}</b> module${ms.length === 1 ? '' : 's'} · <b>${steps}</b> εργασίες · παράδοση <b>${end}</b> (+${last} ημ.)`
       : '<span style="color:var(--warn)">Διάλεξε τουλάχιστον ένα module.</span>';
+    /* Το κύριο module δεν εμφανίζεται ξανά στα «επιπλέον». */
+    $$('[data-modrow]', dr).forEach(l => { const same = +l.dataset.modrow === +modSel.value; l.hidden = same; if (same) { l.querySelector('input').checked = false; } });
     $$('.mod-opt', dr).forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
   };
   $$('[data-mod]', dr).forEach(c => c.onchange = summary);
+  modSel.onchange = summary;
   $('#clStart', dr).onchange = summary; summary();
   $('#clGo', dr).onclick = async () => {
     const cid = +$('#clCliId', dr).value || 0, ids = picked();
     if (!cid) { toast('Διάλεξε πελάτη από τη λίστα', true); $('#clCli', dr).focus(); return; }
-    if (!ids.length) { toast('Διάλεξε τουλάχιστον ένα module', true); return; }
+    if (!ids.length) { toast('Διάλεξε module', true); modSel.focus(); return; }
     const pid = +projSel.value || 0;
     const r = await api('project_add_modules', {project: pid, client: cid, modules: ids, start: $('#clStart', dr).value,
       name: $('#clName', dr).value.trim(), manager: +$('#clMgr', dr).value || 0}).catch(e => ({err: e.message}));
