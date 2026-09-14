@@ -132,3 +132,21 @@ try {
 } catch (\Throwable $e) {
     logActivity('CPM daily plan error: ' . $e->getMessage());
 }
+
+/* ---- Η ραχοκοκαλιά πελάτης → προϊόν → τμήμα μένει ζωντανή μόνη της ----
+   Νέα υπηρεσία στο WHMCS = νέο προϊόν στην καρτέλα· νέο ticket με δηλωμένη
+   υπηρεσία = ταξινομημένο ticket· έργο σε προϊόν που λείπει = προϊόν στην καρτέλα. */
+try {
+    require_once __DIR__ . '/../lib/Catalog.php';
+    if (!$dry) {
+        $a = \WHMCS\Module\Addon\CloudonProjects\Catalog::syncClientProducts();
+        $b = \WHMCS\Module\Addon\CloudonProjects\Catalog::backfillTickets(false);
+        $c = \WHMCS\Module\Addon\CloudonProjects\Catalog::reconcile(false);
+        $log("Κατάλογος: +$a προϊόντα πελατών · +$b tickets με προϊόν · +$c συμφιλιώσεις");
+        if ($a + $b + $c) { logActivity("CPM daily: κατάλογος προϊόντων +$a/+$b/+$c"); }
+    } else {
+        $log('(DRY) κατάλογος προϊόντων — παραλείπεται');
+    }
+} catch (\Throwable $e) {
+    logActivity('CPM daily catalog error: ' . $e->getMessage());
+}

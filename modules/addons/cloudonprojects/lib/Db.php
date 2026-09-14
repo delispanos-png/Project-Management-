@@ -25,6 +25,7 @@ class Db
     public static function install()
     {
         $s = Capsule::schema();
+        require_once __DIR__ . '/Catalog.php';
 
         if (!$s->hasTable('mod_cpm_projects')) {
             $s->create('mod_cpm_projects', function ($t) {
@@ -1363,6 +1364,9 @@ class Db
             Capsule::table('tbladdonmodules')->insert(['module' => 'cloudonprojects',
                 'setting' => 'areas_menu_v2', 'value' => 'done']);
         }
+
+        /* Η ραχοκοκαλιά πελάτης → προϊόν → τμήμα → έργο. Δες lib/Catalog.php. */
+        Catalog::install();
     }
 
     /* ------------------------------------------------------------------ */

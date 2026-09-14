@@ -2154,7 +2154,8 @@ function cnp_action_cap($action)
         };
 
         /* ── ΠΕΛΑΤΕΣ ── */
-        $add('clients.card', ['client360', 'clients', 'client_get']);
+        $add('clients.card', ['client360', 'clients', 'client_get', 'client_tree', 'catalog_products']);
+        $add('clients.card.edit|projects.portfolio.edit', ['client_product_set']);
         /* Διαρροές που έκλεισαν 12/9/2026: ενέργειες που επέστρεφαν δεδομένα
            κυκλώματος σε όποιον είχε απλώς login. */
         $add('clients.crm', ['crm', 'contacts']);
@@ -6120,6 +6121,7 @@ case 'portfolio':
             'todos' => $todoBy[(int) $p->id] ?? null,
             'client' => $p->clientid ? (int) $p->clientid : null, 'clientName' => clientLabel($p->clientid),
             'dept' => $p->deptid ? (int) $p->deptid : null, 'parent' => $p->parent_id ? (int) $p->parent_id : null,
+            'product' => isset($p->product_id) && $p->product_id ? (int) $p->product_id : null,
             'pstatus' => $p->pstatus, 'health' => $p->health, 'archived' => $p->status === 'archived',
             'visible' => (bool) $p->client_visible, 'done' => $done, 'total' => $total, 'pct' => $pct,
             'trend' => $delta ? $delta[1] - $delta[0] : null,
@@ -6146,9 +6148,18 @@ case 'save_project':
     } elseif (!cnp_can_create_project($adminId, $FULL)) {
         fail('Δεν έχεις πρόσβαση στην ενότητα «Έργα & υλοποιήσεις»', 403);
     }
+    /* Η ραχοκοκαλιά: πελάτης → προϊόν → τμήμα → έργο. Σε ΝΕΟ έργο πελάτη είναι
+       υποχρεωτική· τα παλιά έργα σώζονται όπως είναι μέχρι να συμπληρωθούν. */
+    $kind9 = in_array($in['kind'] ?? '', ['dept', 'client'], true) ? $in['kind'] : 'dept';
+    if (!$pid && $kind9 === 'client') {
+        if (!(int) ($in['client'] ?? 0)) { fail('Διάλεξε πελάτη — χωρίς αυτόν το έργο δεν έχει θέση στην ιεραρχία'); }
+        if (!(int) ($in['product'] ?? 0)) { fail('Διάλεξε προϊόν — σε ποιο προϊόν του πελάτη αφορά το έργο;'); }
+        if (!(int) ($in['dept'] ?? 0)) { fail('Διάλεξε τμήμα — ποιο τμήμα αναλαμβάνει το έργο;'); }
+    }
     $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Χωρίς όνομα',
         'clientid' => (int) ($in['client'] ?? 0) ?: null,
         'deptid' => (int) ($in['dept'] ?? 0) ?: null,
+        'product_id' => (int) ($in['product'] ?? 0) ?: null,
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
         'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
         'client_visible' => !empty($in['visible']) ? 1 : 0,
@@ -6166,6 +6177,19 @@ case 'save_project':
         'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null];
 
     $pid = Db::saveProject($pid, $data);
+    /* Έργο σε προϊόν που δεν φιγουράρει στον πελάτη (π.χ. πούλημα πριν τη χρέωση):
+       το προϊόν μπαίνει στην καρτέλα του, αλλιώς το έργο θα κρεμόταν στο κενό. */
+    if (!empty($data['product_id']) && !empty($data['clientid'])) {
+        $has9 = Capsule::table('mod_cpm_client_products')->where('clientid', $data['clientid'])
+            ->where('product_id', $data['product_id'])->first();
+        if (!$has9) {
+            Capsule::table('mod_cpm_client_products')->insert(['clientid' => $data['clientid'],
+                'product_id' => $data['product_id'], 'source' => 'manual', 'status' => 'active',
+                'services' => 0, 'created_at' => date('Y-m-d H:i:s')]);
+        } elseif ($has9->status !== 'active') {
+            Capsule::table('mod_cpm_client_products')->where('id', $has9->id)->update(['status' => 'active']);
+        }
+    }
     if (array_key_exists('members', $in)) {
         Db::saveProjectMembers($pid, (array) $in['members']);
     }
@@ -7069,6 +7093,135 @@ case 'recurrent':                       // 🔁 επαναλαμβανόμενα
     }
     usort($clusters, function ($a, $b) { return $b['count'] <=> $a['count']; });
     out(['clusters' => array_slice($clusters, 0, 10)]);
+
+case 'catalog_products':                // ο κατάλογος προϊόντων (για κάθε επιλογέα)
+    require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Catalog.php';
+    out(['products' => \WHMCS\Module\Addon\CloudonProjects\Catalog::products(),
+        'depts' => Capsule::table('tblticketdepartments')->orderBy('order')->get(['id', 'name'])
+            ->map(function ($d) { return ['id' => (int) $d->id, 'name' => $d->name]; })->all()]);
+
+case 'client_tree':
+    /* Η εικόνα ενός πελάτη με τη σειρά που τη σκέφτεται ο κόσμος:
+       ΠΕΛΑΤΗΣ → τα ΠΡΟΪΟΝΤΑ που αγόρασε → η ΑΝΑΓΚΗ ανά τμήμα → έργα & αιτήματα. */
+    require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Catalog.php';
+    $cid = (int) ($_GET['client'] ?? $in['client'] ?? 0);
+    if (!$cid) { fail('client'); }
+    $cl = Capsule::table('tblclients')->where('id', $cid)->first(['id', 'firstname', 'lastname', 'companyname']);
+    if (!$cl) { fail('client', 404); }
+
+    $depts = Capsule::table('tblticketdepartments')->orderBy('order')->get(['id', 'name']);
+    $prodRows = Capsule::table('mod_cpm_client_products as cp')
+        ->join('mod_cpm_products as p', 'p.id', '=', 'cp.product_id')
+        ->where('cp.clientid', $cid)->orderBy('p.sort')
+        ->get(['p.id', 'p.name', 'p.color', 'cp.services', 'cp.source', 'cp.status']);
+
+    /* Όλη η δουλειά του πελάτη, μία φορά από τη βάση — και μετά μοιράζεται στο δέντρο. */
+    $tks = Capsule::table('tbltickets as t')
+        ->leftJoin('mod_cpm_ticket_class as tc', 'tc.ticketid', '=', 't.id')
+        ->where('t.userid', $cid)->get(['t.id', 't.did', 't.status', 't.title', 'tc.product_id']);
+    $pjs = Capsule::table('mod_cpm_projects')->where('clientid', $cid)
+        ->get(['id', 'name', 'deptid', 'product_id', 'pstatus', 'health']);
+    $pjIds = array_map(function ($p) { return (int) $p->id; }, $pjs->all());
+    $tsk = $pjIds ? Capsule::table('mod_cpm_tasks')->whereIn('project_id', $pjIds)
+        ->get(['id', 'project_id', 'dept_id', 'product_id', 'completed_at']) : collect([]);
+
+    $openT = function ($st) { return !in_array($st, ['Closed', 'Κλειστό', 'Resolved'], true); };
+    $bucket = [];                                   // [product_id][dept_id] => μετρητές
+    $touch = function (&$b, $p, $d) {
+        $p = (int) $p; $d = (int) $d;
+        if (!isset($b[$p][$d])) { $b[$p][$d] = ['tickets' => 0, 'ticketsOpen' => 0, 'tasks' => 0,
+            'tasksOpen' => 0, 'projects' => []]; }
+    };
+    foreach ($tks as $t) {
+        $touch($bucket, (int) $t->product_id, (int) $t->did);
+        $bucket[(int) $t->product_id][(int) $t->did]['tickets']++;
+        if ($openT($t->status)) { $bucket[(int) $t->product_id][(int) $t->did]['ticketsOpen']++; }
+    }
+    foreach ($pjs as $p) {
+        $touch($bucket, (int) $p->product_id, (int) $p->deptid);
+        $bucket[(int) $p->product_id][(int) $p->deptid]['projects'][] = ['id' => (int) $p->id,
+            'name' => $p->name, 'pstatus' => $p->pstatus, 'health' => $p->health];
+    }
+    foreach ($tsk as $t) {
+        $pj = null;
+        foreach ($pjs as $p) { if ((int) $p->id === (int) $t->project_id) { $pj = $p; break; } }
+        $pid = (int) ($t->product_id ?: ($pj->product_id ?? 0));
+        $did = (int) ($t->dept_id ?: ($pj->deptid ?? 0));
+        $touch($bucket, $pid, $did);
+        $bucket[$pid][$did]['tasks']++;
+        if (!$t->completed_at) { $bucket[$pid][$did]['tasksOpen']++; }
+    }
+
+    $dn = [];
+    foreach ($depts as $d) { $dn[(int) $d->id] = $d->name; }
+    $dn[0] = '— χωρίς τμήμα —';
+    $mk = function ($pid) use ($bucket, $dn) {
+        $out = [];
+        foreach (($bucket[$pid] ?? []) as $did => $b) {
+            if (!$b['tickets'] && !$b['tasks'] && !$b['projects']) { continue; }
+            $out[] = ['id' => $did, 'name' => $dn[$did] ?? ('#' . $did)] + $b;
+        }
+        usort($out, function ($a, $b) { return $a['id'] <=> $b['id']; });
+        return $out;
+    };
+    $products = [];
+    foreach ($prodRows as $p) {
+        $products[] = ['id' => (int) $p->id, 'name' => $p->name, 'color' => $p->color,
+            'services' => (int) $p->services, 'source' => $p->source, 'status' => $p->status,
+            'depts' => $mk((int) $p->id)];
+    }
+    /* Προϊόν που έχει δουλειά αλλά δεν φιγουράρει στην καρτέλα (π.χ. ticket που μόλις
+       ταξινομήθηκε): μπαίνει κι αυτό, αλλιώς η δουλειά του θα ήταν αόρατη. */
+    $seen9 = array_column($products, 'id');
+    foreach (array_keys($bucket) as $pid9) {
+        if (!$pid9 || in_array((int) $pid9, $seen9, true)) { continue; }
+        $pr9 = Capsule::table('mod_cpm_products')->where('id', $pid9)->first(['id', 'name', 'color']);
+        if (!$pr9) { continue; }
+        $products[] = ['id' => (int) $pr9->id, 'name' => $pr9->name, 'color' => $pr9->color,
+            'services' => 0, 'source' => 'manual', 'status' => 'active', 'depts' => $mk((int) $pid9)];
+    }
+
+    /* Δουλειά που δεν κρέμεται σε κανένα προϊόν — η λίστα εκκρεμοτήτων της μετάβασης. */
+    $orphan = $mk(0);
+
+    /* Υπηρεσίες που χρεώνονται αλλά δεν ανήκουν σε προϊόν: τίποτα δεν μένει αόρατο. */
+    $map = \WHMCS\Module\Addon\CloudonProjects\Catalog::mapByPackage();
+    $unmapped = [];
+    foreach (Capsule::table('tblhosting as h')->join('tblproducts as pr', 'pr.id', '=', 'h.packageid')
+        ->where('h.userid', $cid)->where('h.domainstatus', 'Active')
+        ->get(['pr.id', 'pr.name']) as $h) {
+        if (!empty($map[(int) $h->id])) { continue; }
+        $unmapped[$h->name] = ($unmapped[$h->name] ?? 0) + 1;
+    }
+    $un = [];
+    foreach ($unmapped as $n => $c) { $un[] = ['name' => $n, 'n' => $c]; }
+
+    out(['client' => ['id' => (int) $cl->id,
+            'name' => $cl->companyname ?: trim($cl->firstname . ' ' . $cl->lastname)],
+        'products' => $products, 'orphan' => $orphan, 'unmapped' => $un,
+        'depts' => $depts->map(function ($d) { return ['id' => (int) $d->id, 'name' => $d->name]; })->all()]);
+
+case 'client_product_set':              // χειροκίνητη προσθήκη/αφαίρεση προϊόντος σε πελάτη
+    require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Catalog.php';
+    $cid = (int) ($in['client'] ?? 0);
+    $prd = (int) ($in['product'] ?? 0);
+    $on  = !empty($in['on']);
+    if (!$cid || !$prd) { fail('Λείπει πελάτης ή προϊόν'); }
+    $ex = Capsule::table('mod_cpm_client_products')->where('clientid', $cid)->where('product_id', $prd)->first();
+    if ($on && !$ex) {
+        Capsule::table('mod_cpm_client_products')->insert(['clientid' => $cid, 'product_id' => $prd,
+            'source' => 'manual', 'status' => 'active', 'services' => 0, 'created_at' => date('Y-m-d H:i:s')]);
+    } elseif (!$on && $ex) {
+        /* Αν το έφερε η χρέωση, δεν το σβήνουμε — το σημειώνουμε ως ανενεργό. */
+        if ($ex->source === 'manual' && !$ex->services) {
+            Capsule::table('mod_cpm_client_products')->where('id', $ex->id)->delete();
+        } else {
+            Capsule::table('mod_cpm_client_products')->where('id', $ex->id)->update(['status' => 'past']);
+        }
+    } elseif ($on && $ex && $ex->status !== 'active') {
+        Capsule::table('mod_cpm_client_products')->where('id', $ex->id)->update(['status' => 'active']);
+    }
+    out(['ok' => true]);
 
 case 'client_health':                   // ❤️ υγεία πελατών — ποιοι «καίγονται»
     $since = date('Y-m-d', strtotime('-90 days'));

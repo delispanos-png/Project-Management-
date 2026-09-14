@@ -1516,6 +1516,44 @@ function openTargetDrawer(card, d) {
   });
 }
 
+/* Το δέντρο πελάτη → προϊόν → τμήμα: η ίδια ραχοκοκαλιά που έχουν tickets, έργα και
+   προσφορές — εδώ φαίνεται ολόκληρη με μια ματιά. */
+async function cnpClientTree(box, cid) {
+  if (!box) { return; }
+  const d = await api('client_tree&client=' + cid).catch(() => null);
+  if (!d) { box.innerHTML = '<div class="mut">Δεν φορτώθηκε</div>'; return; }
+  const bar = b => {
+    const bits = [];
+    if (b.ticketsOpen) { bits.push(`<span class="pill pill-bad">🎫 ${b.ticketsOpen} ανοιχτά</span>`); }
+    else if (b.tickets) { bits.push(`<span class="pill pill-mut">🎫 ${b.tickets}</span>`); }
+    if (b.tasksOpen) { bits.push(`<span class="pill pill-warn">🟦 ${b.tasksOpen} tasks</span>`); }
+    (b.projects || []).forEach(p => {
+      bits.push(`<a href="javascript:" class="pill pill-ok" data-c3pj="${p.id}">📁 ${esc(p.name)}</a>`);
+    });
+    return bits.join(' ') || '<span class="mut" style="font-size:11.5px">—</span>';
+  };
+  const block = p => `<div class="c3-prod" style="border-left:3px solid ${p.color}">
+    <div class="c3-prod-h"><b>${esc(p.name)}</b>
+      <span class="mut" style="font-size:11.5px">${p.services ? p.services + ' υπηρεσίες'
+        : (p.source === 'manual' ? 'χειροκίνητα' : 'χωρίς ενεργή υπηρεσία')}</span>
+      ${p.status !== 'active' ? '<span class="pill pill-mut">ανενεργό</span>' : ''}</div>
+    ${(p.depts || []).length ? p.depts.map(dp => `<div class="c3-dept">
+        <span class="c3-dept-n">${esc(dp.name)}</span><span class="c3-dept-b">${bar(dp)}</span></div>`).join('')
+      : '<div class="c3-dept"><span class="mut" style="font-size:11.5px">καμία δραστηριότητα</span></div>'}
+  </div>`;
+  box.innerHTML = (d.products.length ? d.products.map(block).join('')
+      : '<div class="mut" style="font-size:12.5px">Δεν έχει δηλωμένα προϊόντα.</div>')
+    + (d.orphan && d.orphan.length ? `<div class="c3-prod" style="border-left:3px solid var(--warn)">
+        <div class="c3-prod-h"><b>⚠ Χωρίς προϊόν</b>
+          <span class="mut" style="font-size:11.5px">δουλειά που δεν κρέμεται πουθενά — θέλει ανάθεση</span></div>
+        ${d.orphan.map(dp => `<div class="c3-dept"><span class="c3-dept-n">${esc(dp.name)}</span>
+          <span class="c3-dept-b">${bar(dp)}</span></div>`).join('')}</div>` : '')
+    + (d.unmapped && d.unmapped.length ? `<div class="mut" style="font-size:11.5px;margin-top:9px">
+        ⚠ Χρεώνονται χωρίς να ανήκουν σε προϊόν:
+        ${d.unmapped.map(u => esc(u.name) + (u.n > 1 ? ' ×' + u.n : '')).join(' · ')}</div>` : '');
+  box.querySelectorAll('[data-c3pj]').forEach(a => { a.onclick = () => go('board', +a.dataset.c3pj); });
+}
+
 /* ═════════ ΠΕΛΑΤΗΣ 360° ═════════ */
 R.client360 = async function (cid) {
   setTop('Πελάτης 360°', 'Το πλήρες ιστορικό ενός πελάτη');
@@ -1555,6 +1593,9 @@ R.client360 = async function (cid) {
       </div>
     </div>
     ${alerts.length ? `<div class="c3-alerts">${alerts.map(([t, ic, txt]) => `<div class="c3-alert ${t}"><span style="font-size:16px">${ic}</span> ${txt}</div>`).join('')}</div>` : ''}
+    <div class="card"><div class="card-h">${I.box} Τα προϊόντα του πελάτη
+      <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">προϊόν → τμήμα → δουλειά</span></div>
+      <div class="card-b" id="c3Tree"><div class="skel" style="height:70px"></div></div></div>
     <div class="grid g4">
       <div class="stat info"><b>${d.summary.services}</b><small>Ενεργές υπηρεσίες</small></div>
       <div class="stat ${d.summary.openTasks ? 'info' : ''}"><b>${d.summary.openTasks}</b><small>Ανοιχτά tasks</small></div>
@@ -1651,6 +1692,7 @@ R.client360 = async function (cid) {
           ${e.meta ? `<span class="mut" style="font-size:11.5px"> — ${esc(e.meta)}</span>` : ''}</span></div>`;
       }).join('') || '<div class="empty">Καμία δραστηριότητα</div>'}
     </div></div>`;
+    cnpClientTree($('#c3Tree'), id);
     $$('#c3Res [data-m]').forEach(b => b.onclick = () => show(id, +b.dataset.m));
     $$('#c3Res [data-c3task]').forEach(a => a.onclick = () => openTask(+a.dataset.c3task));
     const npj = $('#c3NewPj');
@@ -2628,9 +2670,15 @@ R.projects = async function () {
         <div><label class="lbl">Τύπος</label><select class="inp" id="pjKind">
           <option value="client" ${p.kind !== 'dept' ? 'selected' : ''}>Έργο πελάτη</option>
           <option value="dept" ${p.kind === 'dept' ? 'selected' : ''}>Ουρά department (παλαιό)</option></select></div>
-        ${p.kind === 'dept' ? `<div><label class="lbl">Τροφοδοτείται από</label><select class="inp" id="pjDept"><option value="">—</option>
+        <div><label class="lbl">Προϊόν <span class="mut" style="font-weight:400">— σε ποιο προϊόν του πελάτη αφορά</span></label>
+          <select class="inp" id="pjProd"><option value="">— διάλεξε προϊόν —</option></select>
+          <div id="pjProdS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
+        <div><label class="lbl">Τμήμα <span class="mut" style="font-weight:400">— ποιο το αναλαμβάνει</span></label>
+          <select class="inp" id="pjDept"><option value="">— διάλεξε τμήμα —</option>
           ${d.depts.map(dp => `<option value="${dp.id}" ${dp.id === p.dept ? 'selected' : ''}>${esc(dp.name)}</option>`).join('')}</select>
-          <div class="mut" style="font-size:11px;margin-top:3px">Τα tickets αυτής της ομάδας γίνονται εργασίες εδώ.</div></div>` : ''}
+          <div class="mut" style="font-size:11px;margin-top:3px">${p.kind === 'dept'
+            ? 'Τα tickets αυτής της ομάδας γίνονται εργασίες εδώ.'
+            : 'Support = δυσλειτουργία · Sales = νέα απαίτηση · Accounting = τιμολόγηση'}</div></div>
         <div><label class="lbl">${I.coin} Budget €</label><input class="inp" id="pjBud" value="${p.budget ?? ''}" placeholder="π.χ. 3000"></div>
         <div><label class="lbl">⏱ Εκτίμηση ωρών</label><input class="inp" id="pjEst" value="${p.estHours ?? ''}" placeholder="π.χ. 40"></div>
         <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="pjStart" value="${p.start || ''}"></div>
@@ -2693,6 +2741,38 @@ R.projects = async function () {
     requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
     $('#dX').onclick = () => cnpAskClose(dr);
     clientAuto('pjCli', 'pjCliL', 'pjCliId', 'pjCliS');
+    /* Ο κατάλογος προϊόντων: πρώτα όσα ΕΧΕΙ ο πελάτης, μετά τα υπόλοιπα. Αν διαλέξεις
+       προϊόν που δεν έχει, μπαίνει μόνο του στην καρτέλα του — γιατί συχνά το έργο
+       ξεκινά πριν βγει η χρέωση. */
+    const loadProds = async () => {
+      const sel = $('#pjProd', dr); if (!sel) { return; }
+      openProj._cat = openProj._cat || await api('catalog_products').catch(() => null);
+      const cat = openProj._cat; if (!cat) { return; }
+      const cid = +$('#pjCliId', dr).value || 0;
+      let owned = [];
+      if (cid) {
+        const t = await api('client_tree&client=' + cid).catch(() => null);
+        owned = t ? t.products.filter(x => x.status === 'active').map(x => +x.id) : [];
+      }
+      const cur = +(sel.value || p.product || 0);
+      const opt = x => `<option value="${x.id}" ${+x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`;
+      const mine = cat.products.filter(x => owned.includes(+x.id));
+      const rest = cat.products.filter(x => !owned.includes(+x.id));
+      sel.innerHTML = '<option value="">— διάλεξε προϊόν —</option>'
+        + (mine.length ? `<optgroup label="Τα προϊόντα του πελάτη">${mine.map(opt).join('')}</optgroup>` : '')
+        + (rest.length ? `<optgroup label="Υπόλοιπος κατάλογος — θα προστεθεί στον πελάτη">${rest.map(opt).join('')}</optgroup>` : '');
+      const st = $('#pjProdS', dr);
+      if (st) {
+        st.textContent = !cid ? 'διάλεξε πρώτα πελάτη'
+          : (mine.length ? mine.length + ' προϊόντα στην καρτέλα του πελάτη'
+                         : 'ο πελάτης δεν έχει δηλωμένα προϊόντα — διάλεξε από τον κατάλογο');
+      }
+    };
+    loadProds();
+    { let pt = null;
+      const again = () => { clearTimeout(pt); pt = setTimeout(loadProds, 350); };
+      $('#pjCli', dr).addEventListener('change', again);
+      $('#pjCli', dr).addEventListener('blur', again); }
     /* Modules του έργου: ποια δικά μας προϊόντα παραδίδονται και πόσο έχει
        προχωρήσει το checklist του καθενός. Κλικ στο module → οι εργασίες του
        με την πρόοδο των ελέγχων· κλικ στην εργασία → το checklist. */
@@ -2939,9 +3019,20 @@ R.projects = async function () {
         toast('Διάλεξε πελάτη από τη λίστα — δεν αρκεί να γράψεις το όνομα', true);
         $('#pjCli').focus(); return;
       }
+      /* Νέο έργο πελάτη: η αλυσίδα πελάτης → προϊόν → τμήμα δεν σπάει. Τα παλιά έργα
+         σώζονται όπως είναι, για να συμπληρωθούν με την ησυχία τους. */
+      const prod = $('#pjProd') ? +$('#pjProd').value || 0 : (p.product || 0);
+      const dept = $('#pjDept') ? +$('#pjDept').value || 0 : (p.dept || 0);
+      if (!p.id && kind === 'client' && !prod) {
+        toast('Διάλεξε προϊόν — σε ποιο προϊόν του πελάτη αφορά το έργο;', true);
+        $('#pjProd').focus(); return;
+      }
+      if (!p.id && kind === 'client' && !dept) {
+        toast('Διάλεξε τμήμα — ποιο αναλαμβάνει το έργο;', true);
+        $('#pjDept').focus(); return;
+      }
       const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: cid,
-        // Έργο πελάτη δεν ανήκει σε department — αυτό κρέμεται στις εργασίες.
-        dept: kind === 'client' ? 0 : ($('#pjDept') ? +$('#pjDept').value || 0 : (p.dept || 0)),
+        dept: dept, product: prod,
         parent: +$('#pjPar').value || 0, color: $('#pjColor').value,
         pstatus: $('#pjPs').value, health: $('#pjH').value, visible: $('#pjVis').checked,
         kind: $('#pjKind').value, budget: $('#pjBud').value.trim(), estHours: $('#pjEst').value.trim(),

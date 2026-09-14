@@ -2168,6 +2168,16 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
   color:var(--ink);font:inherit;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
 .ph-mini:focus{outline:none;border-color:var(--brand)}
 
+/* Καρτέλα πελάτη: προϊόν → τμήμα → δουλειά. Το προϊόν είναι το κουτί, το τμήμα η
+   γραμμή μέσα του· έτσι διαβάζεται η ιεραρχία χωρίς να χρειάζεται εξήγηση. */
+.c3-prod{padding:10px 0 10px 13px;margin-bottom:10px;background:var(--canvas);border-radius:0 11px 11px 0}
+.c3-prod:last-child{margin-bottom:0}
+.c3-prod-h{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+.c3-prod-h b{font-size:13.5px;color:var(--ink)}
+.c3-dept{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 10px 4px 0}
+.c3-dept-n{min-width:150px;font-size:12px;font-weight:600;color:var(--txt)}
+.c3-dept-b{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+@media (max-width:700px){.c3-dept-n{min-width:0;flex-basis:100%}}
 /* Ο διακανονισμός: μία γραμμή ανά δόση — τύπος, ποσό, πότε. */
 .ph-plan{margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
 .ph-plan-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;
