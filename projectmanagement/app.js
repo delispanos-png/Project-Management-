@@ -1236,7 +1236,9 @@ function cardHtml(t) {
     <div class="tcard-m">
       <span class="dot" style="background:${['#8595ac', '#eba63c', '#e2515f'][t.prio]}"></span>
       <span class="tk-idc" title="Αριθμός εργασίας">#${t.id}</span>
-      ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket — προτεραιότητα">${I.ticket} ticket</span>` : ''}
+      ${(t.ticket || t.ticketRef)
+        ? `<span class="tk-flag tk-flag-tk" title="Από ticket — προτεραιότητα στην ανάθεση">${I.ticket} ${
+            t.ticketNo ? '#' + esc(t.ticketNo) : t.ticketRef ? '#' + esc(t.ticketRef) : 'ticket'}</span>` : ''}
       ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} προσφορά</span>` : ''}
       ${t.assignee ? `<span class="ava" title="${esc(adminName(t.assignee))}">${esc(adminIni(t.assignee))}</span>` : ''}
       ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Επιβλέπων: ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
@@ -1367,7 +1369,10 @@ async function openTask(id) {
            title="Το έργο στο οποίο ανήκει η εργασία${d.project.product ? ' · προϊόν: ' + esc(d.project.product) : ''}">📁 ${esc(d.project.name)}${
              d.project.product ? ` <span class="tk-pj-prod">· ${esc(d.project.product)}</span>` : ''}</a>` : ''}
         <button type="button" class="pill tk-st" id="dStPill" style="background:${stO.color || '#8291a9'}22;color:${stO.color || '#8291a9'}" title="Αλλαγή κατάστασης">${esc(stO.title || '—')} ▾</button>
-        ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>` : ''}
+        ${t.ticket
+          ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα στην ανάθεση">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>`
+          : t.ticketRef
+            ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket της παλιάς πλατφόρμας — προτεραιότητα στην ανάθεση">${I.ticket} Ticket #${esc(t.ticketRef)}</span>` : ''}
         ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} Προσφορά</span>` : ''}
       </div>
       <div class="tk-sub">
@@ -1427,7 +1432,8 @@ async function openTask(id) {
     ${t.done ? `<div class="card done-card"><div class="card-b">
       <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
       ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
-      <button class="btn btn-sm btn-o" id="dReopen" style="margin-top:9px">↩ Ξανάνοιγμα</button>
+      <div class="mut" style="font-size:12px;margin-top:7px">🔒 Κλειδωμένη — τίποτα δεν αλλάζει όσο είναι ολοκληρωμένη.</div>
+      <button class="btn btn-sm btn-p" id="dReopen" style="margin-top:9px">↩ Ξανάνοιγμα για επεξεργασία</button>
     </div></div>` : ''}
 
     <div class="card tk-side tk-time"><div class="card-h">⏱ Χρόνος
@@ -1480,6 +1486,15 @@ async function openTask(id) {
       </div>
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
         <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>
+      ${t.ticket
+        ? `<label class="tk-tkref linked" title="Η εργασία είναι δεμένη σε ticket του WHMCS — ο αριθμός έρχεται από εκεί και δεν αλλάζει χειροκίνητα">
+            ${I.ticket} <b>Ticket</b>
+            <a class="tk-tkref-no" href="#/inbox/${t.ticket}" data-navclose>#${esc(tkD ? tkD.tid : t.ticket)}</a>
+            <span class="mut" style="margin-left:auto">από το WHMCS — αυτόματα</span></label>`
+        : `<label class="tk-tkref" title="Για εργασίες που ήρθαν από την ΠΑΛΙΑ πλατφόρμα ticket. Τα ticket του WHMCS συμπληρώνονται μόνα τους.">
+            ${I.ticket} <b>Ticket</b>
+            <input class="inp" id="fTkRef" placeholder="π.χ. 4821" maxlength="40" value="${esc(t.ticketRef || '')}">
+            <span class="mut" style="margin-left:auto">παλιά πλατφόρμα</span></label>`}
       <label class="tk-est" title="Πόσο υπολογίζει ο τεχνικός ότι θα του πάρει. Φαίνεται στην κάρτα δίπλα στον πραγματικό χρόνο, και μετράει στον φόρτο της ομάδας.">
         ⏱ <b>Εκτίμηση</b>
         <input class="inp" id="fEst" inputmode="decimal" placeholder="π.χ. 1,5"
@@ -1636,7 +1651,8 @@ async function openTask(id) {
       dept: +(($('#fDept') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
-      est: estMins(($('#fEst', dr) || {}).value)});
+      est: estMins(($('#fEst', dr) || {}).value),
+      ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
@@ -1831,6 +1847,26 @@ async function openTask(id) {
       inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') { done(false); } };
       inp.onblur = () => done(true);
     }; }
+  /* ── ΚΛΕΙΔΩΜΕΝΗ ΕΡΓΑΣΙΑ ──────────────────────────────────────────────────────
+     Ολοκληρωμένη εργασία είναι αρχείο, όχι πρόχειρο: αν άλλαζαν εκ των υστέρων τα
+     βήματα, ο χρόνος ή η ανάθεση, θα άλλαζε η ιστορία της και μαζί οι χρεώσεις.
+     Ο server το επιβάλλει (cnp_task_lock_guard)· εδώ το δείχνουμε, ώστε να μην
+     πληκτρολογήσει κανείς κάτι που θα απορριφθεί. Ανοιχτά μένουν μόνο: το
+     ξανάνοιγμα, η αλλαγή κατάστασης, η πλοήγηση και η ΛΗΨΗ συνημμένων. */
+  if (t.done) {
+    dr.classList.add('tk-locked');
+    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,[data-navclose],[data-c3task]';
+    $$('input,select,textarea,button', dr).forEach(el => {
+      if (el.matches(free) || el.closest(free)) { return; }
+      el.disabled = true;
+      el.title = 'Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις';
+    });
+    const ttl = $('#dTitleEdit', dr); if (ttl) { ttl.hidden = true; }
+    /* Το «ζητούμενο» είναι contenteditable, όχι <input> — δεν το πιάνει το disabled. */
+    $$('.rte,[contenteditable]', dr).forEach(el => { el.setAttribute('contenteditable', 'false'); });
+    $$('.rte-tb', dr).forEach(el => { el.hidden = true; });
+  }
+
   /* Συνημμένα ενεργειών: ίδιος μηχανισμός αρχείων, δικό τους «καλάθι» (ref_type=check). */
   if ($('#dCheckFiles', dr) && window.cnpAttachments) {
     window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id, paste: true,

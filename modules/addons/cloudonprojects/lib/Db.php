@@ -1411,6 +1411,18 @@ class Db
             }
         }
 
+        /* ── Αριθμός ticket από την ΠΑΛΙΑ πλατφόρμα ──────────────────────────
+           Το `ticketid` είναι και μένει ΞΕΝΟ ΚΛΕΙΔΙ στο tbltickets.id του WHMCS.
+           Αν βάζαμε εκεί έναν αριθμό παλιάς πλατφόρμας, θα «κούμπωνε» σε άσχετο
+           ticket του WHMCS (το 4821 της παλιάς = το ticket 4821 του WHMCS) και η
+           εργασία θα εμφάνιζε ξένο πελάτη, ξένο SLA, ξένη συνομιλία. Γι' αυτό
+           χωριστό πεδίο, κείμενο: είναι ΑΝΑΦΟΡΑ, όχι σύνδεσμος. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'ticket_ref')) {
+            $s->table('mod_cpm_tasks', function ($t) {
+                $t->string('ticket_ref', 40)->nullable()->index();   // π.χ. «4821» της παλιάς πλατφόρμας
+            });
+        }
+
         /* Ίδιος λόγος με τις «Ενέργειες»: μια σημείωση ολοκλήρωσης μπορεί κάλλιστα να
            ξεπεράσει τους 500 χαρακτήρες — και τότε κοβόταν σιωπηλά. */
         if ($s->hasColumn('mod_cpm_tasks', 'completed_note')) {
@@ -1842,6 +1854,22 @@ class Db
      * Χωρίς αυτό, ένα αρχείο φαινόταν μόνο αν άνοιγες την εργασία ΚΑΙ άνοιγες το
      * κλειστό «Συνημμένα» — δηλαδή πρακτικά ποτέ.
      */
+    /**
+     * Ο ΟΡΑΤΟΣ αριθμός ticket ανά εργασία ενός έργου. Το tbltickets.id είναι εσωτερικό
+     * κλειδί· ο αριθμός που ξέρουν όλοι είναι το `tid`. Χωρίς αυτόν ο χειριστής βλέπει
+     * «ticket» χωρίς να ξέρει ποιο, και δεν μπορεί να ιεραρχήσει.
+     */
+    public static function ticketNumbers($projectId)
+    {
+        $rows = Capsule::table('mod_cpm_tasks as t')
+            ->join('tbltickets as k', 'k.id', '=', 't.ticketid')
+            ->where('t.project_id', (int) $projectId)
+            ->get(['t.id as task_id', 'k.tid']);
+        $out = [];
+        foreach ($rows as $r) { $out[(int) $r->task_id] = (string) $r->tid; }
+        return $out;
+    }
+
     public static function attachmentCounts($projectId)
     {
         $rows = Capsule::table('mod_cpm_storage as s')

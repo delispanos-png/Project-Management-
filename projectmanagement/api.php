@@ -1561,7 +1561,7 @@ function cnp_kb_suggest($text, $limit = 3, $floor = 3.0)
     return array_slice($out, 0, $limit);
 }
 
-function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null)
+function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap = null)
 {
     return [
         'id' => (int) $t->id, 'title' => $t->title, 'status' => (int) $t->status_id,
@@ -1571,6 +1571,10 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null)
         'type' => $t->type_id ? (int) $t->type_id : null,
         'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
+        /* Ο ορατός αριθμός: του WHMCS όταν υπάρχει σύνδεση, αλλιώς ό,τι γράφτηκε
+           χειροκίνητα για ticket της παλιάς πλατφόρμας. Ένα πεδίο στην οθόνη. */
+        'ticketNo' => $tkNoMap !== null ? ($tkNoMap[(int) $t->id] ?? null) : null,
+        'ticketRef' => isset($t->ticket_ref) && $t->ticket_ref !== '' ? (string) $t->ticket_ref : null,
         'dept' => isset($t->dept_id) && $t->dept_id ? (int) $t->dept_id : null,
         'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
         'delivery' => !empty($t->is_delivery),
@@ -2119,6 +2123,27 @@ function cnp_afm_where($w, $like)
             ->where('fieldid', 1)->where('value', 'like', $like);
       });
     return $w;
+}
+
+/**
+ * ΚΛΕΙΔΩΜΕΝΗ ΕΡΓΑΣΙΑ: μια ολοκληρωμένη εργασία είναι πλέον αρχείο, όχι πρόχειρο.
+ * Αν άλλαζαν εκ των υστέρων τα βήματα, ο χρόνος ή η ανάθεση, θα άλλαζε και η
+ * ιστορία της — και μαζί οι χρεώσεις. Όποιος θέλει να την πειράξει, την ΞΑΝΑΝΟΙΓΕΙ
+ * (ένα κλικ, καταγράφεται). Δεν κλειδώνουν τα σχόλια (συζήτηση, όχι δεδομένα),
+ * η αλλαγή κατάστασης (έτσι ξανανοίγει) και η έγκριση χρέωσης του λογιστηρίου.
+ */
+function cnp_task_locked($t)
+{
+    return $t && !empty($t->completed_at);
+}
+
+/** Κόβει με 409 όταν η εργασία είναι κλειστή — με οδηγία, όχι σκέτο «όχι». */
+function cnp_task_lock_guard($t)
+{
+    if (cnp_task_locked($t)) {
+        fail('Η εργασία είναι ολοκληρωμένη και δεν αλλάζει. '
+            . 'Πάτα «↩ Ξανάνοιγμα» αν χρειάζεται διόρθωση.', 409);
+    }
 }
 
 function cnp_task_write_ok($adminId, $isFull, $t)
@@ -2755,6 +2780,7 @@ case 'board':
     $mins = Db::minutesByTask($pid);
     $check = Db::checklistProgress($pid);
     $att = Db::attachmentCounts($pid);
+    $tkNo = Db::ticketNumbers($pid);
     $allIds = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->pluck('id')->all();
     $blockedM = Db::blockedMap($allIds);
     $cols = [];
@@ -2762,7 +2788,7 @@ case 'board':
     foreach (Db::statuses() as $s) {
         $cards = [];
         foreach ($board[(int) $s->id] ?? [] as $t) {
-            $dto = taskDto($t, $mins, $check, $att);
+            $dto = taskDto($t, $mins, $check, $att, $tkNo);
             $dto['blocked'] = isset($blockedM[(int) $t->id]) ? count($blockedM[(int) $t->id]) : 0;
             $cards[] = $dto;
         }
@@ -3898,6 +3924,7 @@ case 'save_task':
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);
     $data = [];
     if (array_key_exists('title', $in)) {
         $data['title'] = mb_substr(trim((string) $in['title']), 0, 200);
@@ -3927,6 +3954,13 @@ case 'save_task':
     }
     if (array_key_exists('est', $in)) {
         $data['estimate_minutes'] = (int) $in['est'] ?: null;
+    }
+    /* Αριθμός ticket ΠΑΛΙΑΣ πλατφόρμας. Γράφεται μόνο όταν η εργασία ΔΕΝ είναι
+       δεμένη σε ticket του WHMCS: εκεί ο αριθμός προκύπτει από τη σύνδεση και δεν
+       επιτρέπεται να τον «διορθώσει» κανείς σε κάτι άλλο από την αλήθεια. */
+    if (array_key_exists('ticket_ref', $in) && !$t->ticketid) {
+        $ref = preg_replace('/[^0-9A-Za-z\/\-_.#]/u', '', trim((string) $in['ticket_ref']));
+        $data['ticket_ref'] = $ref !== '' ? mb_substr($ref, 0, 40) : null;
     }
     if (array_key_exists('ball', $in)) {
         $newBall = (int) $in['ball'] ?: null;
@@ -4006,6 +4040,7 @@ case 'timer_start':
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);
     $r = Db::startTimer($tid, $adminId);
     foreach ($r['stopped'] as $sid) {
         Time::push($sid);
@@ -4036,6 +4071,7 @@ case 'time_bill':                        // διόρθωση «χρεώσιμο/
     if ((int) $lg->admin_id !== $adminId && !cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Μόνο όποιος κατέγραψε τον χρόνο ή ο υπεύθυνος της εργασίας', 403);
     }
+    cnp_task_lock_guard($t);
     $bill9 = !empty($in['billable']);
     Db::updateTimelog($lid, ['billable' => $bill9 ? 1 : 0]);
     /* Η καταχώρηση έχει ήδη περάσει στο πακέτο ωρών του πελάτη (worklog + χρέωση).
@@ -4062,6 +4098,7 @@ case 'time_add':
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);
     $eid = Db::addTime($tid, $adminId, $mins, !empty($in['billable']), trim($in['note'] ?? ''));
     Time::push($eid);
     out(['ok' => true]);
@@ -4078,6 +4115,7 @@ case 'check_add':
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);
     $id = Db::addCheckItem($tid, mb_substr($title, 0, 8000));   // χωράει stack trace / snippet
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     out(['ok' => true, 'id' => $id]);
@@ -4091,6 +4129,7 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)
         ->update(['title' => mb_substr($title, 0, 8000)]);
     out(['ok' => true]);
@@ -4103,6 +4142,7 @@ case 'check_del':
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->delete();
     out(['ok' => true]);
 
@@ -4114,6 +4154,7 @@ case 'check_toggle':
     if (!cnp_task_write_ok($adminId, $FULL, Db::task((int) $ci->task_id))) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard(Db::task((int) $ci->task_id));
     $it = Db::toggleCheckItem((int) ($in['id'] ?? 0));
     out(['ok' => (bool) $it]);
 
@@ -8295,14 +8336,29 @@ case 'search':
             $tasks[] = ['id' => (int) $tq->id, 'title' => '#' . $tq->id . ' ' . $tq->title, 'pname' => cnp_pn($tq->pname), 'pcolor' => $tq->pcolor ?: '#8595ac'];
         }
     }
+    /* Και με τον αριθμό ticket: του WHMCS (μέσω της σύνδεσης) ή της παλιάς πλατφόρμας.
+       Ο συνάδελφος θυμάται «το 4821», όχι τον τίτλο της εργασίας. */
     $tqq = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-        ->where('t.title', 'like', $like)->orderBy('t.id', 'desc')->limit(6)
-        ->select('t.id', 't.title', 't.assignee', 't.project_id', 'p.name as pname', 'p.color as pcolor');
+        ->leftJoin('tbltickets as k', 'k.id', '=', 't.ticketid')
+        ->where(function ($w) use ($like) {
+            $w->where('t.title', 'like', $like)
+              ->orWhere('t.ticket_ref', 'like', $like)
+              ->orWhere('k.tid', 'like', $like);
+        })
+        ->orderBy('t.id', 'desc')->limit(6)
+        ->select('t.id', 't.title', 't.assignee', 't.project_id', 't.ticket_ref', 'k.tid as tkno',
+            'p.name as pname', 'p.color as pcolor');
     foreach ($tqq->get() as $t) {
         if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
             continue;
         }
-        $tasks[] = ['id' => (int) $t->id, 'title' => $t->title, 'pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
+        /* Οι εργασίες από ticket έχουν ήδη το «[#αριθμός]» στον τίτλο τους — δεν το
+           γράφουμε δεύτερη φορά. */
+        $no = $t->tkno ?: $t->ticket_ref;
+        $show = $no && mb_strpos((string) $t->title, (string) $no) === false;
+        $tasks[] = ['id' => (int) $t->id,
+            'title' => ($show ? '🎫 #' . $no . ' · ' : '') . $t->title,
+            'pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
     }
     $tickets = [];
     $tkq = Capsule::table('tbltickets')->where(function ($w) use ($like) {

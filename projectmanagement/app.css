@@ -2477,6 +2477,21 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .tk-est{display:flex;align-items:center;gap:7px;margin-top:7px;font-size:12.5px;
   padding:6px 10px;border:1px dashed #0090dd55;border-radius:9px;background:#0090dd0d}
 .tk-est .inp{width:82px;padding:5px 8px;font-size:12.5px;text-align:right}
+/* Αριθμός ticket: ίδιο σχήμα με τα δύο από πάνω — τα τρία διαβάζονται ως ομάδα. */
+.tk-tkref{display:flex;align-items:center;gap:7px;margin-top:7px;font-size:12.5px;
+  padding:6px 10px;border:1px dashed #e0552b55;border-radius:9px;background:#e0552b0d}
+.tk-tkref svg{width:14px;height:14px;color:#c2451c}
+.tk-tkref .inp{width:110px;padding:5px 8px;font-size:12.5px}
+.tk-tkref-no{font-weight:800;color:#c2451c;text-decoration:none;font-variant-numeric:tabular-nums}
+.tk-tkref-no:hover{text-decoration:underline}
+
+/* ── Ολοκληρωμένη εργασία: κλειδωμένη ──────────────────────────────────────
+   Δεν αρκεί να απενεργοποιηθούν τα πεδία· ό,τι καλεί σε γράψιμο φεύγει από τη
+   μέση, αλλιώς η οθόνη υπόσχεται κάτι που ο server (σωστά) θα αρνηθεί. */
+.tk-locked .chk-new,.tk-locked .chk-acts,.tk-locked .cnpa-drop,.tk-locked [data-fdel],
+.tk-locked #dSave,.tk-locked .tk-brief-foot,.tk-locked #depAdd{display:none}
+.tk-locked .inp:disabled,.tk-locked select:disabled{background:var(--bg);color:var(--mut);cursor:not-allowed}
+.tk-locked .tk-step-foot:empty{display:none}
 .tk-actions{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
 .tk-actions .btn{padding:6px 11px;font-size:12.5px}
 .tk-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
