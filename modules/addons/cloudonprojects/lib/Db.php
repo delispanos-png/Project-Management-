@@ -1767,6 +1767,26 @@ class Db
     }
 
     /** Καταχωρήσεις περιόδου με task/project info (tab «Χρόνος», 2.4). */
+    /**
+     * Οι timer που ΤΡΕΧΟΥΝ αυτή τη στιγμή. Η αναφορά χρόνου μετράει μόνο κλεισμένες
+     * εγγραφές (running = 0) — σωστό για τη χρέωση, αλλά έκρυβε τη δουλειά που γίνεται
+     * τώρα: για να φανεί έπρεπε ο συνάδελφος να σταματήσει τον χρόνο. Τα επιστρέφουμε
+     * χωριστά, ώστε τα καταχωρημένα σύνολα να μένουν ακριβώς όπως είναι.
+     */
+    public static function runningTimers(array $f = [])
+    {
+        $q = Capsule::table('mod_cpm_timelogs as l')
+            ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->select('l.id', 'l.admin_id', 'l.task_id', 'l.started_at', 'l.note',
+                't.title as task_title', 'p.id as project_id', 'p.name as project_name',
+                'p.color as project_color', 'p.clientid')
+            ->where('l.running', 1);
+        if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
+        if (!empty($f['admin_id']))   { $q->where('l.admin_id', (int) $f['admin_id']); }
+        return $q->orderBy('l.started_at')->get();
+    }
+
     public static function timeReport($from, $to, array $f = [])
     {
         $q = Capsule::table('mod_cpm_timelogs as l')
@@ -1817,6 +1837,24 @@ class Db
     }
 
     /** Map task_id → [done, total] για όλα τα tasks ενός project (board chips). */
+    /**
+     * Πόσα συνημμένα έχει κάθε εργασία ενός έργου (ζητούμενο + ενέργειες μαζί).
+     * Χωρίς αυτό, ένα αρχείο φαινόταν μόνο αν άνοιγες την εργασία ΚΑΙ άνοιγες το
+     * κλειστό «Συνημμένα» — δηλαδή πρακτικά ποτέ.
+     */
+    public static function attachmentCounts($projectId)
+    {
+        $rows = Capsule::table('mod_cpm_storage as s')
+            ->join('mod_cpm_tasks as t', 't.id', '=', 's.ref_id')
+            ->where('s.module', 'task')->whereIn('s.ref_type', ['task', 'check'])
+            ->where('t.project_id', (int) $projectId)
+            ->groupBy('s.ref_id')
+            ->selectRaw('s.ref_id as task_id, COUNT(*) as n')->get();
+        $out = [];
+        foreach ($rows as $r) { $out[(int) $r->task_id] = (int) $r->n; }
+        return $out;
+    }
+
     public static function checklistProgress($projectId)
     {
         $rows = Capsule::table('mod_cpm_checklist as c')

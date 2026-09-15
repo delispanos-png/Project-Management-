@@ -418,21 +418,36 @@ R.time = async function () {
   };
   const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
   const d = await api('time' + (qs ? '&' + qs : ''));
-  const aggTbl = (title, obj) => `<div class="card"><div class="card-h">${title}</div>
-    <table class="tbl"><thead><tr><th></th><th>Σύνολο</th><th>Χρεώσιμα</th><th>Χρέωση</th></tr></thead><tbody>
+  /* Η στήλη «σε εξέλιξη» δείχνει τον χρόνο που τρέχει ΤΩΡΑ. Μένει χωριστή από τα
+     καταχωρημένα σύνολα: εκείνα είναι γεγονότα (και πάνε στη χρέωση), αυτό είναι
+     εκτίμηση της ώρας. Έτσι φαίνεται η δουλειά χωρίς να σταματήσει κανείς τον χρόνο. */
+  const anyRun = (d.running || []).length > 0;
+  const aggTbl = (title, obj, grp) => `<div class="card"><div class="card-h">${title}</div>
+    <table class="tbl"><thead><tr><th></th><th>Σύνολο</th><th>Χρεώσιμα</th><th>Χρέωση</th>${anyRun ? '<th>Σε εξέλιξη</th>' : ''}</tr></thead><tbody>
     ${Object.keys(obj).length ? Object.entries(obj).map(([k, v]) =>
-      `<tr><td><b>${esc(k)}</b></td><td>${fmtMin(v.w)}</td><td>${fmtMin(v.b)}</td><td>${fmtMin(v.c)}</td></tr>`).join('')
-      : '<tr><td colspan="4" class="empty">—</td></tr>'}</tbody></table></div>`;
+      `<tr><td><b>${esc(k)}</b></td><td>${fmtMin(v.w)}</td><td>${fmtMin(v.b)}</td><td>${fmtMin(v.c)}</td>${
+        anyRun ? `<td>${v.r ? `<b class="t-run" data-grp="${grp}" data-key="${esc(k)}">${fmtMin(v.r)}</b>` : '<span class="mut">—</span>'}</td>` : ''}</tr>`).join('')
+      : `<tr><td colspan="${anyRun ? 5 : 4}" class="empty">—</td></tr>`}</tbody></table></div>`;
   $('#tRes').innerHTML = `
   <div class="grid g4" style="margin:14px 0 2px">
-    <div class="stat info"><b>${fmtMin(d.totals.w)}</b><small>Σύνολο εργασίας</small></div>
+    <div class="stat info"><b>${fmtMin(d.totals.w)}</b><small>Σύνολο εργασίας${
+      anyRun ? ` · <b class="t-run" data-grp="all">${fmtMin(d.totals.r)}</b> σε εξέλιξη` : ''}</small></div>
     <div class="stat warn"><b>${fmtMin(d.totals.b)}</b><small>Χρεώσιμα</small></div>
     <div class="stat"><b>${fmtMin(d.totals.nb)}</b><small>Χωρίς χρέωση</small></div>
     <div class="stat bad"><b>${fmtMin(d.totals.c)}</b><small>Χρεώθηκαν (προαγορά)</small></div>
   </div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
-    ${aggTbl('Ανά project', d.agg.project)}${aggTbl('Ανά πελάτη', d.agg.client)}${aggTbl('Ανά χειριστή', d.agg.admin)}
+    ${aggTbl('Ανά project', d.agg.project, 'project')}${aggTbl('Ανά πελάτη', d.agg.client, 'client')}${aggTbl('Ανά χειριστή', d.agg.admin, 'admin')}
   </div>
+  ${anyRun ? `<div class="card"><div class="card-h">▶ Τρέχουν τώρα (${d.running.length})
+    <span class="mut" style="font-weight:600;font-size:11px">— χρόνος που μετράει αυτή τη στιγμή· θα καταχωρηθεί όταν σταματήσει</span></div>
+    <table class="tbl"><thead><tr><th>Από</th><th>Task</th><th>Πελάτης</th><th>Ποιος</th><th>Χρόνος</th></tr></thead><tbody>
+    ${d.running.map((r, i) => `<tr data-task="${r.task}" style="cursor:pointer">
+      <td>${tShort(r.startedAt)}</td>
+      <td><span class="dot" style="background:${r.pcolor};margin-right:5px"></span>${esc(r.title)}</td>
+      <td>${esc(r.client || '—')}</td><td>${esc(r.by)}</td>
+      <td><b class="t-run" data-i="${i}">${fmtMin(r.mins)}</b></td></tr>`).join('')}
+    </tbody></table></div>` : ''}
   <div class="card"><div class="card-h">Καταχωρήσεις (${d.entries.length})</div>
     <table class="tbl"><thead><tr><th>Πότε</th><th>Task</th><th>Πελάτης</th><th>Ποιος</th><th>Χρόνος</th><th>Χρέωση</th><th>Σημ.</th></tr></thead><tbody>
     ${d.entries.length ? d.entries.map(e => `<tr data-task="${e.task}" style="cursor:pointer">
@@ -442,6 +457,25 @@ R.time = async function () {
       <td class="mut">${esc(e.note || '')}</td></tr>`).join('')
       : '<tr><td colspan="7" class="empty">Καμία καταχώρηση</td></tr>'}</tbody></table></div>`;
   $$('#tRes tr[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
+  /* Ένα μόνο χρονόμετρο για όλη την οθόνη, που σβήνει όταν φύγεις από αυτήν. */
+  clearInterval(R.time._t);
+  if (anyRun) {
+    const elapsed = r => Math.max(0, Math.floor(
+      (Date.now() - new Date(String(r.startedAt).replace(' ', 'T')).getTime()) / 60000));
+    const tick = () => {
+      if (S.view !== 'time' || !$('#tRes')) { clearInterval(R.time._t); return; }
+      $$('#tRes .t-run').forEach(el => {
+        const g = el.dataset.grp;
+        const mins = g
+          ? d.running.reduce((sum, r) =>
+              sum + (g === 'all' || (r.keys && r.keys[g] === el.dataset.key) ? elapsed(r) : 0), 0)
+          : elapsed(d.running[+el.dataset.i]);
+        el.textContent = fmtMin(mins);
+      });
+    };
+    tick();
+    R.time._t = setInterval(tick, 30000);
+  }
   $('#tCsv').onclick = () => {
     const esc2 = v => '"' + String(v ?? '').replaceAll('"', '""') + '"';
     const rows = [['Ημερομηνία', 'Task', 'Πελάτης', 'Χειριστής', 'Λεπτά', 'Χρεώσιμο', 'Χρέωση', 'Σημείωση'].map(esc2).join(';')];

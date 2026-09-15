@@ -2492,6 +2492,9 @@ function cnpAttachments(host, opts) {
         </div>${prev}</div>`;
     }).join('') : '<div class="mut" style="font-size:12px">Κανένα συνημμένο ακόμη.</div>';
     box.querySelectorAll('[data-fdel]').forEach(b => b.onclick = async () => { if (!await cnpConfirm('Διαγραφή αρχείου;', {danger: true})) return; await api('file_delete', {id: +b.dataset.fdel}); files = files.filter(x => x.id != b.dataset.fdel); renderList(); toast('Διαγράφηκε'); });
+    /* Ο καλών μαθαίνει πόσα αρχεία υπάρχουν — αλλιώς ένα κλειστό «Συνημμένα» δεν
+       προδίδει τίποτα και το αρχείο μένει αόρατο (δες task #120). */
+    if (typeof opts.onCount === 'function') { try { opts.onCount(files.length); } catch (e) { /* η οθόνη δεν πέφτει για ένα μετρητή */ } }
   };
   async function uploadOne(file) {
     try {

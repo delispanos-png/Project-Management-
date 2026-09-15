@@ -1561,7 +1561,7 @@ function cnp_kb_suggest($text, $limit = 3, $floor = 3.0)
     return array_slice($out, 0, $limit);
 }
 
-function taskDto($t, $minsMap = null, $checkMap = null)
+function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null)
 {
     return [
         'id' => (int) $t->id, 'title' => $t->title, 'status' => (int) $t->status_id,
@@ -1585,6 +1585,7 @@ function taskDto($t, $minsMap = null, $checkMap = null)
         'doneBy' => isset($t->completed_by) && $t->completed_by ? (int) $t->completed_by : null,
         'mins' => $minsMap !== null ? (int) ($minsMap[(int) $t->id] ?? 0) : null,
         'check' => $checkMap !== null ? ($checkMap[(int) $t->id] ?? null) : null,
+        'att' => $attMap !== null ? (int) ($attMap[(int) $t->id] ?? 0) : null,
     ];
 }
 
@@ -2753,6 +2754,7 @@ case 'board':
     }
     $mins = Db::minutesByTask($pid);
     $check = Db::checklistProgress($pid);
+    $att = Db::attachmentCounts($pid);
     $allIds = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->pluck('id')->all();
     $blockedM = Db::blockedMap($allIds);
     $cols = [];
@@ -2760,7 +2762,7 @@ case 'board':
     foreach (Db::statuses() as $s) {
         $cards = [];
         foreach ($board[(int) $s->id] ?? [] as $t) {
-            $dto = taskDto($t, $mins, $check);
+            $dto = taskDto($t, $mins, $check, $att);
             $dto['blocked'] = isset($blockedM[(int) $t->id]) ? count($blockedM[(int) $t->id]) : 0;
             $cards[] = $dto;
         }
@@ -4807,11 +4809,37 @@ case 'time':
             'by' => Db::adminName($r->admin_id), 'mins' => $m,
             'billable' => (bool) $r->billable, 'charged' => (int) $r->charged_minutes, 'note' => $r->note];
     }
+    /* Όσοι μετράνε χρόνο ΑΥΤΗ ΤΗ ΣΤΙΓΜΗ. Δεν μπαίνουν στα καταχωρημένα σύνολα (ούτε στο
+       CSV) — είναι ακόμη ανοιχτοί — αλλά φαίνονται χωριστά ώστε να μη χρειάζεται να
+       σταματήσει κανείς τον χρόνο του για να μετρηθεί η δουλειά του. */
+    $tot['r'] = 0;
+    $running = [];
+    foreach (Db::runningTimers(['project_id' => (int) ($_GET['fp'] ?? 0), 'admin_id' => $fa]) as $r) {
+        $el = max(0, (int) floor((time() - strtotime($r->started_at)) / 60));
+        $tot['r'] += $el;
+        $who = Db::adminName($r->admin_id);
+        $keys = ['project' => $r->project_name,
+            'client' => $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —',
+            'admin' => $who];
+        foreach ($keys as $grp => $key) {
+            if (!isset($agg[$grp][$key])) { $agg[$grp][$key] = ['w' => 0, 'b' => 0, 'c' => 0]; }
+            $agg[$grp][$key]['r'] = ($agg[$grp][$key]['r'] ?? 0) + $el;
+        }
+        /* Τα «keys» είναι ΑΚΡΙΒΩΣ τα κλειδιά των συγκεντρωτικών πινάκων, ώστε η οθόνη
+           να ξαναϋπολογίζει ζωντανά το «σε εξέλιξη» χωρίς να μαντεύει ονόματα. */
+        $running[] = ['task' => (int) $r->task_id, 'title' => $r->task_title,
+            'pname' => cnp_pn($r->project_name), 'pcolor' => $r->project_color ?: '#8595ac',
+            'client' => $r->clientid ? clientLabel($r->clientid) : null,
+            'by' => $who, 'startedAt' => $r->started_at, 'mins' => $el, 'note' => $r->note,
+            'keys' => $keys];
+    }
+
     foreach ($agg as &$grp) {
-        uasort($grp, function ($a, $b) { return $b['w'] <=> $a['w']; });
+        uasort($grp, function ($a, $b) { return ($b['w'] + ($b['r'] ?? 0)) <=> ($a['w'] + ($a['r'] ?? 0)); });
     }
     unset($grp);
-    out(['from' => $from, 'to' => $to, 'entries' => $entries, 'totals' => $tot, 'agg' => $agg]);
+    out(['from' => $from, 'to' => $to, 'entries' => $entries, 'totals' => $tot,
+        'agg' => $agg, 'running' => $running, 'now' => date('c')]);
 
 /* ================= ΠΡΟΣΦΟΡΕΣ ================= */
 case 'offers':

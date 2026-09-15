@@ -1244,6 +1244,7 @@ function cardHtml(t) {
       ${t.mins ? `<span>⏱ ${fmtMin(t.mins)}</span>` : ''}
       ${t.est ? `<span class="mut">~${fmtMin(t.est)}</span>` : ''}
       ${t.check ? `<span class="${t.check[0] >= t.check[1] ? 'pill pill-ok' : ''}">☑ ${t.check[0]}/${t.check[1]}</span>` : ''}
+      ${t.att ? `<span class="tk-flag tk-flag-att" title="${t.att} συνημμένα">${I.clip} ${t.att}</span>` : ''}
       ${t.blocked ? `<span class="pill pill-bad" title="Μπλοκάρεται από ${t.blocked} tasks">⛓ ${t.blocked}</span>` : ''}
     </div>
     ${t.done && t.doneNote ? `<div class="tcard-done" title="${esc(t.doneNote)}">✔ ${esc(t.doneNote)}</div>` : ''}</div>`;
@@ -1397,7 +1398,7 @@ async function openTask(id) {
           ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι… (@Όνομα = ειδοποίηση)', {min: 110})
             + `<div class="tk-brief-foot"><button class="btn btn-p btn-sm" id="dBriefSave">Αποθήκευση ζητουμένου</button><span class="mut" id="dBriefHint" style="font-size:11px"></span></div>`
           : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? d.descr : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>`}
-        <details class="tk-att" open><summary>${I.clip} Συνημμένα ζητουμένου</summary>
+        <details class="tk-att" open><summary id="dFilesSum">${I.clip} Συνημμένα ζητουμένου<b data-attn></b></summary>
           <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
       </div></div>
 
@@ -1418,7 +1419,7 @@ async function openTask(id) {
         <div class="tk-step-foot">
           <textarea class="inp chk-new" id="chkNew" rows="1"
             placeholder="Τι έκανες ή τι πρέπει να γίνει… (Enter = καταχώρηση · Shift+Enter = νέα γραμμή · \`\`\` για κώδικα)"></textarea>
-          <details class="tk-att"><summary>${I.clip} Συνημμένα ενεργειών</summary>
+          <details class="tk-att" id="dCheckAtt"><summary id="dCheckSum">${I.clip} Συνημμένα ενεργειών<b data-attn></b></summary>
             <div id="dCheckFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
         </div>
       </div></div>
@@ -1755,7 +1756,8 @@ async function openTask(id) {
   $$('[data-dgo]', dr).forEach(a => a.onclick = () => openTask(+a.dataset.dgo));
   /* αρχεία */
   if ($('#dFiles', dr) && window.cnpAttachments) {
-    window.cnpAttachments($('#dFiles', dr), {module: 'task', refType: 'task', refId: id});
+    window.cnpAttachments($('#dFiles', dr), {module: 'task', refType: 'task', refId: id,
+      onCount: n => attCount($('#dFilesSum', dr), n)});
   }
   /* Διόρθωση επί τόπου: το βήμα γίνεται πεδίο, Enter αποθηκεύει, Esc ακυρώνει. */
   $$('[data-cedit]', dr).forEach(b => b.onclick = () => {
@@ -1822,10 +1824,23 @@ async function openTask(id) {
     }; }
   /* Συνημμένα ενεργειών: ίδιος μηχανισμός αρχείων, δικό τους «καλάθι» (ref_type=check). */
   if ($('#dCheckFiles', dr) && window.cnpAttachments) {
-    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id, paste: true});
+    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id, paste: true,
+      onCount: n => attCount($('#dCheckSum', dr), n)});
   }
 
 }
+/**
+ * Το «Συνημμένα» πρέπει να φωνάζει όταν ΕΧΕΙ αρχεία. Κλειστό και γκρίζο, κανείς δεν
+ * το ανοίγει — και το συνημμένο μένει αόρατο (το ζήσαμε στο task #120). Με αρχεία:
+ * αριθμός σε παρένθεση και χρώμα, ώστε να φαίνεται χωρίς κλικ.
+ */
+function attCount(sum, n) {
+  if (!sum) { return; }
+  const b = sum.querySelector('[data-attn]');
+  if (b) { b.textContent = n ? ' (' + n + ')' : ''; }
+  sum.classList.toggle('has-att', !!n);
+}
+
 /** Άμεσο κλείσιμο ΧΩΡΙΣ ερώτηση — το καλούν τα views ΜΕΤΑ από επιτυχή αποθήκευση. */
 function closeDrawer() {
   clearInterval(timerInt);
