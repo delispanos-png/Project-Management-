@@ -683,7 +683,9 @@ button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
 .man-sec b{color:var(--ink)}
 .man-tip{display:flex;gap:10px;align-items:flex-start;background:color-mix(in srgb,var(--brand) 8%,transparent);border-left:3px solid var(--brand);border-radius:10px;padding:11px 14px;margin:12px 0;font-size:13px;line-height:1.6}
 .man-tip.warn{background:color-mix(in srgb,var(--warn) 12%,transparent);border-left-color:var(--warn)}
-.man-tip b{display:block;margin-bottom:2px}
+/* ΜΟΝΟ ο τίτλος της συμβουλής είναι μπλοκ. Πριν, κάθε <b> μέσα στο κείμενο
+   έσπαγε γραμμή — έξι συμβουλές του οδηγού εμφανίζονταν κομματιασμένες. */
+.man-tip div > b:first-child{display:block;margin-bottom:2px}
 .man-kbd{display:inline-block;font-size:11.5px;font-weight:700;font-family:inherit;background:var(--line);color:var(--ink);border-radius:6px;padding:2px 8px;margin:0 1px}
 .man-steps{counter-reset:mstep;list-style:none;padding-left:0}
 .man-steps li{position:relative;padding-left:34px;margin-bottom:9px}
