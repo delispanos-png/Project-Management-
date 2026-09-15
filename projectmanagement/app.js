@@ -1782,6 +1782,7 @@ async function openTask(id) {
   /* αρχεία */
   if ($('#dFiles', dr) && window.cnpAttachments) {
     window.cnpAttachments($('#dFiles', dr), {module: 'task', refType: 'task', refId: id,
+      canDelete: !t.done,
       onCount: n => attCount($('#dFilesSum', dr), n)});
   }
   /* Διόρθωση επί τόπου: το βήμα γίνεται πεδίο, Enter αποθηκεύει, Esc ακυρώνει. */
@@ -1869,7 +1870,10 @@ async function openTask(id) {
 
   /* Συνημμένα ενεργειών: ίδιος μηχανισμός αρχείων, δικό τους «καλάθι» (ref_type=check). */
   if ($('#dCheckFiles', dr) && window.cnpAttachments) {
-    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id, paste: true,
+    /* Σε κλειδωμένη εργασία το Ctrl+V δεν πρέπει να ανεβάζει screenshot: το πεδίο
+       είναι κρυφό, αλλά ο listener του προχείρου θα δούλευε ακόμη. */
+    window.cnpAttachments($('#dCheckFiles', dr), {module: 'task', refType: 'check', refId: id,
+      paste: !t.done, canDelete: !t.done,
       onCount: n => attCount($('#dCheckSum', dr), n)});
   }
 
