@@ -1480,6 +1480,12 @@ async function openTask(id) {
       </div>
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
         <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>
+      <label class="tk-est" title="Πόσο υπολογίζει ο τεχνικός ότι θα του πάρει. Φαίνεται στην κάρτα δίπλα στον πραγματικό χρόνο, και μετράει στον φόρτο της ομάδας.">
+        ⏱ <b>Εκτίμηση</b>
+        <input class="inp" id="fEst" inputmode="decimal" placeholder="π.χ. 1,5"
+          value="${t.est ? String(Math.round(t.est / 60 * 100) / 100).replace('.', ',') : ''}">
+        <span class="mut">ώρες</span>
+        <span class="mut" id="fEstHint" style="margin-left:auto">${t.est ? '= ' + fmtMin(t.est) : ''}</span></label>
       <div class="tk-actions">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
@@ -1621,13 +1627,16 @@ async function openTask(id) {
   /* Τα «ψίχουλα» (πελάτης / έργο / department) βγάζουν εκτός εργασίας — αν έμενε
      ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
   $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
+  { const fe = $('#fEst', dr), fh = $('#fEstHint', dr);
+    if (fe && fh) { fe.oninput = () => { const m = estMins(fe.value); fh.textContent = m ? '= ' + fmtMin(m) : ''; }; } }
   $('#dSave', dr).onclick = async () => {
     await api('save_task', {task: id,
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
       type: +$('#fType').value || 0,
       dept: +(($('#fDept') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
-      is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0});
+      is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
+      est: estMins(($('#fEst', dr) || {}).value)});
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
@@ -1829,6 +1838,16 @@ async function openTask(id) {
   }
 
 }
+/**
+ * Η εκτίμηση γράφεται σε ΩΡΕΣ γιατί έτσι τη σκέφτεται ο τεχνικός («μιάμιση»),
+ * αλλά αποθηκεύεται σε λεπτά. Δεχόμαστε και κόμμα και τελεία — ένα πεδίο που
+ * απορρίπτει το «1,5» σε ελληνικό πληκτρολόγιο είναι πεδίο που δεν συμπληρώνεται.
+ */
+function estMins(v) {
+  const n = parseFloat(String(v == null ? '' : v).trim().replace(',', '.'));
+  return isFinite(n) && n > 0 ? Math.round(n * 60) : 0;
+}
+
 /**
  * Το «Συνημμένα» πρέπει να φωνάζει όταν ΕΧΕΙ αρχεία. Κλειστό και γκρίζο, κανείς δεν
  * το ανοίγει — και το συνημμένο μένει αόρατο (το ζήσαμε στο task #120). Με αρχεία:

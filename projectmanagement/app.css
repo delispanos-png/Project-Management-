@@ -2472,6 +2472,11 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
   padding:7px 10px;border:1px dashed #7b5cd655;border-radius:9px;background:#7b5cd60d}
 .tk-offer input{width:16px;height:16px;accent-color:#7b5cd6}
 .tk-offer svg{width:14px;height:14px;color:#5f43b8}
+/* Εκτίμηση χρόνου: ίδιο σχήμα με το «Αφορά προσφορά» ώστε να διαβάζονται ως ζευγάρι,
+   σε χρώμα της μάρκας γιατί μιλά για χρόνο, όχι για προσφορά. */
+.tk-est{display:flex;align-items:center;gap:7px;margin-top:7px;font-size:12.5px;
+  padding:6px 10px;border:1px dashed #0090dd55;border-radius:9px;background:#0090dd0d}
+.tk-est .inp{width:82px;padding:5px 8px;font-size:12.5px;text-align:right}
 .tk-actions{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
 .tk-actions .btn{padding:6px 11px;font-size:12.5px}
 .tk-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}

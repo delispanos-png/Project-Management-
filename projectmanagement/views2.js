@@ -1736,6 +1736,8 @@ R.client360 = async function (cid) {
         ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Edit">${I.edit} Επεξεργασία</button>` : ''}
         ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Aade" title="Αυτόματη ενημέρωση στοιχείων από το μητρώο ΑΑΔΕ">${I.repeat} Ενημέρωση ΑΑΔΕ</button>` : ''}
         <button class="btn btn-p btn-sm" id="c3Rt">${I.monitor} Remote</button>
+        ${(d.full || cnpCan('projects.portfolio.edit'))
+          ? `<button class="btn btn-p btn-sm" id="c3NewPjTop">${I.rocket} Νέο έργο</button>` : ''}
       </div>
     </div>
     ${alerts.length ? `<div class="c3-alerts">${alerts.map(([t, ic, txt]) => `<div class="c3-alert ${t}"><span style="font-size:16px">${ic}</span> ${txt}</div>`).join('')}</div>` : ''}
@@ -1844,8 +1846,11 @@ R.client360 = async function (cid) {
     cnpClientContacts($('#c3Contacts'), id);
     $$('#c3Res [data-m]').forEach(b => b.onclick = () => show(id, +b.dataset.m));
     $$('#c3Res [data-c3task]').forEach(a => a.onclick = () => openTask(+a.dataset.c3task));
-    const npj = $('#c3NewPj');
-    if (npj) npj.onclick = () => { R.projects._pre = {client: id, clientName: d.client.name}; go('projects'); };
+    /* Το «Νέο έργο» υπάρχει και ψηλά στην επικεφαλίδα και μέσα στην κάρτα των έργων:
+       η δεύτερη θέση είναι εκεί που το ψάχνεις όταν βλέπεις τη λίστα, η πρώτη εκεί
+       που το ψάχνεις μόλις ανοίξεις τον πελάτη. Ίδια ενέργεια, ένας χειριστής. */
+    const newProject = () => { R.projects._pre = {client: id, clientName: d.client.name}; go('projects'); };
+    $$('#c3Res #c3NewPj, #c3Res #c3NewPjTop').forEach(b => { b.onclick = newProject; });
     const rtb = $('#c3Rt');
     if (rtb) rtb.onclick = () => window.CNP.startRemote(id, d.client.name, 0, {email: d.client.email || ''});
     const ceb = $('#c3Edit');
