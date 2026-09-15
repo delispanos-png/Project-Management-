@@ -2141,6 +2141,29 @@ function cnp_afm_where($w, $like)
  * (ένα κλικ, καταγράφεται). Δεν κλειδώνουν τα σχόλια (συζήτηση, όχι δεδομένα),
  * η αλλαγή κατάστασης (έτσι ξανανοίγει) και η έγκριση χρέωσης του λογιστηρίου.
  */
+/**
+ * «ΔΙΚΗ ΜΟΥ ΕΚΚΡΕΜΟΤΗΤΑ» — ο κανόνας της μπάλας.
+ *
+ * Ανάδοχος είμαι εγώ ΔΕΝ σημαίνει ότι περιμένει εμένα. Όταν η μπάλα (action_user)
+ * έχει περάσει σε άλλον — π.χ. η εργασία πήγε «Προς τιμολόγηση» και περιμένει το
+ * λογιστήριο — η δουλειά μου τελείωσε. Μέχρι τις 15/9/2026 η εργασία έμενε στη
+ * «Μέρα μου» ως ΕΚΠΡΟΘΕΣΜΗ δική μου, ενώ είχε παραδοθεί από χθες.
+ *
+ * Ο κανόνας: δική μου είναι όποια έχει τη μπάλα σε ΕΜΕΝΑ, ή όποια είναι δική μου
+ * και δεν έχει μπάλα πουθενά αλλού. Δεν εξαφανίζεται τίποτα — όσες περιμένουν
+ * άλλον μαζεύονται χωριστά (βλ. «waiting» στο myday).
+ */
+function cnp_scope_mine($q, $adminId)
+{
+    return $q->where(function ($w) use ($adminId) {
+        $w->where('action_user', $adminId)
+          ->orWhere(function ($x) use ($adminId) {
+              $x->where('assignee', $adminId)
+                ->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); });
+          });
+    });
+}
+
 function cnp_task_locked($t)
 {
     return $t && !empty($t->completed_at);
@@ -2998,7 +3021,13 @@ case 'myday':
     foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->select('t.*', 'p.name as pname', 'p.color as pcolor')
         ->whereNotIn('t.status_id', $doneIds)->whereNotNull('t.schedule_date')->where('t.schedule_date', '<=', $today)
-        ->where(function ($w) use ($adminId) { $w->where('t.assignee', $adminId)->orWhere('t.action_user', $adminId); })
+        ->where(function ($w) use ($adminId) {
+            $w->where('t.action_user', $adminId)
+              ->orWhere(function ($x) use ($adminId) {
+                  $x->where('t.assignee', $adminId)
+                    ->where(function ($y) { $y->whereNull('t.action_user')->orWhere('t.action_user', 0); });
+              });
+        })
         ->orderByRaw('t.priority DESC')->get() as $t) {
         $plan[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
     }
@@ -3008,9 +3037,26 @@ case 'myday':
         ->where('t.action_user', $adminId)->whereNotIn('t.status_id', $doneIds)->get() as $t) {
         $balls[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac'];
     }
-    $myOpen = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)->count();
-    $dueToday = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+    $myOpen = (int) cnp_scope_mine(
+        Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $adminId)->count();
+    $dueToday = (int) cnp_scope_mine(
+        Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $adminId)
         ->whereNotNull('due_date')->where('due_date', '<=', $today)->count();
+    /* Όσες είναι δικές μου αλλά περιμένουν ΑΛΛΟΝ: δεν χάνονται, μετακομίζουν σε
+       δική τους ήσυχη λίστα αντί να φωνάζουν ως εκπρόθεσμες. */
+    $waiting = [];
+    foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_statuses as st', 'st.id', '=', 't.status_id')
+        ->select('t.*', 'p.name as pname', 'p.color as pcolor', 'st.title as stitle')
+        ->whereNotIn('t.status_id', $doneIds)
+        ->where('t.assignee', $adminId)
+        ->whereNotNull('t.action_user')->where('t.action_user', '<>', 0)
+        ->whereColumn('t.action_user', '<>', 't.assignee')
+        ->orderByDesc('t.updated_at')->get() as $t) {
+        /* ΟΧΙ 'status': το taskDto δίνει ήδη το id και η ένωση πινάκων κρατά το αριστερό. */
+        $waiting[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac',
+            'statusName' => (string) $t->stitle, 'ballName' => Db::adminName($t->action_user)];
+    }
     $minsToday = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $adminId)->where('running', 0)
         ->where('created_at', '>=', $today . ' 00:00:00')->sum('minutes');
     // follow-ups
@@ -3054,7 +3100,11 @@ case 'myday':
     foreach (Capsule::table('mod_cpm_tasks')->whereNotNull('due_date')
                  ->where('due_date', '!=', '0000-00-00')->whereNotIn('status_id', $doneIds)
                  ->where(function ($w) use ($adminId) {
-                     $w->where('assignee', $adminId)->orWhere('action_user', $adminId);
+                     $w->where('action_user', $adminId)
+                       ->orWhere(function ($x) use ($adminId) {
+                           $x->where('assignee', $adminId)
+                             ->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); });
+                       });
                  })->get() as $tsk) {
         $dueTs = strtotime((string) $tsk->due_date . ' 23:59:59');
         $startTs = ($tsk->start_date && strpos((string) $tsk->start_date, '0000') !== 0)
@@ -3211,14 +3261,18 @@ case 'myday':
         }
         return $out;
     };
+    /* Ο coach μιλά για ό,τι περιμένει ΕΜΕΝΑ — όχι για ό,τι έχω παραδώσει και
+       περιμένει άλλον (βλ. cnp_scope_mine). */
     $myTasks = function () use ($adminId, $doneIds) {
-        return Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds);
+        return cnp_scope_mine(
+            Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $adminId);
     };
 
     $overdueR = $myTasks()->whereNotNull('due_date')->where('due_date', '<', $today)->get(['id', 'title'])->all();
     $dueTodR  = $myTasks()->where('due_date', $today)->get(['id', 'title'])->all();
-    $wipR     = Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->where('status_id', 2)->get(['id', 'title'])->all();
-    $staleR   = Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereIn('status_id', [2, 3])
+    $wipR     = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->where('status_id', 2), $adminId)
+        ->get(['id', 'title'])->all();
+    $staleR   = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereIn('status_id', [2, 3]), $adminId)
         ->where('updated_at', '<', date('Y-m-d', strtotime('-7 days')) . ' 23:59:59')->get(['id', 'title'])->all();
     $noDueR   = $myTasks()->whereNull('due_date')->get(['id', 'title'])->all();
     $overdue = count($overdueR); $dueTod = count($dueTodR); $wip = count($wipR);
@@ -3297,7 +3351,7 @@ case 'myday':
     }
     $coach = array_slice($coach, 0, 6);
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
-        'queue' => $queue, 'deadlines' => $dl,
+        'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday]]);

@@ -2103,6 +2103,17 @@ async function vMyDay() {
           `<a class="cref" ${r.kind === 'ticket' ? `data-qtk="${r.id}"` : `data-dltask="${r.id}"`}>${esc(r.label)}</a>`).join('')}</span>` : ''}
       </span></div>`).join('')}
     </div></div>` : ''}
+  ${(d.waiting || []).length ? `<div class="card" style="margin-bottom:14px"><div class="card-h">⏸ Παρέδωσα — περιμένουν άλλον
+    <span class="mut" style="font-weight:600;font-size:11px">— δική σου εργασία, αλλά η μπάλα είναι αλλού· δεν μετράει ως εκκρεμότητά σου</span>
+    <span class="kb-n" style="margin-left:auto">${d.waiting.length}</span></div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:6px">
+    ${d.waiting.map(w => `<div class="wtrow" data-dltask="${w.id}">
+      <span class="dot" style="background:${w.pcolor}"></span>
+      <span class="wtt">#${w.id} ${esc(w.title)}<span class="mut"> · ${esc(w.pname || '—')}</span></span>
+      <span class="pill pill-mut">${esc(w.statusName || '')}</span>
+      <span class="mut wtb">περιμένει: <b>${esc(w.ballName || '—')}</b></span>
+    </div>`).join('')}
+    </div></div>` : ''}
   <div class="grid g4" style="margin-bottom:16px">
     ${suStat(I.ticket, st.tickets, 'Tickets μου', st.tickets ? 'var(--brand)' : 'var(--ok)')}
     ${suStat(I.clock, st.nearSla, 'Κοντά σε SLA', st.nearSla ? 'var(--bad)' : 'var(--ok)')}
