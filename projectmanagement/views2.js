@@ -2722,9 +2722,13 @@ R.projects = async function () {
   const c = $('#content');
   c.innerHTML = skel(1, 340);
   const d = await api('portfolio');
-  const roots = d.projects.filter(p => !p.parent && p.kind !== 'client');
+  /* Τρεις διαδρομές, τρεις λίστες: δουλειά ΓΙΑ πελάτη, δική μας ανάπτυξη (R&D),
+     και η παλιά ουρά τμήματος. Αν η ανάπτυξη έμενε μαζί με τα «λειτουργικά», δεν
+     θα φαινόταν ποτέ πόσο επενδύουμε στα δικά μας προϊόντα. */
+  const rndPjs = d.projects.filter(p => p.kind === 'internal');
+  const roots = d.projects.filter(p => !p.parent && p.kind !== 'client' && p.kind !== 'internal');
   const clientPjs = d.projects.filter(p => p.kind === 'client');
-  const kids = pid => d.projects.filter(p => p.parent === pid && p.kind !== 'client');
+  const kids = pid => d.projects.filter(p => p.parent === pid && p.kind !== 'client' && p.kind !== 'internal');
   const hC = {green: 'var(--ok)', yellow: 'var(--warn)', red: 'var(--bad)'};
   const psL = {new: 'Νέο', active: 'Σε εξέλιξη', hold: 'Σε αναμονή', done: 'Ολοκληρωμένο'};
   const burnBar = p => {
@@ -2829,6 +2833,7 @@ R.projects = async function () {
       }).join('');
   };
   const cliList = clientPjs.filter(hit);
+  const rndList = rndPjs.filter(hit);
   const opsList = [];
   roots.filter(hit).forEach(p => { opsList.push(pjCard(p, 0)); kids(p.id).filter(hit).forEach(k => opsList.push(pjCard(k, 1))); });
 
@@ -2845,16 +2850,36 @@ R.projects = async function () {
   ${MOB
     ? group('client', I.rocket, 'Έργα πελατών', 'με budget, εκτίμηση & deadline', cliList.map(p => pjCard(p, 0)),
         'Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά.')
-      + group('ops', I.building, 'Λειτουργικά projects', 'τμήματα & καθημερινή λειτουργία (tickets)', opsList,
-        'Κανένα λειτουργικό project.')
+      + (rndList.length ? group('rnd', '🔬', 'Εσωτερική ανάπτυξη & R&D', 'δικά μας προϊόντα — επένδυση, όχι χρέωση',
+        rndList.map(p => pjCard(p, 0)), '') : '')
+      + (opsList.length ? group('ops', I.building, 'Λειτουργικά projects', 'τμήματα & καθημερινή λειτουργία (tickets)', opsList,
+        'Κανένα λειτουργικό project.') : '')
     : `<div class="card"><div class="card-h">${I.rocket} Έργα πελατών <span class="mut" style="font-weight:400;font-size:11.5px">ένας πελάτης → τα έργα του → οι εργασίες τους στις ομάδες</span></div>
     <table class="tbl"><thead><tr>
     <th>Έργο</th><th>Πελάτης</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Παραδοτέα</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canCreate ? '<th></th>' : ''}</tr></thead>
     <tbody>${cliList.length ? byClient(cliList) : `<tr><td colspan="9" class="empty">Κανένα έργο πελάτη — φτιάξε ένα με «Νέο project» ή από κερδισμένη προσφορά 💼</td></tr>`}</tbody></table></div>
-  <div class="card"><div class="card-h">${I.building} Λειτουργικά projects <span class="mut" style="font-weight:400;font-size:11.5px">τμήματα & καθημερινή λειτουργία (tickets)</span></div>
+  ${rndList.length ? `<div class="card"><div class="card-h">🔬 Εσωτερική ανάπτυξη &amp; R&amp;D
+    <span class="mut" style="font-weight:400;font-size:11.5px">δικά μας προϊόντα — ο χρόνος εδώ είναι επένδυση, όχι χρέωση</span>
+    <span class="kb-n" style="margin-left:auto">${rndList.length}</span></div>
+    <table class="tbl"><thead><tr>
+    <th>Έργο</th><th>Προϊόν που εξελίσσεται</th><th>Κατάσταση</th><th>Deadline</th><th>Budget</th><th>Χρόνος / εκτίμηση</th><th>Πρόοδος</th>${d.canCreate ? '<th></th>' : ''}</tr></thead>
+    <tbody>${rndList.map(p => `<tr class="${p.archived ? 'mut' : ''}">
+      <td><span class="dot" style="background:${p.health ? hC[p.health] : p.color};width:11px;height:11px;margin-right:8px"></span>
+        <a href="#/board/${p.id}" style="font-weight:700">${esc(p.name)}</a></td>
+      <td>${p.productName ? esc(p.productName) : '<span class="mut">νέα έρευνα</span>'}</td>
+      <td>${p.pstatus ? `<span class="pill pill-info">${psL[p.pstatus]}</span>` : '—'}</td>
+      <td class="${p.due && p.due < today() && p.pstatus !== 'done' ? 'pill pill-bad' : ''}">${p.due ? dShort(p.due) : '—'}</td>
+      <td>${p.budget ? fmtEur(p.budget) : '—'}</td>
+      <td style="min-width:130px">${burnBar(p)}</td>
+      <td style="min-width:110px"><div class="bar"><span class="ok" style="width:${p.pct}%"></span></div>
+        <small class="mut">${p.done}/${p.total}</small></td>
+      ${d.canCreate ? `<td>${p.canEdit ? `<button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} </button>
+        <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button>` : ''}</td>` : ''}</tr>`).join('')}
+    </tbody></table></div>` : ''}
+  ${roots.length ? `<div class="card"><div class="card-h">${I.building} Λειτουργικά projects <span class="mut" style="font-weight:400;font-size:11.5px">τμήματα & καθημερινή λειτουργία (tickets)</span></div>
     <table class="tbl"><thead><tr>
     <th>Project</th><th>Πελάτης</th><th>Κατάσταση</th><th>Ανοιχτά</th><th>Πρόοδος</th><th>Τάση 7ημ</th>${d.canCreate ? '<th></th>' : ''}</tr></thead>
-    <tbody>${roots.filter(hit).map(p => row(p, 0) + kids(p.id).filter(hit).map(k => row(k, 1)).join('')).join('')}</tbody></table></div>`}
+    <tbody>${roots.filter(hit).map(p => row(p, 0) + kids(p.id).filter(hit).map(k => row(k, 1)).join('')).join('')}</tbody></table></div>` : ''}`}
   <div id="prExtra"></div>`;
   let pqt;
   $('#prQ').oninput = () => { clearTimeout(pqt); pqt = setTimeout(() => { st.q = $('#prQ').value.trim(); R.projects(); }, 300); };
@@ -2890,8 +2915,10 @@ R.projects = async function () {
           <option value="yellow" ${p.health === 'yellow' ? 'selected' : ''}>🟡 Προσοχή</option>
           <option value="red" ${p.health === 'red' ? 'selected' : ''}>🔴 Πρόβλημα</option></select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="pjKind">
-          <option value="client" ${p.kind !== 'dept' ? 'selected' : ''}>Έργο πελάτη</option>
-          <option value="dept" ${p.kind === 'dept' ? 'selected' : ''}>Ουρά department (παλαιό)</option></select></div>
+          <option value="client" ${p.kind !== 'dept' && p.kind !== 'internal' ? 'selected' : ''}>Έργο πελάτη — δουλειά ΓΙΑ πελάτη</option>
+          <option value="internal" ${p.kind === 'internal' ? 'selected' : ''}>Εσωτερικό / R&amp;D — δικό μας προϊόν</option>
+          ${p.kind === 'dept' ? '<option value="dept" selected>Ουρά department (παλαιό)</option>' : ''}</select>
+          <div class="mut" style="font-size:11px;margin-top:3px" id="pjKindHint"></div></div>
         <div><label class="lbl">Προϊόν <span class="mut" style="font-weight:400">— προαιρετικό· δένεται και αργότερα</span></label>
           <select class="inp" id="pjProd"><option value="">— χωρίς προϊόν (γενική εργασία) —</option></select>
           <div id="pjProdS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
@@ -2984,10 +3011,17 @@ R.projects = async function () {
         + (mine.length ? `<optgroup label="Τα προϊόντα του πελάτη">${mine.map(opt).join('')}</optgroup>` : '')
         + (rest.length ? `<optgroup label="Υπόλοιπος κατάλογος — θα προστεθεί στον πελάτη">${rest.map(opt).join('')}</optgroup>` : '');
       const st = $('#pjProdS', dr);
-      if (st) {
+      if (st && $('#pjKind', dr) && $('#pjKind', dr).value === 'internal') {
+        st.textContent = 'ποιο δικό μας προϊόν εξελίσσεται — κενό = νέα έρευνα ή νέο προϊόν';
+      } else if (st) {
         st.textContent = !cid ? 'διάλεξε πρώτα πελάτη'
           : (mine.length ? mine.length + ' προϊόντα στην καρτέλα του πελάτη · χωρίς προϊόν = γενική εργασία, τη δένεις όποτε ανοίξει το είδος'
                          : 'ο πελάτης δεν έχει δηλωμένα προϊόντα — διάλεξε από τον κατάλογο ή άφησέ το κενό και δέσε το αργότερα');
+      }
+      if ($('#pjKind', dr) && $('#pjKind', dr).value === 'internal') {
+        /* Χωρίς πελάτη δεν υπάρχει «τα προϊόντα του» — μόνο ο κατάλογός μας. */
+        sel.innerHTML = '<option value="">— νέα έρευνα / νέο προϊόν —</option>'
+          + cat.products.map(x => `<option value="${x.id}" ${+x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
       }
     };
     loadProds();
@@ -2995,6 +3029,37 @@ R.projects = async function () {
       const again = () => { clearTimeout(pt); pt = setTimeout(loadProds, 350); };
       $('#pjCli', dr).addEventListener('change', again);
       $('#pjCli', dr).addEventListener('blur', again); }
+
+    /* ── Ο τύπος αλλάζει το νόημα των πεδίων, όχι μόνο μια τιμή ──────────────
+       Σε ΕΣΩΤΕΡΙΚΟ έργο δεν υπάρχει πελάτης (η δουλειά είναι δική μας) και το
+       «προϊόν» δεν σημαίνει «τι αγόρασε» αλλά «ΤΙ ΕΞΕΛΙΣΣΟΥΜΕ». Αν άφηνα τα
+       πεδία ίδια, ο χειριστής θα κόλλαγε εσωτερική ανάπτυξη σε τυχαίο πελάτη —
+       και το κόστος της θα φαινόταν ως δουλειά για εκείνον. */
+    const kindSync = () => {
+      const k = $('#pjKind', dr).value;
+      const internal = k === 'internal';
+      const cliBox = $('#pjCli', dr).closest('div');
+      const visBox = $('#pjVis', dr).closest('label');
+      if (cliBox) { cliBox.hidden = internal; }
+      if (visBox) { visBox.hidden = internal; }
+      if (internal) { $('#pjCliId', dr).value = ''; $('#pjVis', dr).checked = false; }
+      const pl = $('#pjProd', dr) ? $('#pjProd', dr).closest('div').querySelector('.lbl') : null;
+      if (pl) {
+        pl.innerHTML = internal
+          ? 'Ποιο προϊόν εξελίσσεται <span class="mut" style="font-weight:400">— κενό = νέα έρευνα / νέο προϊόν</span>'
+          : 'Προϊόν <span class="mut" style="font-weight:400">— προαιρετικό· δένεται και αργότερα</span>';
+      }
+      const hint = $('#pjKindHint', dr);
+      if (hint) {
+        hint.textContent = internal
+          ? 'Δική μας ανάπτυξη: χωρίς πελάτη, ο χρόνος δεν χρεώνεται σε κανέναν, το κόστος μετριέται ανά προϊόν.'
+          : (k === 'dept' ? 'Παλιά ουρά τμήματος — μένει μόνο για τα υπάρχοντα έργα.'
+                          : 'Δουλειά ΓΙΑ πελάτη: πελάτης και τμήμα υποχρεωτικά.');
+      }
+      loadProds();
+    };
+    $('#pjKind', dr).addEventListener('change', kindSync);
+    kindSync();
     /* Modules του έργου: ποια δικά μας προϊόντα παραδίδονται και πόσο έχει
        προχωρήσει το checklist του καθενός. Κλικ στο module → οι εργασίες του
        με την πρόοδο των ελέγχων· κλικ στην εργασία → το checklist. */
@@ -3249,7 +3314,13 @@ R.projects = async function () {
         toast('Διάλεξε τμήμα — ποιο αναλαμβάνει το έργο;', true);
         $('#pjDept').focus(); return;
       }
-      const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value, client: cid,
+      /* Εσωτερικό έργο: τμήμα υποχρεωτικό (ποιος το κάνει), πελάτης ΠΟΤΕ. */
+      if (kind === 'internal' && !dept) {
+        toast('Διάλεξε τμήμα — ποιο κάνει την ανάπτυξη;', true);
+        $('#pjDept').focus(); return;
+      }
+      const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value,
+        client: kind === 'internal' ? 0 : cid,
         dept: dept, product: prod,
         parent: +$('#pjPar').value || 0, color: $('#pjColor').value,
         pstatus: $('#pjPs').value, health: $('#pjH').value, visible: $('#pjVis').checked,

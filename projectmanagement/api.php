@@ -4835,14 +4835,17 @@ case 'time':
     $rows = Db::timeReport($from, $to, $flt);
     $entries = [];
     $tot = ['w' => 0, 'b' => 0, 'nb' => 0, 'c' => 0];
-    $agg = ['project' => [], 'client' => [], 'admin' => []];
+    /* Το ΠΡΟΪΟΝ είναι η διάσταση που λείπει για την εσωτερική ανάπτυξη: «πόσο μας
+       κόστισε φέτος η εξέλιξη του PharmacyOne» δεν απαντιέται ανά πελάτη. */
+    $agg = ['project' => [], 'client' => [], 'admin' => [], 'product' => []];
     foreach ($rows as $r) {
         $m = (int) $r->minutes;
         $tot['w'] += $m;
         $tot[(int) $r->billable ? 'b' : 'nb'] += $m;
         $tot['c'] += (int) $r->charged_minutes;
         foreach ([['project', $r->project_name], ['client', $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —'],
-                  ['admin', Db::adminName($r->admin_id)]] as $g) {
+                  ['admin', Db::adminName($r->admin_id)],
+                  ['product', $r->product_name ?: '— χωρίς προϊόν —']] as $g) {
             [$grp, $key] = $g;
             if (!isset($agg[$grp][$key])) {
                 $agg[$grp][$key] = ['w' => 0, 'b' => 0, 'c' => 0];
@@ -4870,7 +4873,8 @@ case 'time':
         $who = Db::adminName($r->admin_id);
         $keys = ['project' => $r->project_name,
             'client' => $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —',
-            'admin' => $who];
+            'admin' => $who,
+            'product' => $r->product_name ?: '— χωρίς προϊόν —'];
         foreach ($keys as $grp => $key) {
             if (!isset($agg[$grp][$key])) { $agg[$grp][$key] = ['w' => 0, 'b' => 0, 'c' => 0]; }
             $agg[$grp][$key]['r'] = ($agg[$grp][$key]['r'] ?? 0) + $el;
@@ -6311,6 +6315,7 @@ case 'portfolio':
         $depts[] = ['id' => (int) $dp->id, 'name' => $dp->name];
     }
     $src = $FULL ? Db::projects(true) : Db::projectsFor($adminId, true);
+    $prodNames = Capsule::table('mod_cpm_products')->pluck('name', 'id')->all();
     $todoBy = [];
     try {
         foreach (Capsule::table('mod_cpm_project_todos')->groupBy('project_id')
@@ -6351,6 +6356,10 @@ case 'portfolio':
             'client' => $p->clientid ? (int) $p->clientid : null, 'clientName' => clientLabel($p->clientid),
             'dept' => $p->deptid ? (int) $p->deptid : null, 'parent' => $p->parent_id ? (int) $p->parent_id : null,
             'product' => isset($p->product_id) && $p->product_id ? (int) $p->product_id : null,
+            /* Το όνομα, όχι μόνο το id: στην εσωτερική ανάπτυξη η στήλη «προϊόν»
+               αντικαθιστά τη στήλη «πελάτης» — εκεί δεν υπάρχει πελάτης. */
+            'productName' => isset($p->product_id) && $p->product_id
+                ? ($prodNames[(int) $p->product_id] ?? null) : null,
             'pstatus' => $p->pstatus, 'health' => $p->health, 'archived' => $p->status === 'archived',
             'visible' => (bool) $p->client_visible, 'done' => $done, 'total' => $total, 'pct' => $pct,
             'trend' => $delta ? $delta[1] - $delta[0] : null,
@@ -6381,22 +6390,35 @@ case 'save_project':
        τμήμα είναι υποχρεωτικά. Το ΠΡΟΪΟΝ είναι προαιρετικό (απόφαση 14/9/2026): υπάρχει
        δουλειά που δεν ταυτίζεται με είδος (μεταφορικές, marketplaces…) και δουλειά που
        ξεκινά πριν ανοίξει το είδος — δένεται αργότερα, και οι εργασίες την ακολουθούν. */
-    $kind9 = in_array($in['kind'] ?? '', ['dept', 'client'], true) ? $in['kind'] : 'dept';
+    /* Τρεις διαδρομές, όχι δύο (απόφαση 15/9/2026):
+         client   — δουλειά ΓΙΑ πελάτη· πελάτης και τμήμα υποχρεωτικά
+         internal — ΕΣΩΤΕΡΙΚΗ ΑΝΑΠΤΥΞΗ / R&D: εξέλιξη δικού μας προϊόντος ή νέα
+                    έρευνα. ΔΕΝ έχει πελάτη — αν είχε, το κόστος της θα φαινόταν
+                    ως δουλειά για εκείνον και θα μόλυνε και την καρτέλα του και
+                    τα χρεώσιμα. Το «προϊόν» εδώ σημαίνει ΤΙ ΕΞΕΛΙΣΣΟΥΜΕ.
+         dept     — παλιά ουρά τμήματος· μένει μόνο για τα υπάρχοντα. */
+    $kind9 = in_array($in['kind'] ?? '', ['dept', 'client', 'internal'], true) ? $in['kind'] : 'dept';
     if (!$pid && $kind9 === 'client') {
         if (!(int) ($in['client'] ?? 0)) { fail('Διάλεξε πελάτη — χωρίς αυτόν το έργο δεν έχει θέση στην ιεραρχία'); }
         if (!(int) ($in['dept'] ?? 0)) { fail('Διάλεξε τμήμα — ποιο τμήμα αναλαμβάνει το έργο;'); }
     }
+    if ($kind9 === 'internal' && !(int) ($in['dept'] ?? 0)) {
+        fail('Διάλεξε τμήμα — ποιο τμήμα κάνει την ανάπτυξη;');
+    }
     $data = ['name' => mb_substr(trim($in['name'] ?? ''), 0, 120) ?: 'Χωρίς όνομα',
-        'clientid' => (int) ($in['client'] ?? 0) ?: null,
+        /* Εσωτερικό έργο ΔΕΝ κρατά πελάτη, ό,τι κι αν στάλθηκε από την οθόνη. */
+        'clientid' => $kind9 === 'internal' ? null : ((int) ($in['client'] ?? 0) ?: null),
         'deptid' => (int) ($in['dept'] ?? 0) ?: null,
         'product_id' => (int) ($in['product'] ?? 0) ?: null,
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#0090dd',
         'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
-        'client_visible' => !empty($in['visible']) ? 1 : 0,
+        /* Χωρίς πελάτη δεν υπάρχει portal να το δείξει — και δεν θέλουμε να διαρρεύσει
+           ποτέ εσωτερική ανάπτυξη σε πελατειακή οθόνη. */
+        'client_visible' => ($kind9 !== 'internal' && !empty($in['visible'])) ? 1 : 0,
         'parent_id' => ((int) ($in['parent'] ?? 0) && (int) $in['parent'] !== $pid) ? (int) $in['parent'] : null,
         'pstatus' => array_key_exists($in['pstatus'] ?? '', Db::projectStatuses()) ? $in['pstatus'] : null,
         'health' => array_key_exists($in['health'] ?? '', Db::healthColors()) ? $in['health'] : null,
-        'kind' => in_array($in['kind'] ?? '', ['dept', 'client'], true) ? $in['kind'] : 'dept',
+        'kind' => $kind9,
         'budget' => ($in['budget'] ?? '') !== '' && $in['budget'] !== null
             ? round((float) str_replace(',', '.', (string) $in['budget']), 2) : null,
         'est_hours' => ($in['estHours'] ?? '') !== '' && $in['estHours'] !== null

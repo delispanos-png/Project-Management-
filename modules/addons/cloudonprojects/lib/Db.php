@@ -1790,9 +1790,10 @@ class Db
         $q = Capsule::table('mod_cpm_timelogs as l')
             ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_products as pr', 'pr.id', '=', 'p.product_id')
             ->select('l.id', 'l.admin_id', 'l.task_id', 'l.started_at', 'l.note',
                 't.title as task_title', 'p.id as project_id', 'p.name as project_name',
-                'p.color as project_color', 'p.clientid')
+                'p.color as project_color', 'p.clientid', 'pr.name as product_name')
             ->where('l.running', 1);
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['admin_id']))   { $q->where('l.admin_id', (int) $f['admin_id']); }
@@ -1805,8 +1806,10 @@ class Db
         $q = Capsule::table('mod_cpm_timelogs as l')
             ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->leftJoin('mod_cpm_products as pr', 'pr.id', '=', 'p.product_id')
             ->select('l.*', 't.title as task_title', 't.ticketid', 'p.id as project_id',
-                'p.name as project_name', 'p.color as project_color', 'p.clientid')
+                'p.name as project_name', 'p.color as project_color', 'p.clientid',
+                'p.kind as project_kind', 'pr.name as product_name')
             ->where('l.running', 0)
             ->whereBetween('l.created_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
