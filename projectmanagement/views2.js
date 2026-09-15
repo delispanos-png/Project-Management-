@@ -398,24 +398,43 @@ R.calendar = async function (ym) {
 
 /* ═════════ ΧΡΟΝΟΣ ═════════ */
 R.time = async function () {
-  setTop('Χρόνος', S.boot.me.full ? 'Αναφορές χρόνου ομάδας' : 'Ο χρόνος σου');
+  setTop('Χρόνος & δραστηριότητα',
+    S.boot.me.full ? 'Τι έκανε ένα άτομο ή ένα τμήμα, σε μια ημέρα ή περίοδο' : 'Ο χρόνος και η δουλειά σου');
   const c = $('#content');
   const f = R.time._f = R.time._f || {};
+  /* Γρήγορες περίοδοι: η ερώτηση είναι σχεδόν πάντα «τι έκανε χθες», και δύο
+     ημερομηνιολόγια για μία μέρα είναι τρία κλικ παραπάνω από όσα χρειάζονται. */
+  const dOff = n => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
+  const RANGES = [['χθες', dOff(1), dOff(1)], ['σήμερα', today(), today()],
+    ['7 ημέρες', dOff(6), today()], ['μήνας', new Date().toISOString().slice(0, 8) + '01', today()]];
+  const curFrom = f.from || new Date().toISOString().slice(0, 8) + '01';
+  const curTo = f.to || today();
   c.innerHTML = `
   <div class="card" style="padding:13px 16px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    <input type="date" class="inp" id="tF" style="width:auto" value="${f.from || new Date().toISOString().slice(0, 8) + '01'}">
-    <input type="date" class="inp" id="tT" style="width:auto" value="${f.to || today()}">
+    ${RANGES.map(([lab, a, b]) => `<button class="btn btn-sm ${curFrom === a && curTo === b ? 'btn-p' : 'btn-o'}"
+      data-range="${a}|${b}">${lab}</button>`).join('')}
+    <span style="width:1px;height:22px;background:var(--line)"></span>
+    <span class="tw-dates"><input type="date" class="inp" id="tF" value="${curFrom}">
+      <span class="mut">→</span>
+      <input type="date" class="inp" id="tT" value="${curTo}"></span>
     <select class="inp" id="tP" style="width:auto"><option value="">— όλα τα projects —</option>
       ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-    ${S.boot.me.full ? `<select class="inp" id="tA" style="width:auto"><option value="">— χειριστής —</option>
+    <select class="inp" id="tD" style="width:auto"><option value="">— όλα τα τμήματα —</option>
+      ${(S.boot.depts || []).map(u => `<option value="${u.id}" ${f.fd == u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+    ${S.boot.me.full ? `<select class="inp" id="tA" style="width:auto"><option value="">— όλοι οι χειριστές —</option>
       ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}
     <button class="btn btn-p btn-sm" id="tGo">Προβολή</button>
     <button class="btn btn-o btn-sm" id="tCsv">⬇ CSV</button></div><div id="tRes">${skel(4)}</div>`;
-  $('#tGo').onclick = () => {
+  const apply = () => {
     R.time._f = {from: $('#tF').value, to: $('#tT').value, fp: $('#tP').value,
-      fa: $('#tA') ? $('#tA').value : ''};
+      fd: $('#tD') ? $('#tD').value : '', fa: $('#tA') ? $('#tA').value : ''};
     R.time();
   };
+  $('#tGo').onclick = apply;
+  $$('[data-range]').forEach(b => { b.onclick = () => {
+    const [a, z] = b.dataset.range.split('|');
+    $('#tF').value = a; $('#tT').value = z; apply();
+  }; });
   const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
   const d = await api('time' + (qs ? '&' + qs : ''));
   /* Η στήλη «σε εξέλιξη» δείχνει τον χρόνο που τρέχει ΤΩΡΑ. Μένει χωριστή από τα
@@ -448,15 +467,57 @@ R.time = async function () {
       <td>${esc(r.client || '—')}</td><td>${esc(r.by)}</td>
       <td><b class="t-run" data-i="${i}">${fmtMin(r.mins)}</b></td></tr>`).join('')}
     </tbody></table></div>` : ''}
-  <div class="card"><div class="card-h">Καταχωρήσεις (${d.entries.length})</div>
+  <div class="card"><div class="card-h">${I.list} Σε τι δούλεψε — ανάλυση ανά εργασία
+    <span class="kb-n" style="margin-left:auto">${d.byTask.length}</span></div>
+    <div class="card-b" style="padding:0">
+    ${d.byTask.length ? d.byTask.map(t => `<details class="tw-task">
+      <summary>
+        <span class="dot" style="background:${t.pcolor}"></span>
+        <b>#${t.task}</b> <span class="tw-ttl">${esc(t.title)}</span>
+        ${t.client ? `<span class="mut tw-cl">${esc(t.client)}</span>` : ''}
+        <span class="mut tw-who">${esc(t.who.join(', '))}</span>
+        ${t.billable ? `<span class="pill pill-warn">${fmtMin(t.billable)} χρεώσιμα</span>` : ''}
+        <b class="tw-mins">${fmtMin(t.mins)}</b>
+      </summary>
+      <div class="tw-logs">
+        ${t.logs.map(l => `<div class="tw-log"><span class="mut">${tShort(l.at)}</span>
+          <span>${esc(l.by)}</span><b>${fmtMin(l.mins)}</b>
+          <span class="mut">${l.billable ? '💶 ' : ''}${esc(l.note || '')}</span></div>`).join('')}
+        <div style="padding:7px 0 2px"><button class="btn btn-sm btn-o" data-task="${t.task}">Άνοιγμα εργασίας</button></div>
+      </div></details>`).join('')
+      : '<div class="empty" style="padding:22px">Καμία καταγραφή χρόνου σε αυτή την περίοδο.</div>'}
+    </div></div>
+
+  <div class="card"><div class="card-h">✔ Ολοκληρώθηκαν <span class="kb-n" style="margin-left:auto">${d.done.length}</span>
+    <span class="mut" style="font-weight:600;font-size:11px;margin-left:8px">— μια μέρα χωρίς χρονόμετρο δεν είναι άδεια μέρα</span></div>
+    <table class="tbl"><thead><tr><th>Πότε</th><th>Task</th><th>Πελάτης</th><th>Ποιος</th><th>Πώς έκλεισε</th></tr></thead><tbody>
+    ${d.done.length ? d.done.map(t => `<tr data-task="${t.task}" style="cursor:pointer">
+      <td>${tShort(t.at)}</td>
+      <td><span class="dot" style="background:${t.pcolor};margin-right:5px"></span>#${t.task} ${esc(t.title)}</td>
+      <td>${esc(t.client || '—')}</td><td>${esc(t.by || '—')}</td>
+      <td class="mut">${esc(t.note || '')}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="empty">Καμία ολοκλήρωση σε αυτή την περίοδο</td></tr>'}</tbody></table></div>
+
+  <details class="card"><summary class="card-h" style="cursor:pointer">Καταχωρήσεις χρόνου (${d.entries.length})</summary>
     <table class="tbl"><thead><tr><th>Πότε</th><th>Task</th><th>Πελάτης</th><th>Ποιος</th><th>Χρόνος</th><th>Χρέωση</th><th>Σημ.</th></tr></thead><tbody>
     ${d.entries.length ? d.entries.map(e => `<tr data-task="${e.task}" style="cursor:pointer">
       <td>${tShort(e.at)}</td><td><span class="dot" style="background:${e.pcolor};margin-right:5px"></span>${esc(e.title)}</td>
       <td>${esc(e.client || '—')}</td><td>${esc(e.by)}</td><td><b>${fmtMin(e.mins)}</b></td>
       <td>${e.billable ? `<span class="pill pill-warn">${fmtMin(e.charged)}</span>` : '—'}</td>
       <td class="mut">${esc(e.note || '')}</td></tr>`).join('')
-      : '<tr><td colspan="7" class="empty">Καμία καταχώρηση</td></tr>'}</tbody></table></div>`;
-  $$('#tRes tr[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
+      : '<tr><td colspan="7" class="empty">Καμία καταχώρηση</td></tr>'}</tbody></table></details>
+
+  <details class="card"><summary class="card-h" style="cursor:pointer">Ημερολόγιο ενεργειών (${d.acts.length})
+    <span class="mut" style="font-weight:600;font-size:11px;margin-left:8px">— κάθε άγγιγμα στο μητρώο</span></summary>
+    <table class="tbl"><thead><tr><th>Πότε</th><th>Ποιος</th><th>Τι</th><th>Task</th></tr></thead><tbody>
+    ${d.acts.length ? d.acts.map(a => `<tr data-task="${a.task}" style="cursor:pointer">
+      <td>${tShort(a.at)}</td><td>${esc(a.by)}</td>
+      <td>${esc(a.action)}${a.detail ? ` <span class="mut">${esc(a.detail)}</span>` : ''}</td>
+      <td><span class="dot" style="background:${a.pcolor};margin-right:5px"></span>#${a.task} ${esc(a.title)}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="empty">Καμία ενέργεια</td></tr>'}</tbody></table></details>`;
+  $$('#tRes tr[data-task], #tRes button[data-task]').forEach(r => r.onclick = e => {
+    e.stopPropagation(); openTask(+r.dataset.task);
+  });
   /* Ένα μόνο χρονόμετρο για όλη την οθόνη, που σβήνει όταν φύγεις από αυτήν. */
   clearInterval(R.time._t);
   if (anyRun) {

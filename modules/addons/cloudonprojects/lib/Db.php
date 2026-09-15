@@ -1796,6 +1796,7 @@ class Db
             ->where('l.running', 1);
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['admin_id']))   { $q->where('l.admin_id', (int) $f['admin_id']); }
+        self::deptFilter($q, $f);
         return $q->orderBy('l.started_at')->get();
     }
 
@@ -1810,7 +1811,54 @@ class Db
             ->whereBetween('l.created_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['admin_id']))   { $q->where('l.admin_id', (int) $f['admin_id']); }
+        self::deptFilter($q, $f);
         return $q->orderBy('l.id', 'desc')->get();
+    }
+
+    /**
+     * Φίλτρο τμήματος. Η εργασία κρατά δικό της dept_id (π.χ. όταν γεννήθηκε από
+     * ticket)· αν δεν έχει, μετράει το τμήμα του ΕΡΓΟΥ της. Χωρίς το COALESCE, οι
+     * εργασίες μέσα σε έργα δεν θα εμφανίζονταν ποτέ σε αναφορά τμήματος.
+     */
+    private static function deptFilter($q, array $f)
+    {
+        if (empty($f['dept_id'])) { return; }
+        $d = (int) $f['dept_id'];
+        $q->whereRaw('COALESCE(t.dept_id, p.deptid) = ?', [$d]);
+    }
+
+    /**
+     * Τι άλλο έγινε στην περίοδο, πέρα από καταγεγραμμένο χρόνο: ολοκληρώσεις,
+     * αλλαγές κατάστασης, σχόλια, αναθέσεις. Χωρίς αυτό, μια μέρα χωρίς χρονόμετρο
+     * φαίνεται άδεια — ενώ μπορεί να έκλεισαν πέντε εργασίες.
+     */
+    public static function activityReport($from, $to, array $f = [])
+    {
+        $q = Capsule::table('mod_cpm_activity as a')
+            ->join('mod_cpm_tasks as t', 't.id', '=', 'a.task_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->select('a.id', 'a.admin_id', 'a.action', 'a.detail', 'a.created_at', 'a.task_id',
+                't.title as task_title', 'p.name as project_name', 'p.color as project_color', 'p.clientid')
+            ->whereBetween('a.created_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+        if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
+        if (!empty($f['admin_id']))   { $q->where('a.admin_id', (int) $f['admin_id']); }
+        self::deptFilter($q, $f);
+        return $q->orderBy('a.id', 'desc')->limit(400)->get();
+    }
+
+    /** Εργασίες που ΟΛΟΚΛΗΡΩΘΗΚΑΝ στην περίοδο — το πιο καθαρό «τι παρέδωσε». */
+    public static function completedReport($from, $to, array $f = [])
+    {
+        $q = Capsule::table('mod_cpm_tasks as t')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->select('t.id', 't.title', 't.completed_at', 't.completed_by', 't.completed_note',
+                't.ticketid', 't.ticket_ref', 'p.name as project_name', 'p.color as project_color', 'p.clientid')
+            ->whereNotNull('t.completed_at')
+            ->whereBetween('t.completed_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+        if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
+        if (!empty($f['admin_id']))   { $q->where('t.completed_by', (int) $f['admin_id']); }
+        self::deptFilter($q, $f);
+        return $q->orderByDesc('t.completed_at')->limit(300)->get();
     }
 
     /* ------------------------------------------------------------------ */

@@ -1747,7 +1747,14 @@ function clientLabel($cid)
         return null;
     }
     $c = Capsule::table('tblclients')->where('id', (int) $cid)->first(['firstname', 'lastname', 'companyname']);
-    return $c ? ($c->companyname ?: trim($c->firstname . ' ' . $c->lastname)) : ('#' . $cid);
+    if (!$c) {
+        return '#' . $cid;
+    }
+    /* Το WHMCS αποθηκεύει την επωνυμία ΞΕΦΕΥΓΜΕΝΗ («Nicos &amp; Dena»). Η οθόνη μας
+       την ξεφεύγει ξανά, οπότε ο πελάτης εμφανιζόταν κυριολεκτικά ως «&amp;».
+       Αποκωδικοποιούμε μία φορά εδώ — σε 13 πελάτες σήμερα. */
+    return html_entity_decode($c->companyname ?: trim($c->firstname . ' ' . $c->lastname),
+        ENT_QUOTES | ENT_HTML5, 'UTF-8');
 }
 
 /* ───────── Γενικά αρχεία (Storage layer: local/S3) ───────── */
@@ -4823,7 +4830,9 @@ case 'time':
     $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-01');
     $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d');
     $fa = $FULL ? (int) ($_GET['fa'] ?? 0) : $adminId;
-    $rows = Db::timeReport($from, $to, ['project_id' => (int) ($_GET['fp'] ?? 0), 'admin_id' => $fa]);
+    $flt = ['project_id' => (int) ($_GET['fp'] ?? 0), 'admin_id' => $fa,
+        'dept_id' => (int) ($_GET['fd'] ?? 0)];
+    $rows = Db::timeReport($from, $to, $flt);
     $entries = [];
     $tot = ['w' => 0, 'b' => 0, 'nb' => 0, 'c' => 0];
     $agg = ['project' => [], 'client' => [], 'admin' => []];
@@ -4855,7 +4864,7 @@ case 'time':
        σταματήσει κανείς τον χρόνο του για να μετρηθεί η δουλειά του. */
     $tot['r'] = 0;
     $running = [];
-    foreach (Db::runningTimers(['project_id' => (int) ($_GET['fp'] ?? 0), 'admin_id' => $fa]) as $r) {
+    foreach (Db::runningTimers($flt) as $r) {
         $el = max(0, (int) floor((time() - strtotime($r->started_at)) / 60));
         $tot['r'] += $el;
         $who = Db::adminName($r->admin_id);
@@ -4879,8 +4888,57 @@ case 'time':
         uasort($grp, function ($a, $b) { return ($b['w'] + ($b['r'] ?? 0)) <=> ($a['w'] + ($a['r'] ?? 0)); });
     }
     unset($grp);
+
+    /* ── ΑΝΑΛΥΣΗ ΑΝΑ ΕΡΓΑΣΙΑ ───────────────────────────────────────────────────
+       Η λίστα καταχωρήσεων απαντά «πότε»· η ερώτηση όμως είναι «σε ΤΙ δούλεψε».
+       Ομαδοποιούμε τον χρόνο ανά εργασία, με τις επιμέρους καταχωρήσεις μέσα. */
+    $byTask = [];
+    foreach ($entries as $e) {
+        $k = (int) $e['task'];
+        if (!isset($byTask[$k])) {
+            $byTask[$k] = ['task' => $k, 'title' => $e['title'], 'pname' => $e['pname'],
+                'pcolor' => $e['pcolor'], 'client' => $e['client'],
+                'mins' => 0, 'billable' => 0, 'charged' => 0, 'who' => [], 'logs' => []];
+        }
+        $byTask[$k]['mins'] += $e['mins'];
+        if ($e['billable']) { $byTask[$k]['billable'] += $e['mins']; }
+        $byTask[$k]['charged'] += $e['charged'];
+        $byTask[$k]['who'][$e['by']] = true;
+        $byTask[$k]['logs'][] = ['at' => $e['at'], 'by' => $e['by'], 'mins' => $e['mins'],
+            'billable' => $e['billable'], 'note' => $e['note']];
+    }
+    foreach ($byTask as &$bt) { $bt['who'] = array_keys($bt['who']); }
+    unset($bt);
+    usort($byTask, function ($a, $b) { return $b['mins'] <=> $a['mins']; });
+
+    /* ── ΤΙ ΠΑΡΑΔΟΘΗΚΕ ─────────────────────────────────────────────────────────
+       Μια μέρα χωρίς χρονόμετρο ΔΕΝ είναι άδεια μέρα: μπορεί να έκλεισαν πέντε
+       εργασίες. Γι' αυτό δίπλα στον χρόνο δείχνουμε και τι ολοκληρώθηκε και το
+       ημερολόγιο ενεργειών του μητρώου. */
+    $doneList = [];
+    foreach (Db::completedReport($from, $to, $flt) as $r) {
+        $doneList[] = ['task' => (int) $r->id, 'title' => $r->title, 'at' => $r->completed_at,
+            'by' => $r->completed_by ? Db::adminName($r->completed_by) : null,
+            'note' => $r->completed_note,
+            'pname' => cnp_pn($r->project_name), 'pcolor' => $r->project_color ?: '#8595ac',
+            'client' => $r->clientid ? clientLabel($r->clientid) : null,
+            'ticketRef' => $r->ticket_ref ?: null];
+    }
+    $ACT = ['create' => 'δημιούργησε', 'edit' => 'άλλαξε', 'status' => 'κατάσταση',
+        'assign' => 'ανέθεσε', 'comment' => 'σχολίασε', 'time' => 'χρόνος',
+        'timer' => 'χρονόμετρο', 'billing' => 'χρέωση', 'auto' => 'αυτόματο'];
+    $acts = [];
+    foreach (Db::activityReport($from, $to, $flt) as $r) {
+        $acts[] = ['at' => $r->created_at, 'by' => Db::adminName($r->admin_id),
+            'task' => (int) $r->task_id, 'title' => $r->task_title,
+            'action' => $ACT[$r->action] ?? $r->action, 'kind' => $r->action,
+            'detail' => $r->detail,
+            'pname' => cnp_pn($r->project_name), 'pcolor' => $r->project_color ?: '#8595ac'];
+    }
+
     out(['from' => $from, 'to' => $to, 'entries' => $entries, 'totals' => $tot,
-        'agg' => $agg, 'running' => $running, 'now' => date('c')]);
+        'agg' => $agg, 'running' => $running, 'now' => date('c'),
+        'byTask' => array_values($byTask), 'done' => $doneList, 'acts' => $acts]);
 
 /* ================= ΠΡΟΣΦΟΡΕΣ ================= */
 case 'offers':
