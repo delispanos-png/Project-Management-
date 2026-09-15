@@ -175,8 +175,11 @@ function renderShell() {
   /* Το δικαίωμα είναι πια **δυνατότητα** μέσα σε ενότητα: `projects.board`.
      Όποιος κρατά ολόκληρη την ενότητα (`projects`) τις έχει όλες. */
   const caps = me.caps || [];
+  /* Οι «ονομαστικές» δυνατότητες δεν κληρονομούνται από το κύκλωμα (βλ. server:
+     cnp_explicit_caps) — αφορούν δεδομένα άλλων ανθρώπων. */
+  const explicit = me.explicitCaps || [];
   const has = c => me.full || caps.includes(c)
-    || (me.areas || []).includes(c.includes('.') ? c.split('.')[0] : c);
+    || (!explicit.includes(c) && (me.areas || []).includes(c.includes('.') ? c.split('.')[0] : c));
   /* ── Το μενού ΕΙΝΑΙ τα δικαιώματα ────────────────────────────────────
      Κάθε ενότητα απαντά σε μία ερώτηση· κάθε στοιχείο της κρατά τη δική του
      δυνατότητα. Έτσι μπορείς να δώσεις το Board χωρίς τα Modules, ή τις
@@ -188,7 +191,7 @@ function renderShell() {
     ['Τα δικά μου', 'ό,τι αφορά εμένα σήμερα', [
       ['myday', I.sun, 'Η μέρα μου'],
       ['todos', I.checkSquare, 'Το πλάνο μου'],
-      ['time', I.clock, 'Ο χρόνος μου'],
+      ['time', I.clock, 'Ο χρόνος μου'],   /* ΜΟΝΟ δικός μου — η ομάδα είναι στις Αναφορές */
       ['library', I.book, 'Η βιβλιοθήκη μου'],
       ['vault', I.key, 'Κωδικοί'],
       ['profile', I.contact || I.user, 'Το προφίλ μου'],
@@ -230,6 +233,7 @@ function renderShell() {
       ['kpi', I.chart, 'KPI Dashboard', 'reports.kpi'],
       ['rootcause', I.chart, 'Ανάλυση ριζών', 'reports.rootcause'],
       ['perf', I.chart, 'Απόδοση χειριστών', 'reports.perf'],
+      ['timeteam', I.clock, 'Χρόνος ομάδας', 'reports.time'],
     ]],
     ['Οικονομικά', 'τι μπαίνει, τι βγαίνει, τι δεν πληρώθηκε', [
       ['profit', I.coin, 'Κερδοφορία', 'finance.profit'],

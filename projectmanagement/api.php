@@ -1997,6 +1997,7 @@ function cnp_caps()
         'reports.kpi'       => ['view', 'KPI Dashboard', 'Οι αριθμοί της εξυπηρέτησης'],
         'reports.rootcause' => ['view', 'Ανάλυση ριζών', 'Γιατί ξαναέρχονται τα ίδια αιτήματα'],
         'reports.perf'      => ['view', 'Απόδοση χειριστών', 'Ποιος παραδίδει, πόσο και πόσο γρήγορα'],
+        'reports.time'      => ['view', 'Χρόνος ομάδας', 'Τι έκανε ΟΠΟΙΟΣΔΗΠΟΤΕ σε μια ημέρα ή περίοδο'],
 
         // ═══ ΟΙΚΟΝΟΜΙΚΑ ═══
         'finance.profit'        => ['view',   'Κερδοφορία', 'Έσοδα, κόστος εργασίας, έξοδα ανά πελάτη'],
@@ -2050,6 +2051,12 @@ function cnp_caps_of($area)
  * Έχει ο χειριστής τη συγκεκριμένη δυνατότητα;
  * Δεκτό είτε το κλειδί της δυνατότητας, είτε ολόκληρη η ενότητα.
  */
+/** Δυνατότητες που δίνονται ΜΟΝΟ ονομαστικά (βλ. cnp_has_cap). */
+function cnp_explicit_caps()
+{
+    return ['reports.time'];
+}
+
 function cnp_has_cap($adminId, $isFull, $cap)
 {
     if ($isFull) {
@@ -2064,6 +2071,12 @@ function cnp_has_cap($adminId, $isFull, $cap)
     // Η ΔΙΑΓΡΑΦΗ δίνεται πάντα ρητά (δεν κληρονομείται ποτέ).
     $caps = cnp_caps();
     if (($caps[$cap][0] ?? '') === 'delete') {
+        return false;
+    }
+    /* ΟΝΟΜΑΣΤΙΚΕΣ δυνατότητες: δεν κληρονομούνται από το κύκλωμα, γιατί αφορούν
+       δεδομένα ΑΛΛΩΝ ανθρώπων. Όποιος πρέπει να τις έχει, τις παίρνει ρητά —
+       αλλιώς το «Χρόνος ομάδας» θα ερχόταν δώρο με κάθε άλλη αναφορά. */
+    if (in_array($cap, cnp_explicit_caps(), true)) {
         return false;
     }
     $area = strpos($cap, '.') !== false ? substr($cap, 0, strpos($cap, '.')) : $cap;
@@ -2474,6 +2487,10 @@ case 'boot':
             'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
             /* Οι αναλυτικές δυνατότητες: το μενού κρύβει πια ΣΤΟΙΧΕΙΑ, όχι μόνο ενότητες. */
             'caps' => cnp_admin_caps($adminId, $FULL),
+            /* Το μενού πρέπει να ξέρει ποιες δυνατότητες ΔΕΝ κληρονομούνται, αλλιώς
+               θα έδειχνε «Χρόνος ομάδας» σε όποιον έχει απλώς το κύκλωμα Αναφορές
+               και ο server θα του γύριζε μόνο τα δικά του. */
+            'explicitCaps' => cnp_explicit_caps(),
             'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
@@ -4890,7 +4907,10 @@ case 'event_del':
 case 'time':
     $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-01');
     $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-d');
-    $fa = $FULL ? (int) ($_GET['fa'] ?? 0) : $adminId;
+    /* Χωρίς «Χρόνος ομάδας» βλέπεις ΜΟΝΟ τον δικό σου χρόνο — ο server το επιβάλλει,
+       δεν το αφήνει στην οθόνη. Η ίδια οθόνη σερβίρει και τις δύο χρήσεις. */
+    $canTeam = cnp_has_cap($adminId, $FULL, 'reports.time');
+    $fa = $canTeam ? (int) ($_GET['fa'] ?? 0) : $adminId;
     $flt = ['project_id' => (int) ($_GET['fp'] ?? 0), 'admin_id' => $fa,
         'dept_id' => (int) ($_GET['fd'] ?? 0)];
     $rows = Db::timeReport($from, $to, $flt);
@@ -5002,7 +5022,7 @@ case 'time':
     }
 
     out(['from' => $from, 'to' => $to, 'entries' => $entries, 'totals' => $tot,
-        'agg' => $agg, 'running' => $running, 'now' => date('c'),
+        'agg' => $agg, 'running' => $running, 'now' => date('c'), 'canTeam' => $canTeam,
         'byTask' => array_values($byTask), 'done' => $doneList, 'acts' => $acts]);
 
 /* ================= ΠΡΟΣΦΟΡΕΣ ================= */

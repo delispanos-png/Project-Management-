@@ -398,10 +398,20 @@ R.calendar = async function (ym) {
 
 /* ═════════ ΧΡΟΝΟΣ ═════════ */
 R.time = async function () {
-  setTop('Χρόνος & δραστηριότητα',
-    S.boot.me.full ? 'Τι έκανε ένα άτομο ή ένα τμήμα, σε μια ημέρα ή περίοδο' : 'Ο χρόνος και η δουλειά σου');
+  /* ── ΔΥΟ ΧΡΗΣΕΙΣ, ΜΙΑ ΟΘΟΝΗ ────────────────────────────────────────────────
+     «Ο χρόνος μου» (Τα δικά μου) = ΜΟΝΟ η δική μου δουλειά — δεν έχει νόημα να
+     λέγεται «μου» και να δείχνει όλη την ομάδα.
+     «Χρόνος ομάδας» (Αναφορές) = οποιοσδήποτε, με δικαίωμα reports.time.
+     Ο server επιβάλλει το ίδιο: χωρίς το δικαίωμα βλέπεις μόνο τον εαυτό σου. */
+  const TEAM = S.view === 'timeteam';
+  setTop(TEAM ? 'Χρόνος ομάδας' : 'Ο χρόνος μου',
+    TEAM ? 'Τι έκανε ένα άτομο ή ένα τμήμα, σε μια ημέρα ή περίοδο'
+         : 'Ο δικός σου χρόνος και η δική σου δουλειά');
   const c = $('#content');
-  const f = R.time._f = R.time._f || {};
+  /* Χωριστά φίλτρα ανά χρήση: το «ανά χειριστή» της ομάδας δεν κολλάει πάνω στη
+     δική μου οθόνη όταν αλλάζω κύκλωμα. */
+  const store = TEAM ? '_ft' : '_f';
+  const f = R.time[store] = R.time[store] || {};
   /* Γρήγορες περίοδοι: η ερώτηση είναι σχεδόν πάντα «τι έκανε χθες», και δύο
      ημερομηνιολόγια για μία μέρα είναι τρία κλικ παραπάνω από όσα χρειάζονται. */
   const dOff = n => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
@@ -421,12 +431,12 @@ R.time = async function () {
       ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     <select class="inp" id="tD" style="width:auto"><option value="">— όλα τα τμήματα —</option>
       ${(S.boot.depts || []).map(u => `<option value="${u.id}" ${f.fd == u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
-    ${S.boot.me.full ? `<select class="inp" id="tA" style="width:auto"><option value="">— όλοι οι χειριστές —</option>
+    ${TEAM ? `<select class="inp" id="tA" style="width:auto"><option value="">— όλοι οι χειριστές —</option>
       ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}
     <button class="btn btn-p btn-sm" id="tGo">Προβολή</button>
     <button class="btn btn-o btn-sm" id="tCsv">⬇ CSV</button></div><div id="tRes">${skel(4)}</div>`;
   const apply = () => {
-    R.time._f = {from: $('#tF').value, to: $('#tT').value, fp: $('#tP').value,
+    R.time[store] = {from: $('#tF').value, to: $('#tT').value, fp: $('#tP').value,
       fd: $('#tD') ? $('#tD').value : '', fa: $('#tA') ? $('#tA').value : ''};
     R.time();
   };
@@ -435,7 +445,10 @@ R.time = async function () {
     const [a, z] = b.dataset.range.split('|');
     $('#tF').value = a; $('#tT').value = z; apply();
   }; });
-  const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
+  /* Στη δική μου οθόνη ο χειριστής είμαι ΠΑΝΤΑ εγώ — δεν μένει στο «όλοι», που
+     ήταν ακριβώς ο λόγος που το «Ο χρόνος μου» έδειχνε όλη την ομάδα. */
+  const qf = TEAM ? f : Object.assign({}, f, {fa: S.boot.me.id});
+  const qs = Object.entries(qf).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
   const d = await api('time' + (qs ? '&' + qs : ''));
   /* Η στήλη «σε εξέλιξη» δείχνει τον χρόνο που τρέχει ΤΩΡΑ. Μένει χωριστή από τα
      καταχωρημένα σύνολα: εκείνα είναι γεγονότα (και πάνε στη χρέωση), αυτό είναι
@@ -455,8 +468,10 @@ R.time = async function () {
     <div class="stat"><b>${fmtMin(d.totals.nb)}</b><small>Χωρίς χρέωση</small></div>
     <div class="stat bad"><b>${fmtMin(d.totals.c)}</b><small>Χρεώθηκαν (προαγορά)</small></div>
   </div>
-  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
-    ${aggTbl('Ανά project', d.agg.project, 'project')}${aggTbl('Ανά πελάτη', d.agg.client, 'client')}${aggTbl('Ανά χειριστή', d.agg.admin, 'admin')}
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(330px,1fr))">
+    ${aggTbl('Ανά project', d.agg.project, 'project')}${aggTbl('Ανά πελάτη', d.agg.client, 'client')}${
+      aggTbl('Ανά προϊόν', d.agg.product || {}, 'product')}${
+      TEAM ? aggTbl('Ανά χειριστή', d.agg.admin, 'admin') : ''}
   </div>
   ${anyRun ? `<div class="card"><div class="card-h">▶ Τρέχουν τώρα (${d.running.length})
     <span class="mut" style="font-weight:600;font-size:11px">— χρόνος που μετράει αυτή τη στιγμή· θα καταχωρηθεί όταν σταματήσει</span></div>
@@ -548,6 +563,9 @@ R.time = async function () {
 };
 
 /* ═════════ ΠΡΟΣΦΟΡΕΣ ═════════ */
+/* Ίδιος renderer, άλλη είσοδος: «Χρόνος ομάδας» στις Αναφορές. */
+R.timeteam = function () { return R.time(); };
+
 R.offers = async function () {
   setTop('Προσφορές', 'Pipeline προσφορών — δεμένο με WHMCS Quotes');
   const c = $('#content');
