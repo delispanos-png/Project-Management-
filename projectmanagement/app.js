@@ -121,6 +121,26 @@ function toast(msg, err) {
   t.innerHTML = (err ? '⚠️ ' : '✓ ') + esc(msg); w.appendChild(t);
   setTimeout(() => { t.style.opacity = 0; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, 2600);
 }
+/* ── Ένα σφάλμα JS δεν επιτρέπεται να είναι αόρατο ───────────────────────────
+   Αν σκάσει μέσα σε handler, η οθόνη συνεχίζει να ΦΑΙΝΕΤΑΙ σωστή αλλά δεν
+   αποθηκεύει τίποτα — και ο χειριστής νομίζει ότι φταίει αυτός («ό,τι κι αν
+   κάνω, δεν καταχωρεί»). Σχεδόν πάντα η αιτία είναι καρτέλα που έμεινε ανοιχτή
+   πάνω σε παλιά έκδοση, γι' αυτό λέμε ΚΑΙ τι να κάνει. */
+let _cnpErrAt = 0;
+function cnpFatal(msg) {
+  if (Date.now() - _cnpErrAt < 60000) { return; }     // όχι καταιγισμός
+  _cnpErrAt = Date.now();
+  try { toast('Σφάλμα στην οθόνη — οι αλλαγές ίσως δεν αποθηκεύονται. Ανανέωσε (Ctrl+Shift+R).', true); } catch (e) { /* ignore */ }
+  try { if (window.cnpUpdBanner) { window.cnpUpdBanner(); } } catch (e) { /* ignore */ }
+  try { console.error('[CNP]', msg); } catch (e) { /* ignore */ }
+}
+window.addEventListener('error', e => cnpFatal((e && e.message) || 'error'));
+window.addEventListener('unhandledrejection', e => {
+  const r = e && e.reason;
+  if (r && (r.message === 'auth' || String(r).includes('auth'))) { return; }   // το login το χειρίζεται το api()
+  cnpFatal((r && r.message) || String(r));
+});
+
 const adminName = id => (S.boot.admins.find(a => a.id === +id) || {}).name || '—';
 const adminIni = id => (S.boot.admins.find(a => a.id === +id) || {}).ini || '';
 const statusOf = id => S.boot.statuses.find(s => s.id === +id) || {};
@@ -1355,6 +1375,10 @@ async function openTask(id) {
   const supId = creatorId || t.ball || 0;
   const chkDone = d.check.filter(x => x.done).length;
   const tkD = d.ticket || null;
+  /* Χρεώσιμο: η απόφαση ανήκει στην ΕΡΓΑΣΙΑ και μένει. Μέχρι τις 15/9/2026 η
+     προεπιλογή ήταν σκέτο «υπάρχει πελάτης → ναι» και ξαναγύριζε σε «ναι» σε κάθε
+     ξαναχτίσιμο — ο χειριστής το ξετσέκαρε και δεν έμενε ποτέ. */
+  const billOn = t.billDefault === null || t.billDefault === undefined ? !!d.owner : !!t.billDefault;
   dr.innerHTML = `
   <div class="drawer-h">
     <span class="dot" style="background:${d.project.color};width:12px;height:12px"></span>
@@ -1443,7 +1467,7 @@ async function openTask(id) {
       ${t.est ? `<div class="bar" style="margin-bottom:9px"><span class="${d.total > t.est ? 'bad' : d.total > t.est * .8 ? 'warn' : 'ok'}" style="width:${Math.min(100, Math.round(d.total / t.est * 100))}%"></span></div>` : ''}
       <div class="tk-time-row">
         <input class="inp" id="tMins" type="number" min="1" placeholder="λεπτά">
-        <label class="tk-bill" title="Χρεώσιμος χρόνος προς τον πελάτη — χρειάζεται έγκριση λογιστηρίου"><input type="checkbox" id="tBill" ${d.owner ? 'checked' : ''}> ${I.coin} Χρεώσιμο</label>
+        <label class="tk-bill" title="Χρεώσιμος χρόνος προς τον πελάτη — χρειάζεται έγκριση λογιστηρίου.&#10;Η επιλογή ΜΕΝΕΙ στην εργασία: ό,τι ορίσεις εδώ ισχύει και την επόμενη φορά."><input type="checkbox" id="tBill" ${billOn ? 'checked' : ''}> ${I.coin} Χρεώσιμο</label>
         <input class="inp" id="tNote" placeholder="σημείωση">
         <button class="btn btn-sm btn-p" id="tAdd">Καταχώρηση</button>
       </div>
@@ -1642,6 +1666,17 @@ async function openTask(id) {
   /* Τα «ψίχουλα» (πελάτης / έργο / department) βγάζουν εκτός εργασίας — αν έμενε
      ανοιχτό το drawer, θα σκέπαζε την οθόνη στην οποία μόλις πήγες. */
   $$('[data-navclose]', dr).forEach(a => a.addEventListener('click', () => closeDrawer()));
+  /* Η αλλαγή αποθηκεύεται ΑΜΕΣΩΣ στην εργασία — αλλιώς ο χειριστής ξετσεκάρει,
+     κάτι ξαναχτίζει την καρτέλα και το «χρεώσιμο» επιστρέφει σαν να μην πάτησε ποτέ. */
+  { const tb = $('#tBill', dr);
+    if (tb) { tb.onchange = async () => {
+      const on = tb.checked;
+      const r = await api('save_task', {task: id, bill_default: on ? 1 : 0})
+        .catch(e => ({err: (e && e.message) || 'σφάλμα'}));
+      if (r && r.err) { tb.checked = !on; toast(r.err, true); return; }
+      t.billDefault = on ? 1 : 0;
+      toast(on ? 'Ο χρόνος αυτής της εργασίας χρεώνεται' : 'Ο χρόνος αυτής της εργασίας ΔΕΝ χρεώνεται');
+    }; } }
   { const fe = $('#fEst', dr), fh = $('#fEstHint', dr);
     if (fe && fh) { fe.oninput = () => { const m = estMins(fe.value); fh.textContent = m ? '= ' + fmtMin(m) : ''; }; } }
   $('#dSave', dr).onclick = async () => {
@@ -2734,7 +2769,7 @@ window.CNP = {S, api, esc, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, 
      καταλαβαίνει μόνος του και φορτώνει το φρέσκο — τέλος στα «βλέπω ακόμη το
      παλιό» λόγω cache. Δεν διακόπτουμε τον χρήστη ενώ γράφει ή με ανοιχτό πάνελ. */
   let cnpNewBuild = false;
-  const cnpUpdBanner = () => {
+  const cnpUpdBanner = window.cnpUpdBanner = () => {
     if (document.getElementById('cnpUpd')) { return; }
     const b = document.createElement('div');
     b.id = 'cnpUpd';

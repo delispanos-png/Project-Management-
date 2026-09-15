@@ -1581,6 +1581,8 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
         'isOffer' => !empty($t->is_offer),                       // αφορά προσφορά → προτεραιότητα
         'creator' => isset($t->created_by) && $t->created_by ? (int) $t->created_by : null,   // ο επιβλέπων
         'billOk' => !empty($t->billing_ok),
+        /* null = αυτόματο (υπάρχει πελάτης → χρεώσιμο)· 0 = δεν χρεώνεται ποτέ· 1 = πάντα. */
+        'billDefault' => isset($t->bill_default) && $t->bill_default !== null ? (int) $t->bill_default : null,
         'billOkBy' => isset($t->billing_ok_by) && $t->billing_ok_by ? (int) $t->billing_ok_by : null,
         'billOkAt' => $t->billing_ok_at ?? null,
         'done' => (bool) $t->completed_at,
@@ -3961,6 +3963,11 @@ case 'save_task':
     }
     if (array_key_exists('est', $in)) {
         $data['estimate_minutes'] = (int) $in['est'] ?: null;
+    }
+    /* «Χρεώσιμο» ανά ΕΡΓΑΣΙΑ, ώστε η επιλογή να μένει. Δεκτά: null (αυτόματο), 0, 1. */
+    if (array_key_exists('bill_default', $in)) {
+        $bd = $in['bill_default'];
+        $data['bill_default'] = ($bd === null || $bd === '') ? null : ((int) $bd ? 1 : 0);
     }
     /* Αριθμός ticket ΠΑΛΙΑΣ πλατφόρμας. Γράφεται μόνο όταν η εργασία ΔΕΝ είναι
        δεμένη σε ticket του WHMCS: εκεί ο αριθμός προκύπτει από τη σύνδεση και δεν

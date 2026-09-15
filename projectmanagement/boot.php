@@ -164,11 +164,13 @@ function cnp_asset_version()
 {
     static $v = null;
     if ($v !== null) { return $v; }
-    $files = ['app.js', 'app.css', 'views2.js', 'views3.js', 'views4.js',
-        'views5.js', 'views6.js', 'views7.js', 'help.js', 'i18n.js'];
+    /* ΟΛΑ τα assets, όχι χειροκίνητη λίστα: το views8.js έλειπε, οπότε μια αλλαγή
+       μόνο εκεί ΔΕΝ άλλαζε την έκδοση — οι ανοιχτές καρτέλες έμεναν στο παλιό JS
+       χωρίς καν να το μάθουν. Το glob δεν ξεχνά αρχεία που θα προστεθούν αύριο. */
     $max = 0;
-    foreach ($files as $f) {
-        $m = @filemtime(__DIR__ . '/' . $f);
+    foreach (array_merge(glob(__DIR__ . '/*.js') ?: [], glob(__DIR__ . '/*.css') ?: []) as $f) {
+        if (basename($f) === 'sw.js') { continue; }        // ο service worker έχει δικό του κύκλο
+        $m = @filemtime($f);
         if ($m && $m > $max) { $max = $m; }
     }
     return $v = '1.0.' . $max;
