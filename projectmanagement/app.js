@@ -185,7 +185,7 @@ function renderShell() {
       ['knowledge', I.book, 'Βάση γνώσης', 'support.kb'],
     ]],
     ['Έργα & υλοποιήσεις', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
-      ['projects', I.folder, 'Έργα πελατών', 'projects.portfolio'],
+      ['projects', I.folder, 'Έργα', 'projects.portfolio'],   /* πελατών ΚΑΙ εσωτερικά (R&D) */
       ['board', I.board, 'Board', 'projects.board'],
       ['list', I.list, 'Όλα τα tasks', 'projects.board'],
       ['gantt', I.gantt, 'Χρονοδιάγραμμα', 'projects.board'],

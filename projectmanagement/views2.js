@@ -2718,7 +2718,7 @@ function openTeam(t, d) {
 
 /* ═════════ PROJECTS (PORTFOLIO) ═════════ */
 R.projects = async function () {
-  setTop('Projects', 'Portfolio — κατάσταση, υγεία, πρόοδος');
+  setTop('Έργα', 'Έργα πελατών, εσωτερική ανάπτυξη (R&D) και λειτουργικά — κατάσταση, υγεία, πρόοδος');
   const c = $('#content');
   c.innerHTML = skel(1, 340);
   const d = await api('portfolio');
