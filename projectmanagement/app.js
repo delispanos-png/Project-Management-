@@ -1348,6 +1348,43 @@ dnd('.tcard[data-task]', '.kb-col[data-status]', async (card, col) => {
   } else { toast(r.error || 'Δεν επιτρέπεται', true); vBoard(); }
 }, el => openTask(+el.dataset.task));
 
+/* Ο άνθρωπος δεν είναι ελεύθερος σε αυτό το διάστημα.
+   Δεν το απαγορεύουμε — υπάρχουν νόμιμες επικαλύψεις — αλλά δεν επιτρέπεται να
+   γίνει στα τυφλά: δείχνουμε ΠΟΙΕΣ εργασίες πέφτουν πάνω, με ώρες, και ο
+   χειριστής αποφασίζει ρητά.
+   Επιστρέφει 'force' (ανάθεσε έτσι κι αλλιώς), 'again' (άλλαξε ώρες) ή null. */
+function askBusy(info) {
+  return new Promise(resolve => {
+    const rng = c => `${dShort(c.start)}${c.startT ? ' ' + c.startT : ''} → ${dShort(c.due)}${c.dueT ? ' ' + c.dueT : ''}`;
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = 340;
+    ovl.innerHTML = `<div class="pal-box" style="margin:12vh auto 0;max-width:560px" role="dialog">
+      <div style="padding:20px 22px 18px">
+        <b style="font-size:15.5px;color:var(--ink)">${I.alert} ${esc(info.name || '')} δεν είναι διαθέσιμος/η</b>
+        <div style="font-size:13px;color:var(--txt);margin-top:8px">${esc(info.error || '')}</div>
+        <div style="margin-top:12px;max-height:40vh;overflow:auto">
+          ${(info.clashes || []).map(c => `<div class="bq-row">
+            <div style="flex:1;min-width:0">
+              <b style="font-size:12.5px;color:var(--ink)">${esc(c.title)}</b>
+              <div class="mut" style="font-size:11px">#${c.id}${c.project ? ' · ' + esc(c.project) : ''}</div>
+            </div>
+            <span class="pill pill-warn" style="white-space:nowrap">${rng(c)}</span>
+          </div>`).join('')}
+        </div>
+        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn btn-o" id="buNo">Άκυρο</button>
+          <button class="btn btn-o" id="buAgain">Άλλαξε ώρες</button>
+          <button class="btn" id="buGo" style="background:var(--warn);color:#fff">Ανάθεσέ το έτσι κι αλλιώς</button>
+        </div>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    const done = v => { ovl.remove(); resolve(v); };
+    $('#buNo', ovl).onclick = () => done(null);
+    $('#buAgain', ovl).onclick = () => done('again');
+    $('#buGo', ovl).onclick = () => done('force');
+  });
+}
+
 /* Χωρίς χρόνο υλοποίησης δεν ανατίθεται εργασία σε agent.
    Ο διάλογος δεν λέει απλώς «όχι»: δίνει τις δύο νόμιμες εξόδους —
    πρόχειρο στον διαχειριστή, ή ανάθεση με σαφείς ημερομηνίες.
@@ -1364,9 +1401,14 @@ function askImplDates(info, me) {
         <b style="font-size:15.5px;color:var(--ink)">${I.alert} Χωρίς χρόνο υλοποίησης δεν ανατίθεται</b>
         <div style="font-size:13px;color:var(--txt);margin-top:8px">${esc(info.error || '')}</div>
         <div class="frow" style="margin-top:14px">
-          <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="idStart" value="${d0}"></div>
-          <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="idDue" value="${dEnd}"></div>
+          <div><label class="lbl">Έναρξη</label>
+            <div class="dt2"><input type="date" class="inp" id="idStart" value="${d0}">
+              <input type="time" class="inp" id="idStartT" value="${info.startT || ''}"></div></div>
+          <div><label class="lbl">Λήξη</label>
+            <div class="dt2"><input type="date" class="inp" id="idDue" value="${dEnd}">
+              <input type="time" class="inp" id="idDueT" value="${info.dueT || ''}"></div></div>
         </div>
+        <div class="mut" style="font-size:11px;margin-top:2px">Η ώρα είναι προαιρετική — κενή σημαίνει ότι πιάνει όλη τη μέρα.</div>
         <div id="idErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:4px" hidden></div>
         <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="idNo">Άκυρο</button>
@@ -1383,7 +1425,8 @@ function askImplDates(info, me) {
       const a = $('#idStart', ovl).value, b = $('#idDue', ovl).value, er = $('#idErr', ovl);
       if (!a || !b) { er.hidden = false; er.textContent = 'Χρειάζονται και οι δύο ημερομηνίες.'; return; }
       if (a > b) { er.hidden = false; er.textContent = 'Η λήξη δεν μπορεί να είναι πριν την έναρξη.'; return; }
-      done({start: a, due: b});
+      done({start: a, due: b,
+        startT: $('#idStartT', ovl).value || null, dueT: $('#idDueT', ovl).value || null});
     };
     setTimeout(() => $('#idStart', ovl).focus(), 40);
   });
@@ -1636,8 +1679,12 @@ async function openTask(id) {
         <div><label class="lbl">Department</label>
           <select class="inp" id="fDept"><option value="">— χωρίς department —</option>
           ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
-        <div><label class="lbl">Έναρξη (Gantt)</label><input type="date" class="inp" id="fStart" value="${t.start || ''}"></div>
-        <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="fDue" value="${t.due || ''}"></div>
+        <div><label class="lbl">Έναρξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
+          <div class="dt2"><input type="date" class="inp" id="fStart" value="${t.start || ''}">
+            <input type="time" class="inp" id="fStartT" value="${t.startT || ''}" title="Προαιρετικό — κενό = όλη η μέρα"></div></div>
+        <div><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
+          <div class="dt2"><input type="date" class="inp" id="fDue" value="${t.due || ''}">
+            <input type="time" class="inp" id="fDueT" value="${t.dueT || ''}" title="Προαιρετικό — κενό = όλη η μέρα"></div></div>
         <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
       </div>
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
@@ -1817,6 +1864,8 @@ async function openTask(id) {
   $('#dSave', dr).onclick = async () => {
     const payload = over => Object.assign({task: id,
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
+      startT: $('#fStartT', dr) ? ($('#fStartT', dr).value || null) : undefined,
+      dueT: $('#fDueT', dr) ? ($('#fDueT', dr).value || null) : undefined,
       type: +$('#fType').value || 0,
       dept: +(($('#fDept') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
@@ -1831,13 +1880,29 @@ async function openTask(id) {
     /* Ανάθεση σε agent χωρίς χρόνο υλοποίησης: δεν αρκεί να το απαγορεύσουμε —
        ο χειριστής έχει δύο νόμιμες προθέσεις και πρέπει να διαλέξει ρητά.
        Ή το κρατά πρόχειρο στον εαυτό του, ή το αναθέτει με σαφείς ημερομηνίες. */
-    if (!r.ok && r.data && r.data.need === 'dates') {
-      const pick = await askImplDates(r.data, me);
-      if (!pick) { return; }                       // άκυρο = δεν αποθηκεύεται τίποτα
-      r = await api('save_task', payload(pick)).then(() => ({ok: true}))
-        .catch(e => ({ok: false, error: e && e.message}));
-      if (r.ok && pick.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
+    let extra = {};
+    for (let round = 0; round < 4 && !r.ok && r.data; round++) {
+      if (r.data.need === 'dates') {
+        const pick = await askImplDates(r.data, me);
+        if (!pick) { return; }                     // άκυρο = δεν αποθηκεύεται τίποτα
+        extra = Object.assign(extra, pick);
+        if (pick.assignee === me.id) { extra.force = 1; }   // πρόχειρο σε μένα: χωρίς έλεγχο διαθεσιμότητας
+      } else if (r.data.need === 'conflict') {
+        const what = await askBusy(r.data);
+        if (!what) { return; }
+        if (what === 'force') { extra.force = 1; }
+        else {
+          /* «Άλλαξε ώρες»: ξαναζητάμε διάστημα, κρατώντας ό,τι είχε γράψει. */
+          const again = await askImplDates(Object.assign({}, r.data, extra,
+            {error: 'Διάλεξε διάστημα που δεν πέφτει πάνω στα υπόλοιπα.'}), me);
+          if (!again) { return; }
+          extra = Object.assign(extra, again);
+        }
+      } else { break; }
+      r = await api('save_task', payload(extra)).then(() => ({ok: true}))
+        .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
     }
+    if (r.ok && extra.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
     if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };

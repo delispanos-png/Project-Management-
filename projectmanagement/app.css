@@ -255,6 +255,11 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
   background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--txt)}
 @media (max-width:768px){.ln-a,.ln-b{display:none}.ln-sum{gap:11px;font-size:12px}}
 
+/* ημερομηνία + ώρα σε μία γραμμή· η ώρα στενότερη γιατί είναι προαιρετική */
+.dt2{display:flex;gap:6px}
+.dt2 input[type=date]{flex:1 1 60%;min-width:0}
+.dt2 input[type=time]{flex:0 1 40%;min-width:0}
+
 /* «Μπάλα» στην κεφαλίδα της εργασίας — ποιος πρέπει να δράσει ΤΩΡΑ.
    Διαφορετικό από τον ανάδοχο: ο ανάδοχος εκτελεί, η μπάλα περιμένει. */
 .tk-ball{background:rgba(123,92,214,.10);color:#7b5cd6;border-radius:20px;padding:2px 9px}

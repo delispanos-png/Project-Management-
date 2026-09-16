@@ -1568,6 +1568,8 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
         'prio' => (int) $t->priority, 'assignee' => $t->assignee ? (int) $t->assignee : null,
         'ball' => $t->action_user ? (int) $t->action_user : null,
         'due' => $t->due_date, 'sched' => $t->schedule_date, 'start' => $t->start_date ?? null,
+        'startT' => isset($t->start_time) && $t->start_time ? substr($t->start_time, 0, 5) : null,
+        'dueT' => isset($t->due_time) && $t->due_time ? substr($t->due_time, 0, 5) : null,
         'type' => $t->type_id ? (int) $t->type_id : null,
         'est' => $t->estimate_minutes ? (int) $t->estimate_minutes : null,
         'ticket' => $t->ticketid ? (int) $t->ticketid : null,
@@ -1845,6 +1847,50 @@ function cnp_assignee_needs_dates($newAssignee, $actorId)
         return false;                       // «κανείς» = δεν έχει ανατεθεί
     }
     return (int) $newAssignee !== (int) $actorId;
+}
+
+/**
+ * Είναι ελεύθερος αυτός ο άνθρωπος σε αυτό το διάστημα;
+ *
+ * Επιστρέφει τις ΑΝΟΙΧΤΕΣ εργασίες του που επικαλύπτονται χρονικά. Χωρίς ώρα,
+ * η εργασία πιάνει ΟΛΗ την ημέρα — αυτή είναι η ειλικρινής ανάγνωση: αν κανείς
+ * δεν δήλωσε ώρες, δεν ξέρουμε ότι χωράει κι άλλο.
+ *
+ * Δύο διαστήματα συγκρούονται όταν το ένα ξεκινά πριν τελειώσει το άλλο.
+ */
+function cnp_busy_conflicts($adminId, $start, $startT, $due, $dueT, $exceptTask = 0)
+{
+    if (!$adminId || !$start || !$due) {
+        return [];
+    }
+    $a1 = $start . ' ' . ($startT ?: '00:00:00');
+    $a2 = $due . ' ' . ($dueT ?: '23:59:59');
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+
+    $rows = Capsule::table('mod_cpm_tasks as t')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->where('t.assignee', (int) $adminId)
+        ->whereNotIn('t.status_id', $doneIds)
+        ->where('t.id', '<>', (int) $exceptTask)
+        ->whereNotNull('t.start_date')->whereNotNull('t.due_date')
+        /* Προ-φιλτράρισμα στις ημέρες· η ακριβής σύγκριση με ώρες γίνεται από κάτω. */
+        ->where('t.start_date', '<=', $due)->where('t.due_date', '>=', $start)
+        ->orderBy('t.start_date')->limit(30)
+        ->get(['t.id', 't.title', 't.start_date', 't.start_time', 't.due_date', 't.due_time',
+            'p.name as pname']);
+
+    $hits = [];
+    foreach ($rows as $r) {
+        $b1 = $r->start_date . ' ' . ($r->start_time ?: '00:00:00');
+        $b2 = $r->due_date . ' ' . ($r->due_time ?: '23:59:59');
+        if ($a1 <= $b2 && $b1 <= $a2) {
+            $hits[] = ['id' => (int) $r->id, 'title' => $r->title,
+                'project' => $r->pname ? cnp_pn($r->pname) : '',
+                'start' => $r->start_date, 'startT' => $r->start_time ? substr($r->start_time, 0, 5) : null,
+                'due' => $r->due_date, 'dueT' => $r->due_time ? substr($r->due_time, 0, 5) : null];
+        }
+    }
+    return $hits;
 }
 
 /** Η στήλη «αναμονής» — η πρώτη μη-τελική κατάσταση (Backlog). */
@@ -4704,6 +4750,11 @@ case 'save_task':
        καιρό και ο server το πετούσε σιωπηλά. Γι' αυτό μόνο 2 από 49 εργασίες
        είχαν ημερομηνία έναρξης — δεν ήταν ότι δεν τη συμπλήρωναν, ήταν ότι
        δεν μπορούσε να αποθηκευτεί. */
+    foreach (['start_time' => 'startT', 'due_time' => 'dueT'] as $col => $k) {
+        if (array_key_exists($k, $in)) {
+            $data[$col] = preg_match('/^\d{2}:\d{2}$/', (string) $in[$k]) ? $in[$k] . ':00' : null;
+        }
+    }
     foreach (['due_date' => 'due', 'schedule_date' => 'sched', 'start_date' => 'start'] as $col => $k) {
         if (array_key_exists($k, $in)) {
             $data[$col] = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in[$k]) ? $in[$k] : null;
@@ -4761,6 +4812,22 @@ case 'save_task':
             }
             if ($sNew && $dNew && $sNew > $dNew) {
                 fail('Η λήξη δεν μπορεί να είναι πριν την έναρξη', 409);
+            }
+            /* Διαθεσιμότητα: αν το διάστημα πέφτει πάνω σε άλλη ανοιχτή εργασία
+               του ίδιου ανθρώπου, το λέμε. ΔΕΝ το απαγορεύουμε — υπάρχουν
+               νόμιμες επικαλύψεις — αλλά δεν επιτρέπεται να συμβεί στα τυφλά. */
+            if (empty($in['force'])) {
+                $stT = preg_match('/^\d{2}:\d{2}$/', (string) ($in['startT'] ?? '')) ? $in['startT'] . ':00' : ($t->start_time ?: null);
+                $duT = preg_match('/^\d{2}:\d{2}$/', (string) ($in['dueT'] ?? '')) ? $in['dueT'] . ':00' : ($t->due_time ?: null);
+                $clash = cnp_busy_conflicts($newA, $sNew, $stT, $dNew, $duT, $tid);
+                if ($clash) {
+                    http_response_code(409);
+                    out(['error' => Db::adminName($newA) . ' δεν είναι διαθέσιμος/η σε αυτό το διάστημα — '
+                            . (count($clash) === 1 ? 'έχει 1 εργασία που πέφτει πάνω.'
+                                                   : 'έχει ' . count($clash) . ' εργασίες που πέφτουν πάνω.'),
+                        'need' => 'conflict', 'assignee' => $newA,
+                        'name' => Db::adminName($newA), 'clashes' => $clash]);
+                }
             }
         }
         if ($newA && $newA !== (int) $t->assignee) {
