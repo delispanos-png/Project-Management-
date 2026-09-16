@@ -3047,7 +3047,7 @@ case 'dept_view':                         // ένα department: τι χρωστ�
         ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->where('t.dept_id', $did)->whereNotIn('t.status_id', $doneU)
         ->orderByRaw('t.due_date IS NULL, t.due_date')->orderByDesc('t.priority')
-        ->get(['t.id', 't.title', 't.status_id', 't.priority', 't.assignee', 't.due_date',
+        ->get(['t.id', 't.title', 't.status_id', 't.priority', 't.assignee', 't.action_user', 't.due_date',
             't.ticketid', 'p.id as pid', 'p.name as pname', 'p.color as pcolor',
             'p.clientid', 'p.kind', 'p.due_date as pdue']);
     foreach ($rows as $t) {
@@ -3063,6 +3063,9 @@ case 'dept_view':                         // ένα department: τι χρωστ�
             'status' => (string) ($stName[(int) $t->status_id] ?? ''),
             'prio' => (int) $t->priority, 'due' => $t->due_date,
             'assignee' => $t->assignee ? Db::adminName((int) $t->assignee) : null,
+            /* Ποιον περιμένει — διαφορετικό από «σε ποιον ανατέθηκε». */
+            'ball' => $t->action_user ? (int) $t->action_user : 0,
+            'ballName' => $t->action_user ? Db::adminName((int) $t->action_user) : '',
             'ticket' => $t->ticketid ? (int) $t->ticketid : null];
     }
     /* Έργα πελατών πρώτα — εκεί υπάρχει παράδοση και deadline. */
@@ -3942,8 +3945,9 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             })->orWhere('t.created_at', '>=', $todayM . ' 00:00:00');
         })
         ->orderBy('t.id', 'desc')->limit(400)
-        ->get(['t.id', 't.title', 't.assignee', 't.status_id', 't.schedule_date', 't.start_date',
-            't.due_date', 't.created_at', 't.estimate_minutes', 'p.name as pname', 'p.color as pcolor']);
+        ->get(['t.id', 't.title', 't.assignee', 't.action_user', 't.status_id', 't.schedule_date',
+            't.start_date', 't.due_date', 't.created_at', 't.estimate_minutes',
+            'p.name as pname', 'p.color as pcolor']);
 
     /* «Πότε το ξεκίνησε» δεν είναι η προγραμματισμένη ημερομηνία (συμπληρώνεται
        σπάνια) αλλά η ΠΡΩΤΗ φορά που γράφτηκε χρόνος πάνω της. Αυτό ξέρουμε ότι
@@ -3972,6 +3976,8 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
         $left = $t->due_date ? (int) round((strtotime($t->due_date) - strtotime($todayM)) / 86400) : null;
         return ['id' => (int) $t->id, 'title' => $t->title,
             'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '', 'whoId' => (int) $t->assignee,
+            'ball' => $t->action_user ? (int) $t->action_user : 0,
+            'ballName' => $t->action_user ? Db::adminName((int) $t->action_user) : '',
             'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
             'done' => in_array((int) $t->status_id, $doneM, true),
             'sched' => $t->schedule_date, 'start' => $t->start_date, 'due' => $t->due_date,
@@ -4136,8 +4142,8 @@ case 'teamday':                          // Η μέρα της ομάδας — 
             })->orWhere('t.created_at', '>=', $today0 . ' 00:00:00');
         })
         ->orderBy('t.id', 'desc')->limit(600)
-        ->get(['t.id', 't.title', 't.assignee', 't.status_id', 't.schedule_date', 't.start_date',
-            't.due_date', 't.created_at', 't.created_by', 't.estimate_minutes',
+        ->get(['t.id', 't.title', 't.assignee', 't.action_user', 't.status_id', 't.schedule_date',
+            't.start_date', 't.due_date', 't.created_at', 't.created_by', 't.estimate_minutes',
             'p.name as pname', 'p.color as pcolor', 'p.kind as pkind', 'st.title as sname']);
 
     /* Ποιος τρέχει χρονόμετρο αυτή τη στιγμή = η πιο ειλικρινής απάντηση στο
@@ -4154,6 +4160,10 @@ case 'teamday':                          // Η μέρα της ομάδας — 
         return ['id' => (int) $t->id, 'title' => $t->title,
             'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '',
             'whoId' => $t->assignee ? (int) $t->assignee : 0,
+            /* Η μπάλα: ποιος πρέπει να δράσει ΤΩΡΑ. Χωρίς αυτήν η οθόνη δείχνει
+               «σε ποιον ανήκει» και όχι «ποιον περιμένει» — που είναι διαφορετικό. */
+            'ball' => $t->action_user ? (int) $t->action_user : 0,
+            'ballName' => $t->action_user ? Db::adminName((int) $t->action_user) : '',
             'by' => $t->created_by ? Db::adminName((int) $t->created_by) : '',
             'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
             'internal' => $t->pkind === 'internal',

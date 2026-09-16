@@ -955,6 +955,7 @@ R.teamday = async function () {
       ${t.project ? `<span class="kb-tag">${esc(t.project)}</span>` : ''}
       ${t.internal ? '<span class="kb-tag kb-tag-mut">R&D</span>' : ''}
       <span class="mut">${t.who ? esc(t.who) : 'χωρίς ανάθεση'}</span>
+      ${t.ball && t.ball !== t.whoId ? `<span class="pill pill-warn" title="Η εργασία είναι ανατεθειμένη αλλού αλλά περιμένει ενέργεια από αυτόν">${I.zap} περιμένει ${esc(t.ballName)}</span>` : ''}
       ${t.due ? `<span class="${t.due < d.date ? 'pill pill-bad' : 'mut'}" style="font-size:11px">${dShort(t.due)}</span>` : ''}
     </span></div>`;
 
@@ -1186,6 +1187,7 @@ R.myteam = async function () {
         <b>${esc(t.title)}</b>
         <span class="ln-tag" style="background:${tc}18;color:${tc}">${tl}</span>
         ${t.running !== null ? `<span class="ln-tag" style="background:#e0a02018;color:#e0a020">▶ ${hm(t.running)}</span>` : ''}
+        ${t.ball && t.ball !== t.whoId ? `<span class="ln-tag" style="background:#7b5cd618;color:#7b5cd6" title="Δεν κάθεται σε αυτόν — περιμένει ενέργεια από τον/την ${esc(t.ballName)}">${I.zap} περιμένει ${esc(t.ballName)}</span>` : ''}
         <span style="flex:1"></span>
         ${t.project ? `<span class="mut" style="font-size:11px">${esc(t.project)}</span>` : ''}
       </div>

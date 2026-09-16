@@ -906,6 +906,8 @@ R.unit = async function (id) {
           ${t.ticket ? `<a class="pill pill-mut" href="#/inbox/${t.ticket}" title="Από ticket">${I.ticket}</a>` : ''}</td>
         <td style="width:120px"><span class="pill pill-mut">${esc(t.status)}</span></td>
         <td style="width:130px">${esc(t.assignee || '—')}</td>
+        <td style="width:150px">${t.ball && t.ballName !== t.assignee
+          ? `<span class="pill pill-warn" title="Περιμένει ενέργεια από αυτόν">${I.zap} ${esc(t.ballName)}</span>` : '<span class="mut">—</span>'}</td>
         <td style="width:110px" class="${t.due && t.due < today() ? 'pill pill-bad' : 'mut'}">${t.due ? dShort(t.due) : '—'}</td>
       </tr>`).join('')}
     </tbody></table></div>`;

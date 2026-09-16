@@ -1320,7 +1320,7 @@ function cardHtml(t) {
             t.ticketNo ? '#' + esc(t.ticketNo) : t.ticketRef ? '#' + esc(t.ticketRef) : 'ticket'}</span>` : ''}
       ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} προσφορά</span>` : ''}
       ${t.assignee ? `<span class="ava" title="${esc(adminName(t.assignee))}">${esc(adminIni(t.assignee))}</span>` : ''}
-      ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Επιβλέπων: ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
+      ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα: περιμένει ενέργεια από ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
       ${t.due ? `<span class="${over ? 'pill pill-bad' : ''}">${I.cal} ${dShort(t.due)}</span>` : ''}
       ${t.mins ? `<span>⏱ ${fmtMin(t.mins)}</span>` : ''}
       ${t.est ? `<span class="mut">~${fmtMin(t.est)}</span>` : ''}

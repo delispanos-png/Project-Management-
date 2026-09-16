@@ -338,7 +338,7 @@ R.list = async function () {
       ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket — προτεραιότητα">${I.ticket} ticket</span>` : ''}
       ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} προσφορά</span>` : ''}
       <span class="kb-sum-meta">
-        ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Επιβλέπων: ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
+        ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα: περιμένει ενέργεια από ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
         ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname)}</span>` : ''}
         <span class="kb-tag" style="background:${stt.color}18;color:${stt.color}">${esc(stt.title)}</span>
         ${t.assignee ? `<span class="mut">${esc(adminName(t.assignee))}</span>` : '<span class="mut">χωρίς ανάθεση</span>'}
