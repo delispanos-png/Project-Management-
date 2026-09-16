@@ -229,6 +229,8 @@ function renderShell() {
     ]],
     ['Αναφορές & απόδοση', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
       ['activity', I.zap, 'Δραστηριότητα', 'reports.activity'],
+      ['teamday', I.sun, 'Η μέρα της ομάδας', 'reports.activity'],
+      ['reschedules', I.cal, 'Αναπρογραμματισμοί', 'reports.activity'],
       ['triage', I.flag, 'Πλάνο ημέρας', 'reports.triage'],
       ['kpi', I.chart, 'KPI Dashboard', 'reports.kpi'],
       ['rootcause', I.chart, 'Ανάλυση ριζών', 'reports.rootcause'],

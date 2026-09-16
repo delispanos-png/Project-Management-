@@ -503,6 +503,24 @@ class Db
             });
         }
 
+        /* Ιστορικό αναπρογραμματισμών έργου. Οι ημερομηνίες γράφονταν από πάνω
+           χωρίς ίχνος: κανείς δεν μάθαινε ότι ένα έργο μετατέθηκε, ούτε πόσες
+           φορές. Κάθε αλλαγή έναρξης/παράδοσης καταγράφεται εδώ. */
+        if (!$s->hasTable('mod_cpm_reschedules')) {
+            $s->create('mod_cpm_reschedules', function ($t) {
+                $t->increments('id');
+                $t->integer('project_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned()->index();   // ποιος το μετέθεσε
+                $t->date('old_start')->nullable();
+                $t->date('new_start')->nullable();
+                $t->date('old_due')->nullable();
+                $t->date('new_due')->nullable();
+                $t->integer('days')->default(0);                // μετατόπιση παράδοσης σε ημέρες (+ = πίσω)
+                $t->string('reason', 500)->nullable();
+                $t->timestamp('created_at')->nullable()->index();
+            });
+        }
+
         if (!$s->hasTable('mod_cpm_snapshots')) {
             $s->create('mod_cpm_snapshots', function ($t) {
                 $t->increments('id');

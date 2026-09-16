@@ -923,3 +923,146 @@ async function openCx(id) {
   const bj = $('#cxRej', body); if (bj) { bj.onclick = () => close2(true); }
 }
 window.openCx = openCx;
+
+/* ═══════════ Η μέρα της ομάδας ═══════════
+   Η ερώτηση είναι «με τι ασχολείται σήμερα η ομάδα» και έχει τέσσερις όψεις,
+   όχι μία: τι ορίστηκε για σήμερα, τι διαρκεί μέσα από το σήμερα, τι άνοιξε
+   σήμερα, και — το πιο αποκαλυπτικό — τι κουβαλιέται από προηγούμενες μέρες.
+   Μια εργασία μπορεί να είναι σε δύο όψεις ταυτόχρονα· αυτό ΕΙΝΑΙ η αλήθεια. */
+R.teamday = async function () {
+  setTop('Η μέρα της ομάδας', 'Τι είναι στο τραπέζι σήμερα — και τι κουβαλιέται από πριν');
+  const c = $('#content');
+  const st = R.teamday._s = R.teamday._s || {closed: {}, who: 0};
+  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+  const d = await api('teamday').catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+
+  const BUCKETS = [
+    ['planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'πλάνο ή προθεσμία σήμερα',            '#0090dd'],
+    ['spanning', I.gantt || I.chart, 'Περνάνε από το σήμερα', 'ξεκίνησαν πριν, λήγουν μετά',   '#7b5cd6'],
+    ['opened',   I.plus,  'Άνοιξαν σήμερα',        'γεννήθηκαν μέσα στη μέρα',                 '#16a26a'],
+    ['carried',  I.alert, 'Μεταφορά από πριν',     'πλάνο παλιότερης μέρας, ακόμη ανοιχτά',    '#e0552b'],
+  ];
+
+  const hit = t => !st.who || t.whoId === st.who;
+  const line = t => `<div class="kb-item kb-trow" data-tgo="${t.id}" style="cursor:pointer">
+    <span class="kb-dot" style="background:${t.color}"></span>
+    <b style="${t.done ? 'text-decoration:line-through;opacity:.55' : ''}">${esc(t.title)}</b>
+    <span class="kb-sum-meta">
+      ${t.running !== null ? `<span class="pill pill-warn" title="Τρέχει χρονόμετρο τώρα">▶ ${hm(t.running)}</span>` : ''}
+      ${t.spent ? `<span class="pill pill-mut" title="Χρόνος που καταγράφηκε σήμερα">${hm(t.spent)} σήμερα</span>` : ''}
+      ${t.project ? `<span class="kb-tag">${esc(t.project)}</span>` : ''}
+      ${t.internal ? '<span class="kb-tag kb-tag-mut">R&D</span>' : ''}
+      <span class="mut">${t.who ? esc(t.who) : 'χωρίς ανάθεση'}</span>
+      ${t.due ? `<span class="${t.due < d.date ? 'pill pill-bad' : 'mut'}" style="font-size:11px">${dShort(t.due)}</span>` : ''}
+    </span></div>`;
+
+  const group = ([k, ic, title, sub, col]) => {
+    const list = (d[k] || []).filter(hit);
+    const open = !st.closed[k] && list.length;
+    return `<div class="kb-group">
+      <div class="kb-ghead" data-tgrp="${k}" style="border-left:3px solid ${col}">
+        <span class="kb-gchev ${open ? 'open' : ''}">${I.chev}</span>
+        <b>${ic} ${title}</b>
+        <span class="pill ${list.length ? 'pill-mut' : 'pill-mut'}" style="margin-left:6px">${list.length}</span>
+        <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:8px">${sub}</span>
+      </div>
+      <div class="kb-gbody" style="${open ? '' : 'display:none'}">
+        ${list.length ? list.map(line).join('') : '<div class="mut" style="font-size:12.5px;padding:8px 4px">—</div>'}
+      </div></div>`;
+  };
+
+  const tile = ([k, ic, title, , col]) => `<div class="su-stat" style="cursor:default">
+    <span class="pc-ic" style="color:${col}">${ic}</span>
+    <div><div class="n">${(d[k] || []).length}</div><div class="mut" style="font-size:11.5px">${title}</div></div></div>`;
+
+  const person = p => `<tr data-pwho="${p.id}" style="cursor:pointer${st.who === p.id ? ';background:var(--line)' : ''}">
+    <td><b>${esc(p.name)}</b>${p.now ? `<div class="mut" style="font-size:11px">▶ ${esc(p.now.title)} · ${hm(p.now.mins)}</div>` : ''}</td>
+    <td style="text-align:center">${p.planned || '—'}</td>
+    <td style="text-align:center">${p.spanning || '—'}</td>
+    <td style="text-align:center">${p.opened || '—'}</td>
+    <td style="text-align:center;${p.carried ? 'color:var(--bad);font-weight:700' : ''}">${p.carried || '—'}</td>
+    <td style="text-align:right">${p.spent ? hm(p.spent) : '—'}</td></tr>`;
+
+  c.innerHTML = `
+  <div class="g4 grid" style="margin-bottom:14px">${BUCKETS.map(tile).join('')}</div>
+  <div class="card" style="margin-bottom:14px"><div class="card-h">${I.users || I.user} Ποιος έχει τι
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${st.who ? 'φίλτρο ενεργό — κλικ στη γραμμή για καθάρισμα' : 'κλικ σε άτομο για φιλτράρισμα'}</span></div>
+    <div class="card-b" style="padding:0"><table class="tbl"><thead><tr>
+      <th>Χειριστής</th><th style="text-align:center">Σήμερα</th><th style="text-align:center">Διαρκεί</th>
+      <th style="text-align:center">Νέα</th><th style="text-align:center">Μεταφορά</th><th style="text-align:right">Χρόνος σήμερα</th>
+    </tr></thead><tbody>${d.people.map(person).join('') || '<tr><td colspan="6" class="mut">—</td></tr>'}</tbody></table></div></div>
+  ${BUCKETS.map(group).join('')}`;
+
+  $$('.kb-ghead[data-tgrp]').forEach(h => h.onclick = () => {
+    const k = h.dataset.tgrp; st.closed[k] = !st.closed[k]; R.teamday();
+  });
+  $$('[data-tgo]').forEach(r => r.onclick = () => openTask(+r.dataset.tgo));
+  $$('[data-pwho]').forEach(r => r.onclick = () => {
+    st.who = st.who === +r.dataset.pwho ? 0 : +r.dataset.pwho; R.teamday();
+  });
+};
+
+/* ═══════════ Αναπρογραμματισμοί έργων ═══════════
+   Η μετάθεση παράδοσης ήταν αόρατη: γραφόταν πάνω στην παλιά ημερομηνία και
+   δεν το μάθαινε κανείς. Εδώ φαίνεται ποια έργα μετατίθενται, πόσο, πόσες
+   φορές και από ποιον — το «πόσες φορές» είναι που δείχνει το πρόβλημα. */
+R.reschedules = async function () {
+  setTop('Αναπρογραμματισμοί', 'Ποια έργα μετατέθηκαν, πόσο και πόσες φορές');
+  const c = $('#content');
+  const st = R.reschedules._s = R.reschedules._s || {d: 90};
+  c.innerHTML = '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:380px"></div>';
+  const d = await api('reschedules&d=' + st.d).catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+
+  const totalDays = d.items.reduce((a, x) => a + Math.abs(x.days), 0);
+  const back = d.items.filter(x => x.days > 0).length;
+  const dd = x => x ? dShort(x) : '—';
+  const arrow = x => x.oldDue !== x.newDue
+    ? `παράδοση <b>${dd(x.oldDue)}</b> → <b>${dd(x.newDue)}</b>`
+    : `έναρξη <b>${dd(x.oldStart)}</b> → <b>${dd(x.newStart)}</b>`;
+
+  const row = x => `<tr>
+    <td><span class="kb-dot" style="background:${x.color}"></span> <b>${esc(x.name)}</b>
+      ${x.client ? `<div class="mut" style="font-size:11px">${esc(x.client)}</div>` : ''}</td>
+    <td>${arrow(x)}</td>
+    <td style="text-align:center"><span class="pill ${x.days > 0 ? 'pill-bad' : 'pill-ok'}">${x.days > 0 ? '+' : ''}${x.days} ημ.</span></td>
+    <td>${esc(x.by)}</td>
+    <td class="mut" style="font-size:11.5px">${x.reason ? esc(x.reason) : '—'}</td>
+    <td class="mut" style="white-space:nowrap;font-size:11.5px">${dShort(x.at)}</td></tr>`;
+
+  const proj = p => `<tr data-rgo="${p.id}" style="cursor:pointer">
+    <td><span class="kb-dot" style="background:${p.color}"></span> <b>${esc(p.name)}</b></td>
+    <td style="text-align:center"><span class="pill ${p.times > 2 ? 'pill-bad' : 'pill-mut'}">${p.times}×</span></td>
+    <td style="text-align:center;${p.days > 0 ? 'color:var(--bad);font-weight:700' : ''}">${p.days > 0 ? '+' : ''}${p.days} ημ.</td></tr>`;
+
+  c.innerHTML = `
+  <div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+    <span class="mut" style="font-size:12.5px">Περίοδος:</span>
+    ${[30, 90, 180, 365].map(n => `<button class="btn btn-sm ${st.d === n ? 'btn-p' : 'btn-o'}" data-rd="${n}">${n} ημ.</button>`).join('')}
+  </div></div>
+  <div class="g4 grid" style="margin-bottom:14px">
+    <div class="su-stat"><span class="pc-ic" style="color:#e0552b">${I.cal}</span>
+      <div><div class="n">${d.items.length}</div><div class="mut" style="font-size:11.5px">μεταθέσεις</div></div></div>
+    <div class="su-stat"><span class="pc-ic" style="color:#0090dd">${I.folder}</span>
+      <div><div class="n">${d.projects.length}</div><div class="mut" style="font-size:11.5px">έργα</div></div></div>
+    <div class="su-stat"><span class="pc-ic" style="color:#e0a020">${I.clock}</span>
+      <div><div class="n">${totalDays}</div><div class="mut" style="font-size:11.5px">ημέρες συνολικά</div></div></div>
+    <div class="su-stat"><span class="pc-ic" style="color:#7b5cd6">${I.alert}</span>
+      <div><div class="n">${back}</div><div class="mut" style="font-size:11.5px">προς τα πίσω</div></div></div>
+  </div>
+  ${d.projects.length ? `<div class="card" style="margin-bottom:14px">
+    <div class="card-h">${I.chart} Πόσο ελαστικά είναι τα έργα
+      <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">όσα μετατέθηκαν πάνω από 2 φορές θέλουν κουβέντα</span></div>
+    <div class="card-b" style="padding:0"><table class="tbl"><thead><tr>
+      <th>Έργο</th><th style="text-align:center">Φορές</th><th style="text-align:center">Συνολική μετατόπιση</th>
+    </tr></thead><tbody>${d.projects.map(proj).join('')}</tbody></table></div></div>` : ''}
+  <div class="card"><div class="card-h">${I.list} Κάθε μετάθεση ξεχωριστά</div>
+    <div class="card-b" style="padding:0">${d.items.length ? `<table class="tbl"><thead><tr>
+      <th>Έργο</th><th>Αλλαγή</th><th style="text-align:center">Μετατόπιση</th><th>Από</th><th>Αιτιολογία</th><th>Πότε</th>
+    </tr></thead><tbody>${d.items.map(row).join('')}</tbody></table>`
+    : '<div class="mut" style="padding:16px">Καμία μετάθεση σε αυτή την περίοδο.</div>'}</div></div>`;
+
+  $$('[data-rd]').forEach(b => b.onclick = () => { st.d = +b.dataset.rd; R.reschedules(); });
+  $$('[data-rgo]').forEach(r => r.onclick = () => go('board', +r.dataset.rgo));
+};

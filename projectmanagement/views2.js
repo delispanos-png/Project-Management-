@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDenied, cnpCan, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -3356,7 +3356,27 @@ R.projects = async function () {
         toast('Διάλεξε τμήμα — ποιο κάνει την ανάπτυξη;', true);
         $('#pjDept').focus(); return;
       }
-      const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value,
+      /* Αναπρογραμματισμός: αν μετακινήθηκε ημερομηνία υπάρχοντος έργου, ζητάμε
+         αιτιολογία. Χωρίς αυτήν η αναφορά μεταθέσεων δείχνει «τι» αλλά ποτέ
+         «γιατί» — και εκεί κρίνεται αν το πρόβλημα είναι δικό μας ή του πελάτη. */
+      let reschedReason = '';
+      if (p.id) {
+        const moved = (p.start && $('#pjStart').value && p.start !== $('#pjStart').value)
+          || (p.due && $('#pjDue').value && p.due !== $('#pjDue').value);
+        if (moved) {
+          const why = await cnpDialog({
+            title: 'Το έργο μετατίθεται',
+            body: `${p.due && $('#pjDue').value && p.due !== $('#pjDue').value
+              ? 'Παράδοση: ' + dFull(p.due) + ' → ' + dFull($('#pjDue').value)
+              : 'Έναρξη: ' + dFull(p.start) + ' → ' + dFull($('#pjStart').value)}\n\nΘα ειδοποιηθούν ο υπεύθυνος του έργου και οι διαχειριστές.`,
+            input: '', rows: 2, max: 500, placeholder: 'Γιατί μετατίθεται; (π.χ. καθυστέρηση υλικού από τον πελάτη)',
+            hint: 'Προαιρετικό — αλλά χωρίς αυτό η αναφορά δεν εξηγεί την αιτία.',
+            ok: 'Αποθήκευση', cancel: 'Άκυρο'});
+          if (why === null) { return; }   // «Άκυρο»/ESC σε διάλογο με πεδίο → null
+          reschedReason = typeof why === 'string' ? why.trim() : '';
+        }
+      }
+      const r = await api('save_project', {id: p.id || 0, name: $('#pjName').value, reschedReason,
         client: kind === 'internal' ? 0 : cid,
         dept: dept, product: prod,
         parent: +$('#pjPar').value || 0, color: $('#pjColor').value,

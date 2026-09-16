@@ -1721,6 +1721,79 @@ function cnp_billing_request($t, $byAdminId)
     }
 }
 
+/**
+ * Καταγράφει και ανακοινώνει τη μετάθεση ενός έργου.
+ *
+ * «Αναπρογραμματισμός» = άλλαξε η έναρξη ή η παράδοση υπάρχοντος έργου. Δεν
+ * μετράει το να μπει ημερομηνία εκεί που δεν υπήρχε καμία (αυτό είναι
+ * συμπλήρωση, όχι μετάθεση) — αλλιώς κάθε έργο θα ανακοινωνόταν μια φορά
+ * χωρίς λόγο.
+ *
+ * Ειδοποιούνται ο υπεύθυνος του έργου και οι διαχειριστές: η μετάθεση
+ * παράδοσης είναι απόφαση που αφορά και άλλους, όχι εσωτερική λεπτομέρεια.
+ */
+function cnp_log_reschedule($before, array $after, $adminId, $reason = '')
+{
+    $oldS = $before->start_date ?: null;
+    $oldD = $before->due_date ?: null;
+    $newS = $after['start_date'] ?? null;
+    $newD = $after['due_date'] ?? null;
+
+    $moved = function ($old, $new) { return $old && $new && $old !== $new; };
+    $sMoved = $moved($oldS, $newS);
+    $dMoved = $moved($oldD, $newD);
+    if (!$sMoved && !$dMoved) {
+        return;
+    }
+
+    /* Θετικό = πήγε πίσω (αργότερα). Το «πόσο» είναι το ουσιώδες νούμερο. */
+    $days = $dMoved ? (int) round((strtotime($newD) - strtotime($oldD)) / 86400)
+                    : (int) round((strtotime($newS) - strtotime($oldS)) / 86400);
+
+    Capsule::table('mod_cpm_reschedules')->insert([
+        'project_id' => (int) $before->id, 'admin_id' => (int) $adminId,
+        'old_start' => $oldS, 'new_start' => $newS,
+        'old_due' => $oldD, 'new_due' => $newD,
+        'days' => $days, 'reason' => mb_substr($reason, 0, 500) ?: null,
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    $who = Db::adminName($adminId);
+    $dir = $days > 0 ? 'πίσω' : 'μπροστά';
+    $what = $dMoved
+        ? 'παράδοση ' . cnp_dgr($oldD) . ' → ' . cnp_dgr($newD) . ' (' . abs($days) . ' ημ. ' . $dir . ')'
+        : 'έναρξη ' . cnp_dgr($oldS) . ' → ' . cnp_dgr($newS) . ' (' . abs($days) . ' ημ. ' . $dir . ')';
+    $msg = 'Αναπρογραμματισμός «' . mb_substr((string) $before->name, 0, 70) . '»: ' . $what . ' — ' . $who;
+    $url = '/project/#/board/' . (int) $before->id;
+
+    /* Υπεύθυνος έργου + διαχειριστές, χωρίς διπλοεγγραφή και χωρίς αυτο-ειδοποίηση. */
+    $targets = cnp_full_admin_ids();
+    if (!empty($before->manager_id)) { $targets[] = (int) $before->manager_id; }
+    foreach (array_unique($targets) as $aid) {
+        if ((int) $aid === (int) $adminId) { continue; }
+        Db::pushNotification($aid, 'resched', mb_substr($msg, 0, 240), $url);
+        try {
+            $to9 = Notify::adminEmail($aid);
+            if ($to9) {
+                Notify::sendTo($to9, 'Αναπρογραμματισμός έργου — ' . mb_substr((string) $before->name, 0, 70),
+                    '<p><b>' . htmlspecialchars((string) $before->name, ENT_QUOTES, 'UTF-8') . '</b></p>'
+                    . '<p>' . htmlspecialchars($what, ENT_QUOTES, 'UTF-8') . '</p>'
+                    . ($reason ? '<p>Αιτιολογία: <i>' . htmlspecialchars($reason, ENT_QUOTES, 'UTF-8') . '</i></p>' : '')
+                    . '<p>Από: ' . htmlspecialchars($who, ENT_QUOTES, 'UTF-8') . '</p>'
+                    . '<p><a href="' . htmlspecialchars(Notify::baseUrl() . $url, ENT_QUOTES, 'UTF-8')
+                    . '" style="background:#0090dd;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;display:inline-block">Άνοιγμα έργου</a></p>');
+            }
+        } catch (\Throwable $e) { /* το email δεν εμποδίζει την αποθήκευση */ }
+    }
+    logActivity('CloudOn PM: ' . $msg);
+}
+
+/** Ημερομηνία σε ελληνική μορφή για μηνύματα. */
+function cnp_dgr($d)
+{
+    return $d ? date('d/m/Y', strtotime($d)) : '—';
+}
+
 /** Οι διαχειριστές του συστήματος — ενημερώνονται για κάθε διαγραφή. */
 function cnp_full_admin_ids()
 {
@@ -2429,6 +2502,8 @@ function cnp_action_cap($action)
         $add('support.kb.delete', ['kb_del']);
 
         /* ── ΕΡΓΑ & ΥΛΟΠΟΙΗΣΕΙΣ ── */
+        $add('reports.activity', ['teamday']);
+        $add('reports.activity|projects.portfolio', ['reschedules']);
         $add('projects.portfolio', ['portfolio', 'project_modules']);
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
@@ -3769,6 +3844,132 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
         'note' => 'Οι απαντήσεις αντιστοιχίζονται με βάση το όνομα/username του χειριστή. '
             . 'Ο καταγεγραμμένος χρόνος δεν μετράται — υπάρχουν μόλις '
             . (int) Capsule::table('mod_cpm_timelogs')->count() . ' εγγραφές χρόνου συνολικά.']);
+
+case 'teamday':                          // Η μέρα της ομάδας — τι είναι στο τραπέζι σήμερα
+    $today0 = date('Y-m-d');
+    $doneT = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $nowT = time();
+
+    /* Ένα ερώτημα, τέσσερις αναγνώσεις. Υποψήφιες: ό,τι αγγίζει το σήμερα με
+       οποιονδήποτε τρόπο — πλάνο, διάρκεια, προθεσμία, ή γεννήθηκε σήμερα. */
+    $rowsT = Capsule::table('mod_cpm_tasks as t')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_statuses as st', 'st.id', '=', 't.status_id')
+        ->where(function ($w) use ($today0, $doneT) {
+            $w->where(function ($x) use ($today0, $doneT) {
+                $x->whereNotIn('t.status_id', $doneT)
+                  ->where(function ($y) use ($today0) {
+                      $y->where('t.schedule_date', '<=', $today0)
+                        ->orWhere('t.due_date', '<=', $today0)
+                        ->orWhere(function ($z) use ($today0) {
+                            $z->where('t.start_date', '<=', $today0)->where('t.due_date', '>=', $today0);
+                        });
+                  });
+            })->orWhere('t.created_at', '>=', $today0 . ' 00:00:00');
+        })
+        ->orderBy('t.id', 'desc')->limit(600)
+        ->get(['t.id', 't.title', 't.assignee', 't.status_id', 't.schedule_date', 't.start_date',
+            't.due_date', 't.created_at', 't.created_by', 't.estimate_minutes',
+            'p.name as pname', 'p.color as pcolor', 'p.kind as pkind', 'st.title as sname']);
+
+    /* Ποιος τρέχει χρονόμετρο αυτή τη στιγμή = η πιο ειλικρινής απάντηση στο
+       «με τι ασχολείται τώρα η ομάδα». */
+    $runT = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['task_id', 'admin_id', 'started_at']) as $r) {
+        $runT[(int) $r->task_id] = ['who' => (int) $r->admin_id,
+            'mins' => $r->started_at ? max(0, (int) round(($nowT - strtotime($r->started_at)) / 60)) : 0];
+    }
+    /* Χρόνος που καταγράφηκε ΣΗΜΕΡΑ ανά εργασία — τι πραγματικά δούλεψαν. */
+    $spentT = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 0)
+        ->where('created_at', '>=', $today0 . ' 00:00:00')
+        ->groupBy('task_id')->get(['task_id', Capsule::raw('SUM(minutes) as m')]) as $r) {
+        $spentT[(int) $r->task_id] = (int) $r->m;
+    }
+
+    $dto = function ($t) use ($doneT, $runT, $spentT) {
+        return ['id' => (int) $t->id, 'title' => $t->title,
+            'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '',
+            'whoId' => $t->assignee ? (int) $t->assignee : 0,
+            'by' => $t->created_by ? Db::adminName((int) $t->created_by) : '',
+            'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
+            'internal' => $t->pkind === 'internal',
+            'status' => $t->sname ?: '', 'done' => in_array((int) $t->status_id, $doneT, true),
+            'sched' => $t->schedule_date, 'start' => $t->start_date, 'due' => $t->due_date,
+            'est' => (int) $t->estimate_minutes, 'spent' => $spentT[(int) $t->id] ?? 0,
+            'running' => isset($runT[(int) $t->id]) ? $runT[(int) $t->id]['mins'] : null];
+    };
+
+    $planned = $spanning = $opened = $carried = [];
+    foreach ($rowsT as $t) {
+        $isDone = in_array((int) $t->status_id, $doneT, true);
+        $bornToday = $t->created_at && substr((string) $t->created_at, 0, 10) === $today0;
+        if ($bornToday) { $opened[] = $dto($t); }
+        if ($isDone) { continue; }
+        if ($t->schedule_date === $today0 || $t->due_date === $today0) {
+            $planned[] = $dto($t);
+        } elseif ($t->schedule_date && $t->schedule_date < $today0) {
+            $carried[] = $dto($t);            // πλάνο παλιότερης ημέρας, ακόμη ανοιχτό
+        }
+        if ($t->start_date && $t->due_date && $t->start_date <= $today0 && $t->due_date >= $today0
+            && $t->schedule_date !== $today0 && $t->due_date !== $today0) {
+            $spanning[] = $dto($t);           // διαρκεί μέσα από το σήμερα
+        }
+    }
+
+    /* Σύνοψη ανά άτομο: ποιος έχει πόσα στο πιάτο του σήμερα. */
+    $perT = [];
+    $bump = function ($list, $key) use (&$perT) {
+        foreach ($list as $t) {
+            $k = $t['whoId'];
+            if (!isset($perT[$k])) {
+                $perT[$k] = ['id' => $k, 'name' => $k ? $t['who'] : '— χωρίς ανάθεση —',
+                    'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
+            }
+            $perT[$k][$key]++;
+            $perT[$k]['spent'] += $t['spent'];
+            if ($t['running'] !== null) { $perT[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']]; }
+        }
+    };
+    $bump($planned, 'planned'); $bump($spanning, 'spanning');
+    $bump($opened, 'opened');   $bump($carried, 'carried');
+    usort($perT, function ($a, $b) {
+        return ($b['planned'] + $b['spanning'] + $b['carried']) <=> ($a['planned'] + $a['spanning'] + $a['carried']);
+    });
+
+    out(['date' => $today0, 'planned' => $planned, 'spanning' => $spanning,
+        'opened' => $opened, 'carried' => $carried, 'people' => array_values($perT)]);
+
+case 'reschedules':                      // Έργα που μετατέθηκαν
+    $dRs = min(365, max(7, (int) ($_GET['d'] ?? 90)));
+    $sinceRs = date('Y-m-d 00:00:00', time() - $dRs * 86400);
+    $rowsRs = Capsule::table('mod_cpm_reschedules as r')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 'r.project_id')
+        ->where('r.created_at', '>=', $sinceRs)
+        ->orderBy('r.id', 'desc')->limit(400)
+        ->get(['r.*', 'p.name as pname', 'p.color as pcolor', 'p.clientid', 'p.manager_id', 'p.kind']);
+    $itemsRs = []; $byProj = [];
+    foreach ($rowsRs as $r) {
+        $itemsRs[] = ['id' => (int) $r->id, 'project' => (int) $r->project_id,
+            'name' => $r->pname ? cnp_pn($r->pname) : ('#' . (int) $r->project_id),
+            'color' => $r->pcolor ?: '#8595ac',
+            'client' => $r->clientid ? clientLabel((int) $r->clientid) : '',
+            'manager' => $r->manager_id ? Db::adminName((int) $r->manager_id) : '',
+            'by' => Db::adminName((int) $r->admin_id),
+            'oldStart' => $r->old_start, 'newStart' => $r->new_start,
+            'oldDue' => $r->old_due, 'newDue' => $r->new_due,
+            'days' => (int) $r->days, 'reason' => $r->reason, 'at' => $r->created_at];
+        $k = (int) $r->project_id;
+        if (!isset($byProj[$k])) {
+            $byProj[$k] = ['id' => $k, 'name' => $r->pname ? cnp_pn($r->pname) : ('#' . $k),
+                'color' => $r->pcolor ?: '#8595ac', 'times' => 0, 'days' => 0, 'last' => $r->created_at];
+        }
+        $byProj[$k]['times']++;
+        $byProj[$k]['days'] += (int) $r->days;
+    }
+    /* Τα πιο «ελαστικά» έργα πρώτα: όσα μετατέθηκαν περισσότερες φορές. */
+    usort($byProj, function ($a, $b) { return [$b['times'], $b['days']] <=> [$a['times'], $a['days']]; });
+    out(['days' => $dRs, 'items' => $itemsRs, 'projects' => array_values($byProj)]);
 
 case 'kpi':
     // Η πρόσβαση ελέγχεται από την πύλη περιοχών («Αναφορές & απόδοση»).
@@ -6680,7 +6881,16 @@ case 'save_project':
         'start_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['start'] ?? '') ? $in['start'] : null,
         'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null];
 
+    /* Αναπρογραμματισμός: κρατάμε τις παλιές ημερομηνίες ΠΡΙΝ γραφτούν από πάνω.
+       Χωρίς αυτό η μετάθεση ενός έργου ήταν αόρατη — κανείς δεν μάθαινε ότι η
+       παράδοση έφυγε δύο εβδομάδες μπροστά. */
+    $before9 = $pid ? Db::project($pid) : null;
+
     $pid = Db::saveProject($pid, $data);
+
+    if ($before9) {
+        cnp_log_reschedule($before9, $data, $adminId, trim((string) ($in['reschedReason'] ?? '')));
+    }
     /* Έργο σε προϊόν που δεν φιγουράρει στον πελάτη (π.χ. πούλημα πριν τη χρέωση):
        το προϊόν μπαίνει στην καρτέλα του, αλλιώς το έργο θα κρεμόταν στο κενό. */
     if (!empty($data['product_id']) && !empty($data['clientid'])) {
