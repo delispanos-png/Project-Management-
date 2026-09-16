@@ -226,6 +226,12 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
    εσωτερικό έργο δεν υπάρχει πελάτης, υπο-έργο ή ορατότητα στο portal). Γι'
    αυτό μπαίνει πρώτος και ως ρητή επιλογή, όχι ως dropdown στη μέση του grid. */
 .kindpick{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;margin:2px 0 0}
+
+/* ουρά εγκρίσεων χρέωσης (pop-up) */
+.bq-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);
+  border-radius:10px;margin-bottom:7px;background:var(--card);flex-wrap:wrap}
+.bq-row:last-child{margin-bottom:0}
+@media (max-width:560px){.bq-row .btn{flex:1}}
 .kp{text-align:left;display:flex;flex-direction:column;gap:3px;cursor:pointer;
   background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:11px 13px;
   font:inherit;color:var(--txt);transition:border-color .15s,background .15s,box-shadow .15s}

@@ -1631,6 +1631,96 @@ function cnp_task_delete_right($t, $adminId, $isFull)
     return [true, 'owner', (int) $left];
 }
 
+/**
+ * Ποιος δίνει την έγκριση χρέωσης χρόνου.
+ *
+ * Είναι ΕΝΑ συγκεκριμένο πρόσωπο, όχι «το λογιστήριο» και όχι όποιος τυχαίνει
+ * να είναι διαχειριστής: η χρέωση προς τον πελάτη θέλει έναν υπεύθυνο. Το
+ * ποιος ορίζεται σε ρύθμιση (mod_cpm_prefs, admin_id=0) ώστε να αλλάζει χωρίς
+ * κώδικα.
+ *
+ * @return int admin id, ή 0 αν δεν έχει οριστεί / ο ορισμένος δεν είναι πια ενεργός
+ */
+function cnp_billing_approver()
+{
+    static $memo = null;
+    if ($memo !== null) {
+        return $memo;
+    }
+    $id = (int) Capsule::table('mod_cpm_prefs')->where('admin_id', 0)
+        ->where('pref', 'billing_approver')->value('value');
+    if ($id) {
+        $live = Capsule::table('tbladmins')->where('id', $id)->where('disabled', 0)->exists();
+        if (!$live) { $id = 0; }   // έφυγε/απενεργοποιήθηκε → μη κλειδώσει η έγκριση
+    }
+    return $memo = $id;
+}
+
+/**
+ * Επιτρέπεται σε αυτόν τον χρήστη να εγκρίνει χρέωση;
+ *
+ * Αν έχει οριστεί εγκρίνων, είναι ΜΟΝΟ αυτός — ούτε οι υπόλοιποι διαχειριστές.
+ * Αν δεν έχει οριστεί (ή ο ορισμένος δεν υπάρχει πια), πέφτουμε πίσω στους
+ * διαχειριστές, ώστε να μη μείνουν εργασίες κλειδωμένες για πάντα.
+ */
+function cnp_can_approve_billing($adminId, $isFull)
+{
+    $ap = cnp_billing_approver();
+    return $ap ? ((int) $adminId === $ap) : (bool) $isFull;
+}
+
+/**
+ * «Αυτή η εργασία περιμένει έγκριση χρέωσης» — φτάνει στον εγκρίνοντα αμέσως.
+ *
+ * Καλείται σε κάθε σημείο που δημιουργείται ή ξεκλειδώνει χρεώσιμος χρόνος.
+ * Στέλνει ΚΑΙ in-app ειδοποίηση (που ανάβει και το pop-up) ΚΑΙ email, γιατί ο
+ * σκοπός είναι να μην περιμένει η εργασία: μπορεί να μην είναι στην εφαρμογή.
+ *
+ * Δεν ξαναστέλνει για την ίδια εργασία μέσα σε 6 ώρες — αλλιώς κάθε καταχώρηση
+ * χρόνου θα γινόταν χωριστό email.
+ */
+function cnp_billing_request($t, $byAdminId)
+{
+    if (!$t || !empty($t->billing_ok)) {
+        return;
+    }
+    $mins = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)
+        ->where('billable', 1)->where('running', 0)->sum('minutes');
+    if ($mins <= 0) {
+        return;
+    }
+    $url = '/project/#/task/' . (int) $t->id;
+    $targets = cnp_billing_approver() ? [cnp_billing_approver()] : cnp_full_admin_ids();
+    $recent = Capsule::table('mod_cpm_notifications')->where('type', 'billreq')->where('url', $url)
+        ->where('created_at', '>', date('Y-m-d H:i:s', time() - 6 * 3600))->exists();
+    if ($recent) {
+        return;
+    }
+    $who = Db::adminName($byAdminId);
+    $hrs = $mins >= 60 ? round($mins / 60, 1) . 'ω' : $mins . chr(39);
+    $title = mb_substr((string) $t->title, 0, 90);
+    foreach ($targets as $aid) {
+        if ((int) $aid === (int) $byAdminId) {
+            continue;                       // κατέγραψε τον χρόνο η ίδια → δεν αυτο-ειδοποιείται
+        }
+        Db::pushNotification($aid, 'billreq',
+            mb_substr('Εκκρεμεί έγκριση χρέωσης: ' . $hrs . ' στην «' . $title . '»', 0, 240), $url);
+        /* sendTo, ΟΧΙ send: το send σέβεται τον καθολικό διακόπτη email του
+           module, που είναι κλειστός. Αυτή η ειδοποίηση είναι λειτουργική —
+           χωρίς την έγκριση η εργασία δεν κλείνει — οπότε πρέπει να φεύγει. */
+        try {
+            $to9 = Notify::adminEmail($aid);
+            if ($to9) { Notify::sendTo($to9, 'Εκκρεμεί έγκριση χρέωσης — ' . $title,
+                '<p><b>' . htmlspecialchars($hrs, ENT_QUOTES, 'UTF-8') . ' χρεώσιμος χρόνος</b> περιμένει την έγκρισή σου.</p>'
+                . '<p>Εργασία: <b>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</b> (#' . (int) $t->id . ')<br>'
+                . 'Καταχωρήθηκε από: ' . htmlspecialchars($who, ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p>Η εργασία <b>δεν κλείνει</b> πριν εγκριθεί η χρέωση.</p>'
+                . '<p><a href="' . htmlspecialchars(Notify::baseUrl() . $url, ENT_QUOTES, 'UTF-8')
+                . '" style="background:#0090dd;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;display:inline-block">Άνοιγμα εργασίας</a></p>'); }
+        } catch (\Throwable $e) { /* αποτυχία email δεν χαλάει την καταχώρηση χρόνου */ }
+    }
+}
+
 /** Οι διαχειριστές του συστήματος — ενημερώνονται για κάθε διαγραφή. */
 function cnp_full_admin_ids()
 {
@@ -2046,7 +2136,7 @@ function cnp_caps()
         'finance.balances.edit'  => ['edit',   'Υπενθύμιση εξόφλησης', 'Αποστολή υπενθύμισης πληρωμής στον πελάτη (email ή ticket)', 'finance.balances'],
         'finance.suspend'        => ['view',   'Αναστολές', 'Ποιες υπηρεσίες πρέπει να πέσουν'],
         'finance.suspend.edit'   => ['edit',   'Εκτέλεση αναστολής', 'Πραγματική αναστολή υπηρεσίας και ειδοποίηση', 'finance.suspend'],
-        'finance.billing_ok' => ['power', 'Έγκριση χρέωσης χρόνου', 'Ξεκλείδωμα χρεώσιμης εργασίας για κλείσιμο — το δίνει το λογιστήριο', 'finance.profit'],
+        'finance.billing_ok' => ['power', 'Έγκριση χρέωσης χρόνου', 'Ξεκλείδωμα χρεώσιμης εργασίας για κλείσιμο. ΔΕΝ ρυθμίζεται εδώ: την έγκριση τη δίνει ΕΝΑ ορισμένο πρόσωπο (ρύθμιση billing_approver)', 'finance.profit'],
         'finance.packages'   => ['power', 'Πακέτα υποστήριξης πελάτη', 'Ανάθεση πελάτη σε πακέτο SLA', 'finance.profit'],
 
         // ═══ ΠΡΟΣΛΗΨΕΙΣ ═══
@@ -2376,7 +2466,6 @@ function cnp_action_cap($action)
         $add('finance.balances.edit', ['balance_reminder_send']);
         $add('finance.suspend', ['suspend_queue', 'suspend_notice']);
         $add('finance.suspend.edit', ['suspend_mark', 'suspend_do', 'suspend_notice_send']);
-        $add('finance.billing_ok', ['task_billing_ok']);
 
         /* ── ΠΡΟΣΛΗΨΕΙΣ ── */
         $add('hr.cv', ['cv_list', 'cv_get']);
@@ -2446,7 +2535,11 @@ function cnp_open_actions()
            (cnp_task_delete_right) — διαχειριστής πάντα, ο δημιουργός μέσα στην
            πρώτη ώρα. Με cap θα απέκλειε νόμιμους δημιουργούς, π.χ. όποιον
            άνοιξε εργασία από ticket χωρίς «Board: επεξεργασία». */
-        'task', 'task_delete', 'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
+        /* task_billing_ok: κριτής είναι το cnp_can_approve_billing (ένα ορισμένο
+           πρόσωπο), όχι cap — με cap θα περνούσαν ΟΛΟΙ οι full admins.
+           billing_pending: η ουρά του εγκρίνοντος, φιλτραρισμένη μέσα στην ενέργεια. */
+        'task', 'task_delete', 'task_billing_ok', 'billing_pending',
+        'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
@@ -3032,6 +3125,8 @@ case 'task':
             'kind' => (string) $proj->kind, 'pstatus' => (string) $proj->pstatus,
             'due' => $proj->due_date, 'clientId' => $proj->clientid ? (int) $proj->clientid : null],
         'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
+        'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
+            'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
         'check' => $check, 'activity' => $acts, 'ticket' => $ticket,
         'watching' => in_array($adminId, Db::watcherIds($t->id), true),
@@ -3997,8 +4092,11 @@ case 'move_task':
             $billMin = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)
                 ->where('billable', 1)->where('running', 0)->sum('minutes');
             if ($billMin > 0) {
-                fail('Έχει ' . round($billMin / 60, 1) . 'ω χρεώσιμο χρόνο χωρίς έγκριση λογιστηρίου — '
-                    . 'δεν κλείνει πριν εγκριθεί η χρέωση', 409);
+                /* Εδώ η καθυστέρηση κοστίζει: ξανασπρώχνουμε την ειδοποίηση. */
+                cnp_billing_request($t, $adminId);
+                $apN9 = cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : 'τον διαχειριστή';
+                fail('Έχει ' . round($billMin / 60, 1) . 'ω χρεώσιμο χρόνο χωρίς έγκριση — '
+                    . 'ειδοποιήθηκε ο/η ' . $apN9 . ' και δεν κλείνει πριν εγκριθεί η χρέωση', 409);
             }
         }
     }
@@ -4142,12 +4240,37 @@ case 'comment':
     Notify::watchers($tid, $adminId, 'Σχόλιο στο: ' . $t->title, null);
     out(['ok' => true, 'id' => $cid9]);
 
+case 'billing_pending':                   // η ουρά εγκρίσεων — μόνο για τον εγκρίνοντα
+    if (!cnp_can_approve_billing($adminId, $FULL)) { out(['items' => [], 'mine' => false]); }
+    $doneIds9 = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $rows9 = Capsule::table('mod_cpm_timelogs as l')
+        ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
+        ->where('l.billable', 1)->where('l.running', 0)
+        ->where(function ($q) { $q->whereNull('t.billing_ok')->orWhere('t.billing_ok', 0); })
+        ->groupBy('t.id', 't.title', 't.project_id', 't.assignee')
+        ->orderBy('t.id', 'desc')->limit(50)
+        ->get(['t.id', 't.title', 't.project_id', 't.assignee',
+            Capsule::raw('SUM(l.minutes) as mins'), Capsule::raw('MAX(l.created_at) as last_at')]);
+    $items9 = [];
+    foreach ($rows9 as $r) {
+        $items9[] = ['id' => (int) $r->id, 'title' => $r->title,
+            'mins' => (int) $r->mins, 'at' => $r->last_at,
+            'who' => $r->assignee ? Db::adminName((int) $r->assignee) : '',
+            'project' => $r->project_id
+                ? cnp_pn(Capsule::table('mod_cpm_projects')->where('id', $r->project_id)->value('name')) : ''];
+    }
+    out(['items' => $items9, 'mine' => true]);
+
 case 'task_billing_ok':                   // έγκριση λογιστηρίου για χρεώσιμη εργασία
     $tid = (int) ($in['task'] ?? 0);
     $t = Db::task($tid);
     if (!$t) { fail('task', 404); }
-    /* Ποιος εγκρίνει το κρίνει η πύλη (δυνατότητα «Έγκριση χρέωσης χρόνου»),
-       που δίνεται χωριστά από τα υπόλοιπα Οικονομικά. */
+    /* Την έγκριση τη δίνει ΕΝΑ ορισμένο πρόσωπο (ρύθμιση billing_approver) —
+       όχι «το λογιστήριο» και όχι όποιος είναι διαχειριστής. */
+    if (!cnp_can_approve_billing($adminId, $FULL)) {
+        $apN = cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : '';
+        fail($apN ? 'Την έγκριση χρέωσης τη δίνει μόνο ο/η ' . $apN : 'Δεν έχεις δικαίωμα έγκρισης χρέωσης', 403);
+    }
     $on9 = !empty($in['ok']);
     Capsule::table('mod_cpm_tasks')->where('id', $tid)->update([
         'billing_ok' => $on9 ? 1 : 0,
@@ -4188,6 +4311,7 @@ case 'timer_stop':
             'note' => mb_substr(trim($in['note'] ?? ''), 0, 255)]);
         Time::push($running->id);
     }
+    if (!empty($in['billable'])) { cnp_billing_request(Db::task((int) $running->task_id), $adminId); }
     out(['ok' => true, 'mins' => $e ? (int) Db::timelog($running->id)->minutes : 0]);
 
 case 'time_bill':                        // διόρθωση «χρεώσιμο/όχι» σε καταχώρηση χρόνου
@@ -4216,6 +4340,7 @@ case 'time_bill':                        // διόρθωση «χρεώσιμο/
     Time::push($lid);
     Db::logActivity((int) $lg->task_id, $adminId, 'billing',
         ($bill9 ? 'Σημάνθηκε χρεώσιμος' : 'Σημάνθηκε μη χρεώσιμος') . ' χρόνος ' . (int) $lg->minutes . "'");
+    if ($bill9) { cnp_billing_request(Db::task((int) $lg->task_id), $adminId); }
     out(['ok' => true, 'billable' => $bill9]);
 
 case 'time_add':
@@ -4231,6 +4356,7 @@ case 'time_add':
     cnp_task_lock_guard($t);
     $eid = Db::addTime($tid, $adminId, $mins, !empty($in['billable']), trim($in['note'] ?? ''));
     Time::push($eid);
+    if (!empty($in['billable'])) { cnp_billing_request(Db::task($tid), $adminId); }
     out(['ok' => true]);
 
 case 'check_add':
@@ -12297,7 +12423,16 @@ case 'topstats':                         // πάνω μενού: live σφυγμ
     $todayN = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
         ->whereNotNull('due_date')->where('due_date', '<=', $today)->count();
     $ball = (int) Capsule::table('mod_cpm_tasks')->where('action_user', $adminId)->whereNotIn('status_id', $doneIds)->count();
-    out(['tickets' => $tickets, 'sla' => $sla, 'today' => $todayN, 'ball' => $ball,
+    /* Εκκρεμείς εγκρίσεις χρέωσης — μόνο για όποιον τις δίνει. */
+    $billPend = 0;
+    if (cnp_can_approve_billing($adminId, $FULL)) {
+        $billPend = (int) Capsule::table('mod_cpm_timelogs as l')
+            ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
+            ->where('l.billable', 1)->where('l.running', 0)
+            ->where(function ($q) { $q->whereNull('t.billing_ok')->orWhere('t.billing_ok', 0); })
+            ->distinct()->count('t.id');
+    }
+    out(['tickets' => $tickets, 'sla' => $sla, 'today' => $todayN, 'ball' => $ball, 'billPend' => $billPend,
         'status' => Db::pref($adminId, 'chat_status', 'online'), 'reason' => Db::pref($adminId, 'chat_reason', '')]);
 
 case 'lead_products':                    // γραμμές προϊόντων ενός deal

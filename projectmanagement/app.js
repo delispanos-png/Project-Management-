@@ -409,9 +409,59 @@ async function loadTopStats() {
     {k: 'myday', ic: I.checkSquare, n: d.today, lbl: 'σήμερα', col: '#e0a020'},
     {k: 'myday', ic: I.zap, n: d.ball, lbl: 'εμένα', col: '#7b5cd6'},
   ];
+  /* Εκκρεμείς εγκρίσεις χρέωσης — το chip βγαίνει μόνο σε όποιον τις δίνει. */
+  if (d.billPend) { chips.push({k: 'billq', ic: I.coin, n: d.billPend, lbl: 'εγκρίσεις', col: '#e0a020', warn: 1}); }
   box.innerHTML = chips.map(c => `<button class="pulse-chip${c.n && c.warn ? ' hot' : ''}${c.n ? '' : ' zero'}" data-pgo="${c.k}" title="${c.lbl}">
     <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join('');
-  $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => go(b.dataset.pgo));
+  $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => {
+    if (b.dataset.pgo === 'billq') { billingQueue(); return; }
+    go(b.dataset.pgo);
+  });
+  /* Pop-up: μία φορά ανά συνεδρία, και ξανά μόλις εμφανιστεί ΚΑΙΝΟΥΡΓΙΑ έγκριση.
+     Ο σκοπός είναι να μην περιμένει η εργασία — όχι να γίνει ενοχλητικό. */
+  const seen = window._cnpBillSeen;
+  if (d.billPend && (seen === undefined || d.billPend > seen)) { billingQueue(); }
+  window._cnpBillSeen = d.billPend || 0;
+}
+
+/* Η ουρά εγκρίσεων χρέωσης — εγκρίνεις επί τόπου, χωρίς να ανοίξεις κάθε καρτέλα. */
+async function billingQueue() {
+  const d = await api('billing_pending').catch(() => null);
+  if (!d || !d.mine || !d.items.length) { return; }
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+  const row = i => `<div class="bq-row" data-bq="${i.id}">
+    <div style="flex:1;min-width:0">
+      <b style="font-size:13px;color:var(--ink)">${esc(i.title)}</b>
+      <div class="mut" style="font-size:11px">#${i.id}${i.project ? ' · ' + esc(i.project) : ''}${i.who ? ' · ' + esc(i.who) : ''}</div>
+    </div>
+    <span class="pill pill-warn" style="white-space:nowrap">${fmtMin(i.mins)}</span>
+    <button class="btn btn-sm btn-p" data-bqok="${i.id}">Έγκριση</button>
+    <a class="btn btn-sm btn-o" href="#/task/${i.id}" data-bqopen>Άνοιγμα</a>
+  </div>`;
+  ovl.innerHTML = `<div class="pal-box" style="margin:12vh auto 0;max-width:620px" role="dialog">
+    <div style="padding:20px 22px 18px">
+      <b style="font-size:15.5px;color:var(--ink)">${I.coin} Εκκρεμούν εγκρίσεις χρέωσης</b>
+      <div class="mut" style="font-size:12px;margin-top:5px">Αυτές οι εργασίες <b>δεν κλείνουν</b> πριν εγκρίνεις τη χρέωση.</div>
+      <div id="bqList" style="margin-top:13px;max-height:52vh;overflow:auto">${d.items.map(row).join('')}</div>
+      <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+        <button class="btn btn-o" id="bqClose">Αργότερα</button>
+      </div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const shut = () => ovl.remove();
+  $('#bqClose', ovl).onclick = shut;
+  $$('[data-bqopen]', ovl).forEach(a => a.onclick = shut);
+  $$('[data-bqok]', ovl).forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '…';
+    const r = await api('task_billing_ok', {task: +b.dataset.bqok, ok: true}).catch(e => ({err: e.message}));
+    if (r && r.err) { toast(r.err, true); b.disabled = false; b.textContent = 'Έγκριση'; return; }
+    const line = ovl.querySelector(`[data-bq="${b.dataset.bqok}"]`);
+    if (line) { line.remove(); }
+    toast('Η χρέωση εγκρίθηκε');
+    if (!$$('[data-bq]', ovl).length) { shut(); }
+    loadTopStats();
+  });
 }
 function miniMenu(anchor, items) {
   const ex = $('#miniMenu'); if (ex) { ex.remove(); }
@@ -1480,13 +1530,14 @@ async function openTask(id) {
         : 'Χωρίς πελάτη — ο χρόνος δεν χρεώνεται πουθενά.'}</div>` : ''}
       ${d.scClient ? `<div class="mut" style="font-size:11px;margin-top:6px">Πελάτης: <b>${esc(d.scClient)}</b> — τα χρεώσιμα αφαιρούν προαγορά</div>` : ''}
       ${billMins ? `<div class="bill-gate ${t.billOk ? 'ok' : ''}">
-        <div><b>${t.billOk ? '✔ Η χρέωση εγκρίθηκε' : '⏳ Εκκρεμεί έγκριση λογιστηρίου'}</b>
+        <div><b>${t.billOk ? '✔ Η χρέωση εγκρίθηκε' : '⏳ Εκκρεμεί έγκριση χρέωσης'}</b>
           <div class="mut" style="font-size:11px">${t.billOk
             ? `${esc(t.billOkBy ? adminName(t.billOkBy) : '')}${t.billOkAt ? ' · ' + tShort(t.billOkAt) : ''}`
             : `${fmtMin(billMins)} χρεώσιμος χρόνος — η εργασία δεν κλείνει πριν εγκριθεί`}</div></div>
-        ${cnpCan('finance.billing_ok')
+        ${(d.billApprover || {}).me
           ? `<button class="btn btn-sm ${t.billOk ? 'btn-o' : 'btn-p'}" id="dBillOk">${t.billOk ? 'Ανάκληση' : 'Έγκριση χρέωσης'}</button>`
-          : '<span class="mut" style="font-size:11px">μόνο το λογιστήριο</span>'}
+          : `<span class="mut" style="font-size:11px;text-align:right">${(d.billApprover || {}).name
+              ? 'εγκρίνει μόνο<br><b>' + esc(d.billApprover.name) + '</b>' : 'μόνο ο διαχειριστής'}</span>`}
       </div>` : ''}
       ${d.timelogs.length ? `<div class="mut" style="font-size:10.5px;margin-top:8px">Για να αλλάξεις χρέωση σε καταχώρηση που έγινε, πάτα το σημάδι «χρέωση» / «χωρίς χρέωση» δίπλα της.</div>
       <div style="margin-top:4px" id="tLogs">${d.timelogs.map(l =>
