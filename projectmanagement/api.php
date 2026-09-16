@@ -1602,6 +1602,45 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
  * Ταιριάζει username, όνομα, επώνυμο ή «όνομα επώνυμο», χωρίς τόνους/πεζά.
  * Επιστρέφει τα ids που ειδοποιήθηκαν (ποτέ τον ίδιο τον συντάκτη).
  */
+/* Παράθυρο αυτο-διόρθωσης: πόση ώρα μετά το άνοιγμα μπορεί ο δημιουργός να
+   σβήσει μια εργασία που άνοιξε κατά λάθος. */
+if (!defined('CNP_TASK_DEL_WINDOW')) { define('CNP_TASK_DEL_WINDOW', 3600); }
+
+/**
+ * Ποιος επιτρέπεται να διαγράψει μια εργασία.
+ *
+ * Οι διαχειριστές πάντα. Ο δημιουργός ΜΟΝΟ μέσα στο παράθυρο: η διαγραφή
+ * υπάρχει για το «την άνοιξα κατά λάθος», όχι για να εξαφανίζεται δουλειά που
+ * έχει ήδη χρόνο, σχόλια και ιστορικό άλλων ανθρώπων.
+ *
+ * @return array{0:bool,1:string,2:int} [επιτρέπεται, αιτία/μήνυμα, δευτερόλεπτα που απομένουν]
+ */
+function cnp_task_delete_right($t, $adminId, $isFull)
+{
+    if ($isFull) {
+        return [true, 'admin', 0];
+    }
+    if ((int) $t->created_by !== (int) $adminId) {
+        return [false, 'Μόνο ο διαχειριστής ή αυτός που άνοιξε την εργασία μπορεί να τη διαγράψει.', 0];
+    }
+    $born = strtotime((string) $t->created_at);
+    $left = $born ? CNP_TASK_DEL_WINDOW - (time() - $born) : 0;
+    if ($left <= 0) {
+        return [false, 'Πέρασε η ώρα μέσα στην οποία μπορούσες να τη διαγράψεις — ζήτα από διαχειριστή.', 0];
+    }
+    return [true, 'owner', (int) $left];
+}
+
+/** Οι διαχειριστές του συστήματος — ενημερώνονται για κάθε διαγραφή. */
+function cnp_full_admin_ids()
+{
+    $ids = [];
+    foreach (Db::admins() as $a) {
+        if (Db::isFullAccess($a->id)) { $ids[] = (int) $a->id; }
+    }
+    return array_values(array_unique($ids));
+}
+
 function cnp_notify_mentions($text, $taskId, $byAdminId, $where = '')
 {
     $plain = html_entity_decode(strip_tags((string) $text), ENT_QUOTES, 'UTF-8');
@@ -2403,7 +2442,11 @@ function cnp_open_actions()
         'vault_list', 'vault_save', 'vault_reveal', 'vault_del', 'lib_list', 'lib_save',
         'lib_upload', 'lib_get', 'lib_pin', 'lib_del', 'manual_img',
         // εργασίες: row-level (canSeeTask / cnp_task_write_ok)
-        'task', 'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
+        /* task_delete: το δικαίωμα ΔΕΝ είναι cap αλλά ιδιοκτησία+χρόνο
+           (cnp_task_delete_right) — διαχειριστής πάντα, ο δημιουργός μέσα στην
+           πρώτη ώρα. Με cap θα απέκλειε νόμιμους δημιουργούς, π.χ. όποιον
+           άνοιξε εργασία από ticket χωρίς «Board: επεξεργασία». */
+        'task', 'task_delete', 'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
@@ -2976,6 +3019,7 @@ case 'task':
             $cur = isset($cur->parent_id) && $cur->parent_id ? Db::project($cur->parent_id) : null;
         }
     }
+    $delRight = cnp_task_delete_right($t, $adminId, $FULL);
     out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
         'creatorId' => (int) $t->created_by, 'path' => $path,
         'depts' => cnp_depts(),
@@ -2987,6 +3031,7 @@ case 'task':
                 ? Capsule::table('mod_cpm_products')->where('id', $proj->product_id)->value('name') : null,
             'kind' => (string) $proj->kind, 'pstatus' => (string) $proj->pstatus,
             'due' => $proj->due_date, 'clientId' => $proj->clientid ? (int) $proj->clientid : null],
+        'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
         'check' => $check, 'activity' => $acts, 'ticket' => $ticket,
         'watching' => in_array($adminId, Db::watcherIds($t->id), true),
@@ -6627,6 +6672,55 @@ case 'project_pm_notes':                  // ιδιωτικές σημειώσε
     Capsule::table('mod_cpm_projects')->where('id', (int) $pp->id)
         ->update(['pm_notes' => mb_substr((string) ($in['notes'] ?? ''), 0, 20000)]);
     out(['ok' => true]);
+
+case 'task_delete':
+    $t = Db::task((int) ($in['id'] ?? 0));
+    if (!$t) { fail('task', 404); }
+    list($canDel, $whyDel) = cnp_task_delete_right($t, $adminId, $FULL);
+    if (!$canDel) { fail($whyDel, 403); }
+
+    $tid = (int) $t->id;
+    $tTitle = (string) $t->title;
+    $tProj = (int) $t->project_id;
+    /* Τι χάνεται μαζί — μπαίνει στην ειδοποίηση των διαχειριστών, ώστε η
+       διαγραφή να μη φαίνεται «αθώα» όταν δεν ήταν. */
+    $lostMins = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $tid)->sum('minutes');
+    $lostCmts = (int) Capsule::table('mod_cpm_comments')->where('task_id', $tid)->count();
+
+    /* Τα αρχεία φεύγουν μέσω Storage ώστε να σβήσει και το φυσικό blob,
+       όχι μόνο η εγγραφή. */
+    foreach (Capsule::table('mod_cpm_files')->where('task_id', $tid)->pluck('id') as $fid) {
+        try { Storage::delete((int) $fid); } catch (\Throwable $e) { /* ένα ορφανό αρχείο δεν μπλοκάρει τη διαγραφή */ }
+    }
+    foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
+                 'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
+                 'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers'] as $tb) {
+        if (Capsule::schema()->hasTable($tb)) { Capsule::table($tb)->where('task_id', $tid)->delete(); }
+    }
+    /* Εξαρτήσεις προς ΚΑΙ από την εργασία — αλλιώς άλλες εργασίες μένουν
+       μπλοκαρισμένες από κάτι που δεν υπάρχει πια. */
+    Capsule::table('mod_cpm_deps')->where('depends_on', $tid)->delete();
+    Capsule::table('mod_cpm_tasks')->where('id', $tid)->delete();
+
+    /* Κάθε διαγραφή φτάνει στους διαχειριστές. Ο ίδιος ο δράστης δεν
+       ειδοποιείται για τη δική του πράξη. */
+    $who = Db::adminName($adminId);
+    $extra = [];
+    if ($lostMins) {
+        $extra[] = $lostMins >= 60
+            ? round($lostMins / 60, 1) . 'ω καταγεγραμμένου χρόνου'
+            : $lostMins . '\' καταγεγραμμένου χρόνου';
+    }
+    if ($lostCmts) { $extra[] = $lostCmts . ' σχόλια'; }
+    $msg = 'Διαγράφηκε εργασία #' . $tid . ' «' . mb_substr($tTitle, 0, 70) . '» από ' . $who
+        . ($extra ? ' — μαζί με ' . implode(' και ', $extra) : '');
+    foreach (cnp_full_admin_ids() as $aid) {
+        if ($aid === $adminId) { continue; }
+        Db::pushNotification($aid, 'deleted', mb_substr($msg, 0, 240),
+            $tProj ? '/project/#/board/' . $tProj : '/project/#/projects');
+    }
+    logActivity('CloudOn PM: ' . $msg . ' (admin ' . $adminId . ')');
+    out(['ok' => true, 'project' => $tProj]);
 
 case 'project_delete':
     $p = Db::project((int) ($in['id'] ?? 0));

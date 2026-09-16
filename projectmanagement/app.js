@@ -1537,6 +1537,8 @@ async function openTask(id) {
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
         <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
+        ${d.canDelete ? `<button class="btn btn-o" id="dDel" style="color:var(--bad);margin-left:auto"
+          title="${d.delLeft ? 'Την άνοιξες εσύ — μπορείς να τη διαγράψεις για ' + Math.ceil(d.delLeft / 60) + ' ακόμη λεπτά' : 'Διαγραφή εργασίας (διαχειριστής)'}">${I.trash} Διαγραφή</button>` : ''}
       </div>
       <div class="tk-pills">
         ${d.project.none
@@ -1768,6 +1770,22 @@ async function openTask(id) {
   };
   const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
   const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
+  const ddl = $('#dDel', dr); if (ddl) ddl.onclick = async () => {
+    const mins = Math.round((d.total || 0));
+    const lost = [mins ? fmtMin(mins) + ' καταγεγραμμένου χρόνου' : '',
+      (d.comments || []).length ? (d.comments || []).length + ' σχόλια' : '',
+      (d.check || []).length ? (d.check || []).length + ' ενέργειες' : ''].filter(Boolean);
+    const ok = await cnpConfirm(
+      `Οριστική διαγραφή της εργασίας #${id};` + (lost.length ? '\n\nΧάνονται μαζί: ' + lost.join(' · ') + '.' : '')
+      + '\n\nΔεν γυρίζει πίσω, και ειδοποιούνται οι διαχειριστές.',
+      {ok: I.trash + ' Διαγραφή', cancel: 'Άκυρο', danger: true});
+    if (!ok) { return; }
+    const r = await api('task_delete', {id}).catch(e => ({err: (e && e.message) || 'Δεν διαγράφηκε'}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('Η εργασία διαγράφηκε');
+    closeDrawer();
+    if (r && r.project) { go('board', r.project); } else { R[S.view] && R[S.view](); }
+  };
   const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
   const tp = $('#tStop', dr); if (tp) tp.onclick = async () => {
     const bill = d.owner
