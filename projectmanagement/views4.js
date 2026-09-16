@@ -340,6 +340,7 @@ R.list = async function () {
       <span class="kb-sum-meta">
         ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα: περιμένει ενέργεια από ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
         ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname)}</span>` : ''}
+        ${t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : ''}
         <span class="kb-tag" style="background:${stt.color}18;color:${stt.color}">${esc(stt.title)}</span>
         ${t.assignee ? `<span class="mut">${esc(adminName(t.assignee))}</span>` : '<span class="mut">χωρίς ανάθεση</span>'}
         ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
@@ -355,16 +356,23 @@ R.list = async function () {
 
   const render = () => {
     let list = D.tasks.filter(match);
-    if (f.proj !== '') list = list.filter(t => t.project == f.proj);
+    if (f.proj !== '') { list = list.filter(t => (t.pname || 'Χωρίς έργο') === f.proj); }
     if (f.mine) list = list.filter(t => t.assignee === S.boot.me.id);
 
-    // μετρητές ανά project για τα chips
+    /* Τα chips ομαδοποιούνται ανά ΟΝΟΜΑ έργου, όχι ανά id. Η ίδια γραμμή
+       δουλειάς («e-Commerce», «Marketplaces») υπάρχει ως ξεχωριστό έργο σε κάθε
+       πελάτη — πέντε πανομοιότυπα chips που δεν ξεχωρίζουν μεταξύ τους δεν
+       είναι φίλτρο, είναι θόρυβος. Ένα chip ανά γραμμή δουλειάς, και ο πελάτης
+       φαίνεται πάνω σε κάθε εργασία. */
     const cnt = {};
-    D.tasks.filter(match).forEach(t => { cnt[t.project] = (cnt[t.project] || 0) + 1; });
+    D.tasks.filter(match).forEach(t => {
+      const k = t.pname || 'Χωρίς έργο';
+      (cnt[k] = cnt[k] || {n: 0, col: t.pcolor || '#8595ac'}).n++;
+    });
     $('#lcAll').textContent = D.tasks.filter(match).length;
-    $('#lProjChips').innerHTML = S.boot.projects.filter(p => cnt[p.id]).map(p =>
-      `<button class="kb-chip${f.proj == p.id ? ' on' : ''}" data-lproj="${p.id}" style="--kc:${p.color}">
-        <span class="kb-dot" style="background:${p.color}"></span>${esc(p.name)} <b>${cnt[p.id]}</b></button>`).join('');
+    $('#lProjChips').innerHTML = Object.keys(cnt).sort((a, b) => a.localeCompare(b, 'el')).map(k =>
+      `<button class="kb-chip${f.proj === k ? ' on' : ''}" data-lproj="${esc(k)}" style="--kc:${cnt[k].col}">
+        <span class="kb-dot" style="background:${cnt[k].col}"></span>${esc(k)} <b>${cnt[k].n}</b></button>`).join('');
 
     const el = $('#lRes');
     if (!list.length) {
@@ -409,7 +417,16 @@ R.list = async function () {
       h.querySelector('.kb-gchev').classList.toggle('open', !f.closed[g]);
     });
     const n2 = $('#lfNew2'); if (n2) n2.onclick = () => openForm();
-    $$('[data-view]').forEach(b => b.onclick = () => { Object.assign(R.list._f, views[+b.dataset.view].f); R.list(); });
+    $$('[data-view]').forEach(b => b.onclick = () => {
+      const vf = Object.assign({}, views[+b.dataset.view].f);
+      /* Παλιές όψεις κρατούσαν id έργου· τώρα το φίλτρο είναι όνομα. Χωρίς αυτό
+         θα άνοιγαν άδειες. */
+      if (vf.proj !== '' && /^\d+$/.test(String(vf.proj))) {
+        const pr = (S.boot.projects || []).find(x => x.id === +vf.proj);
+        vf.proj = pr ? pr.name : '';
+      }
+      Object.assign(R.list._f, vf); R.list();
+    });
     $$('[data-viewdel]').forEach(b => b.onclick = e => {
       e.stopPropagation();
       views.splice(+b.dataset.viewdel, 1);
