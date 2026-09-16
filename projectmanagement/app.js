@@ -1370,16 +1370,15 @@ function askImplDates(info, me) {
         <div id="idErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:4px" hidden></div>
         <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="idNo">Άκυρο</button>
-          ${me.full ? '<button class="btn btn-o" id="idDraft">Κράτησέ το πρόχειρο σε μένα</button>' : ''}
+          <button class="btn btn-o" id="idDraft">Κράτησέ το πρόχειρο σε μένα</button>
           <button class="btn btn-p" id="idGo">Ανάθεση με αυτές τις ημερομηνίες</button>
         </div>
-        ${me.full ? '' : '<div class="mut" style="font-size:11px;margin-top:8px">Πρόχειρη καταχώρηση μπορεί να κρατήσει μόνο διαχειριστής.</div>'}
+        <div class="mut" style="font-size:11px;margin-top:8px">Πρόχειρη κρατάς μόνο στον εαυτό σου — σε άλλον χρειάζονται ημερομηνίες.</div>
       </div></div>`;
     document.body.appendChild(ovl);
     const done = v => { ovl.remove(); resolve(v); };
     $('#idNo', ovl).onclick = () => done(null);
-    const dft = $('#idDraft', ovl);
-    if (dft) { dft.onclick = () => done({assignee: me.id, start: null, due: null}); }
+    $('#idDraft', ovl).onclick = () => done({assignee: me.id, start: null, due: null});
     $('#idGo', ovl).onclick = () => {
       const a = $('#idStart', ovl).value, b = $('#idDue', ovl).value, er = $('#idErr', ovl);
       if (!a || !b) { er.hidden = false; er.textContent = 'Χρειάζονται και οι δύο ημερομηνίες.'; return; }

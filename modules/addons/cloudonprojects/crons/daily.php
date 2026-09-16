@@ -209,3 +209,52 @@ try {
     $log('Σφάλμα στη συσσώρευση ομάδων: ' . $e->getMessage());
     logActivity('CPM daily pileup error: ' . $e->getMessage());
 }
+
+/* ---- 5. Εργασίες χωρίς χρόνο υλοποίησης γυρίζουν σε όποιον τις άνοιξε -------
+   Κανόνας: δουλειά χωρίς έναρξη+λήξη δεν κάθεται σε άλλον. Ο δημιουργός την
+   κρατά πρόχειρη όσο θέλει· για να την ξαναδώσει, βάζει ημερομηνίες. Ο έλεγχος
+   στην αποθήκευση καλύπτει τη συνήθη διαδρομή — αυτό εδώ πιάνει ό,τι μπήκε από
+   αλλού (import, cron, παλιά δεδομένα). */
+try {
+    $doneIds5 = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $stray = Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds5)
+        ->whereNotNull('assignee')->where('assignee', '<>', 0)
+        ->whereNotNull('created_by')->where('created_by', '<>', 0)
+        ->whereColumn('assignee', '<>', 'created_by')
+        ->where(function ($w) { $w->whereNull('start_date')->orWhereNull('due_date'); })
+        ->get(['id', 'title', 'assignee', 'created_by']);
+    $log('Εργασίες χωρίς χρόνο σε τρίτον: ' . count($stray));
+
+    $backTo = [];
+    foreach ($stray as $t) {
+        $log(sprintf('  #%d «%s» %s → %s', $t->id, mb_substr($t->title, 0, 40),
+            Db::adminName($t->assignee), Db::adminName($t->created_by)));
+        if ($dry) { continue; }
+        Capsule::table('mod_cpm_tasks')->where('id', $t->id)
+            ->update(['assignee' => (int) $t->created_by]);
+        /* Καταγράφουμε ΠΟΙΟΝ είχε, ώστε η κίνηση να μπορεί να αναιρεθεί. */
+        Db::logActivity((int) $t->id, 0, 'assign',
+            'Επέστρεψε στον δημιουργό (' . Db::adminName($t->created_by) . '): χωρίς έναρξη/λήξη '
+            . 'δεν ανατίθεται σε τρίτον. Είχε ανατεθεί στον/στην ' . Db::adminName($t->assignee) . '.');
+        $backTo[(int) $t->created_by][] = '#' . (int) $t->id . ' ' . mb_substr($t->title, 0, 40);
+    }
+    /* Μία σύνοψη ανά άτομο — όχι ένα μήνυμα ανά εργασία. */
+    foreach ($backTo as $aid => $list) {
+        $msg = count($list) . ' εργασίες επέστρεψαν σε εσένα: δεν έχουν έναρξη/λήξη, '
+            . 'οπότε δεν μπορούν να μείνουν σε άλλον. Βάλε ημερομηνίες για να τις ξαναδώσεις.';
+        Db::pushNotification($aid, 'action', mb_substr($msg, 0, 240), '/project/#/myday');
+        try {
+            $to5 = Notify::adminEmail($aid);
+            if ($to5) {
+                Notify::sendTo($to5, count($list) . ' εργασίες επέστρεψαν σε εσένα',
+                    '<p>' . htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') . '</p><ul><li>'
+                    . implode('</li><li>', array_map(function ($x) {
+                        return htmlspecialchars($x, ENT_QUOTES, 'UTF-8');
+                    }, $list)) . '</li></ul>');
+            }
+        } catch (\Throwable $e) { /* το email δεν σταματά το cron */ }
+    }
+} catch (\Throwable $e) {
+    $log('Σφάλμα στην επιστροφή εργασιών: ' . $e->getMessage());
+    logActivity('CPM daily stray-assign error: ' . $e->getMessage());
+}

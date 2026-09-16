@@ -1827,21 +1827,24 @@ function cnp_team_members($teamId)
 }
 
 /**
- * Ανάθεση σε agent χωρίς χρόνο υλοποίησης δεν επιτρέπεται.
+ * Ανάθεση σε ΑΛΛΟΝ χωρίς χρόνο υλοποίησης δεν επιτρέπεται.
  *
- * «Πρόχειρη καταχώρηση» είναι νόμιμη — αλλά μόνο στον διαχειριστή: εκεί η
- * εργασία περιμένει να σχεδιαστεί. Τη στιγμή που περνά σε agent για υλοποίηση,
- * πρέπει να ξέρουμε ΠΟΤΕ ξεκινά και ΠΟΤΕ τελειώνει — αλλιώς δεν μπορεί να
- * προγραμματιστεί τίποτα γύρω της και δεν απαντά καμία αναφορά.
+ * Κρατάς όσες πρόχειρες θέλεις στον ΕΑΥΤΟ σου — εκεί η εργασία περιμένει να
+ * σχεδιαστεί και κανείς δεν την περιμένει. Τη στιγμή που τη δίνεις σε άλλον,
+ * πρέπει να ξέρει πότε ξεκινά και πότε τελειώνει· αλλιώς του φορτώνεις κάτι
+ * που δεν μπορεί να προγραμματίσει.
  *
- * @return bool true αν ο παραλήπτης χρειάζεται ημερομηνίες
+ * (Ο ρόλος στο WHMCS δεν χρησιμεύει εδώ: οι πραγματικοί υπεύθυνοι της ομάδας
+ *  είναι «agents», οπότε κριτήριο είναι η ιδιοκτησία, όχι το δικαίωμα.)
+ *
+ * @return bool true αν χρειάζονται ημερομηνίες
  */
-function cnp_assignee_needs_dates($adminId)
+function cnp_assignee_needs_dates($newAssignee, $actorId)
 {
-    if (!$adminId) {
+    if (!$newAssignee) {
         return false;                       // «κανείς» = δεν έχει ανατεθεί
     }
-    return !Db::isFullAccess((int) $adminId);
+    return (int) $newAssignee !== (int) $actorId;
 }
 
 /** Η στήλη «αναμονής» — η πρώτη μη-τελική κατάσταση (Backlog). */
@@ -4740,7 +4743,7 @@ case 'save_task':
        να δώσει τη δουλειά σε συνάδελφο ούτε να ανεβάσει προτεραιότητα. */
     if (array_key_exists('assignee', $in)) {
         $newA = (int) $in['assignee'] ?: null;
-        if ($newA && $newA !== (int) $t->assignee && cnp_assignee_needs_dates($newA)) {
+        if ($newA && $newA !== (int) $t->assignee && cnp_assignee_needs_dates($newA, $adminId)) {
             /* Οι ημερομηνίες μπορεί να έρχονται στην ΙΔΙΑ αποθήκευση — κοιτάμε
                πρώτα αυτές που στέλνονται τώρα και μετά ό,τι υπάρχει ήδη. */
             $sNew = array_key_exists('start', $in)
@@ -4752,7 +4755,7 @@ case 'save_task':
             if (!$sNew || !$dNew) {
                 http_response_code(409);
                 out(['error' => 'Ανάθεση σε ' . Db::adminName($newA) . ' χωρίς χρόνο υλοποίησης δεν γίνεται — '
-                        . 'βάλε έναρξη και λήξη. Πρόχειρη καταχώρηση μένει στον διαχειριστή.',
+                        . 'βάλε έναρξη και λήξη. Πρόχειρη μπορείς να κρατήσεις μόνο στον εαυτό σου.',
                     'need' => 'dates', 'task' => $tid, 'assignee' => $newA,
                     'start' => $sNew, 'due' => $dNew]);
             }
@@ -7396,7 +7399,7 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
 
     /* Ίδιος κανόνας και στην παράδοση: αν περνά και η ανάθεση σε agent,
        χρειάζεται χρόνος υλοποίησης — αλλιώς η σκυτάλη πάει στο κενό. */
-    if (!empty($in['move']) && cnp_assignee_needs_dates($toH)) {
+    if (!empty($in['move']) && cnp_assignee_needs_dates($toH, $adminId)) {
         $dueChk = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : ($t->due_date ?: null);
         if (!$t->start_date || !$dueChk) {
             http_response_code(409);
