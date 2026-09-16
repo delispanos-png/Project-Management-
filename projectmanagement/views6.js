@@ -1135,11 +1135,81 @@ R.myteam = async function () {
     <td class="mut" style="font-size:11.5px">${r.reason ? esc(r.reason) : '—'}</td>
     <td class="mut" style="white-space:nowrap;font-size:11.5px">${esc(r.by)} · ${dShort(r.at)}</td></tr>`;
 
+  /* ── Η μέρα ανά άνθρωπο ──────────────────────────────────────────────────
+     Ο επικεφαλής δεν ρωτά «πόσες εργασίες είναι σημερινές» αλλά «τι κάνει ο
+     καθένας». Άρα μία γραμμή ζωής ανά μέλος, και μέσα της κάθε εργασία με
+     πότε ΞΕΚΙΝΗΣΕ πραγματικά και πότε τελειώνει. */
+  const TAGS = {
+    carried:  ['μεταφορά',  '#e0552b'],
+    today:    ['σήμερα',    '#0090dd'],
+    spanning: ['διαρκεί',   '#7b5cd6'],
+    new:      ['νέα',       '#16a26a'],
+  };
+  const KIND = {work: 'δουλεύει από', plan: 'πλάνο από', born: 'άνοιξε'};
+
+  /* Η μπάρα δείχνει πού πέφτει το ΣΗΜΕΡΑ ανάμεσα σε έναρξη και λήξη. Χωρίς
+     λήξη δεν υπάρχει «πόσο μένει» — δείχνουμε ανοιχτό άκρο, δεν το φαντάζομαι. */
+  const laneBar = t => {
+    const d0 = new Date(t.startAt + 'T12:00:00').getTime();
+    const now = new Date(d.date + 'T12:00:00').getTime();
+    if (!t.due) { return ''; }
+    const d1 = new Date(t.due + 'T12:00:00').getTime();
+    const span = Math.max(1, d1 - d0);
+    const pct = Math.max(0, Math.min(100, Math.round((now - d0) / span * 100)));
+    const late = t.left < 0;
+    return `<div class="ln-bar" title="${dShort(t.startAt)} → ${dShort(t.due)}">
+      <span class="ln-fill" style="width:${pct}%;background:${late ? 'var(--bad)' : (pct > 80 ? 'var(--warn)' : 'var(--ok)')}"></span>
+      <span class="ln-dot" style="left:${pct}%"></span>
+      <span class="ln-a">${dShort(t.startAt)}</span><span class="ln-b">${dShort(t.due)}</span></div>`;
+  };
+
+  const laneTask = t => {
+    const [tl, tc] = TAGS[t.tag] || TAGS.today;
+    const when = t.left === null ? '<span class="ln-nodue">χωρίς ημερομηνία λήξης</span>'
+      : t.left < 0 ? `<b style="color:var(--bad)">${Math.abs(t.left)} ημ. πίσω</b> (λήξη ${dShort(t.due)})`
+      : t.left === 0 ? '<b style="color:var(--warn)">λήγει σήμερα</b>'
+      : `λήγει <b>${dShort(t.due)}</b> — σε ${t.left} ημ.`;
+    return `<div class="ln-task" data-mtgo="${t.id}">
+      <div class="ln-t1">
+        <span class="kb-dot" style="background:${t.color}"></span>
+        <b>${esc(t.title)}</b>
+        <span class="ln-tag" style="background:${tc}18;color:${tc}">${tl}</span>
+        ${t.running !== null ? `<span class="ln-tag" style="background:#e0a02018;color:#e0a020">▶ ${hm(t.running)}</span>` : ''}
+        <span style="flex:1"></span>
+        ${t.project ? `<span class="mut" style="font-size:11px">${esc(t.project)}</span>` : ''}
+      </div>
+      <div class="ln-t2">
+        ${KIND[t.startKind]} <b>${dShort(t.startAt)}</b>${t.age ? ` <span class="mut">(${t.age} ημ.)</span>` : ''}
+        · ${when}
+        ${t.spent ? ` · <b>${hm(t.spent)}</b> καταγεγραμμένα` : ' · <span class="mut">χωρίς καταγεγραμμένο χρόνο</span>'}
+        ${t.todayMins ? ` · <b style="color:var(--ok)">${hm(t.todayMins)} σήμερα</b>` : ''}
+      </div>
+      ${laneBar(t)}</div>`;
+  };
+
+  const lane = l => `<div class="card ln${l.now ? ' busy' : ''}" style="margin-bottom:11px">
+    <div class="ln-h">
+      <span class="act-ava" style="--sc:${l.now ? 'var(--ok)' : 'var(--mut)'}">${esc(l.ini || '?')}</span>
+      <div style="flex:1;min-width:140px">
+        <b style="font-size:13.5px">${esc(l.name)}</b>
+        ${l.now
+          ? `<div class="ln-now"><span class="act-live"></span>τώρα: <b>${esc(l.now.title)}</b> · ${hm(l.now.mins)}</div>`
+          : `<div class="mut" style="font-size:11.5px">${l.tasks.length ? 'χωρίς ενεργό χρονόμετρο' : 'δεν έχει τίποτα για σήμερα'}</div>`}
+      </div>
+      <span class="pill pill-mut">${l.tasks.length} ${l.tasks.length === 1 ? 'εργασία' : 'εργασίες'}</span>
+      ${l.todayMins ? `<span class="pill" style="background:var(--ok);color:#fff">${hm(l.todayMins)} σήμερα</span>` : ''}
+    </div>
+    ${l.tasks.length ? `<div class="ln-body">${l.tasks.map(laneTask).join('')}</div>` : ''}
+  </div>`;
+
+  const counts = [['planned', 'σήμερα', '#0090dd'], ['spanning', 'διαρκούν', '#7b5cd6'],
+    ['opened', 'νέα', '#16a26a'], ['carried', 'μεταφορά', '#e0552b']];
+
   const body = st.tab === 'day'
-    ? `${bucket('planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'πλάνο ή προθεσμία σήμερα', '#0090dd')}
-       ${bucket('spanning', I.gantt || I.chart, 'Περνάνε από το σήμερα', 'ξεκίνησαν πριν, λήγουν μετά', '#7b5cd6')}
-       ${bucket('opened',   I.plus,  'Άνοιξαν σήμερα', 'γεννήθηκαν μέσα στη μέρα', '#16a26a')}
-       ${bucket('carried',  I.alert, 'Μεταφορά από πριν', 'πλάνο παλιότερης μέρας, ακόμη ανοιχτά', '#e0552b')}`
+    ? `<div class="ln-sum">${counts.map(([k, lb, col]) =>
+        `<span><b style="color:${col}">${d[k].length}</b> ${lb}</span>`).join('')}
+        <span class="mut" style="margin-left:auto;font-size:11.5px">κλικ σε εργασία για άνοιγμα</span></div>
+       ${d.lanes.map(lane).join('') || '<div class="card"><div class="card-b mut">Η ομάδα δεν έχει μέλη.</div></div>'}`
     : st.tab === 'load'
     ? `<div class="card"><div class="card-h">${I.chart} Ποιος αντέχει άλλο
         <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η μπάρα συγκρίνει με τον πιο φορτωμένο της ομάδας</span></div>

@@ -227,6 +227,34 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
    αυτό μπαίνει πρώτος και ως ρητή επιλογή, όχι ως dropdown στη μέση του grid. */
 .kindpick{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;margin:2px 0 0}
 
+/* ═══ «Η ομάδα μου» — γραμμή ζωής ανά άνθρωπο ═══
+   Η ερώτηση είναι «τι κάνει ο καθένας», άρα ο άνθρωπος είναι ο περιέκτης και
+   οι εργασίες του το περιεχόμενο — όχι το αντίστροφο. */
+.ln{overflow:hidden}
+.ln.busy{border-color:var(--ok)}
+.ln-h{display:flex;align-items:center;gap:11px;padding:11px 14px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line);background:var(--canvas)}
+.ln-now{font-size:11.5px;color:var(--ok);display:flex;align-items:center;gap:6px;margin-top:2px}
+.ln-body{padding:4px 14px 10px}
+.ln-task{padding:9px 0;border-bottom:1px dashed var(--line);cursor:pointer}
+.ln-task:last-child{border-bottom:none}
+.ln-task:hover{background:var(--canvas);margin:0 -14px;padding-left:14px;padding-right:14px}
+.ln-t1{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);flex-wrap:wrap}
+.ln-t2{font-size:11.5px;color:var(--txt);margin:3px 0 6px}
+.ln-tag{font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;white-space:nowrap}
+
+/* Η μπάρα: πού πέφτει το σήμερα ανάμεσα σε έναρξη και λήξη. */
+.ln-bar{position:relative;height:16px;max-width:460px;border-radius:8px;background:var(--line);overflow:visible}
+.ln-nodue{color:var(--mut);font-style:italic}
+.ln-fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;opacity:.55}
+.ln-dot{position:absolute;top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:50%;
+  background:var(--card);border:2.5px solid var(--ink);box-shadow:0 0 0 2px var(--card)}
+.ln-a,.ln-b{position:absolute;top:1px;font-size:9.5px;color:var(--mut);line-height:14px;white-space:nowrap}
+.ln-a{left:7px}.ln-b{right:7px}
+.ln-sum{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:9px 14px;margin-bottom:12px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--txt)}
+@media (max-width:768px){.ln-a,.ln-b{display:none}.ln-sum{gap:11px;font-size:12px}}
+
 /* ουρά εγκρίσεων χρέωσης (pop-up) */
 .bq-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);
   border-radius:10px;margin-bottom:7px;background:var(--card);flex-wrap:wrap}

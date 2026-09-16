@@ -3909,12 +3909,42 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             'mins' => $r->started_at ? max(0, (int) round(($nowM - strtotime($r->started_at)) / 60)) : 0];
     }
 
-    $dtoM = function ($t) use ($doneM) {
+    /* «Πότε το ξεκίνησε» δεν είναι η προγραμματισμένη ημερομηνία (συμπληρώνεται
+       σπάνια) αλλά η ΠΡΩΤΗ φορά που γράφτηκε χρόνος πάνω της. Αυτό ξέρουμε ότι
+       συνέβη στ' αλήθεια. Κρατάμε και τα δύο και το UI δείχνει το πραγματικό. */
+    $tIdsM = array_map(function ($t) { return (int) $t->id; }, $rowsM->all());
+    $touchM = [];
+    if ($tIdsM) {
+        foreach (Capsule::table('mod_cpm_timelogs')->whereIn('task_id', $tIdsM)->where('running', 0)
+            ->groupBy('task_id')->get(['task_id',
+                Capsule::raw('MIN(created_at) as first_at'), Capsule::raw('MAX(created_at) as last_at'),
+                Capsule::raw('SUM(minutes) as total'),
+                Capsule::raw('SUM(CASE WHEN created_at >= "' . $todayM . ' 00:00:00" THEN minutes ELSE 0 END) as today_m')]) as $r) {
+            $touchM[(int) $r->task_id] = ['first' => $r->first_at, 'last' => $r->last_at,
+                'total' => (int) $r->total, 'today' => (int) $r->today_m];
+        }
+    }
+
+    $dtoM = function ($t) use ($doneM, $touchM, $runM, $todayM) {
+        $tc = $touchM[(int) $t->id] ?? null;
+        /* Έναρξη κατά σειρά αξιοπιστίας: πρώτος καταγεγραμμένος χρόνος →
+           προγραμματισμένη έναρξη → ημέρα που άνοιξε η εργασία. */
+        $startReal = $tc ? substr((string) $tc['first'], 0, 10) : null;
+        $startShown = $startReal ?: ($t->start_date ?: substr((string) $t->created_at, 0, 10));
+        $startKind = $startReal ? 'work' : ($t->start_date ? 'plan' : 'born');
+        $ageDays = $startShown ? (int) round((strtotime($todayM) - strtotime($startShown)) / 86400) : null;
+        $left = $t->due_date ? (int) round((strtotime($t->due_date) - strtotime($todayM)) / 86400) : null;
         return ['id' => (int) $t->id, 'title' => $t->title,
             'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '', 'whoId' => (int) $t->assignee,
             'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
             'done' => in_array((int) $t->status_id, $doneM, true),
-            'sched' => $t->schedule_date, 'due' => $t->due_date, 'est' => (int) $t->estimate_minutes];
+            'sched' => $t->schedule_date, 'start' => $t->start_date, 'due' => $t->due_date,
+            'est' => (int) $t->estimate_minutes,
+            'startAt' => $startShown, 'startKind' => $startKind, 'age' => $ageDays, 'left' => $left,
+            'lastAt' => $tc ? substr((string) $tc['last'], 0, 10) : null,
+            'spent' => $tc ? $tc['total'] : 0, 'todayMins' => $tc ? $tc['today'] : 0,
+            'running' => (isset($runM[(int) $t->assignee]) && $runM[(int) $t->assignee]['task'] === (int) $t->id)
+                ? $runM[(int) $t->assignee]['mins'] : null];
     };
     $planM = $spanM = $newM = $carryM = [];
     foreach ($rowsM as $t) {
@@ -3985,7 +4015,44 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
     }
 
     $tInfo = $allM->first(function ($t) use ($teamM) { return (int) $t->id === $teamM; });
-    out(['team' => ['id' => $teamM, 'name' => $tInfo ? $tInfo->name : '', 'color' => $tInfo ? $tInfo->color : '#0090dd'],
+    /* Ανά άνθρωπο: μία γραμμή ζωής ανά μέλος, με ό,τι αγγίζει τη σημερινή μέρα.
+       Η ίδια εργασία μπορεί να είναι και «σημερινή» και «μεταφορά» — κρατάμε
+       ΜΙΑ εγγραφή ανά εργασία με ετικέτα, αλλιώς ο επικεφαλής τη μετράει δύο φορές. */
+    $laneM = [];
+    foreach ($memM as $aid) {
+        $laneM[$aid] = ['id' => $aid, 'name' => Db::adminName($aid), 'ini' => initials(Db::adminName($aid)),
+            'now' => null, 'tasks' => [], 'todayMins' => 0];
+    }
+    $seenM = [];
+    $push = function ($list, $tag) use (&$laneM, &$seenM) {
+        foreach ($list as $t) {
+            if (isset($seenM[$t['id']])) { continue; }
+            $seenM[$t['id']] = true;
+            $k = $t['whoId'];
+            if (!isset($laneM[$k])) { continue; }
+            $t['tag'] = $tag;
+            $laneM[$k]['tasks'][] = $t;
+            $laneM[$k]['todayMins'] += $t['todayMins'];
+            if ($t['running'] !== null) {
+                $laneM[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']];
+            }
+        }
+    };
+    /* Σειρά προτεραιότητας ετικέτας: ό,τι είναι ήδη πίσω μετράει πρώτο. */
+    $push($carryM, 'carried'); $push($planM, 'today'); $push($spanM, 'spanning'); $push($newM, 'new');
+    foreach ($laneM as $k => $v) {
+        usort($laneM[$k]['tasks'], function ($a, $b) {
+            $ord = ['carried' => 0, 'today' => 1, 'spanning' => 2, 'new' => 3];
+            return [$ord[$a['tag']], $a['due'] ?: '9999'] <=> [$ord[$b['tag']], $b['due'] ?: '9999'];
+        });
+    }
+    /* Πρώτα όποιος δουλεύει τώρα, μετά όποιος έχει τα περισσότερα. */
+    usort($laneM, function ($a, $b) {
+        return [$b['now'] ? 1 : 0, count($b['tasks'])] <=> [$a['now'] ? 1 : 0, count($a['tasks'])];
+    });
+
+    out(['lanes' => array_values($laneM),
+        'team' => ['id' => $teamM, 'name' => $tInfo ? $tInfo->name : '', 'color' => $tInfo ? $tInfo->color : '#0090dd'],
         'teams' => array_values(array_map(function ($t) {
             return ['id' => (int) $t->id, 'name' => $t->name, 'color' => $t->color];
         }, array_filter($allM->all(), function ($t) use ($canSeeM) { return in_array((int) $t->id, $canSeeM, true); }))),
