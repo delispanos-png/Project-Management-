@@ -938,6 +938,7 @@ R.teamday = async function () {
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
 
   const BUCKETS = [
+    ['running',  I.clock, 'Δουλεύονται τώρα', 'ανοιχτό χρονόμετρο αυτή τη στιγμή', '#16a26a'],
     ['planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'πλάνο ή προθεσμία σήμερα',            '#0090dd'],
     ['spanning', I.gantt || I.chart, 'Περνάνε από το σήμερα', 'ξεκίνησαν πριν, λήγουν μετά',   '#7b5cd6'],
     ['opened',   I.plus,  'Άνοιξαν σήμερα',        'γεννήθηκαν μέσα στη μέρα',                 '#16a26a'],
@@ -1018,9 +1019,14 @@ R.reschedules = async function () {
   const totalDays = d.items.reduce((a, x) => a + Math.abs(x.days), 0);
   const back = d.items.filter(x => x.days > 0).length;
   const dd = x => x ? dShort(x) : '—';
-  const arrow = x => x.oldDue !== x.newDue
-    ? `παράδοση <b>${dd(x.oldDue)}</b> → <b>${dd(x.newDue)}</b>`
-    : `έναρξη <b>${dd(x.oldStart)}</b> → <b>${dd(x.newStart)}</b>`;
+  const arrow = x => {
+    if (x.oldDue !== x.newDue) {
+      return x.newDue ? `παράδοση <b>${dd(x.oldDue)}</b> → <b>${dd(x.newDue)}</b>`
+        : `<b style="color:var(--bad)">αφαιρέθηκε η προθεσμία</b> <span class="mut">(ήταν ${dd(x.oldDue)})</span>`;
+    }
+    return x.newStart ? `έναρξη <b>${dd(x.oldStart)}</b> → <b>${dd(x.newStart)}</b>`
+      : `<b style="color:var(--bad)">αφαιρέθηκε η έναρξη</b> <span class="mut">(ήταν ${dd(x.oldStart)})</span>`;
+  };
 
   const row = x => `<tr>
     <td><span class="kb-dot" style="background:${x.color}"></span> <b>${esc(x.name)}</b>
@@ -1129,8 +1135,10 @@ R.myteam = async function () {
   const rescRow = r => `<tr data-mtproj="${r.project}" style="cursor:pointer">
     <td><span class="kb-dot" style="background:${r.color}"></span> <b>${esc(r.name)}</b></td>
     <td>${r.oldDue !== r.newDue
-      ? `παράδοση <b>${r.oldDue ? dShort(r.oldDue) : '—'}</b> → <b>${r.newDue ? dShort(r.newDue) : '—'}</b>`
-      : `έναρξη <b>${r.oldStart ? dShort(r.oldStart) : '—'}</b> → <b>${r.newStart ? dShort(r.newStart) : '—'}</b>`}</td>
+      ? (r.newDue ? `παράδοση <b>${dShort(r.oldDue)}</b> → <b>${dShort(r.newDue)}</b>`
+                  : '<b style="color:var(--bad)">αφαιρέθηκε η προθεσμία</b>')
+      : (r.newStart ? `έναρξη <b>${dShort(r.oldStart)}</b> → <b>${dShort(r.newStart)}</b>`
+                    : '<b style="color:var(--bad)">αφαιρέθηκε η έναρξη</b>')}</td>
     <td style="text-align:center"><span class="pill ${r.days > 0 ? 'pill-bad' : 'pill-ok'}">${r.days > 0 ? '+' : ''}${r.days} ημ.</span></td>
     <td class="mut" style="font-size:11.5px">${r.reason ? esc(r.reason) : '—'}</td>
     <td class="mut" style="white-space:nowrap;font-size:11.5px">${esc(r.by)} · ${dShort(r.at)}</td></tr>`;
@@ -1140,6 +1148,7 @@ R.myteam = async function () {
      καθένας». Άρα μία γραμμή ζωής ανά μέλος, και μέσα της κάθε εργασία με
      πότε ΞΕΚΙΝΗΣΕ πραγματικά και πότε τελειώνει. */
   const TAGS = {
+    now:      ['δουλεύεται τώρα', '#16a26a'],
     carried:  ['μεταφορά',  '#e0552b'],
     today:    ['σήμερα',    '#0090dd'],
     spanning: ['διαρκεί',   '#7b5cd6'],

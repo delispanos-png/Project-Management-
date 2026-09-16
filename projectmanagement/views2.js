@@ -3361,14 +3361,18 @@ R.projects = async function () {
          «γιατί» — και εκεί κρίνεται αν το πρόβλημα είναι δικό μας ή του πελάτη. */
       let reschedReason = '';
       if (p.id) {
-        const moved = (p.start && $('#pjStart').value && p.start !== $('#pjStart').value)
-          || (p.due && $('#pjDue').value && p.due !== $('#pjDue').value);
+        /* Και η ΑΦΑΙΡΕΣΗ ημερομηνίας είναι μετάθεση — αλλιώς θα ήταν ο τρόπος
+           να την παρακάμψεις: σβήνεις την προθεσμία και δεν το μαθαίνει κανείς. */
+        const moved = (p.start && p.start !== $('#pjStart').value)
+          || (p.due && p.due !== $('#pjDue').value);
         if (moved) {
           const why = await cnpDialog({
             title: 'Το έργο μετατίθεται',
-            body: `${p.due && $('#pjDue').value && p.due !== $('#pjDue').value
-              ? 'Παράδοση: ' + dFull(p.due) + ' → ' + dFull($('#pjDue').value)
-              : 'Έναρξη: ' + dFull(p.start) + ' → ' + dFull($('#pjStart').value)}\n\nΘα ειδοποιηθούν ο υπεύθυνος του έργου και οι διαχειριστές.`,
+            body: `${p.due && p.due !== $('#pjDue').value
+              ? ($('#pjDue').value ? 'Παράδοση: ' + dFull(p.due) + ' → ' + dFull($('#pjDue').value)
+                                   : 'Αφαιρείται η προθεσμία παράδοσης (ήταν ' + dFull(p.due) + ')')
+              : ($('#pjStart').value ? 'Έναρξη: ' + dFull(p.start) + ' → ' + dFull($('#pjStart').value)
+                                     : 'Αφαιρείται η ημερομηνία έναρξης (ήταν ' + dFull(p.start) + ')')}\n\nΘα ειδοποιηθούν ο υπεύθυνος του έργου και οι διαχειριστές.`,
             input: '', rows: 2, max: 500, placeholder: 'Γιατί μετατίθεται; (π.χ. καθυστέρηση υλικού από τον πελάτη)',
             hint: 'Προαιρετικό — αλλά χωρίς αυτό η αναφορά δεν εξηγεί την αιτία.',
             ok: 'Αποθήκευση', cancel: 'Άκυρο'});

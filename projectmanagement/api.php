@@ -1739,16 +1739,25 @@ function cnp_log_reschedule($before, array $after, $adminId, $reason = '')
     $newS = $after['start_date'] ?? null;
     $newD = $after['due_date'] ?? null;
 
-    $moved = function ($old, $new) { return $old && $new && $old !== $new; };
+    /* Μετάθεση = άλλαξε ημερομηνία που ΥΠΗΡΧΕ. Δύο περιπτώσεις:
+         - μετακινήθηκε   → καταγράφεται με «πόσες ημέρες»
+         - ΑΦΑΙΡΕΘΗΚΕ     → καταγράφεται κι αυτό· το να σβήσεις την προθεσμία
+                             είναι μεγαλύτερη αλλαγή από το να τη μετακινήσεις,
+                             και χωρίς αυτό θα ήταν τρόπος να την παρακάμψεις.
+       Το να ΜΠΕΙ ημερομηνία εκεί που δεν υπήρχε καμία δεν είναι μετάθεση. */
+    $moved   = function ($old, $new) { return $old && $new && $old !== $new; };
+    $cleared = function ($old, $new) { return $old && !$new; };
     $sMoved = $moved($oldS, $newS);
     $dMoved = $moved($oldD, $newD);
-    if (!$sMoved && !$dMoved) {
+    $sGone  = $cleared($oldS, $newS);
+    $dGone  = $cleared($oldD, $newD);
+    if (!$sMoved && !$dMoved && !$sGone && !$dGone) {
         return;
     }
 
-    /* Θετικό = πήγε πίσω (αργότερα). Το «πόσο» είναι το ουσιώδες νούμερο. */
+    /* Θετικό = πήγε πίσω (αργότερα). Σε αφαίρεση δεν υπάρχει «πόσο». */
     $days = $dMoved ? (int) round((strtotime($newD) - strtotime($oldD)) / 86400)
-                    : (int) round((strtotime($newS) - strtotime($oldS)) / 86400);
+        : ($sMoved ? (int) round((strtotime($newS) - strtotime($oldS)) / 86400) : 0);
 
     Capsule::table('mod_cpm_reschedules')->insert([
         'project_id' => (int) $before->id, 'admin_id' => (int) $adminId,
@@ -1760,9 +1769,15 @@ function cnp_log_reschedule($before, array $after, $adminId, $reason = '')
 
     $who = Db::adminName($adminId);
     $dir = $days > 0 ? 'πίσω' : 'μπροστά';
-    $what = $dMoved
-        ? 'παράδοση ' . cnp_dgr($oldD) . ' → ' . cnp_dgr($newD) . ' (' . abs($days) . ' ημ. ' . $dir . ')'
-        : 'έναρξη ' . cnp_dgr($oldS) . ' → ' . cnp_dgr($newS) . ' (' . abs($days) . ' ημ. ' . $dir . ')';
+    if ($dGone) {
+        $what = 'ΑΦΑΙΡΕΘΗΚΕ η προθεσμία παράδοσης (ήταν ' . cnp_dgr($oldD) . ')';
+    } elseif ($sGone) {
+        $what = 'ΑΦΑΙΡΕΘΗΚΕ η ημερομηνία έναρξης (ήταν ' . cnp_dgr($oldS) . ')';
+    } elseif ($dMoved) {
+        $what = 'παράδοση ' . cnp_dgr($oldD) . ' → ' . cnp_dgr($newD) . ' (' . abs($days) . ' ημ. ' . $dir . ')';
+    } else {
+        $what = 'έναρξη ' . cnp_dgr($oldS) . ' → ' . cnp_dgr($newS) . ' (' . abs($days) . ' ημ. ' . $dir . ')';
+    }
     $msg = 'Αναπρογραμματισμός «' . mb_substr((string) $before->name, 0, 70) . '»: ' . $what . ' — ' . $who;
     $url = '/project/#/board/' . (int) $before->id;
 
@@ -3884,11 +3899,28 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
     $nowM = time();
 
     /* ── 1. Η μέρα της ομάδας ── */
+    /* Το τρέχον χρονόμετρο διαβάζεται ΠΡΩΤΟ και ανεξάρτητα: κάποιος μπορεί να
+       δουλεύει εργασία χωρίς καμία ημερομηνία, που δεν θα έμπαινε αλλιώς στο
+       σημερινό σύνολο — και η οθόνη θα έλεγε «χωρίς ενεργό χρονόμετρο» ενώ
+       δουλεύει. Ό,τι τρέχει τώρα ΑΝΗΚΕΙ στη σημερινή μέρα εξ ορισμού. */
+    $runM = [];
+    $runTaskIds = [];
+    foreach (Capsule::table('mod_cpm_timelogs as tl')
+        ->leftJoin('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
+        ->where('tl.running', 1)->whereIn('tl.admin_id', $memM)
+        ->get(['tl.task_id', 'tl.admin_id', 'tl.started_at', 't.title']) as $r) {
+        $runM[(int) $r->admin_id] = ['task' => (int) $r->task_id, 'title' => (string) $r->title,
+            'mins' => $r->started_at ? max(0, (int) round(($nowM - strtotime($r->started_at)) / 60)) : 0];
+        $runTaskIds[] = (int) $r->task_id;
+    }
+
     $rowsM = Capsule::table('mod_cpm_tasks as t')
         ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->whereIn('t.assignee', $memM)
-        ->where(function ($w) use ($todayM, $doneM) {
-            $w->where(function ($x) use ($todayM, $doneM) {
+        ->where(function ($w) use ($todayM, $doneM, $runTaskIds) {
+            /* ό,τι τρέχει τώρα ανήκει στη σημερινή μέρα, ανεξάρτητα από ημερομηνίες */
+            if ($runTaskIds) { $w->orWhereIn('t.id', $runTaskIds); }
+            $w->orWhere(function ($x) use ($todayM, $doneM) {
                 $x->whereNotIn('t.status_id', $doneM)
                   ->where(function ($y) use ($todayM) {
                       $y->where('t.schedule_date', '<=', $todayM)->orWhere('t.due_date', '<=', $todayM)
@@ -3901,13 +3933,6 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
         ->orderBy('t.id', 'desc')->limit(400)
         ->get(['t.id', 't.title', 't.assignee', 't.status_id', 't.schedule_date', 't.start_date',
             't.due_date', 't.created_at', 't.estimate_minutes', 'p.name as pname', 'p.color as pcolor']);
-
-    $runM = [];
-    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->whereIn('admin_id', $memM)
-        ->get(['task_id', 'admin_id', 'started_at']) as $r) {
-        $runM[(int) $r->admin_id] = ['task' => (int) $r->task_id,
-            'mins' => $r->started_at ? max(0, (int) round(($nowM - strtotime($r->started_at)) / 60)) : 0];
-    }
 
     /* «Πότε το ξεκίνησε» δεν είναι η προγραμματισμένη ημερομηνία (συμπληρώνεται
        σπάνια) αλλά η ΠΡΩΤΗ φορά που γράφτηκε χρόνος πάνω της. Αυτό ξέρουμε ότι
@@ -3946,8 +3971,10 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             'running' => (isset($runM[(int) $t->assignee]) && $runM[(int) $t->assignee]['task'] === (int) $t->id)
                 ? $runM[(int) $t->assignee]['mins'] : null];
     };
-    $planM = $spanM = $newM = $carryM = [];
+    $planM = $spanM = $newM = $carryM = $nowListM = [];
     foreach ($rowsM as $t) {
+        /* Δουλεύεται ΤΩΡΑ: μπαίνει στη μέρα ακόμη κι αν δεν έχει καμία ημερομηνία. */
+        if (in_array((int) $t->id, $runTaskIds, true)) { $nowListM[] = $dtoM($t); }
         $isDone = in_array((int) $t->status_id, $doneM, true);
         if ($t->created_at && substr((string) $t->created_at, 0, 10) === $todayM) { $newM[] = $dtoM($t); }
         if ($isDone) { continue; }
@@ -4033,16 +4060,19 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             $t['tag'] = $tag;
             $laneM[$k]['tasks'][] = $t;
             $laneM[$k]['todayMins'] += $t['todayMins'];
-            if ($t['running'] !== null) {
-                $laneM[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']];
-            }
         }
     };
     /* Σειρά προτεραιότητας ετικέτας: ό,τι είναι ήδη πίσω μετράει πρώτο. */
-    $push($carryM, 'carried'); $push($planM, 'today'); $push($spanM, 'spanning'); $push($newM, 'new');
+    $push($nowListM, 'now'); $push($carryM, 'carried'); $push($planM, 'today');
+    $push($spanM, 'spanning'); $push($newM, 'new');
+    /* Το «τι κάνει τώρα» γράφεται απευθείας από το χρονόμετρο — ποτέ έμμεσα από
+       τους κουβάδες, γιατί εκεί ακριβώς χανόταν. */
+    foreach ($runM as $aid => $rn) {
+        if (isset($laneM[$aid])) { $laneM[$aid]['now'] = $rn; }
+    }
     foreach ($laneM as $k => $v) {
         usort($laneM[$k]['tasks'], function ($a, $b) {
-            $ord = ['carried' => 0, 'today' => 1, 'spanning' => 2, 'new' => 3];
+            $ord = ['now' => 0, 'carried' => 1, 'today' => 2, 'spanning' => 3, 'new' => 4];
             return [$ord[$a['tag']], $a['due'] ?: '9999'] <=> [$ord[$b['tag']], $b['due'] ?: '9999'];
         });
     }
@@ -4067,11 +4097,23 @@ case 'teamday':                          // Η μέρα της ομάδας — 
 
     /* Ένα ερώτημα, τέσσερις αναγνώσεις. Υποψήφιες: ό,τι αγγίζει το σήμερα με
        οποιονδήποτε τρόπο — πλάνο, διάρκεια, προθεσμία, ή γεννήθηκε σήμερα. */
+    /* Το τρέχον χρονόμετρο διαβάζεται ΠΡΩΤΟ: κάποιος μπορεί να δουλεύει εργασία
+       χωρίς ημερομηνίες, που δεν θα έμπαινε αλλιώς στο σημερινό σύνολο. */
+    $runT = [];
+    $runIdsT = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)
+        ->get(['task_id', 'admin_id', 'started_at']) as $r) {
+        $runT[(int) $r->task_id] = ['who' => (int) $r->admin_id,
+            'mins' => $r->started_at ? max(0, (int) round(($nowT - strtotime($r->started_at)) / 60)) : 0];
+        $runIdsT[] = (int) $r->task_id;
+    }
+
     $rowsT = Capsule::table('mod_cpm_tasks as t')
         ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->leftJoin('mod_cpm_statuses as st', 'st.id', '=', 't.status_id')
-        ->where(function ($w) use ($today0, $doneT) {
-            $w->where(function ($x) use ($today0, $doneT) {
+        ->where(function ($w) use ($today0, $doneT, $runIdsT) {
+            if ($runIdsT) { $w->orWhereIn('t.id', $runIdsT); }
+            $w->orWhere(function ($x) use ($today0, $doneT) {
                 $x->whereNotIn('t.status_id', $doneT)
                   ->where(function ($y) use ($today0) {
                       $y->where('t.schedule_date', '<=', $today0)
@@ -4089,11 +4131,6 @@ case 'teamday':                          // Η μέρα της ομάδας — 
 
     /* Ποιος τρέχει χρονόμετρο αυτή τη στιγμή = η πιο ειλικρινής απάντηση στο
        «με τι ασχολείται τώρα η ομάδα». */
-    $runT = [];
-    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['task_id', 'admin_id', 'started_at']) as $r) {
-        $runT[(int) $r->task_id] = ['who' => (int) $r->admin_id,
-            'mins' => $r->started_at ? max(0, (int) round(($nowT - strtotime($r->started_at)) / 60)) : 0];
-    }
     /* Χρόνος που καταγράφηκε ΣΗΜΕΡΑ ανά εργασία — τι πραγματικά δούλεψαν. */
     $spentT = [];
     foreach (Capsule::table('mod_cpm_timelogs')->where('running', 0)
@@ -4115,10 +4152,11 @@ case 'teamday':                          // Η μέρα της ομάδας — 
             'running' => isset($runT[(int) $t->id]) ? $runT[(int) $t->id]['mins'] : null];
     };
 
-    $planned = $spanning = $opened = $carried = [];
+    $planned = $spanning = $opened = $carried = $running = [];
     foreach ($rowsT as $t) {
         $isDone = in_array((int) $t->status_id, $doneT, true);
         $bornToday = $t->created_at && substr((string) $t->created_at, 0, 10) === $today0;
+        if (in_array((int) $t->id, $runIdsT, true)) { $running[] = $dto($t); }
         if ($bornToday) { $opened[] = $dto($t); }
         if ($isDone) { continue; }
         if ($t->schedule_date === $today0 || $t->due_date === $today0) {
@@ -4134,7 +4172,11 @@ case 'teamday':                          // Η μέρα της ομάδας — 
 
     /* Σύνοψη ανά άτομο: ποιος έχει πόσα στο πιάτο του σήμερα. */
     $perT = [];
-    $bump = function ($list, $key) use (&$perT) {
+    /* Μια εργασία μπορεί να είναι νόμιμα σε δύο κουβάδες (π.χ. άνοιξε σήμερα ΚΑΙ
+       είναι προγραμματισμένη για σήμερα). Οι ΜΕΤΡΗΤΕΣ των κουβάδων το θέλουν
+       αυτό· ο ΧΡΟΝΟΣ όχι — θα προσθετόταν δύο φορές και θα έδειχνε διπλάσιο. */
+    $spentSeen = [];
+    $bump = function ($list, $key) use (&$perT, &$spentSeen) {
         foreach ($list as $t) {
             $k = $t['whoId'];
             if (!isset($perT[$k])) {
@@ -4142,17 +4184,29 @@ case 'teamday':                          // Η μέρα της ομάδας — 
                     'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
             }
             $perT[$k][$key]++;
-            $perT[$k]['spent'] += $t['spent'];
-            if ($t['running'] !== null) { $perT[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']]; }
+            if (!isset($spentSeen[$t['id']])) {
+                $spentSeen[$t['id']] = true;
+                $perT[$k]['spent'] += $t['spent'];
+            }
         }
     };
     $bump($planned, 'planned'); $bump($spanning, 'spanning');
     $bump($opened, 'opened');   $bump($carried, 'carried');
+    /* Το «τι κάνει τώρα» γράφεται απευθείας από το χρονόμετρο: αν η εργασία δεν
+       είναι σε κανέναν κουβά (χωρίς ημερομηνίες), το $bump δεν θα το έπιανε. */
+    foreach ($running as $t) {
+        $k = $t['whoId'];
+        if (!isset($perT[$k])) {
+            $perT[$k] = ['id' => $k, 'name' => $k ? $t['who'] : '— χωρίς ανάθεση —',
+                'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
+        }
+        $perT[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']];
+    }
     usort($perT, function ($a, $b) {
         return ($b['planned'] + $b['spanning'] + $b['carried']) <=> ($a['planned'] + $a['spanning'] + $a['carried']);
     });
 
-    out(['date' => $today0, 'planned' => $planned, 'spanning' => $spanning,
+    out(['date' => $today0, 'running' => $running, 'planned' => $planned, 'spanning' => $spanning,
         'opened' => $opened, 'carried' => $carried, 'people' => array_values($perT)]);
 
 case 'reschedules':                      // Έργα που μετατέθηκαν
