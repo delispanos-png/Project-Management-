@@ -1066,3 +1066,114 @@ R.reschedules = async function () {
   $$('[data-rd]').forEach(b => b.onclick = () => { st.d = +b.dataset.rd; R.reschedules(); });
   $$('[data-rgo]').forEach(r => r.onclick = () => go('board', +r.dataset.rgo));
 };
+
+/* ═══════════ Η ομάδα μου — η οθόνη του επικεφαλής ═══════════
+   Ο επικεφαλής δεν χρειάζεται «όλες τις αναφορές»: χρειάζεται τρία πράγματα
+   για να οργανώσει τη μέρα του — τι παίζει σήμερα, ποιος αντέχει άλλο, και τι
+   έχει ήδη ξεφύγει. Ξεκλειδώνει από το is_leader της ομάδας, όχι από cap:
+   ένας επικεφαλής μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
+R.myteam = async function () {
+  const st = R.myteam._s = R.myteam._s || {team: 0, tab: 'day'};
+  setTop('Η ομάδα μου', 'Τι παίζει σήμερα, ποιος αντέχει άλλο, τι έχει ξεφύγει');
+  const c = $('#content');
+  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+  const d = await api('myteam' + (st.team ? '&team=' + st.team : '')).catch(e => ({err: e.message}));
+  if (!d || d.err) {
+    c.innerHTML = `<div class="card"><div class="card-b mut" style="padding:18px">${esc((d && d.err) || 'Δεν φορτώθηκε.')}</div></div>`;
+    return;
+  }
+  st.team = d.team.id;
+
+  const TABS = [
+    ['day',   I.sun,   'Η μέρα της ομάδας', d.planned.length + d.carried.length],
+    ['load',  I.chart, 'Φόρτος & κατανομή', d.load.length],
+    ['late',  I.alert, 'Καθυστερήσεις & μεταθέσεις', d.late.length + d.reschedules.length],
+  ];
+
+  const taskLine = t => `<div class="kb-item kb-trow" data-mtgo="${t.id}" style="cursor:pointer">
+    <span class="kb-dot" style="background:${t.color}"></span>
+    <b>${esc(t.title)}</b>
+    <span class="kb-sum-meta">
+      ${t.project ? `<span class="kb-tag">${esc(t.project)}</span>` : ''}
+      <span class="mut">${t.who ? esc(t.who) : 'χωρίς ανάθεση'}</span>
+      ${t.due ? `<span class="${t.due < d.date ? 'pill pill-bad' : 'mut'}" style="font-size:11px">${dShort(t.due)}</span>` : ''}
+    </span></div>`;
+
+  const bucket = (key, ic, title, sub, col) => `<div class="kb-group">
+    <div class="kb-ghead" style="border-left:3px solid ${col};cursor:default">
+      <b>${ic} ${title}</b><span class="pill pill-mut" style="margin-left:6px">${d[key].length}</span>
+      <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:8px">${sub}</span></div>
+    <div class="kb-gbody">${d[key].length ? d[key].map(taskLine).join('')
+      : '<div class="mut" style="font-size:12.5px;padding:8px 4px">—</div>'}</div></div>`;
+
+  /* Ο φόρτος διαβάζεται σε σχέση με τον πιο φορτωμένο — ένα «12 ανοιχτά» δεν
+     λέει τίποτα χωρίς το «ο διπλανός έχει 2». */
+  const maxOpen = Math.max(1, ...d.load.map(l => l.open));
+  const loadRow = l => `<tr>
+    <td><b>${esc(l.name)}</b>${l.now ? `<div class="mut" style="font-size:11px">▶ τρέχει χρονόμετρο · ${hm(l.now.mins)}</div>` : ''}</td>
+    <td style="min-width:120px"><div class="bar"><span class="${l.late ? 'bad' : 'ok'}" style="width:${Math.round(l.open / maxOpen * 100)}%"></span></div>
+      <small class="mut">${l.open} ανοιχτά</small></td>
+    <td style="text-align:center;${l.late ? 'color:var(--bad);font-weight:700' : ''}">${l.late || '—'}</td>
+    <td style="text-align:center">${l.today || '—'}</td>
+    <td style="text-align:center;${l.noDate ? 'color:var(--warn)' : ''}">${l.noDate || '—'}</td>
+    <td style="text-align:right">${l.est ? hm(l.est) : '—'}</td>
+    <td style="text-align:right">${l.weekMins ? hm(l.weekMins) : '—'}</td></tr>`;
+
+  const lateRow = t => `<tr data-mtgo="${t.id}" style="cursor:pointer">
+    <td><span class="kb-dot" style="background:${t.color}"></span> <b>${esc(t.title)}</b>
+      ${t.project ? `<div class="mut" style="font-size:11px">${esc(t.project)}</div>` : ''}</td>
+    <td>${esc(t.who)}</td>
+    <td style="text-align:center">${dShort(t.due)}</td>
+    <td style="text-align:center"><span class="pill pill-bad">${t.days} ημ.</span></td></tr>`;
+
+  const rescRow = r => `<tr data-mtproj="${r.project}" style="cursor:pointer">
+    <td><span class="kb-dot" style="background:${r.color}"></span> <b>${esc(r.name)}</b></td>
+    <td>${r.oldDue !== r.newDue
+      ? `παράδοση <b>${r.oldDue ? dShort(r.oldDue) : '—'}</b> → <b>${r.newDue ? dShort(r.newDue) : '—'}</b>`
+      : `έναρξη <b>${r.oldStart ? dShort(r.oldStart) : '—'}</b> → <b>${r.newStart ? dShort(r.newStart) : '—'}</b>`}</td>
+    <td style="text-align:center"><span class="pill ${r.days > 0 ? 'pill-bad' : 'pill-ok'}">${r.days > 0 ? '+' : ''}${r.days} ημ.</span></td>
+    <td class="mut" style="font-size:11.5px">${r.reason ? esc(r.reason) : '—'}</td>
+    <td class="mut" style="white-space:nowrap;font-size:11.5px">${esc(r.by)} · ${dShort(r.at)}</td></tr>`;
+
+  const body = st.tab === 'day'
+    ? `${bucket('planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'πλάνο ή προθεσμία σήμερα', '#0090dd')}
+       ${bucket('spanning', I.gantt || I.chart, 'Περνάνε από το σήμερα', 'ξεκίνησαν πριν, λήγουν μετά', '#7b5cd6')}
+       ${bucket('opened',   I.plus,  'Άνοιξαν σήμερα', 'γεννήθηκαν μέσα στη μέρα', '#16a26a')}
+       ${bucket('carried',  I.alert, 'Μεταφορά από πριν', 'πλάνο παλιότερης μέρας, ακόμη ανοιχτά', '#e0552b')}`
+    : st.tab === 'load'
+    ? `<div class="card"><div class="card-h">${I.chart} Ποιος αντέχει άλλο
+        <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">η μπάρα συγκρίνει με τον πιο φορτωμένο της ομάδας</span></div>
+        <div class="card-b" style="padding:0"><table class="tbl"><thead><tr>
+          <th>Μέλος</th><th>Ανοιχτά</th><th style="text-align:center">Καθυστ.</th>
+          <th style="text-align:center">Σήμερα</th><th style="text-align:center">Χωρίς ημ/νία</th>
+          <th style="text-align:right">Εκτίμηση</th><th style="text-align:right">Χρόνος 7ημ</th>
+        </tr></thead><tbody>${d.load.map(loadRow).join('') || '<tr><td colspan="7" class="mut">Η ομάδα δεν έχει μέλη.</td></tr>'}</tbody></table></div></div>`
+    : `<div class="card" style="margin-bottom:14px"><div class="card-h">${I.alert} Ξεπερασμένες προθεσμίες</div>
+        <div class="card-b" style="padding:0">${d.late.length ? `<table class="tbl"><thead><tr>
+          <th>Εργασία</th><th>Ποιος</th><th style="text-align:center">Προθεσμία</th><th style="text-align:center">Πόσο πίσω</th>
+        </tr></thead><tbody>${d.late.map(lateRow).join('')}</tbody></table>`
+        : '<div class="mut" style="padding:16px">Καμία ξεπερασμένη προθεσμία. 👌</div>'}</div></div>
+       <div class="card"><div class="card-h">${I.cal} Έργα της ομάδας που μετατέθηκαν
+          <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">τελευταίοι 6 μήνες</span></div>
+        <div class="card-b" style="padding:0">${d.reschedules.length ? `<table class="tbl"><thead><tr>
+          <th>Έργο</th><th>Αλλαγή</th><th style="text-align:center">Μετατόπιση</th><th>Αιτιολογία</th><th>Από</th>
+        </tr></thead><tbody>${d.reschedules.map(rescRow).join('')}</tbody></table>`
+        : '<div class="mut" style="padding:16px">Κανένα έργο της ομάδας δεν μετατέθηκε.</div>'}</div></div>`;
+
+  c.innerHTML = `
+  <div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+    ${d.teams.length > 1 ? `<span class="mut" style="font-size:12.5px">Ομάδα:</span>
+      <select class="inp" id="mtTeam" style="width:auto;min-width:180px">${d.teams.map(t =>
+        `<option value="${t.id}" ${t.id === d.team.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>`
+      : `<b style="font-size:14px;color:var(--ink)"><span class="kb-dot" style="background:${d.team.color}"></span> ${esc(d.team.name)}</b>`}
+    <span style="flex:1"></span>
+    ${TABS.map(([k, ic, lb, n]) => `<button class="btn btn-sm ${st.tab === k ? 'btn-p' : 'btn-o'}" data-mttab="${k}">${ic} ${lb}${n ? ` <b>${n}</b>` : ''}</button>`).join('')}
+  </div></div>
+  ${body}`;
+
+  const sel = $('#mtTeam');
+  if (sel) { sel.onchange = () => { st.team = +sel.value; R.myteam(); }; }
+  $$('[data-mttab]').forEach(b => b.onclick = () => { st.tab = b.dataset.mttab; R.myteam(); });
+  $$('[data-mtgo]').forEach(r => r.onclick = () => openTask(+r.dataset.mtgo));
+  $$('[data-mtproj]').forEach(r => r.onclick = () => go('board', +r.dataset.mtproj));
+};

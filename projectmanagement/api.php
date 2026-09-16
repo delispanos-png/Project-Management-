@@ -1794,6 +1794,23 @@ function cnp_dgr($d)
     return $d ? date('d/m/Y', strtotime($d)) : '—';
 }
 
+/** Οι ομάδες στις οποίες αυτός ο χρήστης είναι επικεφαλής (mod_cpm_team_members.is_leader). */
+function cnp_led_teams($adminId)
+{
+    if (!Capsule::schema()->hasTable('mod_cpm_team_members')) {
+        return [];
+    }
+    return array_map('intval', Capsule::table('mod_cpm_team_members')
+        ->where('admin_id', (int) $adminId)->where('is_leader', 1)->pluck('team_id')->all());
+}
+
+/** Τα μέλη μιας ομάδας (admin ids), μαζί με τον επικεφαλής. */
+function cnp_team_members($teamId)
+{
+    return array_map('intval', Capsule::table('mod_cpm_team_members')
+        ->where('team_id', (int) $teamId)->pluck('admin_id')->all());
+}
+
 /** Οι διαχειριστές του συστήματος — ενημερώνονται για κάθε διαγραφή. */
 function cnp_full_admin_ids()
 {
@@ -2613,6 +2630,9 @@ function cnp_open_actions()
         /* task_billing_ok: κριτής είναι το cnp_can_approve_billing (ένα ορισμένο
            πρόσωπο), όχι cap — με cap θα περνούσαν ΟΛΟΙ οι full admins.
            billing_pending: η ουρά του εγκρίνοντος, φιλτραρισμένη μέσα στην ενέργεια. */
+        /* myteam: κριτής είναι το is_leader της ομάδας, όχι cap — ο επικεφαλής
+           μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
+        'myteam',
         'task', 'task_delete', 'task_billing_ok', 'billing_pending',
         'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
@@ -2702,6 +2722,8 @@ case 'boot':
                θα έδειχνε «Χρόνος ομάδας» σε όποιον έχει απλώς το κύκλωμα Αναφορές
                και ο server θα του γύριζε μόνο τα δικά του. */
             'explicitCaps' => cnp_explicit_caps(),
+            /* Ποιων ομάδων είναι επικεφαλής — ξεκλειδώνει την «Η ομάδα μου». */
+            'leads' => cnp_led_teams($adminId),
             'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
@@ -3844,6 +3866,132 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
         'note' => 'Οι απαντήσεις αντιστοιχίζονται με βάση το όνομα/username του χειριστή. '
             . 'Ο καταγεγραμμένος χρόνος δεν μετράται — υπάρχουν μόλις '
             . (int) Capsule::table('mod_cpm_timelogs')->count() . ' εγγραφές χρόνου συνολικά.']);
+
+case 'myteam':                           // Η ομάδα μου — η οθόνη του επικεφαλής
+    /* Ποιος βλέπει τι: ο επικεφαλής ΜΟΝΟ τις ομάδες του· ο διαχειριστής όποια
+       θέλει. Η επιλογή ομάδας δεν είναι ελεύθερη παράμετρος — επικυρώνεται. */
+    $ledM = cnp_led_teams($adminId);
+    $allM = Capsule::table('mod_cpm_teams')->orderBy('sort')->orderBy('id')->get(['id', 'name', 'color']);
+    $canSeeM = $FULL ? array_map(function ($t) { return (int) $t->id; }, $allM->all()) : $ledM;
+    if (!$canSeeM) { fail('Δεν είσαι επικεφαλής ομάδας', 403); }
+    $teamM = (int) ($_GET['team'] ?? $in['team'] ?? 0) ?: $canSeeM[0];
+    if (!in_array($teamM, $canSeeM, true)) { fail('Δεν είσαι επικεφαλής αυτής της ομάδας', 403); }
+
+    $memM = cnp_team_members($teamM);
+    if (!$memM) { $memM = [0]; }
+    $todayM = date('Y-m-d');
+    $doneM = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $nowM = time();
+
+    /* ── 1. Η μέρα της ομάδας ── */
+    $rowsM = Capsule::table('mod_cpm_tasks as t')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->whereIn('t.assignee', $memM)
+        ->where(function ($w) use ($todayM, $doneM) {
+            $w->where(function ($x) use ($todayM, $doneM) {
+                $x->whereNotIn('t.status_id', $doneM)
+                  ->where(function ($y) use ($todayM) {
+                      $y->where('t.schedule_date', '<=', $todayM)->orWhere('t.due_date', '<=', $todayM)
+                        ->orWhere(function ($z) use ($todayM) {
+                            $z->where('t.start_date', '<=', $todayM)->where('t.due_date', '>=', $todayM);
+                        });
+                  });
+            })->orWhere('t.created_at', '>=', $todayM . ' 00:00:00');
+        })
+        ->orderBy('t.id', 'desc')->limit(400)
+        ->get(['t.id', 't.title', 't.assignee', 't.status_id', 't.schedule_date', 't.start_date',
+            't.due_date', 't.created_at', 't.estimate_minutes', 'p.name as pname', 'p.color as pcolor']);
+
+    $runM = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->whereIn('admin_id', $memM)
+        ->get(['task_id', 'admin_id', 'started_at']) as $r) {
+        $runM[(int) $r->admin_id] = ['task' => (int) $r->task_id,
+            'mins' => $r->started_at ? max(0, (int) round(($nowM - strtotime($r->started_at)) / 60)) : 0];
+    }
+
+    $dtoM = function ($t) use ($doneM) {
+        return ['id' => (int) $t->id, 'title' => $t->title,
+            'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '', 'whoId' => (int) $t->assignee,
+            'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
+            'done' => in_array((int) $t->status_id, $doneM, true),
+            'sched' => $t->schedule_date, 'due' => $t->due_date, 'est' => (int) $t->estimate_minutes];
+    };
+    $planM = $spanM = $newM = $carryM = [];
+    foreach ($rowsM as $t) {
+        $isDone = in_array((int) $t->status_id, $doneM, true);
+        if ($t->created_at && substr((string) $t->created_at, 0, 10) === $todayM) { $newM[] = $dtoM($t); }
+        if ($isDone) { continue; }
+        if ($t->schedule_date === $todayM || $t->due_date === $todayM) { $planM[] = $dtoM($t); }
+        elseif ($t->schedule_date && $t->schedule_date < $todayM) { $carryM[] = $dtoM($t); }
+        if ($t->start_date && $t->due_date && $t->start_date <= $todayM && $t->due_date >= $todayM
+            && $t->schedule_date !== $todayM && $t->due_date !== $todayM) { $spanM[] = $dtoM($t); }
+    }
+
+    /* ── 2. Φόρτος & κατανομή: όλο το ανοιχτό πιάτο, όχι μόνο το σημερινό ── */
+    $loadM = [];
+    foreach ($memM as $aid) {
+        $loadM[$aid] = ['id' => $aid, 'name' => Db::adminName($aid), 'open' => 0, 'est' => 0,
+            'late' => 0, 'today' => 0, 'noDate' => 0, 'weekMins' => 0,
+            'now' => $runM[$aid] ?? null];
+    }
+    foreach (Capsule::table('mod_cpm_tasks')->whereIn('assignee', $memM)->whereNotIn('status_id', $doneM)
+        ->get(['assignee', 'estimate_minutes', 'schedule_date', 'due_date']) as $r) {
+        $k = (int) $r->assignee;
+        if (!isset($loadM[$k])) { continue; }
+        $loadM[$k]['open']++;
+        $loadM[$k]['est'] += (int) $r->estimate_minutes;
+        if ($r->due_date && $r->due_date < $todayM) { $loadM[$k]['late']++; }
+        if ($r->schedule_date && $r->schedule_date <= $todayM) { $loadM[$k]['today']++; }
+        if (!$r->schedule_date && !$r->due_date) { $loadM[$k]['noDate']++; }
+    }
+    /* Χρόνος 7 ημερών — δείχνει ποιος όντως δουλεύει, όχι ποιος έχει πολλά ανοιχτά. */
+    foreach (Capsule::table('mod_cpm_timelogs')->whereIn('admin_id', $memM)->where('running', 0)
+        ->where('created_at', '>=', date('Y-m-d', $nowM - 7 * 86400) . ' 00:00:00')
+        ->groupBy('admin_id')->get(['admin_id', Capsule::raw('SUM(minutes) as m')]) as $r) {
+        $k = (int) $r->admin_id;
+        if (isset($loadM[$k])) { $loadM[$k]['weekMins'] = (int) $r->m; }
+    }
+    usort($loadM, function ($a, $b) { return [$b['late'], $b['open']] <=> [$a['late'], $a['open']]; });
+
+    /* ── 3. Καθυστερήσεις & μεταθέσεις ── */
+    $lateM = [];
+    foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->whereIn('t.assignee', $memM)->whereNotIn('t.status_id', $doneM)
+        ->whereNotNull('t.due_date')->where('t.due_date', '<', $todayM)
+        ->orderBy('t.due_date')->limit(100)
+        ->get(['t.id', 't.title', 't.assignee', 't.due_date', 'p.name as pname', 'p.color as pcolor']) as $t) {
+        $lateM[] = ['id' => (int) $t->id, 'title' => $t->title,
+            'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '',
+            'due' => $t->due_date, 'days' => (int) round((strtotime($todayM) - strtotime($t->due_date)) / 86400),
+            'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac'];
+    }
+    /* Μεταθέσεις έργων που ΑΓΓΙΖΟΥΝ την ομάδα: έχουν εργασία ανατεθειμένη σε μέλος. */
+    $projIdsM = Capsule::table('mod_cpm_tasks')->whereIn('assignee', $memM)
+        ->whereNotNull('project_id')->distinct()->pluck('project_id')->all();
+    $rescM = [];
+    if ($projIdsM) {
+        foreach (Capsule::table('mod_cpm_reschedules as r')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 'r.project_id')
+            ->whereIn('r.project_id', $projIdsM)
+            ->where('r.created_at', '>=', date('Y-m-d', $nowM - 180 * 86400))
+            ->orderBy('r.id', 'desc')->limit(60)
+            ->get(['r.*', 'p.name as pname', 'p.color as pcolor']) as $r) {
+            $rescM[] = ['project' => (int) $r->project_id, 'name' => $r->pname ? cnp_pn($r->pname) : '',
+                'color' => $r->pcolor ?: '#8595ac', 'by' => Db::adminName((int) $r->admin_id),
+                'oldDue' => $r->old_due, 'newDue' => $r->new_due, 'oldStart' => $r->old_start,
+                'newStart' => $r->new_start, 'days' => (int) $r->days,
+                'reason' => $r->reason, 'at' => $r->created_at];
+        }
+    }
+
+    $tInfo = $allM->first(function ($t) use ($teamM) { return (int) $t->id === $teamM; });
+    out(['team' => ['id' => $teamM, 'name' => $tInfo ? $tInfo->name : '', 'color' => $tInfo ? $tInfo->color : '#0090dd'],
+        'teams' => array_values(array_map(function ($t) {
+            return ['id' => (int) $t->id, 'name' => $t->name, 'color' => $t->color];
+        }, array_filter($allM->all(), function ($t) use ($canSeeM) { return in_array((int) $t->id, $canSeeM, true); }))),
+        'date' => $todayM,
+        'planned' => $planM, 'spanning' => $spanM, 'opened' => $newM, 'carried' => $carryM,
+        'load' => array_values($loadM), 'late' => $lateM, 'reschedules' => $rescM]);
 
 case 'teamday':                          // Η μέρα της ομάδας — τι είναι στο τραπέζι σήμερα
     $today0 = date('Y-m-d');

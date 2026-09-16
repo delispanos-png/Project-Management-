@@ -228,6 +228,7 @@ function renderShell() {
       ['uncovered', I.alert, 'Ακάλυπτος χρόνος', 'prepaid.view'],
     ]],
     ['Αναφορές & απόδοση', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
+      ...((me.leads || []).length || me.full ? [['myteam', I.crown || I.users, 'Η ομάδα μου']] : []),
       ['activity', I.zap, 'Δραστηριότητα', 'reports.activity'],
       ['teamday', I.sun, 'Η μέρα της ομάδας', 'reports.activity'],
       ['reschedules', I.cal, 'Αναπρογραμματισμοί', 'reports.activity'],
