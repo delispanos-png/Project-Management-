@@ -1614,6 +1614,7 @@ async function openTask(id) {
       <div class="tk-actions">
         <button class="btn btn-p" id="dSave">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
+        ${t.done ? '' : `<button class="btn btn-o" id="dHand" title="Τελείωσε το δικό σου κομμάτι — δώσε τη σκυτάλη στον επόμενο">${I.zap} Παράδοση</button>`}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
         <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
         ${d.canDelete ? `<button class="btn btn-o" id="dDel" style="color:var(--bad);margin-left:auto"
@@ -1849,6 +1850,62 @@ async function openTask(id) {
   };
   const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
   const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
+
+  /* ── Παράδοση σκυτάλης ────────────────────────────────────────────────────
+     Δεν είναι «αλλαγή αναδόχου». Είναι: κλείνω το δικό μου κομμάτι, γράφω τι
+     έγινε, λέω τι χρειάζεται από τον επόμενο — και η εργασία φεύγει από τη
+     μέρα μου και μπαίνει στη δική του. Χωρίς το «τι έγινε ως εδώ», ο επόμενος
+     ξεκινά από το μηδέν και η παράδοση γίνεται μετακύλιση. */
+  const hnd = $('#dHand', dr); if (hnd) hnd.onclick = () => {
+    const others = S.boot.admins.filter(a => a.id !== me.id);
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+    ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:540px" role="dialog">
+      <div style="padding:20px 22px 18px">
+        <b style="font-size:15.5px;color:var(--ink)">${I.zap} Παράδοση σε συνάδελφο</b>
+        <div class="mut" style="font-size:12px;margin-top:5px">Η εργασία φεύγει από «Η μέρα μου» και μπαίνει στη δική του.</div>
+        <label class="lbl" style="margin-top:14px">Σε ποιον</label>
+        <select class="inp" id="hoTo"><option value="">— διάλεξε συνάδελφο —</option>
+          ${others.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+        <label class="lbl" style="margin-top:11px">Τι έκανες εσύ <span class="mut" style="font-weight:400">— μπαίνει ως ολοκληρωμένο βήμα</span></label>
+        <textarea class="inp" id="hoDid" rows="2" maxlength="500" placeholder="π.χ. Εντοπίστηκε η αιτία, διορθώθηκε το query"></textarea>
+        <label class="lbl" style="margin-top:11px">Τι χρειάζεται από αυτόν <span style="color:var(--bad)">*</span></label>
+        <textarea class="inp" id="hoNext" rows="2" maxlength="500" placeholder="π.χ. Δοκίμασε σε staging και ενημέρωσε τον πελάτη"></textarea>
+        <label class="lbl" style="margin-top:11px">Νέα προθεσμία <span class="mut" style="font-weight:400">— προαιρετικό</span></label>
+        <input type="date" class="inp" id="hoDue" value="${t.due || ''}">
+        <label style="display:flex;gap:7px;align-items:center;margin-top:11px;font-size:12.5px">
+          <input type="checkbox" id="hoMove" checked> Να περάσει και η ανάθεση σε αυτόν</label>
+        <div id="hoErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:8px" hidden></div>
+        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+          <button class="btn btn-o" id="hoNo">Άκυρο</button>
+          <button class="btn btn-p" id="hoGo">${I.zap} Παράδοση</button>
+        </div>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    setTimeout(() => $('#hoTo', ovl).focus(), 40);
+    $('#hoNo', ovl).onclick = () => ovl.remove();
+    $('#hoGo', ovl).onclick = async () => {
+      const to = +$('#hoTo', ovl).value || 0;
+      const next = $('#hoNext', ovl).value.trim();
+      const err = $('#hoErr', ovl);
+      if (!to || !next) {
+        err.hidden = false;
+        err.textContent = !to ? 'Διάλεξε σε ποιον παραδίδεις.' : 'Γράψε τι χρειάζεται από αυτόν.';
+        (!to ? $('#hoTo', ovl) : $('#hoNext', ovl)).focus(); return;
+      }
+      const btn = $('#hoGo', ovl); btn.disabled = true; btn.textContent = '…';
+      const r = await api('task_handoff', {task: id, to, next,
+        did: $('#hoDid', ovl).value.trim(), due: $('#hoDue', ovl).value || '',
+        move: $('#hoMove', ovl).checked}).catch(e => ({err: e.message}));
+      if (r && r.err) {
+        err.hidden = false; err.textContent = r.err;
+        btn.disabled = false; btn.innerHTML = I.zap + ' Παράδοση'; return;
+      }
+      ovl.remove(); closeDrawer();
+      toast('Παραδόθηκε στον/στην ' + (r.name || ''));
+      if (window.R && window.R[S.view]) { window.R[S.view](); }
+    };
+  };
   const ddl = $('#dDel', dr); if (ddl) ddl.onclick = async () => {
     const mins = Math.round((d.total || 0));
     const lost = [mins ? fmtMin(mins) + ' καταγεγραμμένου χρόνου' : '',

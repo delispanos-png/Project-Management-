@@ -2659,7 +2659,7 @@ function cnp_open_actions()
         /* myteam: κριτής είναι το is_leader της ομάδας, όχι cap — ο επικεφαλής
            μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
         'myteam',
-        'task', 'task_delete', 'task_billing_ok', 'billing_pending',
+        'task', 'task_delete', 'task_handoff', 'task_billing_ok', 'billing_pending',
         'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
@@ -7312,6 +7312,69 @@ case 'project_pm_notes':                  // ιδιωτικές σημειώσε
     Capsule::table('mod_cpm_projects')->where('id', (int) $pp->id)
         ->update(['pm_notes' => mb_substr((string) ($in['notes'] ?? ''), 0, 20000)]);
     out(['ok' => true]);
+
+case 'task_handoff':                     // Παράδοση σκυτάλης σε συνάδελφο
+    $t = Db::task((int) ($in['task'] ?? 0));
+    if (!$t || !Db::canSeeTask($adminId, $t)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    $toH = (int) ($in['to'] ?? 0);
+    if (!$toH || !Capsule::table('tbladmins')->where('id', $toH)->where('disabled', 0)->exists()) {
+        fail('Διάλεξε σε ποιον παραδίδεις');
+    }
+    if ($toH === $adminId) { fail('Παραδίδεις στον εαυτό σου — διάλεξε άλλον συνάδελφο'); }
+    $didH  = trim((string) ($in['did'] ?? ''));
+    $nextH = trim((string) ($in['next'] ?? ''));
+    if ($nextH === '') { fail('Γράψε τι πρέπει να κάνει — αλλιώς η παράδοση είναι απλώς μετακύλιση'); }
+
+    /* Η παράδοση είναι ΔΥΟ πράγματα μαζί: κλείνει το δικό μου κομμάτι και
+       ανοίγει το δικό του. Αν γραφόταν μόνο η ανάθεση, θα χανόταν το «τι έγινε
+       ως εδώ» — που είναι ακριβώς αυτό που χρειάζεται ο επόμενος. */
+    if ($didH !== '') {
+        Capsule::table('mod_cpm_checklist')->insert([
+            'task_id' => (int) $t->id, 'title' => mb_substr($didH, 0, 500), 'done' => 1,
+            'sort' => (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->max('sort') + 1,
+        ]);
+    }
+    Capsule::table('mod_cpm_checklist')->insert([
+        'task_id' => (int) $t->id, 'title' => mb_substr($nextH, 0, 500), 'done' => 0,
+        'sort' => (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->max('sort') + 1,
+    ]);
+
+    $upd = ['action_user' => $toH];
+    /* Η ανάθεση ακολουθεί τη σκυτάλη: αλλιώς ο φόρτος θα έδειχνε την εργασία
+       ακόμη σε μένα ενώ τη δουλεύει άλλος. */
+    if (!empty($in['move'])) { $upd['assignee'] = $toH; }
+    $dueH = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
+    if ($dueH) { $upd['due_date'] = $dueH; }
+    Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update($upd);
+
+    $whoH = Db::adminName($adminId);
+    $logH = 'Παράδοση σε ' . Db::adminName($toH)
+        . ($didH !== '' ? ' · έγινε: ' . mb_substr($didH, 0, 120) : '')
+        . ' · ζητείται: ' . mb_substr($nextH, 0, 120);
+    Db::logActivity((int) $t->id, $adminId, 'assign', $logH);
+
+    $urlH = '/project/#/task/' . (int) $t->id;
+    Db::pushNotification($toH, 'action',
+        mb_substr('Σου παραδόθηκε: ' . $t->title . ' — ' . $nextH, 0, 240), $urlH);
+    try {
+        $toMail = Notify::adminEmail($toH);
+        if ($toMail) {
+            Notify::sendTo($toMail, 'Σου παραδόθηκε εργασία — ' . mb_substr((string) $t->title, 0, 70),
+                '<p><b>' . htmlspecialchars((string) $t->title, ENT_QUOTES, 'UTF-8') . '</b> (#' . (int) $t->id . ')</p>'
+                . ($didH !== '' ? '<p><b>Τι έγινε ως εδώ:</b><br>' . nl2br(htmlspecialchars($didH, ENT_QUOTES, 'UTF-8')) . '</p>' : '')
+                . '<p><b>Τι χρειάζεται από εσένα:</b><br>' . nl2br(htmlspecialchars($nextH, ENT_QUOTES, 'UTF-8')) . '</p>'
+                . ($dueH ? '<p>Προθεσμία: <b>' . cnp_dgr($dueH) . '</b></p>' : '')
+                . '<p>Από: ' . htmlspecialchars($whoH, ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p><a href="' . htmlspecialchars(Notify::baseUrl() . $urlH, ENT_QUOTES, 'UTF-8')
+                . '" style="background:#0090dd;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;display:inline-block">Άνοιγμα εργασίας</a></p>');
+        }
+    } catch (\Throwable $e) { /* το email δεν ακυρώνει την παράδοση */ }
+    Notify::watchers((int) $t->id, $adminId, $t->title . ' → παραδόθηκε σε ' . Db::adminName($toH), null);
+
+    out(['ok' => true, 'to' => $toH, 'name' => Db::adminName($toH)]);
 
 case 'task_delete':
     $t = Db::task((int) ($in['id'] ?? 0));
