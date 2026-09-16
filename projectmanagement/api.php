@@ -2461,6 +2461,54 @@ function cnp_admin_caps($adminId, $isFull)
  * tblclients.tax_id (11). Η αναζήτηση κοιτά και τα δύο — αλλιώς δεν βρίσκει σχεδόν
  * κανέναν. Δέχεται και μερική πληκτρολόγηση, με ή χωρίς πρόθεμα χώρας.
  */
+/**
+ * Έλεγχος εγκυρότητας ΑΦΜ (αλγόριθμος ΑΑΔΕ).
+ *
+ * 9 ψηφία· τα 8 πρώτα ζυγίζονται με 256,128,…,2, το άθροισμα mod 11 mod 10
+ * πρέπει να ισούται με το 9ο. Πιάνει τυπογραφικά λάθη — όχι ανύπαρκτο ΑΦΜ.
+ */
+function cnp_afm_valid($afm)
+{
+    $afm = preg_replace('/\D+/', '', (string) $afm);
+    if (strlen($afm) !== 9 || $afm === '000000000') {
+        return false;
+    }
+    $sum = 0;
+    for ($i = 0; $i < 8; $i++) {
+        $sum += (int) $afm[$i] * (1 << (8 - $i));
+    }
+    return ($sum % 11) % 10 === (int) $afm[8];
+}
+
+/**
+ * Ποιος πελάτης έχει ήδη αυτό το ΑΦΜ; Επιστρέφει [id, label] ή null.
+ *
+ * Κοιτάζει ΚΑΙ το tblclients.tax_id ΚΑΙ το custom field #1, γιατί ιστορικά
+ * γράφονταν και στα δύο και δεν είναι πάντα συγχρονισμένα.
+ */
+function cnp_afm_owner($afm, $exceptId = 0)
+{
+    $afm = preg_replace('/\D+/', '', (string) $afm);
+    if ($afm === '') {
+        return null;
+    }
+    $ids = [];
+    foreach (Capsule::table('tblclients')->where('tax_id', $afm)->pluck('id') as $i) { $ids[] = (int) $i; }
+    foreach (Capsule::table('tblcustomfieldsvalues')->where('fieldid', 1)->where('value', $afm)
+                 ->pluck('relid') as $i) { $ids[] = (int) $i; }
+    $ids = array_diff(array_unique($ids), [(int) $exceptId]);
+    if (!$ids) {
+        return null;
+    }
+    $id = (int) reset($ids);
+    $c = Capsule::table('tblclients')->where('id', $id)->first(['id', 'companyname', 'firstname', 'lastname']);
+    if (!$c) {
+        return null;
+    }
+    $nm = trim((string) $c->companyname) ?: trim($c->firstname . ' ' . $c->lastname);
+    return ['id' => $id, 'label' => $nm ?: ('#' . $id)];
+}
+
 function cnp_afm_where($w, $like)
 {
     $w->orWhere('tax_id', 'like', $like)
@@ -3242,7 +3290,12 @@ case 'task':
     }
     $check = [];
     foreach (Db::checklist($t->id) as $it) {
-        $check[] = ['id' => (int) $it->id, 'title' => $it->title, 'done' => (bool) $it->done];
+        $check[] = ['id' => (int) $it->id, 'title' => $it->title, 'done' => (bool) $it->done,
+            /* Ποιος το έγραψε: σε εργασία που περνά από τρία χέρια, χωρίς αυτό
+               κανείς δεν ξέρει ποιος δήλωσε τι. */
+            'by' => isset($it->created_by) && $it->created_by ? Db::adminName((int) $it->created_by) : '',
+            'byId' => isset($it->created_by) ? (int) $it->created_by : 0,
+            'at' => $it->created_at ?? null];
     }
     $acts = [];
     foreach (Db::activity($t->id, 30) as $a) {
@@ -5011,7 +5064,7 @@ case 'check_add':
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
-    $id = Db::addCheckItem($tid, mb_substr($title, 0, 8000));   // χωράει stack trace / snippet
+    $id = Db::addCheckItem($tid, mb_substr($title, 0, 8000), $adminId);   // χωράει stack trace / snippet
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     out(['ok' => true, 'id' => $id]);
 
@@ -6678,7 +6731,8 @@ case 'client360':
     if (!$cid) {
         out(['matches' => []]);
     }
-    $cl = Capsule::table('tblclients')->where('id', $cid)->first(['id', 'firstname', 'lastname', 'companyname', 'email']);
+    $cl = Capsule::table('tblclients')->where('id', $cid)
+        ->first(['id', 'firstname', 'lastname', 'companyname', 'email', 'status']);
     if (!$cl) {
         fail('client', 404);
     }
@@ -6746,7 +6800,8 @@ case 'client360':
     foreach (Capsule::table('mod_cpm_support_packages')->orderBy('sort')->get(['id', 'name']) as $pk) {
         $allPk[] = ['id' => (int) $pk->id, 'name' => $pk->name];
     }
-    out(['client' => ['id' => $cid, 'name' => $cl->companyname ?: trim($cl->firstname . ' ' . $cl->lastname),
+    out(['client' => ['id' => $cid, 'status' => (string) $cl->status,
+        'name' => $cl->companyname ?: trim($cl->firstname . ' ' . $cl->lastname),
             'email' => $cl->email, 'phone' => $phone9],
         'package' => $myPk ?: null, 'packages' => $FULL ? $allPk : [],
         'remote' => (function () use ($cid) {
@@ -7469,15 +7524,11 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
        ανοίγει το δικό του. Αν γραφόταν μόνο η ανάθεση, θα χανόταν το «τι έγινε
        ως εδώ» — που είναι ακριβώς αυτό που χρειάζεται ο επόμενος. */
     if ($didH !== '') {
-        Capsule::table('mod_cpm_checklist')->insert([
-            'task_id' => (int) $t->id, 'title' => mb_substr($didH, 0, 500), 'done' => 1,
-            'sort' => (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->max('sort') + 1,
-        ]);
+        Db::addCheckItem((int) $t->id, mb_substr($didH, 0, 500), $adminId);
+        Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)
+            ->orderBy('id', 'desc')->limit(1)->update(['done' => 1]);
     }
-    Capsule::table('mod_cpm_checklist')->insert([
-        'task_id' => (int) $t->id, 'title' => mb_substr($nextH, 0, 500), 'done' => 0,
-        'sort' => (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->max('sort') + 1,
-    ]);
+    Db::addCheckItem((int) $t->id, mb_substr($nextH, 0, 500), $adminId);
 
     /* Ίδιος κανόνας και στην παράδοση: αν περνά και η ανάθεση σε agent,
        χρειάζεται χρόνος υλοποίησης — αλλιώς η σκυτάλη πάει στο κενό. */
@@ -13617,6 +13668,19 @@ case 'client_quick_add':                  // νέος πελάτης επί τό
     }
     $qAfm = preg_replace('/\D+/', '', (string) ($in['afm'] ?? ''));
     $qDoy = trim((string) ($in['doy'] ?? ''));
+    /* ΑΦΜ: έγκυρο και ΜΟΝΑΔΙΚΟ. Διπλός πελάτης με το ίδιο ΑΦΜ σημαίνει διπλά
+       τιμολόγια, διπλή καρτέλα και οφειλές μοιρασμένες σε δύο εγγραφές. */
+    if ($qAfm !== '') {
+        if (!cnp_afm_valid($qAfm)) {
+            fail('Το ΑΦΜ «' . $qAfm . '» δεν είναι έγκυρο — έλεγξε τα ψηφία.');
+        }
+        $own = cnp_afm_owner($qAfm);
+        if ($own) {
+            http_response_code(409);
+            out(['error' => 'Το ΑΦΜ ' . $qAfm . ' ανήκει ήδη στον πελάτη «' . $own['label'] . '» (#' . $own['id'] . ').',
+                'need' => 'afm_taken', 'client' => $own['id'], 'label' => $own['label']]);
+        }
+    }
     /* Αν δεν δόθηκε ονοματεπώνυμο, το βγάζουμε από την επωνυμία — το WHMCS τα
        θέλει υποχρεωτικά και χωρίς αυτά η κλήση αποτυγχάνει. */
     if ($qFirst === '' && $qLast === '') {
@@ -13680,17 +13744,17 @@ case 'clients':                           // πλήρης λίστα πελατ�
     $base = Capsule::table('tblclients');
     if (in_array($status, ['Active', 'Inactive', 'Closed'], true)) { $base->where('status', $status); }
     if ($q !== '') {
-        if (ctype_digit($q)) {
-            $base->where('id', (int) $q);
-        } else {
-            $like = '%' . $q . '%';
-            $base->where(function ($w) use ($like) {
-                $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
-                  ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like)
-                  ->orWhere('phonenumber', 'like', $like);
-                cnp_afm_where($w, $like);
-            });
-        }
+        /* Σκέτος αριθμός ΔΕΝ σημαίνει «id πελάτη»: το ΑΦΜ είναι κι αυτό αριθμός,
+           και το τηλέφωνο επίσης. Πριν, ένα 9ψήφιο ΑΦΜ έψαχνε πελάτη με id
+           998107371 και δεν έβρισκε ποτέ τίποτα. Ψάχνουμε παντού. */
+        $like = '%' . $q . '%';
+        $base->where(function ($w) use ($like, $q) {
+            if (ctype_digit($q)) { $w->orWhere('id', (int) $q); }
+            $w->orWhere('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+              ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like)
+              ->orWhere('phonenumber', 'like', $like);
+            cnp_afm_where($w, $like);
+        });
     }
     $total = (clone $base)->count();
     $rows = $base->orderByRaw("CASE status WHEN 'Active' THEN 0 WHEN 'Inactive' THEN 1 ELSE 2 END")
@@ -13782,7 +13846,24 @@ case 'client_update':                     // αποθήκευση αλλαγών
     if (isset($upd['email']) && !filter_var($upd['email'], FILTER_VALIDATE_EMAIL)) { fail('Μη έγκυρο email'); }
     /* ΑΦΜ (custom #1 + tax_id) & ΔΟΥ (#82) & Κινητό (#88) μέσω customfields. */
     $cf = [];
-    if (array_key_exists('afm', $in)) { $a = preg_replace('/\s+/', '', (string) $in['afm']); $cf[1] = $a; $upd['tax_id'] = preg_replace('/\D+/', '', $a); $has = true; }
+    if (array_key_exists('afm', $in)) {
+        $a = preg_replace('/\s+/', '', (string) $in['afm']);
+        $aDigits = preg_replace('/\D+/', '', $a);
+        /* Ίδιοι έλεγχοι με τη δημιουργία — αλλιώς ο κανόνας παρακάμπτεται με
+           μια επεξεργασία. Κενό ΑΦΜ επιτρέπεται (σβήσιμο). */
+        if ($aDigits !== '') {
+            if (!cnp_afm_valid($aDigits)) {
+                fail('Το ΑΦΜ «' . $aDigits . '» δεν είναι έγκυρο — έλεγξε τα ψηφία.');
+            }
+            $own = cnp_afm_owner($aDigits, $cid);
+            if ($own) {
+                http_response_code(409);
+                out(['error' => 'Το ΑΦΜ ' . $aDigits . ' ανήκει ήδη στον πελάτη «' . $own['label'] . '» (#' . $own['id'] . ').',
+                    'need' => 'afm_taken', 'client' => $own['id'], 'label' => $own['label']]);
+            }
+        }
+        $cf[1] = $a; $upd['tax_id'] = $aDigits; $has = true;
+    }
     if (array_key_exists('doy', $in)) { $cf[82] = trim((string) $in['doy']); $has = true; }
     if (array_key_exists('mobile', $in)) { $cf[88] = trim((string) $in['mobile']); $has = true; }
     if ($cf) { $upd['customfields'] = base64_encode(serialize($cf)); }

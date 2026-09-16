@@ -1605,7 +1605,8 @@ async function openTask(id) {
         <div id="dCheck" class="tk-step-list">
           ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}" data-crow="${it.id}">
             <input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}>
-            <span data-ctext="${it.id}">${stepHtml(it.title)}</span>
+            <span data-ctext="${it.id}">${stepHtml(it.title)}${it.by
+              ? `<span class="chk-by" title="Το έγραψε ${esc(it.by)}${it.at ? ' · ' + tShort(it.at) : ''}">${esc(it.by)}${it.at ? ' · ' + dShort(it.at) : ''}</span>` : ''}</span>
             <span class="chk-acts">
               <button type="button" class="chk-act" data-cedit="${it.id}" title="Διόρθωση">${I.edit}</button>
               <button type="button" class="chk-act chk-act-del" data-cdelstep="${it.id}" title="Διαγραφή">${I.trash}</button>

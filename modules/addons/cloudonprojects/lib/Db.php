@@ -503,6 +503,18 @@ class Db
             });
         }
 
+        /* Ποιος έγραψε κάθε ενέργεια. Χωρίς αυτό, σε εργασία που περνά από τρία
+           χέρια κανείς δεν ξέρει ποιος δήλωσε τι — και η «Παράδοση» που γράφει
+           βήματα εκ μέρους σου το κάνει ακόμη πιο αδιαφανές. */
+        foreach ([['created_by', 'int'], ['created_at', 'ts']] as [$cc, $tt]) {
+            if ($s->hasTable('mod_cpm_checklist') && !$s->hasColumn('mod_cpm_checklist', $cc)) {
+                $s->table('mod_cpm_checklist', function ($t) use ($cc, $tt) {
+                    if ($tt === 'int') { $t->integer($cc)->unsigned()->nullable(); }
+                    else { $t->timestamp($cc)->nullable(); }
+                });
+            }
+        }
+
         /* Ώρα έναρξης/λήξης εργασίας. Οι ημερομηνίες μένουν DATE όπως ήταν —
            όλα τα ερωτήματα και οι συγκρίσεις συνεχίζουν να δουλεύουν — και η
            ώρα είναι ΠΡΟΑΙΡΕΤΙΚΗ διευκρίνιση. Χωρίς ώρα, η εργασία πιάνει όλη
@@ -1914,13 +1926,15 @@ class Db
             ->orderBy('sort')->orderBy('id')->get();
     }
 
-    public static function addCheckItem($taskId, $title)
+    public static function addCheckItem($taskId, $title, $byAdminId = 0)
     {
         $sort = 1 + (int) Capsule::table('mod_cpm_checklist')->where('task_id', (int) $taskId)->max('sort');
         return (int) Capsule::table('mod_cpm_checklist')->insertGetId([
             /* Το βήμα κρατά ό,τι γράφτηκε: ένα stack trace ή ένα JSON δεν έχει νόημα
                κομμένο στους 200 χαρακτήρες. Το ανώτατο όριο μπαίνει στο API. */
             'task_id' => (int) $taskId, 'title' => $title, 'done' => 0, 'sort' => $sort,
+            'created_by' => (int) $byAdminId ?: null,
+            'created_at' => date('Y-m-d H:i:s'),
         ]);
     }
 

@@ -1120,7 +1120,9 @@ async function openEditClient(id, onDone) {
     </div></div>`;
   document.body.appendChild(ovl);
   const done = () => ovl.remove();
-  $('#ecNo', ovl).onclick = done; ovl.onclick = done;
+  /* ΟΧΙ κλείσιμο με κλικ έξω: η φόρμα έχει συμπληρωμένα στοιχεία και ένα
+     άστοχο κλικ τα έσβηνε όλα. Κλείνει μόνο από το «Άκυρο». */
+  $('#ecNo', ovl).onclick = done;
   /* ΑΑΔΕ μέσα στο modal — απλώς συμπληρώνει τα πεδία, ο χρήστης πατά Αποθήκευση. */
   const aade = async () => {
     const afm = ($('#ecAfm', ovl).value || '').replace(/\D/g, '');
@@ -1217,7 +1219,8 @@ R.clientlist = async function () {
     <div class="card kb-search">
       <div class="kb-srow">
         <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-          <input class="inp" id="clQ" placeholder="Αναζήτηση: όνομα, επωνυμία, email, τηλέφωνο, #ID…" value="${esc(st.q)}" autocomplete="off"></div>
+          <input class="inp" id="clQ" placeholder="Αναζήτηση: όνομα, επωνυμία, ΑΦΜ, email, τηλέφωνο, #ID…" value="${esc(st.q)}" autocomplete="off">
+          <button type="button" class="kb-sclr" id="clQx" title="Καθάρισε" ${st.q ? '' : 'hidden'}>✕</button></div>
         ${d.canNew ? `<button class="btn btn-p btn-sm" id="clNew">${I.plus} Νέος πελάτης</button>` : ''}
       </div>
       <div class="kb-filters">
@@ -1283,7 +1286,20 @@ R.clientlist = async function () {
   c.innerHTML = head + body + pag;
 
   let qt;
-  $('#clQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#clQ').value.trim(); st.page = 1; R.clientlist(); }, 300); };
+  /* Το «✕» εμφανίζεται μόνο όταν υπάρχει κάτι να σβηστεί, και το πεδίο κρατά
+     την εστίαση μετά — αλλιώς ο χειριστής πρέπει να ξανακλικάρει για να γράψει. */
+  const clQx = () => { const x = $('#clQx'); if (x) { x.hidden = !$('#clQ').value; } };
+  $('#clQ').oninput = () => {
+    clQx();
+    clearTimeout(qt); qt = setTimeout(() => { st.q = $('#clQ').value.trim(); st.page = 1; R.clientlist(); }, 300);
+  };
+  { const x = $('#clQx'); if (x) { x.onclick = async () => {
+      clearTimeout(qt); st.q = ''; st.page = 1;
+      /* Το re-render φτιάχνει ΝΕΟ πεδίο — η εστίαση πρέπει να μπει μετά, αλλιώς
+         ο χειριστής πρέπει να ξανακλικάρει για να γράψει. */
+      await R.clientlist();
+      const f = $('#clQ'); if (f) { f.value = ''; f.focus(); }
+    }; } }
   $$('[data-clst]').forEach(b => b.onclick = () => { st.status = b.dataset.clst; st.page = 1; R.clientlist(); });
   { const nb = $('#clNew'); if (nb) nb.onclick = () => openNewClient('', () => { st.page = 1; R.clientlist(); }); }
   { const pv = $('#clPrev'); if (pv) pv.onclick = () => { if (st.page > 1) { st.page--; R.clientlist(); } }; }
@@ -1816,6 +1832,10 @@ R.client360 = async function (cid) {
       <div class="c3-hero-acts">
         ${d.client.phone ? `<a class="btn btn-o btn-sm" href="tel:${esc(d.client.phone)}">${I.phone || '📞'} Κλήση</a>` : ''}
         ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Edit">${I.edit} Επεξεργασία</button>` : ''}
+        ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Toggle"
+          title="${d.client.status === 'Active' ? 'Απενεργοποίηση: ο πελάτης παύει να είναι ενεργός' : 'Ενεργοποίηση πελάτη'}"
+          style="${d.client.status === 'Active' ? 'color:var(--warn)' : 'color:var(--ok)'}">
+          ${d.client.status === 'Active' ? I.pause || '⏸' : I.check || '✓'} ${d.client.status === 'Active' ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}</button>` : ''}
         ${cnpCan('clients.card.edit') ? `<button class="btn btn-o btn-sm" id="c3Aade" title="Αυτόματη ενημέρωση στοιχείων από το μητρώο ΑΑΔΕ">${I.repeat} Ενημέρωση ΑΑΔΕ</button>` : ''}
         <button class="btn btn-p btn-sm" id="c3Rt">${I.monitor} Remote</button>
         ${(d.full || cnpCan('projects.portfolio.edit'))
@@ -1937,6 +1957,20 @@ R.client360 = async function (cid) {
     if (rtb) rtb.onclick = () => window.CNP.startRemote(id, d.client.name, 0, {email: d.client.email || ''});
     const ceb = $('#c3Edit');
     if (ceb) ceb.onclick = () => openEditClient(id, () => show(id, months));
+    /* Ενεργοποίηση/απενεργοποίηση με ένα κλικ — χωρίς να ανοίξει η φόρμα.
+       Η απενεργοποίηση ρωτάει: είναι κατάσταση που επηρεάζει χρεώσεις και
+       ορατότητα, δεν πρέπει να γίνεται από αστοχία κλικ. */
+    const ctg = $('#c3Toggle');
+    if (ctg) ctg.onclick = async () => {
+      const on = d.client.status === 'Active';
+      if (on && !await cnpConfirm(`Απενεργοποίηση του πελάτη «${d.client.name}»;`, {
+        body: 'Παύει να μετράει ως ενεργός στις λίστες και τις αναφορές. Οι υπηρεσίες και τα παραστατικά του δεν αλλάζουν.',
+        ok: 'Απενεργοποίηση', cancel: 'Άκυρο', danger: true})) { return; }
+      const r = await api('client_update', {id, status: on ? 'Inactive' : 'Active'}).catch(e => ({err: e && e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast(on ? 'Ο πελάτης απενεργοποιήθηκε' : 'Ο πελάτης ενεργοποιήθηκε');
+      show(id, months);
+    };
     const cab = $('#c3Aade');
     if (cab) cab.onclick = () => clientAadeSync(id, null, d.client.name, () => show(id, months));
     const pkSel = $('#c3Pk');
