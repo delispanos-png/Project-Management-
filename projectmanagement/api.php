@@ -1826,6 +1826,24 @@ function cnp_team_members($teamId)
         ->where('team_id', (int) $teamId)->pluck('admin_id')->all());
 }
 
+/**
+ * Ανάθεση σε agent χωρίς χρόνο υλοποίησης δεν επιτρέπεται.
+ *
+ * «Πρόχειρη καταχώρηση» είναι νόμιμη — αλλά μόνο στον διαχειριστή: εκεί η
+ * εργασία περιμένει να σχεδιαστεί. Τη στιγμή που περνά σε agent για υλοποίηση,
+ * πρέπει να ξέρουμε ΠΟΤΕ ξεκινά και ΠΟΤΕ τελειώνει — αλλιώς δεν μπορεί να
+ * προγραμματιστεί τίποτα γύρω της και δεν απαντά καμία αναφορά.
+ *
+ * @return bool true αν ο παραλήπτης χρειάζεται ημερομηνίες
+ */
+function cnp_assignee_needs_dates($adminId)
+{
+    if (!$adminId) {
+        return false;                       // «κανείς» = δεν έχει ανατεθεί
+    }
+    return !Db::isFullAccess((int) $adminId);
+}
+
 /** Η στήλη «αναμονής» — η πρώτη μη-τελική κατάσταση (Backlog). */
 function cnp_backlog_status_id()
 {
@@ -4679,7 +4697,11 @@ case 'save_task':
     if (array_key_exists('is_offer', $in)) {
         $data['is_offer'] = !empty($in['is_offer']) ? 1 : 0;   // αφορά προσφορά → προτεραιότητα
     }
-    foreach (['due_date' => 'due', 'schedule_date' => 'sched'] as $col => $k) {
+    /* Το start_date ΕΛΕΙΠΕ από αυτόν τον χάρτη: η καρτέλα έστελνε «start» εδώ και
+       καιρό και ο server το πετούσε σιωπηλά. Γι' αυτό μόνο 2 από 49 εργασίες
+       είχαν ημερομηνία έναρξης — δεν ήταν ότι δεν τη συμπλήρωναν, ήταν ότι
+       δεν μπορούσε να αποθηκευτεί. */
+    foreach (['due_date' => 'due', 'schedule_date' => 'sched', 'start_date' => 'start'] as $col => $k) {
         if (array_key_exists($k, $in)) {
             $data[$col] = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in[$k]) ? $in[$k] : null;
         }
@@ -4718,6 +4740,26 @@ case 'save_task':
        να δώσει τη δουλειά σε συνάδελφο ούτε να ανεβάσει προτεραιότητα. */
     if (array_key_exists('assignee', $in)) {
         $newA = (int) $in['assignee'] ?: null;
+        if ($newA && $newA !== (int) $t->assignee && cnp_assignee_needs_dates($newA)) {
+            /* Οι ημερομηνίες μπορεί να έρχονται στην ΙΔΙΑ αποθήκευση — κοιτάμε
+               πρώτα αυτές που στέλνονται τώρα και μετά ό,τι υπάρχει ήδη. */
+            $sNew = array_key_exists('start', $in)
+                ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in['start']) ? $in['start'] : null)
+                : ($t->start_date ?: null);
+            $dNew = array_key_exists('due', $in)
+                ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in['due']) ? $in['due'] : null)
+                : ($t->due_date ?: null);
+            if (!$sNew || !$dNew) {
+                http_response_code(409);
+                out(['error' => 'Ανάθεση σε ' . Db::adminName($newA) . ' χωρίς χρόνο υλοποίησης δεν γίνεται — '
+                        . 'βάλε έναρξη και λήξη. Πρόχειρη καταχώρηση μένει στον διαχειριστή.',
+                    'need' => 'dates', 'task' => $tid, 'assignee' => $newA,
+                    'start' => $sNew, 'due' => $dNew]);
+            }
+            if ($sNew && $dNew && $sNew > $dNew) {
+                fail('Η λήξη δεν μπορεί να είναι πριν την έναρξη', 409);
+            }
+        }
         if ($newA && $newA !== (int) $t->assignee) {
             Notify::assigned($tid, $newA, $adminId);
         }
@@ -7351,6 +7393,19 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
         'task_id' => (int) $t->id, 'title' => mb_substr($nextH, 0, 500), 'done' => 0,
         'sort' => (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->max('sort') + 1,
     ]);
+
+    /* Ίδιος κανόνας και στην παράδοση: αν περνά και η ανάθεση σε agent,
+       χρειάζεται χρόνος υλοποίησης — αλλιώς η σκυτάλη πάει στο κενό. */
+    if (!empty($in['move']) && cnp_assignee_needs_dates($toH)) {
+        $dueChk = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : ($t->due_date ?: null);
+        if (!$t->start_date || !$dueChk) {
+            http_response_code(409);
+            out(['error' => 'Για να περάσει η ανάθεση στον/στην ' . Db::adminName($toH)
+                    . ' χρειάζεται έναρξη και λήξη.',
+                'need' => 'dates', 'task' => (int) $t->id, 'assignee' => $toH,
+                'start' => $t->start_date ?: null, 'due' => $dueChk]);
+        }
+    }
 
     $upd = ['action_user' => $toH];
     /* Η ανάθεση ακολουθεί τη σκυτάλη: αλλιώς ο φόρτος θα έδειχνε την εργασία

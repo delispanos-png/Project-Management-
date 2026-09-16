@@ -1348,6 +1348,48 @@ dnd('.tcard[data-task]', '.kb-col[data-status]', async (card, col) => {
   } else { toast(r.error || 'Δεν επιτρέπεται', true); vBoard(); }
 }, el => openTask(+el.dataset.task));
 
+/* Χωρίς χρόνο υλοποίησης δεν ανατίθεται εργασία σε agent.
+   Ο διάλογος δεν λέει απλώς «όχι»: δίνει τις δύο νόμιμες εξόδους —
+   πρόχειρο στον διαχειριστή, ή ανάθεση με σαφείς ημερομηνίες.
+   Επιστρέφει {start,due} ή {assignee:<admin>} ή null (άκυρο). */
+function askImplDates(info, me) {
+  return new Promise(resolve => {
+    const d0 = (info.start || today());
+    const d1 = new Date(); d1.setDate(d1.getDate() + 7);
+    const dEnd = info.due || d1.toISOString().slice(0, 10);
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+    ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:520px" role="dialog">
+      <div style="padding:20px 22px 18px">
+        <b style="font-size:15.5px;color:var(--ink)">${I.alert} Χωρίς χρόνο υλοποίησης δεν ανατίθεται</b>
+        <div style="font-size:13px;color:var(--txt);margin-top:8px">${esc(info.error || '')}</div>
+        <div class="frow" style="margin-top:14px">
+          <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="idStart" value="${d0}"></div>
+          <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="idDue" value="${dEnd}"></div>
+        </div>
+        <div id="idErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:4px" hidden></div>
+        <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn btn-o" id="idNo">Άκυρο</button>
+          ${me.full ? '<button class="btn btn-o" id="idDraft">Κράτησέ το πρόχειρο σε μένα</button>' : ''}
+          <button class="btn btn-p" id="idGo">Ανάθεση με αυτές τις ημερομηνίες</button>
+        </div>
+        ${me.full ? '' : '<div class="mut" style="font-size:11px;margin-top:8px">Πρόχειρη καταχώρηση μπορεί να κρατήσει μόνο διαχειριστής.</div>'}
+      </div></div>`;
+    document.body.appendChild(ovl);
+    const done = v => { ovl.remove(); resolve(v); };
+    $('#idNo', ovl).onclick = () => done(null);
+    const dft = $('#idDraft', ovl);
+    if (dft) { dft.onclick = () => done({assignee: me.id, start: null, due: null}); }
+    $('#idGo', ovl).onclick = () => {
+      const a = $('#idStart', ovl).value, b = $('#idDue', ovl).value, er = $('#idErr', ovl);
+      if (!a || !b) { er.hidden = false; er.textContent = 'Χρειάζονται και οι δύο ημερομηνίες.'; return; }
+      if (a > b) { er.hidden = false; er.textContent = 'Η λήξη δεν μπορεί να είναι πριν την έναρξη.'; return; }
+      done({start: a, due: b});
+    };
+    setTimeout(() => $('#idStart', ovl).focus(), 40);
+  });
+}
+
 /* Αλλαγή κατάστασης εργασίας — ΜΙΑ διαδρομή για όλα τα σημεία (σύρσιμο στο
    board, dropdown της καρτέλας, «Ολοκλήρωση»). Αν ο server ζητήσει προθεσμία
    επειδή η εργασία φεύγει από το Backlog, τη ζητάμε εδώ και ξαναστέλνουμε —
@@ -1774,7 +1816,7 @@ async function openTask(id) {
   { const fe = $('#fEst', dr), fh = $('#fEstHint', dr);
     if (fe && fh) { fe.oninput = () => { const m = estMins(fe.value); fh.textContent = m ? '= ' + fmtMin(m) : ''; }; } }
   $('#dSave', dr).onclick = async () => {
-    await api('save_task', {task: id,
+    const payload = over => Object.assign({task: id,
       due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
       type: +$('#fType').value || 0,
       dept: +(($('#fDept') || {}).value) || 0,
@@ -1782,7 +1824,22 @@ async function openTask(id) {
       ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
       est: estMins(($('#fEst', dr) || {}).value),
-      ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined});
+      ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined}, over || {});
+
+    let r = await api('save_task', payload()).then(() => ({ok: true}))
+      .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+
+    /* Ανάθεση σε agent χωρίς χρόνο υλοποίησης: δεν αρκεί να το απαγορεύσουμε —
+       ο χειριστής έχει δύο νόμιμες προθέσεις και πρέπει να διαλέξει ρητά.
+       Ή το κρατά πρόχειρο στον εαυτό του, ή το αναθέτει με σαφείς ημερομηνίες. */
+    if (!r.ok && r.data && r.data.need === 'dates') {
+      const pick = await askImplDates(r.data, me);
+      if (!pick) { return; }                       // άκυρο = δεν αποθηκεύεται τίποτα
+      r = await api('save_task', payload(pick)).then(() => ({ok: true}))
+        .catch(e => ({ok: false, error: e && e.message}));
+      if (r.ok && pick.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
+    }
+    if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
