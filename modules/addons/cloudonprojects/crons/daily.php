@@ -13,6 +13,10 @@ require __DIR__ . '/../../../../init.php';
 
 use WHMCS\Module\Addon\CloudonProjects\Db;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
+/* ΧΩΡΙΣ αυτό το import, κάθε μπλοκ που αγγίζει απευθείας τη βάση σκάει με
+   «Class Capsule not found» — και επειδή είναι τυλιγμένα σε try/catch, έσκαγε
+   ΣΙΩΠΗΛΑ: το πρωινό πλάνο δεν στάλθηκε ποτέ από 23/07/2026 ώς 16/09/2026. */
+use Illuminate\Database\Capsule\Manager as Capsule;
 
 require_once __DIR__ . '/../lib/Db.php';
 require_once __DIR__ . '/../lib/Notify.php';
@@ -149,4 +153,59 @@ try {
     }
 } catch (\Throwable $e) {
     logActivity('CPM daily catalog error: ' . $e->getMessage());
+}
+
+/* ---- 4. Επικεφαλής ομάδων: προειδοποίηση συσσώρευσης ----------------------
+   Το πρόβλημα δεν είναι ότι μια εργασία αργεί, αλλά ότι η ομάδα κουβαλάει
+   κάθε μέρα περισσότερα απ' όσα βάζει. Χωρίς αυτό, η συσσώρευση φαίνεται μόνο
+   αν κάποιος ανοίξει την οθόνη — δηλαδή ακριβώς όταν δεν προλαβαίνει. */
+try {
+    $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $leaders = Capsule::table('mod_cpm_team_members as m')
+        ->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
+        ->where('m.is_leader', 1)->get(['m.admin_id', 'm.team_id', 't.name']);
+    $log('Επικεφαλής ομάδων: ' . count($leaders));
+
+    foreach ($leaders as $L) {
+        $members = Capsule::table('mod_cpm_team_members')->where('team_id', $L->team_id)
+            ->pluck('admin_id')->all();
+        if (!$members) { continue; }
+
+        $base = Capsule::table('mod_cpm_tasks')->whereIn('assignee', $members)
+            ->whereNotIn('status_id', $doneIds);
+        $planned = (int) (clone $base)->where(function ($w) use ($today) {
+            $w->where('schedule_date', $today)->orWhere('due_date', $today);
+        })->count();
+        $carried = (int) (clone $base)->whereNotNull('schedule_date')
+            ->where('schedule_date', '<', $today)->count();
+        $late = (int) (clone $base)->whereNotNull('due_date')->where('due_date', '<', $today)->count();
+
+        /* Κατώφλι: σιωπή όταν η μέρα είναι φυσιολογική. Χτυπάει μόνο όταν η
+           μεταφορά είναι ΚΑΙ αισθητή (>=4) ΚΑΙ δυσανάλογη (διπλάσια του πλάνου). */
+        if ($carried < 4 || $carried <= $planned * 2) {
+            $log("  {$L->name}: μεταφορά $carried / πλάνο $planned — εντός ορίων");
+            continue;
+        }
+        $msg = 'Η ομάδα «' . $L->name . '» κουβαλάει ' . $carried . ' εργασίες από προηγούμενες μέρες'
+            . ($planned ? ' ενώ έβαλε ' . $planned . ' για σήμερα' : ' και δεν έβαλε καμία για σήμερα')
+            . ($late ? ' · ' . $late . ' έχουν ξεπεράσει προθεσμία' : '');
+        $log("  {$L->name}: ΕΙΔΟΠΟΙΗΣΗ — $msg");
+        if ($dry) { continue; }
+
+        Db::pushNotification((int) $L->admin_id, 'pileup', mb_substr($msg, 0, 240), '/project/#/myteam');
+        try {
+            $to = Notify::adminEmail((int) $L->admin_id);
+            if ($to) {
+                Notify::sendTo($to, 'Συσσώρευση στην ομάδα «' . $L->name . '»',
+                    '<p>' . htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') . '</p>'
+                    . '<p>Δεν είναι κάθε καθυστέρηση πρόβλημα — αλλά όταν η μεταφορά είναι '
+                    . 'διπλάσια από το πλάνο, η μέρα σχεδιάζεται με βάση κάτι που δεν συμβαίνει.</p>'
+                    . '<p><a href="' . htmlspecialchars(Notify::baseUrl() . '/project/#/myteam', ENT_QUOTES, 'UTF-8')
+                    . '" style="background:#0090dd;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;display:inline-block">Η ομάδα μου</a></p>');
+            }
+        } catch (\Throwable $e) { /* το email δεν σταματά το cron */ }
+    }
+} catch (\Throwable $e) {
+    $log('Σφάλμα στη συσσώρευση ομάδων: ' . $e->getMessage());
+    logActivity('CPM daily pileup error: ' . $e->getMessage());
 }

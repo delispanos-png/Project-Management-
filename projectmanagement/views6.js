@@ -986,6 +986,7 @@ R.teamday = async function () {
     <td style="text-align:right">${p.spent ? hm(p.spent) : '—'}</td></tr>`;
 
   c.innerHTML = `
+  ${d.truncated ? `<div class="card" style="margin-bottom:12px;border-color:var(--warn)"><div class="card-b" style="padding:10px 14px;font-size:12.5px;color:var(--warn)">${I.alert} Η αναφορά έφτασε στο όριο εγγραφών — δείχνονται τα πιο πρόσφατα. Τα σύνολα δεν είναι πλήρη.</div></div>` : ''}
   <div class="g4 grid" style="margin-bottom:14px">${BUCKETS.map(tile).join('')}</div>
   <div class="card" style="margin-bottom:14px"><div class="card-h">${I.users || I.user} Ποιος έχει τι
     <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${st.who ? 'φίλτρο ενεργό — κλικ στη γραμμή για καθάρισμα' : 'κλικ σε άτομο για φιλτράρισμα'}</span></div>
@@ -1043,6 +1044,7 @@ R.reschedules = async function () {
     <td style="text-align:center;${p.days > 0 ? 'color:var(--bad);font-weight:700' : ''}">${p.days > 0 ? '+' : ''}${p.days} ημ.</td></tr>`;
 
   c.innerHTML = `
+  ${d.truncated ? `<div class="card" style="margin-bottom:12px;border-color:var(--warn)"><div class="card-b" style="padding:10px 14px;font-size:12.5px;color:var(--warn)">${I.alert} Η αναφορά έφτασε στο όριο εγγραφών — δείχνονται τα πιο πρόσφατα. Τα σύνολα δεν είναι πλήρη.</div></div>` : ''}
   <div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
     <span class="mut" style="font-size:12.5px">Περίοδος:</span>
     ${[30, 90, 180, 365].map(n => `<button class="btn btn-sm ${st.d === n ? 'btn-p' : 'btn-o'}" data-rd="${n}">${n} ημ.</button>`).join('')}
@@ -1240,6 +1242,7 @@ R.myteam = async function () {
         : '<div class="mut" style="padding:16px">Κανένα έργο της ομάδας δεν μετατέθηκε.</div>'}</div></div>`;
 
   c.innerHTML = `
+  ${d.truncated ? `<div class="card" style="margin-bottom:12px;border-color:var(--warn)"><div class="card-b" style="padding:10px 14px;font-size:12.5px;color:var(--warn)">${I.alert} Η αναφορά έφτασε στο όριο εγγραφών — δείχνονται τα πιο πρόσφατα. Τα σύνολα δεν είναι πλήρη.</div></div>` : ''}
   <div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
     ${d.teams.length > 1 ? `<span class="mut" style="font-size:12.5px">Ομάδα:</span>
       <select class="inp" id="mtTeam" style="width:auto;min-width:180px">${d.teams.map(t =>

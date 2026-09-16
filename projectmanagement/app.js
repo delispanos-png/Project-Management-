@@ -112,7 +112,9 @@ async function api(a, data) {
   const r = await fetch('api.php?a=' + a + (data ? '' : '&_=' + Date.now()), {credentials: 'same-origin', ...opt});
   if (r.status === 401) { location.href = '/cloudonadminpanel/addonmodules.php?module=cloudonprojects&pmlaunch=1'; throw new Error('auth'); }
   const j = await r.json();
-  if (j.error) throw new Error(j.error);
+  /* Το σφάλμα κουβαλά ΟΛΟ το σώμα: ο server στέλνει και δομημένα πεδία (π.χ.
+     need:'due') που το UI χρειάζεται για να αντιδράσει, όχι μόνο το μήνυμα. */
+  if (j.error) { const e = new Error(j.error); e.data = j; throw e; }
   return j;
 }
 function toast(msg, err) {
@@ -1005,7 +1007,7 @@ function cnpDialog(opts) {
         ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap;max-height:46vh;overflow:auto">${o.body}</div>` : ''}
         ${o.input !== null ? (o.rows
           ? `<textarea class="inp" id="cnpDlgIn" rows="${+o.rows}" maxlength="${+o.max || 2000}" placeholder="${esc(o.placeholder || '')}" style="margin-top:12px;width:100%;resize:vertical">${esc(o.input || '')}</textarea>`
-          : `<input class="inp" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
+          : `<input class="inp" type="${o.inputType || 'text'}" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
         ${o.hint ? `<div class="mut" style="font-size:11.5px;margin-top:7px">${o.hint}</div>` : ''}
         <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>
@@ -1338,12 +1340,35 @@ dnd('.tcard[data-task]', '.kb-col[data-status]', async (card, col) => {
     note = await askDone(card.querySelector('.tcard-t')?.textContent || '');
     if (note === null) { return; }          // άκυρο = η κάρτα μένει όπου ήταν
   }
-  const r = await api('move_task', {task: +card.dataset.task, status: st, note}).catch(e => ({ok: false, error: e && e.message}));
+  const r = await cnpMoveTask(+card.dataset.task, st, note);
+  if (r.cancelled) { vBoard(); return; }
   if (r.ok) {
     col.querySelector('.kb-cards').appendChild(card);
     $$('.kb-col').forEach(c => c.querySelector('.kb-n').textContent = c.querySelectorAll('.tcard').length);
   } else { toast(r.error || 'Δεν επιτρέπεται', true); vBoard(); }
 }, el => openTask(+el.dataset.task));
+
+/* Αλλαγή κατάστασης εργασίας — ΜΙΑ διαδρομή για όλα τα σημεία (σύρσιμο στο
+   board, dropdown της καρτέλας, «Ολοκλήρωση»). Αν ο server ζητήσει προθεσμία
+   επειδή η εργασία φεύγει από το Backlog, τη ζητάμε εδώ και ξαναστέλνουμε —
+   ο χειριστής δεν πρέπει να χάσει την κίνησή του για μια ημερομηνία. */
+async function cnpMoveTask(id, status, note) {
+  const send = due => api('move_task', Object.assign({task: id, status, note: note || ''}, due ? {due} : {}))
+    .then(r => ({ok: !!r.ok}))
+    .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+  let r = await send(null);
+  if (!r.ok && r.data && r.data.need === 'due') {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    const pick = await cnpDialog({
+      title: 'Πότε παραδίδεται;',
+      body: r.error + '\n\nΜπαίνει ως προθεσμία της εργασίας — μπορείς να την αλλάξεις αργότερα.',
+      input: d.toISOString().slice(0, 10), inputType: 'date',
+      ok: 'Ξεκίνα την', cancel: 'Άκυρο'});
+    if (pick === null || !pick) { return {ok: false, cancelled: true}; }
+    r = await send(pick);
+  }
+  return r;
+}
 
 /* ═════════ TASK DRAWER ═════════ */
 let timerInt = null;
@@ -1770,8 +1795,8 @@ async function openTask(id) {
       const to = s.id; if (to === t.status) { return; }
       let note = '';
       if (s.done) { note = await askDone(dr.dataset.title || t.title); if (note === null) { return; } }
-      const r = await api('move_task', {task: id, status: to, note}).catch(e => ({ok: false, error: e && e.message}));
-      if (!r.ok) { toast(r.error || 'Δεν επιτρέπεται', true); return; }
+      const r = await cnpMoveTask(id, to, note);
+      if (!r.ok) { if (!r.cancelled) { toast(r.error || 'Δεν επιτρέπεται', true); } return; }
       toast('Κατάσταση: ' + (statusOf(to).title || '—'));
       openTask(id);
       if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
@@ -1785,8 +1810,8 @@ async function openTask(id) {
     if (!fin) { toast('Δεν υπάρχει στήλη ολοκλήρωσης', true); return; }
     const note = await askDone((dr.dataset.title || t.title));
     if (note === null) { return; }
-    const r = await api('move_task', {task: id, status: fin.id, note}).catch(e => ({ok: false, error: e && e.message}));
-    if (!r.ok) { toast(r.error || 'Δεν επιτρέπεται', true); return; }
+    const r = await cnpMoveTask(id, fin.id, note);
+    if (!r.ok) { if (!r.cancelled) { toast(r.error || 'Δεν επιτρέπεται', true); } return; }
     toast('Ολοκληρώθηκε'); closeDrawer();
     if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); } else if (window.R && window.R[S.view]) { window.R[S.view](); }
   };

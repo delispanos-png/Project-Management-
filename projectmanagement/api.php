@@ -1826,6 +1826,17 @@ function cnp_team_members($teamId)
         ->where('team_id', (int) $teamId)->pluck('admin_id')->all());
 }
 
+/** Η στήλη «αναμονής» — η πρώτη μη-τελική κατάσταση (Backlog). */
+function cnp_backlog_status_id()
+{
+    static $id = null;
+    if ($id === null) {
+        $id = (int) Capsule::table('mod_cpm_statuses')->where('is_done', 0)
+            ->orderBy('sort')->orderBy('id')->value('id');
+    }
+    return $id;
+}
+
 /** Οι διαχειριστές του συστήματος — ενημερώνονται για κάθε διαγραφή. */
 function cnp_full_admin_ids()
 {
@@ -4081,7 +4092,7 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
         return [$b['now'] ? 1 : 0, count($b['tasks'])] <=> [$a['now'] ? 1 : 0, count($a['tasks'])];
     });
 
-    out(['lanes' => array_values($laneM),
+    out(['lanes' => array_values($laneM), 'truncated' => count($rowsM) >= 400,
         'team' => ['id' => $teamM, 'name' => $tInfo ? $tInfo->name : '', 'color' => $tInfo ? $tInfo->color : '#0090dd'],
         'teams' => array_values(array_map(function ($t) {
             return ['id' => (int) $t->id, 'name' => $t->name, 'color' => $t->color];
@@ -4206,7 +4217,10 @@ case 'teamday':                          // Η μέρα της ομάδας — 
         return ($b['planned'] + $b['spanning'] + $b['carried']) <=> ($a['planned'] + $a['spanning'] + $a['carried']);
     });
 
-    out(['date' => $today0, 'running' => $running, 'planned' => $planned, 'spanning' => $spanning,
+    /* Αν χτυπήσαμε το όριο, το λέμε: σιωπηλά κομμένη αναφορά είναι χειρότερη
+       από αργή, γιατί δείχνει λάθος σύνολα χωρίς να το ξέρει κανείς. */
+    out(['date' => $today0, 'truncated' => count($rowsT) >= 600,
+        'running' => $running, 'planned' => $planned, 'spanning' => $spanning,
         'opened' => $opened, 'carried' => $carried, 'people' => array_values($perT)]);
 
 case 'reschedules':                      // Έργα που μετατέθηκαν
@@ -4238,7 +4252,8 @@ case 'reschedules':                      // Έργα που μετατέθηκα
     }
     /* Τα πιο «ελαστικά» έργα πρώτα: όσα μετατέθηκαν περισσότερες φορές. */
     usort($byProj, function ($a, $b) { return [$b['times'], $b['days']] <=> [$a['times'], $a['days']]; });
-    out(['days' => $dRs, 'items' => $itemsRs, 'projects' => array_values($byProj)]);
+    out(['days' => $dRs, 'truncated' => count($rowsRs) >= 400,
+        'items' => $itemsRs, 'projects' => array_values($byProj)]);
 
 case 'kpi':
     // Η πρόσβαση ελέγχεται από την πύλη περιοχών («Αναφορές & απόδοση»).
@@ -4570,6 +4585,26 @@ case 'move_task':
             }
         }
     }
+    /* ── Έξοδος από το Backlog: χωρίς προθεσμία δεν ξεκινά ──────────────────
+       Το «πότε παραδίδεται» δεν μπορεί να απαντηθεί από τις αναφορές όταν 39
+       στις 48 εργασίες δεν έχουν ημερομηνία. Δεν το ζητάμε στη δημιουργία —
+       εκεί ενοχλεί και το Backlog είναι ακριβώς η λίστα του «κάποτε». Το ζητάμε
+       τη στιγμή που κάποιος την αναλαμβάνει, που είναι και η στιγμή που ξέρει
+       την απάντηση. */
+    $backlogId = cnp_backlog_status_id();
+    if ($stChk && empty($stChk->is_done) && $backlogId
+        && (int) $t->status_id === $backlogId && (int) $stChk->id !== $backlogId) {
+        $dueIn = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
+        if ($dueIn) {
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['due_date' => $dueIn]);
+            Db::logActivity($t->id, $adminId, 'edit', 'Προθεσμία κατά την έναρξη: ' . cnp_dgr($dueIn));
+        } elseif (empty($t->due_date)) {
+            http_response_code(409);
+            out(['error' => 'Βάλε προθεσμία πριν ξεκινήσει — χωρίς αυτήν κανείς δεν ξέρει πότε παραδίδεται.',
+                'need' => 'due', 'task' => (int) $t->id, 'status' => (int) $stChk->id]);
+        }
+    }
+
     $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId, (string) ($in['note'] ?? ''));
     if ($ok && !$FULL) {
         $st = Db::status((int) $in['status']);
