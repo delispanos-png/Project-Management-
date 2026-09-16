@@ -2916,14 +2916,28 @@ R.projects = async function () {
     dr.innerHTML = `
     <div class="drawer-h"><h2>${p.id ? esc(p.name) : 'Νέο project'}</h2><button class="drawer-x" id="dX">✕</button></div>
     <div class="drawer-b"><div class="card"><div class="card-b">
+      <label class="lbl">Τι είδους έργο είναι</label>
+      <div class="kindpick" id="pjKindPick">
+        <button type="button" class="kp" data-k="client">
+          <span class="kp-h">${I.rocket}<b>Έργο πελάτη</b></span>
+          <span class="kp-d">Δουλειά ΓΙΑ πελάτη — χρεώνεται, μπαίνει στην καρτέλα του</span></button>
+        <button type="button" class="kp" data-k="internal">
+          <span class="kp-h">${I.box}<b>Εσωτερικό / R&amp;D</b></span>
+          <span class="kp-d">Δικό μας προϊόν — επένδυση, χωρίς πελάτη</span></button>
+        ${p.kind === 'dept' ? `<button type="button" class="kp" data-k="dept">
+          <span class="kp-h">${I.building}<b>Ουρά department</b></span>
+          <span class="kp-d">Παλαιό — μένει μόνο για τα υπάρχοντα έργα</span></button>` : ''}
+      </div>
+      <input type="hidden" id="pjKind" value="${p.kind === 'internal' || p.kind === 'dept' ? p.kind : 'client'}">
+      <div class="mut" style="font-size:11.5px;margin:7px 0 13px" id="pjKindHint"></div>
       <label class="lbl">Όνομα</label><input class="inp" id="pjName" value="${esc(p.name || '')}">
       <div class="frow" style="margin-top:11px">
-        <div><label class="lbl">Πελάτης <span class="mut" style="font-weight:400">— γράψε και <b>διάλεξε</b> από τη λίστα</span></label>
+        <div id="pjCliBox"><label class="lbl">Πελάτης <span class="mut" style="font-weight:400">— γράψε και <b>διάλεξε</b> από τη λίστα</span></label>
           <input class="inp" id="pjCli" list="pjCliL" autocomplete="off" placeholder="όνομα, επωνυμία ή email…"
           value="${esc(p.clientName ? p.clientName + ' (#' + p.client + ')' : '')}"><datalist id="pjCliL"></datalist>
           <input type="hidden" id="pjCliId" value="${p.client || ''}">
           <div id="pjCliS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
-        <div><label class="lbl">Υπο-έργο του</label><select class="inp" id="pjPar"><option value="">— αυτοτελές έργο —</option>
+        <div id="pjParBox"><label class="lbl">Υπο-έργο του</label><select class="inp" id="pjPar"><option value="">— αυτοτελές έργο —</option>
           ${clientPjs.filter(r => r.id !== p.id).map(r => `<option value="${r.id}" ${r.id === p.parent ? 'selected' : ''}>${esc(r.name)}${r.clientName ? ' — ' + esc(r.clientName) : ''}</option>`).join('')}</select></div>
         <div><label class="lbl">Χρώμα</label><input class="inp" type="color" id="pjColor" value="${p.color || '#0090dd'}" style="height:40px;padding:4px"></div>
         <div><label class="lbl">Κατάσταση</label><select class="inp" id="pjPs"><option value="">—</option>
@@ -2932,11 +2946,6 @@ R.projects = async function () {
           <option value="green" ${p.health === 'green' ? 'selected' : ''}>🟢 Καλά</option>
           <option value="yellow" ${p.health === 'yellow' ? 'selected' : ''}>🟡 Προσοχή</option>
           <option value="red" ${p.health === 'red' ? 'selected' : ''}>🔴 Πρόβλημα</option></select></div>
-        <div><label class="lbl">Τύπος</label><select class="inp" id="pjKind">
-          <option value="client" ${p.kind !== 'dept' && p.kind !== 'internal' ? 'selected' : ''}>Έργο πελάτη — δουλειά ΓΙΑ πελάτη</option>
-          <option value="internal" ${p.kind === 'internal' ? 'selected' : ''}>Εσωτερικό / R&amp;D — δικό μας προϊόν</option>
-          ${p.kind === 'dept' ? '<option value="dept" selected>Ουρά department (παλαιό)</option>' : ''}</select>
-          <div class="mut" style="font-size:11px;margin-top:3px" id="pjKindHint"></div></div>
         <div><label class="lbl">Προϊόν <span class="mut" style="font-weight:400">— προαιρετικό· δένεται και αργότερα</span></label>
           <select class="inp" id="pjProd"><option value="">— χωρίς προϊόν (γενική εργασία) —</option></select>
           <div id="pjProdS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
@@ -3056,11 +3065,21 @@ R.projects = async function () {
     const kindSync = () => {
       const k = $('#pjKind', dr).value;
       const internal = k === 'internal';
-      const cliBox = $('#pjCli', dr).closest('div');
+      /* Κρύβουμε ΤΟ ΚΕΛΙ (ετικέτα + πεδίο), όχι το input: ο clientAuto έχει
+         παρεμβάλει δικό του .cpick wrapper γύρω από το input. */
+      const cliBox = $('#pjCliBox', dr);
       const visBox = $('#pjVis', dr).closest('label');
+      /* Υπο-έργο: η λίστα είναι έργα ΠΕΛΑΤΩΝ — σε εσωτερικό έργο δεν σημαίνει τίποτα. */
+      const parBox = $('#pjParBox', dr);
       if (cliBox) { cliBox.hidden = internal; }
       if (visBox) { visBox.hidden = internal; }
-      if (internal) { $('#pjCliId', dr).value = ''; $('#pjVis', dr).checked = false; }
+      if (parBox) { parBox.hidden = internal; }
+      if (internal) {
+        $('#pjCliId', dr).value = '';
+        $('#pjVis', dr).checked = false;
+        if ($('#pjPar', dr)) { $('#pjPar', dr).value = ''; }
+      }
+      $$('.kp', dr).forEach(b => b.classList.toggle('on', b.dataset.k === k));
       const pl = $('#pjProd', dr) ? $('#pjProd', dr).closest('div').querySelector('.lbl') : null;
       if (pl) {
         pl.innerHTML = internal
@@ -3076,7 +3095,7 @@ R.projects = async function () {
       }
       loadProds();
     };
-    $('#pjKind', dr).addEventListener('change', kindSync);
+    $$('.kp', dr).forEach(b => b.onclick = () => { $('#pjKind', dr).value = b.dataset.k; kindSync(); });
     kindSync();
     /* Modules του έργου: ποια δικά μας προϊόντα παραδίδονται και πόσο έχει
        προχωρήσει το checklist του καθενός. Κλικ στο module → οι εργασίες του

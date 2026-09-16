@@ -1,5 +1,9 @@
 /* ═══════════ CloudOn Projects — standalone app design system ═══════════ */
 *,*::before,*::after{box-sizing:border-box}
+/* Το el.hidden πρέπει να ΚΡΥΒΕΙ. Χωρίς αυτό το νικάει οποιοδήποτε inline
+   display:flex ή κανόνας με μεγαλύτερη ειδικότητα, και το στοιχείο μένει
+   ορατό ενώ ο κώδικας νομίζει ότι το έκρυψε. */
+[hidden]{display:none!important}
 :root{
   --ink:#131f30;--txt:#3e506a;--mut:#8595ac;--line:#e5eaf1;--canvas:#f2f5f9;--card:#ffffff;
   --brand:#0090dd;--brand2:#00a8ff;--brand-d:#0072ad;--ok:#16a26a;--warn:#eba63c;--bad:#e2515f;--violet:#7b5cd6;
@@ -216,6 +220,23 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
 .drawer-x:hover{background:#8595ac22;color:var(--ink)}
 .drawer-b{flex:1;overflow-y:auto;padding:18px 22px}
 .frow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+
+/* ═══ Επιλογή τύπου έργου — πρώτη απόφαση της φόρμας ═══
+   Ο τύπος δεν είναι «άλλο ένα πεδίο»: αλλάζει ΠΟΙΑ πεδία έχουν νόημα (σε
+   εσωτερικό έργο δεν υπάρχει πελάτης, υπο-έργο ή ορατότητα στο portal). Γι'
+   αυτό μπαίνει πρώτος και ως ρητή επιλογή, όχι ως dropdown στη μέση του grid. */
+.kindpick{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;margin:2px 0 0}
+.kp{text-align:left;display:flex;flex-direction:column;gap:3px;cursor:pointer;
+  background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:11px 13px;
+  font:inherit;color:var(--txt);transition:border-color .15s,background .15s,box-shadow .15s}
+.kp:hover{border-color:var(--brand)}
+.kp .kp-h{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink)}
+.kp .kp-h svg{width:15px;height:15px;flex:none}
+.kp .kp-d{font-size:11.5px;color:var(--mut);line-height:1.45}
+.kp.on{border-color:var(--brand);background:var(--brand-soft,rgba(0,144,221,.07));
+  box-shadow:0 0 0 3px rgba(0,144,221,.12)}
+.kp.on .kp-h{color:var(--brand)}
+@media (max-width:768px){.kindpick{grid-template-columns:1fr}}
 .timer-live{font-variant-numeric:tabular-nums;font-weight:800;font-size:19px;color:var(--ok)}
 .chk{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}
 .chk:last-child{border:none}

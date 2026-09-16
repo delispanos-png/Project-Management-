@@ -1471,10 +1471,13 @@ async function openTask(id) {
       ${t.est ? `<div class="bar" style="margin-bottom:9px"><span class="${d.total > t.est ? 'bad' : d.total > t.est * .8 ? 'warn' : 'ok'}" style="width:${Math.min(100, Math.round(d.total / t.est * 100))}%"></span></div>` : ''}
       <div class="tk-time-row">
         <input class="inp" id="tMins" type="number" min="1" placeholder="λεπτά">
-        <label class="tk-bill" title="Χρεώσιμος χρόνος προς τον πελάτη — χρειάζεται έγκριση λογιστηρίου.&#10;Η επιλογή ΜΕΝΕΙ στην εργασία: ό,τι ορίσεις εδώ ισχύει και την επόμενη φορά."><input type="checkbox" id="tBill" ${billOn ? 'checked' : ''}> ${I.coin} Χρεώσιμο</label>
+        ${d.owner ? `<label class="tk-bill" title="Χρεώσιμος χρόνος προς τον πελάτη — χρειάζεται έγκριση λογιστηρίου.&#10;Η επιλογή ΜΕΝΕΙ στην εργασία: ό,τι ορίσεις εδώ ισχύει και την επόμενη φορά."><input type="checkbox" id="tBill" ${billOn ? 'checked' : ''}> ${I.coin} Χρεώσιμο</label>` : ''}
         <input class="inp" id="tNote" placeholder="σημείωση">
         <button class="btn btn-sm btn-p" id="tAdd">Καταχώρηση</button>
       </div>
+      ${!d.owner ? `<div class="mut" style="font-size:11px;margin-top:6px">${d.project.kind === 'internal'
+        ? 'Εσωτερική ανάπτυξη — ο χρόνος μετριέται ως κόστος, δεν χρεώνεται σε πελάτη.'
+        : 'Χωρίς πελάτη — ο χρόνος δεν χρεώνεται πουθενά.'}</div>` : ''}
       ${d.scClient ? `<div class="mut" style="font-size:11px;margin-top:6px">Πελάτης: <b>${esc(d.scClient)}</b> — τα χρεώσιμα αφαιρούν προαγορά</div>` : ''}
       ${billMins ? `<div class="bill-gate ${t.billOk ? 'ok' : ''}">
         <div><b>${t.billOk ? '✔ Η χρέωση εγκρίθηκε' : '⏳ Εκκρεμεί έγκριση λογιστηρίου'}</b>
@@ -1489,7 +1492,7 @@ async function openTask(id) {
       <div style="margin-top:4px" id="tLogs">${d.timelogs.map(l =>
         `<div class="tk-log">
           <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
-          ${l.running ? '' : `<button type="button" class="pill ${l.billable ? 'pill-warn' : 'pill-mut'} tk-billtog"
+          ${l.running || !d.owner ? '' : `<button type="button" class="pill ${l.billable ? 'pill-warn' : 'pill-mut'} tk-billtog"
             data-tbill="${l.id}" data-on="${l.billable ? 1 : 0}" style="font-size:9.5px"
             title="Κλικ για αλλαγή — χρεώσιμο ή όχι">${l.billable ? 'χρέωση ' + fmtMin(l.charged || l.mins) : 'χωρίς χρέωση'}</button>`}
           <span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(l.by)}${l.note ? ' · ' + esc(l.note) : ''}</span>
@@ -1767,7 +1770,9 @@ async function openTask(id) {
   const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
   const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
   const tp = $('#tStop', dr); if (tp) tp.onclick = async () => {
-    const bill = await cnpConfirm('Να χρεωθεί ο χρόνος στον πελάτη;', {ok: I.coin + ' Χρεώσιμο', cancel: 'Χωρίς χρέωση'});
+    const bill = d.owner
+      ? await cnpConfirm('Να χρεωθεί ο χρόνος στον πελάτη;', {ok: I.coin + ' Χρεώσιμο', cancel: 'Χωρίς χρέωση'})
+      : false;
     const r = await api('timer_stop', {billable: bill, note: ''});
     toast('Καταχωρήθηκε ' + fmtMin(r.mins)); openTask(id);
   };
@@ -1789,7 +1794,7 @@ async function openTask(id) {
   });
   $('#tAdd', dr).onclick = async () => {
     const m = +$('#tMins').value; if (!m) return;
-    await api('time_add', {task: id, mins: m, billable: $('#tBill').checked, note: $('#tNote').value});
+    await api('time_add', {task: id, mins: m, billable: $('#tBill') ? $('#tBill').checked : false, note: $('#tNote').value});
     toast('Καταχωρήθηκε ' + fmtMin(m)); openTask(id);
   };
   /* Εξαρτήσεις: υποψήφιες οι «αδελφές» εργασίες. Για εργασία έργου είναι οι
