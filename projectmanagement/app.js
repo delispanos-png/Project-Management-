@@ -1483,6 +1483,7 @@ async function openTask(id) {
       </div>
       <div class="tk-sub">
         ${supId ? `<span class="tk-sup" title="Άνοιξε την εργασία και έχει την ευθύνη να την παρακολουθεί — ορίζεται αυτόματα από τον χρήστη">${I.eye} Επιβλέπων: <b>${esc(adminName(supId))}</b></span>` : ''}
+        ${t.ball ? `<span class="tk-sup tk-ball${t.ball === me.id ? ' me' : ''}" title="Η εργασία περιμένει ενέργεια από αυτόν — όσο την κρατά, της εμφανίζεται στη «Μέρα μου» του">${I.zap} Μπάλα: <b>${t.ball === me.id ? 'εσύ' : esc(adminName(t.ball))}</b></span>` : ''}
         ${(d.path && d.path.length) ? `<span class="tk-crumb" title="Διαδρομή φακέλων">${
           d.path.map(p => `<a href="#/board/${p.id}" data-navclose>${esc(p.name)}</a>`).join('<span class="tk-crumb-sep">›</span>')
         }</span>` : ''}
@@ -1582,6 +1583,10 @@ async function openTask(id) {
       <div class="frow tk-frow">
         <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span></label>
           <select class="inp" id="fAssignee">${admOpts(t.assignee, t.dept)}</select></div>
+        <div><label class="lbl">${I.zap} Μπάλα <span class="mut" style="font-weight:400">— ποιος δρα τώρα</span></label>
+          <select class="inp" id="fBall"><option value="">— σε κανέναν —</option>
+          ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === t.ball ? 'selected' : ''}>${esc(a.name)}${a.id === me.id ? ' (εσύ)' : ''}</option>`).join('')}</select>
+          <div class="mut" style="font-size:11px;margin-top:3px">Όσο την κρατάς, η εργασία μένει στη «Μέρα μου» σου.</div></div>
         <div><label class="lbl">Προτεραιότητα</label>
           <select class="inp" id="fPrio">
             ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
@@ -1774,6 +1779,7 @@ async function openTask(id) {
       type: +$('#fType').value || 0,
       dept: +(($('#fDept') || {}).value) || 0,
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
+      ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
       est: estMins(($('#fEst', dr) || {}).value),
       ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined});
