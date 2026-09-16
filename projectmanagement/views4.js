@@ -1044,6 +1044,7 @@ R.chat = async function () {
   const st = R.chat._st = R.chat._st || {ch: 'team', lastId: 0};
   clearInterval(R.chat._t);
   clearInterval(R.chat._vt);
+  clearInterval(R.chat._p);   // ο σφυγμός παρουσίας — αλλιώς διπλασιάζεται σε κάθε επαναφόρτωση
   const d = await api('chat_channels');
   const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
   const chAva = ch => `<span class="ch-av ${ch.kind !== 'dm' ? 'ch-av-grp' : ''}">${ch.kind === 'team' ? I.users : ch.kind === 'group' ? '#' : esc(ini(ch.name))}${ch.kind === 'dm' ? `<span class="ch-av-dot ${ch.status || 'online'}"></span>` : ''}</span>`;
@@ -1258,6 +1259,36 @@ R.chat = async function () {
     if (S.view !== 'chat') { clearInterval(R.chat._t); return; }
     if (st.lastId > 0) load();
   }, 5000);
+
+  /* Οι κουκκίδες παρουσίας πάγωναν στη στιγμή που άνοιξε το chat: ο σφυγμός
+     ανανέωνε ΜΟΝΟ τα μηνύματα. Έτσι κάποιος που μπήκε πριν λίγο φαινόταν «Away»
+     επ' αόριστον. Ανανεώνουμε τη λίστα κάθε 20΄΄ — αλλά ΕΠΙ ΤΟΠΟΥ, χωρίς να
+     ξαναχτίσουμε το DOM, ώστε να μη χάνεται επιλογή/κύλιση/γραφή. */
+  const refreshPresence = async () => {
+    if (S.view !== 'chat') { clearInterval(R.chat._p); return; }
+    const nd = await api('chat_channels').catch(() => null);
+    if (!nd) { return; }
+    nd.channels.forEach(ch => {
+      const row = document.querySelector(`.ch-row[data-ch="${ch.id}"]`);
+      if (!row) { return; }
+      if (ch.kind === 'dm') {
+        const dot = row.querySelector('.ch-av-dot');
+        if (dot) { dot.className = 'ch-av-dot ' + (ch.status || 'online'); }
+        const sub = row.querySelector('.ch-row-sub');
+        if (sub) {
+          sub.textContent = ch.reason ? ch.reason
+            : (ch.status === 'offline' ? 'Offline' : ch.status === 'away' ? 'Away' : 'Online');
+        }
+      }
+      /* Τα αδιάβαστα αλλάζουν κι αυτά ενώ κοιτάς — ενημέρωσέ τα μαζί. */
+      let n = row.querySelector('.chat-n');
+      if (ch.unread) {
+        if (!n) { n = document.createElement('span'); n.className = 'chat-n'; row.appendChild(n); }
+        n.textContent = ch.unread;
+      } else if (n) { n.remove(); }
+    });
+  };
+  R.chat._p = setInterval(refreshPresence, 20000);
 };
 
 

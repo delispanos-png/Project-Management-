@@ -2786,7 +2786,7 @@ function cnp_open_actions()
         /* myteam: κριτής είναι το is_leader της ομάδας, όχι cap — ο επικεφαλής
            μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
         'myteam',
-        'task', 'task_delete', 'task_handoff', 'task_billing_ok', 'billing_pending',
+        'task', 'task_delete', 'task_handoff', 'task_share', 'task_billing_ok', 'billing_pending',
         'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
@@ -7504,6 +7504,83 @@ case 'project_pm_notes':                  // ιδιωτικές σημειώσε
     Capsule::table('mod_cpm_projects')->where('id', (int) $pp->id)
         ->update(['pm_notes' => mb_substr((string) ($in['notes'] ?? ''), 0, 20000)]);
     out(['ok' => true]);
+
+case 'task_share':                       // Στείλε εργασία σε συνάδελφο (chat) ή σε email
+    $t = Db::task((int) ($in['task'] ?? 0));
+    if (!$t || !Db::canSeeTask($adminId, $t)) { fail('task', 404); }
+
+    $viaS  = in_array($in['via'] ?? '', ['chat', 'email', 'both'], true) ? $in['via'] : 'chat';
+    $toIds = array_values(array_unique(array_filter(array_map('intval', (array) ($in['to'] ?? [])))));
+    $mailTo = trim((string) ($in['email'] ?? ''));
+    $noteS = trim((string) ($in['note'] ?? ''));
+    if ($mailTo !== '' && !filter_var($mailTo, FILTER_VALIDATE_EMAIL)) {
+        fail('Μη έγκυρη διεύθυνση email');
+    }
+    if (!$toIds && $mailTo === '') { fail('Διάλεξε συνάδελφο ή γράψε διεύθυνση email'); }
+
+    /* Η σύνοψη φτιάχνεται ΜΙΑ φορά: ο παραλήπτης πρέπει να καταλάβει τι του
+       στέλνεις χωρίς να ανοίξει την εργασία — αλλιώς το «σου στέλνω αυτό» δεν
+       λέει τίποτα περισσότερο από ένα link. */
+    $projS = $t->project_id
+        ? (string) Capsule::table('mod_cpm_projects')->where('id', $t->project_id)->value('name') : '';
+    $cliS = '';
+    if ($t->project_id) {
+        $cidS = Capsule::table('mod_cpm_projects')->where('id', $t->project_id)->value('clientid');
+        if ($cidS) { $cliS = (string) clientLabel((int) $cidS); }
+    }
+    $stS = (string) Capsule::table('mod_cpm_statuses')->where('id', $t->status_id)->value('title');
+    $urlS = '/project/#/task/' . (int) $t->id;
+    $absS = Notify::baseUrl() . $urlS;
+    $meS = Db::adminName($adminId);
+
+    $lines = [];
+    if ($projS !== '') { $lines[] = 'Έργο: ' . $projS . ($cliS !== '' ? ' · ' . $cliS : ''); }
+    if ($stS !== '')   { $lines[] = 'Κατάσταση: ' . $stS; }
+    if ($t->assignee)  { $lines[] = 'Ανάδοχος: ' . Db::adminName((int) $t->assignee); }
+    if ($t->due_date)  { $lines[] = 'Λήξη: ' . cnp_dgr($t->due_date); }
+
+    $sentChat = 0; $sentMail = 0;
+    if ($viaS === 'chat' || $viaS === 'both') {
+        foreach ($toIds as $oth) {
+            if ($oth === $adminId) { continue; }
+            $chS = 'd' . min($adminId, $oth) . '-' . max($adminId, $oth);
+            $bodyS = '📋 **#' . (int) $t->id . ' ' . $t->title . '**'
+                . ($lines ? "\n" . implode(' · ', $lines) : '')
+                . ($noteS !== '' ? "\n\n" . $noteS : '')
+                . "\n" . $absS;
+            Capsule::table('mod_cpm_chat')->insert(['channel' => $chS, 'admin_id' => $adminId,
+                'body' => mb_substr($bodyS, 0, 4000), 'created_at' => date('Y-m-d H:i:s')]);
+            Db::pushNotification($oth, 'comment',
+                mb_substr('💬 ' . $meS . ' σου έστειλε την εργασία #' . (int) $t->id . ': ' . $t->title, 0, 240),
+                $urlS);
+            $sentChat++;
+        }
+    }
+    if ($viaS === 'email' || $viaS === 'both') {
+        $targets = [];
+        foreach ($toIds as $oth) {
+            $e = Notify::adminEmail($oth);
+            if ($e) { $targets[$e] = Db::adminName($oth); }
+        }
+        if ($mailTo !== '') { $targets[$mailTo] = ''; }
+        $htmlS = '<p><b>' . htmlspecialchars((string) $t->title, ENT_QUOTES, 'UTF-8') . '</b> (#' . (int) $t->id . ')</p>'
+            . ($lines ? '<p>' . htmlspecialchars(implode(' · ', $lines), ENT_QUOTES, 'UTF-8') . '</p>' : '')
+            . ($noteS !== '' ? '<p style="border-left:3px solid #0090dd;padding-left:10px;color:#3e506a">'
+                . nl2br(htmlspecialchars($noteS, ENT_QUOTES, 'UTF-8')) . '</p>' : '')
+            . '<p>Στάλθηκε από: ' . htmlspecialchars($meS, ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><a href="' . htmlspecialchars($absS, ENT_QUOTES, 'UTF-8')
+            . '" style="background:#0090dd;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;display:inline-block">Άνοιγμα εργασίας</a></p>';
+        foreach ($targets as $addr => $nm) {
+            try {
+                if (Notify::sendTo($addr, 'Εργασία #' . (int) $t->id . ' — ' . mb_substr((string) $t->title, 0, 70), $htmlS)) {
+                    $sentMail++;
+                }
+            } catch (\Throwable $e) { /* μια αποτυχία δεν ακυρώνει τις υπόλοιπες */ }
+        }
+    }
+    Db::logActivity((int) $t->id, $adminId, 'edit',
+        'Κοινοποίηση: ' . $sentChat . ' chat, ' . $sentMail . ' email');
+    out(['ok' => true, 'chat' => $sentChat, 'mail' => $sentMail]);
 
 case 'task_handoff':                     // Παράδοση σκυτάλης σε συνάδελφο
     $t = Db::task((int) ($in['task'] ?? 0));
@@ -13618,6 +13695,27 @@ case 'version':
         }
     }
     $g6chat = (string) Capsule::table('mod_cpm_chat')->max('id');
+    /* Τα ΚΑΙΝΟΥΡΓΙΑ αδιάβαστα μηνύματα με περιεχόμενο — όχι μόνο μετρητής. Το
+       καμπανάκι δεν αρκεί όταν δουλεύεις σε άλλη οθόνη: πρέπει να δεις ΠΟΙΟΣ
+       σου μίλησε και ΤΙ είπε, χωρίς να ψάξεις. Μέχρι 5, τα πιο πρόσφατα. */
+    $chatNew = [];
+    foreach (Capsule::table('mod_cpm_chat')->where('admin_id', '!=', $adminId)
+        ->where('id', '>', (int) ($_GET['chatSince'] ?? 0))
+        ->orderBy('id', 'desc')->limit(20)
+        ->get(['id', 'channel', 'admin_id', 'body', 'filename', 'created_at']) as $cm) {
+        if (!cnp_chat_access($cm->channel, $adminId)) { continue; }
+        if ((int) $cm->id <= ($reads6[$cm->channel] ?? 0)) { continue; }
+        $label = $cm->channel === 'team' ? '# Ομάδα'
+            : (strpos($cm->channel, 'g') === 0
+                ? (string) Capsule::table('mod_cpm_chat_groups')->where('id', (int) substr($cm->channel, 1))->value('name')
+                : '');
+        $chatNew[] = ['id' => (int) $cm->id, 'channel' => $cm->channel,
+            'from' => Db::adminName((int) $cm->admin_id), 'fromId' => (int) $cm->admin_id,
+            'where' => $label,
+            'text' => mb_substr((string) ($cm->body ?: ('📎 ' . $cm->filename)), 0, 160)];
+        if (count($chatNew) >= 5) { break; }
+    }
+    $chatNew = array_reverse($chatNew);
     /* «Ζήτα βοήθεια»: ανοιχτές εκκλήσεις προς εμένα που δεν έχω δει ακόμη το δυνατό
        popup — το frontend τις εμφανίζει και μετά καλεί help_seen. */
     $alerts = [];
@@ -13630,7 +13728,8 @@ case 'version':
             'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
             'at' => $hr->created_at];
     }
-    out(['v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
+    out(['chatNew' => $chatNew,
+        'v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
         'build' => cnp_asset_version(),
         'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread, 'alerts' => $alerts]);
 

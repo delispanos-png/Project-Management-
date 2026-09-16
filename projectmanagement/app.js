@@ -296,6 +296,8 @@ function renderShell() {
           <button class="status-btn" id="statusBtn" title="Κατάσταση διαθεσιμότητας"><span class="dot" id="statusDot"></span><span id="statusLbl">Online</span></button>
           <button class="btn btn-p btn-sm" id="newBtn" title="Δημιουργία">${I.plus} Νέο</button>
           <button class="btn btn-o btn-ico" id="helpBtn" title="Βοήθεια για αυτή την οθόνη">${I.bulb}</button>
+          <div class="bell-wrap"><button class="btn btn-o btn-ico" id="chatBtn" style="position:relative" title="Chat ομάδας">${I.chat}
+            <span class="bell-n" id="chatN" style="display:none"></span></button></div>
           <div class="bell-wrap"><button class="btn btn-o btn-ico" id="bellBtn" style="position:relative">${I.bell}
             <span class="bell-n" id="bellN" style="display:none"></span></button></div>
           <button class="ava top-ava" id="topAva" title="Ο λογαριασμός μου">${esc(me.ini)}</button>
@@ -370,6 +372,7 @@ function renderShell() {
   };
   $('#bellBtn').onclick = toggleBell;
   const hb = $('#helpBtn'); if (hb) hb.onclick = () => window.CNP.openHelp && window.CNP.openHelp(S.view);
+  { const cb = $('#chatBtn'); if (cb) { cb.onclick = () => { stopChatTitle(); go('chat'); }; } }
   const pb = $('#palBtn'); if (pb) pb.onclick = () => window.CNP.palette && window.CNP.palette();
   // ── Πάνω μενού: «+ Νέο» quick-create ──
   $('#newBtn').onclick = e => {
@@ -480,6 +483,52 @@ function miniMenu(anchor, items) {
   const closer = e => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', closer); } };
   setTimeout(() => document.addEventListener('click', closer), 0);
 }
+/* ── Δυνατή ειδοποίηση chat ────────────────────────────────────────────────
+   Κάρτα κάτω δεξιά που ΔΕΝ μπλοκάρει την οθόνη (μήνυμα δεν είναι επείγον σαν
+   το 🆘), αλλά συνοδεύεται από ήχο και αναβοσβήνει ο τίτλος — τα δύο πράγματα
+   που σε φτάνουν όταν κοιτάς αλλού. */
+let chatTitleTimer = null;
+const CHAT_TITLE0 = document.title;
+function chatBeep() {
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)();
+    const o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.type = 'sine'; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.14, a.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.34);
+    o.start(); o.stop(a.currentTime + 0.36);
+  } catch (e) { /* χωρίς ήχο — η κάρτα φτάνει */ }
+}
+function chatPop(m) {
+  let w = $('#chatPops');
+  if (!w) { w = document.createElement('div'); w.id = 'chatPops'; document.body.appendChild(w); }
+  if (w.children.length >= 3) { w.firstElementChild.remove(); }
+  const el = document.createElement('div');
+  el.className = 'chat-pop';
+  el.innerHTML = `<div class="cp-h"><span class="cp-ava">${esc(adminIni(m.fromId) || '?')}</span>
+      <b>${esc(m.from)}</b>${m.where ? `<span class="mut">· ${esc(m.where)}</span>` : ''}
+      <span style="flex:1"></span><button class="cp-x" title="Κλείσιμο">✕</button></div>
+    <div class="cp-b">${esc(m.text)}</div>
+    <div class="cp-f"><button class="btn btn-sm btn-p">${I.chat} Άνοιξε</button></div>`;
+  w.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const kill = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 220); };
+  el.querySelector('.cp-x').onclick = kill;
+  el.querySelector('.btn').onclick = () => { kill(); stopChatTitle(); go('chat'); };
+  setTimeout(kill, 14000);
+  chatBeep();
+  if (!chatTitleTimer) {
+    let on = false;
+    chatTitleTimer = setInterval(() => { on = !on; document.title = on ? '💬 Νέο μήνυμα' : CHAT_TITLE0; }, 1100);
+    window.addEventListener('focus', stopChatTitle, {once: true});
+  }
+}
+function stopChatTitle() {
+  if (chatTitleTimer) { clearInterval(chatTitleTimer); chatTitleTimer = null; document.title = CHAT_TITLE0; }
+}
+
 function updateBell(n) { const b = $('#bellN'); if (!b) return; b.style.display = n ? '' : 'none'; b.textContent = n > 99 ? '99+' : n; }
 
 /* ── Web Push: ειδοποιήσεις συσκευής (κινητό/desktop) ακόμη κι με κλειστή εφαρμογή ── */
@@ -1711,6 +1760,7 @@ async function openTask(id) {
         ${t.done ? '' : `<button class="btn btn-o" id="dHand" title="Τελείωσε το δικό σου κομμάτι — δώσε τη σκυτάλη στον επόμενο">${I.zap} Παράδοση</button>`}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
         <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
+        <button class="btn btn-o" id="dShare" title="Στείλε την εργασία σε συνάδελφο (chat) ή σε email">${I.link} Στείλε</button>
         ${d.canDelete ? `<button class="btn btn-o" id="dDel" style="color:var(--bad);margin-left:auto"
           title="${d.delLeft ? 'Την άνοιξες εσύ — μπορείς να τη διαγράψεις για ' + Math.ceil(d.delLeft / 60) + ' ακόμη λεπτά' : 'Διαγραφή εργασίας (διαχειριστής)'}">${I.trash} Διαγραφή</button>` : ''}
       </div>
@@ -1978,6 +2028,66 @@ async function openTask(id) {
   };
   const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
   const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
+
+  /* ── Στείλε την εργασία ───────────────────────────────────────────────────
+     Δύο διαφορετικές ανάγκες με ίδια αφετηρία: «δες το αυτό» σε συνάδελφο
+     (chat, άμεσο) και «κράτα το αυτό» προς τα έξω (email). Το μήνυμα κουβαλά
+     σύνοψη — έργο, πελάτη, κατάσταση, λήξη — ώστε ο παραλήπτης να καταλαβαίνει
+     ΤΙ του στέλνεις χωρίς να ανοίξει τίποτα. */
+  const shb = $('#dShare', dr); if (shb) shb.onclick = () => {
+    const others = S.boot.admins.filter(a => a.id !== me.id);
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+    ovl.innerHTML = `<div class="pal-box" style="margin:8vh auto 0;max-width:560px;max-height:84vh;overflow:auto" role="dialog">
+      <div style="padding:20px 22px 18px">
+        <b style="font-size:15.5px;color:var(--ink)">${I.link} Στείλε την εργασία</b>
+        <div class="mut" style="font-size:12px;margin-top:4px">#${id} ${esc(t.title)}</div>
+
+        <label class="lbl" style="margin-top:14px">Σε ποιους συναδέλφους</label>
+        <div class="shr-grid">${others.map(a => `<label class="shr-p"><input type="checkbox" class="shTo" value="${a.id}"> ${esc(a.name)}</label>`).join('')}</div>
+
+        <label class="lbl" style="margin-top:12px">…ή σε διεύθυνση email <span class="mut" style="font-weight:400">— προαιρετικό</span></label>
+        <input class="inp" id="shMail" type="email" placeholder="π.χ. synergatis@example.com">
+
+        <label class="lbl" style="margin-top:12px">Σημείωμα <span class="mut" style="font-weight:400">— τι θέλεις να προσέξει</span></label>
+        <textarea class="inp" id="shNote" rows="2" maxlength="1000" placeholder="π.χ. Δες το πριν μιλήσουμε με τον πελάτη"></textarea>
+
+        <label class="lbl" style="margin-top:12px">Πώς</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${[['chat', I.chat + ' Chat'], ['email', '✉ Email'], ['both', 'Και τα δύο']].map(([k, lb], i) =>
+            `<label class="shr-v"><input type="radio" name="shVia" value="${k}" ${i === 0 ? 'checked' : ''}> ${lb}</label>`).join('')}
+        </div>
+        <div id="shErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:8px" hidden></div>
+        <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
+          <button class="btn btn-o" id="shNo">Άκυρο</button>
+          <button class="btn btn-p" id="shGo">Αποστολή</button>
+        </div>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    $('#shNo', ovl).onclick = () => ovl.remove();
+    $('#shGo', ovl).onclick = async () => {
+      const to = $$('.shTo:checked', ovl).map(x => +x.value);
+      const mail = $('#shMail', ovl).value.trim();
+      const via = (ovl.querySelector('input[name="shVia"]:checked') || {}).value || 'chat';
+      const err = $('#shErr', ovl);
+      if (!to.length && !mail) {
+        err.hidden = false; err.textContent = 'Διάλεξε συνάδελφο ή γράψε διεύθυνση email.'; return;
+      }
+      if (via === 'chat' && !to.length) {
+        err.hidden = false; err.textContent = 'Το chat πάει μόνο σε συναδέλφους — διάλεξε τουλάχιστον έναν.'; return;
+      }
+      const btn = $('#shGo', ovl); btn.disabled = true; btn.textContent = '…';
+      const r = await api('task_share', {task: id, to, email: mail, via, note: $('#shNote', ovl).value.trim()})
+        .catch(e => ({err: e && e.message}));
+      if (r && r.err) {
+        err.hidden = false; err.textContent = r.err;
+        btn.disabled = false; btn.textContent = 'Αποστολή'; return;
+      }
+      ovl.remove();
+      toast('Στάλθηκε' + (r.chat ? ` · ${r.chat} chat` : '') + (r.mail ? ` · ${r.mail} email` : ''));
+    };
+    setTimeout(() => { const f = ovl.querySelector('.shTo'); if (f) { f.focus(); } }, 40);
+  };
 
   /* ── Παράδοση σκυτάλης ────────────────────────────────────────────────────
      Δεν είναι «αλλαγή αναδόχου». Είναι: κλείνω το δικό μου κομμάτι, γράφω τι
@@ -3098,13 +3208,30 @@ window.CNP = {S, api, esc, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, 
   let lastV = null;
   setInterval(async () => {
     try {
-      const d = await api('version');
+      const d = await api('version' + (window._cnpChatSeen ? '&chatSince=' + window._cnpChatSeen : ''));
       updateBell(d.unread);
+      /* Μήνυμα chat ενώ δουλεύεις αλλού: το καμπανάκι δεν αρκεί. Βγάζουμε
+         κάρτα με τον αποστολέα και το κείμενο, με ήχο και αναβοσβήνει ο τίτλος
+         της καρτέλας — ώστε να το δεις ακόμη κι αν κοιτάς άλλο παράθυρο.
+         Όταν ΕΙΣΑΙ στο chat δεν χρειάζεται: το βλέπεις ήδη. */
+      if (Array.isArray(d.chatNew) && d.chatNew.length) {
+        d.chatNew.forEach(m => { if (m.id > (window._cnpChatSeen || 0)) { window._cnpChatSeen = m.id; } });
+        if (S.view !== 'chat') { d.chatNew.forEach(chatPop); }
+      }
       // Νεότερη έκδοση deployed → ανανέωση (ήπια, όταν δεν ενοχλεί).
       if (d.build && window.CNP_BUILD && d.build !== window.CNP_BUILD) { cnpNewBuild = true; }
       if (cnpNewBuild) { cnpMaybeReload(); }
       // 🆘 δυνατές εκκλήσεις βοήθειας — «κάνουν μπαμ» ό,τι κι αν κάνει ο χρήστης
       if (Array.isArray(d.alerts) && window.CNP.showHelpAlert) { d.alerts.forEach(a => window.CNP.showHelpAlert(a)); }
+      /* 💬 μετρητής στην πάνω μπάρα: το chat είναι θαμμένο στο πλάι μέσα σε
+         ενότητα που μπορεί να είναι κλειστή — εκεί δεν το βλέπεις ποτέ. */
+      { const cb = $('#chatN');
+        if (cb) {
+          cb.style.display = d.chatUnread > 0 ? '' : 'none';
+          cb.textContent = d.chatUnread > 99 ? '99+' : d.chatUnread;
+          const btn = $('#chatBtn');
+          if (btn) { btn.classList.toggle('has-new', d.chatUnread > 0); }
+        } }
       // 💬 badge στο Chat nav item
       const chatItem = document.querySelector('.sitem[data-nav="chat"]');
       if (chatItem) {
