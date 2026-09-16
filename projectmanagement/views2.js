@@ -1248,7 +1248,7 @@ R.clientlist = async function () {
           <span class="pill pill-info">${cl.services} υπηρ.</span>
           <span class="pill pill-mut">${cl.projects} έργα</span>
           ${cl.tickets ? `<span class="pill pill-warn">${cl.tickets} tickets</span>` : ''}
-          ${cl.owed > 0 ? `<span class="pill pill-bad">οφειλή ${fmtEur(cl.owed)}</span>` : ''}</div>
+          ${cl.owedFlag ? `<span class="pill pill-bad" title="${cl.owed === null ? 'Το ποσό το βλέπει μόνο το λογιστήριο' : ''}">οφειλή${cl.owed === null ? '' : ' ' + fmtEur(cl.owed)}</span>` : ''}</div>
         <div class="cl-c-acts">
           <a class="btn btn-o btn-sm" href="#/client360/${cl.id}">${I.user} 360°</a>${actBtn(cl.id)}</div>
       </div>`).join('')}</div>`;
@@ -1267,7 +1267,10 @@ R.clientlist = async function () {
           <td class="cl-num">${cl.services || '<span class="mut">—</span>'}</td>
           <td class="cl-num">${cl.projects || '<span class="mut">—</span>'}</td>
           <td class="cl-num">${cl.tickets ? `<span class="pill pill-warn">${cl.tickets}</span>` : '<span class="mut">—</span>'}</td>
-          <td class="cl-num">${cl.owed > 0 ? `<span class="pill pill-bad">${fmtEur(cl.owed)}</span>` : '<span class="mut">—</span>'}</td>
+          <td class="cl-num">${!cl.owedFlag ? '<span class="mut">—</span>'
+            : (cl.owed === null
+              ? `<span class="pill pill-bad" title="Υπάρχει ανοιχτό υπόλοιπο. Το ποσό το βλέπει μόνο όποιος έχει «Οικονομικά → Ανοιχτά υπόλοιπα».">${I.lock} οφειλή</span>`
+              : `<span class="pill pill-bad">${fmtEur(cl.owed)}</span>`)}</td>
           <td class="cl-num">${actBtn(cl.id)}</td></tr>`).join('')}
       </tbody></table></div></div>`;
   }
@@ -1797,7 +1800,7 @@ R.client360 = async function (cid) {
     const ini = (d.client.name || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
     // ── alerts: ό,τι ΠΡΕΠΕΙ να δει αμέσως ο χειριστής ──
     const alerts = [];
-    if (d.owed.flag) alerts.push(['bad', '💰', d.full ? `Ανοιχτό υπόλοιπο ${fmtEur(d.owed.amount)} · ${d.owed.count} τιμ.` : 'Έχει ανοιχτό υπόλοιπο — παρέπεμψε στο λογιστήριο']);
+    if (d.owed.flag) alerts.push(['bad', '💰', d.owed.canSee ? `Ανοιχτό υπόλοιπο ${fmtEur(d.owed.amount)} · ${d.owed.count} τιμ.` : 'Έχει ανοιχτό υπόλοιπο — παρέπεμψε στο λογιστήριο']);
     if (d.sla && d.sla.enabled && d.sla.priority === 'High') alerts.push(['warn', '⚡', 'Πελάτης προτεραιότητας — SLA Υψηλή']);
     if (d.sla && d.sla.enabled && d.sla.balance <= 0) alerts.push(['bad', '🪫', 'Εξαντλημένο υπόλοιπο ωρών υποστήριξης']);
     const expSoon = (d.services || []).filter(sv => sv.status === 'Active' && sv.due && ((new Date(sv.due) - Date.now()) / 86400000) < 15);
@@ -1898,8 +1901,8 @@ R.client360 = async function (cid) {
         </div></div>` : ''}
         <div class="card"><div class="card-h">${I.coin} Ανοιχτό υπόλοιπο</div><div class="card-b">
           <div class="set-row"><b>${d.owed.flag ? 'Έχει ανοιχτό υπόλοιπο' : 'Χωρίς οφειλές'}</b>
-            <span class="pill ${d.owed.flag ? 'pill-bad' : 'pill-ok'}">${d.owed.flag ? (d.full ? fmtEur(d.owed.amount) + ' · ' + d.owed.count + ' τιμ.' : 'ΝΑΙ') : '✓ ΟΧΙ'}</span></div>
-          ${!d.full && d.owed.flag ? '<div class="mut" style="font-size:11.5px">Ενημέρωσε τον πελάτη να απευθυνθεί στο λογιστήριο για λεπτομέρειες.</div>' : ''}
+            <span class="pill ${d.owed.flag ? 'pill-bad' : 'pill-ok'}">${d.owed.flag ? (d.owed.canSee ? fmtEur(d.owed.amount) + ' · ' + d.owed.count + ' τιμ.' : 'ΝΑΙ') : '✓ ΟΧΙ'}</span></div>
+          ${!d.owed.canSee && d.owed.flag ? '<div class="mut" style="font-size:11.5px">Ενημέρωσε τον πελάτη να απευθυνθεί στο λογιστήριο για λεπτομέρειες.</div>' : ''}
         </div></div>
         ${(d.client.phone || d.people.length) ? `<div class="card"><div class="card-h">${I.contact} Επικοινωνία</div><div class="card-b">
           ${d.client.phone ? `<div class="set-row"><b>Τηλέφωνο</b><a href="tel:${esc(d.client.phone)}">${esc(d.client.phone)}</a></div>` : ''}

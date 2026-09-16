@@ -583,7 +583,7 @@ R.triage = async function () {
       <div class="set-row" data-cgo="${cH.client}" style="cursor:pointer">
         <b style="font-size:15px;width:36px;text-align:center;color:${cH.score < 50 ? 'var(--bad)' : cH.score < 75 ? 'var(--warn)' : 'var(--ok)'}">${cH.score}</b>
         <div style="flex:1;min-width:0"><b style="font-size:12.5px">${esc(cH.name)}</b>
-          <div class="mut" style="font-size:10.5px">${cH.tickets90} tickets/90ημ${cH.open ? ` · ${cH.open} ανοιχτά` : ''}${cH.slaBreaches ? ` · ${cH.slaBreaches} SLA σπασμένα` : ''}${cH.owed ? ` · οφείλει ${cH.owed}€` : ''}</div></div>
+          <div class="mut" style="font-size:10.5px">${cH.tickets90} tickets/90ημ${cH.open ? ` · ${cH.open} ανοιχτά` : ''}${cH.slaBreaches ? ` · ${cH.slaBreaches} SLA σπασμένα` : ''}${cH.owed !== null && cH.owed ? ` · οφείλει ${cH.owed}€` : (cH.owedFlag ? ' · έχει οφειλή' : '')}</div></div>
         <span class="mut">→</span></div>`).join('') : '<div class="empty" style="padding:16px">—</div>';
     $$('#trHealth [data-cgo]').forEach(x => x.onclick = () => { window.CNP.go('client360'); });
   }).catch(() => {});

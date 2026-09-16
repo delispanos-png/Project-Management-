@@ -1893,6 +1893,18 @@ function cnp_busy_conflicts($adminId, $start, $startT, $due, $dueT, $exceptTask 
     return $hits;
 }
 
+/**
+ * Επιτρέπεται να δει ΠΟΣΑ χρωστάει ο πελάτης;
+ *
+ * Το «έχει ή δεν έχει οφειλή» το χρειάζεται ο χειριστής για να παραπέμψει στο
+ * λογιστήριο. Το ΠΟΣΟ είναι οικονομικό στοιχείο και δίνεται μόνο σε όποιον έχει
+ * ρητά «Οικονομικά → Ανοιχτά υπόλοιπα» (οι διαχειριστές το έχουν εξ ορισμού).
+ */
+function cnp_can_see_balances($adminId, $isFull)
+{
+    return cnp_has_cap($adminId, $isFull, 'finance.balances');
+}
+
 /** Η στήλη «αναμονής» — η πρώτη μη-τελική κατάσταση (Backlog). */
 function cnp_backlog_status_id()
 {
@@ -6749,9 +6761,12 @@ case 'client360':
         })(),
         'services' => $svcs,
         'sla' => $slaInfo,
+        /* Ήταν δεμένο στο $FULL, που έκανε τη δυνατότητα «Ανοιχτά υπόλοιπα»
+           αδύνατο να δοθεί σε κάποιον που δεν είναι διαχειριστής. */
         'owed' => ['flag' => $owedCnt > 0,
-            'amount' => $FULL ? round($owedAmt, 2) : null,
-            'count' => $FULL ? $owedCnt : null],
+            'canSee' => cnp_can_see_balances($adminId, $FULL),
+            'amount' => cnp_can_see_balances($adminId, $FULL) ? round($owedAmt, 2) : null,
+            'count' => cnp_can_see_balances($adminId, $FULL) ? $owedCnt : null],
         'people' => $people9,
         'full' => $FULL,
         'summary' => [
@@ -8582,7 +8597,9 @@ case 'client_health':                   // ❤️ υγεία πελατών — 
             - min(20, ($x['open'] ?? 0) * 5);            // ανοιχτές εκκρεμότητες τώρα
         $outH[] = ['client' => $cid9, 'name' => clientLabel($cid9), 'score' => max(0, (int) $score),
             'tickets90' => $x['tickets'] ?? 0, 'open' => $x['open'] ?? 0,
-            'slaBreaches' => $x['breach'] ?? 0, 'owed' => round($x['owed'] ?? 0, 2)];
+            'slaBreaches' => $x['breach'] ?? 0,
+            'owedFlag' => ($x['owed'] ?? 0) > 0,
+            'owed' => cnp_can_see_balances($adminId, $FULL) ? round($x['owed'] ?? 0, 2) : null];
     }
     usort($outH, function ($a, $b) { return $a['score'] <=> $b['score']; });
     out(['clients' => array_slice($outH, 0, 15)]);
@@ -13683,6 +13700,7 @@ case 'clients':                           // πλήρης λίστα πελατ�
     $ids = [];
     foreach ($rows as $r) { $ids[] = (int) $r->id; }
     /* Μετρήσεις σε παρτίδες — ένα query το καθένα για όλη τη σελίδα. */
+    $canBal9 = cnp_can_see_balances($adminId, $FULL);
     $svc = []; $tk = []; $pj = []; $owed = []; $afm = []; $doy = [];
     if ($ids) {
         foreach (Capsule::table('tblhosting')->whereIn('userid', $ids)->whereIn('domainstatus', ['Active', 'Suspended'])
@@ -13711,10 +13729,14 @@ case 'clients':                           // πλήρης λίστα πελατ�
             'afm' => html_entity_decode($afm[$cid] ?? '', ENT_QUOTES),
             'doy' => html_entity_decode($doy[$cid] ?? '', ENT_QUOTES),
             'services' => $svc[$cid] ?? 0, 'tickets' => $tk[$cid] ?? 0, 'projects' => $pj[$cid] ?? 0,
-            'owed' => round($owed[$cid]['a'] ?? 0, 2), 'owedCount' => $owed[$cid]['c'] ?? 0];
+            /* Η σημαία μένει (χρειάζεται για παραπομπή στο λογιστήριο), το ποσό όχι. */
+            'owedFlag' => ($owed[$cid]['c'] ?? 0) > 0,
+            'owed' => $canBal9 ? round($owed[$cid]['a'] ?? 0, 2) : null,
+            'owedCount' => $canBal9 ? ($owed[$cid]['c'] ?? 0) : null];
     }
     out(['clients' => $list, 'total' => $total, 'page' => $page, 'per' => $per,
         'pages' => max(1, (int) ceil($total / $per)), 'counts' => $counts,
+        'canBalances' => $canBal9,
         'canEdit' => cnp_has_cap($adminId, $FULL, 'clients.card.edit'),
         'canNew' => cnp_has_cap($adminId, $FULL, 'clients.new')]);
 
