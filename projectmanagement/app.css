@@ -2996,3 +2996,112 @@ html[data-theme="dark"] .pbx-alert{background:#3a2c14;color:#f1e3c8}
 .toast.toast-do button{border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);
   color:inherit;font:inherit;font-size:11.5px;font-weight:700;border-radius:7px;padding:3px 9px;cursor:pointer}
 .toast.toast-do button:hover{background:rgba(255,255,255,.24)}
+
+/* ═══ Η ΜΕΡΑ ΤΗΣ ΟΜΑΔΑΣ ════════════════════════════════════════════════════
+   Τρία στρώματα: τι επείγει (πλακίδια) · ποιος το κρατά (φόρτος) · τι ακριβώς
+   (λίστες με σταθερές στήλες, ώστε το μάτι να κατεβαίνει ίσια). */
+.td-tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.td-tile{display:flex;align-items:center;gap:11px;padding:13px 15px;border:1px solid var(--line);
+  border-radius:14px;background:var(--card);box-shadow:var(--sh);cursor:pointer;font:inherit;
+  color:var(--ink);text-align:left;transition:border-color .12s,transform .12s}
+.td-tile:hover{border-color:var(--tc);transform:translateY(-1px)}
+.td-ti{flex:none;width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  color:var(--tc);background:color-mix(in srgb,var(--tc) 13%,transparent)}
+.td-ti svg{width:17px;height:17px}
+.td-tn{font-size:23px;font-weight:800;line-height:1;letter-spacing:-.5px}
+.td-tl{font-size:11.5px;color:var(--mut);line-height:1.25;flex:1;min-width:0}
+.td-tile.zero{opacity:.62}
+.td-tile.zero .td-tn{color:var(--mut)}
+.td-tile.hot{border-color:#e2515f;background:linear-gradient(180deg,#e2515f0f,transparent)}
+.td-tile.hot .td-tn{color:#e2515f}
+
+/* ── Ποιος έχει τι ── */
+.td-people{margin-bottom:14px}
+.td-phint{font-weight:400;font-size:11px;margin-left:auto}
+.td-legend{display:flex;gap:11px;margin-left:14px;font-size:10.5px;color:var(--mut);font-weight:500}
+.td-legend span{display:inline-flex;align-items:center;gap:4px}
+.td-legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.td-plist{padding:4px 6px 8px}
+.td-p{display:grid;grid-template-columns:34px minmax(150px,1fr) minmax(90px,220px) 108px 84px;
+  align-items:center;gap:11px;padding:7px 10px;border-radius:11px;cursor:pointer}
+.td-p:hover{background:var(--hover)}
+.td-p.on{background:color-mix(in srgb,var(--brand) 10%,transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 32%,transparent)}
+.td-av{flex:none;width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;
+  font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.td-av.big{width:34px;height:34px;font-size:12px}
+.td-pmain{min-width:0;display:flex;flex-direction:column;gap:1px}
+.td-pmain b{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-pnums,.td-now{font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-now{color:var(--ok);font-weight:600}
+.td-load{height:9px;border-radius:5px;background:var(--line);overflow:hidden;position:relative}
+.td-bar{display:flex;height:100%;min-width:2px;border-radius:5px;overflow:hidden}
+.td-bar i{display:block;height:100%}
+.td-bar i.late{background:#e2515f}.td-bar i.plan{background:#0090dd}.td-bar i.span{background:#7b5cd6}
+.td-late{font-size:10.5px;font-weight:700;color:#e2515f;background:#e2515f14;border-radius:999px;
+  padding:2px 8px;text-align:center;white-space:nowrap}
+.td-late.empty{background:none}
+.td-spent{text-align:right;font-size:12.5px}
+.td-p.none{opacity:.7;cursor:default}
+.td-p.none:hover{background:none}
+.td-p.none .td-av{background:var(--mut)}
+
+/* ── Ομάδες εργασιών ── */
+.td-grp{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh);
+  margin-bottom:10px;overflow:hidden}
+.td-ghead{display:flex;align-items:center;gap:9px;width:100%;padding:11px 15px;border:none;
+  background:none;cursor:pointer;font:inherit;color:var(--ink);text-align:left;
+  border-left:3px solid var(--gc)}
+.td-ghead:hover{background:var(--hover)}
+.td-gchev{display:inline-flex;color:var(--mut);transition:transform .15s;transform:rotate(-90deg)}
+.td-grp.open .td-gchev{transform:none}
+.td-gic{display:inline-flex;color:var(--gc)}
+.td-gic svg{width:15px;height:15px}
+.td-ghead b{font-size:13.5px;font-weight:700}
+.td-gn{font-size:11px;font-weight:800;color:var(--gc);background:color-mix(in srgb,var(--gc) 13%,transparent);
+  border-radius:999px;padding:1px 9px;min-width:24px;text-align:center}
+.td-gn.zero{color:var(--mut);background:var(--line)}
+.td-gsub{font-weight:400;font-size:11.5px;margin-left:4px}
+.td-gbody{border-top:1px solid var(--line)}
+.td-empty{padding:14px 16px;font-size:12.5px;color:var(--mut)}
+
+/* Σταθερές στήλες: τίτλος · χρόνος · έργο · χειριστής · μπάλα · λήξη */
+.td-row{display:grid;grid-template-columns:9px minmax(0,1fr) 62px 150px 150px 130px 52px;
+  align-items:center;gap:10px;padding:8px 15px;cursor:pointer;border-top:1px solid var(--line)}
+.td-row:first-child{border-top:none}
+.td-row:hover{background:var(--hover)}
+.td-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.td-title{font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-title.done{text-decoration:line-through;opacity:.5}
+.td-time{text-align:right}
+.td-t{font-size:10.5px;font-weight:700;color:var(--mut);background:var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap}
+.td-t.run{color:#fff;background:var(--ok)}
+.td-proj{display:flex;gap:4px;min-width:0}
+.td-tag{font-size:10.5px;font-weight:600;color:var(--txt);background:var(--canvas);border:1px solid var(--line);
+  border-radius:6px;padding:2px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.td-tag.rnd{color:#7b5cd6;border-color:#7b5cd644;background:#7b5cd612;flex:none}
+.td-who{display:flex;align-items:center;gap:6px;min-width:0}
+.td-wn{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-wait{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:650;color:#a9750c;
+  background:#e0a02018;border:1px solid #e0a02038;border-radius:999px;padding:2px 8px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.td-wait svg{width:11px;height:11px;flex:none}
+.td-due{font-size:11px;color:var(--mut);text-align:right;white-space:nowrap}
+.td-due.late{color:#e2515f;font-weight:700}
+
+@media (max-width:1250px){
+  .td-tiles{grid-template-columns:repeat(3,1fr)}
+  .td-row{grid-template-columns:9px minmax(0,1fr) 56px 120px 120px 0 48px}
+  .td-ball{display:none}
+}
+@media (max-width:860px){
+  .td-tiles{grid-template-columns:repeat(2,1fr)}
+  .td-tl{font-size:11px}
+  .td-p{grid-template-columns:30px minmax(120px,1fr) 70px;row-gap:4px}
+  .td-late,.td-spent{display:none}
+  .td-row{grid-template-columns:9px minmax(0,1fr) 52px;row-gap:3px}
+  .td-proj,.td-who,.td-due{display:none}
+  .td-gsub{display:none}
+  /* Η κεφαλίδα δεν χωράει υπόμνημα + οδηγία σε 390px — γίνονταν τρεις σειρές. */
+  .td-phint,.td-legend{display:none}
+}

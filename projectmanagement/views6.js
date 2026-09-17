@@ -936,73 +936,129 @@ window.openCx = openCx;
 R.teamday = async function () {
   setTop('Η μέρα της ομάδας', 'Τι είναι στο τραπέζι σήμερα — και τι κουβαλιέται από πριν');
   const c = $('#content');
-  const st = R.teamday._s = R.teamday._s || {closed: {}, who: 0};
+  /* Ανοιχτά by default μόνο όσα ζητούν ενέργεια. Τα «άνοιξαν σήμερα» και τα
+     «περνάνε από το σήμερα» είναι συμφραζόμενα — ο αριθμός τους φαίνεται στην
+     κεφαλίδα και ανοίγουν με ένα κλικ. Αλλιώς η σελίδα γίνεται τοίχος. */
+  const st = R.teamday._s = R.teamday._s || {closed: {spanning: 1, opened: 1}, who: 0};
   c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
   const d = await api('teamday').catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
 
   const BUCKETS = [
-    ['running',  I.clock, 'Δουλεύονται τώρα', 'ανοιχτό χρονόμετρο αυτή τη στιγμή', '#16a26a'],
-    ['planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'deadline ή λήξη σήμερα',            '#0090dd'],
-    ['spanning', I.gantt || I.chart, 'Περνάνε από το σήμερα', 'ξεκίνησαν πριν, λήγουν μετά',   '#7b5cd6'],
-    ['opened',   I.plus,  'Άνοιξαν σήμερα',        'γεννήθηκαν μέσα στη μέρα',                 '#16a26a'],
-    ['carried',  I.alert, 'Πέρασε το deadline',    'έπρεπε να έχουν τελειώσει, είναι ακόμη ανοιχτά', '#e0552b'],
+    ['running',  I.play,        'Δουλεύονται τώρα',   'ανοιχτό χρονόμετρο',              '#16a26a'],
+    /* ΠΡΟΣΟΧΗ στην ετικέτα: ο server χτίζει αυτόν τον κουβά από schedule_date
+       παλιότερης μέρας — «ήταν στο πλάνο και δεν έγινε». ΔΕΝ είναι «πέρασε το
+       deadline» (αυτό φαίνεται στη στήλη ημερομηνίας, με κόκκινο). */
+    ['carried',  I.alert,       'Κουβαλιούνται από πριν', 'ήταν σε πλάνο παλιότερης μέρας και μένουν ανοιχτά', '#e2515f'],
+    ['planned',  I.checkSquare, 'Για σήμερα',         'deadline ή λήξη σήμερα',          '#0090dd'],
+    ['spanning', I.gantt || I.chart, 'Περνάνε από σήμερα', 'ξεκίνησαν πριν, λήγουν μετά', '#7b5cd6'],
+    ['opened',   I.plus,        'Άνοιξαν σήμερα',     'γεννήθηκαν μέσα στη μέρα',        '#8595ac'],
   ];
+  const KEY = Object.fromEntries(BUCKETS.map(b => [b[0], b]));
 
   const hit = t => !st.who || t.whoId === st.who;
-  const line = t => `<div class="kb-item kb-trow" data-tgo="${t.id}" style="cursor:pointer">
-    <span class="kb-dot" style="background:${t.color}"></span>
-    <b style="${t.done ? 'text-decoration:line-through;opacity:.55' : ''}">${esc(t.title)}</b>
-    <span class="kb-sum-meta">
-      ${t.running !== null ? `<span class="pill pill-warn" title="Τρέχει χρονόμετρο τώρα">▶ ${hm(t.running)}</span>` : ''}
-      ${t.spent ? `<span class="pill pill-mut" title="Χρόνος που καταγράφηκε σήμερα">${hm(t.spent)} σήμερα</span>` : ''}
-      ${t.project ? `<span class="kb-tag">${esc(t.project)}</span>` : ''}
-      ${t.internal ? '<span class="kb-tag kb-tag-mut">R&D</span>' : ''}
-      <span class="mut">${t.who ? esc(t.who) : 'χωρίς ανάθεση'}</span>
-      ${t.ball && t.ball !== t.whoId ? `<span class="pill pill-warn" title="Η εργασία είναι ανατεθειμένη αλλού αλλά περιμένει ενέργεια από αυτόν">${I.zap} περιμένει ${esc(t.ballName)}</span>` : ''}
-      ${t.due ? `<span class="${t.due < d.date ? 'pill pill-bad' : 'mut'}" style="font-size:11px">${dShort(t.due)}</span>` : ''}
-    </span></div>`;
+  const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
 
-  const group = ([k, ic, title, sub, col]) => {
-    const list = (d[k] || []).filter(hit);
-    const open = !st.closed[k] && list.length;
-    return `<div class="kb-group">
-      <div class="kb-ghead" data-tgrp="${k}" style="border-left:3px solid ${col}">
-        <span class="kb-gchev ${open ? 'open' : ''}">${I.chev}</span>
-        <b>${ic} ${title}</b>
-        <span class="pill ${list.length ? 'pill-mut' : 'pill-mut'}" style="margin-left:6px">${list.length}</span>
-        <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:8px">${sub}</span>
-      </div>
-      <div class="kb-gbody" style="${open ? '' : 'display:none'}">
-        ${list.length ? list.map(line).join('') : '<div class="mut" style="font-size:12.5px;padding:8px 4px">—</div>'}
-      </div></div>`;
+  /* ── Γραμμή εργασίας: σταθερές στήλες, ώστε το μάτι να κατεβαίνει ίσια ──
+     Πριν ήταν στοιβαγμένα chips δεξιά, με διαφορετικό πλάτος σε κάθε γραμμή —
+     τίποτα δεν στοιχιζόταν και η σάρωση ήταν αδύνατη. */
+  const line = t => {
+    const late = t.due && t.due < d.date;
+    const timeChip = t.running !== null && t.running !== undefined && t.running !== false
+      ? `<span class="td-t run" title="Τρέχει τώρα">▶ ${hm(t.running)}</span>`
+      : (t.spent ? `<span class="td-t" title="Χρόνος σήμερα">${hm(t.spent)}</span>` : '');
+    return `<div class="td-row" data-tgo="${t.id}">
+      <span class="td-dot" style="background:${t.color || '#8595ac'}"></span>
+      <span class="td-title${t.done ? ' done' : ''}" title="${esc(t.title)}">${esc(t.title)}</span>
+      <span class="td-time">${timeChip}</span>
+      <span class="td-proj">${t.project ? `<span class="td-tag" title="${esc(t.project)}">${esc(t.project)}</span>` : ''}${t.internal ? '<span class="td-tag rnd">R&D</span>' : ''}</span>
+      <span class="td-who">${t.who
+        ? `<span class="td-av" title="${esc(t.who)}">${esc(ini(t.who))}</span><span class="td-wn">${esc(t.who)}</span>`
+        : '<span class="mut" style="font-size:11.5px">χωρίς ανάθεση</span>'}</span>
+      <span class="td-ball">${t.ball && t.ball !== t.whoId
+        ? `<span class="td-wait" title="Ανατεθειμένη αλλού, αλλά η μπάλα είναι σε αυτόν">${I.zap} ${esc(t.ballName)}</span>` : ''}</span>
+      <span class="td-due${late ? ' late' : ''}">${t.due ? esc(dShort(t.due)) : ''}</span>
+    </div>`;
   };
 
-  const tile = ([k, ic, title, , col]) => `<div class="su-stat" style="cursor:default">
-    <span class="pc-ic" style="color:${col}">${ic}</span>
-    <div><div class="n">${(d[k] || []).length}</div><div class="mut" style="font-size:11.5px">${title}</div></div></div>`;
+  const group = k => {
+    const [, ic, title, sub, col] = KEY[k];
+    const list = (d[k] || []).filter(hit);
+    const open = !st.closed[k] && list.length;
+    return `<section class="td-grp${open ? ' open' : ''}" style="--gc:${col}">
+      <button type="button" class="td-ghead" data-tgrp="${k}">
+        <span class="td-gchev">${I.chev}</span>
+        <span class="td-gic">${ic}</span>
+        <b>${title}</b>
+        <span class="td-gn${list.length ? '' : ' zero'}">${list.length}</span>
+        <span class="mut td-gsub">${sub}</span>
+      </button>
+      <div class="td-gbody"${open ? '' : ' hidden'}>
+        ${list.length ? list.map(line).join('')
+          : '<div class="td-empty">Τίποτα εδώ' + (st.who ? ' για τον επιλεγμένο χειριστή' : '') + '.</div>'}
+      </div></section>`;
+  };
 
-  const person = p => `<tr data-pwho="${p.id}" style="cursor:pointer${st.who === p.id ? ';background:var(--line)' : ''}">
-    <td><b>${esc(p.name)}</b>${p.now ? `<div class="mut" style="font-size:11px">▶ ${esc(p.now.title)} · ${hm(p.now.mins)}</div>` : ''}</td>
-    <td style="text-align:center">${p.planned || '—'}</td>
-    <td style="text-align:center">${p.spanning || '—'}</td>
-    <td style="text-align:center">${p.opened || '—'}</td>
-    <td style="text-align:center;${p.carried ? 'color:var(--bad);font-weight:700' : ''}">${p.carried || '—'}</td>
-    <td style="text-align:right">${p.spent ? hm(p.spent) : '—'}</td></tr>`;
+  /* ── Πλακίδια: ιεραρχία, όχι πέντε ίσα κουτιά. Το «πέρασε το deadline»
+     ξεχωρίζει γιατί είναι το μόνο που ζητάει ενέργεια σήμερα. Κλικ = πάει
+     στην ενότητα και την ανοίγει. ── */
+  const tile = k => {
+    const [, ic, title, , col] = KEY[k];
+    const n = (d[k] || []).length;
+    return `<button type="button" class="td-tile${n ? '' : ' zero'}${k === 'carried' && n ? ' hot' : ''}"
+      data-ttile="${k}" style="--tc:${col}">
+      <span class="td-ti">${ic}</span>
+      <span class="td-tn">${n}</span>
+      <span class="td-tl">${title}</span></button>`;
+  };
 
+  /* ── Ποιος έχει τι: μπάρα φόρτου αντί για πίνακα με παύλες ──
+     Έξι στήλες αριθμών με «—» παντού δεν απαντούν «ποιος είναι φορτωμένος».
+     Μια στοιβαγμένη μπάρα το απαντά με μια ματιά· οι αριθμοί μένουν από κάτω. */
+  const maxLoad = Math.max(1, ...d.people.map(p => (p.planned || 0) + (p.spanning || 0) + (p.carried || 0)));
+  const person = p => {
+    const load = (p.planned || 0) + (p.spanning || 0) + (p.carried || 0);
+    const seg = (v, cls) => v ? `<i class="${cls}" style="flex:${v}"></i>` : '';
+    return `<div class="td-p${p.id ? '' : ' none'}${st.who && st.who === p.id ? ' on' : ''}"${p.id ? ` data-pwho="${p.id}"` : ''}>
+      <span class="td-av big">${esc(ini(p.name))}</span>
+      <span class="td-pmain">
+        <b>${esc(p.name)}</b>
+        ${p.now ? `<span class="td-now">▶ ${esc(p.now.title)} · ${hm(p.now.mins)}</span>`
+          : `<span class="td-pnums">${load ? `${load} ${load === 1 ? 'εργασία' : 'εργασίες'}` : 'καμία εργασία σήμερα'}${p.opened ? ` · ${p.opened} νέα` : ''}</span>`}
+      </span>
+      <span class="td-load" title="Για σήμερα ${p.planned || 0} · Περνάνε από σήμερα ${p.spanning || 0} · Κουβαλιούνται από πριν ${p.carried || 0}">
+        <span class="td-bar" style="width:${Math.round(load / maxLoad * 100)}%">
+          ${seg(p.carried, 'late')}${seg(p.planned, 'plan')}${seg(p.spanning, 'span')}
+        </span></span>
+      ${p.carried ? `<span class="td-late" title="Ήταν σε πλάνο παλιότερης μέρας">${p.carried} από πριν</span>` : '<span class="td-late empty"></span>'}
+      <span class="td-spent">${p.spent ? `<b>${hm(p.spent)}</b>` : '<span class="mut">—</span>'}</span>
+    </div>`;
+  };
+
+  const ORDER = ['running', 'carried', 'planned', 'spanning', 'opened'];
   c.innerHTML = `
   ${d.truncated ? `<div class="card" style="margin-bottom:12px;border-color:var(--warn)"><div class="card-b" style="padding:10px 14px;font-size:12.5px;color:var(--warn)">${I.alert} Η αναφορά έφτασε στο όριο εγγραφών — δείχνονται τα πιο πρόσφατα. Τα σύνολα δεν είναι πλήρη.</div></div>` : ''}
-  <div class="g4 grid" style="margin-bottom:14px">${BUCKETS.map(tile).join('')}</div>
-  <div class="card" style="margin-bottom:14px"><div class="card-h">${I.users || I.user} Ποιος έχει τι
-    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${st.who ? 'φίλτρο ενεργό — κλικ στη γραμμή για καθάρισμα' : 'κλικ σε άτομο για φιλτράρισμα'}</span></div>
-    <div class="card-b" style="padding:0"><table class="tbl"><thead><tr>
-      <th>Χειριστής</th><th style="text-align:center">Σήμερα</th><th style="text-align:center">Διαρκεί</th>
-      <th style="text-align:center">Νέα</th><th style="text-align:center" title="Πέρασε το deadline">Εκπρόθεσμα</th><th style="text-align:right">Χρόνος σήμερα</th>
-    </tr></thead><tbody>${d.people.map(person).join('') || '<tr><td colspan="6" class="mut">—</td></tr>'}</tbody></table></div></div>
-  ${BUCKETS.map(group).join('')}`;
+  <div class="td-tiles">${ORDER.map(tile).join('')}</div>
+  <div class="card td-people"><div class="card-h">${I.users || I.user} Ποιος έχει τι
+    <span class="mut td-phint">${st.who ? 'φίλτρο ενεργό — κλικ ξανά για καθάρισμα' : 'κλικ σε άτομο για φιλτράρισμα'}</span>
+    <span class="td-legend">
+      <span><i style="background:#e2515f"></i>από πριν</span>
+      <span><i style="background:#0090dd"></i>για σήμερα</span>
+      <span><i style="background:#7b5cd6"></i>περνάνε</span></span></div>
+    <div class="card-b td-plist">${d.people.map(person).join('') || '<div class="mut">—</div>'}</div></div>
+  ${ORDER.map(group).join('')}`;
 
-  $$('.kb-ghead[data-tgrp]').forEach(h => h.onclick = () => {
+  $$('[data-tgrp]').forEach(h => h.onclick = () => {
     const k = h.dataset.tgrp; st.closed[k] = !st.closed[k]; R.teamday();
+  });
+  $$('[data-ttile]').forEach(b => b.onclick = () => {
+    const k = b.dataset.ttile;
+    st.closed[k] = false;
+    R.teamday();
+    setTimeout(() => {
+      const el = document.querySelector(`[data-tgrp="${k}"]`);
+      if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+    }, 60);
   });
   $$('[data-tgo]').forEach(r => r.onclick = () => openTask(+r.dataset.tgo));
   $$('[data-pwho]').forEach(r => r.onclick = () => {
