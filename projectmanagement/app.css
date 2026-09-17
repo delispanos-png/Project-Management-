@@ -255,6 +255,18 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
   background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--txt)}
 @media (max-width:768px){.ln-a,.ln-b{display:none}.ln-sum{gap:11px;font-size:12px}}
 
+/* Αποθήκευση χωρίς αλλαγές: γκρίζο, ώστε να φαίνεται ότι δεν υπάρχει κάτι
+   να σωθεί. Παραμένει πατήσιμο — δεν κρίνουμε εμείς αν θέλει να το ξανασώσει. */
+.btn.is-clean{background:var(--canvas);color:var(--mut);border-color:var(--line)}
+.btn.is-clean:hover{color:var(--txt);border-color:var(--mut)}
+
+/* Κανάλι προέλευσης αιτήματος */
+.tk-src{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px;font-size:12px}
+.src-chip{border:1px solid var(--line);background:var(--card);color:var(--txt);border-radius:20px;
+  padding:4px 11px;font-size:11.5px;cursor:pointer;font-family:inherit}
+.src-chip:hover{border-color:var(--brand)}
+.src-chip.on{border-color:var(--brand);background:rgba(0,144,221,.09);color:var(--brand);font-weight:700}
+
 /* Το κουμπί chat «χτυπάει» όσο υπάρχει αδιάβαστο — διακριτικά, όχι ενοχλητικά */
 #chatBtn.has-new{border-color:var(--brand);color:var(--brand)}
 #chatBtn.has-new{animation:chatPulse 2s ease-in-out infinite}

@@ -1616,6 +1616,7 @@ async function openTask(id) {
       </div>
       <div class="tk-sub">
         ${supId ? `<span class="tk-sup" title="Άνοιξε την εργασία και έχει την ευθύνη να την παρακολουθεί — ορίζεται αυτόματα από τον χρήστη">${I.eye} Επιβλέπων: <b>${esc(adminName(supId))}</b></span>` : ''}
+        ${t.createdAt ? `<span class="tk-sup" title="Πότε άνοιξε η εργασία">${I.cal} Άνοιξε: <b>${dShort(t.createdAt)}</b></span>` : ''}
         ${t.ball ? `<span class="tk-sup tk-ball${t.ball === me.id ? ' me' : ''}" title="Η εργασία περιμένει ενέργεια από αυτόν — όσο την κρατά, της εμφανίζεται στη «Μέρα μου» του">${I.zap} Μπάλα: <b>${t.ball === me.id ? 'εσύ' : esc(adminName(t.ball))}</b></span>` : ''}
         ${(d.path && d.path.length) ? `<span class="tk-crumb" title="Διαδρομή φακέλων">${
           d.path.map(p => `<a href="#/board/${p.id}" data-navclose>${esc(p.name)}</a>`).join('<span class="tk-crumb-sep">›</span>')
@@ -1735,10 +1736,19 @@ async function openTask(id) {
         <div><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
           <div class="dt2"><input type="date" class="inp" id="fDue" value="${t.due || ''}">
             <input type="time" class="inp" id="fDueT" value="${t.dueT || ''}" title="Προαιρετικό — κενό = όλη η μέρα"></div></div>
-        <div><label class="lbl">Πλάνο (πότε θα το δουλέψω)</label><input type="date" class="inp" id="fSched" value="${t.sched || ''}"></div>
+        <div><label class="lbl">${I.flag || ''} Deadline <span class="mut" style="font-weight:400">— δεν μετατίθεται άλλο</span></label>
+          <input type="date" class="inp" id="fSched" value="${t.sched || ''}">
+          <div class="mut" style="font-size:11px;margin-top:3px">Έναρξη/Λήξη = πότε θα δουλευτεί. Deadline = πότε ΠΡΕΠΕΙ να έχει τελειώσει.</div></div>
       </div>
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
         <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>
+      <div class="tk-src" title="Από ποιο κανάλι μας ήρθε το αίτημα">
+        <span class="mut">Ήρθε από:</span>
+        ${[['phone', '📞 Τηλεφωνική'], ['email', '✉ Email']].map(([k, lb]) =>
+          `<button type="button" class="src-chip${t.source === k ? ' on' : ''}" data-src="${k}">${lb}</button>`).join('')}
+        ${t.ticket ? `<span class="src-chip on" style="cursor:default" title="Δεμένη σε ticket">${I.ticket} Ticket</span>` : ''}
+        <input type="hidden" id="fSource" value="${esc(t.source || '')}">
+      </div>
       ${t.ticket
         ? `<label class="tk-tkref linked" title="Η εργασία είναι δεμένη σε ticket του WHMCS — ο αριθμός έρχεται από εκεί και δεν αλλάζει χειροκίνητα">
             ${I.ticket} <b>Ticket</b>
@@ -1755,7 +1765,7 @@ async function openTask(id) {
         <span class="mut">ώρες</span>
         <span class="mut" id="fEstHint" style="margin-left:auto">${t.est ? '= ' + fmtMin(t.est) : ''}</span></label>
       <div class="tk-actions">
-        <button class="btn btn-p" id="dSave">Αποθήκευση</button>
+        <button class="btn btn-p" id="dSave" data-save>Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${t.done ? '' : `<button class="btn btn-o" id="dHand" title="Τελείωσε το δικό σου κομμάτι — δώσε τη σκυτάλη στον επόμενο">${I.zap} Παράδοση</button>`}
         ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
@@ -1922,6 +1932,7 @@ async function openTask(id) {
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
       ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
+      source: $('#fSource', dr) ? $('#fSource', dr).value : undefined,
       est: estMins(($('#fEst', dr) || {}).value),
       ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined}, over || {});
 
@@ -1957,6 +1968,8 @@ async function openTask(id) {
     if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
+  /* Ανοίγει «καθαρό»: μέχρι να αλλάξει κάτι, το κουμπί είναι γκρίζο. */
+  _cnpPaintSave(dr);
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
      ώστε ο συντάκτης να σώζει το κείμενο χωρίς να κλείνει το παράθυρο. */
   { const bsv = $('#dBriefSave', dr); if (bsv) bsv.onclick = async () => {
@@ -2027,6 +2040,15 @@ async function openTask(id) {
                      : 'Δεν θα ειδοποιείσαι πια για αυτή την εργασία'); openTask(id);
   };
   const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
+  /* Ένα αίτημα έρχεται από ΕΝΑ κανάλι — τα chips είναι αμοιβαία αποκλειόμενα,
+     και ξανακλικ το καθαρίζει (μπορεί να μπήκε κατά λάθος). */
+  $$('[data-src]', dr).forEach(b => b.onclick = () => {
+    const cur = $('#fSource', dr).value;
+    const nv = cur === b.dataset.src ? '' : b.dataset.src;
+    $('#fSource', dr).value = nv;
+    $$('[data-src]', dr).forEach(x => x.classList.toggle('on', x.dataset.src === nv));
+    markDirty();
+  });
   const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
 
   /* ── Στείλε την εργασία ───────────────────────────────────────────────────
@@ -2348,10 +2370,29 @@ function closeDrawer() {
 // 1) Σήμανση «βρόμικου» popup σε κάθε πληκτρολόγηση/αλλαγή μέσα του
 function _cnpMarkDirty(e) {
   const box = e.target.closest && e.target.closest('.drawer, .pal-box');
-  if (box && !box.dataset.cnpClean) { box.dataset.dirty = '1'; }
+  if (box && !box.dataset.cnpClean) { box.dataset.dirty = '1'; _cnpPaintSave(box); }
 }
 document.addEventListener('input', _cnpMarkDirty, true);
 document.addEventListener('change', _cnpMarkDirty, true);
+
+/* Το κουμπί αποθήκευσης δείχνει αν υπάρχει κάτι να αποθηκευτεί. Ένα πάντα-μπλε
+   «Αποθήκευση» δεν λέει τίποτα· γκρίζο σημαίνει «δεν άλλαξες κάτι». Δεν το
+   κάνουμε disabled — ο χειριστής μπορεί να θέλει να σώσει έτσι κι αλλιώς. */
+function _cnpPaintSave(box) {
+  const b = _cnpSaveBtn(box);
+  if (!b) { return; }
+  const dirty = box.dataset.dirty === '1';
+  b.classList.toggle('btn-p', dirty);
+  b.classList.toggle('btn-o', !dirty);
+  b.classList.toggle('is-clean', !dirty);
+}
+/** Σημάδεψε χειροκίνητα (για κουμπιά/chips που δεν είναι input). */
+function markDirty(el) {
+  const box = (el || document.querySelector('.drawer.show, .pal-box'));
+  const b2 = box && box.closest ? box.closest('.drawer, .pal-box') : box;
+  if (b2) { b2.dataset.dirty = '1'; _cnpPaintSave(b2); }
+}
+window.CNP_markDirty = markDirty;
 
 /** Το κουμπί αποθήκευσης ενός popup (για την επιλογή «Αποθήκευση» στην ερώτηση). */
 function _cnpSaveBtn(box) {

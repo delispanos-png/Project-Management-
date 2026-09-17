@@ -1568,6 +1568,9 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
         'prio' => (int) $t->priority, 'assignee' => $t->assignee ? (int) $t->assignee : null,
         'ball' => $t->action_user ? (int) $t->action_user : null,
         'due' => $t->due_date, 'sched' => $t->schedule_date, 'start' => $t->start_date ?? null,
+        /* Από ποιο κανάλι μας ήρθε το αίτημα — και πότε άνοιξε. */
+        'source' => isset($t->source) ? (string) $t->source : '',
+        'createdAt' => $t->created_at ?? null,
         'startT' => isset($t->start_time) && $t->start_time ? substr($t->start_time, 0, 5) : null,
         'dueT' => isset($t->due_time) && $t->due_time ? substr($t->due_time, 0, 5) : null,
         'type' => $t->type_id ? (int) $t->type_id : null,
@@ -4815,6 +4818,10 @@ case 'save_task':
        καιρό και ο server το πετούσε σιωπηλά. Γι' αυτό μόνο 2 από 49 εργασίες
        είχαν ημερομηνία έναρξης — δεν ήταν ότι δεν τη συμπλήρωναν, ήταν ότι
        δεν μπορούσε να αποθηκευτεί. */
+    if (array_key_exists('source', $in)) {
+        $src = (string) $in['source'];
+        $data['source'] = in_array($src, ['phone', 'email'], true) ? $src : null;
+    }
     foreach (['start_time' => 'startT', 'due_time' => 'dueT'] as $col => $k) {
         if (array_key_exists($k, $in)) {
             $data[$col] = preg_match('/^\d{2}:\d{2}$/', (string) $in[$k]) ? $in[$k] . ':00' : null;

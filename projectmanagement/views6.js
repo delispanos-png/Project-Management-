@@ -939,10 +939,10 @@ R.teamday = async function () {
 
   const BUCKETS = [
     ['running',  I.clock, 'Δουλεύονται τώρα', 'ανοιχτό χρονόμετρο αυτή τη στιγμή', '#16a26a'],
-    ['planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'πλάνο ή προθεσμία σήμερα',            '#0090dd'],
+    ['planned',  I.checkSquare, 'Ορίστηκαν για σήμερα', 'deadline ή λήξη σήμερα',            '#0090dd'],
     ['spanning', I.gantt || I.chart, 'Περνάνε από το σήμερα', 'ξεκίνησαν πριν, λήγουν μετά',   '#7b5cd6'],
     ['opened',   I.plus,  'Άνοιξαν σήμερα',        'γεννήθηκαν μέσα στη μέρα',                 '#16a26a'],
-    ['carried',  I.alert, 'Μεταφορά από πριν',     'πλάνο παλιότερης μέρας, ακόμη ανοιχτά',    '#e0552b'],
+    ['carried',  I.alert, 'Πέρασε το deadline',    'έπρεπε να έχουν τελειώσει, είναι ακόμη ανοιχτά', '#e0552b'],
   ];
 
   const hit = t => !st.who || t.whoId === st.who;
@@ -993,7 +993,7 @@ R.teamday = async function () {
     <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${st.who ? 'φίλτρο ενεργό — κλικ στη γραμμή για καθάρισμα' : 'κλικ σε άτομο για φιλτράρισμα'}</span></div>
     <div class="card-b" style="padding:0"><table class="tbl"><thead><tr>
       <th>Χειριστής</th><th style="text-align:center">Σήμερα</th><th style="text-align:center">Διαρκεί</th>
-      <th style="text-align:center">Νέα</th><th style="text-align:center">Μεταφορά</th><th style="text-align:right">Χρόνος σήμερα</th>
+      <th style="text-align:center">Νέα</th><th style="text-align:center" title="Πέρασε το deadline">Εκπρόθεσμα</th><th style="text-align:right">Χρόνος σήμερα</th>
     </tr></thead><tbody>${d.people.map(person).join('') || '<tr><td colspan="6" class="mut">—</td></tr>'}</tbody></table></div></div>
   ${BUCKETS.map(group).join('')}`;
 
@@ -1152,7 +1152,7 @@ R.myteam = async function () {
      πότε ΞΕΚΙΝΗΣΕ πραγματικά και πότε τελειώνει. */
   const TAGS = {
     now:      ['δουλεύεται τώρα', '#16a26a'],
-    carried:  ['μεταφορά',  '#e0552b'],
+    carried:  ['πέρασε deadline', '#e0552b'],
     today:    ['σήμερα',    '#0090dd'],
     spanning: ['διαρκεί',   '#7b5cd6'],
     new:      ['νέα',       '#16a26a'],
@@ -1216,7 +1216,7 @@ R.myteam = async function () {
   </div>`;
 
   const counts = [['planned', 'σήμερα', '#0090dd'], ['spanning', 'διαρκούν', '#7b5cd6'],
-    ['opened', 'νέα', '#16a26a'], ['carried', 'μεταφορά', '#e0552b']];
+    ['opened', 'νέα', '#16a26a'], ['carried', 'πέρασε deadline', '#e0552b']];
 
   const body = st.tab === 'day'
     ? `<div class="ln-sum">${counts.map(([k, lb, col]) =>
