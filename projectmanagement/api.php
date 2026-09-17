@@ -2680,7 +2680,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio', ['portfolio', 'project_modules']);
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
-        $add('projects.board', ['board', 'list', 'gantt', 'ptodos']);
+        $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler']);
         $add('projects.board.edit', ['gantt_move', 'quick_task', 'dep_add', 'dep_del',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
@@ -10303,6 +10303,84 @@ case 'gantt':
     } catch (\Throwable $e) {
     }
     out(['from' => $from, 'to' => $to, 'projects' => $projects, 'tasks' => $tasks, 'load' => $load, 'leaves' => $leaves]);
+
+case 'scheduler':                        // Πρόγραμμα ανά άνθρωπο — λωρίδες στον χρόνο
+    $fromS = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-d', strtotime('monday this week'));
+    $daysS = min(60, max(7, (int) ($_GET['days'] ?? 21)));
+    $toS = date('Y-m-d', strtotime($fromS . ' +' . ($daysS - 1) . ' days'));
+    $teamS = (int) ($_GET['team'] ?? 0);
+    $doneS = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+
+    /* Ποιοι μπαίνουν στις λωρίδες: μια ομάδα, ή όλοι. Οι λωρίδες είναι ΑΝΘΡΩΠΟΙ
+       — αυτό είναι όλο το νόημα: βλέπεις το πιάτο του καθενός δίπλα-δίπλα. */
+    $people = [];
+    if ($teamS) {
+        foreach (Capsule::table('mod_cpm_team_members')->where('team_id', $teamS)->pluck('admin_id') as $a) {
+            $people[(int) $a] = true;
+        }
+    } else {
+        foreach (Db::admins() as $a) {
+            if (!cnp_is_bot(Db::adminName($a->id), $a->username ?? '')) { $people[(int) $a->id] = true; }
+        }
+    }
+    $ids = array_keys($people);
+    if (!$ids) { $ids = [0]; }
+
+    $rowsS = Capsule::table('mod_cpm_tasks as t')
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('mod_cpm_statuses as st', 'st.id', '=', 't.status_id')
+        ->whereIn('t.assignee', $ids)
+        ->whereNotIn('t.status_id', $doneS)
+        ->whereNotNull('t.start_date')->whereNotNull('t.due_date')
+        ->where('t.start_date', '<=', $toS)->where('t.due_date', '>=', $fromS)
+        ->orderBy('t.start_date')
+        ->get(['t.id', 't.title', 't.assignee', 't.start_date', 't.start_time', 't.due_date', 't.due_time',
+            't.schedule_date', 't.priority', 't.estimate_minutes',
+            'p.name as pname', 'p.color as pcolor', 'st.title as sname']);
+
+    $byPerson = [];
+    foreach ($rowsS as $t) {
+        $byPerson[(int) $t->assignee][] = [
+            'id' => (int) $t->id, 'title' => $t->title,
+            'start' => $t->start_date, 'end' => $t->due_date,
+            'startT' => $t->start_time ? substr($t->start_time, 0, 5) : null,
+            'endT' => $t->due_time ? substr($t->due_time, 0, 5) : null,
+            'deadline' => $t->schedule_date,
+            'late' => $t->schedule_date && $t->schedule_date < date('Y-m-d'),
+            'prio' => (int) $t->priority, 'est' => (int) $t->estimate_minutes,
+            'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#0090dd',
+            'status' => $t->sname ?: ''];
+    }
+
+    $lanes = [];
+    foreach ($ids as $aid) {
+        if (!$aid) { continue; }
+        $lanes[] = ['id' => $aid, 'name' => Db::adminName($aid), 'ini' => initials(Db::adminName($aid)),
+            'tasks' => $byPerson[$aid] ?? []];
+    }
+    /* Πρώτα όποιος έχει δουλειά — οι άδειες λωρίδες κάτω, για να μη σπρώχνουν. */
+    usort($lanes, function ($a, $b) { return count($b['tasks']) <=> count($a['tasks']); });
+
+    /* Εργασίες ΧΩΡΙΣ διάστημα: δεν μπαίνουν σε λωρίδα γιατί δεν ξέρουμε πού —
+       αλλά πρέπει να φαίνονται, αλλιώς «χάνονται» από το πρόγραμμα. */
+    $unsched = [];
+    foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->whereIn('t.assignee', $ids)->whereNotIn('t.status_id', $doneS)
+        ->where(function ($w) { $w->whereNull('t.start_date')->orWhereNull('t.due_date'); })
+        ->orderBy('t.id', 'desc')->limit(60)
+        ->get(['t.id', 't.title', 't.assignee', 't.priority', 'p.name as pname', 'p.color as pcolor']) as $t) {
+        $unsched[] = ['id' => (int) $t->id, 'title' => $t->title, 'who' => (int) $t->assignee,
+            'whoName' => Db::adminName((int) $t->assignee),
+            'prio' => (int) $t->priority,
+            'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac'];
+    }
+
+    $teams = [];
+    foreach (Capsule::table('mod_cpm_teams')->orderBy('sort')->orderBy('id')->get(['id', 'name', 'color']) as $tm) {
+        $teams[] = ['id' => (int) $tm->id, 'name' => $tm->name, 'color' => $tm->color];
+    }
+    out(['from' => $fromS, 'to' => $toS, 'days' => $daysS, 'team' => $teamS,
+        'lanes' => $lanes, 'unscheduled' => $unsched, 'teams' => $teams]);
 
 case 'gantt_move':
     $t6 = Db::task((int) ($in['task'] ?? 0));

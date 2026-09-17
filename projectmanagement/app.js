@@ -214,6 +214,7 @@ function renderShell() {
       ['board', I.board, 'Board', 'projects.board'],
       ['list', I.list, 'Όλα τα tasks', 'projects.board'],
       ['gantt', I.gantt, 'Χρονοδιάγραμμα', 'projects.board'],
+      ['scheduler', I.cal, 'Πρόγραμμα ομάδας', 'projects.board'],
       ['templates', I.box, 'Modules', 'projects.modules'],
       ['units', I.tree, 'Departments', 'projects.depts'],
     ]],

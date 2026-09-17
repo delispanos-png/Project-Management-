@@ -255,6 +255,47 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
   background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--txt)}
 @media (max-width:768px){.ln-a,.ln-b{display:none}.ln-sum{gap:11px;font-size:12px}}
 
+/* ═══ Πρόγραμμα ομάδας — λωρίδα ανά άνθρωπο πάνω στον χρόνο ═══ */
+.sc-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+.sc-head{display:flex;position:sticky;top:0;z-index:3;background:var(--canvas);border-bottom:1px solid var(--line)}
+.sc-corner{flex:none;padding:8px 12px;font-size:11px;font-weight:800;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.4px;position:sticky;left:0;background:var(--canvas);z-index:4}
+.sc-day{flex:none;text-align:center;padding:5px 0;font-size:11px;color:var(--txt);border-left:1px solid var(--line)}
+.sc-day b{display:block;font-size:12.5px;color:var(--ink)}
+.sc-day small{color:var(--mut);font-size:9.5px}
+.sc-day.we{background:rgba(133,149,172,.07)}
+.sc-day.now{background:rgba(0,144,221,.12)}
+.sc-day.now b{color:var(--brand)}
+
+.sc-lane{display:flex;align-items:stretch;border-bottom:1px solid var(--line);min-height:46px}
+.sc-lane.drop{background:rgba(0,144,221,.08)}
+.sc-who{flex:none;display:flex;align-items:center;gap:8px;padding:6px 12px;position:sticky;left:0;
+  background:var(--card);z-index:2;border-right:1px solid var(--line)}
+.sc-nm{flex:1;min-width:0;font-size:12.5px;font-weight:650;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-track{position:relative;flex:none}
+.sc-cell{position:absolute;top:0;bottom:0;border-left:1px solid var(--line)}
+.sc-cell.we{background:rgba(133,149,172,.05)}
+.sc-cell.now{background:rgba(0,144,221,.08)}
+
+.sc-bar{position:absolute;top:7px;height:30px;border-radius:7px;color:#fff;display:flex;align-items:center;
+  padding:0 8px;font-size:11.5px;cursor:grab;user-select:none;box-shadow:0 2px 6px rgba(15,32,56,.18);
+  touch-action:none}
+.sc-bar.dragging{cursor:grabbing;opacity:.75;z-index:5}
+.sc-bar.late{box-shadow:0 2px 6px rgba(15,32,56,.18), inset 4px 0 0 var(--bad)}
+.sc-bar.late .sc-t:before{content:'⚑ ';opacity:.9}
+.sc-bar.clipL{border-top-left-radius:0;border-bottom-left-radius:0}
+.sc-bar.clipR{border-top-right-radius:0;border-bottom-right-radius:0}
+.sc-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.sc-grip{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize}
+.sc-grip.l{left:0}.sc-grip.r{right:0}
+
+.sc-un{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--txt);text-decoration:none;
+  background:var(--canvas);border:1px solid var(--line);border-radius:20px;padding:4px 11px;max-width:290px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-un:hover{border-color:var(--brand);color:var(--brand)}
+@media (max-width:768px){.sc-corner,.sc-who{width:118px!important}.sc-nm{font-size:11.5px}}
+
 /* ═══ Ενέργειες: ημερολόγιο δουλειάς, όχι checklist ═══
    Κάθε ενέργεια είναι ένα μπλοκ που διαβάζεται σαν καταχώρηση — εικόνες μέσα
    στη ροή, αρχεία από κάτω, υπογραφή στο τέλος. */

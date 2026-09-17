@@ -4,7 +4,7 @@
    η επόμενη προσφορά. Το μητρώο είναι του supportcontracts — εδώ γίνεται
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
-const {S, api, esc, fmtEur, dShort, dFull, toast, setTop, cnpConfirm, cnpDialog,
+const {S, api, esc, fmtEur, dShort, dFull, today, toast, setTop, cnpConfirm, cnpDialog,
   cnpDenied, cnpCan, cnpPrompt, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
 const R = window.R;
 
@@ -1261,3 +1261,177 @@ R.myteam = async function () {
   $$('[data-mtgo]').forEach(r => r.onclick = () => openTask(+r.dataset.mtgo));
   $$('[data-mtproj]').forEach(r => r.onclick = () => go('board', +r.dataset.mtproj));
 };
+
+/* ═══════════ Πρόγραμμα ομάδας (scheduler) ═══════════
+   Λωρίδα ανά ΑΝΘΡΩΠΟ, μπάρα ανά εργασία πάνω στον χρόνο — όπως ένας στόλος
+   οχημάτων με τα συμβόλαιά τους. Σύρσιμο οριζόντια = αλλάζει το διάστημα,
+   σύρσιμο σε άλλη λωρίδα = αλλάζει ο άνθρωπος. Η ίδια κίνηση που κάνεις στο
+   μυαλό σου όταν «στρώνεις» τη βδομάδα. */
+R.scheduler = async function () {
+  const st = R.scheduler._s = R.scheduler._s || {days: 21, team: 0, from: null};
+  setTop('Πρόγραμμα ομάδας', 'Ποιος δουλεύει τι και πότε — σύρε για να το στρώσεις');
+  const c = $('#content');
+  c.innerHTML = '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+
+  const qs = ['days=' + st.days, st.team ? 'team=' + st.team : '', st.from ? 'from=' + st.from : ''].filter(Boolean).join('&');
+  const d = await api('scheduler&' + qs).catch(e => ({err: e && e.message}));
+  if (!d || d.err) { c.innerHTML = `<div class="card"><div class="card-b mut">${esc((d && d.err) || 'Δεν φορτώθηκε.')}</div></div>`; return; }
+
+  const CELL = 40, LEFT = 190;
+  const day0 = new Date(d.from + 'T12:00:00');
+  const days = [];
+  for (let i = 0; i < d.days; i++) {
+    const x = new Date(day0.getTime() + i * 86400000);
+    days.push({iso: x.toISOString().slice(0, 10), d: x.getDate(), dow: x.getDay(),
+      m: x.getMonth() + 1, today: x.toISOString().slice(0, 10) === today()});
+  }
+  const idx = iso => days.findIndex(x => x.iso === iso);
+  const W = d.days * CELL;
+
+  const head = `<div class="sc-head" style="width:${LEFT + W}px">
+    <div class="sc-corner" style="width:${LEFT}px">Χειριστής</div>
+    ${days.map(x => `<div class="sc-day${x.today ? ' now' : ''}${x.dow === 0 || x.dow === 6 ? ' we' : ''}" style="width:${CELL}px">
+      <b>${x.d}</b><small>${['Κυ', 'Δε', 'Τρ', 'Τε', 'Πε', 'Πα', 'Σα'][x.dow]}</small></div>`).join('')}</div>`;
+
+  const bar = t => {
+    let s = idx(t.start), e = idx(t.end);
+    const clipL = s < 0, clipR = e < 0;
+    if (clipL) { s = 0; }
+    if (clipR) { e = days.length - 1; }
+    const w = Math.max(1, e - s + 1);
+    return `<div class="sc-bar${t.late ? ' late' : ''}${clipL ? ' clipL' : ''}${clipR ? ' clipR' : ''}"
+      data-sct="${t.id}" data-s="${t.start}" data-e="${t.end}"
+      style="left:${s * CELL + 2}px;width:${w * CELL - 4}px;background:${t.color}"
+      title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}">
+      <span class="sc-grip l" data-grip="l"></span>
+      <span class="sc-t">${esc(t.title)}</span>
+      <span class="sc-grip r" data-grip="r"></span></div>`;
+  };
+
+  const lane = l => `<div class="sc-lane" data-lane="${l.id}" style="width:${LEFT + W}px">
+    <div class="sc-who" style="width:${LEFT}px">
+      <span class="act-ava" style="--sc:var(--mut)">${esc(l.ini || '?')}</span>
+      <span class="sc-nm">${esc(l.name)}</span>
+      <span class="pill pill-mut">${l.tasks.length}</span></div>
+    <div class="sc-track" style="width:${W}px">
+      ${days.map((x, i) => `<span class="sc-cell${x.today ? ' now' : ''}${x.dow === 0 || x.dow === 6 ? ' we' : ''}" style="left:${i * CELL}px;width:${CELL}px"></span>`).join('')}
+      ${l.tasks.map(bar).join('')}
+    </div></div>`;
+
+  c.innerHTML = `
+  <div class="card" style="margin-bottom:12px"><div class="card-b" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-sm btn-o" id="scPrev">‹</button>
+    <button class="btn btn-sm btn-o" id="scToday">Σήμερα</button>
+    <button class="btn btn-sm btn-o" id="scNext">›</button>
+    <span class="mut" style="font-size:12.5px">${dShort(d.from)} → ${dShort(d.to)}</span>
+    <span style="flex:1"></span>
+    <select class="inp" id="scTeam" style="width:auto;min-width:150px">
+      <option value="0">— όλη η ομάδα —</option>
+      ${d.teams.map(t => `<option value="${t.id}" ${t.id === d.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+    <select class="inp" id="scDays" style="width:auto">
+      ${[7, 14, 21, 35].map(n => `<option value="${n}" ${n === d.days ? 'selected' : ''}>${n} ημέρες</option>`).join('')}</select>
+  </div></div>
+
+  <div class="card"><div class="sc-wrap" id="scWrap">${head}
+    ${d.lanes.map(lane).join('') || '<div class="mut" style="padding:20px">Καμία λωρίδα.</div>'}
+  </div></div>
+
+  ${d.unscheduled.length ? `<div class="card" style="margin-top:12px">
+    <div class="card-h">${I.alert} Χωρίς διάστημα <span class="pill pill-mut">${d.unscheduled.length}</span>
+      <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">δεν μπαίνουν στο πρόγραμμα όσο δεν έχουν έναρξη και λήξη</span></div>
+    <div class="card-b" style="display:flex;flex-wrap:wrap;gap:7px">
+      ${d.unscheduled.map(u => `<a class="sc-un" href="javascript:" data-scun="${u.id}" title="${esc(u.project || '')}">
+        <span class="kb-dot" style="background:${u.color}"></span>${esc(u.title)}
+        <span class="mut">· ${esc(u.whoName)}</span></a>`).join('')}
+    </div></div>` : ''}`;
+
+  $('#scTeam').onchange = () => { st.team = +$('#scTeam').value; R.scheduler(); };
+  $('#scDays').onchange = () => { st.days = +$('#scDays').value; R.scheduler(); };
+  const shift = n => { st.from = new Date(day0.getTime() + n * 86400000).toISOString().slice(0, 10); R.scheduler(); };
+  $('#scPrev').onclick = () => shift(-7);
+  $('#scNext').onclick = () => shift(7);
+  $('#scToday').onclick = () => { st.from = null; R.scheduler(); };
+  $$('[data-scun]').forEach(a => a.onclick = () => openTask(+a.dataset.scun));
+
+  scDrag(CELL, LEFT, days, () => R.scheduler());
+};
+
+/* Σύρσιμο μπάρας: οριζόντια = μετακίνηση/αλλαγή διάρκειας, κάθετα = αλλαγή
+   χειριστή. Χρησιμοποιούμε pointer events ώστε να δουλεύει και με αφή. */
+function scDrag(CELL, LEFT, days, reload) {
+  let drag = null;
+  const wrap = $('#scWrap');
+  if (!wrap) { return; }
+
+  wrap.addEventListener('pointerdown', e => {
+    const bar = e.target.closest('.sc-bar');
+    if (!bar) { return; }
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    drag = {bar, id: +bar.dataset.sct, x0: e.clientX, y0: e.clientY,
+      s: bar.dataset.s, e: bar.dataset.e,
+      left0: parseFloat(bar.style.left), w0: parseFloat(bar.style.width),
+      mode: e.target.dataset.grip || 'move',
+      lane0: bar.closest('.sc-lane'), moved: false};
+    bar.classList.add('dragging');
+  });
+
+  wrap.addEventListener('pointermove', e => {
+    if (!drag) { return; }
+    const dx = e.clientX - drag.x0;
+    const step = Math.round(dx / CELL);
+    if (Math.abs(dx) > 3 || Math.abs(e.clientY - drag.y0) > 3) { drag.moved = true; }
+    if (drag.mode === 'move') {
+      drag.bar.style.left = (drag.left0 + step * CELL) + 'px';
+      /* Κάθετα: υπογραμμίζουμε τη λωρίδα στην οποία θα πέσει. */
+      const lane = document.elementFromPoint(e.clientX, e.clientY);
+      const target = lane && lane.closest ? lane.closest('.sc-lane') : null;
+      $$('.sc-lane').forEach(l => l.classList.toggle('drop', l === target && target !== drag.lane0));
+    } else if (drag.mode === 'r') {
+      drag.bar.style.width = Math.max(CELL - 4, drag.w0 + step * CELL) + 'px';
+    } else {
+      drag.bar.style.left = (drag.left0 + step * CELL) + 'px';
+      drag.bar.style.width = Math.max(CELL - 4, drag.w0 - step * CELL) + 'px';
+    }
+  });
+
+  wrap.addEventListener('pointerup', async e => {
+    if (!drag) { return; }
+    const D = drag; drag = null;
+    D.bar.classList.remove('dragging');
+    $$('.sc-lane').forEach(l => l.classList.remove('drop'));
+    if (!D.moved) { openTask(D.id); return; }        // κλικ χωρίς σύρσιμο = άνοιγμα
+
+    const step = Math.round((e.clientX - D.x0) / CELL);
+    const add = (iso, n) => new Date(new Date(iso + 'T12:00:00').getTime() + n * 86400000).toISOString().slice(0, 10);
+    let ns = D.s, ne = D.e;
+    if (D.mode === 'move') { ns = add(D.s, step); ne = add(D.e, step); }
+    else if (D.mode === 'r') { ne = add(D.e, step); }
+    else { ns = add(D.s, step); }
+    if (ne < ns) { toast('Η λήξη δεν μπορεί να είναι πριν την έναρξη', true); reload(); return; }
+
+    /* Σε ποια λωρίδα έπεσε; */
+    const over = document.elementFromPoint(e.clientX, e.clientY);
+    const lane = over && over.closest ? over.closest('.sc-lane') : null;
+    const newWho = lane && lane !== D.lane0 ? +lane.dataset.lane : 0;
+
+    let r;
+    if (newWho) {
+      r = await api('save_task', {task: D.id, assignee: newWho, start: ns, due: ne})
+        .then(() => ({ok: true})).catch(er => ({ok: false, error: er && er.message, data: er && er.data}));
+      if (!r.ok && r.data && r.data.need === 'conflict') {
+        const go2 = await cnpConfirm(r.error, {
+          body: 'Θέλεις να ανατεθεί έτσι κι αλλιώς;', ok: 'Ναι, ανάθεσέ το', cancel: 'Άκυρο', danger: true});
+        if (!go2) { reload(); return; }
+        r = await api('save_task', {task: D.id, assignee: newWho, start: ns, due: ne, force: 1})
+          .then(() => ({ok: true})).catch(er => ({ok: false, error: er && er.message}));
+      }
+    } else {
+      r = await api('gantt_move', {task: D.id, start: ns, end: ne})
+        .then(() => ({ok: true})).catch(er => ({ok: false, error: er && er.message}));
+    }
+    if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); }
+    else { toast(newWho ? 'Μεταφέρθηκε' : `${dShort(ns)} → ${dShort(ne)}`); }
+    reload();
+  });
+}
