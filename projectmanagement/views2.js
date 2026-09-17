@@ -1203,9 +1203,21 @@ R.clientlist = async function () {
   /* Προεπιλογή: μόνο ΕΝΕΡΓΟΙ πελάτες. Ο χρήστης αλλάζει tab (Όλοι/Ανενεργοί/
      Κλειστοί) για να δει/ψάξει και τους υπόλοιπους. */
   const st = R.clientlist._st = R.clientlist._st || {q: '', status: 'Active', page: 1};
-  c.innerHTML = skel(6, 84);
+  /* Το κέλυφος (πεδίο αναζήτησης + φίλτρα) ΔΕΝ ξαναχτίζεται σε κάθε αναζήτηση.
+     Πριν, κάθε γράμμα γκρέμιζε το #content: το input καταστρεφόταν, η εστίαση
+     χανόταν και τα επόμενα γράμματα πήγαιναν στο κενό. Έμοιαζε με «κόλλημα»,
+     ήταν αναδόμηση 320ms πάνω στο χέρι του χειριστή. */
+  const live = !!($('#clQ') && $('#clRes'));
+  if (!live) { c.innerHTML = skel(6, 84); }
+  /* Οι απαντήσεις γυρίζουν εκτός σειράς: κρατάμε μόνο την πιο πρόσφατη. */
+  const seq = (R.clientlist._seq = (R.clientlist._seq || 0) + 1);
   const d = await api('clients&status=' + encodeURIComponent(st.status) + '&q=' + encodeURIComponent(st.q) + '&page=' + st.page).catch(() => null);
-  if (!d) { c.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div></div>'; return; }
+  if (seq !== R.clientlist._seq) { return; }          // ήρθε παλιά απάντηση — αγνόησέ τη
+  if (!d) {
+    const box = $('#clRes') || c;
+    box.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div></div>';
+    return;
+  }
   const rows = d.clients;
   const stTabs = [['', 'Όλοι', d.counts.all], ['Active', 'Ενεργοί', d.counts.Active],
     ['Inactive', 'Ανενεργοί', d.counts.Inactive], ['Closed', 'Κλειστοί', d.counts.Closed]];
@@ -1283,7 +1295,21 @@ R.clientlist = async function () {
       <button class="btn btn-o btn-sm" id="clNext" ${st.page >= d.pages ? 'disabled' : ''}>Επόμ. →</button></div>`
     : `<div class="cl-pag mut">${d.total} πελάτες</div>`;
 
-  c.innerHTML = head + body + pag;
+  if (live) {
+    $('#clRes').innerHTML = body + pag;
+    /* Οι μετρητές των φίλτρων αλλάζουν με το ερώτημα — ενημερώνονται επί τόπου. */
+    stTabs.forEach(([k, , n2]) => {
+      const btn = document.querySelector(`[data-clst="${k}"]`);
+      if (btn) {
+        const nb2 = btn.querySelector('.kb-n');
+        if (nb2) { nb2.textContent = n2; }
+        btn.classList.toggle('on', k === st.status);
+      }
+    });
+    bindClientRows();
+    return;
+  }
+  c.innerHTML = head + `<div id="clRes">${body + pag}</div>`;
 
   let qt;
   /* Το «✕» εμφανίζεται μόνο όταν υπάρχει κάτι να σβηστεί, και το πεδίο κρατά
@@ -1291,17 +1317,19 @@ R.clientlist = async function () {
   const clQx = () => { const x = $('#clQx'); if (x) { x.hidden = !$('#clQ').value; } };
   $('#clQ').oninput = () => {
     clQx();
-    clearTimeout(qt); qt = setTimeout(() => { st.q = $('#clQ').value.trim(); st.page = 1; R.clientlist(); }, 300);
+    clearTimeout(qt); qt = setTimeout(() => { st.q = $('#clQ').value.trim(); st.page = 1; R.clientlist(); }, 350);
   };
-  { const x = $('#clQx'); if (x) { x.onclick = async () => {
-      clearTimeout(qt); st.q = ''; st.page = 1;
-      /* Το re-render φτιάχνει ΝΕΟ πεδίο — η εστίαση πρέπει να μπει μετά, αλλιώς
-         ο χειριστής πρέπει να ξανακλικάρει για να γράψει. */
-      await R.clientlist();
-      const f = $('#clQ'); if (f) { f.value = ''; f.focus(); }
+  { const x = $('#clQx'); if (x) { x.onclick = () => {
+      clearTimeout(qt);
+      $('#clQ').value = ''; clQx(); $('#clQ').focus();
+      st.q = ''; st.page = 1; R.clientlist();
     }; } }
   $$('[data-clst]').forEach(b => b.onclick = () => { st.status = b.dataset.clst; st.page = 1; R.clientlist(); });
   { const nb = $('#clNew'); if (nb) nb.onclick = () => openNewClient('', () => { st.page = 1; R.clientlist(); }); }
+  bindClientRows();
+  return;
+
+  function bindClientRows() {
   { const pv = $('#clPrev'); if (pv) pv.onclick = () => { if (st.page > 1) { st.page--; R.clientlist(); } }; }
   { const nx = $('#clNext'); if (nx) nx.onclick = () => { if (st.page < d.pages) { st.page++; R.clientlist(); } }; }
   $$('[data-clact]').forEach(b => b.onclick = e => {
@@ -1326,6 +1354,7 @@ R.clientlist = async function () {
     items.push({icon: I.monitor, label: 'Απομακρυσμένη σύνδεση', on: () => window.CNP.startRemote && window.CNP.startRemote(cl.id, cl.name, 0, {email: cl.email || ''})});
     window.CNP.miniMenu(b, items);
   });
+  }
 };
 
 /* ── Επιλογή πελάτη ────────────────────────────────────────────────────────

@@ -1504,6 +1504,9 @@ async function cnpMoveTask(id, status, note) {
   return r;
 }
 
+/* Ποιες εργασίες έχουν ήδη ρωτηθεί «ξεκινάς;» σε αυτή τη συνεδρία. */
+window._cnpTimerAsked_ = window._cnpTimerAsked_ || {};
+
 /* ═════════ TASK DRAWER ═════════ */
 let timerInt = null;
 async function openTask(id) {
@@ -2443,18 +2446,58 @@ async function openTask(id) {
      Ο server το επιβάλλει (cnp_task_lock_guard)· εδώ το δείχνουμε, ώστε να μην
      πληκτρολογήσει κανείς κάτι που θα απορριφθεί. Ανοιχτά μένουν μόνο: το
      ξανάνοιγμα, η αλλαγή κατάστασης, η πλοήγηση και η ΛΗΨΗ συνημμένων. */
-  if (t.done) {
+  /* Κοινό κλείδωμα: «κοίτα, μην αγγίζεις». Χρησιμοποιείται από δύο διαφορετικές
+     καταστάσεις — ολοκληρωμένη εργασία, και δική σου εργασία που δεν δουλεύεις. */
+  const lockCard = (why, freeExtra) => {
     dr.classList.add('tk-locked');
-    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,[data-navclose],[data-c3task]';
+    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,[data-navclose],[data-c3task]'
+      + (freeExtra ? ',' + freeExtra : '');
     $$('input,select,textarea,button', dr).forEach(el => {
       if (el.matches(free) || el.closest(free)) { return; }
-      el.disabled = true;
-      el.title = 'Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις';
+      el.disabled = true; el.title = why;
     });
     const ttl = $('#dTitleEdit', dr); if (ttl) { ttl.hidden = true; }
     /* Το «ζητούμενο» είναι contenteditable, όχι <input> — δεν το πιάνει το disabled. */
-    $$('.rte,[contenteditable]', dr).forEach(el => { el.setAttribute('contenteditable', 'false'); });
+    $$('.rte,.act-edit,[contenteditable]', dr).forEach(el => { el.setAttribute('contenteditable', 'false'); });
     $$('.rte-tb', dr).forEach(el => { el.hidden = true; });
+  };
+
+  if (t.done) {
+    lockCard('Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις');
+  }
+
+  /* ── Ο χρόνος πρώτα ────────────────────────────────────────────────────────
+     Δική σου εργασία, ανοιχτή, χωρίς χρονόμετρο: ρωτάμε αν ξεκινάς τώρα. Όχι
+     για γραφειοκρατία — αν ο χρόνος δεν ξεκινήσει με τη δουλειά, δεν
+     καταγράφεται ποτέ σωστά και μετά τον «θυμόμαστε» στο τέλος της μέρας.
+     «Όχι» = μόνο προβολή: μπορείς να διαβάσεις, όχι να αλλάξεις. Ένα κουμπί
+     «Ξεκίνα τον χρόνο» ξεκλειδώνει — δεν υπάρχει άλλη πόρτα. */
+  if (!t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id]) {
+    window._cnpTimerAsked_[id] = 1;
+    const go2 = await cnpDialog({
+      title: '▶ Ξεκινάς τώρα αυτή την εργασία;',
+      body: `«${t.title}»\n\nΑν ναι, ξεκινά ο χρόνος και μπορείς να δουλέψεις.\nΑν όχι, θα την ανοίξω μόνο για ανάγνωση.\n\nΑν τρέχει χρονόμετρο σε άλλη εργασία, θα σταματήσει.`,
+      ok: '▶ Ναι, ξεκινάω', cancel: 'Όχι, μόνο θα δω'});
+    if (go2) {
+      await api('timer_start', {task: id}).catch(() => null);
+      openTask(id);
+      return;
+    }
+    delete window._cnpTimerAsked_[id];   // αν ξανανοίξει, ξαναρωτάμε
+    t._viewOnly = true;
+  }
+  if (t._viewOnly) {
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart');
+    const banner = document.createElement('div');
+    banner.className = 'tk-viewonly';
+    banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>
+      <span class="mut">Δεν έχεις ξεκινήσει χρόνο σε αυτή την εργασία.</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm btn-p" id="dViewStart">▶ Ξεκίνα τον χρόνο</button>`;
+    const body = dr.querySelector('.drawer-b');
+    if (body) { body.prepend(banner); }
+    const vs = $('#dViewStart', dr);
+    if (vs) { vs.onclick = async () => { await api('timer_start', {task: id}).catch(() => null); openTask(id); }; }
   }
 
   /* Συνημμένα ενεργειών: ίδιος μηχανισμός αρχείων, δικό τους «καλάθι» (ref_type=check). */

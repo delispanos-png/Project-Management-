@@ -255,6 +255,14 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
   background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--txt)}
 @media (max-width:768px){.ln-a,.ln-b{display:none}.ln-sum{gap:11px;font-size:12px}}
 
+/* «Μόνο προβολή»: η κάρτα είναι ανοιχτή αλλά κλειδωμένη μέχρι να ξεκινήσει ο
+   χρόνος. Η μπάρα είναι το ΜΟΝΟ σημείο που ξεκλειδώνει — γι' αυτό είναι πάνω. */
+.tk-viewonly{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 12px;
+  background:rgba(224,160,32,.10);border:1px solid rgba(224,160,32,.45);border-left:4px solid var(--warn);
+  border-radius:11px;padding:9px 13px;font-size:12.5px;color:var(--ink)}
+.tk-viewonly svg{width:15px;height:15px;color:var(--warn)}
+.drawer.tk-locked .act-composer{opacity:.5;pointer-events:none}
+
 /* ═══ Πρόγραμμα ομάδας — λωρίδα ανά άνθρωπο πάνω στον χρόνο ═══ */
 .sc-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}
 .sc-head{display:flex;position:sticky;top:0;z-index:3;background:var(--canvas);border-bottom:1px solid var(--line)}
