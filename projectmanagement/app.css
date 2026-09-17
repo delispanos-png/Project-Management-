@@ -255,6 +255,47 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
   background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--txt)}
 @media (max-width:768px){.ln-a,.ln-b{display:none}.ln-sum{gap:11px;font-size:12px}}
 
+/* ═══ Ενέργειες: ημερολόγιο δουλειάς, όχι checklist ═══
+   Κάθε ενέργεια είναι ένα μπλοκ που διαβάζεται σαν καταχώρηση — εικόνες μέσα
+   στη ροή, αρχεία από κάτω, υπογραφή στο τέλος. */
+.act-list{display:flex;flex-direction:column;gap:9px}
+.act{display:flex;gap:9px;align-items:flex-start;background:var(--card);border:1px solid var(--line);
+  border-radius:11px;padding:10px 12px}
+.act.done .act-body{opacity:.6;text-decoration:line-through}
+.act-chk{margin-top:3px;flex:none}
+.act-main{flex:1;min-width:0}
+.act-body{font-size:13px;line-height:1.55;color:var(--txt);overflow-wrap:break-word}
+.act-body:empty:before{content:'—';color:var(--mut)}
+.act-body img{max-width:100%;height:auto;border-radius:8px;margin:7px 0;display:block;cursor:zoom-in}
+.act-body p{margin:0 0 6px}
+.act-body p:last-child{margin-bottom:0}
+.act-body pre{background:var(--line);border-radius:6px;padding:8px 10px;overflow-x:auto;font-size:12px;white-space:pre-wrap}
+.act-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.act-file{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--txt);
+  background:var(--canvas);border:1px solid var(--line);border-radius:20px;padding:3px 10px;text-decoration:none}
+.act-file:hover{border-color:var(--brand);color:var(--brand)}
+.act-meta{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11px;color:var(--mut);
+  border-top:1px dashed var(--line);padding-top:6px}
+.act-meta b{color:var(--txt);font-weight:700}
+
+/* Συνθέτης: ένα μεγάλο πεδίο, ένα κουμπί. */
+.act-composer{margin-top:12px;border:1.5px solid var(--line);border-radius:11px;background:var(--card);overflow:hidden}
+.act-composer:focus-within{border-color:var(--brand)}
+.act-edit{min-height:74px;max-height:340px;overflow:auto;padding:10px 12px;font-size:13px;line-height:1.55;
+  color:var(--txt);outline:none}
+.act-edit:empty:before{content:attr(data-ph);color:var(--mut);pointer-events:none}
+.act-edit img{max-width:100%;height:auto;border-radius:8px;margin:7px 0;display:block}
+.act-foot{display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid var(--line);background:var(--canvas)}
+
+/* Λίστα @αναφορών */
+.ment-box{position:fixed;z-index:500;background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 12px 30px -10px rgba(15,32,56,.35);overflow:hidden;min-width:190px}
+.ment-row{display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;
+  padding:7px 11px;font:inherit;font-size:12.5px;color:var(--txt);cursor:pointer;text-align:left}
+.ment-row:hover,.ment-row.on{background:var(--canvas);color:var(--brand)}
+.ment-av{width:20px;height:20px;border-radius:50%;background:var(--brand);color:#fff;font-size:9px;
+  font-weight:800;display:flex;align-items:center;justify-content:center;flex:none}
+
 /* Αποθήκευση χωρίς αλλαγές: γκρίζο, ώστε να φαίνεται ότι δεν υπάρχει κάτι
    να σωθεί. Παραμένει πατήσιμο — δεν κρίνουμε εμείς αν θέλει να το ξανασώσει. */
 .btn.is-clean{background:var(--canvas);color:var(--mut);border-color:var(--line)}

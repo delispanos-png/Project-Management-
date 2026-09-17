@@ -1649,26 +1649,40 @@ async function openTask(id) {
       </div></div>
 
     <div class="card tk-step"><div class="card-h">${I.checkSquare} <b>Ενέργειες</b>
-      <span class="pill ${chkDone && chkDone >= d.check.length ? 'pill-ok' : 'pill-mut'}" style="flex:none">${chkDone}/${d.check.length}</span>
-      <span class="mut" style="font-weight:600;font-size:11px">— τα βήματα· η πρόοδος φαίνεται στην κάρτα · <b>@Όνομα</b> σε βήμα = ειδοποίηση</span></div>
+      <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
+      <span class="mut" style="font-weight:600;font-size:11px">— τι έγινε και τι μένει · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · Ctrl+Enter καταχωρεί</span></div>
       <div class="card-b">
-        <div id="dCheck" class="tk-step-list">
-          ${d.check.map(it => `<div class="chk ${it.done ? 'done' : ''}" data-crow="${it.id}">
-            <input type="checkbox" data-chk="${it.id}" ${it.done ? 'checked' : ''}>
-            <span data-ctext="${it.id}">${stepHtml(it.title)}${it.by
-              ? `<span class="chk-by" title="Το έγραψε ${esc(it.by)}${it.at ? ' · ' + tShort(it.at) : ''}">${esc(it.by)}${it.at ? ' · ' + dShort(it.at) : ''}</span>` : ''}</span>
-            <span class="chk-acts">
-              <button type="button" class="chk-act" data-cedit="${it.id}" title="Διόρθωση">${I.edit}</button>
-              <button type="button" class="chk-act chk-act-del" data-cdelstep="${it.id}" title="Διαγραφή">${I.trash}</button>
-            </span></div>`).join('')
-            || '<div class="mut" style="font-size:12.5px;padding:6px 0">Καμία ενέργεια ακόμη — γράψε το πρώτο βήμα από κάτω.</div>'}
+        <div id="dCheck" class="act-list">
+          ${d.check.map(it => `<div class="act ${it.done ? 'done' : ''}" data-crow="${it.id}">
+            ${t.isDelivery ? `<input type="checkbox" class="act-chk" data-chk="${it.id}" ${it.done ? 'checked' : ''} title="Ενέργεια παράδοσης">` : ''}
+            <div class="act-main">
+              <div class="act-body" data-ctext="${it.id}">${it.fmt === 'html' ? it.title : stepHtml(it.title)}</div>
+              ${(it.files || []).length ? `<div class="act-files">${it.files.map(f => `
+                <a class="act-file" href="api.php?a=file_get&id=${f.id}" target="_blank" rel="noopener" title="${esc(f.name)}">
+                  ${I.clip} ${esc(f.name)} <span class="mut">${esc(f.sizeh || '')}</span></a>`).join('')}</div>` : ''}
+              <div class="act-meta">
+                ${it.by ? `<b>${esc(it.by)}</b>` : '<span class="mut">—</span>'}
+                ${it.at ? `<span class="mut">· ${tShort(it.at)}</span>` : ''}
+                <span style="flex:1"></span>
+                <button type="button" class="chk-act" data-cedit="${it.id}" title="Επεξεργασία">${I.edit}</button>
+                <button type="button" class="chk-act" data-cattach="${it.id}" title="Επισύναψη αρχείου">${I.clip}</button>
+                <button type="button" class="chk-act chk-act-del" data-cdelstep="${it.id}" title="Διαγραφή">${I.trash}</button>
+              </div>
+            </div></div>`).join('')
+            || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
         </div>
-        <div class="tk-step-foot">
-          <textarea class="inp chk-new" id="chkNew" rows="1"
-            placeholder="Τι έκανες ή τι πρέπει να γίνει… (Enter = καταχώρηση · Shift+Enter = νέα γραμμή · \`\`\` για κώδικα)"></textarea>
-          <details class="tk-att" id="dCheckAtt"><summary id="dCheckSum">${I.clip} Συνημμένα ενεργειών<b data-attn></b></summary>
-            <div id="dCheckFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
+        <div class="act-composer">
+          <div class="act-edit" id="chkNew" contenteditable="true" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
+          <div class="act-foot">
+            <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
+            <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
+            <button type="button" class="btn btn-sm btn-p" id="chkGo">Καταχώρηση</button>
+          </div>
+          <input type="file" id="chkFile" multiple hidden>
         </div>
+        ${d.legacyFiles && d.legacyFiles.length ? `<details class="tk-att" id="dCheckAtt" style="margin-top:10px">
+          <summary>${I.clip} Παλαιά συνημμένα ενεργειών <b>${d.legacyFiles.length}</b></summary>
+          <div id="dCheckFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>` : ''}
       </div></div>
 
     ${t.done ? `<div class="card done-card"><div class="card-b">
@@ -2244,48 +2258,164 @@ async function openTask(id) {
       onCount: n => attCount($('#dFilesSum', dr), n)});
   }
   /* Διόρθωση επί τόπου: το βήμα γίνεται πεδίο, Enter αποθηκεύει, Esc ακυρώνει. */
+  /* ══ ΕΝΕΡΓΕΙΕΣ — ημερολόγιο δουλειάς, όχι checklist ══════════════════════
+     Κάθε ενέργεια είναι ένα μπλοκ κειμένου με εικόνες ΜΕΣΑ στη ροή (όχι
+     συνημμένα δίπλα), τα αρχεία της από κάτω, και μία διαδρομή αποθήκευσης:
+     ένα κουμπί «Καταχώρηση». Το Enter αλλάζει γραμμή — σε μεγάλο κείμενο το
+     Enter-ως-αποθήκευση κόβει τη σκέψη στη μέση. */
+
+  /* Επικόλληση εικόνας: ανεβαίνει και μπαίνει ΜΕΣΑ στο κείμενο. */
+  const actUpload = async (file, refId) => {
+    const fd = new FormData();
+    fd.append('module', 'task'); fd.append('ref_type', 'check'); fd.append('ref_id', refId || 0);
+    fd.append('file', file);
+    const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(x => x.json()).catch(() => null);
+    return r && r.file ? r.file : null;
+  };
+  const wireEditor = el => {
+    el.addEventListener('paste', async e => {
+      const items = [...(e.clipboardData || {}).items || []];
+      const img = items.find(x => x.type && x.type.startsWith('image/'));
+      if (!img) { return; }                       // απλό κείμενο → προεπιλογή
+      e.preventDefault();
+      const f = img.getAsFile(); if (!f) { return; }
+      const hint = $('#chkHint', dr); if (hint) { hint.textContent = 'Ανέβασμα εικόνας…'; }
+      const up = await actUpload(f, 0);
+      if (hint) { hint.textContent = ''; }
+      if (!up) { toast('Η εικόνα δεν ανέβηκε', true); return; }
+      document.execCommand('insertHTML', false,
+        `<img src="api.php?a=file_get&id=${up.id}" alt="${esc(up.name || '')}">`);
+      markDirty(el);
+    });
+    /* @όνομα: λίστα συναδέλφων επί τόπου. Η ειδοποίηση φεύγει από τον server
+       μόλις αποθηκευτεί — εδώ απλώς βοηθάμε να γραφτεί σωστά το όνομα. */
+    el.addEventListener('keyup', e => {
+      if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(e.key)) { return; }
+      const sel = window.getSelection();
+      if (!sel || !sel.focusNode) { return; }
+      const txt = (sel.focusNode.textContent || '').slice(0, sel.focusOffset);
+      const m = /@([\p{L}\p{N}_.\-]*)$/u.exec(txt);
+      closeMentions();
+      if (!m) { return; }
+      const q = m[1].toLowerCase();
+      const hits = S.boot.admins.filter(a => a.id !== me.id
+        && (!q || a.name.toLowerCase().includes(q))).slice(0, 6);
+      if (!hits.length) { return; }
+      openMentions(el, hits, m[1].length);
+    });
+    el.addEventListener('blur', () => setTimeout(closeMentions, 180));
+  };
+  let mentBox = null;
+  const closeMentions = () => { if (mentBox) { mentBox.remove(); mentBox = null; } };
+  const openMentions = (el, hits, typedLen) => {
+    const sel = window.getSelection();
+    const rect = sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : el.getBoundingClientRect();
+    mentBox = document.createElement('div');
+    mentBox.className = 'ment-box';
+    mentBox.style.top = (rect.bottom + 4) + 'px';
+    mentBox.style.left = Math.max(8, rect.left) + 'px';
+    mentBox.innerHTML = hits.map((a, i) =>
+      `<button type="button" class="ment-row${i === 0 ? ' on' : ''}" data-m="${esc(a.name)}">
+        <span class="ment-av">${esc(adminIni(a.id) || '?')}</span>${esc(a.name)}</button>`).join('');
+    document.body.appendChild(mentBox);
+    mentBox.querySelectorAll('[data-m]').forEach(b => b.onmousedown = ev => {
+      ev.preventDefault();
+      const s2 = window.getSelection();
+      if (s2 && s2.rangeCount) {
+        const r2 = s2.getRangeAt(0);
+        r2.setStart(r2.endContainer, Math.max(0, r2.endOffset - typedLen));
+        r2.deleteContents();
+      }
+      document.execCommand('insertText', false, b.dataset.m + ' ');
+      closeMentions(); markDirty(el);
+    });
+  };
+
+  /* ── νέα ενέργεια ── */
+  { const ed = $('#chkNew', dr);
+    if (ed) {
+      wireEditor(ed);
+      const pending = [];                         // αρχεία που διάλεξε πριν καταχωρήσει
+      const paint = () => {
+        const h = $('#chkHint', dr);
+        if (h) { h.textContent = pending.length ? `${pending.length} αρχείο${pending.length > 1 ? 'α' : ''} προς επισύναψη` : ''; }
+      };
+      const fi = $('#chkFile', dr);
+      const clip = $('#chkClip', dr);
+      if (clip && fi) {
+        clip.onclick = () => fi.click();
+        fi.onchange = () => { [...fi.files].forEach(f => pending.push(f)); fi.value = ''; paint(); };
+      }
+      const submit = async () => {
+        const html = ed.innerHTML.trim();
+        if (!html || html === '<br>') { return; }
+        const btn = $('#chkGo', dr); btn.disabled = true;
+        const r = await api('check_add', {task: id, title: html, html: 1})
+          .catch(er => ({err: (er && er.message) || 'σφάλμα'}));
+        if (r && r.err) { toast(r.err, true); btn.disabled = false; return; }
+        for (const f of pending) { await actUpload(f, r.id); }
+        openTask(id);
+      };
+      $('#chkGo', dr).onclick = submit;
+      /* Ctrl/⌘+Enter = γρήγορη καταχώρηση για όποιον το συνήθισε· σκέτο Enter όχι. */
+      ed.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+      });
+    } }
+
+  /* ── επεξεργασία υπάρχουσας ── */
   $$('[data-cedit]', dr).forEach(b => b.onclick = () => {
     const cid = +b.dataset.cedit;
     const it = (d.check || []).find(x => x.id === cid); if (!it) { return; }
-    const span = dr.querySelector(`[data-ctext="${cid}"]`); if (!span) { return; }
-    const ta = document.createElement('textarea');
-    ta.className = 'inp chk-new'; ta.value = it.title; ta.rows = 1;
-    span.replaceWith(ta);
-    ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px';
-    ta.focus();
-    ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px'; };
-    ta.onkeydown = async e => {
-      if (e.key === 'Escape') { e.preventDefault(); openTask(id); return; }
-      if (e.key !== 'Enter' || e.shiftKey) { return; }
-      e.preventDefault();
-      const v = ta.value.trim(); if (!v) { return; }
-      const r = await api('check_edit', {id: cid, title: v}).catch(er => ({err: (er && er.message) || 'σφάλμα'}));
+    const body = dr.querySelector(`[data-ctext="${cid}"]`); if (!body) { return; }
+    if (body.isContentEditable) { return; }
+    const before = body.innerHTML;
+    body.contentEditable = 'true';
+    body.classList.add('act-edit');
+    wireEditor(body);
+    body.focus();
+    const bar = document.createElement('div');
+    bar.className = 'act-foot';
+    bar.innerHTML = `<span style="flex:1"></span>
+      <button type="button" class="btn btn-sm btn-o" data-eno>Άκυρο</button>
+      <button type="button" class="btn btn-sm btn-p" data-eok>Αποθήκευση</button>`;
+    body.after(bar);
+    bar.querySelector('[data-eno]').onclick = () => { body.innerHTML = before; openTask(id); };
+    bar.querySelector('[data-eok]').onclick = async () => {
+      const v = body.innerHTML.trim();
+      if (!v) { toast('Κενή ενέργεια — γράψε κάτι ή διάγραψέ την', true); return; }
+      const r = await api('check_edit', {id: cid, title: v, html: 1})
+        .catch(er => ({err: (er && er.message) || 'σφάλμα'}));
       if (r && r.err) { toast(r.err, true); return; }
       openTask(id);
     };
   });
+
+  /* ── επισύναψη σε υπάρχουσα ενέργεια ── */
+  $$('[data-cattach]', dr).forEach(b => b.onclick = () => {
+    const cid = +b.dataset.cattach;
+    const fi = document.createElement('input');
+    fi.type = 'file'; fi.multiple = true;
+    fi.onchange = async () => {
+      for (const f of fi.files) { await actUpload(f, cid); }
+      openTask(id);
+    };
+    fi.click();
+  });
+
   $$('[data-cdelstep]', dr).forEach(b => b.onclick = async () => {
-    if (!await cnpConfirm('Διαγραφή βήματος;', {danger: true})) { return; }
+    if (!await cnpConfirm('Διαγραφή ενέργειας;', {
+      body: 'Φεύγει μαζί με τα συνημμένα της. Δεν γυρίζει πίσω.', danger: true})) { return; }
     const r = await api('check_del', {id: +b.dataset.cdelstep}).catch(er => ({err: (er && er.message) || 'σφάλμα'}));
     if (r && r.err) { toast(r.err, true); return; }
     openTask(id);
   });
-  { const ta = $('#chkNew', dr);
-    const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight + 2) + 'px'; };
-    ta.oninput = grow;
-    ta.onkeydown = async e => {
-      if (e.key !== 'Enter' || e.shiftKey) { return; }
-      e.preventDefault();
-      const v = ta.value.trim(); if (!v) { return; }
-      const r = await api('check_add', {task: id, title: v}).catch(er => ({err: (er && er.message) || 'σφάλμα'}));
-      if (r && r.err) { toast(r.err, true); return; }
-      openTask(id);
-    };
-  }
   $$('#dCheck input[data-chk]', dr).forEach(cb => cb.onchange = async () => {
     await api('check_toggle', {id: +cb.dataset.chk});
-    cb.closest('.chk').classList.toggle('done', cb.checked);
+    cb.closest('.act').classList.toggle('done', cb.checked);
   });
+
   /* Τίτλος: αλλάζει επί τόπου από την κεφαλίδα — δεν υπάρχει πια δεύτερο πεδίο δεξιά. */
   { const te = $('#dTitleEdit', dr);
     if (te) te.onclick = () => {

@@ -3291,9 +3291,22 @@ case 'task':
             'billable' => (bool) $l->billable, 'charged' => (int) $l->charged_minutes,
             'note' => $l->note, 'running' => (bool) $l->running, 'at' => $l->running ? $l->started_at : $l->created_at];
     }
+    /* Συνημμένα ΑΝΑ ενέργεια: ref_id = id της ενέργειας. Τα παλιά γράφτηκαν με
+       ref_id = id της ΕΡΓΑΣΙΑΣ και μένουν στο παλιό κοινό καλάθι — δεν τα
+       μετακινούμε μαντεύοντας σε ποια ενέργεια ανήκαν. */
+    $ckIds = array_map(function ($x) { return (int) $x->id; }, iterator_to_array(Db::checklist($t->id)));
+    $ckFiles = [];
+    if ($ckIds) {
+        foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'check')
+                     ->whereIn('ref_id', $ckIds)->orderBy('id')->get() as $fr) {
+            $ckFiles[(int) $fr->ref_id][] = cnp_file_row($fr);
+        }
+    }
     $check = [];
     foreach (Db::checklist($t->id) as $it) {
         $check[] = ['id' => (int) $it->id, 'title' => $it->title, 'done' => (bool) $it->done,
+            'fmt' => isset($it->fmt) ? (string) $it->fmt : '',
+            'files' => $ckFiles[(int) $it->id] ?? [],
             /* Ποιος το έγραψε: σε εργασία που περνά από τρία χέρια, χωρίς αυτό
                κανείς δεν ξέρει ποιος δήλωσε τι. */
             'by' => isset($it->created_by) && $it->created_by ? Db::adminName((int) $it->created_by) : '',
@@ -3385,6 +3398,10 @@ case 'task':
                 ? Capsule::table('mod_cpm_products')->where('id', $proj->product_id)->value('name') : null,
             'kind' => (string) $proj->kind, 'pstatus' => (string) $proj->pstatus,
             'due' => $proj->due_date, 'clientId' => $proj->clientid ? (int) $proj->clientid : null],
+        /* Παλιά συνημμένα ενεργειών (ref_id = εργασία). Μένουν ορατά χωριστά. */
+        'legacyFiles' => array_map('cnp_file_row', Capsule::table('mod_cpm_storage')
+            ->where('module', 'task')->where('ref_type', 'check')->where('ref_id', (int) $t->id)
+            ->orderBy('id')->get()->all()),
         'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
@@ -5071,7 +5088,12 @@ case 'check_add':
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
-    $id = Db::addCheckItem($tid, mb_substr($title, 0, 8000), $adminId);   // χωράει stack trace / snippet
+    /* Πλούσιο κείμενο: εικόνες μέσα στη ροή, όχι συνημμένα δίπλα. Ο καθαριστής
+       είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
+    $isHtml = !empty($in['html']);
+    $stored = $isHtml ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000);
+    $id = Db::addCheckItem($tid, $stored, $adminId);
+    if ($isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     out(['ok' => true, 'id' => $id]);
 
@@ -5085,13 +5107,24 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
-    Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)
-        ->update(['title' => mb_substr($title, 0, 8000)]);
+    $isHtml2 = !empty($in['html']);
+    Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->update([
+        'title' => $isHtml2 ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000),
+        'fmt' => $isHtml2 ? 'html' : ($ci->fmt ?? null),
+    ]);
+    /* Οι αναφορές @Όνομα μπορεί να μπήκαν στη ΔΙΟΡΘΩΣΗ, όχι στην αρχική γραφή. */
+    cnp_notify_mentions($title, (int) $ci->task_id, $adminId, 'ενέργεια');
     out(['ok' => true]);
 
 case 'check_del':
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$ci) { fail('input'); }
+    /* Τα συνημμένα της ενέργειας φεύγουν μαζί της — αλλιώς μένουν ορφανά
+       αρχεία που δεν φαίνονται πουθενά και πιάνουν χώρο. */
+    foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'check')
+                 ->where('ref_id', (int) $ci->id)->pluck('id') as $fid) {
+        try { Storage::delete((int) $fid); } catch (\Throwable $e) { /* δεν μπλοκάρει */ }
+    }
     $t = Db::task((int) $ci->task_id);
     if (!$t || !Db::canSeeTask($adminId, $t)) { fail('input'); }
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
