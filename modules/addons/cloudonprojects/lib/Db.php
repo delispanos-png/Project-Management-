@@ -2710,6 +2710,48 @@ class Db
         ]);
     }
 
+    /* ═══ ΧΡΟΝΟΜΕΤΡΟ ΑΠΟΣΥΝΔΕΔΕΜΕΝΟΥ ══════════════════════════════════════════
+       Δεν γίνεται να τρέχει χρόνος σε κάποιον που δεν είναι πουθενά.
+       Ο παλμός ΔΕΝ εξαρτάται από το τι κάνει ο χειριστής: όσο η εφαρμογή είναι
+       ανοιχτή χτυπάει κάθε 12΄΄ ακόμη κι αν δουλεύει σε άλλο παράθυρο, σε server
+       ή σε πάνελ πελάτη. Άρα «κανένας παλμός επί μισή ώρα» δεν σημαίνει «δεν
+       δουλεύει τώρα» — σημαίνει «έφυγε»: έκλεισε την εφαρμογή, κοιμήθηκε ο
+       υπολογιστής, πήγε σπίτι.
+       Κλείνουμε ΣΤΗΝ ΩΡΑ ΤΟΥ ΤΕΛΕΥΤΑΙΟΥ ΠΑΛΜΟΥ, όχι τώρα: καταγράφεται ο χρόνος
+       που ήταν όντως εκεί. Μη χρεώσιμος — δεν χρεώνουμε χρόνο που δεν
+       επιβεβαιώνεται — και ειδοποιείται ο ίδιος για να συμπληρώσει ό,τι έλειψε. */
+    public static function closeGhostTimers($now = null, $gone = 1800)
+    {
+        $now = $now ?: time();
+        $closed = 0;
+        foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get() as $lg) {
+            $seen = (int) self::pref((int) $lg->admin_id, 'last_seen', '0');
+            $started = strtotime($lg->started_at);
+            if ($seen && ($now - $seen) < $gone) {
+                continue;                       // δίνει σημεία ζωής — τον αφήνουμε
+            }
+            $endTs = max($started, $seen ?: $started);
+            $mins = max(1, (int) round(($endTs - $started) / 60));
+            /* Ο πίνακας δεν έχει ended_at: η λήξη αποτυπώνεται στο created_at,
+               όπως ακριβώς κάνει και το stopTimer. */
+            Capsule::table('mod_cpm_timelogs')->where('id', $lg->id)->update([
+                'running' => 0, 'created_at' => date('Y-m-d H:i:s', $endTs), 'minutes' => $mins,
+                'billable' => 0,
+                'note' => mb_substr(trim(($lg->note ? $lg->note . ' · ' : '')
+                    . 'έκλεισε αυτόματα: αποσυνδέθηκε στις ' . date('H:i', $endTs)), 0, 255),
+            ]);
+            self::logActivity((int) $lg->task_id, (int) $lg->admin_id, 'time',
+                'Το χρονόμετρο έκλεισε αυτόματα στις ' . date('H:i', $endTs) . ' (' . $mins . chr(39)
+                . ', χωρίς χρέωση) — ο χειριστής είχε αποσυνδεθεί');
+            self::pushNotification((int) $lg->admin_id, 'action',
+                'Το χρονόμετρο έκλεισε στις ' . date('H:i', $endTs) . ' (' . $mins . chr(39)
+                . ') — αποσυνδέθηκες. Συμπλήρωσε χρόνο αν δούλεψες κι άλλο.',
+                '/project/#/task/' . (int) $lg->task_id);
+            $closed++;
+        }
+        return $closed;
+    }
+
     public static function pushNotification($adminId, $type, $title, $url = null)
     {
         if (!(int) $adminId) {

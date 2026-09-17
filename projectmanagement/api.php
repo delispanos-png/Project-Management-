@@ -1558,6 +1558,12 @@ function cnp_meeting_how($mode, $place, $location, $clientName = '')
     return ['', '', $location];
 }
 
+/** Χρονόμετρα αποσυνδεδεμένων — η λογική ζει στο Db ώστε να τη φτάνει και το cron. */
+function cnp_close_ghost_timers($now = null)
+{
+    return Db::closeGhostTimers($now, CNP_PRESENCE_GONE);
+}
+
 /**
  * Η σύσκεψη που τρέχει ΤΩΡΑ για κάποιον — και μόνο εφόσον την έχει αποδεχθεί.
  * Η αποδοχή της πρόσκλησης ΕΙΝΑΙ η χειροκίνητη πράξη· από εκεί και πέρα η
@@ -14254,6 +14260,11 @@ case 'version':
     $seenNow = time();
     if ($seenNow - (int) Db::pref($adminId, 'last_seen', '0') > 30) {
         Db::setPref($adminId, 'last_seen', (string) $seenNow);
+    }
+    /* Χρονόμετρα αποσυνδεδεμένων — έλεγχος κάθε 2΄, όχι σε κάθε σφυγμό. */
+    if ($seenNow - (int) Db::pref(0, 'ghost_sweep_at', '0') > 120) {
+        Db::setPref(0, 'ghost_sweep_at', (string) $seenNow);
+        try { cnp_close_ghost_timers($seenNow); } catch (\Throwable $eG) { /* ποτέ δεν χαλάει τον σφυγμό */ }
     }
     $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
     $b6 = (string) Capsule::table('mod_cpm_tasks')->count();

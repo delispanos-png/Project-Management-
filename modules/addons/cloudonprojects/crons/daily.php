@@ -258,3 +258,17 @@ try {
     $log('Σφάλμα στην επιστροφή εργασιών: ' . $e->getMessage());
     logActivity('CPM daily stray-assign error: ' . $e->getMessage());
 }
+
+/* ── 6) Χρονόμετρα αποσυνδεδεμένων ─────────────────────────────────────────
+   Ο σφυγμός της εφαρμογής τα κλείνει μέσα στη μέρα, αλλά αν φύγουν όλοι με ένα
+   ανοιχτό, κανείς δεν χτυπάει τον server μέχρι το πρωί. Εδώ κλείνει ό,τι έμεινε.
+   Η ώρα λήξης είναι πάντα ο τελευταίος παλμός, οπότε η καθυστέρηση δεν αλλοιώνει
+   τίποτα — απλώς δεν το αφήνουμε να τρέχει όλη νύχτα. */
+try {
+    $ghosts = Db::closeGhostTimers();
+    if ($ghosts && function_exists('logActivity')) {
+        logActivity('CPM daily: έκλεισαν ' . $ghosts . ' χρονόμετρα αποσυνδεδεμένων χειριστών');
+    }
+} catch (\Throwable $e) {
+    if (function_exists('logActivity')) { logActivity('CPM daily ghost timers: ' . $e->getMessage()); }
+}
