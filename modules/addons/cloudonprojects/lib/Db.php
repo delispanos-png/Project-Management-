@@ -790,6 +790,43 @@ class Db
                 $t->timestamp('created_at')->nullable();
             });
         }
+        /* Σύσκεψη: «με ποιον» και «πώς» είναι δύο ξεχωριστές ερωτήσεις — μια
+           συνάντηση με πελάτη μπορεί να γίνει εξίσου στα γραφεία μας ή σε κλήση.
+           Το location μένει η λεπτομέρεια (σύνδεσμος, τηλέφωνο ή διεύθυνση). */
+        if (!$s->hasColumn('mod_cpm_events', 'scope')) {
+            $s->table('mod_cpm_events', function ($t) {
+                $t->string('scope', 10)->nullable();   // internal | client
+                $t->string('mode', 10)->nullable();    // onsite | video | phone
+                $t->string('place', 10)->nullable();   // office | client | other  (μόνο για onsite)
+            });
+        }
+        /* Σκοπός: γιατί γίνεται η σύσκεψη. Χρησιμεύει και στην αναφορά αργότερα
+           («πόσες εκπαιδεύσεις κάναμε», «πόσα τεχνικά ζητήματα βγήκαν σε meeting»). */
+        if (!$s->hasColumn('mod_cpm_events', 'purpose')) {
+            $s->table('mod_cpm_events', function ($t) {
+                $t->string('purpose', 20)->nullable();
+            });
+        }
+        /* Ποια δυνατή ειδοποίηση σύσκεψης έχει ήδη σκάσει σε ποιον — ώστε η
+           πρόσκληση και η υπενθύμιση να εμφανιστούν ΜΙΑ φορά, όχι σε κάθε σφυγμό. */
+        /* Πού ήταν πριν ολοκληρωθεί — για να επιστρέφει ΕΚΕΙ με το «Ξανάνοιγμα»,
+           όχι στο Backlog. Μια εργασία «Προς τιμολόγηση» που έκλεισε κατά λάθος
+           δεν πρέπει να ξαναρχίζει από την αρχή του κύκλου. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'prev_status_id')) {
+            $s->table('mod_cpm_tasks', function ($t) {
+                $t->integer('prev_status_id')->unsigned()->nullable();
+            });
+        }
+        if (!$s->hasTable('mod_cpm_event_alerts')) {
+            $s->create('mod_cpm_event_alerts', function ($t) {
+                $t->increments('id');
+                $t->integer('event_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned()->index();
+                $t->string('kind', 10);                          // invite | soon | nudge
+                $t->dateTime('sent_at');
+                $t->unique(['event_id', 'admin_id', 'kind'], 'ev_alert_once');
+            });
+        }
         if (!$s->hasTable('mod_cpm_kb')) {
             $s->create('mod_cpm_kb', function ($t) {
                 $t->increments('id');

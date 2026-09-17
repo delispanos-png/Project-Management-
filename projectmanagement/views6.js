@@ -435,10 +435,13 @@ window.openPrepaid = openPrepaid;
    μόνη της κάθε μισό λεπτό — παγώνει όταν φύγεις από την καρτέλα, για να μη
    χτυπάει τον server χωρίς λόγο. */
 
+/* Τα ίδια χρώματα/ετικέτες με το chat και την πάνω μπάρα — η ετικέτα έρχεται
+   έτοιμη από τον server (p.label), εδώ κρατάμε μόνο το χρώμα ως εφεδρεία. */
 const ACT_ST = {
-  online:  ['Συνδεδεμένος', 'var(--ok)'],
-  meeting: ['Σε meeting', 'var(--warn)'],
-  away:    ['Απών', '#8595ac'],
+  online:  ['Διαθέσιμος', '#16a26a'],
+  busy:    ['Απασχολημένος', '#e0552b'],
+  meeting: ['Σε σύσκεψη', '#e0a020'],
+  away:    ['Λείπω', '#8595ac'],
   offline: ['Εκτός', '#5d6b85'],
 };
 const ACT_ICO = {plus: 'plus', board: 'board', doc: 'doc', user: 'user', chat: 'chat',
@@ -472,7 +475,8 @@ R.activity = async function () {
     const busy = d.people.filter(p => p.timer || p.remote);
 
     const card = p => {
-      const [lbl, col] = ACT_ST[p.status] || ACT_ST.offline;
+      const [lbl0, col] = ACT_ST[p.status] || ACT_ST.offline;
+      const lbl = (p.label || lbl0) + (p.manual ? ' (το δήλωσε)' : '');
       const doing = p.timer
         ? `<div class="act-doing"><span class="act-live"></span>${I.clock}
              <b>${esc(p.timer.title || 'Εργασία')}</b>

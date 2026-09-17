@@ -1,7 +1,8 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
-  adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan, I, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
+  cnpMsgHtml, cnpWireMsgLinks, I, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -41,42 +42,245 @@ const R = window.R;
 })();
 
 /* ═════════ Quick «Νέο task» (πλήκτρο n) ═════════ */
+/* ═════════ ⌘ ΝΕΑ ΕΡΓΑΣΙΑ — πρώτα το θέμα, μετά η πρόθεση ═════════
+   Η παλιά φόρμα ρωτούσε «σε ποιο έργο / σε ποιο department» πριν προλάβεις να
+   γράψεις τι θέλεις. Λάθος σειρά: πρώτα έρχεται η σκέψη, μετά το πού μπαίνει.
+   Τώρα γράφεις το θέμα και από κάτω διαλέγεις ΤΙ γίνεται με αυτό — και μόνο
+   τότε, αν χρειάζεται, διαλέγεις έργο / πελάτη / συνάδελφο. */
 function quickNew() {
   closeDrawer();
-  if (!S.boot.projects.length) { toast('Δεν έχεις projects', true); return; }
-  const ovl = document.createElement('div'); ovl.className = 'ovl show'; 
-  ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:520px" onclick="event.stopPropagation()">
-    <div style="padding:16px 18px">
-      <input class="inp" id="qnT" placeholder="Τι πρέπει να γίνει; (Enter)" style="font-size:15px;margin-bottom:10px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <div style="flex:1;min-width:190px"><label class="lbl">Σε ποιο έργο <span class="mut" style="font-weight:400">— προαιρετικό</span></label>
-          <select class="inp" id="qnP"><option value="">— χωρίς έργο —</option>${(() => {
-            const cli = S.boot.projects.filter(p => p.clientName), ops = S.boot.projects.filter(p => !p.clientName);
-            const cur = S.view === 'board' ? S.project : 0;
-            const opt = p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
-            return (cli.length ? `<optgroup label="Έργα πελατών">${cli.map(opt).join('')}</optgroup>` : '')
-              + (ops.length ? `<optgroup label="Λειτουργικά">${ops.map(opt).join('')}</optgroup>` : '');
-          })()}</select></div>
-        <div style="flex:1;min-width:170px"><label class="lbl">Σε ποιο department</label>
-          <select class="inp" id="qnU"><option value="">— αυτόματα —</option>
-            ${(S.boot.depts || []).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
-        <button class="btn btn-p" id="qnGo" style="align-self:flex-end">Δημιουργία</button>
-      </div></div></div>`;
+  const me = S.boot.me;
+  const projects = S.boot.projects || [];
+  const depts = (S.boot.depts || []).filter(d => d.id);
+  /* Το «δικό μου» department: αυτό όπου ανήκω — αλλιώς το πρώτο διαθέσιμο. */
+  const myDept = depts.find(d => (d.members || []).includes(me.id)) || depts[0] || null;
+  const curProject = S.view === 'board' && S.project
+    ? projects.find(p => p.id === S.project) : null;
+
+  /* Πελάτες: τους αντλούμε από τα έργα — έτσι ξέρουμε πάντα πού θα μπει η κλήση. */
+  const clients = [];
+  { const seen = {};
+    projects.filter(p => p.client && p.clientName).forEach(p => {
+      if (!seen[p.client]) { seen[p.client] = {id: p.client, name: p.clientName, projects: []}; clients.push(seen[p.client]); }
+      seen[p.client].projects.push(p);
+    });
+    clients.sort((a, b) => a.name.localeCompare(b.name, 'el'));
+  }
+  const mates = (S.boot.admins || []).filter(a => a.id !== me.id
+    && !/support team|\bbot\b/i.test(a.name) && String(a.name).trim() !== 'Cloud On');
+
+  /* ── Οι προθέσεις ───────────────────────────────────────────────────────── */
+  const INTENTS = [
+    {k: 'project', ic: I.folder, col: '#0090dd', title: 'Εργασία σε έργο',
+     hint: () => curProject ? 'προτείνεται: ' + curProject.name : 'διάλεξε έργο', need: 'project'},
+    {k: 'call', ic: I.phone, col: '#16a26a', title: 'Κάλεσε πελάτη γι᾽ αυτό',
+     hint: () => 'διάλεξε πελάτη', need: 'client'},
+    {k: 'mine', ic: I.play, col: '#e0552b', title: 'Κάν᾽ το εγώ — τώρα',
+     hint: () => 'ανατίθεται σε σένα και ξεκινά ο χρόνος', need: null},
+    {k: 'todo', ic: I.checkSquare, col: '#7b5cd6', title: 'Κράτα το για μένα',
+     hint: () => 'δική σου εργασία, χωρίς χρονόμετρο', need: null},
+    {k: 'assign', ic: I.users, col: '#e0a020', title: 'Ανάθεσέ το σε συνάδελφο',
+     hint: () => 'διάλεξε ποιον', need: 'mate'},
+  ].filter(x => x.k !== 'call' || clients.length);
+
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.innerHTML = `<div class="qn-box" onclick="event.stopPropagation()" role="dialog" aria-label="Νέα εργασία">
+    <div class="qn-top">
+      <span class="qn-ic">${I.sparkle}</span>
+      <input class="qn-t" id="qnT" placeholder="Τι πρέπει να γίνει;" autocomplete="off" maxlength="200">
+    </div>
+    <div class="qn-crumb" id="qnCrumb" hidden></div>
+    <div class="qn-lbl" id="qnLbl">Τι γίνεται με αυτό;</div>
+    <div class="qn-list" id="qnList"></div>
+    <div class="qn-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> κινήσου</span>
+      <span><kbd>⏎</kbd> διάλεξε</span>
+      <span><kbd>esc</kbd> πίσω</span>
+      <span class="qn-f-r" id="qnErr"></span>
+    </div>
+  </div>`;
   document.body.appendChild(ovl);
-  const inp = $('#qnT'); inp.focus();
-  const create = async () => {
-    if (!inp.value.trim()) return;
-    const pr = +$('#qnP').value || 0, dp = +$('#qnU').value || 0;
-    /* Ένα από τα δύο αρκεί — αλλά όχι κανένα: χωρίς έργο και χωρίς department
-       η εργασία δεν ανήκει πουθενά και δεν τη βλέπει κανείς. */
-    if (!pr && !dp) { toast('Διάλεξε έργο ή department', true); $('#qnU').focus(); return; }
-    const r = await api('quick_task', {project: pr, dept: dp,
-      title: inp.value.trim(), status: 0});
-    ovl.remove(); toast('Δημιουργήθηκε');
+  ovl.onclick = () => close();
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey, true); };
+
+  const inp = $('#qnT', ovl), listEl = $('#qnList', ovl), lblEl = $('#qnLbl', ovl),
+    crumbEl = $('#qnCrumb', ovl), errEl = $('#qnErr', ovl);
+  let step = 'intent';      // intent → pick → (pickProject, αν ο πελάτης έχει πολλά έργα)
+  let intent = null;
+  let pickedClient = null;  // όταν έχουμε μπει στα έργα ενός πελάτη
+  let sub2 = '';            // δεύτερο ψίχουλο (π.χ. το όνομα του πελάτη)
+  let rows = [];            // {label, sub, ic, col, on}
+  let cur = 0;
+  let filter = '';
+
+  const say = (m, bad) => { errEl.textContent = m || ''; errEl.className = 'qn-f-r' + (bad ? ' bad' : ''); };
+
+  const paint = () => {
+    listEl.innerHTML = rows.length ? rows.map((r, i) => `
+      <button type="button" class="qn-row${i === cur ? ' on' : ''}" data-i="${i}">
+        <span class="qn-r-ic" style="--c:${r.col || '#8595ac'}">${r.ic || ''}</span>
+        <span class="qn-r-t"><b>${esc(r.label)}</b>${r.sub ? `<span class="mut">${esc(r.sub)}</span>` : ''}</span>
+        ${r.tag ? `<span class="qn-r-tag">${esc(r.tag)}</span>` : ''}
+        <span class="qn-r-k">⏎</span>
+      </button>`).join('')
+      : `<div class="qn-empty">Κανένα αποτέλεσμα για «${esc(filter)}»</div>`;
+    $$('.qn-row', listEl).forEach(b => {
+      b.onmouseenter = () => { cur = +b.dataset.i; markCur(); };
+      b.onclick = () => { cur = +b.dataset.i; run(); };
+    });
+    const on = listEl.querySelector('.qn-row.on');
+    if (on) { on.scrollIntoView({block: 'nearest'}); }
+  };
+  const markCur = () => $$('.qn-row', listEl).forEach((b, i) => b.classList.toggle('on', i === cur));
+
+  /* ── Βήμα 1: οι προθέσεις ── */
+  const showIntents = () => {
+    step = 'intent'; intent = null; filter = ''; cur = 0;
+    crumbEl.hidden = true;
+    lblEl.textContent = 'Τι γίνεται με αυτό;';
+    rows = INTENTS.map(it => ({label: it.title, sub: it.hint(), ic: it.ic, col: it.col, it}));
+    paint();
+    inp.focus();
+  };
+
+  /* ── Βήμα 2: ο στόχος (έργο / πελάτης / συνάδελφος) ── */
+  const showPick = (it, client) => {
+    step = 'pick'; intent = it; filter = ''; cur = 0;
+    pickedClient = client || null;
+    sub2 = client ? client.name : '';
+    crumbEl.hidden = false;
+    crumbEl.innerHTML = `<span class="qn-cr" style="--c:${it.col}">${it.ic} ${esc(it.title)}</span>
+      ${sub2 ? `<span class="qn-cr2">${esc(sub2)}</span>` : ''}
+      <span class="qn-subj" title="${esc(subject)}">${esc(subject)}</span>
+      <button type="button" class="qn-cr-x" id="qnBack">✕ άλλαξε</button>`;
+    $('#qnBack', ovl).onclick = () => { inp.value = subject; showIntents(); };
+    lblEl.textContent = pickedClient ? 'Σε ποιο έργο του πελάτη;'
+      : it.need === 'project' ? 'Σε ποιο έργο;'
+      : it.need === 'client' ? 'Ποιον πελάτη;' : 'Σε ποιον;';
+    inp.placeholder = pickedClient ? 'Ψάξε έργο…'
+      : it.need === 'project' ? 'Ψάξε έργο ή πελάτη…'
+      : it.need === 'client' ? 'Ψάξε πελάτη…' : 'Ψάξε συνάδελφο…';
+    inp.value = '';
+    inp.focus();
+    buildPick();
+  };
+
+  const norm = x => String(x || '').toLowerCase();
+  const buildPick = () => {
+    const q = norm(filter);
+    if (intent.need === 'project') {
+      let list = projects.slice();
+      /* Το έργο που κοιτάς τώρα πάει πρώτο — τις περισσότερες φορές αυτό θέλεις. */
+      if (curProject && !q) { list = [curProject].concat(list.filter(p => p.id !== curProject.id)); }
+      rows = list
+        .filter(p => !q || norm(p.name).includes(q) || norm(p.clientName).includes(q))
+        .slice(0, 60)
+        .map(p => ({label: p.name, sub: p.clientName || 'λειτουργικό', ic: I.folder, col: p.color || '#0090dd',
+          tag: (curProject && p.id === curProject.id && !q) ? 'εδώ είσαι' : '',
+          go: {project: p.id}}));
+    } else if (intent.need === 'client') {
+      if (pickedClient) {
+        /* Με πολλά έργα δεν μαντεύουμε — ρωτάμε. Ένα «θα μπει στο 3CX» επειδή
+           ήταν πρώτο αλφαβητικά είναι χειρότερο από μια ερώτηση. */
+        rows = pickedClient.projects
+          .filter(pr => !q || norm(pr.name).includes(q))
+          .map(pr => ({label: pr.name, sub: pickedClient.name, ic: I.folder, col: pr.color || '#0090dd',
+            go: {project: pr.id, client: pickedClient.name}}));
+      } else {
+        rows = clients
+          .filter(c => !q || norm(c.name).includes(q))
+          .slice(0, 60)
+          .map(c => ({label: c.name, ic: I.building, col: '#16a26a',
+            sub: c.projects.length === 1 ? 'έργο: ' + c.projects[0].name
+              : c.projects.length + ' έργα — θα ρωτήσω σε ποιο',
+            client: c,
+            go: c.projects.length === 1 ? {project: c.projects[0].id, client: c.name} : null}));
+      }
+    } else {
+      rows = mates
+        .filter(a => !q || norm(a.name).includes(q))
+        .slice(0, 60)
+        .map(a => ({label: a.name, ic: I.user, col: '#e0a020', go: {assignee: a.id}}));
+    }
+    cur = 0;
+    paint();
+  };
+
+  /* ── Δημιουργία ── */
+  const create = async (go, opts) => {
+    const title = inp0();
+    if (!title) { say('Γράψε πρώτα τι πρέπει να γίνει', true); inp.focus(); return; }
+    const body = {title, status: 0};
+    if (go.project) { body.project = go.project; }
+    if (go.assignee) { body.assignee = go.assignee; }
+    if (opts && opts.mine) { body.assignee = me.id; }
+    if (opts && opts.start) { body.start = 1; }
+    if (go.client) { body.title = '☎ Κάλεσε ' + go.client + ' — ' + title; }
+    /* Χωρίς έργο, η εργασία πρέπει τουλάχιστον να ανήκει σε department. */
+    if (!body.project) {
+      if (!myDept) { say('Δεν ανήκεις σε department — διάλεξε έργο', true); return; }
+      body.dept = myDept.id;
+    }
+    say('Δημιουργία…');
+    const r = await api('quick_task', body).catch(e => ({err: e.message}));
+    if (r.err) { say(r.err, true); return; }
+    close();
+    toast(r.started ? '▶ Δημιουργήθηκε — ο χρόνος τρέχει' : 'Δημιουργήθηκε ✓');
     openTask(r.id);
   };
-  inp.onkeydown = e => { if (e.key === 'Enter') create(); };
-  $('#qnGo').onclick = create;
+  /* Ο τίτλος κρατιέται χωριστά: στο βήμα 2 το ίδιο πεδίο γίνεται αναζήτηση. */
+  let subject = '';
+  const inp0 = () => (step === 'intent' ? inp.value.trim() : subject);
+
+  const run = () => {
+    const r = rows[cur];
+    if (!r) { return; }
+    if (step === 'intent') {
+      if (!inp.value.trim()) { say('Γράψε πρώτα τι πρέπει να γίνει', true); inp.focus(); return; }
+      subject = inp.value.trim();
+      const it = r.it;
+      if (!it.need) {
+        create({}, {mine: true, start: it.k === 'mine'});
+        return;
+      }
+      /* «Εργασία σε έργο» ενώ είσαι μέσα σε έργο: δεν έχει νόημα δεύτερη ερώτηση
+         αν δεν τη θέλεις — πατάς ⏎ δύο φορές και τελείωσε. */
+      showPick(it);
+      return;
+    }
+    /* Πελάτης με πολλά έργα → ένα ακόμη σκαλί, δεν μαντεύουμε. */
+    if (!r.go && r.client) { showPick(intent, r.client); return; }
+    create(r.go, {});
+  };
+
+  const onKey = e => {
+    if (!document.body.contains(ovl)) { document.removeEventListener('keydown', onKey, true); return; }
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      if (step === 'pick' && pickedClient) { showPick(intent); }
+      else if (step === 'pick') { inp.value = subject; showIntents(); }
+      else { close(); }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!rows.length) { return; }
+      cur = (cur + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+      markCur();
+      const on = listEl.querySelector('.qn-row.on'); if (on) { on.scrollIntoView({block: 'nearest'}); }
+      return;
+    }
+    if (e.key === 'Enter') { e.preventDefault(); run(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+
+  inp.oninput = () => {
+    say('');
+    if (step === 'pick') { filter = inp.value.trim(); buildPick(); }
+    else { rows = rows.map(r => Object.assign(r, {sub: r.it.hint()})); paint(); }
+  };
+  showIntents();
 }
 window.CNP.quickNew = quickNew;
 
@@ -325,7 +529,6 @@ R.list = async function () {
         <span data-view="${i}" style="cursor:pointer">${esc(v.name)}</span>
         <b data-viewdel="${i}" style="cursor:pointer;padding:0 5px;opacity:.5">✕</b></span>`).join('')}</div>` : ''}
   </div>
-  <div id="lForm"></div>
   <div id="lRes"><div class="skel" style="height:220px"></div></div>`;
 
   /* ── γραμμή task (ίδιο ύφος με τις καταχωρήσεις γνώσης) ── */
@@ -416,7 +619,7 @@ R.list = async function () {
       h.nextElementSibling.style.display = f.closed[g] ? 'none' : '';
       h.querySelector('.kb-gchev').classList.toggle('open', !f.closed[g]);
     });
-    const n2 = $('#lfNew2'); if (n2) n2.onclick = () => openForm();
+    const n2 = $('#lfNew2'); if (n2) n2.onclick = () => window.CNP.quickNew();
     $$('[data-view]').forEach(b => b.onclick = () => {
       const vf = Object.assign({}, views[+b.dataset.view].f);
       /* Παλιές όψεις κρατούσαν id έργου· τώρα το φίλτρο είναι όνομα. Χωρίς αυτό
@@ -434,59 +637,10 @@ R.list = async function () {
     });
   };
 
-  /* ── φόρμα νέου task: ΚΛΕΙΣΤΗ by default, ανοίγει με «Νέο task» ── */
-  const openForm = () => {
-    if (!S.boot.projects.length) { toast('Δεν έχεις projects', true); return; }
-    const FULL = S.boot.me.full;
-    $('#lForm').innerHTML = `<div class="card kb-form">
-      <div class="card-h">${I.plus} Νέο task</div>
-      <div class="card-b">
-        <label>Τι πρέπει να γίνει;</label>
-        <input class="inp" id="ntT" placeholder="Τίτλος του task">
-        <div class="frow" style="margin-top:11px">
-          <div><label>Project</label><select class="inp" id="ntP">${S.boot.projects.map(p =>
-            `<option value="${p.id}" ${p.id == (f.proj || S.project) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
-          <div><label>Κατάσταση</label><select class="inp" id="ntS">${S.boot.statuses.map(s =>
-            `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></div>
-        </div>
-        <div class="frow" style="margin-top:11px">
-          <div><label>Χειριστής${FULL ? '' : ' <span class="mut">(αυτο-ανάθεση)</span>'}</label>
-            ${FULL ? `<select class="inp" id="ntA"><option value="">— χωρίς ανάθεση —</option>
-              ${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>`
-              : `<input class="inp" value="${esc(S.boot.me.name)}" disabled>`}</div>
-          <div><label>Προθεσμία</label><input class="inp" type="date" id="ntD"></div>
-        </div>
-        ${FULL ? `<label style="margin-top:11px;display:block">Προτεραιότητα</label>
-          <select class="inp" id="ntR" style="max-width:220px">
-            <option value="0">Κανονική</option><option value="1">Υψηλή</option><option value="2">Κρίσιμη</option></select>` : ''}
-        <label style="margin-top:11px;display:block">Περιγραφή <span class="mut">(προαιρετικά)</span></label>
-        ${rteHtml('ntX', '', 'Λεπτομέρειες, βήματα, σύνδεσμοι…', {min: 110})}
-        <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end">
-          <button class="btn btn-o" id="ntCancel">Άκυρο</button>
-          <button class="btn btn-p" id="ntGo">${I.save} Δημιουργία</button></div>
-      </div></div>`;
-    $('#lForm').scrollIntoView({behavior: 'smooth', block: 'nearest'});
-    setTimeout(() => $('#ntT').focus(), 40);
-    $('#ntCancel').onclick = () => { $('#lForm').innerHTML = ''; };
-    $('#ntT').onkeydown = e => { if (e.key === 'Enter') { $('#ntGo').click(); } };
-    $('#ntGo').onclick = async () => {
-      const title = $('#ntT').value.trim();
-      if (!title) { toast('Γράψε τίτλο', true); return; }
-      const r = await api('quick_task', {project: +$('#ntP').value, title, status: +$('#ntS').value})
-        .catch(e => ({err: e.message}));
-      if (r.err || !r.id) { toast(r.err || 'Δεν δημιουργήθηκε', true); return; }
-      // τα υπόλοιπα πεδία με δεύτερη κλήση (το quick_task φτιάχνει μόνο τίτλο/project/status)
-      const extra = {task: r.id, descr: rteVal('ntX'), due: $('#ntD').value};
-      if (S.boot.me.full) {
-        extra.assignee = +(($('#ntA') || {}).value || 0);
-        extra.prio = +(($('#ntR') || {}).value || 0);
-      }
-      await api('save_task', extra).catch(() => {});
-      toast('Το task δημιουργήθηκε');
-      $('#lForm').innerHTML = '';
-      await load();
-    };
-  };
+  /* Η δημιουργία εργασίας γίνεται ΑΠΟ ΕΝΑ ΣΗΜΕΙΟ: «+ Νέο → Νέο task».
+     Εδώ υπήρχε δεύτερη, ξεχωριστή φόρμα με δικά της πεδία (project, κατάσταση,
+     χειριστής, προθεσμία…) — άλλη λογική από την υπόλοιπη εφαρμογή, που ρωτούσε
+     πράγματα πριν προλάβεις να γράψεις τι θέλεις. Αφαιρέθηκε. */
 
   // Το q ΔΕΝ πάει στον server: το tasksFiltered ψάχνει μόνο title/descr, οπότε αναζήτηση
   // κατά χειριστή/project/κατάσταση θα γύριζε 0. Ό,τι αφορά κείμενο γίνεται client-side (match).
@@ -502,7 +656,7 @@ R.list = async function () {
   $('#lfG').onchange = () => { f.group = $('#lfG').value; render(); };
   $('#lfO').onchange = () => { f.open = $('#lfO').checked ? 1 : 0; load(); };
   $('#lfM').onchange = () => { f.mine = $('#lfM').checked; render(); };
-  $('#lfNew').onclick = openForm;
+  $('#lfNew').onclick = () => window.CNP.quickNew();
   $('#lfSave').onclick = async () => {
     const name = await cnpPrompt('Όνομα view:', {title: I.pin + ' Αποθήκευση view', placeholder: 'π.χ. Bugs Τεχνικού', ok: 'Αποθήκευση'});
     if (!name) { return; }
@@ -1048,7 +1202,12 @@ R.chat = async function () {
   const d = await api('chat_channels');
   const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
   const chAva = ch => `<span class="ch-av ${ch.kind !== 'dm' ? 'ch-av-grp' : ''}">${ch.kind === 'team' ? I.users : ch.kind === 'group' ? '#' : esc(ini(ch.name))}${ch.kind === 'dm' ? `<span class="ch-av-dot ${ch.status || 'online'}"></span>` : ''}</span>`;
-  const chPresence = ch => ch.status === 'offline' ? '⚫ Offline' + (ch.reason ? ' · ' + esc(ch.reason) : '') : ch.status === 'away' ? '🟡 Away' + (ch.reason ? ' · ' + esc(ch.reason) : '') : '🟢 Online';
+  /* Η ετικέτα έρχεται έτοιμη από τον server (μία πηγή αλήθειας) — εδώ μόνο
+     προσθέτουμε τον λόγο, τη λήξη και το ότι το δήλωσε ο ίδιος. */
+  const chLbl = ch => esc(ch.label || 'Διαθέσιμος')
+    + (ch.hint ? ' · ' + esc(ch.hint) : '')
+    + (ch.untilTxt ? ' · ' + esc(ch.untilTxt) : '');
+  const chPresence = ch => chLbl(ch) + (ch.manual ? ' <span class="ch-manual">το δήλωσε</span>' : '');
   const cur = d.channels.find(x => x.id === st.ch) || d.channels[0] || {name: 'Chat', kind: 'team'};
   c.innerHTML = `
   <div class="voicebar">
@@ -1062,20 +1221,18 @@ R.chat = async function () {
   <div class="chat${st.mobileConv ? ' conv-open' : ''}">
     <div class="ch-left">
       <div class="ch-mystatus">
-        <span class="ch-dot ${d.myStatus === 'offline' ? 'offline' : 'online'}"></span>
-        <select class="inp" id="chSt" style="flex:1;padding:5px 9px;font-size:12.5px;font-weight:600">
-          <option value="online" ${d.myStatus !== 'offline' ? 'selected' : ''}>🟢 Είμαι Online</option>
-          <option value="offline" ${d.myStatus === 'offline' ? 'selected' : ''}>⚫ Είμαι Offline</option>
-        </select>
+        <span class="ch-dot ${esc(d.me.status)}"></span>
+        <button class="btn btn-o btn-sm" id="chSt" style="flex:1;justify-content:flex-start;font-weight:650"
+          title="${d.me.manual ? 'Το δήλωσες εσύ — αυτόματο: OFF' : 'Αυτόματο: ON — από τον παλμό της εφαρμογής'}">${esc(d.me.label)}${d.me.manual ? '' : ' <span class="st-tag">auto</span>'}</button>
       </div>
-      ${d.myStatus === 'offline' && d.myReason ? `<div class="mut" style="font-size:11px;padding:6px 15px;cursor:pointer" id="chReasonEdit" title="Αλλαγή λόγου">${I.chat} ${esc(d.myReason)} <span style="opacity:.6">· αλλαγή</span></div>` : ''}
+      ${d.me.reason || d.me.untilTxt ? `<div class="mut" style="font-size:11px;padding:6px 15px;cursor:pointer" id="chReasonEdit" title="Αλλαγή">${I.chat} ${esc([d.me.reason, d.me.untilTxt].filter(Boolean).join(' · '))} <span style="opacity:.6">· αλλαγή</span></div>` : ''}
       <div class="ch-list">
       ${d.channels.map(ch => `
         <div class="ch-row ${st.ch === ch.id ? 'on' : ''}" data-ch="${ch.id}">
           ${chAva(ch)}
           <span class="ch-row-body">
             <span class="ch-row-name">${esc(ch.name)}${ch.kind === 'group' ? ` <span class="mut" style="font-size:10.5px;font-weight:500">· ${ch.members} μέλη</span>` : ''}</span>
-            <span class="ch-row-sub">${ch.reason ? I.chat + ' ' + esc(ch.reason) : ch.kind === 'dm' ? (ch.status === 'offline' ? 'Offline' : ch.status === 'away' ? 'Away' : 'Online') : ch.kind === 'team' ? 'Όλη η ομάδα' : 'Ομαδική συνομιλία'}</span>
+            <span class="ch-row-sub">${ch.kind === 'dm' ? (ch.mute ? '🔕 ' : '') + chLbl(ch) : ch.kind === 'team' ? 'Όλη η ομάδα' : 'Ομαδική συνομιλία'}</span>
           </span>
           ${ch.unread ? `<span class="chat-n">${ch.unread}</span>` : ''}
           ${ch.kind === 'group' ? `<span data-gdel="${ch.groupId}" data-gmine="${ch.mine ? 1 : 0}" title="${ch.mine ? 'Διαγραφή ομάδας' : 'Αποχώρηση'}" class="ch-row-x">✕</span>` : ''}
@@ -1093,50 +1250,17 @@ R.chat = async function () {
         </div>
       </div>
       <div class="ch-msgs" id="chMsgs"><div class="skel" style="height:60px"></div></div>
-      <div class="ch-comp">
-        <label class="btn btn-o btn-sm" style="cursor:pointer" title="Αρχείο">${I.clip}<input type="file" id="chFile" style="display:none"></label>
-        <span id="chFn" class="mut" style="font-size:11px"></span>
-        <input class="inp" id="chIn" placeholder="Μήνυμα… (Enter)" style="flex:1">
-        <button class="btn btn-p btn-sm" id="chSend">${I.send}</button>
+      <div class="ch-comp-wrap">
+        <div class="ch-paste" id="chPaste" hidden></div>
+        <div class="ch-comp">
+          <label class="btn btn-o btn-sm" style="cursor:pointer" title="Αρχείο">${I.clip}<input type="file" id="chFile" style="display:none"></label>
+          <span id="chFn" class="mut" style="font-size:11px"></span>
+          <input class="inp" id="chIn" placeholder="Μήνυμα… (Enter) — ή επικόλλησε εικόνα με Ctrl+V" style="flex:1">
+          <button class="btn btn-p btn-sm" id="chSend">${I.send}</button>
+        </div>
       </div>
     </div>
   </div>`;
-  // picker λόγου offline — έτοιμες επιλογές + ελεύθερο κείμενο
-  const OFFLINE_REASONS = [
-    ['🍽️', 'Διάλειμμα φαγητού'], ['☕', 'Σύντομο διάλειμμα'], ['📞', 'Σε meeting / κλήση'],
-    ['🎧', 'Deep work — μη με ενοχλείτε'], ['🏠', 'Εκτός γραφείου'], ['🚗', 'Σε μετακίνηση'],
-    ['🧑‍💻', 'Σε άλλον πελάτη / task'], ['🤒', 'Άδεια / ασθένεια'], ['🌙', 'Τέλος ωραρίου'],
-  ];
-  const pickReason = (current) => new Promise(resolve => {
-    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 320;
-    ovl.innerHTML = `<div class="pal-box" style="margin:12vh auto 0;max-width:420px" role="dialog">
-      <div style="padding:18px 20px 8px"><b style="font-size:15px;color:var(--ink)">Γιατί είσαι offline;</b>
-        <div class="mut" style="font-size:12px;margin-top:3px">Η ομάδα θα βλέπει τον λόγο δίπλα στο όνομά σου.</div></div>
-      <div style="display:flex;flex-wrap:wrap;gap:7px;padding:4px 20px 12px">
-        ${OFFLINE_REASONS.map(([em, txt]) => `<button class="btn btn-o btn-sm rBtn" data-r="${esc(txt)}" style="font-size:12px">${em} ${esc(txt)}</button>`).join('')}
-      </div>
-      <div style="padding:0 20px 16px">
-        <input class="inp" id="rCustom" maxlength="80" placeholder="…ή γράψε δικό σου λόγο" value="${esc(current || '')}" style="font-size:13px">
-        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
-          <button class="btn btn-o" id="rSkip">Χωρίς λόγο</button>
-          <button class="btn btn-o" id="rCancel">Άκυρο</button>
-          <button class="btn btn-p" id="rOk">Θέσε offline</button></div></div></div>`;
-    document.body.appendChild(ovl);
-    const done = v => { ovl.remove(); resolve(v); };
-    $$('.rBtn', ovl).forEach(b => b.onclick = () => done(b.dataset.r));
-    $('#rOk', ovl).onclick = () => done($('#rCustom', ovl).value.trim());
-    $('#rSkip', ovl).onclick = () => done('');
-    $('#rCancel', ovl).onclick = () => done(null);
-
-    setTimeout(() => $('#rCustom', ovl).focus(), 30);
-  });
-  const goOffline = async (current) => {
-    const reason = await pickReason(current);
-    if (reason === null) { R.chat(); return; }   // άκυρο → επαναφορά
-    await api('chat_status', {status: 'offline', reason});
-    toast(reason ? '⚫ Offline · ' + reason : '⚫ Είσαι offline');
-    R.chat();
-  };
   /* ── Μπάρα φωνής ομάδας: μόνιμο δωμάτιο (πάνω στο CloudOn Meet) + παρουσία ── */
   const vbJoin = $('#vbJoin'); if (vbJoin) { vbJoin.onclick = () => window.open(VOICE_URL, '_blank'); }
   const vbCall = $('#vbCall'); if (vbCall) { vbCall.onclick = () => voiceCallDialog(); }
@@ -1152,13 +1276,8 @@ R.chat = async function () {
   paintVoice();
   R.chat._vt = setInterval(paintVoice, 10000);
 
-  $('#chSt').onchange = async e => {
-    if (e.target.value === 'offline') { goOffline(d.myReason); return; }
-    await api('chat_status', {status: 'online'});
-    toast('Είσαι online 🟢');
-    R.chat();
-  };
-  const re = $('#chReasonEdit'); if (re) { re.onclick = () => goOffline(d.myReason); }
+  $('#chSt').onclick = () => window.CNP.statusPicker();
+  const re = $('#chReasonEdit'); if (re) { re.onclick = () => window.CNP.statusPicker(); }
   $$('.ch-row[data-ch]').forEach(r => r.onclick = e => {
     if (e.target.closest('[data-gdel]')) return;
     st.ch = r.dataset.ch; st.lastId = 0; st.mobileConv = true; R.chat();   // mobile: άνοιξε τη συνομιλία full-screen
@@ -1214,12 +1333,13 @@ R.chat = async function () {
       const div = document.createElement('div');
       div.className = 'ch-m' + (m.by === S.boot.me.id ? ' me' : '');
       div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>
-        ${m.body ? esc(m.body).replace(/\n/g, '<br>') : ''}
+        ${m.body ? cnpMsgHtml(m.body) : ''}
         ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${fu}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
           <a class="ch-dl" href="${fu}&dl=1" download="${esc(m.file.name)}" title="Λήψη αρχείου">${I.download} Λήψη</a>
           ${m.file.kind === 'video' ? `<video src="${fu}" controls preload="metadata" style="width:100%;max-width:340px;max-height:240px;border-radius:8px;background:#000;margin-top:5px"></video>` : m.file.kind === 'image' ? `<img src="${fu}" loading="lazy" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:5px;display:block">` : ''}</div>`; })() : ''}`;
       box.appendChild(div);
+      cnpWireMsgLinks(div);
     });
     if (msgs.length && (stick || st.lastId === msgs[msgs.length - 1].id)) box.scrollTop = box.scrollHeight;
   };
@@ -1232,26 +1352,91 @@ R.chat = async function () {
     if (r && r.messages.length) render(r.messages);
     else if (st.lastId === 0) { const b = $('#chMsgs'); if (b) b.innerHTML = '<div class="empty" style="margin:auto">Καμία συζήτηση ακόμη — πες ένα γεια 👋</div>'; st.lastId = -1; }
   };
+  /* ── Επικόλληση στιγμιότυπου (Ctrl+V) ────────────────────────────────────
+     Ό,τι κόβεις από την οθόνη μπαίνει εδώ ως μικρογραφία και φεύγει με το
+     μήνυμα. Δέχεται και σύρσιμο αρχείων. Το ✕ τη διώχνει πριν σταλεί. */
+  const pend = [];
+  const paintPend = () => {
+    const box = $('#chPaste'); if (!box) { return; }
+    box.hidden = !pend.length;
+    box.innerHTML = pend.map((f, i) => `<div class="ch-thumb">
+      <img src="${f._url}" alt="${esc(f.name)}">
+      <span class="nm">${esc(f.name)}</span>
+      <button class="x" data-rm="${i}" title="Αφαίρεση">✕</button></div>`).join('');
+    $$('[data-rm]', box).forEach(b => b.onclick = () => {
+      const i = +b.dataset.rm;
+      URL.revokeObjectURL(pend[i]._url); pend.splice(i, 1); paintPend();
+    });
+  };
+  const addPend = file => {
+    if (!file || !/^image\//.test(file.type)) { return false; }
+    if (file.size > 50 * 1024 * 1024) { toast('Μέγιστο 50MB', true); return true; }
+    const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
+    const z = n => String(n).padStart(2, '0');
+    const d0 = new Date();
+    const stamp = d0.getFullYear() + z(d0.getMonth() + 1) + z(d0.getDate())
+      + '-' + z(d0.getHours()) + z(d0.getMinutes()) + z(d0.getSeconds());
+    const nf = new File([file], file.name && file.name !== 'image.png' ? file.name
+      : 'screenshot-' + stamp + '.' + ext, {type: file.type});
+    nf._url = URL.createObjectURL(nf);
+    pend.push(nf); paintPend();
+    return true;
+  };
+  const sendOne = async (body, file) => {
+    const fd = new FormData();
+    fd.append('channel', st.ch); fd.append('body', body); fd.append('file', file);
+    const r = await fetch('api.php?a=chat_send', {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(x => x.json()).catch(() => ({error: 'Απέτυχε η αποστολή'}));
+    if (r.error) { toast(r.error, true); return false; }
+    return true;
+  };
   const send = async () => {
     const body = $('#chIn').value.trim();
     const f = $('#chFile').files[0];
-    if (!body && !f) return;
-    if (f) {
-      const fd = new FormData();
-      fd.append('channel', st.ch); fd.append('body', body); fd.append('file', f);
-      const r = await fetch('api.php?a=chat_send', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json());
-      if (r.error) { toast(r.error, true); return; }
-      $('#chFile').value = ''; $('#chFn').textContent = '';
-    } else {
-      await api('chat_send', {channel: st.ch, body});
-    }
-    $('#chIn').value = '';
-    if (st.lastId === -1) st.lastId = 0;
-    load();
+    if (!body && !f && !pend.length) return;
+    const btn = $('#chSend'); if (btn) { btn.disabled = true; }
+    try {
+      let txt = body;
+      for (const p of pend.slice()) {          // το κείμενο πάει με την πρώτη εικόνα
+        if (!await sendOne(txt, p)) { return; }
+        txt = '';
+        URL.revokeObjectURL(p._url);
+      }
+      pend.length = 0; paintPend();
+      if (f) {
+        if (!await sendOne(txt, f)) { return; }
+        txt = '';
+        $('#chFile').value = ''; $('#chFn').textContent = '';
+      } else if (txt) {
+        await api('chat_send', {channel: st.ch, body: txt});
+      }
+      $('#chIn').value = '';
+      if (st.lastId === -1) st.lastId = 0;
+      load();
+    } finally { if (btn) { btn.disabled = false; } }
   };
   $('#chSend').onclick = send;
   $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
   $('#chFile').onchange = () => { $('#chFn').textContent = $('#chFile').files[0]?.name || ''; };
+  $('#chIn').onpaste = e => {
+    const items = [...((e.clipboardData || {}).items || [])];
+    let took = false;
+    items.forEach(it => {
+      if (it.kind === 'file') { took = addPend(it.getAsFile()) || took; }
+    });
+    if (took) { e.preventDefault(); }
+  };
+  { /* σύρσιμο εικόνας πάνω στη συνομιλία */
+    const drop = $('.ch-comp-wrap');
+    if (drop) {
+      drop.ondragover = e => { e.preventDefault(); drop.style.background = 'var(--hover)'; };
+      drop.ondragleave = () => { drop.style.background = ''; };
+      drop.ondrop = e => {
+        e.preventDefault(); drop.style.background = '';
+        [...(e.dataTransfer.files || [])].forEach(addPend);
+      };
+    }
+  }
   if (st.lastId === -1) st.lastId = 0;
   st.lastId = 0;
   load();
@@ -1275,10 +1460,7 @@ R.chat = async function () {
         const dot = row.querySelector('.ch-av-dot');
         if (dot) { dot.className = 'ch-av-dot ' + (ch.status || 'online'); }
         const sub = row.querySelector('.ch-row-sub');
-        if (sub) {
-          sub.textContent = ch.reason ? ch.reason
-            : (ch.status === 'offline' ? 'Offline' : ch.status === 'away' ? 'Away' : 'Online');
-        }
+        if (sub) { sub.innerHTML = (ch.mute ? '🔕 ' : '') + chLbl(ch); }
       }
       /* Τα αδιάβαστα αλλάζουν κι αυτά ενώ κοιτάς — ενημέρωσέ τα μαζί. */
       let n = row.querySelector('.chat-n');

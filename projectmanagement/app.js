@@ -123,6 +123,22 @@ function toast(msg, err) {
   t.innerHTML = (err ? '⚠️ ' : '✓ ') + esc(msg); w.appendChild(t);
   setTimeout(() => { t.style.opacity = 0; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, 2600);
 }
+/** Toast με κουμπιά — για ενέργειες που έγιναν μόνες τους και θέλουν αναίρεση. */
+function toastDo(msg, actions, ms) {
+  let w = $('#toasts'); if (!w) { w = document.createElement('div'); w.id = 'toasts'; document.body.appendChild(w); }
+  const t = document.createElement('div');
+  t.className = 'toast toast-do';
+  t.innerHTML = '<span>' + esc(msg) + '</span>'
+    + (actions || []).map((a, i) => `<button data-ta="${i}">${esc(a.label)}</button>`).join('');
+  w.appendChild(t);
+  const kill = () => { t.style.opacity = 0; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); };
+  (actions || []).forEach((a, i) => {
+    const b = t.querySelector(`[data-ta="${i}"]`);
+    if (b) { b.onclick = () => { kill(); if (a.on) { a.on(); } }; }
+  });
+  setTimeout(kill, ms || 9000);
+}
+
 /* ── Ένα σφάλμα JS δεν επιτρέπεται να είναι αόρατο ───────────────────────────
    Αν σκάσει μέσα σε handler, η οθόνη συνεχίζει να ΦΑΙΝΕΤΑΙ σωστή αλλά δεν
    αποθηκεύει τίποτα — και ο χειριστής νομίζει ότι φταίει αυτός («ό,τι κι αν
@@ -381,6 +397,7 @@ function renderShell() {
     miniMenu($('#newBtn'), [
       {icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()},
       {icon: I.target, label: 'Νέο lead', on: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
+      {icon: I.users, label: 'Νέα σύσκεψη', on: () => newMeeting()},
       {icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall()},
       {icon: I.alert, label: 'Παράπονο πελάτη', on: () => window.CNP.quickCx && window.CNP.quickCx()},
       {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => go('time')},
@@ -388,30 +405,159 @@ function renderShell() {
     ]);
   };
   // ── Κατάσταση διαθεσιμότητας ──
-  $('#statusBtn').onclick = e => {
-    e.stopPropagation();
-    const opts = [['online', 'Online', 'var(--ok)', ''], ['meeting', 'Σε meeting', '#e0a020', 'Σε meeting'],
-      ['busy', 'Απασχολημένος', '#e0552b', 'Απασχολημένος'], ['offline', 'Offline', '#8291a9', 'Μη διαθέσιμος']];
-    miniMenu($('#statusBtn'), opts.map(([k, lbl, col, reason]) => ({dot: col, label: lbl, on: async () => {
-      await api('chat_status', {status: k === 'online' ? 'online' : 'offline', reason});
-      setStatusUI(k === 'online' ? 'online' : 'offline', lbl, col);
-    }})));
-  };
+  $('#statusBtn').onclick = e => { e.stopPropagation(); statusPicker(); };
   loadTopStats();
   if (!window._cnpTopTimer) { window._cnpTopTimer = setInterval(loadTopStats, 60000); }
   updateBell(S.boot.unread);
 }
-function setStatusUI(status, lbl, col) {
-  const dot = $('#statusDot'), l = $('#statusLbl'); if (!dot) return;
-  dot.style.background = status === 'online' ? 'var(--ok)' : (col || '#8291a9');
-  l.textContent = status === 'online' ? 'Online' : (lbl || 'Offline');
+/* ═══ ΚΑΤΑΣΤΑΣΗ ΔΙΑΘΕΣΙΜΟΤΗΤΑΣ ════════════════════════════════════════════════
+   Η κατάσταση δηλώνεται με το χέρι και ισχύει όπως δηλώθηκε — δεν «βγαίνει» μόνη
+   της. Ο αυτόματος παλμός μπαίνει μόνο όταν δεν έχει δηλωθεί τίποτα. Γι' αυτό
+   κάθε δήλωση έχει και διάρκεια: λήγει μόνη της, ώστε να μη μείνει ξεχασμένη. */
+const CNP_ST = [
+  ['online', 'Διαθέσιμος', '#16a26a', 'Δουλεύω κανονικά — γράψτε μου'],
+  ['busy', 'Απασχολημένος', '#e0552b', 'Μη με ενοχλείτε — σιγάζουν οι ειδοποιήσεις'],
+  ['meeting', 'Σε σύσκεψη', '#e0a020', 'Σε κλήση ή ραντεβού — σιγάζουν οι ειδοποιήσεις'],
+  ['away', 'Λείπω', '#8595ac', 'Διάλειμμα, γυρίζω σε λίγο'],
+  ['offline', 'Εκτός', '#5d6b85', 'Τέλος ωραρίου — σιγάζουν οι ειδοποιήσεις'],
+];
+const CNP_ST_REASONS = {
+  online: ['Στο γραφείο', 'Τηλεργασία'],
+  busy: ['Deep work', 'Σε άλλον πελάτη', 'Επείγον περιστατικό'],
+  meeting: ['Σύσκεψη ομάδας', 'Κλήση πελάτη', 'Ραντεβού εκτός'],
+  away: ['Διάλειμμα φαγητού', 'Σύντομο διάλειμμα', 'Σε μετακίνηση'],
+  offline: ['Τέλος ωραρίου', 'Άδεια / ασθένεια', 'Εκτός γραφείου'],
+};
+const CNP_ST_DUR = [['0', 'μέχρι να το αλλάξω'], ['30', '30 λεπτά'], ['60', '1 ώρα'],
+  ['120', '2 ώρες'], ['240', '4 ώρες'], ['eod', 'μέχρι το τέλος της ημέρας']];
+const cnpStDef = k => CNP_ST.find(x => x[0] === k) || CNP_ST[0];
+
+/** Ζωγραφίζει την κουκκίδα/ετικέτα στην πάνω μπάρα από ένα αντικείμενο presence. */
+/** «+ Νέο → Νέα σύσκεψη»: ανοίγει τη φόρμα με λογική προεπιλογή ώρας. */
+function newMeeting() {
+  if (!cnpCan('team.calendar.edit')) { toast('Δεν έχεις δικαίωμα δημιουργίας — χρειάζεται «Ημερολόγιο → Επεξεργασία»', true); return; }
+  const n = new Date();
+  n.setMinutes(n.getMinutes() < 30 ? 30 : 60, 0, 0);     // επόμενο μισάωρο
+  const p2 = x => String(x).padStart(2, '0');
+  const fmt = d2 => d2.getFullYear() + '-' + p2(d2.getMonth() + 1) + '-' + p2(d2.getDate())
+    + 'T' + p2(d2.getHours()) + ':' + p2(d2.getMinutes());
+  const e2 = new Date(n.getTime() + 3600000);
+  window.CNP.openEvent({kind: 'meeting', start: fmt(n), end: fmt(e2), attendees: [S.boot.me.id]});
+}
+
+function setStatusUI(p) {
+  const dot = $('#statusDot'), l = $('#statusLbl'), b = $('#statusBtn');
+  if (!dot || !p) { return; }
+  dot.style.background = p.color || cnpStDef(p.status)[2];
+  l.innerHTML = esc(p.label || cnpStDef(p.status)[1])
+    + (p.manual ? '' : ' <span class="st-tag">auto</span>');
+  if (b) {
+    b.title = (p.manual ? 'Το δήλωσες εσύ — αυτόματο: OFF' : 'Αυτόματο: ON — από τον παλμό της εφαρμογής')
+      + (p.reason ? ' · ' + p.reason : '') + (p.untilTxt ? ' · ' + p.untilTxt : '');
+    b.classList.toggle('is-manual', !!p.manual);
+  }
+  window._cnpPresence = p;
+}
+
+/** Ο διάλογος επιλογής: κατάσταση + λόγος + διάρκεια. */
+function statusPicker() {
+  const cur = window._cnpPresence || {status: 'online', manual: false, reason: '', until: 0};
+  let pick = cur.manual ? cur.status : 'online';
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+  ovl.innerHTML = `<div class="pal-box st-box" style="margin:10vh auto 0;max-width:430px" role="dialog" onclick="event.stopPropagation()">
+    <div class="st-head"><b>Η κατάστασή μου</b>
+      <div class="mut">Την επιλέγεις εσύ — η ομάδα βλέπει ακριβώς ό,τι δηλώσεις.</div></div>
+    <button class="st-auto" id="stAuto" role="switch">
+      <span class="sw"><span class="sw-k"></span></span>
+      <span class="st-t"><b>Αυτόματη κατάσταση <span class="sw-v" id="stAutoV"></span></b>
+        <span class="mut" id="stAutoH"></span></span></button>
+    <div class="st-list" id="stList">${CNP_ST.map(([k, lbl, col, hint]) => `
+      <button class="st-opt${k === pick ? ' on' : ''}" data-st="${k}">
+        <span class="dot" style="background:${col}"></span>
+        <span class="st-t"><b>${esc(lbl)}</b><span class="mut">${esc(hint)}</span></span>
+        <span class="st-chk">✓</span></button>`).join('')}</div>
+    <div class="st-form">
+      <label>Λόγος <span class="mut">(προαιρετικό — φαίνεται δίπλα στο όνομά σου)</span></label>
+      <div class="st-chips" id="stChips"></div>
+      <input class="inp" id="stReason" maxlength="80" placeholder="…ή γράψε δικό σου" value="${esc(cur.manual ? (cur.reason || '') : '')}">
+      <div id="stDurBox">
+        <label style="margin-top:11px">Για πόσο</label>
+        <select class="inp" id="stDur">${CNP_ST_DUR.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="st-foot">
+      <span style="flex:1"></span>
+      <button class="btn btn-o" id="stCancel">Άκυρο</button>
+      <button class="btn btn-p" id="stOk">Εφαρμογή</button></div></div>`;
+  document.body.appendChild(ovl);
+  /* Ο λόγος και η διάρκεια ανήκουν στην κατάσταση που διάλεξες: αλλάζεις
+     κατάσταση → καθαρίζουν. Αν γυρίσεις πίσω μέσα στον ίδιο διάλογο, βρίσκεις
+     ό,τι είχες γράψει — δεν ξαναπληκτρολογείς. */
+  const mem = {};
+  if (cur.manual) { mem[cur.status] = {r: cur.reason || '', d: '0'}; }
+  const stash = () => { mem[pick] = {r: $('#stReason', ovl).value, d: $('#stDur', ovl).value}; };
+  const chips = () => {
+    $('#stChips', ovl).innerHTML = (CNP_ST_REASONS[pick] || []).map(r =>
+      `<button class="btn btn-o btn-sm stR" data-r="${esc(r)}">${esc(r)}</button>`).join('');
+    $$('.stR', ovl).forEach(b => b.onclick = () => { $('#stReason', ovl).value = b.dataset.r; });
+  };
+  let auto = !cur.manual;                 // ON = αποφασίζει ο παλμός · OFF = το δηλώνω εγώ
+  const paintAuto = () => {
+    const btn = $('#stAuto', ovl);
+    btn.classList.toggle('on', auto);
+    btn.setAttribute('aria-checked', auto ? 'true' : 'false');
+    $('#stAutoV', ovl).textContent = auto ? 'ON' : 'OFF';
+    $('#stAutoH', ovl).textContent = auto
+      ? 'Αποφασίζει η εφαρμογή από τον παλμό σου — τώρα: ' + (cur.label || 'Διαθέσιμος')
+      : 'Ισχύει ό,τι διαλέξεις παρακάτω';
+    $('#stList', ovl).classList.toggle('off', auto);
+    $('.st-form', ovl).classList.toggle('off', auto);
+  };
+  const sel = k => {
+    if (auto) { auto = false; paintAuto(); }   // διαλέγεις → το αυτόματο κλείνει
+    if (k === pick) { return; }
+    stash();
+    pick = k;
+    $$('.st-opt', ovl).forEach(o => o.classList.toggle('on', o.dataset.st === k));
+    const m = mem[k] || {r: '', d: '0'};
+    $('#stReason', ovl).value = m.r;
+    $('#stDur', ovl).value = m.d;
+    /* «Διαθέσιμος για 30 λεπτά» δεν σημαίνει τίποτα — η διάρκεια αφορά απουσία. */
+    $('#stDurBox', ovl).hidden = (k === 'online');
+    chips();
+  };
+  $$('.st-opt', ovl).forEach(o => o.onclick = () => sel(o.dataset.st));
+  chips();
+  $('#stDurBox', ovl).hidden = (pick === 'online');
+  $('#stAuto', ovl).onclick = () => { auto = !auto; paintAuto(); };
+  /* Κάθε επέμβαση στον λόγο ή στη διάρκεια σημαίνει «το αναλαμβάνω εγώ». */
+  const offAuto = () => { if (auto) { auto = false; paintAuto(); } };
+  $('#stReason', ovl).onfocus = offAuto;
+  $('#stDur', ovl).onchange = offAuto;
+  paintAuto();
+  const close = () => ovl.remove();
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+  $('#stCancel', ovl).onclick = close;
+  const apply = async body => {
+    const r = await api('chat_status', body).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    close();
+    setStatusUI(r.presence);
+    toast(r.presence.manual
+      ? '● ' + r.presence.label + (r.presence.reason ? ' · ' + r.presence.reason : '')
+        + (r.presence.untilTxt ? ' (' + r.presence.untilTxt + ')' : '')
+      : 'Αυτόματη κατάσταση');
+    if (S.view === 'chat' && window.R && window.R.chat) { window.R.chat(); }
+  };
+  $('#stOk', ovl).onclick = () => apply(auto ? {status: 'auto'} : {status: pick,
+    reason: $('#stReason', ovl).value.trim(),
+    mins: pick === 'online' ? '0' : $('#stDur', ovl).value});
 }
 async function loadTopStats() {
   const box = $('#topPulse'); if (!box) return;
   const d = await api('topstats').catch(() => null); if (!d) return;
-  const rmap = {'Σε meeting': ['Σε meeting', '#e0a020'], 'Απασχολημένος': ['Απασχολημένος', '#e0552b']};
-  if (d.status === 'online') { setStatusUI('online'); }
-  else { const r = rmap[d.reason] || [d.reason || 'Offline', '#8291a9']; setStatusUI('offline', r[0], r[1]); }
+  if (d.presence) { setStatusUI(d.presence); }
   const chips = [
     {k: 'inbox', ic: I.ticket, n: d.tickets, lbl: 'tickets', col: '#0097e4'},
     {k: 'inbox', ic: I.alert, n: d.sla, lbl: 'SLA', col: '#e0552b', warn: 1},
@@ -435,8 +581,12 @@ async function loadTopStats() {
 
 /* Η ουρά εγκρίσεων χρέωσης — εγκρίνεις επί τόπου, χωρίς να ανοίξεις κάθε καρτέλα. */
 async function billingQueue() {
+  /* Ο αυτόματος έλεγχος και το κλικ στο chip μπορούν να συμπέσουν — ένα παράθυρο
+     αρκεί, δύο στοιβαγμένα είναι σκέτη σύγχυση. */
+  if (document.querySelector('#bqBox')) { return; }
   const d = await api('billing_pending').catch(() => null);
   if (!d || !d.mine || !d.items.length) { return; }
+  if (document.querySelector('#bqBox')) { return; }
   const ovl = document.createElement('div');
   ovl.className = 'ovl show'; ovl.style.zIndex = 320;
   const row = i => `<div class="bq-row" data-bq="${i.id}">
@@ -446,9 +596,10 @@ async function billingQueue() {
     </div>
     <span class="pill pill-warn" style="white-space:nowrap">${fmtMin(i.mins)}</span>
     <button class="btn btn-sm btn-p" data-bqok="${i.id}">Έγκριση</button>
-    <a class="btn btn-sm btn-o" href="#/task/${i.id}" data-bqopen>Άνοιγμα</a>
+    <button class="btn btn-sm btn-o" data-bqno="${i.id}" title="Δεν χρεώνεται — κλείνει το θέμα">Χωρίς χρέωση</button>
+    <button class="btn btn-sm btn-o" data-bqopen="${i.id}">Άνοιγμα</button>
   </div>`;
-  ovl.innerHTML = `<div class="pal-box" style="margin:12vh auto 0;max-width:620px" role="dialog">
+  ovl.innerHTML = `<div class="pal-box" id="bqBox" style="margin:12vh auto 0;max-width:620px" role="dialog">
     <div style="padding:20px 22px 18px">
       <b style="font-size:15.5px;color:var(--ink)">${I.coin} Εκκρεμούν εγκρίσεις χρέωσης</b>
       <div class="mut" style="font-size:12px;margin-top:5px">Αυτές οι εργασίες <b>δεν κλείνουν</b> πριν εγκρίνεις τη χρέωση.</div>
@@ -460,7 +611,25 @@ async function billingQueue() {
   document.body.appendChild(ovl);
   const shut = () => ovl.remove();
   $('#bqClose', ovl).onclick = shut;
-  $$('[data-bqopen]', ovl).forEach(a => a.onclick = shut);
+  /* Πριν ήταν <a href="#/task/N">: η αλλαγή hash ΔΕΝ άνοιγε την εργασία (ο router
+     ψάχνει «οθόνη», και «task» δεν είναι οθόνη) — γι' αυτό χρειαζόταν refresh.
+     Τώρα ανοίγει κατευθείαν την καρτέλα. */
+  $$('[data-bqopen]', ovl).forEach(a => a.onclick = () => { shut(); openTask(+a.dataset.bqopen); });
+  $$('[data-bqno]', ovl).forEach(b => b.onclick = async () => {
+    const id = +b.dataset.bqno;
+    const why = await cnpDialog({title: 'Χωρίς χρέωση;',
+      body: 'Ο χρόνος θα γίνει μη χρεώσιμος και το αίτημα φεύγει από την ουρά.\nΑν έχει ήδη περάσει στο πακέτο του πελάτη, αναιρείται.',
+      input: '', placeholder: 'Λόγος (προαιρετικό) — π.χ. δικό μας bug', ok: 'Ναι, χωρίς χρέωση'});
+    if (why === null) { return; }
+    b.disabled = true; b.textContent = '…';
+    const r = await api('task_billing_none', {task: id, note: why}).catch(e => ({err: e.message}));
+    if (r && r.err) { toast(r.err, true); b.disabled = false; b.textContent = 'Χωρίς χρέωση'; return; }
+    const line = ovl.querySelector(`[data-bq="${id}"]`);
+    if (line) { line.remove(); }
+    toast('Χωρίς χρέωση — το θέμα έκλεισε');
+    if (!$$('[data-bq]', ovl).length) { shut(); }
+    loadTopStats();
+  });
   $$('[data-bqok]', ovl).forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = '…';
     const r = await api('task_billing_ok', {task: +b.dataset.bqok, ok: true}).catch(e => ({err: e.message}));
@@ -526,6 +695,64 @@ function chatPop(m) {
     window.addEventListener('focus', stopChatTitle, {once: true});
   }
 }
+/* ═══ ΠΡΟΣΚΛΗΣΗ ΣΕ ΣΥΣΚΕΨΗ — δυνατά, με απάντηση επί τόπου ═══════════════════
+   Μια πρόσκληση δεν πρέπει να περιμένει να κοιτάξεις καμπανάκι. Κάρτα που
+   μένει μέχρι να απαντήσεις (δεν σβήνει μόνη της), με ήχο και αναβοσβήνον
+   τίτλο — και με τα «Θα είμαι εκεί / Δεν μπορώ» πάνω της, ώστε να μη χρειάζεται
+   να ανοίξεις τίποτα. Η υπενθύμιση πριν την έναρξη φέρνει το κουμπί συμμετοχής. */
+function meetPop(a) {
+  if (!a || !a.id) { return; }
+  window._cnpMeetPop_ = window._cnpMeetPop_ || {};
+  const key = a.id + ':' + a.alert;
+  if (window._cnpMeetPop_[key]) { return; }
+  window._cnpMeetPop_[key] = 1;
+  const seen = () => api('event_alert_seen', {id: a.id, alert: a.alert}).catch(() => {});
+  let w = $('#chatPops');
+  if (!w) { w = document.createElement('div'); w.id = 'chatPops'; document.body.appendChild(w); }
+  const soon = a.alert === 'soon';
+  const el = document.createElement('div');
+  el.className = 'chat-pop meet-pop' + (soon ? ' soon' : '');
+  el.innerHTML = `<div class="cp-h"><span class="mp-ic">${soon ? '⏰' : '📅'}</span>
+      <b>${soon ? (a.inMin > 0 ? 'Σε ' + a.inMin + '΄ αρχίζει' : 'Αρχίζει τώρα') : 'Πρόσκληση σε σύσκεψη'}</b>
+      <span style="flex:1"></span><button class="cp-x" title="Κλείσιμο">✕</button></div>
+    <div class="cp-b"><b class="mp-t">${esc(a.title)}</b>
+      <div class="mp-meta">${esc(a.whenTxt)}${a.how ? ' · ' + esc(a.how) : ''}</div>
+      ${a.client ? `<div class="mp-meta">👤 ${esc(a.client)}</div>` : ''}
+      ${!soon && a.by ? `<div class="mp-meta">από ${esc(a.by)}</div>` : ''}</div>
+    <div class="cp-f">
+      ${soon
+        ? (a.join ? `<button class="btn btn-sm btn-p" data-go="join">${a.mode === 'phone' ? I.phone : I.video} Συμμετοχή</button>` : '')
+          + `<button class="btn btn-sm btn-o" data-go="open">Άνοιγμα</button>`
+        : `<button class="btn btn-sm btn-p" data-go="acc">✔ Θα είμαι εκεί</button>
+           <button class="btn btn-sm btn-o" data-go="dec">✖ Δεν μπορώ</button>
+           <button class="btn btn-sm btn-o" data-go="open">Λεπτομέρειες</button>`}
+    </div>`;
+  w.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const kill = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 220); };
+  el.querySelector('.cp-x').onclick = () => { seen(); kill(); };
+  el.querySelectorAll('[data-go]').forEach(b => b.onclick = async () => {
+    const go2 = b.dataset.go;
+    if (go2 === 'acc' || go2 === 'dec') {
+      await api('event_rsvp', {id: a.id, status: go2 === 'acc' ? 'accepted' : 'declined'}).catch(() => {});
+      toast(go2 === 'acc' ? '✔ Δήλωσες συμμετοχή — η κατάστασή σου θα γίνει «Σε σύσκεψη» την ώρα της'
+        : 'Καταγράφηκε ότι δεν μπορείς');
+    } else if (go2 === 'join' && a.join) {
+      if (a.mode === 'phone') { location.href = 'tel:' + String(a.join).replace(/\s/g, ''); }
+      else { window.open(a.join, '_blank'); }
+    } else { go('calendar'); }
+    seen(); kill(); stopChatTitle();
+  });
+  if (soon) { setTimeout(() => { seen(); kill(); }, 60000); }   // η υπενθύμιση φεύγει μόνη
+  chatBeep();
+  if (!chatTitleTimer) {
+    let on = false;
+    const txt = soon ? '⏰ Σύσκεψη τώρα' : '📅 Πρόσκληση σε σύσκεψη';
+    chatTitleTimer = setInterval(() => { on = !on; document.title = on ? txt : CHAT_TITLE0; }, 1100);
+    window.addEventListener('focus', stopChatTitle, {once: true});
+  }
+}
+
 function stopChatTitle() {
   if (chatTitleTimer) { clearInterval(chatTitleTimer); chatTitleTimer = null; document.title = CHAT_TITLE0; }
 }
@@ -1035,14 +1262,102 @@ async function rteProof(ed, btn) {
   };
 }
 
-// επικόλληση: πάντα ΧΩΡΙΣ μορφοποίηση από Word/σελίδες (αλλιώς μπαίνουν styles/fonts)
+/**
+ * Ανεβάζει εικόνα του προχείρου και τη βάζει ΜΕΣΑ στο κείμενο.
+ * Κοινό για όλα τα πεδία πλούσιου κειμένου (ζητούμενο, ενέργειες, σημειώσεις).
+ * Κρατάμε τη θέση του δρομέα πριν το ανέβασμα και την επαναφέρουμε μετά — αλλιώς
+ * η εικόνα θα προσγειωνόταν στην αρχή ή έξω από το πεδίο.
+ */
+async function cnpPasteImage(el, file) {
+  if (!file) { return false; }
+  const sel = window.getSelection();
+  const range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  toast('Ανέβασμα εικόνας…');
+  const fd = new FormData();
+  fd.append('module', 'task'); fd.append('ref_type', 'rte'); fd.append('ref_id', '0');
+  fd.append('file', file);
+  const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
+    .then(x => x.json()).catch(() => null);
+  if (!r || !r.file) { toast('Η εικόνα δεν ανέβηκε', true); return false; }
+  el.focus();
+  if (range) { sel.removeAllRanges(); sel.addRange(range); }
+  document.execCommand('insertHTML', false,
+    `<img src="api.php?a=file_get&id=${r.file.id}" alt="${esc(r.file.name || '')}">`);
+  if (window.CNP_markDirty) { window.CNP_markDirty(el); }
+  return true;
+}
+/** Η εικόνα μέσα σε ένα paste event, αν υπάρχει. */
+function cnpClipImage(e) {
+  const items = [...(((e.clipboardData || window.clipboardData) || {}).items || [])];
+  const it = items.find(x => x.type && x.type.startsWith('image/'));
+  return it ? it.getAsFile() : null;
+}
+
+/* Επικόλληση σε πεδίο πλούσιου κειμένου:
+   — εικόνα → ανεβαίνει και μπαίνει στη ροή (ίδια συμπεριφορά με τις Ενέργειες)
+   — κείμενο → ΠΑΝΤΑ χωρίς μορφοποίηση από Word/σελίδες (αλλιώς μπαίνουν styles/fonts) */
 document.addEventListener('paste', e => {
   const ed = e.target.closest && e.target.closest('.rte');
   if (!ed) { return; }
+  const img = cnpClipImage(e);
+  if (img) { e.preventDefault(); cnpPasteImage(ed, img); return; }
   e.preventDefault();
   const t = (e.clipboardData || window.clipboardData).getData('text/plain');
   document.execCommand('insertText', false, t);
 }, true);
+
+/* ═══ ΚΕΙΜΕΝΟ ΜΗΝΥΜΑΤΟΣ → ΠΑΤΗΣΙΜΟ ΠΕΡΙΕΧΟΜΕΝΟ ════════════════════════════════
+   Ένα link προς εργασία μέσα σε μήνυμα δεν έχει νόημα ως κείμενο: ο συνάδελφος
+   θέλει να ΤΟ ΑΝΟΙΞΕΙ, όχι να αντιγράψει URL και να αλλάξει παράθυρο. Ό,τι
+   δείχνει μέσα στην εφαρμογή ανοίγει ΕΔΩ· ό,τι είναι απ' έξω ανοίγει σε νέα
+   καρτέλα. Γράφουμε μόνο <b> και <a> — το υπόλοιπο μένει escaped. */
+function cnpMsgHtml(text) {
+  const raw = String(text || '');
+  let h = esc(raw);
+  /* **έντονα** — έτσι τα στέλνει το «Στείλε εργασία» */
+  h = h.replace(/\*\*([^*\n]{1,200})\*\*/g, (m, x) => '<b>' + x + '</b>');
+  /* Σύνδεσμοι. Το esc έχει ήδη κάνει & → &amp;, γι' αυτό το βλέπουμε κι έτσι. */
+  h = h.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]}"'])|(?:^|\s)(#\/\w+(?:\/\d+)?)/g, (m, url, hash) => {
+    const pre = url ? '' : m.slice(0, m.length - hash.length);
+    const u = url || hash;
+    const inApp = /\/project(?:management)?\/?#\//.test(u) || /^#\//.test(u);
+    if (inApp) {
+      const r = /#\/(\w+)(?:\/(\d+))?/.exec(u);
+      if (r) {
+        const view = r[1], id = r[2] || '';
+        const label = view === 'task' && id ? 'Άνοιγμα εργασίας #' + id
+          : view === 'task' ? 'Άνοιγμα εργασίας'
+          : 'Άνοιγμα: ' + view;
+        return pre + `<a class="msg-go" href="${u}" data-view="${view}" data-id="${id}">`
+          + I.link + ' ' + label + '</a>';
+      }
+    }
+    return pre + `<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\//, '')}</a>`;
+  });
+  return h.replace(/\n/g, '<br>');
+}
+/** Δένει τα εσωτερικά links ενός κόμβου ώστε να ανοίγουν ΜΕΣΑ στην εφαρμογή. */
+function cnpWireMsgLinks(root) {
+  (root || document).querySelectorAll('a.msg-go:not([data-wired])').forEach(a => {
+    a.dataset.wired = '1';
+    a.onclick = e => {
+      e.preventDefault();
+      const view = a.dataset.view, id = +a.dataset.id || 0;
+      if (view === 'task' && id) { openTask(id); return; }
+      go(view, id || undefined);
+    };
+  });
+}
+
+/** Το ψηλότερο z-index ανοιχτού overlay — ώστε το επόμενο να μπει από πάνω. */
+function cnpTopZ() {
+  let z = 300;
+  document.querySelectorAll('.ovl, .drawer').forEach(el => {
+    const v = parseInt(getComputedStyle(el).zIndex, 10);
+    if (!isNaN(v) && v > z) { z = v; }
+  });
+  return z;
+}
 
 /* ═══ In-app διαλογικά (αντί για browser confirm/prompt) ═══ */
 function cnpDialog(opts) {
@@ -1050,8 +1365,15 @@ function cnpDialog(opts) {
     const o = Object.assign({title: '', body: '', ok: 'OK', cancel: 'Άκυρο', input: null, danger: false}, opts);
     const ovl = document.createElement('div');
     ovl.className = 'ovl show';
-    ovl.style.zIndex = 300;
-    ovl.innerHTML = `<div class="pal-box" style="margin:22vh auto 0;max-width:440px" role="dialog">
+    /* Ένας διάλογος επιβεβαίωσης πρέπει ΠΑΝΤΑ να κάθεται πάνω από αυτό που τον
+       κάλεσε. Με σταθερό z-index 300 άνοιγε πίσω από παράθυρα με μεγαλύτερο
+       (π.χ. η ουρά εγκρίσεων στο 320) και έμοιαζε να μην ανταποκρίνεται. */
+    ovl.style.zIndex = cnpTopZ() + 10;
+    /* noClose: ερώτηση που ΠΡΕΠΕΙ να απαντηθεί — χωρίς ✕, χωρίς ESC, χωρίς κλικ
+       έξω. Χρειάζεται όπου το «έκλεισα το παράθυρο» θα παρέκαμπτε κανόνα (π.χ.
+       η ερώτηση «ξεκινάς τον χρόνο;»: ο ✕ άφηνε την καρτέλα ξεκλείδωτη). */
+    ovl.innerHTML = `<div class="pal-box" style="margin:22vh auto 0;max-width:440px" role="dialog"
+      data-cnp-dlg="1"${o.noClose ? ' data-noclose="1"' : ''}>
       <div style="padding:20px 22px 18px">
         ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${o.title}</b>` : ''}
         ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap;max-height:46vh;overflow:auto">${o.body}</div>` : ''}
@@ -1070,7 +1392,8 @@ function cnpDialog(opts) {
     const done = v => { ovl.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
     const ok = () => done(o.input !== null ? (inp ? inp.value : '') : true);
     const onKey = e => {
-      if (e.key === 'Escape') { e.stopPropagation(); done(o.input !== null ? null : false); }
+      if (e.key === 'Escape' && !o.noClose) { e.stopPropagation(); done(o.input !== null ? null : false); }
+      if (e.key === 'Escape' && o.noClose) { e.stopPropagation(); e.preventDefault(); }
       if (e.key === 'Enter' && (!inp || document.activeElement === inp)) {
         if (o.rows && !(e.ctrlKey || e.metaKey)) { return; }   // πολυγραμμικό: Enter = νέα γραμμή
         e.preventDefault(); ok();
@@ -1488,7 +1811,12 @@ function askImplDates(info, me) {
    ο χειριστής δεν πρέπει να χάσει την κίνησή του για μια ημερομηνία. */
 async function cnpMoveTask(id, status, note) {
   const send = due => api('move_task', Object.assign({task: id, status, note: note || ''}, due ? {due} : {}))
-    .then(r => ({ok: !!r.ok}))
+    .then(r => {
+      /* Ο server σταματά το χρονόμετρο όταν αλλάζεις κατάσταση — πες το, με
+         δρόμο επιστροφής αν συνεχίζεις να δουλεύεις. */
+      if (r && r.timerStopped) { cnpTimerStoppedToast(id, r.timerStopped.mins); }
+      return {ok: !!r.ok};
+    })
     .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
   let r = await send(null);
   if (!r.ok && r.data && r.data.need === 'due') {
@@ -1692,7 +2020,8 @@ async function openTask(id) {
     ${t.done ? `<div class="card done-card"><div class="card-b">
       <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
       ${t.doneNote ? `<div class="done-note">${esc(t.doneNote)}</div>` : '<div class="mut" style="font-size:12px;margin-top:4px">Χωρίς σημείωμα.</div>'}
-      <div class="mut" style="font-size:12px;margin-top:7px">🔒 Κλειδωμένη — τίποτα δεν αλλάζει όσο είναι ολοκληρωμένη.</div>
+      <div class="mut" style="font-size:12px;margin-top:7px">🔒 Κλειδωμένη — τίποτα δεν αλλάζει όσο είναι ολοκληρωμένη.
+        Την πάτησες κατά λάθος; Το ξανάνοιγμα τη γυρίζει εκεί που ήταν.</div>
       <button class="btn btn-sm btn-p" id="dReopen" style="margin-top:9px">↩ Ξανάνοιγμα για επεξεργασία</button>
     </div></div>` : ''}
 
@@ -2026,10 +2355,11 @@ async function openTask(id) {
     if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); } else if (window.R && window.R[S.view]) { window.R[S.view](); }
   };
   const rop = $('#dReopen', dr); if (rop) rop.onclick = async () => {
-    const first = S.boot.statuses.find(x => !x.done);
-    if (!first) { return; }
-    await api('move_task', {task: id, status: first.id});
-    toast('Ξανάνοιξε'); openTask(id);
+    /* Ο server ξέρει πού ήταν πριν κλείσει — δεν τη ρίχνουμε στο Backlog. */
+    const r = await api('task_reopen', {task: id}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast('Ξανάνοιξε' + (r.statusTitle ? ' — επέστρεψε σε «' + r.statusTitle + '»' : ''));
+    openTask(id);
   };
   /* Το «περισσότερα» εμφανίζεται μόνο όταν το μήνυμα ξεπερνά το ύψος — αλλιώς
      θα ήταν κουμπί που δεν κάνει τίποτα. */
@@ -2279,17 +2609,12 @@ async function openTask(id) {
   };
   const wireEditor = el => {
     el.addEventListener('paste', async e => {
-      const items = [...(e.clipboardData || {}).items || []];
-      const img = items.find(x => x.type && x.type.startsWith('image/'));
-      if (!img) { return; }                       // απλό κείμενο → προεπιλογή
+      const f = cnpClipImage(e);
+      if (!f) { return; }                         // απλό κείμενο → προεπιλογή
       e.preventDefault();
-      const f = img.getAsFile(); if (!f) { return; }
       const hint = $('#chkHint', dr); if (hint) { hint.textContent = 'Ανέβασμα εικόνας…'; }
-      const up = await actUpload(f, 0);
+      await cnpPasteImage(el, f);
       if (hint) { hint.textContent = ''; }
-      if (!up) { toast('Η εικόνα δεν ανέβηκε', true); return; }
-      document.execCommand('insertHTML', false,
-        `<img src="api.php?a=file_get&id=${up.id}" alt="${esc(up.name || '')}">`);
       markDirty(el);
     });
     /* @όνομα: λίστα συναδέλφων επί τόπου. Η ειδοποίηση φεύγει από τον server
@@ -2475,6 +2800,7 @@ async function openTask(id) {
   if (!t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id]) {
     window._cnpTimerAsked_[id] = 1;
     const go2 = await cnpDialog({
+      noClose: true,             // ο ✕ άφηνε την καρτέλα ξεκλείδωτη — τώρα δεν υπάρχει
       title: '▶ Ξεκινάς τώρα αυτή την εργασία;',
       body: `«${t.title}»\n\nΑν ναι, ξεκινά ο χρόνος και μπορείς να δουλέψεις.\nΑν όχι, θα την ανοίξω μόνο για ανάγνωση.\n\nΑν τρέχει χρονόμετρο σε άλλη εργασία, θα σταματήσει.`,
       ok: '▶ Ναι, ξεκινάω', cancel: 'Όχι, μόνο θα δω'});
@@ -2491,11 +2817,14 @@ async function openTask(id) {
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
     banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>
-      <span class="mut">Δεν έχεις ξεκινήσει χρόνο σε αυτή την εργασία.</span>
+      <span class="mut">δεν τρέχει χρόνος</span>
       <span style="flex:1"></span>
       <button class="btn btn-sm btn-p" id="dViewStart">▶ Ξεκίνα τον χρόνο</button>`;
-    const body = dr.querySelector('.drawer-b');
-    if (body) { body.prepend(banner); }
+    /* ΜΕΣΑ στην κύρια στήλη, όχι στο .drawer-b: εκεί το flex το έκανε ΤΡΙΤΗ
+       στήλη και έπιανε ολόκληρο πλάτος δίπλα στο περιεχόμενο. Εδώ είναι μια
+       λεπτή λωρίδα πάνω από το ζητούμενο. */
+    const host = dr.querySelector('.tk-col-main') || dr.querySelector('.drawer-b');
+    if (host) { host.prepend(banner); }
     const vs = $('#dViewStart', dr);
     if (vs) { vs.onclick = async () => { await api('timer_start', {task: id}).catch(() => null); openTask(id); }; }
   }
@@ -2533,8 +2862,68 @@ function attCount(sum, n) {
 }
 
 /** Άμεσο κλείσιμο ΧΩΡΙΣ ερώτηση — το καλούν τα views ΜΕΤΑ από επιτυχή αποθήκευση. */
+/* ═══ ΠΟΤΕ ΣΤΑΜΑΤΑΕΙ ΜΟΝΟ ΤΟΥ ΤΟ ΧΡΟΝΟΜΕΤΡΟ ══════════════════════════════════
+   ΟΧΙ όταν κλείνει η καρτέλα: ο χειριστής ξεκινά τον χρόνο και φεύγει να
+   δουλέψει εκεί που πρέπει — σε server, σε πάνελ πελάτη, σε απομακρυσμένη
+   σύνδεση. Κλειστή καρτέλα δεν σημαίνει «σταμάτησε η δουλειά».
+   ΟΧΙ από αδράνεια: όσο δουλεύει έξω από την εφαρμογή δεν στέλνει παλμό — θα
+   κόβαμε ακριβώς τον χρόνο που όντως δούλεψε.
+   ΝΑΙ όταν δηλώσει νέα κατάσταση: αυτό είναι το «τελείωσα εδώ», ακόμη κι αν
+   ξέχασε το Stop. Το κάνει ο server· εδώ απλώς το λέμε, με δρόμο επιστροφής. */
+/** Ερώτηση (όχι κόψιμο) όταν ένα χρονόμετρο τρέχει πολλές ώρες. */
+function timerCheckPop(t) {
+  window._cnpTimerPop_ = window._cnpTimerPop_ || {};
+  if (window._cnpTimerPop_[t.task]) { return; }
+  window._cnpTimerPop_[t.task] = 1;
+  const hrs = fmtMin(t.mins);
+  let w = $('#chatPops');
+  if (!w) { w = document.createElement('div'); w.id = 'chatPops'; document.body.appendChild(w); }
+  const el = document.createElement('div');
+  el.className = 'chat-pop meet-pop soon';
+  el.innerHTML = `<div class="cp-h"><span class="mp-ic">⏱</span><b>Τρέχει ${esc(hrs)}</b>
+      <span style="flex:1"></span><button class="cp-x" title="Κλείσιμο">✕</button></div>
+    <div class="cp-b"><b class="mp-t">${esc(t.title || 'Εργασία #' + t.task)}</b>
+      <div class="mp-meta">ξεκίνησε ${esc(t.sinceTxt)} · ακόμα δουλεύεις πάνω της;</div></div>
+    <div class="cp-f">
+      <button class="btn btn-sm btn-o" data-tk="go">Ναι, συνεχίζω</button>
+      <button class="btn btn-sm btn-p" data-tk="stop">Σταμάτησέ το</button>
+      <button class="btn btn-sm btn-o" data-tk="open">Άνοιγμα</button></div>`;
+  w.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const kill = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 220); };
+  el.querySelector('.cp-x').onclick = kill;
+  el.querySelectorAll('[data-tk]').forEach(b => b.onclick = async () => {
+    const a = b.dataset.tk;
+    if (a === 'stop') {
+      const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null);
+      if (r) { cnpTimerStoppedToast(t.task, r.mins); }
+    } else if (a === 'open') { openTask(t.task); }
+    kill();
+  });
+  chatBeep();
+}
+
+function cnpTimerStoppedToast(taskId, mins) {
+  if (!mins) { return; }
+  toastDo('Ο χρόνος σταμάτησε: ' + fmtMin(mins), [
+    {label: '↩ Συνέχισε', on: async () => {
+      await api('timer_start', {task: taskId}).catch(() => null);
+      toast('Ο χρόνος μετράει ξανά');
+    }},
+    {label: 'Χρέωσέ το', on: async () => {
+      const lg = await api('task&id=' + taskId).catch(() => null);
+      const logs = (lg && lg.timelogs) || [];
+      const last = logs.length ? logs[logs.length - 1] : null;
+      if (!last) { toast('Δεν βρέθηκε η καταχώρηση', true); return; }
+      const rr = await api('time_bill', {id: last.id, billable: true}).catch(e => ({err: e.message}));
+      toast(rr && rr.err ? rr.err : 'Σημάνθηκε χρεώσιμο', !!(rr && rr.err));
+    }},
+  ]);
+}
+
 function closeDrawer() {
   clearInterval(timerInt);
+  /* Το κλείσιμο ΔΕΝ σταματά χρόνο — ο χειριστής συνεχίζει να δουλεύει αλλού. */
   $$('.ovl,.drawer').forEach(el => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); });
 }
 
@@ -2615,9 +3004,14 @@ new MutationObserver(ms => {
     ovl.addEventListener('click', ev => { if (ev.target === ovl) { ev.stopPropagation(); } }, true);
     const box = ovl.querySelector('.pal-box');
     if (!box || box.querySelector('.pal-x') || box.querySelector('.drawer-x')) { return; }
+    /* Ερώτηση χωρίς έξοδο διαφυγής: ΚΑΝΕΝΑ ✕. Ο χειριστής πρέπει να διαλέξει. */
+    if (box.dataset.noclose === '1') { return; }
     const x = document.createElement('button');
     x.className = 'pal-x'; x.type = 'button'; x.title = 'Κλείσιμο'; x.innerHTML = '✕';
-    x.onclick = () => cnpAskClose(box);
+    /* Σε διάλογο ερώτησης, το ✕ σημαίνει «Άκυρο» — αλλιώς το popup έφευγε χωρίς
+       να απαντήσει ποτέ η υπόσχεση και ο κώδικας πίσω του δεν εκτελούνταν. */
+    const noBtn = box.querySelector('#cnpDlgNo');
+    x.onclick = () => (noBtn ? noBtn.click() : cnpAskClose(box));
     box.style.position = box.style.position || 'relative';
     box.prepend(x);
   }));
@@ -2629,6 +3023,7 @@ document.addEventListener('keydown', e => {
   const boxes = document.querySelectorAll('.pal-box, .drawer');
   if (!boxes.length) { return; }
   const top = boxes[boxes.length - 1];
+  if (top.dataset && top.dataset.noclose === '1') { e.stopPropagation(); return; }
   if (top.closest('.ovl') && top.querySelector('#cnpDlgOk')) { return; }   // τα ίδια τα dialogs
   e.stopPropagation();
   cnpAskClose(top);
@@ -3349,8 +3744,10 @@ document.addEventListener('keydown', e => {
   }
 }, true);
 
-window.CNP = {S, api, esc, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
-  adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu, $, $$};
+window.CNP = {S, api, esc, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+  adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
+  statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop,
+  cnpMsgHtml, cnpWireMsgLinks, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {
@@ -3375,8 +3772,12 @@ window.CNP = {S, api, esc, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, 
   }
   window.addEventListener('hashchange', () => {
     const h = location.hash.match(/^#\/(\w+)(?:\/(\d+))?/);
+    if (!h) { return; }
+    /* «task» δεν είναι οθόνη — είναι καρτέλα. Χωρίς αυτό, ένα #/task/119 από
+       ειδοποίηση ή μήνυμα δεν άνοιγε τίποτα μέχρι να κάνεις refresh. */
+    if (h[1] === 'task' && h[2]) { openTask(+h[2]); return; }
     /* Και ίδια οθόνη με άλλο id είναι νέα πλοήγηση (πελάτης → έργο → τμήμα). */
-    if (h && (h[1] !== S.view || (h[2] || '') !== (S.viewArg || ''))) go(h[1], h[2]);
+    if (h[1] !== S.view || (h[2] || '') !== (S.viewArg || '')) { go(h[1], h[2]); }
   });
   document.getElementById('remoteChip').onclick = stopRemote;
   remoteRefresh();
@@ -3438,6 +3839,10 @@ window.CNP = {S, api, esc, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, 
       if (cnpNewBuild) { cnpMaybeReload(); }
       // 🆘 δυνατές εκκλήσεις βοήθειας — «κάνουν μπαμ» ό,τι κι αν κάνει ο χρήστης
       if (Array.isArray(d.alerts) && window.CNP.showHelpAlert) { d.alerts.forEach(a => window.CNP.showHelpAlert(a)); }
+      // 📅 προσκλήσεις σε σύσκεψη & υπενθύμιση πριν την έναρξη
+      if (Array.isArray(d.meetAlerts)) { d.meetAlerts.forEach(meetPop); }
+      // ⏱ «τρέχει πολλή ώρα — ακόμα δουλεύεις;»
+      if (d.myTimer) { timerCheckPop(d.myTimer); }
       /* 💬 μετρητής στην πάνω μπάρα: το chat είναι θαμμένο στο πλάι μέσα σε
          ενότητα που μπορεί να είναι κλειστή — εκεί δεν το βλέπεις ποτέ. */
       { const cb = $('#chatN');

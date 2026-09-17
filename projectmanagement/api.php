@@ -576,11 +576,16 @@ function cnp_clean_html($html, $max = 12000)
     // href/src: ALLOWLIST σχημάτων (blacklist «javascript:» άφηνε unquoted τιμές & data: URLs)
     $html = preg_replace_callback('/\b(href|src)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', function ($m) {
         $raw = trim($m[2], "\"'");
-        $u = preg_replace('/[\x00-\x20]/', '', html_entity_decode($raw, ENT_QUOTES, 'UTF-8'));
+        /* Κωδικοποιούμε την ΑΠΟΚΩΔΙΚΟΠΟΙΗΜΕΝΗ τιμή, όχι την αρχική: αλλιώς το «&amp;»
+           που έρχεται ήδη από τον browser ξαναγίνεται «&amp;amp;» σε κάθε αποθήκευση.
+           Έτσι έσπαγαν οι επικολλημένες εικόνες («file_get&amp;amp;id=…» → χωρίς id)
+           με τη ΔΕΥΤΕΡΗ αποθήκευση της ίδιας ενέργειας. Τώρα είναι idempotent. */
+        $dec = html_entity_decode($raw, ENT_QUOTES, 'UTF-8');
+        $u = preg_replace('/[\x00-\x20]/', '', $dec);
         $safe = $u === '' || $u[0] === '#' || $u[0] === '/'
             || preg_match('#^(https?:|mailto:|tel:)#i', $u)
             || !preg_match('/^[a-z0-9.+-]*:/i', $u);      // σχετικό path χωρίς scheme
-        return $m[1] . '="' . ($safe ? htmlspecialchars($raw, ENT_QUOTES, 'UTF-8') : '#') . '"';
+        return $m[1] . '="' . ($safe ? htmlspecialchars($dec, ENT_QUOTES, 'UTF-8') : '#') . '"';
     }, $html);
     $html = preg_replace('/\sstyle\s*=\s*("[^"]*"|\'[^\']*\')/i', '', $html);           // inline styles → out
     // target=_blank + rel για ασφάλεια σε συνδέσμους
@@ -1482,6 +1487,178 @@ function cnp_chat_access($ch, $adminId)
     return false;
 }
 
+/* ═══ ΚΑΤΑΣΤΑΣΗ ΔΙΑΘΕΣΙΜΟΤΗΤΑΣ — μία πηγή αλήθειας ════════════════════════════
+   Η κατάσταση είναι πρώτα απ' όλα δήλωση του ίδιου του ανθρώπου: την επιλέγει
+   με το χέρι και ισχύει όπως τη δήλωσε. Ο αυτόματος παλμός της εφαρμογής μπαίνει
+   μόνο (α) όταν δεν έχει δηλώσει τίποτα και (β) για να μη λέει ψέματα ένα
+   «Διαθέσιμος» από κλειστό υπολογιστή.
+   Χρησιμοποιείται παντού: chat, Δραστηριότητα, πάνω μπάρα, ειδοποιήσεις. */
+define('CNP_PRESENCE_ONLINE', 90);     // δευτ. παλμού για «είναι στην εφαρμογή»
+define('CNP_PRESENCE_GONE', 1800);     // μισή ώρα χωρίς παλμό → έφυγε
+
+/** [κωδικός => [ετικέτα, χρώμα, σιγάζει ειδοποιήσεις;, επιλέξιμο από τον χρήστη;]] */
+function cnp_presence_defs()
+{
+    return [
+        'online'  => ['Διαθέσιμος',    '#16a26a', false, true],
+        'busy'    => ['Απασχολημένος', '#e0552b', true,  true],
+        'meeting' => ['Σε σύσκεψη',    '#e0a020', true,  true],
+        'away'    => ['Λείπω',         '#8595ac', false, true],
+        'offline' => ['Εκτός',         '#5d6b85', true,  true],
+    ];
+}
+
+/**
+ * Email πρόσκλησης/υπενθύμισης σύσκεψης.
+ * Περνά πάνω από τον γενικό διακόπτη email του module (που είναι κλειστός), γιατί
+ * μια πρόσκληση δεν είναι ενημερωτικό — αν δεν φτάσει, ο άλλος δεν θα έρθει.
+ * Την ατομική εξαίρεση του καθενός («δεν θέλω email») τη σεβόμαστε κανονικά.
+ */
+function cnp_meet_mail($adminId, $subject, $html)
+{
+    if (Db::pref($adminId, 'notify_email', 'on') !== 'on') {
+        return false;
+    }
+    $to = \WHMCS\Module\Addon\CloudonProjects\Notify::adminEmail($adminId);
+    return $to ? \WHMCS\Module\Addon\CloudonProjects\Notify::sendTo($to, $subject, $html) : false;
+}
+
+/** Σκοπός σύσκεψης — άλλες επιλογές με πελάτη, άλλες εσωτερικά. */
+function cnp_meeting_purposes()
+{
+    return [
+        'client' => [
+            'demo' => 'Παρουσίαση', 'training' => 'Εκπαίδευση', 'technical' => 'Τεχνικό ζήτημα',
+            'onboarding' => 'Εγκατάσταση / onboarding', 'commercial' => 'Εμπορική συζήτηση / προσφορά',
+            'review' => 'Ανασκόπηση / follow-up', 'complaint' => 'Παράπονο / κλιμάκωση',
+            'other' => 'Άλλο',
+        ],
+        'internal' => [
+            'planning' => 'Σχεδιασμός', 'standup' => 'Ενημέρωση ομάδας', 'review' => 'Ανασκόπηση',
+            'technical' => 'Τεχνικό ζήτημα', 'hiring' => 'Προσλήψεις', 'other' => 'Άλλο',
+        ],
+    ];
+}
+
+/** «Πώς και πού θα γίνει», σε μία φράση — ίδια σε οθόνη και σε email. */
+function cnp_meeting_how($mode, $place, $location, $clientName = '')
+{
+    if ($mode === 'video') {
+        return ['🎥', 'Βιντεοκλήση', $location];
+    }
+    if ($mode === 'phone') {
+        return ['📞', 'Τηλεφωνικά', $location];
+    }
+    if ($mode === 'onsite') {
+        $p = ['office' => 'Δια ζώσης — στα γραφεία μας',
+              'client' => 'Δια ζώσης — στον χώρο του πελάτη' . ($clientName ? ' (' . $clientName . ')' : ''),
+              'other' => 'Δια ζώσης'][$place] ?? 'Δια ζώσης';
+        return ['📍', $p, $location];
+    }
+    return ['', '', $location];
+}
+
+/**
+ * Η σύσκεψη που τρέχει ΤΩΡΑ για κάποιον — και μόνο εφόσον την έχει αποδεχθεί.
+ * Η αποδοχή της πρόσκλησης ΕΙΝΑΙ η χειροκίνητη πράξη· από εκεί και πέρα η
+ * κατάσταση αλλάζει μόνη της στην ώρα της και επανέρχεται στη λήξη.
+ */
+function cnp_meeting_now($adminId, $now = null)
+{
+    $now = $now ?: time();
+    $nowS = date('Y-m-d H:i:s', $now);
+    $m = Capsule::table('mod_cpm_events as e')
+        ->join('mod_cpm_event_rsvp as r', function ($j) use ($adminId) {
+            $j->on('r.event_id', '=', 'e.id')
+              ->where('r.kind', '=', 'admin')->where('r.ref', '=', $adminId);
+        })
+        ->whereIn('e.kind', ['meeting', 'appointment'])
+        ->where('e.all_day', 0)
+        ->where('r.status', 'accepted')
+        ->where('e.attendees', 'like', '%,' . $adminId . ',%')
+        ->where('e.start_dt', '<=', $nowS)->where('e.end_dt', '>=', $nowS)
+        ->orderBy('e.start_dt')
+        ->first(['e.id', 'e.title', 'e.start_dt', 'e.end_dt', 'e.mode', 'e.scope', 'e.clientid']);
+    return $m ?: null;
+}
+
+/**
+ * Η κατάσταση ενός χειριστή τώρα.
+ * manual = το δήλωσε ο ίδιος · until = πότε λήγει η δήλωση (0 = μέχρι να την αλλάξει)
+ */
+function cnp_presence($adminId, $now = null)
+{
+    $now = $now ?: time();
+    $defs = cnp_presence_defs();
+    $seen = (int) Db::pref($adminId, 'last_seen', '0');
+    $idle = $seen ? max(0, $now - $seen) : null;
+    $man = (string) Db::pref($adminId, 'chat_status', '');
+    $until = (int) Db::pref($adminId, 'chat_until', '0');
+    $reason = (string) Db::pref($adminId, 'chat_reason', '');
+
+    /* Έληξε η δήλωση («σε σύσκεψη για μία ώρα») → επιστροφή σε αυτόματο. */
+    if ($man !== '' && $until > 0 && $now >= $until) {
+        Db::setPref($adminId, 'chat_status', '');
+        Db::setPref($adminId, 'chat_reason', '');
+        Db::setPref($adminId, 'chat_until', '0');
+        Db::setPref($adminId, 'chat_set_at', '0');
+        $man = '';
+        $reason = '';
+        $until = 0;
+    }
+    if (!isset($defs[$man])) {
+        $man = '';
+    }
+
+    $manual = $man !== '';
+    if ($manual) {
+        /* Μοναδική εξαίρεση: «Διαθέσιμος» με κλειστή εφαρμογή πάνω από μισή ώρα
+           δεν στέκει — δεν θέλουμε πράσινη κουκκίδα σε άδεια καρέκλα. */
+        $status = ($man === 'online' && ($idle === null || $idle >= CNP_PRESENCE_GONE)) ? 'away' : $man;
+        $manual = ($status === $man);
+    } else {
+        $status = ($idle !== null && $idle < CNP_PRESENCE_ONLINE) ? 'online'
+            : (($idle !== null && $idle < CNP_PRESENCE_GONE) ? 'away' : 'offline');
+    }
+
+    /* Τρέχουσα σύσκεψη που αποδέχτηκε: υπερισχύει και του παλμού και παλιότερης
+       δήλωσης. Δεν υπερισχύει όμως δήλωσης που έκανε ΜΕΣΑ στη σύσκεψη — αν
+       βγήκε νωρίτερα και το είπε, ισχύει αυτό που είπε. */
+    $meeting = null;
+    $mt = cnp_meeting_now($adminId, $now);
+    if ($mt) {
+        $mtStart = strtotime($mt->start_dt);
+        $setAt = (int) Db::pref($adminId, 'chat_set_at', '0');
+        if (!($manual && $setAt >= $mtStart)) {
+            $status = 'meeting';
+            $manual = true;                 // αποδέχτηκε την πρόσκληση — δική του πράξη
+            $reason = $mt->title;
+            $until = strtotime($mt->end_dt);
+            $meeting = ['id' => (int) $mt->id, 'title' => $mt->title, 'mode' => $mt->mode,
+                'scope' => $mt->scope, 'end' => $mt->end_dt];
+        }
+    }
+
+    /* Ο λόγος πρέπει ΠΑΝΤΑ να φαίνεται: αν τον δήλωσε, δείξε τον· αν όχι, δείξε
+       τουλάχιστον από πότε λείπει, ώστε να ξέρεις τι περιμένεις. */
+    $untilTxt = ($manual && $until) ? ('έως ' . date('H:i', $until)) : '';
+    $hint = '';
+    if ($manual && $reason !== '') {
+        $hint = $reason;
+    } elseif ($status !== 'online' && $seen) {
+        $hint = 'τελευταία κίνηση ' . (date('Y-m-d', $seen) === date('Y-m-d')
+            ? date('H:i', $seen) : date('d/m H:i', $seen));
+    } elseif ($status !== 'online') {
+        $hint = 'δεν έχει μπει ποτέ';
+    }
+
+    return ['status' => $status, 'label' => $defs[$status][0], 'color' => $defs[$status][1],
+        'manual' => $manual, 'reason' => $manual ? $reason : '', 'until' => $manual ? $until : 0,
+        'untilTxt' => $untilTxt, 'hint' => $hint, 'meeting' => $meeting,
+        'mute' => $manual ? (bool) $defs[$status][2] : false,
+        'idle' => $idle, 'seen' => $seen ? date('Y-m-d H:i:s', $seen) : null];
+}
+
 /** Σκορ ομοιότητας δύο συνόλων λέξεων. */
 function cnp_overlap(array $a, array $b)
 {
@@ -1684,9 +1861,34 @@ function cnp_can_approve_billing($adminId, $isFull)
  * Δεν ξαναστέλνει για την ίδια εργασία μέσα σε 6 ώρες — αλλιώς κάθε καταχώρηση
  * χρόνου θα γινόταν χωριστό email.
  */
+/**
+ * Τύποι εργασίας που ΔΕΝ χρεώνονται ποτέ.
+ * Ένα bug είναι δικό μας λάθος· δεν το πληρώνει ο πελάτης, άρα δεν έχει νόημα
+ * ούτε χρεώσιμος χρόνος ούτε έγκριση χρέωσης. Κρατιέται με βάση το ΟΝΟΜΑ του
+ * τύπου, ώστε να μη σπάσει αν αλλάξουν τα ids.
+ */
+function cnp_nonbillable_type($typeId)
+{
+    static $ids = null;
+    if ($ids === null) {
+        $ids = [];
+        foreach (Capsule::table('mod_cpm_task_types')->get(['id', 'name']) as $ty) {
+            if (preg_match('/bug|σφάλμα/iu', (string) $ty->name)) {
+                $ids[] = (int) $ty->id;
+            }
+        }
+    }
+    return $typeId && in_array((int) $typeId, $ids, true);
+}
+/** Επιτρέπεται καθόλου χρέωση σε αυτή την εργασία; */
+function cnp_task_billable_ok($t)
+{
+    return $t && !cnp_nonbillable_type($t->type_id ?? 0);
+}
+
 function cnp_billing_request($t, $byAdminId)
 {
-    if (!$t || !empty($t->billing_ok)) {
+    if (!$t || !empty($t->billing_ok) || !cnp_task_billable_ok($t)) {
         return;
     }
     $mins = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)
@@ -1909,6 +2111,28 @@ function cnp_can_see_balances($adminId, $isFull)
 }
 
 /** Η στήλη «αναμονής» — η πρώτη μη-τελική κατάσταση (Backlog). */
+/**
+ * Σημαίνει αυτή η κατάσταση «τελείωσα τη δουλειά πάνω της»;
+ * Ναι για κάθε ολοκληρωμένη, και για ό,τι είναι ΜΕΤΑ το στάδιο εκτέλεσης.
+ * Όχι για Backlog και για το ίδιο το «σε εξέλιξη» — εκεί η δουλειά ξεκινά.
+ */
+function cnp_status_ends_work($statusId)
+{
+    $st = Db::status((int) $statusId);
+    if (!$st) {
+        return false;
+    }
+    if (!empty($st->is_done)) {
+        return true;
+    }
+    /* «Σε εξέλιξη» = η πρώτη μη-ολοκληρωμένη κατάσταση μετά το Backlog. */
+    $backlog = cnp_backlog_status_id();
+    $prog = Capsule::table('mod_cpm_statuses')->where('is_done', 0)
+        ->when($backlog, function ($q) use ($backlog) { return $q->where('id', '!=', $backlog); })
+        ->orderBy('sort')->first(['id', 'sort']);
+    return $prog ? ((int) $st->sort > (int) $prog->sort) : false;
+}
+
 function cnp_backlog_status_id()
 {
     static $id = null;
@@ -2634,8 +2858,8 @@ function cnp_action_cap($action)
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room']);
-        $add('team.calendar', ['calendar', 'event_rsvp']);
-        $add('team.calendar.edit', ['event_save', 'event_del']);
+        $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
+        $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
         $add('team.remote', ['remote_book', 'remote_peer']);
         $add('team.remote.edit', ['remote_start', 'remote_stop', 'remote_save_peer', 'remote_send_client', 'rdp_file']);
@@ -2789,8 +3013,10 @@ function cnp_open_actions()
         /* myteam: κριτής είναι το is_leader της ομάδας, όχι cap — ο επικεφαλής
            μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
         'myteam',
-        'task', 'task_delete', 'task_handoff', 'task_share', 'task_billing_ok', 'billing_pending',
-        'save_task', 'move_task', 'comment', 'timer_start', 'timer_stop', 'time_add',
+        'task', 'task_delete', 'task_handoff', 'task_share',
+        /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
+        'task_billing_ok', 'task_billing_none', 'billing_pending',
+        'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
@@ -2886,6 +3112,8 @@ case 'boot':
         'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
             ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0)) : 0,
         'meetLink' => Db::pref($adminId, 'meet_link', ''),
+        /* Μία πηγή για τους σκοπούς σύσκεψης: ο server τους ορίζει, η οθόνη τους ζωγραφίζει. */
+        'meetPurposes' => cnp_meeting_purposes(),
         'rustdeskDl' => (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', 'rustdesk_dl')->value('value') ?: ''),
         'unread' => Db::unreadCount($adminId)]);
@@ -4537,12 +4765,13 @@ case 'activity':
         if (cnp_is_bot($nm9, $a9->username)) {
             continue;
         }
+        $pr9 = cnp_presence($aid, $now9);
         $seen = (int) Db::pref($aid, 'last_seen', '0');
-        $manual = Db::pref($aid, 'chat_status', 'online');
-        $idle = $seen ? $now9 - $seen : null;
-        $status = $manual === 'offline' ? 'offline'
-            : ($manual === 'meeting' ? 'meeting'
-            : ($idle !== null && $idle < 90 ? 'online' : ($idle !== null && $idle < 1800 ? 'away' : 'offline')));
+        $idle = $pr9['idle'];
+        $status = $pr9['status'];
+        $stLabel = $pr9['label'];
+        $stHint = trim($pr9['hint'] . ($pr9['untilTxt'] ? ' · ' . $pr9['untilTxt'] : ''));
+        $stManual = $pr9['manual'];
 
         // τρέχον χρονόμετρο = η πιο άμεση απάντηση στο «με τι ασχολείται τώρα»
         $tm = Capsule::table('mod_cpm_timelogs as tl')->leftJoin('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
@@ -4568,8 +4797,8 @@ case 'activity':
             'id' => $aid, 'name' => $nm9 ?: $a9->username,
             'stale' => $idle === null || $idle > 7 * 86400,   // δεν φάνηκε εδώ και μια βδομάδα
             'ini' => mb_strtoupper(mb_substr($a9->firstname, 0, 1) . mb_substr($a9->lastname, 0, 1)),
-            'status' => $status, 'idle' => $idle,
-            'reason' => $manual === 'offline' || $manual === 'meeting' ? Db::pref($aid, 'chat_reason', '') : '',
+            'status' => $status, 'idle' => $idle, 'label' => $stLabel, 'manual' => $stManual,
+            'reason' => $stHint,
             'timer' => $timer, 'remote' => $remote,
             'openTasks' => (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
                 ->whereNotIn('status_id', $doneIds9)->count(),
@@ -4767,7 +4996,33 @@ case 'move_task':
         }
     }
 
+    /* Πριν κλείσει, κράτα πού ήταν: το «Ξανάνοιγμα» πρέπει να τη γυρίζει ΕΚΕΙ. */
+    if ($stChk && !empty($stChk->is_done) && empty($t->completed_at)) {
+        Capsule::table('mod_cpm_tasks')->where('id', $t->id)
+            ->update(['prev_status_id' => (int) $t->status_id]);
+    }
     $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId, (string) ($in['note'] ?? ''));
+    /* ── Προχώρησες την εργασία = τελείωσες ό,τι έκανες πάνω της ────────────
+       Ο χειριστής ξεκινά τον χρόνο και φεύγει να δουλέψει εκεί που πρέπει· δεν
+       κάθεται πάνω στην καρτέλα. Όταν γυρίσει και τη σπρώξει παρακάτω (Έλεγχος,
+       Προς τιμολόγηση, Ολοκληρώθηκε…), αυτό ΕΙΝΑΙ το «τελείωσα» — ακόμη κι αν
+       ξέχασε το Stop. Το «Backlog» και το «Σε εξέλιξη» ΔΕΝ το κόβουν: εκεί η
+       δουλειά αρχίζει, δεν τελειώνει. Γίνεται στον server, ώστε να ισχύει από
+       board, από καρτέλα, από κινητό — από παντού. */
+    $stopped9 = null;
+    if ($ok) {
+        $run9 = Db::runningTimer($adminId);
+        if ($run9 && (int) $run9->task_id === (int) $t->id && cnp_status_ends_work((int) ($in['status'] ?? 0))) {
+            $e9 = Db::stopTimer($run9->id);
+            if ($e9) {
+                Db::updateTimelog($run9->id, ['billable' => 0,
+                    'note' => 'έκλεισε με την αλλαγή κατάστασης']);
+                Time::push($run9->id);
+            }
+            $lg9 = Db::timelog($run9->id);
+            $stopped9 = ['id' => (int) $run9->id, 'mins' => $lg9 ? (int) $lg9->minutes : 0];
+        }
+    }
     if ($ok && !$FULL) {
         $st = Db::status((int) $in['status']);
         if ($st && $st->is_done) {
@@ -4780,7 +5035,41 @@ case 'move_task':
         Notify::watchers($t->id, $adminId, $t->title . ' → ' . ($stN->title ?? '?')
             . ($noteTxt !== '' ? ' — ' . mb_substr($noteTxt, 0, 200) : ''), null);
     }
-    out(['ok' => (bool) $ok]);
+    out(['ok' => (bool) $ok, 'timerStopped' => $stopped9]);
+
+case 'task_reopen':                      // «πατήθηκε κατά λάθος Ολοκλήρωση»
+    $tR = Db::task((int) ($in['task'] ?? 0));
+    if (!$tR || !Db::canSeeTask($adminId, $tR)) {
+        fail('task', 403);
+    }
+    if (!cnp_task_write_ok($adminId, $FULL, $tR)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    if (empty($tR->completed_at)) {
+        fail('Η εργασία δεν είναι ολοκληρωμένη');
+    }
+    /* Γυρνά εκεί που ήταν. Αν δεν το ξέρουμε (παλιά εργασία) ή αν η κατάσταση
+       εκείνη δεν υπάρχει πια, πάει στην πρώτη ανοιχτή. */
+    $backTo = null;
+    if ($tR->prev_status_id) {
+        $psR = Db::status((int) $tR->prev_status_id);
+        if ($psR && empty($psR->is_done)) {
+            $backTo = (int) $psR->id;
+        }
+    }
+    if (!$backTo) {
+        $firstR = Capsule::table('mod_cpm_statuses')->where('is_done', 0)->orderBy('sort')->first(['id']);
+        $backTo = $firstR ? (int) $firstR->id : 0;
+    }
+    if (!$backTo) {
+        fail('Δεν υπάρχει ανοιχτή κατάσταση');
+    }
+    Db::moveTask($tR->id, $backTo, $adminId, 'Ξανάνοιγμα');
+    Capsule::table('mod_cpm_tasks')->where('id', $tR->id)->update(['prev_status_id' => null]);
+    $stR = Db::status($backTo);
+    Db::logActivity($tR->id, $adminId, 'move',
+        'Ξανάνοιξε — επέστρεψε σε «' . ($stR->title ?? '?') . '»');
+    out(['ok' => true, 'status' => $backTo, 'statusTitle' => $stR->title ?? '']);
 
 case 'quick_task':
     $pid = (int) ($in['project'] ?? 0);
@@ -4801,9 +5090,24 @@ case 'quick_task':
     if ((int) ($in['dept'] ?? 0)) {
         $new['dept_id'] = (int) $in['dept'];
     }
+    /* Η γρήγορη δημιουργία δηλώνει πια και ΣΕ ΠΟΙΟΝ πάει: ο χειριστής διαλέγει
+       πρόθεση («κάν' το εγώ» / «ανάθεσέ το»), όχι πεδία. */
+    $qAss = (int) ($in['assignee'] ?? 0);
+    if ($qAss && Capsule::table('tbladmins')->where('id', $qAss)->where('disabled', 0)->exists()) {
+        $new['assignee'] = $qAss;
+    }
     $tid = Db::saveTask(0, $new, $adminId);
     Db::logActivity($tid, $adminId, 'create', 'Γρήγορη δημιουργία (web app)');
-    out(['ok' => true, 'id' => $tid]);
+    /* «Ξεκίνα το τώρα»: σταματά ό,τι τρέχει και ανοίγει χρονόμετρο εδώ. */
+    $started = false;
+    if (!empty($in['start']) && (!$qAss || $qAss === $adminId)) {
+        $rt = Db::startTimer($tid, $adminId);     // ίδιος δρόμος με το timer_start
+        foreach ($rt['stopped'] as $sid2) {
+            Time::push($sid2);
+        }
+        $started = true;
+    }
+    out(['ok' => true, 'id' => $tid, 'started' => $started]);
 
 case 'save_task':
     $tid = (int) ($in['task'] ?? 0);
@@ -4963,12 +5267,15 @@ case 'billing_pending':                   // η ουρά εγκρίσεων — 
         ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
         ->where('l.billable', 1)->where('l.running', 0)
         ->where(function ($q) { $q->whereNull('t.billing_ok')->orWhere('t.billing_ok', 0); })
-        ->groupBy('t.id', 't.title', 't.project_id', 't.assignee')
+        ->groupBy('t.id', 't.title', 't.project_id', 't.assignee', 't.type_id')
         ->orderBy('t.id', 'desc')->limit(50)
-        ->get(['t.id', 't.title', 't.project_id', 't.assignee',
+        ->get(['t.id', 't.title', 't.project_id', 't.assignee', 't.type_id',
             Capsule::raw('SUM(l.minutes) as mins'), Capsule::raw('MAX(l.created_at) as last_at')]);
     $items9 = [];
     foreach ($rows9 as $r) {
+        if (cnp_nonbillable_type($r->type_id)) {
+            continue;                       // bug: δεν ζητάμε ποτέ έγκριση χρέωσης
+        }
         $items9[] = ['id' => (int) $r->id, 'title' => $r->title,
             'mins' => (int) $r->mins, 'at' => $r->last_at,
             'who' => $r->assignee ? Db::adminName((int) $r->assignee) : '',
@@ -5000,6 +5307,41 @@ case 'task_billing_ok':                   // έγκριση λογιστηρίο
     }
     out(['ok' => true, 'billOk' => $on9]);
 
+case 'task_billing_none':                 // «δεν χρεώνεται» — κλείνει το θέμα από την ουρά
+    $tidN = (int) ($in['task'] ?? 0);
+    $tN = Db::task($tidN);
+    if (!$tN) { fail('task', 404); }
+    if (!cnp_can_approve_billing($adminId, $FULL)) {
+        $apN2 = cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : '';
+        fail($apN2 ? 'Μόνο ο/η ' . $apN2 : 'Δεν έχεις δικαίωμα έγκρισης χρέωσης', 403);
+    }
+    /* Δεν αρκεί να σβήσουμε το σημαδάκι: αν ο χρόνος έχει ήδη περάσει στο πακέτο
+       του πελάτη, πρέπει να αναιρεθεί — αλλιώς ο πελάτης μένει χρεωμένος. */
+    $minsN = 0;
+    foreach (Capsule::table('mod_cpm_timelogs')->where('task_id', $tidN)->where('billable', 1)->get() as $lgN) {
+        $minsN += (int) $lgN->minutes;
+        if ($lgN->sc_worklog_id || (int) $lgN->charged_minutes > 0 || (int) $lgN->cover_minutes > 0) {
+            Time::reverse((int) $lgN->id);
+            Db::updateTimelog((int) $lgN->id, ['sc_worklog_id' => null, 'charged_minutes' => 0,
+                'cover' => null, 'cover_offer_id' => null, 'cover_minutes' => 0]);
+        }
+        Db::updateTimelog((int) $lgN->id, ['billable' => 0]);
+        Time::push((int) $lgN->id);
+    }
+    Capsule::table('mod_cpm_tasks')->where('id', $tidN)->update([
+        'billing_ok' => 0, 'billing_ok_by' => null, 'billing_ok_at' => null]);
+    /* Οι εκκρεμείς ειδοποιήσεις για αυτή την εργασία δεν έχουν πια αντικείμενο. */
+    Capsule::table('mod_cpm_notifications')->where('type', 'billreq')
+        ->where('url', '/project/#/task/' . $tidN)->delete();
+    Db::logActivity($tidN, $adminId, 'billing',
+        'Χαρακτηρίστηκε ΜΗ χρεώσιμη (' . $minsN . chr(39) . ') από ' . Db::adminName($adminId)
+        . (trim((string) ($in['note'] ?? '')) !== '' ? ' — ' . mb_substr(trim((string) $in['note']), 0, 160) : ''));
+    if ($tN->assignee && (int) $tN->assignee !== $adminId) {
+        Db::pushNotification((int) $tN->assignee, 'action',
+            'Χωρίς χρέωση: ' . mb_substr((string) $tN->title, 0, 80), '/project/#/task/' . $tidN);
+    }
+    out(['ok' => true, 'mins' => $minsN]);
+
 case 'timer_start':
     $tid = (int) ($in['task'] ?? 0);
     $t = Db::task($tid);
@@ -5022,13 +5364,16 @@ case 'timer_stop':
         fail('no timer');
     }
     $e = Db::stopTimer($running->id);
+    $tStop = Db::task((int) $running->task_id);
+    $billStop = !empty($in['billable']) && cnp_task_billable_ok($tStop);
     if ($e) {
-        Db::updateTimelog($running->id, ['billable' => !empty($in['billable']) ? 1 : 0,
+        Db::updateTimelog($running->id, ['billable' => $billStop ? 1 : 0,
             'note' => mb_substr(trim($in['note'] ?? ''), 0, 255)]);
         Time::push($running->id);
     }
-    if (!empty($in['billable'])) { cnp_billing_request(Db::task((int) $running->task_id), $adminId); }
-    out(['ok' => true, 'mins' => $e ? (int) Db::timelog($running->id)->minutes : 0]);
+    if ($billStop) { cnp_billing_request($tStop, $adminId); }
+    out(['ok' => true, 'mins' => $e ? (int) Db::timelog($running->id)->minutes : 0,
+        'billBlocked' => !empty($in['billable']) && !$billStop]);
 
 case 'time_bill':                        // διόρθωση «χρεώσιμο/όχι» σε καταχώρηση χρόνου
     $lid = (int) ($in['id'] ?? 0);
@@ -5043,6 +5388,9 @@ case 'time_bill':                        // διόρθωση «χρεώσιμο/
     }
     cnp_task_lock_guard($t);
     $bill9 = !empty($in['billable']);
+    if ($bill9 && !cnp_task_billable_ok($t)) {
+        fail('Οι εργασίες τύπου Bug δεν χρεώνονται — άλλαξε πρώτα τον τύπο αν όντως χρεώνεται');
+    }
     Db::updateTimelog($lid, ['billable' => $bill9 ? 1 : 0]);
     /* Η καταχώρηση έχει ήδη περάσει στο πακέτο ωρών του πελάτη (worklog + χρέωση).
        Το push αγνοεί ό,τι έχει ήδη περάσει — άρα το «χωρίς χρέωση» άλλαζε μόνο το
@@ -5070,10 +5418,11 @@ case 'time_add':
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
-    $eid = Db::addTime($tid, $adminId, $mins, !empty($in['billable']), trim($in['note'] ?? ''));
+    $billAdd = !empty($in['billable']) && cnp_task_billable_ok($t);
+    $eid = Db::addTime($tid, $adminId, $mins, $billAdd, trim($in['note'] ?? ''));
     Time::push($eid);
-    if (!empty($in['billable'])) { cnp_billing_request(Db::task($tid), $adminId); }
-    out(['ok' => true]);
+    if ($billAdd) { cnp_billing_request(Db::task($tid), $adminId); }
+    out(['ok' => true, 'billBlocked' => !empty($in['billable']) && !$billAdd]);
 
 case 'check_add':
     $tid = (int) ($in['task'] ?? 0);
@@ -5683,6 +6032,10 @@ case 'calendar':
             'client' => $e->clientid ? (int) $e->clientid : null,
             'clientName' => $e->clientid ? clientLabel($e->clientid) : null,
             'location' => $e->location, 'notes' => $e->notes,
+            'scope' => $e->scope, 'mode' => $e->mode, 'place' => $e->place, 'purpose' => $e->purpose,
+            /* «Πέρασε η ώρα;» το κρίνει ο server: το ρολόι του browser μπορεί να
+               είναι σε άλλη ζώνη ή απλώς λάθος. */
+            'over' => strtotime($e->end_dt) < time(),
             'by' => (int) $e->created_by, 'canEdit' => $FULL || (int) $e->created_by === $adminId];
     }
     out(['ym' => $ym, 'items' => $items, 'events' => $evs]);
@@ -5703,13 +6056,56 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
     if (!$att) {
         $att = [$adminId];
     }
+    /* ── Με ποιον και πώς ──────────────────────────────────────────────────
+       Δύο ανεξάρτητες ερωτήσεις: μια σύσκεψη με πελάτη μπορεί κάλλιστα να γίνει
+       στα γραφεία μας, και μια εσωτερική σε βιντεοκλήση. Το location μένει η
+       λεπτομέρεια — σύνδεσμος, τηλέφωνο ή διεύθυνση, ανάλογα με τον τρόπο. */
+    $cliId = (int) ($in['client'] ?? 0) ?: null;
+    $scope = in_array($in['scope'] ?? '', ['internal', 'client'], true)
+        ? $in['scope'] : ($cliId ? 'client' : 'internal');
+    $mode = in_array($in['mode'] ?? '', ['onsite', 'video', 'phone'], true) ? $in['mode'] : null;
+    $place = in_array($in['place'] ?? '', ['office', 'client', 'other'], true) ? $in['place'] : null;
+    $loc = mb_substr(trim($in['location'] ?? ''), 0, 190);
+    $purposes = cnp_meeting_purposes();
+    $purpose = (string) ($in['purpose'] ?? '');
+    $purpose = isset($purposes[$scope][$purpose]) ? $purpose : null;
+    if (in_array($kind, ['meeting', 'appointment'], true)) {
+        if ($scope === 'client' && !$cliId) {
+            fail('Διάλεξε τον πελάτη της σύσκεψης από τη λίστα');
+        }
+        if ($scope === 'client' && !$purpose) {
+            fail('Διάλεξε τον σκοπό της σύσκεψης (παρουσίαση, εκπαίδευση, τεχνικό ζήτημα…)');
+        }
+        if (!$mode) {
+            fail('Διάλεξε πώς θα γίνει: δια ζώσης, βιντεοκλήση ή τηλεφωνικά');
+        }
+        if ($mode === 'onsite') {
+            $place = $place ?: 'office';
+            if ($place === 'other' && $loc === '') {
+                fail('Γράψε τη διεύθυνση της συνάντησης');
+            }
+            if ($place === 'office') { $loc = $loc ?: 'Γραφεία CloudOn'; }
+            if ($place === 'client') { $loc = $loc ?: ($cliId ? 'Στον χώρο του πελάτη' : 'Στον χώρο του πελάτη'); }
+        } else {
+            $place = null;
+            if ($loc === '') {
+                fail($mode === 'video' ? 'Βάλε τον σύνδεσμο της βιντεοκλήσης'
+                    : 'Γράψε το τηλέφωνο της κλήσης');
+            }
+        }
+    } else {
+        $mode = null;
+        $place = null;
+        $purpose = null;
+    }
     $data = ['kind' => $kind, 'title' => $title,
         'start_dt' => date('Y-m-d H:i:s', strtotime($startD)),
         'end_dt' => date('Y-m-d H:i:s', strtotime($endD)),
         'all_day' => !empty($in['allDay']) ? 1 : 0,
         'attendees' => ',' . implode(',', $att) . ',',
-        'clientid' => (int) ($in['client'] ?? 0) ?: null,
-        'location' => mb_substr(trim($in['location'] ?? ''), 0, 190) ?: null,
+        'clientid' => $cliId,
+        'scope' => $scope, 'mode' => $mode, 'place' => $place, 'purpose' => $purpose,
+        'location' => $loc ?: null,
         'notes' => cnp_clean_html($in['notes'] ?? '') ?: null];
     if ($eid) {
         $ev = Capsule::table('mod_cpm_events')->where('id', $eid)->first();
@@ -5720,6 +6116,13 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
     } else {
         $eid = Capsule::table('mod_cpm_events')->insertGetId($data
             + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+        /* Όποιος τη στήνει, δηλώνει και ότι θα είναι εκεί — έτσι δουλεύει κάθε
+           ημερολόγιο, και έτσι πιάνει και η αυτόματη κατάσταση την ώρα της. */
+        if (in_array($adminId, $att, true)) {
+            Capsule::table('mod_cpm_event_rsvp')->updateOrInsert(
+                ['event_id' => $eid, 'kind' => 'admin', 'ref' => $adminId],
+                ['status' => 'accepted', 'responded_at' => date('Y-m-d H:i:s')]);
+        }
         // ειδοποίησε τους συμμετέχοντες: καμπανάκι + EMAIL πρόσκλησης (τα email από το προφίλ τους)
         $kindL = ['meeting' => 'Meeting', 'appointment' => 'Ραντεβού', 'leave' => 'Άδεια', 'other' => 'Συμβάν'][$kind];
         $ts0 = strtotime($startD);
@@ -5732,11 +6135,18 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
             . '&dates=' . gmdate('Ymd\THis\Z', $ts0) . '/' . gmdate('Ymd\THis\Z', $ts1)
             . ($data['location'] ? '&location=' . rawurlencode($data['location']) : '');
         $isLinkT = $data['location'] && preg_match('#^https?://#', $data['location']);
+        $cliNmT = $cliId ? clientLabel($cliId) : '';
+        [$hIco, $hTxt, $hDet] = cnp_meeting_how($mode, $place, $data['location'], $cliNmT);
+        $withT = ($scope === 'client'
+            ? '👤 Με πελάτη: <strong>' . htmlspecialchars($cliNmT) . '</strong>'
+            : '👥 Εσωτερική — με την ομάδα')
+            . ($purpose ? ' · ' . htmlspecialchars($purposes[$scope][$purpose]) : '');
         $bodyT = '<p><strong>' . htmlspecialchars($title) . '</strong> — σε προσκάλεσε ο/η ' . htmlspecialchars(Db::adminName($adminId)) . '</p>'
             . '<p style="background:#eef7fd;border-left:4px solid #0090dd;padding:10px 14px;">🗓 <strong>' . $whenT . '</strong>'
-            . ($data['location'] ? '<br />' . ($isLinkT
-                ? '🎥 Σύνδεσμος συμμετοχής: <a href="' . htmlspecialchars($data['location']) . '">' . htmlspecialchars($data['location']) . '</a>'
-                : '📍 ' . htmlspecialchars($data['location'])) : '') . '</p>'
+            . ($hTxt ? '<br />' . $withT . '<br />' . $hIco . ' ' . htmlspecialchars($hTxt) : '')
+            . ($hDet ? '<br />' . ($isLinkT
+                ? 'Σύνδεσμος: <a href="' . htmlspecialchars($hDet) . '">' . htmlspecialchars($hDet) . '</a>'
+                : htmlspecialchars($hDet)) : '') . '</p>'
             . ($data['notes'] ? '<p>' . nl2br(htmlspecialchars($data['notes'])) . '</p>' : '')
             . '<p><a href="' . htmlspecialchars($gcalT) . '">➕ Προσθήκη στο ημερολόγιο</a> · '
             . '<a href="https://my.cloudon.gr/projectmanagement/#/calendar">Άνοιγμα στο πάνελ (RSVP)</a></p>';
@@ -5744,7 +6154,7 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
             if ($a !== $adminId) {
                 Db::pushNotification($a, 'info', "📅 $kindL: $title — " . date('d/m H:i', $ts0), '/projectmanagement/#/calendar');
                 if ($kind !== 'leave') {
-                    \WHMCS\Module\Addon\CloudonProjects\Notify::send($a, "📅 $kindL: $title — " . date('d/m/Y H:i', $ts0), $bodyT);
+                    cnp_meet_mail($a, "📅 $kindL: $title — " . date('d/m/Y H:i', $ts0), $bodyT);
                 }
             }
         }
@@ -5798,6 +6208,32 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
         }
     }
     out(['ok' => true, 'id' => $eid]);
+
+case 'event_busy':                       // ποιοι από τους επιλεγμένους έχουν ήδη κάτι τότε
+    $bs = strtotime((string) ($in['start'] ?? $_GET['start'] ?? ''));
+    $be = strtotime((string) ($in['end'] ?? $_GET['end'] ?? ''));
+    $bids = array_values(array_unique(array_filter(array_map('intval',
+        is_array($in['attendees'] ?? null) ? $in['attendees'] : explode(',', (string) ($_GET['attendees'] ?? ''))))));
+    if (!$bs || !$be || !$bids) {
+        out(['busy' => []]);
+    }
+    $bExc = (int) ($in['id'] ?? $_GET['id'] ?? 0);
+    $busyOut = [];
+    foreach ($bids as $bA) {
+        $cl = Capsule::table('mod_cpm_events')
+            ->where('id', '!=', $bExc)
+            ->where('attendees', 'like', '%,' . $bA . ',%')
+            ->where('start_dt', '<', date('Y-m-d H:i:s', $be))
+            ->where('end_dt', '>', date('Y-m-d H:i:s', $bs))
+            ->orderBy('start_dt')->first(['id', 'title', 'start_dt', 'end_dt', 'kind', 'all_day']);
+        if ($cl) {
+            $busyOut[] = ['admin' => $bA, 'name' => Db::adminName($bA), 'title' => $cl->title,
+                'kind' => $cl->kind,
+                'when' => $cl->all_day ? 'όλη μέρα'
+                    : date('H:i', strtotime($cl->start_dt)) . '–' . date('H:i', strtotime($cl->end_dt))];
+        }
+    }
+    out(['busy' => $busyOut]);
 
 case 'event_del':
     $ev = Capsule::table('mod_cpm_events')->where('id', (int) ($in['id'] ?? 0))->first();
@@ -7584,7 +8020,9 @@ case 'task_share':                       // Στείλε εργασία σε σ�
         foreach ($toIds as $oth) {
             if ($oth === $adminId) { continue; }
             $chS = 'd' . min($adminId, $oth) . '-' . max($adminId, $oth);
-            $bodyS = '📋 **#' . (int) $t->id . ' ' . $t->title . '**'
+            /* Η DB είναι utf8mb3: το 📋 (4-byte) αποθηκεύεται ως «????». Βάζουμε
+               3-byte σύμβολο που επιβιώνει. */
+            $bodyS = '☑ **#' . (int) $t->id . ' ' . $t->title . '**'
                 . ($lines ? "\n" . implode(' · ', $lines) : '')
                 . ($noteS !== '' ? "\n\n" . $noteS : '')
                 . "\n" . $absS;
@@ -10617,16 +11055,16 @@ case 'chat_channels':
             continue;
         }
         $ch = 'd' . min($adminId, (int) $a6->id) . '-' . max($adminId, (int) $a6->id);
-        $seen = (int) Db::pref($a6->id, 'last_seen', '0');
-        $manual = Db::pref($a6->id, 'chat_status', 'online');
-        $status = $manual === 'offline' ? 'offline' : (($now6 - $seen) < 90 ? 'online' : 'away');
+        $pr6 = cnp_presence((int) $a6->id, $now6);
         $chans[] = ['id' => $ch, 'name' => trim($a6->firstname . ' ' . $a6->lastname),
-            'kind' => 'dm', 'admin' => (int) $a6->id, 'status' => $status,
-            'reason' => $manual === 'offline' ? Db::pref($a6->id, 'chat_reason', '') : '',
+            'kind' => 'dm', 'admin' => (int) $a6->id, 'status' => $pr6['status'],
+            'label' => $pr6['label'], 'manual' => $pr6['manual'], 'mute' => $pr6['mute'],
+            'untilTxt' => $pr6['untilTxt'], 'hint' => $pr6['hint'], 'reason' => $pr6['reason'],
             'unread' => Capsule::table('mod_cpm_chat')->where('channel', $ch)
                 ->where('id', '>', $reads[$ch] ?? 0)->where('admin_id', '!=', $adminId)->count()];
     }
-    out(['channels' => $chans, 'myStatus' => Db::pref($adminId, 'chat_status', 'online'),
+    out(['channels' => $chans, 'me' => cnp_presence($adminId, $now6),
+        'myStatus' => Db::pref($adminId, 'chat_status', 'online'),
         'myReason' => Db::pref($adminId, 'chat_reason', '')]);
 
 case 'chat_msgs':
@@ -10705,7 +11143,7 @@ case 'chat_send':
         $gname = $gr->name ?? '';
     }
     foreach ($recips as $other) {
-        if (Db::pref($other, 'chat_status', 'online') !== 'offline') {
+        if (!cnp_presence($other)['mute']) {
             Db::pushNotification($other, 'comment', '💬 ' . (isset($gname) ? "[$gname] " : '') . Db::adminName($adminId) . ': '
                 . mb_substr($body ?: ('📎 ' . $fn), 0, 80), '/projectmanagement/#/chat');
         }
@@ -10745,13 +11183,36 @@ case 'chat_file':                       // κατέβασμα/προβολή σ�
     readfile($path);
     exit;
 
-case 'chat_status':                     // Εμφάνιση online/offline (χειροκίνητο) + λόγος
-    $off = ($in['status'] ?? '') === 'offline';
+case 'chat_status':                     // Χειροκίνητη δήλωση κατάστασης (+ λόγος + διάρκεια)
+    $defsS = cnp_presence_defs();
+    $stS = trim((string) ($in['status'] ?? ''));
+    Db::setPref($adminId, 'last_seen', (string) time());   // προφανώς είναι εδώ
+    if ($stS === '' || $stS === 'auto') {
+        /* Επιστροφή σε αυτόματο — ο παλμός της εφαρμογής αποφασίζει ξανά. */
+        Db::setPref($adminId, 'chat_status', '');
+        Db::setPref($adminId, 'chat_reason', '');
+        Db::setPref($adminId, 'chat_until', '0');
+        Db::setPref($adminId, 'chat_set_at', '0');
+        out(['ok' => true, 'presence' => cnp_presence($adminId)]);
+    }
+    if (!isset($defsS[$stS])) {
+        fail('Άγνωστη κατάσταση', 400);
+    }
     // η σύνδεση DB είναι utf8mb3 — αφαίρεσε 4-byte chars (emoji) για να μη γίνουν «????»
-    $reason = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', trim($in['reason'] ?? ''));
-    Db::setPref($adminId, 'chat_status', $off ? 'offline' : 'online');
-    Db::setPref($adminId, 'chat_reason', $off ? mb_substr(trim($reason), 0, 80) : '');
-    out(['ok' => true]);
+    $reason = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', trim((string) ($in['reason'] ?? '')));
+    /* Διάρκεια: λεπτά, ή 'eod' για μέχρι το τέλος της ημέρας, ή 0 = μέχρι να την αλλάξει. */
+    $durS = (string) ($in['mins'] ?? '0');
+    if ($durS === 'eod') {
+        $untilS = strtotime('today 23:59');
+    } else {
+        $mS = max(0, min(720, (int) $durS));
+        $untilS = $mS ? time() + $mS * 60 : 0;
+    }
+    Db::setPref($adminId, 'chat_status', $stS);
+    Db::setPref($adminId, 'chat_reason', mb_substr($reason, 0, 80));
+    Db::setPref($adminId, 'chat_until', (string) $untilS);
+    Db::setPref($adminId, 'chat_set_at', (string) time());   // ποια δήλωση είναι πιο φρέσκια
+    out(['ok' => true, 'presence' => cnp_presence($adminId)]);
 
 /* ============ 🏷 ΚΑΤΗΓΟΡΙΟΠΟΙΗΣΗ TICKETS (root-cause) ============ */
 case 'ticket_classify':                 // ο διαχειριστής/επικεφαλής ταξινομεί
@@ -13401,13 +13862,17 @@ case 'topstats':                         // πάνω μενού: live σφυγμ
     /* Εκκρεμείς εγκρίσεις χρέωσης — μόνο για όποιον τις δίνει. */
     $billPend = 0;
     if (cnp_can_approve_billing($adminId, $FULL)) {
-        $billPend = (int) Capsule::table('mod_cpm_timelogs as l')
+        $pendQ = Capsule::table('mod_cpm_timelogs as l')
             ->join('mod_cpm_tasks as t', 't.id', '=', 'l.task_id')
             ->where('l.billable', 1)->where('l.running', 0)
-            ->where(function ($q) { $q->whereNull('t.billing_ok')->orWhere('t.billing_ok', 0); })
-            ->distinct()->count('t.id');
+            ->where(function ($q) { $q->whereNull('t.billing_ok')->orWhere('t.billing_ok', 0); });
+        $billPend = 0;
+        foreach ($pendQ->distinct()->pluck('t.type_id', 't.id') as $tidP => $tyP) {
+            if (!cnp_nonbillable_type($tyP)) { $billPend++; }
+        }
     }
     out(['tickets' => $tickets, 'sla' => $sla, 'today' => $todayN, 'ball' => $ball, 'billPend' => $billPend,
+        'presence' => cnp_presence($adminId),
         'status' => Db::pref($adminId, 'chat_status', 'online'), 'reason' => Db::pref($adminId, 'chat_reason', '')]);
 
 case 'lead_products':                    // γραμμές προϊόντων ενός deal
@@ -13846,10 +14311,163 @@ case 'version':
             'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
             'at' => $hr->created_at];
     }
+    /* 📅 Συσκέψεις: μια πρόσκληση δεν πρέπει να περιμένει να κοιτάξεις καμπανάκι.
+       Δύο δυνατές στιγμές — όταν σε καλούν και λίγο πριν αρχίσει. Καθεμία σκάει
+       ΜΙΑ φορά (το κρατάει το mod_cpm_event_alerts). */
+    $meetAlerts = [];
+    $nowM = time();
+    $canCal = cnp_has_cap($adminId, $FULL, 'team.calendar');   // χωρίς ημερολόγιο, καμία κάρτα
+    $shown = [];
+    foreach (Capsule::table('mod_cpm_event_alerts')->where('admin_id', $adminId)->get() as $sa) {
+        $shown[$sa->event_id . ':' . $sa->kind] = true;
+    }
+    $rsvpMine = [];
+    foreach (Capsule::table('mod_cpm_event_rsvp')->where('kind', 'admin')->where('ref', $adminId)->get() as $rm) {
+        $rsvpMine[(int) $rm->event_id] = $rm->status;
+    }
+    foreach ($canCal ? Capsule::table('mod_cpm_events')
+        ->whereIn('kind', ['meeting', 'appointment'])
+        ->where('attendees', 'like', '%,' . $adminId . ',%')
+        ->where('end_dt', '>=', date('Y-m-d H:i:s', $nowM))
+        ->where('start_dt', '<=', date('Y-m-d H:i:s', $nowM + 7 * 86400))
+        ->orderBy('start_dt')->limit(20)->get() : [] as $evM) {
+        $eidM = (int) $evM->id;
+        $mine = $rsvpMine[$eidM] ?? null;
+        $startM = strtotime($evM->start_dt);
+        $kindM = null;
+        if (!$mine && empty($shown[$eidM . ':invite'])) {
+            $kindM = 'invite';                       // σε κάλεσαν και δεν έχεις απαντήσει
+        } elseif ($mine === 'accepted' && $startM - $nowM <= 600 && $startM + 300 > $nowM
+            && empty($shown[$eidM . ':soon'])) {
+            $kindM = 'soon';                         // αρχίζει σε ≤10΄ και το δέχτηκες
+        }
+        if (!$kindM) {
+            continue;
+        }
+        [$hIcoM, $hTxtM] = cnp_meeting_how($evM->mode, $evM->place, $evM->location,
+            $evM->clientid ? clientLabel((int) $evM->clientid) : '');
+        $meetAlerts[] = ['id' => $eidM, 'alert' => $kindM, 'title' => $evM->title,
+            'by' => Db::adminName((int) $evM->created_by),
+            'start' => $evM->start_dt, 'end' => $evM->end_dt,
+            'whenTxt' => date('d/m H:i', $startM) . '–' . date('H:i', strtotime($evM->end_dt)),
+            'inMin' => max(0, (int) round(($startM - $nowM) / 60)),
+            'how' => trim($hIcoM . ' ' . $hTxtM), 'mode' => $evM->mode,
+            'join' => ($evM->mode === 'video' || $evM->mode === 'phone') ? $evM->location : '',
+            'client' => $evM->clientid ? clientLabel((int) $evM->clientid) : ''];
+        if (count($meetAlerts) >= 3) {
+            break;
+        }
+    }
+    /* ⏱ Χρονόμετρο που τρέχει πολλές ώρες: ΔΕΝ το κόβουμε — μπορεί όντως να
+       δουλεύει έξω από την εφαρμογή. Απλώς ρωτάμε, μία φορά κάθε δύο ώρες.
+       Η ερώτηση εμφανίζεται μόλις ξαναφανεί στην εφαρμογή, που είναι και η
+       σωστή στιγμή: αν ξέχασε το Stop, τώρα θα το θυμηθεί. */
+    $myTimer = null;
+    $runMine = Db::runningTimer($adminId);
+    if ($runMine) {
+        $ranFor = time() - strtotime($runMine->started_at);
+        $askedAt = (int) Db::pref($adminId, 'timer_ask_at', '0');
+        if ($ranFor > 4 * 3600 && time() - $askedAt > 2 * 3600) {
+            Db::setPref($adminId, 'timer_ask_at', (string) time());
+            $tkMine = Db::task((int) $runMine->task_id);
+            $myTimer = ['task' => (int) $runMine->task_id,
+                'title' => $tkMine ? mb_substr((string) $tkMine->title, 0, 90) : '',
+                'since' => $runMine->started_at,
+                'sinceTxt' => date('H:i', strtotime($runMine->started_at)),
+                'mins' => (int) round($ranFor / 60)];
+        }
+    }
     out(['chatNew' => $chatNew,
         'v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
         'build' => cnp_asset_version(),
-        'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread, 'alerts' => $alerts]);
+        'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread, 'alerts' => $alerts,
+        'meetAlerts' => $meetAlerts, 'myTimer' => $myTimer]);
+
+case 'event_nudge':                      // «απάντησε» σε όσους δεν έχουν απαντήσει
+    $nv = Capsule::table('mod_cpm_events')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$nv) {
+        fail('event', 404);
+    }
+    if (!$FULL && (int) $nv->created_by !== $adminId) {
+        fail('Μόνο ο διοργανωτής στέλνει υπενθύμιση', 403);
+    }
+    $nAtt = array_filter(array_map('intval', explode(',', $nv->attendees)));
+    $nAns = [];
+    foreach (Capsule::table('mod_cpm_event_rsvp')->where('event_id', $nv->id)->where('kind', 'admin')->get() as $nr) {
+        $nAns[(int) $nr->ref] = true;
+    }
+    $nSent = 0;
+    $nWhen = date('d/m/Y H:i', strtotime($nv->start_dt));
+    foreach ($nAtt as $nA) {
+        if ($nA === $adminId || isset($nAns[$nA])) {
+            continue;
+        }
+        Db::pushNotification($nA, 'info', '📅 Απάντησε: ' . $nv->title . ' — ' . $nWhen,
+            '/projectmanagement/#/calendar');
+        cnp_meet_mail($nA, '📅 Εκκρεμεί η απάντησή σου: ' . $nv->title,
+            '<p>Ο/Η <strong>' . htmlspecialchars(Db::adminName($adminId)) . '</strong> περιμένει να δηλώσεις '
+            . 'αν θα είσαι στη σύσκεψη <strong>' . htmlspecialchars($nv->title) . '</strong> — ' . $nWhen . '.</p>'
+            . '<p><a href="https://my.cloudon.gr/projectmanagement/#/calendar">Άνοιξε το ημερολόγιο και απάντησε</a></p>');
+        /* Ξαναδίνουμε δικαίωμα στη δυνατή κάρτα να σκάσει — γι' αυτό είναι η υπενθύμιση. */
+        Capsule::table('mod_cpm_event_alerts')
+            ->where('event_id', $nv->id)->where('admin_id', $nA)->where('kind', 'invite')->delete();
+        $nSent++;
+    }
+    out(['ok' => true, 'sent' => $nSent]);
+
+case 'event_noshow':                     // «δεν σε είδαμε» — ξανά η πρόσκληση + ρώτα τι έγινε
+    $sv = Capsule::table('mod_cpm_events')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$sv) {
+        fail('event', 404);
+    }
+    if (!$FULL && (int) $sv->created_by !== $adminId) {
+        fail('Μόνο ο διοργανωτής ρωτά για απουσία', 403);
+    }
+    $sWho = array_values(array_intersect(
+        array_filter(array_map('intval', (array) ($in['who'] ?? []))),
+        array_filter(array_map('intval', explode(',', $sv->attendees)))));
+    if (!$sWho) {
+        fail('Διάλεξε ποιον αφορά');
+    }
+    $sMsg = mb_substr(trim((string) ($in['note'] ?? '')), 0, 300);
+    $sWhen = date('d/m/Y H:i', strtotime($sv->start_dt));
+    [$sIco, $sHow] = cnp_meeting_how($sv->mode, $sv->place, $sv->location,
+        $sv->clientid ? clientLabel((int) $sv->clientid) : '');
+    $sSent = 0;
+    foreach ($sWho as $sA) {
+        if ($sA === $adminId) {
+            continue;
+        }
+        Db::pushNotification($sA, 'info',
+            'Δεν σε είδαμε στη σύσκεψη: ' . mb_substr((string) $sv->title, 0, 70),
+            '/projectmanagement/#/calendar');
+        cnp_meet_mail($sA, 'Δεν σε είδαμε στη σύσκεψη — ' . $sv->title,
+            '<p>Ο/Η <strong>' . htmlspecialchars(Db::adminName($adminId)) . '</strong> σε περίμενε στη σύσκεψη '
+            . '<strong>' . htmlspecialchars($sv->title) . '</strong>.</p>'
+            . '<p style="background:#eef7fd;border-left:4px solid #0090dd;padding:10px 14px;">🗓 <strong>' . $sWhen . '</strong>'
+            . ($sHow ? '<br />' . $sIco . ' ' . htmlspecialchars($sHow) : '') . '</p>'
+            . ($sMsg !== '' ? '<p>' . nl2br(htmlspecialchars($sMsg)) . '</p>' : '')
+            . '<p>Αν προέκυψε κάτι σοβαρό, <strong>πες μας το</strong> — για να δούμε αν χρειάζεται βοήθεια '
+            . 'ή αν πρέπει να ξαναοριστεί η συνάντηση.</p>'
+            . '<p><a href="https://my.cloudon.gr/projectmanagement/#/calendar">Άνοιξε το ημερολόγιο</a></p>');
+        /* Η πρόσκληση ξαναζωντανεύει: να ξανασκάσει η δυνατή κάρτα και να απαντήσει. */
+        Capsule::table('mod_cpm_event_rsvp')
+            ->where('event_id', $sv->id)->where('kind', 'admin')->where('ref', $sA)->delete();
+        Capsule::table('mod_cpm_event_alerts')
+            ->where('event_id', $sv->id)->where('admin_id', $sA)->delete();
+        $sSent++;
+    }
+    out(['ok' => true, 'sent' => $sSent]);
+
+case 'event_alert_seen':                 // «το είδα» — να μη σκάσει ξανά η ίδια κάρτα
+    $saE = (int) ($in['id'] ?? 0);
+    $saK = in_array($in['alert'] ?? '', ['invite', 'soon', 'nudge'], true) ? $in['alert'] : 'invite';
+    if ($saE) {
+        Capsule::table('mod_cpm_event_alerts')->updateOrInsert(
+            ['event_id' => $saE, 'admin_id' => $adminId, 'kind' => $saK],
+            ['sent_at' => date('Y-m-d H:i:s')]);
+    }
+    out(['ok' => true]);
 
 /* ---- αναζήτηση πελάτη (autocomplete) ---- */
 case 'client_quick_add':                  // νέος πελάτης επί τόπου, από το πεδίο επιλογής

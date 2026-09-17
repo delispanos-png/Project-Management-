@@ -65,6 +65,40 @@ R.list = async function () {
 /* ═════════ ΟΜΑΔΙΚΟ ΗΜΕΡΟΛΟΓΙΟ ═════════ */
 const EV_KINDS = {meeting: ['🤝', 'Meeting', '#7b5cd6'], appointment: ['📅', 'Ραντεβού', '#0090dd'],
   leave: ['🌴', 'Άδεια', '#e2a33c'], other: ['📌', 'Άλλο', '#8595ac']};
+/* Μια σύσκεψη έχει δύο ανεξάρτητες απαντήσεις: ΜΕ ΠΟΙΟΝ και ΠΩΣ. Μια συνάντηση
+   με πελάτη μπορεί να γίνει στα γραφεία μας· μια εσωτερική σε βιντεοκλήση. */
+const EV_SCOPE = {
+  internal: ['👥', 'Με την ομάδα', 'Εσωτερική σύσκεψη'],
+  client: ['👤', 'Με πελάτη', 'Συνάντηση ή κλήση με πελάτη'],
+};
+const EV_MODE = {
+  onsite: ['📍', 'Δια ζώσης', 'Θα βρεθούμε από κοντά'],
+  video: ['🎥', 'Βιντεοκλήση', 'Απομακρυσμένα, με σύνδεσμο'],
+  phone: ['📞', 'Τηλεφωνικά', 'Απλή τηλεφωνική κλήση'],
+};
+const EV_PLACE = {
+  office: ['🏢', 'Στα γραφεία μας'],
+  client: ['🚗', 'Στον χώρο του πελάτη'],
+  other: ['📌', 'Αλλού'],
+};
+/** «Πώς και πού» σε μία φράση — ίδιο κείμενο με τον server και το email. */
+function evHow(ev) {
+  /* Τα παλιά συμβάντα (πριν μπουν τα πεδία) δεν έχουν mode — το συμπεραίνουμε
+     από την τοποθεσία, ώστε να μη φαίνονται «γυμνά» στο ιστορικό. */
+  const m = ev.mode || (ev.location
+    ? (/^https?:\/\//.test(ev.location) ? 'video'
+      : /^[+\d][\d\s().-]{5,}$/.test(ev.location) ? 'phone' : 'onsite')
+    : null);
+  if (m === 'video') { return ['🎥', 'Βιντεοκλήση']; }
+  if (m === 'phone') { return ['📞', 'Τηλεφωνικά']; }
+  if (m === 'onsite') {
+    return ['📍', ev.place === 'client' ? 'Δια ζώσης — στον χώρο του πελάτη'
+      : ev.place === 'other' ? 'Δια ζώσης' : 'Δια ζώσης — στα γραφεία μας'];
+  }
+  return ['', ''];
+}
+/** Με ποιον — επίσης με εφεδρεία για τα παλιά (έχει πελάτη ⇒ με πελάτη). */
+function evScope(ev) { return ev.scope || (ev.client ? 'client' : 'internal'); }
 /* Ελληνική μορφή ημερομηνίας/ώρας συμβάντος — «Παρασκευή 24 Ιουλίου · 10:00 – 11:00». */
 function evWhen(ev) {
   const D = s => new Date(String(s).replace(' ', 'T'));
@@ -95,6 +129,9 @@ function openEvent(ev, ymRefresh) {
   const xmails = [];
   let editing = isNew;              // υπάρχον συμβάν → ΠΡΟΒΟΛΗ πρώτα (η φόρμα ανοίγει με «Επεξεργασία»)
   let kind = ev.kind;
+  let scope = ev.scope || (ev.client ? 'client' : 'internal');
+  let mode = ev.mode || (ev.location && /^https?:\/\//.test(ev.location) ? 'video' : null);
+  let place = ev.place || null;
 
   const isLink = !!(ev.location && /^https?:\/\//.test(ev.location));
   const isMeet = isLink && /\/meet\.php|\/project(management)?\/meet/.test(ev.location);
@@ -122,9 +159,18 @@ function openEvent(ev, ymRefresh) {
     return `
     <div class="ev-hero" style="--evc:${kcol}">
       <span class="ev-kind" style="background:${kcol}1a;color:${kcol}">${ico} ${klabel}</span>
+      ${(() => { const [hi, ht] = evHow(ev); const sc = EV_KINDS[ev.kind] && ev.kind !== 'leave' && ev.kind !== 'other'
+          ? EV_SCOPE[evScope(ev)] : null;
+        const pu = ((S.boot.meetPurposes || {})[evScope(ev)] || {})[ev.purpose];
+        return (sc || ht || pu) ? `<div class="ev-tags">
+          ${sc ? `<span class="ev-tag">${sc[0]} ${sc[1] === 'Με πελάτη' && ev.clientName ? esc(ev.clientName) : sc[1]}</span>` : ''}
+          ${pu ? `<span class="ev-tag">🎯 ${esc(pu)}</span>` : ''}
+          ${ht ? `<span class="ev-tag">${hi} ${esc(ht)}</span>` : ''}</div>` : ''; })()}
       <div class="ev-when">${I.cal} ${esc(evWhen(ev))}</div>
-      ${ev.location ? `<div class="ev-loc">${isLink ? I.video : I.pin} ${isLink
+      ${ev.location ? `<div class="ev-loc">${isLink ? I.video : ev.mode === 'phone' ? I.phone : I.pin} ${isLink
         ? `<a href="${esc(ev.location)}" target="_blank" rel="noopener">${isMeet ? 'CloudOn Meet' : esc(ev.location)}</a>`
+        : ev.mode === 'phone'
+        ? `<a href="tel:${esc(String(ev.location).replace(/\s/g, ''))}">${esc(ev.location)}</a>`
         : esc(ev.location)}</div>` : ''}
     </div>
 
@@ -140,10 +186,33 @@ function openEvent(ev, ymRefresh) {
     </div>` : ''}
 
     <div class="card"><div class="card-h">${I.users} Ποιος θα είναι εκεί</div>
-      <div class="card-b">${whoHtml()}</div></div>
+      <div class="card-b">${(() => {
+        /* Ο διοργανωτής θέλει μία ματιά: πόσοι απάντησαν, ποιοι λείπουν, και
+           κουμπί να τους σκουντήξει — χωρίς να μετράει πιλάκια. */
+        const att = ev.attendees || [];
+        const r = ev.rsvp || {};
+        const acc = att.filter(a => r['admin' + a] === 'accepted').length;
+        const dec = att.filter(a => r['admin' + a] === 'declined').length;
+        const wait = att.filter(a => !r['admin' + a]);
+        const pct = att.length ? Math.round((acc + dec) / att.length * 100) : 0;
+        /* Μετά τη λήξη η ερώτηση αλλάζει: δεν ζητάς πια απάντηση, ρωτάς τι έγινε.
+           Το «πέρασε» το λέει ο server — όχι το ρολόι του υπολογιστή. */
+        const over = ev.over === undefined
+          ? !!(ev.end && new Date(String(ev.end).replace(' ', 'T')) < new Date())
+          : !!ev.over;
+        return `<div class="ev-rsum">
+          <b>${acc}/${att.length} ${over ? 'είχαν δηλώσει παρουσία' : 'θα είναι εκεί'}</b>
+          ${dec ? `<span class="mut">· ${dec} δεν μπορεί</span>` : ''}
+          ${wait.length ? `<span class="mut">· ${wait.length} δεν απάντησε</span>` : ''}
+          <span class="bar"><i style="width:${pct}%"></i></span>
+          ${ev.canEdit && ev.id && over
+            ? `<button class="btn btn-sm btn-o" id="evNoshow">${I.mail} Απουσίες</button>`
+            : (wait.length && ev.canEdit && ev.id ? `<button class="btn btn-sm btn-o" id="evNudge">${I.mail} Υπενθύμιση</button>` : '')}
+        </div>` + whoHtml();
+      })()}</div></div>
 
     ${ev.notes ? `<div class="card"><div class="card-h">${I.fileText} Σημειώσεις</div>
-      <div class="card-b" style="white-space:pre-wrap;font-size:13px;color:var(--txt)">${esc(ev.notes)}</div></div>` : ''}
+      <div class="card-b rt-view" style="font-size:13px;color:var(--txt)">${ev.notes}</div></div>` : ''}
 
     ${ev.canEdit ? `<div class="ev-foot">
       <button class="btn btn-o" id="evEdit">${I.edit} Επεξεργασία</button>
@@ -151,7 +220,19 @@ function openEvent(ev, ymRefresh) {
     </div>` : '<div class="mut" style="font-size:11.5px">Μόνο ο δημιουργός ή διαχειριστής μπορεί να το αλλάξει.</div>'}`;
   };
 
-  /* ══ ΦΟΡΜΑ — νέο συμβάν ή «Επεξεργασία» ══ */
+  /* ══ ΦΟΡΜΑ — νέο συμβάν ή «Επεξεργασία» ══
+     Για σύσκεψη/ραντεβού ρωτάμε με τη σειρά που τη σκέφτεται κανείς:
+     με ποιον → γιατί → πώς → πού → πότε → ποιοι. */
+  const isMeetKind = () => kind === 'meeting' || kind === 'appointment';
+  const purposeList = () => (S.boot.meetPurposes || {})[scope] || {};
+  const pickRow = (id, map, curV, cols) => `
+    <div class="ev-pick" id="${id}" style="--cols:${cols || 3}">
+      ${Object.entries(map).map(([k, v]) => `
+        <button type="button" class="ev-p${curV === k ? ' on' : ''}" data-v="${k}">
+          <span class="ev-p-ic">${v[0]}</span>
+          <span class="ev-p-t"><b>${esc(v[1])}</b>${v[2] ? `<span class="mut">${esc(v[2])}</span>` : ''}</span>
+        </button>`).join('')}
+    </div>`;
   const formHtml = () => `
   <div class="card"><div class="card-b">
     <label class="lbl">Τύπος</label>
@@ -159,7 +240,34 @@ function openEvent(ev, ymRefresh) {
       ${Object.entries(EV_KINDS).map(([k, [ico, l, col]]) => `
         <button class="btn btn-sm ${kind === k ? 'btn-p' : 'btn-o'}" data-k="${k}" style="${kind === k ? '' : 'border-color:' + col}">${ico} ${l}</button>`).join('')}
     </div>
-    <label class="lbl" style="margin-top:11px">Τίτλος</label>
+
+    <div id="evMeetBox" ${isMeetKind() ? '' : 'hidden'}>
+      <label class="lbl" style="margin-top:13px">Με ποιον</label>
+      ${pickRow('evScope', EV_SCOPE, scope, 2)}
+      <div id="evCliBox" ${scope === 'client' ? '' : 'hidden'}>
+        <label class="lbl" style="margin-top:11px">Πελάτης <span class="mut" style="font-weight:400">(μόνο ενεργοί)</span></label>
+        <input class="inp" id="evCli" autocomplete="off" value="${esc(ev.clientName ? ev.clientName + ' (#' + ev.client + ')' : '')}">
+        <input type="hidden" id="evCliId" value="${ev.client || ''}">
+        <label style="display:flex;gap:6px;align-items:center;margin-top:9px;font-size:12.5px" id="evInvW">
+          <input type="checkbox" id="evInv" checked> ${I.mail} Αποστολή πρόσκλησης στον πελάτη (ώρα, τρόπος, Add-to-Calendar)</label>
+      </div>
+      <label class="lbl" style="margin-top:13px">Σκοπός</label>
+      <div class="ev-purp" id="evPurp"></div>
+
+      <label class="lbl" style="margin-top:13px">Πώς θα γίνει</label>
+      ${pickRow('evMode', EV_MODE, mode, 3)}
+      <div id="evPlaceBox" ${mode === 'onsite' ? '' : 'hidden'}>
+        <label class="lbl" style="margin-top:11px">Πού</label>
+        ${pickRow('evPlace', EV_PLACE, place || 'office', 3)}
+      </div>
+      <div id="evLocBox" style="margin-top:11px">
+        <label class="lbl" id="evLocLbl">Λεπτομέρεια
+          <button type="button" class="btn btn-sm btn-o" id="evMeet" style="margin-left:6px;padding:2px 8px;font-size:11px">${I.video} Δημιουργία CloudOn Meet</button></label>
+        <input class="inp" id="evLoc" value="${esc(ev.location || '')}">
+      </div>
+    </div>
+
+    <label class="lbl" style="margin-top:13px">Τίτλος</label>
     <input class="inp" id="evT" value="${esc(ev.title || '')}" placeholder="π.χ. Κλήση με PharmacyOne / Καλοκαιρινή άδεια">
     <div class="frow" style="margin-top:11px">
       <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="evD0" value="${d0}"></div>
@@ -173,16 +281,7 @@ function openEvent(ev, ymRefresh) {
     <div class="ev-att">
       ${S.boot.admins.map(a => `<label><input type="checkbox" class="evA" value="${a.id}" ${(ev.attendees || []).includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('')}
     </div>
-    <div class="frow" style="margin-top:11px">
-      <div><label class="lbl">Πελάτης (για ραντεβού)</label><input class="inp" id="evCli" list="evCliL" autocomplete="off"
-        value="${esc(ev.clientName ? ev.clientName + ' (#' + ev.client + ')' : '')}"><datalist id="evCliL"></datalist>
-        <input type="hidden" id="evCliId" value="${ev.client || ''}"></div>
-      <div><label class="lbl">Τοποθεσία / link
-          <button type="button" class="btn btn-sm btn-o" id="evMeet" style="margin-left:6px;padding:2px 8px;font-size:11px">${I.video} Meeting link</button></label>
-        <input class="inp" id="evLoc" value="${esc(ev.location || '')}" placeholder="γραφείο / Meet / πελάτης"></div>
-    </div>
-    <label style="display:flex;gap:6px;align-items:center;margin-top:9px;font-size:12.5px" id="evInvW">
-      <input type="checkbox" id="evInv" checked> ${I.mail} Αποστολή πρόσκλησης στον πελάτη (ημερομηνία, link, Add-to-Calendar)</label>
+    <div class="ev-busy" id="evBusy" hidden></div>
     <label class="lbl" style="margin-top:11px">Επιπλέον προσκεκλημένοι <span class="mut" style="font-weight:400">(εξωτερικοί — γράψε email και πάτα +)</span></label>
     <div id="evXmList" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px"></div>
     <div style="display:flex;gap:7px">
@@ -199,7 +298,7 @@ function openEvent(ev, ymRefresh) {
 
   const mount = () => {
     dr.innerHTML = `
-      <div class="drawer-h"><h2>${isNew ? 'Νέο συμβάν' : esc(ev.title)}</h2><button class="drawer-x" id="dX">✕</button></div>
+      <div class="drawer-h"><h2>${isNew ? (isMeetKind() ? 'Νέα σύσκεψη' : 'Νέο συμβάν') : esc(ev.title)}</h2><button class="drawer-x" id="dX">✕</button></div>
       <div class="drawer-b">${editing ? formHtml() : viewHtml()}</div>`;
     $('#dX', dr).onclick = () => cnpAskClose(dr);
     editing ? bindForm() : bindView();
@@ -221,6 +320,50 @@ function openEvent(ev, ymRefresh) {
       ev.rsvp = Object.assign({}, ev.rsvp, {['admin' + S.boot.me.id]: 'declined'});
       toast('Καταγράφηκε ότι δεν μπορείς'); mount();
     }; }
+    const nud = $('#evNudge', dr); if (nud) { nud.onclick = async () => {
+      nud.disabled = true;
+      const r = await api('event_nudge', {id: ev.id}).catch(e => ({err: e.message}));
+      nud.disabled = false;
+      if (r.err) { toast(r.err, true); return; }
+      toast(r.sent ? `Στάλθηκε υπενθύμιση σε ${r.sent} άτομα` : 'Όλοι έχουν ήδη απαντήσει');
+    }; }
+    /* Άγνωστη απουσία: ο διοργανωτής ξαναστέλνει την πρόσκληση και ρωτάει τι
+       έγινε — όχι για έλεγχο, αλλά γιατί μπορεί να συνέβη κάτι σοβαρό. */
+    const nsb = $('#evNoshow', dr); if (nsb) { nsb.onclick = () => {
+      const att = ev.attendees || [];
+      const r0 = ev.rsvp || {};
+      const ovl2 = document.createElement('div'); ovl2.className = 'ovl show'; ovl2.style.zIndex = 330;
+      ovl2.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:460px" onclick="event.stopPropagation()">
+        <div style="padding:18px 20px 8px"><b style="font-size:15px;color:var(--ink)">Ποιος δεν ήρθε;</b>
+          <div class="mut" style="font-size:12px;margin-top:3px">Θα λάβουν ξανά την πρόσκληση και θα τους ζητηθεί
+            να πουν αν προέκυψε κάτι σοβαρό.</div></div>
+        <div style="padding:6px 20px 4px;display:flex;flex-direction:column;gap:3px">
+          ${att.filter(a => a !== S.boot.me.id).map(a => `<label style="display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0">
+            <input type="checkbox" class="nsA" value="${a}" ${!r0['admin' + a] ? 'checked' : ''}>
+            ${esc(adminName(a))}
+            <span class="mut" style="font-size:11px">${r0['admin' + a] === 'accepted' ? '· είχε δηλώσει ναι'
+              : r0['admin' + a] === 'declined' ? '· είχε πει ότι δεν μπορεί' : '· δεν είχε απαντήσει'}</span></label>`).join('')}
+        </div>
+        <div style="padding:8px 20px 16px">
+          <input class="inp" id="nsMsg" maxlength="300" placeholder="Μήνυμα (προαιρετικό)">
+          <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+            <button class="btn btn-o" id="nsX">Άκυρο</button>
+            <button class="btn btn-p" id="nsGo">Στείλε</button></div></div></div>`;
+      document.body.appendChild(ovl2);
+      const kill2 = () => ovl2.remove();
+      ovl2.onclick = kill2;
+      $('#nsX', ovl2).onclick = kill2;
+      $('#nsGo', ovl2).onclick = async () => {
+        const who = $$('.nsA:checked', ovl2).map(x => +x.value);
+        if (!who.length) { toast('Διάλεξε ποιον αφορά', true); return; }
+        const rr = await api('event_noshow', {id: ev.id, who, note: $('#nsMsg', ovl2).value.trim()})
+          .catch(e2 => ({err: e2.message}));
+        if (rr.err) { toast(rr.err, true); return; }
+        kill2();
+        toast(`Στάλθηκε σε ${rr.sent} άτομα — τους ζητήθηκε να απαντήσουν`);
+        closeDrawer(); R.calendar(ymRefresh);
+      };
+    }; }
     const ed = $('#evEdit', dr); if (ed) { ed.onclick = () => { editing = true; mount(); }; }
     const del = $('#evDel', dr); if (del) { del.onclick = async () => {
       if (!(await cnpConfirm('Διαγραφή συμβάντος;', {danger: true, ok: I.trash + ' Διαγραφή'}))) { return; }
@@ -230,11 +373,79 @@ function openEvent(ev, ymRefresh) {
   };
 
   const bindForm = () => {
-    clientAuto('evCli', 'evCliL', 'evCliId');
+    clientAuto('evCli', null, 'evCliId');
+    /* ── Σκοπός: οι επιλογές αλλάζουν ανάλογα με το «με ποιον» ── */
+    let purpose = ev.purpose || null;
+    const paintPurp = () => {
+      const list = purposeList();
+      if (!(purpose in list)) { purpose = null; }
+      $('#evPurp', dr).innerHTML = Object.entries(list).map(([k, l]) =>
+        `<button type="button" class="btn btn-sm ${purpose === k ? 'btn-p' : 'btn-o'}" data-purp="${k}">${esc(l)}</button>`).join('');
+      $$('[data-purp]', dr).forEach(b => b.onclick = () => { purpose = b.dataset.purp; paintPurp(); });
+    };
+    /* ── Η λεπτομέρεια τοποθεσίας αλλάζει νόημα ανά τρόπο ── */
+    const paintLoc = () => {
+      const box = $('#evLocBox', dr), lbl = $('#evLocLbl', dr), inp = $('#evLoc', dr), mk = $('#evMeet', dr);
+      $('#evPlaceBox', dr).hidden = (mode !== 'onsite');
+      mk.hidden = (mode !== 'video');
+      box.hidden = !mode || (mode === 'onsite' && place !== 'other');
+      if (box.hidden) { return; }
+      const t = mode === 'video' ? ['Σύνδεσμος βιντεοκλήσης', 'https://… ή πάτα «Δημιουργία CloudOn Meet»']
+        : mode === 'phone' ? ['Τηλέφωνο κλήσης', 'π.χ. +30 210 1234567']
+        : ['Διεύθυνση', 'Οδός, αριθμός, πόλη'];
+      lbl.childNodes[0].nodeValue = t[0] + ' ';
+      inp.placeholder = t[1];
+    };
+    const paintMeetBox = () => {
+      $('#evMeetBox', dr).hidden = !isMeetKind();
+      $('#evCliBox', dr).hidden = (scope !== 'client');
+      paintPurp();
+      paintLoc();
+    };
+    $$('#evScope .ev-p', dr).forEach(b => b.onclick = () => {
+      scope = b.dataset.v;
+      $$('#evScope .ev-p', dr).forEach(x => x.classList.toggle('on', x === b));
+      paintMeetBox();
+    });
+    $$('#evMode .ev-p', dr).forEach(b => b.onclick = () => {
+      mode = b.dataset.v;
+      if (mode === 'onsite' && !place) { place = 'office'; }
+      $$('#evMode .ev-p', dr).forEach(x => x.classList.toggle('on', x === b));
+      paintLoc();
+    });
+    $$('#evPlace .ev-p', dr).forEach(b => b.onclick = () => {
+      place = b.dataset.v;
+      $$('#evPlace .ev-p', dr).forEach(x => x.classList.toggle('on', x === b));
+      paintLoc();
+    });
+    paintMeetBox();
+    /* ── Διαθεσιμότητα: ποιος από τους επιλεγμένους έχει ήδη κάτι τότε ── */
+    let busyT = null;
+    const checkBusy = () => {
+      clearTimeout(busyT);
+      busyT = setTimeout(async () => {
+        const box = $('#evBusy', dr); if (!box) { return; }
+        const ids = $$('.evA:checked', dr).map(x => +x.value);
+        const allDay = $('#evAll', dr).checked;
+        const st = $('#evD0', dr).value + (allDay ? ' 00:00' : ' ' + $('#evT0', dr).value);
+        const en = $('#evD1', dr).value + (allDay ? ' 23:59' : ' ' + $('#evT1', dr).value);
+        if (!ids.length || !$('#evD0', dr).value) { box.hidden = true; return; }
+        const r = await api('event_busy', {id: ev.id || 0, attendees: ids, start: st, end: en}).catch(() => null);
+        if (!r || !r.busy || !r.busy.length) { box.hidden = true; return; }
+        box.hidden = false;
+        box.innerHTML = `<b>⚠ Δεν είναι όλοι ελεύθεροι τότε</b>`
+          + r.busy.map(b2 => `<div>${esc(b2.name)} — <span class="mut">${esc(b2.title)} · ${esc(b2.when)}</span></div>`).join('')
+          + `<div class="mut" style="margin-top:4px">Μπορείς να συνεχίσεις — απλώς να το ξέρεις.</div>`;
+      }, 350);
+    };
+    $$('.evA', dr).forEach(x => x.onchange = checkBusy);
+    ['evD0', 'evT0', 'evD1', 'evT1'].forEach(id => { const el = $('#' + id, dr); if (el) { el.onchange = checkBusy; } });
+    checkBusy();
     $$('#evKinds [data-k]', dr).forEach(b => b.onclick = () => {
       kind = b.dataset.k;
       $$('#evKinds [data-k]', dr).forEach(x => x.className = 'btn btn-sm ' + (x === b ? 'btn-p' : 'btn-o'));
       if (kind === 'leave') { $('#evAll', dr).checked = true; toggleTimes(); }
+      paintMeetBox();
     });
     const toggleTimes = () => {
       const off = $('#evAll', dr).checked;
@@ -273,8 +484,11 @@ function openEvent(ev, ymRefresh) {
         start: $('#evD0', dr).value + (allDay ? ' 00:00' : ' ' + $('#evT0', dr).value),
         end: $('#evD1', dr).value + (allDay ? ' 23:59' : ' ' + $('#evT1', dr).value),
         allDay, attendees: $$('.evA:checked', dr).map(x => +x.value),
-        client: +$('#evCliId', dr).value || 0, location: $('#evLoc', dr).value,
-        inviteClient: $('#evInv', dr).checked, extraEmails: xmails.join(','),
+        client: scope === 'client' ? (+$('#evCliId', dr).value || 0) : 0,
+        scope, mode, place, purpose,
+        location: $('#evLoc', dr).value,
+        inviteClient: scope === 'client' && $('#evInv', dr).checked,
+        extraEmails: xmails.join(','),
         notes: rteVal('evN', dr)}).catch(e => ({err: e.message}));
       if (r.err) { toast(r.err, true); return; }
       toast('Αποθηκεύτηκε 📅'); closeDrawer(); R.calendar(ymRefresh);
@@ -327,11 +541,11 @@ R.calendar = async function (ym) {
         const who = ev.attendees.map(a => adminIni(a)).join(',');
         const tm = ev.allDay ? '' : ev.start.slice(11, 16) + ' ';
         return `<a class="ev" data-event="${ev.id}" style="border-color:${col};background:${col}18"
-          title="${esc(ev.title)} — ${esc(ev.attendees.map(a => adminName(a)).join(', '))}${ev.location ? ' @ ' + esc(ev.location) : ''}">
+          title="${esc(ev.title)} — ${esc(ev.attendees.map(a => adminName(a)).join(', '))}${ev.location ? ' @ ' + esc(ev.location) : ''}&#10;(διπλό κλικ για λεπτομέρειες)">
           ${ico} ${tm}${esc(ev.title)} <small style="opacity:.7">${esc(who)}</small></a>`;
       }).join('') +
       (byDay[date] || []).map(t => `<a class="ev ${t.done ? 'done' : date < today() ? 'over' : ''}"
-        style="border-color:${t.color}" data-task="${t.id}" title="${esc(t.title + ' — ' + t.pname)}">
+        style="border-color:${t.color}" data-task="${t.id}" title="${esc(t.title + ' — ' + t.pname)}&#10;(διπλό κλικ για άνοιγμα)">
         ${t.prio === 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`).join('') + '</td>';
     col++;
   }
@@ -358,8 +572,19 @@ R.calendar = async function (ym) {
   $('#calN').onclick = () => R.calendar(fmtYm(next));
   const t = $('#calT'); if (t) t.onclick = () => R.calendar();
   $('#evNew').onclick = () => openEvent(null, d.ym);
-  // (τα in-cell events ΔΕΝ ανοίγουν με κλικ — το κλικ σε κελί κάνει απλώς select τη μέρα·
-  //  τα events ανοίγουν από την αναλυτική agenda κάτω από το ημερολόγιο)
+  /* Μονό κλικ σε στοιχείο = διαλέγει τη μέρα (και το βλέπεις αναλυτικά από κάτω).
+     ΔΙΠΛΟ κλικ = άνοιξέ το: η σύσκεψη ανοίγει την καρτέλα της, το task το δικό του.
+     Έτσι δεν χάνεται η επιλογή μέρας, αλλά ούτε χρειάζεται να κατέβεις στην ατζέντα. */
+  $$('.cal-cell .ev[data-event]').forEach(a => {
+    a.ondblclick = e => {
+      e.preventDefault(); e.stopPropagation();
+      const ev = (d.events || []).find(x => x.id === +a.dataset.event);
+      if (ev) { openEvent(ev, d.ym); }
+    };
+  });
+  $$('.cal-cell .ev[data-task]').forEach(a => {
+    a.ondblclick = e => { e.preventDefault(); e.stopPropagation(); openTask(+a.dataset.task); };
+  });
   // ── agenda επιλεγμένης μέρας (κάτω από το ημερολόγιο) ──
   const dayNames = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
   const renderDay = date => {
@@ -957,6 +1182,7 @@ function openOffer(o, d) {
   };
 }
 window.CNP.clientAuto = clientAuto;   // το χρησιμοποιεί και το R.remotebook (app.js)
+window.CNP.openEvent = openEvent;    // «+ Νέο → Νέα σύσκεψη» από την πάνω μπάρα
 /* Νέος πελάτης χωρίς να φύγεις από τη φόρμα. Ό,τι χρειάζεται το WHMCS και δεν
    το ξέρουμε ακόμη (διεύθυνση, ΤΚ, τηλέφωνο) μπαίνει ως placeholder — ο σκοπός
    είναι να υπάρξει η καρτέλα ώστε να κρεμαστούν lead, προσφορά και έργο. */
