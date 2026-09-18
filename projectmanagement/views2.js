@@ -3230,7 +3230,8 @@ R.projects = async function () {
           <input type="hidden" id="pjCliId" value="${p.client || ''}">
           <div id="pjCliS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
         <div id="pjParBox"><label class="lbl">Υπο-έργο του</label><select class="inp" id="pjPar"><option value="">— αυτοτελές έργο —</option>
-          ${clientPjs.filter(r => r.id !== p.id).map(r => `<option value="${r.id}" ${r.id === p.parent ? 'selected' : ''}>${esc(r.name)}${r.clientName ? ' — ' + esc(r.clientName) : ''}</option>`).join('')}</select></div>
+          ${clientPjs.filter(r => r.id !== p.id).map(r => `<option value="${r.id}" ${r.id === p.parent ? 'selected' : ''}>${esc(r.name)}${r.clientName ? ' — ' + esc(r.clientName) : ''}</option>`).join('')}</select>
+          <div id="pjParS" class="mut" style="font-size:11px;margin-top:3px"></div></div>
         <div><label class="lbl">Χρώμα</label><input class="inp" type="color" id="pjColor" value="${p.color || '#0090dd'}" style="height:40px;padding:4px"></div>
         <div><label class="lbl">Κατάσταση</label><select class="inp" id="pjPs"><option value="">—</option>
           ${Object.entries(psL).map(([k, v]) => `<option value="${k}" ${k === p.pstatus ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
@@ -3344,10 +3345,24 @@ R.projects = async function () {
       }
     };
     loadProds();
+    /* «Υπο-έργο του»: μόνο τα έργα ΤΟΥ πελάτη που διαλέχτηκε — η λίστα όλων των
+       πελατών δεν βοηθά να βρεις τίποτα. Χωρίς πελάτη ακόμη, δείχνει όλα. */
+    const loadParents = () => {
+      const sel = $('#pjPar', dr); if (!sel) { return; }
+      const cid = +$('#pjCliId', dr).value || 0;
+      const cur = +sel.value || p.parent || 0;
+      const list = clientPjs.filter(r => r.id !== p.id && (!cid || r.client === cid || r.id === cur));
+      sel.innerHTML = '<option value="">— αυτοτελές έργο —</option>'
+        + list.map(r => `<option value="${r.id}" ${r.id === cur ? 'selected' : ''}>${esc(r.name)}${!cid && r.clientName ? ' — ' + esc(r.clientName) : ''}</option>`).join('');
+      const hint = $('#pjParS', dr);
+      if (hint) { hint.textContent = cid ? (list.length ? list.length + ' έργα του πελάτη' : 'ο πελάτης δεν έχει άλλο έργο') : 'διάλεξε πρώτα πελάτη για να δεις μόνο τα δικά του'; }
+    };
+    loadParents();
     { let pt = null;
-      const again = () => { clearTimeout(pt); pt = setTimeout(loadProds, 350); };
+      const again = () => { clearTimeout(pt); pt = setTimeout(() => { loadProds(); loadParents(); }, 350); };
       $('#pjCli', dr).addEventListener('change', again);
-      $('#pjCli', dr).addEventListener('blur', again); }
+      $('#pjCli', dr).addEventListener('blur', again);
+      $('#pjCli', dr).addEventListener('cpick', () => { loadProds(); loadParents(); }); }
 
     /* ── Ο τύπος αλλάζει το νόημα των πεδίων, όχι μόνο μια τιμή ──────────────
        Σε ΕΣΩΤΕΡΙΚΟ έργο δεν υπάρχει πελάτης (η δουλειά είναι δική μας) και το
