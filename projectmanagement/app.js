@@ -3364,174 +3364,235 @@ document.addEventListener('keydown', e => {
 
 /* ═════════ Η ΜΕΡΑ ΜΟΥ ═════════ */
 async function vMyDay() {
+  /* ═══════════ «Η μέρα μου» v2 (18/9/2026) ═══════════
+     Μία ματιά = μία απάντηση: «τι κάνω τώρα;». Δομή κατά τις καλές πρακτικές των
+     Today-οθονών (Todoist/Things/Sunsama/Linear):
+       1. Τώρα         — τι τρέχει (χρονόμετρο), η επόμενη σύσκεψη, πρόοδος ημέρας
+       2. Θέλουν εσένα — ό,τι ΠΕΡΙΜΕΝΕΙ απάντηση/ενέργεια, ταξινομημένο κατά σοβαρότητα,
+                         ένα κουμπί ανά γραμμή (όχι λίστες ανά πηγή)
+       3. Το πρόγραμμα — συσκέψεις με ώρα + εργασίες σήμερα + follow-ups + σημειώσεις, με ▶/✔
+       4. Ουρά tickets — η σειρά της ημέρας (πτυσσόμενη)
+       Δεξιά: αριθμοί, καθοδήγηση, προθεσμίες 7 ημερών, «περιμένω άλλους», «η ομάδα μου» (πτυσσόμενα).
+     Κανόνας: ό,τι είναι ΓΙΑ ΑΛΛΟΥΣ (ομάδα, περιμένω) ποτέ πάνω από ό,τι είναι για μένα. */
   const _h = new Date().getHours();
   const [_g, _e] = _h < 5 ? ['Καληνύχτα', '🌙'] : _h < 12 ? ['Καλημέρα', '☀️'] : _h < 18 ? ['Καλησπέρα', '🌤️'] : _h < 22 ? ['Καλησπέρα', '🌆'] : ['Καληνύχτα', '🌙'];
-  setTop('Η μέρα μου', _g + ', ' + S.boot.me.name.split(' ')[0] + ' ' + _e);
+  const me = S.boot.me;
+  setTop('Η μέρα μου', _g + ', ' + me.name.split(' ')[0] + ' ' + _e);
   const c = $('#content');
-  c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
-  const d = await api('myday');
-  const mt = await api('my_todos').catch(() => ({todos: []}));
-  /* «@εσύ»: αναφορές σε εργασίες που περιμένουν την προσοχή μου (GoodDay-style). */
-  const mn = await api('mentions').catch(() => ({items: []}));
-  const mentions = mn.items || [];
-  /* ⚠ Υπερβάσεις εκτίμησης στην ομάδα μου (μόνο όσες μπορώ να ρωτήσω ως επικεφαλής/υπεύθυνος). */
-  const ovr = await api('overruns').catch(() => ({items: []}));
-  const overruns = ovr.items || [];
-  const st = d.stats;
-  const coachCol = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)'};
-  const coach = d.coach || [];
-  const queue = d.queue || [];
-  const waitLbl = h => h >= 48 ? Math.floor(h / 24) + ' ημέρες' : (h >= 24 ? '1 ημέρα' : h + 'ω');
-  c.innerHTML = `
-  ${mentions.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--brand)">
-    <div class="card-h">📣 Σε ανέφεραν
-      <span class="mut" style="font-weight:600;font-size:11.5px">— κάποιος έγραψε «@εσύ» σε εργασία· κλικ για να τη δεις</span></div>
-    <div class="card-b" style="padding-top:6px">
-    ${mentions.map(m => `<div class="qrow" data-mtask="${m.taskId}" data-mid="${m.id}">
-      <span class="qt">${esc(m.text)}</span>
-      <span class="mut" style="flex:none;font-size:11px">${tShort(m.at)}</span></div>`).join('')}
-    </div></div>` : ''}
-  ${overruns.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--warn)">
-    <div class="card-h">⚠ Υπερβάσεις εκτίμησης στην ομάδα σου
-      <span class="mut" style="font-weight:600;font-size:11.5px">— ξεπέρασαν την εκτίμηση κατά ${esc(String(ovr.pct || 10))}%+· ρώτα τι γίνεται πριν χαθεί το deadline</span></div>
-    <div class="card-b" style="padding-top:6px">
-    ${overruns.map(o => `<div class="qrow ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
-      <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
-      <span class="qt">${o.what === 'project' ? '📁 ' : ''}${esc(o.title)}
-        <span class="mut">${esc(o.agentName)}${o.hoursText ? ' · ⏱ ' + esc(o.hoursText) : ''}${o.daysText ? ' · 📅 ' + esc(o.daysText) : ''}</span></span>
-      ${o.checkin ? (o.checkin.status === 'done'
-        ? `<span class="pill ${o.checkin.answer === 'help' ? 'pill-bad' : 'pill-ok'}" style="flex:none" title="${esc(o.checkin.answerNote || '')}">${o.checkin.answer === 'help' ? '🆘 θέλει βοήθεια' : '✅ όλα καλά'}</span>`
-        : '<span class="pill pill-info" style="flex:none">💬 ρωτήθηκε</span>') : ''}
-      <button class="btn btn-sm btn-o" data-ovask style="flex:none">💬 Ρώτα</button>
-    </div>`).join('')}
-    </div></div>` : ''}
-  ${queue.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--bad)">
-    <div class="card-h">${I.compass} Η σειρά της ημέρας
-      <span class="mut" style="font-weight:600;font-size:11.5px">— ξεκίνα από πάνω· πρώτα το SLA, μετά όποιος περιμένει περισσότερο</span>
-      <a data-goinbox style="margin-left:auto;font-size:11px;font-weight:600;color:var(--brand);cursor:pointer">όλα τα tickets →</a></div>
-    <div class="card-b" style="padding-top:6px">
-    ${queue.map((q, i) => `<div class="qrow" data-qtk="${q.id}">
-      <span class="qn">${i + 1}</span>
-      <span class="pill" style="background:${coachCol[q.lvl]}1e;color:${coachCol[q.lvl]};font-weight:700;flex:none">${esc(q.why)}</span>
-      <span class="qt">${esc(q.title)}
-        <span class="mut">#${esc(q.tid)}${q.client ? ' · ' + esc(q.client) : ''}${q.dept ? ' · ' + esc(q.dept) : ''}</span></span>
-      ${q.urgency === 'High' ? '<span class="pill pill-bad" style="flex:none">επείγον</span>' : ''}
-      ${q.assigned ? (q.mine ? '<span class="pill pill-info" style="flex:none">δικό μου</span>'
-                             : `<span class="pill pill-mut" style="flex:none">${esc(adminIni(q.assigned))}</span>`)
-                   : '<span class="pill pill-warn" style="flex:none">αζήτητο</span>'}
-      <span class="qw mut">${waitLbl(q.waitH)}</span>
-    </div>`).join('')}
-    </div></div>` : ''}
-  ${(() => {
-    const dl = d.deadlines || [];
-    if (!dl.length) { return ''; }
-    /* Χρώμα από το πόσο απομένει, όχι από το ποσοστό: μια εργασία με μεγάλο
-       ορίζοντα μπορεί να είναι στο 90% του χρόνου και να έχει άνεση εβδομάδων. */
-    const col = x => (x.days < 0 || (x.hours !== null && x.hours < 0)) ? 'var(--bad)'
-      : (x.hours !== null ? (x.hours <= 4 ? 'var(--bad)' : (x.hours <= 12 ? 'var(--warn)' : 'var(--brand)'))
-        : (x.days <= 1 ? 'var(--bad)' : (x.days <= 3 ? 'var(--warn)' : 'var(--brand)')));
-    const lbl = x => {
-      if (x.hours !== null) {
-        return x.hours < 0 ? `ξεπεράστηκε ${Math.abs(x.hours)}ω` : (x.hours <= 48 ? `σε ${x.hours}ω` : `σε ${Math.round(x.hours / 24)} ημέρες`);
-      }
-      if (x.days < 0) { return `εκπρόθεσμο ${Math.abs(x.days)} ${Math.abs(x.days) === 1 ? 'ημέρα' : 'ημέρες'}`; }
-      if (x.days === 0) { return 'λήγει σήμερα'; }
-      if (x.days === 1) { return 'αύριο'; }
-      return `σε ${x.days} ημέρες`;
-    };
-    const ico = {project: I.folder, task: I.checkSquare, sla: I.clock, offer: I.doc};
-    return `<div class="card" style="margin-bottom:14px">
-      <div class="card-h">${I.clock} Προθεσμίες
-        <span class="mut" style="font-weight:600;font-size:11.5px">— πόσο κοντά είσαι· η μπάρα δείχνει τον χρόνο που πέρασε, όχι τη δουλειά που έγινε</span></div>
-      <div class="card-b" style="padding-top:6px">
-      ${dl.map(x => `<div class="dlrow" ${x.kind === 'sla' ? `data-qtk="${x.id}"`
-        : x.kind === 'task' ? `data-dltask="${x.id}"`
-        : x.kind === 'offer' ? 'data-dloffer="1"' : `data-dlproj="${x.id}"`}>
-        <span class="dlic" style="color:${col(x)}">${ico[x.kind] || ''}</span>
-        <span class="dlt">${esc(x.title)}<span class="mut"> · ${esc(x.sub)}</span></span>
-        <span class="dlbar">${x.pct === null ? '' : `<span style="width:${x.pct}%;background:${col(x)}"></span>`}</span>
-        <span class="dld" style="color:${col(x)}">${esc(lbl(x))}</span>
-      </div>`).join('')}
-      </div></div>`;
-  })()}
-  ${coach.length ? `<div class="card coach" style="margin-bottom:14px"><div class="card-h">${I.compass} Καθοδήγηση για σένα</div>
-    <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
-    ${coach.map(x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 11px;border-radius:10px;
-      background:${coachCol[x.lvl]}14;border-left:3px solid ${coachCol[x.lvl]}">
-      <span style="font-size:16px;line-height:1.4;flex:none">${x.icon}</span>
-      <span style="font-size:13px;line-height:1.5">${esc(x.text)}
-        ${(x.refs || []).length ? `<span class="crefs">${x.refs.map(r =>
-          `<a class="cref" ${r.kind === 'ticket' ? `data-qtk="${r.id}"` : `data-dltask="${r.id}"`}>${esc(r.label)}</a>`).join('')}</span>` : ''}
-      </span></div>`).join('')}
-    </div></div>` : ''}
-  ${(d.waiting || []).length ? `<div class="card" style="margin-bottom:14px"><div class="card-h">⏸ Παρέδωσα — περιμένουν άλλον
-    <span class="mut" style="font-weight:600;font-size:11px">— δική σου εργασία, αλλά η μπάλα είναι αλλού· δεν μετράει ως εκκρεμότητά σου</span>
-    <span class="kb-n" style="margin-left:auto">${d.waiting.length}</span></div>
-    <div class="card-b" style="display:flex;flex-direction:column;gap:6px">
-    ${d.waiting.map(w => `<div class="wtrow" data-dltask="${w.id}">
-      <span class="dot" style="background:${w.pcolor}"></span>
-      <span class="wtt">#${w.id} ${esc(w.title)}<span class="mut"> · ${esc(w.pname || '—')}</span></span>
-      <span class="pill pill-mut">${esc(w.statusName || '')}</span>
-      <span class="mut wtb">περιμένει: <b>${esc(w.ballName || '—')}</b></span>
-    </div>`).join('')}
-    </div></div>` : ''}
-  <div class="grid g4" style="margin-bottom:16px">
-    ${suStat(I.ticket, st.tickets, 'Tickets μου', st.tickets ? 'var(--brand)' : 'var(--ok)')}
-    ${suStat(I.clock, st.nearSla, 'Κοντά σε SLA', st.nearSla ? 'var(--bad)' : 'var(--ok)')}
-    ${suStat(I.alert, d.balls.length, 'Απαιτούν ενέργειά μου', d.balls.length ? 'var(--warn)' : 'var(--ok)')}
-    ${suStat(I.clock, fmtMin(st.minsToday), 'Χρόνος σήμερα', 'var(--violet)')}
-  </div>
-  <div class="grid g2">
-    <div>
-      ${d.plan.length ? `<div class="card"><div class="card-h">${I.cal} Το πλάνο μου σήμερα</div>
-        ${d.plan.map(t => `<div class="trow" data-task="${t.id}">
-          <span class="dot" style="background:${['#8595ac', '#eba63c', '#e2515f'][t.prio]}"></span>
-          <div style="flex:1"><b style="font-size:13px">${esc(t.title)}</b>
-            <div class="mut" style="font-size:11px">${esc(t.pname)}</div></div>
-          ${t.ball === S.boot.me.id ? '<span class="ball me">⚡ εσύ</span>' : ''}
-          ${t.sched < today() ? `<span class="pill pill-bad">από ${dShort(t.sched)}</span>` : ''}
-        </div>`).join('')}</div>` : ''}
-      ${d.balls.length ? `<div class="card"><div class="card-h">${I.zap} Η μπάλα σε εμένα</div>
-        ${d.balls.map(t => `<div class="trow" data-task="${t.id}">
-          <span class="dot" style="background:${t.pcolor}"></span>
-          <div style="flex:1"><b style="font-size:13px">${esc(t.title)}</b>
-            <div class="mut" style="font-size:11px">${esc(t.pname)}</div></div></div>`).join('')}</div>` : ''}
-      ${d.follows.length ? `<div class="card"><div class="card-h">${I.phone} Follow-ups σήμερα</div>
-        ${d.follows.map(f => `<div class="trow"><span>${I.phone} </span><div style="flex:1"><b>${esc(f.who)}</b>
-          ${f.note ? `<div class="mut" style="font-size:11.5px">${esc(f.note)}</div>` : ''}</div>
-          ${f.phone ? `<span class="mut">${esc(f.phone)}</span>` : ''}</div>`).join('')}</div>` : ''}
-      ${mt.todos.length ? `<div class="card"><div class="card-h">${I.checkSquare} Το πλάνο μου <a data-gotodos style="margin-left:auto;font-size:11px;font-weight:600;color:var(--brand);cursor:pointer">όλα →</a></div>
-        <div class="card-b" style="display:flex;flex-direction:column;gap:1px">
-        ${mt.todos.slice(0, 8).map(t => `<div style="display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)">
-          <input type="checkbox" data-mdtog="${t.id}" style="width:16px;height:16px;cursor:pointer;flex:none">
-          <div style="flex:1;min-width:0"><span style="font-size:13px">${esc(t.text)}</span>${t.remind ? ` <span class="pill" style="font-size:9px;background:${t.overdue ? 'var(--bad)' : 'var(--warn)'}1a;color:${t.overdue ? 'var(--bad)' : 'var(--warn)'}">${I.clock}</span>` : ''}
-            <div class="mut" style="font-size:11px;display:flex;align-items:center;gap:5px"><span class="dot" style="background:${t.pcolor};width:7px;height:7px"></span>${esc(t.pname)}</div></div></div>`).join('')}
-        ${mt.todos.length > 8 ? `<a data-gotodos style="cursor:pointer;color:var(--brand);font-size:12px;margin-top:6px">+ ${mt.todos.length - 8} ακόμη…</a>` : ''}
-        </div></div>` : ''}
-      ${!d.plan.length && !d.balls.length && !d.follows.length && !mt.todos.length ? '<div class="card"><div class="empty"><div class="big">🏖️</div>Καθαρή μέρα — τίποτα προγραμματισμένο!</div></div>' : ''}
-    </div>
-    <div>
-      <div class="card"><div class="card-h">${I.ticket} Τα tickets μου <span class="mut" style="font-weight:600">(${d.tickets.length})</span></div>
-      ${d.tickets.length ? d.tickets.map(tk => `<a class="trow" data-ibgo="${tk.id}" style="color:inherit;cursor:pointer">
-        <div style="flex:1"><b style="font-size:13px">#${esc(tk.tid)}</b> ${esc(tk.title)}
-          <div class="mut" style="font-size:11px">${esc(tk.status)} · ${tk.age} ημ.
-            ${tk.waitOn === 'us'
-              ? `<span class="pill pill-warn" style="font-size:9.5px">περιμένει εσένα${tk.waitDays ? ' · ' + tk.waitDays + 'η' : ''}</span>`
-              : `<span class="pill pill-mut" style="font-size:9.5px">περιμένει πελάτη${tk.waitDays ? ' · ' + tk.waitDays + 'η' : ''}</span>`}</div></div>
-        ${tk.slaDue ? `<span class="pill ${tk.over ? 'pill-bad' : 'pill-warn'}">SLA ${tShort(tk.slaDue)}</span>` : ''}
-      </a>`).join('') : '<div class="empty" style="padding:24px">Κανένα ανοιχτό δικό σου 🎉</div>'}</div>
-    </div>
-  </div>`;
-  $$('#content .trow[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
-  $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
-  $$('#content [data-gotodos]').forEach(a => a.onclick = () => go('todos'));
-  $$('#content [data-goinbox]').forEach(a => a.onclick = () => go('inbox'));
-  /* Κλικ σε αναφορά: σημειώνεται ως διαβασμένη (φεύγει από εδώ) και ανοίγει η εργασία. */
-  $$('#content [data-mtask]').forEach(r => r.onclick = async () => {
-    await api('mention_read', {id: +r.dataset.mid}).catch(() => {});
-    if (+r.dataset.mtask) { openTask(+r.dataset.mtask); }
-    r.remove();
+  c.innerHTML = '<div class="myd-wrap"><div class="skel" style="height:96px;margin-bottom:14px"></div><div class="myd-cols"><div><div class="skel" style="height:220px"></div></div><div><div class="skel" style="height:220px"></div></div></div></div>';
+  const [d, mt, ovr] = await Promise.all([
+    api('myday'),
+    api('my_todos').catch(() => ({todos: []})),
+    api('overruns').catch(() => ({items: []})),
+  ]);
+  const todos = mt.todos || [], overruns = ovr.items || [], pend = d.pending || {help: [], meetings: [], mine: []};
+  const st = d.stats || {}, TODAY = today(), fin = (S.boot.statuses || []).find(x => x.done);
+  const dayName = new Date().toLocaleDateString('el-GR', {weekday: 'long', day: 'numeric', month: 'long'});
+  const hm = s => (s || '').slice(11, 16);
+  const colL = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)', info: 'var(--info)'};
+  const open = k => { try { return localStorage.getItem('cnpMd:' + k); } catch (e) { return null; } };
+  const setOpen = (k, v) => { try { localStorage.setItem('cnpMd:' + k, v ? '1' : '0'); } catch (e) {} };
+
+  /* ── 2. Θέλουν εσένα: μία λίστα από όλες τις πηγές, με βαθμό σοβαρότητας ── */
+  const att = [];
+  const seenTask = new Set();
+  const hkLbl = {voice: ['🔊', 'σε καλεί στη φωνή'], checkin: ['❓', 'ρωτά τι γίνεται'], offer: ['📄', 'ζητά προσφορά'],
+    mention: ['💬', 'σε ρωτά — περιμένει απάντηση'], help: ['🆘', 'χρειάζεται βοήθεια']};
+  (pend.help || []).forEach(h => {
+    const k = hkLbl[h.kind] || hkLbl.help;
+    att.push({sev: h.kind === 'help' || h.kind === 'voice' ? 1 : 3, lvl: h.kind === 'help' ? 'bad' : 'warn', ic: k[0], why: k[1],
+      title: h.from, sub: (h.message || '').slice(0, 110) + (h.taskTitle ? ' · ' + h.taskTitle : ''), when: h.at,
+      act: 'Άνοιξε', on: () => window.CNP.showHelpAlert && window.CNP.showHelpAlert(h, true),
+      done: h.kind !== 'checkin' ? async () => { await api('help_done', {id: h.id}).catch(() => {}); } : null});
+    if (h.taskId) { seenTask.add(h.taskId); }
   });
+  (pend.meetings || []).forEach(m => {
+    att.push({sev: 3, lvl: 'info', ic: '📅', why: 'πρόσκληση', title: m.title, sub: (m.whenTxt || '') + (m.by ? ' · από ' + m.by : ''),
+      act: '✔ Θα είμαι', on: async () => { await api('event_rsvp', {id: m.id, status: 'accepted'}).catch(() => {}); toast('✔ Δήλωσες συμμετοχή'); vMyDay(); },
+      alt: '✖', altT: 'Δεν μπορώ', altOn: async () => { await api('event_rsvp', {id: m.id, status: 'declined'}).catch(() => {}); vMyDay(); }});
+  });
+  (d.tickets || []).forEach(tk => {
+    if (tk.waitOn !== 'us') { return; }
+    if (tk.over) { att.push({sev: 0, lvl: 'bad', ic: I.ticket, why: 'SLA πέρασε', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status + (tk.waitDays ? ' · περιμένει ' + tk.waitDays + ' ημ.' : ''), act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
+    else if (tk.slaDue && (new Date(tk.slaDue.replace(' ', 'T')) - Date.now()) < 24 * 3600e3) { att.push({sev: 2, lvl: 'warn', ic: I.ticket, why: 'SLA ' + tShort(tk.slaDue), title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
+    else if (tk.waitDays >= 2) { att.push({sev: 5, lvl: 'tip', ic: I.ticket, why: 'περιμένει ' + tk.waitDays + ' ημ.', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
+  });
+  (d.deadlines || []).forEach(x => {
+    if (x.kind === 'task' && x.days !== null && x.days < 0 && !seenTask.has(x.id)) {
+      seenTask.add(x.id);
+      att.push({sev: 2, lvl: 'bad', ic: I.checkSquare, why: 'εκπρόθεσμη ' + Math.abs(x.days) + ' ημ.', title: x.title, sub: x.sub, act: 'Άνοιξε', on: () => openTask(x.id), task: x.id});
+    } else if (x.kind === 'offer' && x.days !== null && x.days <= 0) {
+      att.push({sev: 4, lvl: 'warn', ic: I.doc, why: x.days < 0 ? 'follow-up άργησε' : 'follow-up σήμερα', title: x.title, sub: x.sub, act: 'Άνοιξε', on: () => go('offers')});
+    } else if (x.kind === 'project' && x.days !== null && x.days < 0) {
+      att.push({sev: 4, lvl: 'warn', ic: I.folder, why: 'έργο εκπρόθεσμο ' + Math.abs(x.days) + ' ημ.', title: x.title, sub: x.sub, act: 'Board', on: () => go('board', x.id)});
+    }
+  });
+  (d.plan || []).forEach(t => {
+    if (t.sched && t.sched < TODAY && !seenTask.has(t.id)) {
+      seenTask.add(t.id);
+      att.push({sev: 4, lvl: 'warn', ic: I.checkSquare, why: 'προγραμματισμένη από ' + dShort(t.sched), title: t.title, sub: t.pname, act: 'Άνοιξε', on: () => openTask(t.id), task: t.id});
+    }
+  });
+  todos.filter(t => t.overdue).forEach(t => att.push({sev: 6, lvl: 'tip', ic: I.bell, why: 'υπενθύμιση', title: t.text, sub: t.pname, act: '✓', on: async () => { await api('todo_toggle', {id: t.id}); vMyDay(); }}));
+  att.sort((a, b) => a.sev - b.sev);
+
+  /* ── 3. Το πρόγραμμα σήμερα ── */
+  const evs = (d.events || []).slice().sort((a, b) => (a.allDay ? 0 : 1) - (b.allDay ? 0 : 1) || a.start.localeCompare(b.start));
+  const nextEv = evs.find(e => !e.over && !e.now && !e.allDay);
+  const nowEv = evs.find(e => e.now && !e.allDay);
+  const planTasks = [];
+  const pushT = (t, tag) => { if (!planTasks.some(x => x.id === t.id) && !seenTask.has(t.id)) { planTasks.push(Object.assign({tag}, t)); } };
+  (d.plan || []).forEach(t => pushT(t, t.sched === TODAY ? 'σήμερα' : ''));
+  (d.balls || []).forEach(t => pushT(t, 'μπάλα'));
+  (d.deadlines || []).filter(x => x.kind === 'task' && x.days === 0).forEach(x => { if (!planTasks.some(t => t.id === x.id) && !seenTask.has(x.id)) { planTasks.push({id: x.id, title: x.title, pname: x.sub, pcolor: '#8595ac', prio: 0, tag: 'λήγει σήμερα', due: TODAY}); } });
+  planTasks.sort((a, b) => (b.prio || 0) - (a.prio || 0) || ((a.due || '9') < (b.due || '9') ? -1 : 1));
+  /* Ό,τι τρέχει τώρα ανήκει στο σημερινό πρόγραμμα, ακόμη κι αν δεν είχε ημερομηνία. */
+  if (d.timer && !planTasks.some(t => t.id === d.timer.task)) { planTasks.unshift({id: d.timer.task, title: d.timer.title, pname: '', pcolor: '#16a26a', prio: 0, tag: ''}); }
+  else if (d.timer) { const i = planTasks.findIndex(t => t.id === d.timer.task); if (i > 0) { planTasks.unshift(planTasks.splice(i, 1)[0]); } }
+  const timer = d.timer;
+  const planN = evs.length + planTasks.length + (d.follows || []).length;
+  const doneN = d.doneToday || 0;
+  const ring = (n, tot) => { const p = tot ? Math.min(100, Math.round(n / tot * 100)) : 0; return `<div class="myd-ring" style="--p:${p}"><b>${n}</b><small>/${tot}</small></div>`; };
+
+  /* ── γραμμές ── */
+  const attRow = (a, i) => `<div class="myd-row att ${a.lvl}" data-atti="${i}">
+    <span class="myd-ic" style="color:${colL[a.lvl]}">${a.ic}</span>
+    <span class="myd-why" style="color:${colL[a.lvl]};background:${colL[a.lvl]}18">${esc(a.why)}</span>
+    <span class="myd-t"><b>${esc(a.title)}</b>${a.sub ? `<span class="mut"> · ${esc(a.sub)}</span>` : ''}</span>
+    <span class="myd-a">${a.done ? `<button class="btn btn-sm btn-o" data-attdone="${i}" title="Τακτοποιήθηκε — φεύγει από εδώ">✓</button>` : ''}
+      ${a.alt ? `<button class="btn btn-sm btn-o" data-attalt="${i}" title="${esc(a.altT || '')}">${a.alt}</button>` : ''}
+      <button class="btn btn-sm btn-p" data-attgo="${i}">${esc(a.act)}</button></span></div>`;
+  const evRow = e => `<div class="myd-row ev${e.over ? ' past' : ''}${e.now ? ' now' : ''}" data-cal="${e.id}">
+    <span class="myd-time">${e.allDay ? 'όλη μέρα' : hm(e.start) + '–' + hm(e.end)}</span>
+    <span class="myd-t"><b>${esc(e.title)}</b><span class="mut"> · ${e.kind === 'appointment' ? 'ραντεβού' : e.kind === 'meeting' ? 'σύσκεψη' : esc(e.kind)}${e.clientName ? ' · ' + esc(e.clientName) : ''}${e.location && !/^https?:/i.test(e.location) ? ' · ' + esc(e.location) : ''}${e.mode ? ' · ' + esc(e.mode) : ''}</span></span>
+    ${e.location && /^https?:/i.test(e.location) ? `<a class="btn btn-sm btn-o" href="${esc(e.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="flex:none" title="${esc(e.location)}">🎥 Μπες</a>` : ''}
+    ${e.now ? '<span class="pill pill-ok" style="flex:none">τώρα</span>' : e.rsvp === 'accepted' ? '<span class="pill pill-mut" style="flex:none" title="Δήλωσες συμμετοχή">✔</span>' : e.rsvp === '' && !e.over ? '<span class="pill pill-warn" style="flex:none" title="Δεν απάντησες στην πρόσκληση">αναπάντητη</span>' : ''}</div>`;
+  const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p || 0];
+  const taskRow = t => { const here = timer && timer.task === t.id; return `<div class="myd-row task${here ? ' live' : ''}" data-mdtask="${t.id}">
+    <button class="myd-play${here ? ' on' : ''}" data-mdplay="${t.id}" title="${here ? 'Τρέχει ο χρόνος εδώ — πάτα για στοπ' : 'Ξεκίνα τον χρόνο σε αυτή'}">${here ? I.stop : I.play}</button>
+    <span class="myd-t"><b>${esc(t.title)}</b><span class="mut"> · <span class="dot" style="background:${t.pcolor || '#8595ac'};width:7px;height:7px;display:inline-block;border-radius:50%"></span> ${esc(t.pname || 'Χωρίς έργο')}${t.est ? ' · ⏱ ' + fmtMin(t.est) : ''}</span></span>
+    ${t.prio ? `<span class="dot" style="background:${prioDot(t.prio)};flex:none" title="Προτεραιότητα"></span>` : ''}
+    ${t.ball === me.id ? '<span class="pill pill-info" style="flex:none">⚡ μπάλα</span>' : ''}
+    ${t.tag && t.tag !== 'μπάλα' && t.tag !== 'σήμερα' ? `<span class="pill pill-warn" style="flex:none">${esc(t.tag)}</span>` : ''}
+    ${fin ? `<button class="btn btn-sm btn-o myd-done" data-mddone="${t.id}" title="Ολοκλήρωση">✔</button>` : ''}</div>`; };
+  const folRow = f => `<div class="myd-row fol" data-lead="${f.lead}">
+    <span class="myd-ic" style="color:var(--ok)">${I.phone}</span>
+    <span class="myd-t"><b>${esc(f.who)}</b>${f.note ? `<span class="mut"> · ${esc(f.note)}</span>` : ''}</span>
+    ${f.phone ? `<a class="pill pill-mut" href="tel:${esc(f.phone)}" onclick="event.stopPropagation()" style="flex:none">${esc(f.phone)}</a>` : ''}</div>`;
+  const todoRow = t => `<label class="myd-row todo"><input type="checkbox" data-mdtog="${t.id}">
+    <span class="myd-t">${esc(t.text)}<span class="mut"> · ${esc(t.pname)}</span></span>
+    ${t.remind ? `<span class="pill ${t.overdue ? 'pill-bad' : 'pill-mut'}" style="flex:none">${I.clock} ${tShort(t.remind)}</span>` : ''}</label>`;
+  const sec = (key, title, hint, count, body, opts) => { opts = opts || {};
+    const st0 = open(key), isOpen = st0 === null ? !opts.collapsed : st0 === '1';
+    return `<div class="card myd-sec ${opts.cls || ''}${isOpen ? '' : ' closed'}" data-sec="${key}">
+      <div class="card-h myd-h" data-sect="${key}"><span class="myd-h-ic">${opts.ic || ''}</span>${title}
+        ${hint ? `<span class="mut myd-hint">— ${hint}</span>` : ''}
+        ${count !== null && count !== undefined ? `<span class="kb-n">${count}</span>` : ''}
+        ${opts.link ? `<a class="myd-link" data-go="${opts.link[0]}">${opts.link[1]}</a>` : ''}
+        <span class="myd-chev">${I.chev}</span></div>
+      <div class="myd-b">${body}</div></div>`; };
+
+  /* ── 1. Τώρα ── */
+  const elapsed = since => { const s = Math.max(0, Math.floor((Date.now() - new Date(since.replace(' ', 'T')).getTime()) / 1000)); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}`; };
+  const minsTo = e => Math.round((new Date(e.start.replace(' ', 'T')) - Date.now()) / 60000);
+  const hero = `<div class="myd-hero">
+    <div class="myd-hero-l"><div class="myd-date">${esc(dayName)}</div>
+      ${timer ? `<div class="myd-now live"><span class="myd-now-k">▶ Δουλεύεις τώρα</span><b data-mdtask="${timer.task}" class="myd-now-t">${esc(timer.title)}</b>
+          <span class="myd-now-e" id="mdElapsed">${elapsed(timer.since)}</span><button class="btn btn-sm btn-danger" id="mdStop">${I.stop} Stop</button></div>`
+        : nowEv ? `<div class="myd-now"><span class="myd-now-k">📅 Τώρα</span><b class="myd-now-t" data-cal="${nowEv.id}">${esc(nowEv.title)}</b><span class="myd-now-e">έως ${hm(nowEv.end)}</span></div>`
+        : `<div class="myd-now idle"><span class="myd-now-k">Δεν τρέχει χρόνος</span><span class="mut">διάλεξε από το πρόγραμμα και πάτα ▶ — ο χρόνος που δεν ξεκινά, δεν καταγράφεται</span></div>`}
+      ${nextEv && !nowEv ? `<div class="myd-next" data-cal="${nextEv.id}">${I.cal} Επόμενη: <b>${esc(nextEv.title)}</b> στις ${hm(nextEv.start)}${minsTo(nextEv) <= 90 ? ` <span class="pill pill-warn">σε ${minsTo(nextEv)}΄</span>` : ''}</div>` : ''}
+    </div>
+    <div class="myd-hero-r">
+      <div class="myd-kpi">${ring(doneN, doneN + planTasks.length)}<div class="myd-kpi-l">έγιναν<br>σήμερα</div></div>
+      <div class="myd-kpi"><div class="myd-kpi-n">${fmtMin(st.minsToday || 0)}</div><div class="myd-kpi-l">χρόνος<br>σήμερα</div></div>
+      <div class="myd-kpi"><div class="myd-kpi-n" style="color:${att.length ? 'var(--bad)' : 'var(--ok)'}">${att.length}</div><div class="myd-kpi-l">θέλουν<br>εσένα</div></div>
+      <div class="myd-kpi"><div class="myd-kpi-n">${st.tasks || 0}</div><div class="myd-kpi-l">ανοιχτές<br>εργασίες</div></div>
+    </div></div>`;
+
+  const ATT_MAX = 6;
+  const attBody = att.length ? att.slice(0, ATT_MAX).map(attRow).join('') + (att.length > ATT_MAX ? `<div class="myd-more" data-attmore>${att.slice(ATT_MAX).map(attRow).join('')}</div><a class="myd-morelink" data-attmore-t>+ ${att.length - ATT_MAX} ακόμη…</a>` : '')
+    : '<div class="myd-empty">✨ Τίποτα δεν σε περιμένει — καθαρό τραπέζι.</div>';
+  const planBody = (evs.length ? `<div class="myd-grp">Συσκέψεις & ραντεβού</div>${evs.map(evRow).join('')}` : '')
+    + (planTasks.length ? `<div class="myd-grp">Εργασίες</div>${planTasks.map(taskRow).join('')}` : '')
+    + ((d.follows || []).length ? `<div class="myd-grp">Follow-ups πωλήσεων</div>${d.follows.map(folRow).join('')}` : '')
+    + (todos.length ? `<div class="myd-grp">Σημειώσεις πλάνου <a class="myd-link" data-go="todos">όλες →</a></div>${todos.slice(0, 5).map(todoRow).join('')}` : '')
+    + (!evs.length && !planTasks.length && !(d.follows || []).length && !todos.length ? '<div class="myd-empty">🏖️ Καθαρή μέρα — τίποτα προγραμματισμένο. Πάρε κάτι από την ουρά ή το board.</div>' : '');
+  const queue = d.queue || [];
+  const queueBody = queue.length ? queue.slice(0, 6).map((q, i) => `<div class="myd-row q" data-qtk="${q.id}">
+      <span class="qn">${i + 1}</span>
+      <span class="myd-why" style="color:${colL[q.lvl]};background:${colL[q.lvl]}18">${esc(q.why)}</span>
+      <span class="myd-t"><b>${esc(q.title)}</b><span class="mut"> · #${esc(q.tid)}${q.client ? ' · ' + esc(q.client) : ''}</span></span>
+      ${q.urgency === 'High' ? '<span class="pill pill-bad" style="flex:none">επείγον</span>' : ''}
+      ${q.assigned ? (q.mine ? '' : `<span class="pill pill-mut" style="flex:none">${esc(adminIni(q.assigned))}</span>`) : '<span class="pill pill-warn" style="flex:none">αζήτητο</span>'}</div>`).join('')
+    + (queue.length > 6 ? `<a class="myd-morelink" data-go="inbox">+ ${queue.length - 6} ακόμη στο Inbox →</a>` : '')
+    : '<div class="myd-empty">Κανένα ticket δεν περιμένει 🎉</div>';
+
+  /* δεξιά στήλη */
+  const dlAhead = (d.deadlines || []).filter(x => x.days === null ? (x.hours !== null && x.hours >= 0) : x.days >= 0);
+  const dlCol = x => (x.hours !== null ? (x.hours <= 4 ? 'var(--bad)' : x.hours <= 12 ? 'var(--warn)' : 'var(--brand)') : (x.days <= 1 ? 'var(--bad)' : x.days <= 3 ? 'var(--warn)' : 'var(--brand)'));
+  const dlLbl = x => x.hours !== null ? (x.hours <= 48 ? `σε ${x.hours}ω` : `σε ${Math.round(x.hours / 24)} ημ.`) : (x.days === 0 ? 'σήμερα' : x.days === 1 ? 'αύριο' : `σε ${x.days} ημ.`);
+  const dlIco = {project: I.folder, task: I.checkSquare, sla: I.clock, offer: I.doc};
+  const dlBody = dlAhead.length ? dlAhead.slice(0, 8).map(x => `<div class="dlrow" ${x.kind === 'sla' ? `data-qtk="${x.id}"` : x.kind === 'task' ? `data-dltask="${x.id}"` : x.kind === 'offer' ? 'data-dloffer="1"' : `data-dlproj="${x.id}"`}>
+      <span class="dlic" style="color:${dlCol(x)}">${dlIco[x.kind] || ''}</span>
+      <span class="dlt">${esc(x.title)}<span class="mut"> · ${esc(x.sub)}</span></span>
+      <span class="dld" style="color:${dlCol(x)}">${esc(dlLbl(x))}</span></div>`).join('') : '<div class="myd-empty">Καμία προθεσμία μπροστά σου.</div>';
+  const coach = d.coach || [];
+  const coachBody = coach.map(x => `<div class="myd-coach" style="border-left-color:${colL[x.lvl]};background:${colL[x.lvl]}10">
+      <span>${x.icon}</span><span>${esc(x.text)}${(x.refs || []).length ? `<span class="crefs">${x.refs.map(r => `<a class="cref" ${r.kind === 'ticket' ? `data-qtk="${r.id}"` : `data-dltask="${r.id}"`}>${esc(r.label)}</a>`).join('')}</span>` : ''}</span></div>`).join('');
+  const waitN = (d.waiting || []).length + (pend.mine || []).length + (d.tickets || []).filter(t => t.waitOn === 'client').length;
+  const waitBody = (pend.mine || []).map(h => `<div class="myd-row wait"><span class="myd-ic">${(hkLbl[h.kind] || hkLbl.help)[0]}</span><span class="myd-t"><b>${esc(h.to)}</b><span class="mut"> · ${esc((h.message || '').slice(0, 80))}${h.seen ? ' · το είδε' : ' · δεν το είδε ακόμη'}</span></span><button class="btn btn-sm btn-o" data-attdone-m="${h.id}" title="Ακύρωση / τακτοποιήθηκε">✓</button></div>`).join('')
+    + (d.waiting || []).map(w => `<div class="myd-row wait" data-dltask="${w.id}"><span class="dot" style="background:${w.pcolor};flex:none"></span><span class="myd-t"><b>${esc(w.title)}</b><span class="mut"> · ${esc(w.pname || '—')} · περιμένει <b>${esc(w.ballName || '—')}</b></span></span><span class="pill pill-mut" style="flex:none">${esc(w.statusName || '')}</span></div>`).join('')
+    + (d.tickets || []).filter(t => t.waitOn === 'client').map(tk => `<div class="myd-row wait" data-qtk="${tk.id}"><span class="myd-ic">${I.ticket}</span><span class="myd-t"><b>#${esc(tk.tid)} ${esc(tk.title)}</b><span class="mut"> · περιμένει πελάτη${tk.waitDays ? ' ' + tk.waitDays + ' ημ.' : ''}</span></span></div>`).join('')
+    || '<div class="myd-empty">Δεν περιμένεις κανέναν.</div>';
+  const ovBody = overruns.length ? overruns.map(o => `<div class="myd-row ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
+      <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
+      <span class="myd-t qt"><b>${o.what === 'project' ? '📁 ' : ''}${esc(o.title)}</b><span class="mut"> · ${esc(o.agentName)}${o.hoursText ? ' · ⏱ ' + esc(o.hoursText) : ''}${o.daysText ? ' · 📅 ' + esc(o.daysText) : ''}</span></span>
+      ${o.checkin ? (o.checkin.status === 'done' ? `<span class="pill ${o.checkin.answer === 'help' ? 'pill-bad' : 'pill-ok'}" style="flex:none" title="${esc(o.checkin.answerNote || '')}">${o.checkin.answer === 'help' ? '🆘 θέλει βοήθεια' : '✅ όλα καλά'}</span>` : '<span class="pill pill-info" style="flex:none">💬 ρωτήθηκε</span>') : `<button class="btn btn-sm btn-o" data-ovask style="flex:none">💬 Ρώτα</button>`}
+    </div>`).join('') : '';
+
+  c.innerHTML = `<div class="myd-wrap">${hero}
+  <div class="myd-cols">
+    <div class="myd-main">
+      ${sec('att', 'Θέλουν εσένα', 'απάντησε ή τακτοποίησε — από το πιο επείγον', att.length, attBody, {ic: '🔴', cls: 'att' + (att.length ? '' : ' ok')})}
+      ${sec('plan', 'Το πρόγραμμά μου σήμερα', '▶ ξεκινά τον χρόνο · ✔ ολοκληρώνει', planN, planBody, {ic: I.sun, link: ['calendar', 'ημερολόγιο →']})}
+      ${sec('queue', 'Ουρά tickets', 'η σειρά της ημέρας: πρώτα SLA, μετά όποιος περιμένει περισσότερο', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
+    </div>
+    <div class="myd-rail">
+      ${coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''}
+      ${sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))})}
+      ${sec('wait', 'Περιμένω άλλους', 'δεν μετράει ως εκκρεμότητά σου', waitN, waitBody, {ic: '⏸', collapsed: true})}
+      ${overruns.length ? sec('ov', 'Η ομάδα μου — υπερβάσεις', 'ξεπέρασαν την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%+· ρώτα τι γίνεται', overruns.length, ovBody, {ic: '⚠', collapsed: true}) : ''}
+    </div>
+  </div></div>`;
+
+  /* ── δέσιμο ── */
+  $$('#content .myd-h').forEach(h => h.onclick = e => { if (e.target.closest('a,button')) { return; } const s = h.closest('.myd-sec'); s.classList.toggle('closed'); setOpen(h.dataset.sect, !s.classList.contains('closed')); });
+  $$('#content [data-go]').forEach(a => a.onclick = e => { e.stopPropagation(); go(a.dataset.go); });
+  $$('#content [data-attgo]').forEach(b => b.onclick = e => { e.stopPropagation(); att[+b.dataset.attgo].on(); });
+  $$('#content [data-attalt]').forEach(b => b.onclick = e => { e.stopPropagation(); att[+b.dataset.attalt].altOn(); });
+  $$('#content [data-attdone]').forEach(b => b.onclick = async e => { e.stopPropagation(); await att[+b.dataset.attdone].done(); toast('Τακτοποιήθηκε'); vMyDay(); });
+  $$('#content [data-attdone-m]').forEach(b => b.onclick = async e => { e.stopPropagation(); await api('help_done', {id: +b.dataset.attdoneM}).catch(() => {}); vMyDay(); });
+  $$('#content .myd-row.att').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } att[+r.dataset.atti].on(); });
+  { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
+  $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
+  $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
+  $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
+  $$('#content [data-mdplay]').forEach(b => b.onclick = async e => {
+    e.stopPropagation(); const id = +b.dataset.mdplay;
+    if (timer && timer.task === id) { const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null); if (r) { toast('Καταχωρήθηκε ' + fmtMin(r.mins)); } }
+    else { await api('timer_start', {task: id}).catch(err => toast(err.message, true)); toast('▶ Ο χρόνος μετράει'); }
+    vMyDay();
+  });
+  $$('#content [data-mddone]').forEach(b => b.onclick = async e => {
+    e.stopPropagation(); const id = +b.dataset.mddone; const t = planTasks.find(x => x.id === id) || {};
+    const note = await askDone(t.title || ''); if (note === null) { return; }
+    const r = await cnpMoveTask(id, fin.id, note); if (!r.ok) { if (!r.cancelled) { toast(r.error || 'Δεν επιτρέπεται', true); } return; }
+    toast('✔ Ολοκληρώθηκε'); vMyDay();
+  });
+  { const sb = $('#mdStop'); if (sb) { sb.onclick = async () => { const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null); if (r) { toast('Καταχωρήθηκε ' + fmtMin(r.mins)); } vMyDay(); }; } }
+  if (timer) { const el = $('#mdElapsed'); const iv = setInterval(() => { if (!document.body.contains(el)) { clearInterval(iv); return; } el.textContent = elapsed(timer.since); }, 30000); }
+  $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
   $$('#content .ov-row').forEach(r => {
     const what = r.dataset.ovwhat, oid = +r.dataset.ovid;
     r.onclick = e => { if (e.target.closest('[data-ovask]')) { return; } if (what === 'task') { openTask(oid); } else { go('board', oid); } };
@@ -3547,8 +3608,8 @@ async function vMyDay() {
       toast('💬 Ρωτήθηκε ο ' + (x.to || o.agentName)); vMyDay();
     };
   });
-  $$('#content [data-qtk]').forEach(r => r.onclick = () => go('inbox', r.dataset.qtk));
-  $$('#content [data-dltask]').forEach(r => r.onclick = () => openTask(+r.dataset.dltask));
+  $$('#content [data-qtk]').forEach(r => r.onclick = e => { e.stopPropagation(); go('inbox', r.dataset.qtk); });
+  $$('#content [data-dltask]').forEach(r => r.onclick = e => { e.stopPropagation(); openTask(+r.dataset.dltask); });
   $$('#content [data-dlproj]').forEach(r => r.onclick = () => go('board', +r.dataset.dlproj));
   $$('#content [data-dloffer]').forEach(r => r.onclick = () => go('offers'));
 }

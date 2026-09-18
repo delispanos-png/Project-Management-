@@ -4229,8 +4229,29 @@ case 'myday':
             'text' => 'Κανένα εκπρόθεσμο ούτε παραβίαση SLA — καλή εικόνα, μείνε συνεπής.'];
     }
     $coach = array_slice($coach, 0, 6);
+    /* ── «Η μέρα μου» v2 (18/9/2026): ό,τι χρειάζεται η οθόνη σε ΜΙΑ κλήση ──
+       συσκέψεις σήμερα (όπου είμαι καλεσμένος ή διοργανωτής), χρονόμετρο που τρέχει,
+       πόσα τελείωσα σήμερα, και οι εκκρεμότητες που περιμένουν απάντηση (ίδια λίστα με το καμπανάκι). */
+    $evToday = [];
+    foreach (Capsule::table('mod_cpm_events')->where('start_dt', '<=', $today . ' 23:59:59')->where('end_dt', '>=', $today . ' 00:00:00')
+        ->where('kind', '!=', 'leave')->orderBy('start_dt')->get() as $e) {
+        $attE = array_filter(array_map('intval', explode(',', (string) $e->attendees)));
+        if ($attE && !in_array($adminId, $attE, true) && (int) $e->created_by !== $adminId) { continue; }
+        $rsE = Capsule::table('mod_cpm_event_rsvp')->where('event_id', (int) $e->id)->where('kind', 'admin')->where('ref', $adminId)->value('status');
+        $evToday[] = ['id' => (int) $e->id, 'kind' => $e->kind, 'title' => (string) $e->title, 'start' => $e->start_dt, 'end' => $e->end_dt,
+            'allDay' => (bool) $e->all_day, 'clientName' => $e->clientid ? clientLabel($e->clientid) : null, 'location' => (string) $e->location,
+            'mode' => (string) $e->mode, 'rsvp' => $rsE ?: '', 'over' => strtotime($e->end_dt) < time(), 'now' => strtotime($e->start_dt) <= time() && strtotime($e->end_dt) >= time(),
+            'attendees' => array_values($attE)];
+    }
+    $timerNow = null;
+    if ($run) {
+        $tr = Db::task((int) $run->task_id);
+        $timerNow = ['task' => (int) $run->task_id, 'title' => $tr ? (string) $tr->title : '#' . (int) $run->task_id, 'since' => $run->started_at];
+    }
+    $doneToday = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $adminId)->where('completed_at', '>=', $today . ' 00:00:00')->count();
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
         'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
+        'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'pending' => cnp_pending_for($adminId, $FULL),
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday]]);

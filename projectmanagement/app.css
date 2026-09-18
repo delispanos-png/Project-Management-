@@ -3222,3 +3222,87 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 @media (max-width:560px){.qn-scope{grid-template-columns:1fr}}
 .tk-cust-tag.tk-internal{background:#7b5cd61e;color:#5b3fb8;border-color:#7b5cd655}
 .tk-cust-tag.tk-noclient{background:var(--canvas);color:var(--mut);border-style:dashed}
+
+/* ═══════════ Η μέρα μου v2 ═══════════ */
+.myd-wrap{max-width:1380px}
+.myd-hero{display:flex;gap:18px;align-items:stretch;justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-bottom:14px;box-shadow:0 2px 8px rgba(20,50,90,.04)}
+.myd-hero-l{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;justify-content:center}
+.myd-date{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+.myd-now{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px}
+.myd-now-k{font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);flex:none}
+.myd-now.live .myd-now-k{color:var(--ok)}
+.myd-now-t{font-size:15px;color:var(--ink);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:560px}
+.myd-now-t:hover{color:var(--brand)}
+.myd-now-e{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ok);font-size:15px}
+.myd-now.idle .mut{font-size:12.5px}
+.myd-next{font-size:12.5px;color:var(--txt);cursor:pointer}
+.myd-next:hover{color:var(--brand)}
+.myd-hero-r{display:flex;gap:18px;align-items:center;flex:none}
+.myd-kpi{display:flex;gap:9px;align-items:center}
+.myd-kpi-n{font-size:22px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+.myd-kpi-l{font-size:10.5px;line-height:1.2;color:var(--mut);font-weight:600}
+.myd-ring{--p:0;width:46px;height:46px;border-radius:50%;background:conic-gradient(var(--ok) calc(var(--p)*1%),var(--line) 0);display:flex;align-items:center;justify-content:center;position:relative;flex:none}
+.myd-ring::before{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--card)}
+.myd-ring b,.myd-ring small{position:relative;line-height:1}
+.myd-ring b{font-size:14px;color:var(--ink)}.myd-ring small{font-size:9.5px;color:var(--mut)}
+.myd-cols{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:14px;align-items:start}
+.myd-main,.myd-rail{display:flex;flex-direction:column;gap:14px;min-width:0}
+.myd-sec{margin:0}
+.myd-sec .myd-h{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:12px 16px}
+.myd-h-ic{flex:none;display:inline-flex;width:18px;justify-content:center}
+.myd-h-ic svg{width:16px;height:16px}
+.myd-hint{font-weight:600;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.myd-link{margin-left:auto;font-size:11.5px;font-weight:700;color:var(--brand);cursor:pointer;flex:none}
+.myd-link+.kb-n,.myd-h .kb-n{margin-left:auto}
+.myd-h .kb-n+.myd-link{margin-left:0}
+.myd-chev{flex:none;color:var(--mut);transition:transform .18s;display:inline-flex}
+.myd-chev svg{width:14px;height:14px}
+.myd-sec.closed .myd-chev{transform:rotate(-90deg)}
+.myd-sec.closed .myd-b{display:none}
+.myd-sec.att{border-left:4px solid var(--bad)}
+.myd-sec.att.ok{border-left-color:var(--ok)}
+.myd-b{padding:6px 10px 10px}
+.myd-grp{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);padding:10px 6px 4px;display:flex;align-items:center;gap:8px}
+.myd-grp .myd-link{margin-left:auto}
+.myd-row{display:flex;gap:9px;align-items:center;padding:8px 8px;border-radius:9px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px}
+.myd-row:last-child{border-bottom:none}
+.myd-row:hover{background:var(--bg2)}
+.myd-row .myd-t{flex:1;min-width:0;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.myd-row .myd-t .mut{font-weight:400;font-size:11.5px}
+.myd-ic{flex:none;width:18px;display:inline-flex;justify-content:center;font-size:14px}
+.myd-ic svg{width:15px;height:15px}
+.myd-why{flex:none;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.myd-a{flex:none;display:flex;gap:5px}
+.myd-row.att.bad{background:#e2515f0c}.myd-row.att.bad:hover{background:#e2515f18}
+.myd-time{flex:none;width:92px;font-variant-numeric:tabular-nums;font-weight:700;font-size:12px;color:var(--txt)}
+.myd-row.ev.past{opacity:.5}.myd-row.ev.past .myd-t b{text-decoration:line-through;font-weight:600}
+.myd-row.ev.now{background:#16a26a12;border-left:3px solid var(--ok)}
+.myd-play{flex:none;width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);color:var(--ok);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.myd-play svg{width:13px;height:13px}
+.myd-play:hover{border-color:var(--ok);background:#16a26a14}
+.myd-play.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.myd-row.task.live{background:#16a26a10}
+.myd-done{opacity:0;flex:none}
+.myd-row.task:hover .myd-done{opacity:1}
+.myd-row.todo input{width:16px;height:16px;cursor:pointer;flex:none}
+.myd-row.wait{cursor:default}.myd-row.wait[data-dltask],.myd-row.wait[data-qtk]{cursor:pointer}
+.myd-empty{padding:16px 10px;font-size:13px;color:var(--mut);text-align:center}
+.myd-more{display:none}.myd-more.show{display:block}
+.myd-morelink{display:block;padding:8px;font-size:12px;font-weight:700;color:var(--brand);cursor:pointer;text-align:center}
+.myd-coach{display:flex;gap:9px;align-items:flex-start;padding:8px 11px;border-radius:9px;border-left:3px solid;font-size:12.5px;line-height:1.5;margin:4px 0}
+.myd-rail .dlrow{padding:7px 6px}
+.myd-rail .dld{min-width:70px}
+html[data-theme="dark"] .myd-row.att.bad{background:#e2515f14}
+html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.live{background:#16a26a1e}
+@media(max-width:1100px){.myd-cols{grid-template-columns:1fr}}
+@media(max-width:768px){
+  .myd-hero{flex-direction:column;gap:12px;padding:14px}
+  .myd-hero-r{justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .myd-now-t{max-width:100%;white-space:normal}
+  .myd-hint{display:none}
+  .myd-row{flex-wrap:wrap;row-gap:5px}
+  .myd-row .myd-t{flex:1 1 100%;white-space:normal;order:3}
+  .myd-row.att .myd-a{margin-left:auto}
+  .myd-done{opacity:1}
+  .myd-time{width:auto}
+}
