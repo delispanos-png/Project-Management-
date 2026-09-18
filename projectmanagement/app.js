@@ -110,6 +110,12 @@ document.documentElement.dataset.theme = S.theme;
 /* HTML από επικόλληση/εισαγωγή: ξαναπερνά από τον parser σε απομονωμένο <template>, ώστε
    κάθε ανοιχτό tag να κλείσει ΜΕΣΑ στο απόσπασμα. Αλλιώς ένα ανισόρροπο <div> σε μία ενέργεια
    «κατάπινε» ό,τι ακολουθούσε στην καρτέλα (εργασία #191). */
+/* Ο server αρνήθηκε κώδικα μέσα σε ενέργεια: ξεκάθαρο παράθυρο, όχι toast που χάνεται. */
+async function cnpCodeRefused(er) {
+  const d = er && er.data; if (!d || d.need !== 'attach') { return false; }
+  await cnpDialog({title: '📎 Ο κώδικας πάει σε συνημμένο', body: (er.message || d.error) + '\n\nΤο κείμενό σου παραμένει στη σύνθεση — σβήσε τον κώδικα, επισύναψε το αρχείο και στείλε ξανά.', ok: 'Κατάλαβα', cancel: null});
+  return true;
+}
 function cnpBalanced(html) {
   const s = String(html || ''); if (s.indexOf('<') < 0) { return s; }
   const t = document.createElement('template'); t.innerHTML = s; return t.innerHTML;
@@ -1444,7 +1450,7 @@ function cnpDialog(opts) {
           : `<input class="inp" type="${o.inputType || 'text'}" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
         ${o.hint ? `<div class="mut" style="font-size:11.5px;margin-top:7px">${o.hint}</div>` : ''}
         <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
-          <button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>
+          ${o.cancel === null ? '' : `<button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>`}
           ${o.third ? `<button class="btn btn-o" id="cnpDlgTh"${o.thirdPlain ? '' : ' style="color:var(--bad)"'}>${o.third}</button>` : ''}
           <button class="btn ${o.danger ? '' : 'btn-p'}" id="cnpDlgOk" style="${o.danger ? 'background:var(--bad);color:#fff' : ''}">${o.ok}</button>
         </div>
@@ -1463,7 +1469,7 @@ function cnpDialog(opts) {
     };
     document.addEventListener('keydown', onKey);
     ovl.querySelector('#cnpDlgOk').onclick = ok;
-    ovl.querySelector('#cnpDlgNo').onclick = () => done(o.input !== null ? null : false);
+    { const nb = ovl.querySelector('#cnpDlgNo'); if (nb) { nb.onclick = () => done(o.input !== null ? null : false); } }
     const th = ovl.querySelector('#cnpDlgTh');
     if (th) { th.onclick = () => done('third'); }
     // ΟΧΙ κλείσιμο με κλικ έξω — μόνο από τα κουμπιά ή ESC
@@ -2470,8 +2476,8 @@ async function openTask(id, entryId, opts) {
     /* Μισογραμμένη ενέργεια στον συνθέτη: καταχωρείται κι αυτή, δεν πετιέται. */
     { const ed = $('#chkNew', dr); const html = ed ? ed.innerHTML.trim() : '';
       if (html && html !== '<br>') {
-        const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er && er.message}));
-        if (ra && ra.err) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); return; }
+        const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er && er.message, er}));
+        if (ra && ra.err) { if (!(await cnpCodeRefused(ra.er))) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); } return; }
         ed.innerHTML = '';
       } }
     let r = await api('save_task', payload()).then(() => ({ok: true}))
@@ -2943,8 +2949,8 @@ async function openTask(id, entryId, opts) {
         if (!html || html === '<br>') { return; }
         const btn = $('#chkGo', dr); btn.disabled = true;
         const r = await api('check_add', {task: id, title: html, html: 1})
-          .catch(er => ({err: (er && er.message) || 'σφάλμα'}));
-        if (r && r.err) { toast(r.err, true); btn.disabled = false; return; }
+          .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
+        if (r && r.err) { btn.disabled = false; if (!(await cnpCodeRefused(r.er))) { toast(r.err, true); } return; }
         for (const f of pending) { await actUpload(f, r.id); }
         openTask(id);
       };

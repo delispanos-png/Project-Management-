@@ -600,6 +600,23 @@ function cnp_clean_html($html, $max = 12000)
  * ενέργεια (18/9/2026, εργασία #191: 20.000 χαρακτήρες XML της ΗΔΥΚΑ μέσα σε μήνυμα).
  * Επιστρέφει true αν ≥4 γραμμές (ή ≥3 και πάνω από το 1/3) μοιάζουν με κώδικα.
  */
+function cnp_code_kind($html)
+{
+    $plain = html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
+    if (preg_match('#<\?xml\b#i', $plain)) { return 'xml'; }
+    if (preg_match('#<\?php\b#i', $plain)) { return 'php'; }
+    if (preg_match('#^\s*[\[{]#', $plain) && preg_match('#"[\w.-]+"\s*:#', $plain)) { return 'json'; }
+    if (preg_match('#\b(SELECT|INSERT INTO|UPDATE|CREATE TABLE)\b#i', $plain) && preg_match('#;\s*$#m', $plain)) { return 'sql'; }
+    if (preg_match('#^\s*<[a-zA-Z][\w:.-]*[^>]*>#m', $plain)) { return 'xml'; }
+    return 'txt';
+}
+function cnp_code_reject($html)
+{
+    $ext = cnp_code_kind($html);
+    $lbl = ['xml' => 'XML', 'php' => 'PHP', 'json' => 'JSON', 'sql' => 'SQL', 'txt' => 'κώδικας'][$ext];
+    out(['error' => 'Δεν μπορεί να αποθηκευτεί: ' . $lbl . ' μέσα στη συζήτηση. Ο κώδικας μπαίνει ως συνημμένο αρχείο αντίστοιχης δομής (.' . $ext . ') — πάτα 📎 στη σύνθεση, επισύναψέ το, και γράψε εδώ με δυο λόγια τι θέλεις.',
+        'need' => 'attach', 'ext' => $ext]);
+}
 function cnp_looks_like_code($html)
 {
     $plain = html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
@@ -5699,7 +5716,7 @@ case 'check_add':
     /* Πλούσιο κείμενο: εικόνες μέσα στη ροή, όχι συνημμένα δίπλα. Ο καθαριστής
        είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
     $isHtml = !empty($in['html']);
-    if (cnp_looks_like_code($title)) { fail('Κώδικας, XML ή HTML δεν μπαίνει στη συζήτηση — επισύναψέ το ως αρχείο (📎) και γράψε με δυο λόγια τι θέλεις.'); }
+    if (cnp_looks_like_code($title)) { cnp_code_reject($title); }
     if (mb_strlen(trim(strip_tags($title))) > 6000) { fail('Πολύ μεγάλη ενέργεια (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 6.000). Βάλε το εκτενές κείμενο στο ζητούμενο ή σε συνημμένο, και εδώ την ουσία.'); }
     $stored = $isHtml ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000);
     $id = Db::addCheckItem($tid, $stored, $adminId);
@@ -5728,7 +5745,7 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     }
     cnp_task_lock_guard($t);
     $isHtml2 = !empty($in['html']);
-    if (cnp_looks_like_code($title)) { fail('Κώδικας, XML ή HTML δεν μπαίνει στη συζήτηση — επισύναψέ το ως αρχείο (📎).'); }
+    if (cnp_looks_like_code($title)) { cnp_code_reject($title); }
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->update([
         'title' => $isHtml2 ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000),
         'fmt' => $isHtml2 ? 'html' : ($ci->fmt ?? null),
