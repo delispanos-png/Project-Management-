@@ -57,6 +57,12 @@ function quickNew() {
   const curProject = S.view === 'board' && S.project
     ? projects.find(p => p.id === S.project) : null;
 
+  /* ── Δύο κόσμοι: δουλειά ΓΙΑ πελάτη ή εσωτερική διαδικασία / R&D / βελτίωση.
+     Ο διακόπτης πάνω-πάνω καθορίζει τι προσφέρεται από κάτω: στο «εσωτερικό» δεν
+     υπάρχει «κάλεσε πελάτη» και τα έργα είναι μόνο τα δικά μας. Θυμάται. ── */
+  let scope = 'client';
+  try { scope = localStorage.getItem('cnpQnScope') === 'internal' ? 'internal' : 'client'; } catch (e) {}
+  const isInternalProj = p => !p.client;   // το boot δεν φέρνει kind — εσωτερικό = χωρίς πελάτη
   /* Πελάτες: τους αντλούμε από τα έργα — έτσι ξέρουμε πάντα πού θα μπει η κλήση. */
   const clients = [];
   { const seen = {};
@@ -72,16 +78,18 @@ function quickNew() {
   /* ── Οι προθέσεις ───────────────────────────────────────────────────────── */
   const INTENTS = [
     {k: 'project', ic: I.folder, col: '#0090dd', title: 'Εργασία σε έργο',
-     hint: () => curProject ? 'προτείνεται: ' + curProject.name : 'διάλεξε έργο', need: 'project'},
+     hint: () => (curProject && (scope === 'internal') === isInternalProj(curProject)) ? 'προτείνεται: ' + curProject.name
+       : (scope === 'internal' ? 'διάλεξε εσωτερικό έργο (R&D, βελτίωση, διαδικασία)' : 'διάλεξε έργο πελάτη'), need: 'project'},
     {k: 'call', ic: I.phone, col: '#16a26a', title: 'Κάλεσε πελάτη γι᾽ αυτό',
      hint: () => 'διάλεξε πελάτη', need: 'client'},
-    {k: 'mine', ic: I.play, col: '#e0552b', title: 'Κάν᾽ το εγώ — τώρα',
+    {k: 'mine', ic: I.play, col: '#e0552b', title: 'Θα το κάνω εγώ, τώρα',
      hint: () => 'ανατίθεται σε σένα και ξεκινά ο χρόνος', need: null},
     {k: 'todo', ic: I.checkSquare, col: '#7b5cd6', title: 'Κράτα το για μένα',
      hint: () => 'δική σου εργασία, χωρίς χρονόμετρο', need: null},
     {k: 'assign', ic: I.users, col: '#e0a020', title: 'Ανάθεσέ το σε συνάδελφο',
      hint: () => 'διάλεξε ποιον', need: 'mate'},
-  ].filter(x => x.k !== 'call' || clients.length);
+  ];
+  const intentsFor = () => INTENTS.filter(x => x.k !== 'call' || (scope === 'client' && clients.length));
 
   const ovl = document.createElement('div');
   ovl.className = 'ovl show';
@@ -89,6 +97,14 @@ function quickNew() {
     <div class="qn-top">
       <span class="qn-ic">${I.sparkle}</span>
       <input class="qn-t" id="qnT" placeholder="Τι πρέπει να γίνει;" autocomplete="off" maxlength="200">
+    </div>
+    <div class="qn-scope" id="qnScope">
+      <button type="button" class="kp qn-kp${scope === 'client' ? ' on' : ''}" data-scope="client">
+        <span class="kp-h">${I.rocket}<b>Έργο πελάτη</b></span>
+        <span class="kp-d">Δουλειά ΓΙΑ πελάτη — μπαίνει στην καρτέλα του, χρεώνεται</span></button>
+      <button type="button" class="kp qn-kp${scope === 'internal' ? ' on' : ''}" data-scope="internal">
+        <span class="kp-h">${I.box}<b>Εσωτερικό / R&amp;D</b></span>
+        <span class="kp-d">Δική μας διαδικασία, βελτίωση, επένδυση — χωρίς πελάτη</span></button>
     </div>
     <div class="qn-crumb" id="qnCrumb" hidden></div>
     <div class="qn-lbl" id="qnLbl">Τι γίνεται με αυτό;</div>
@@ -115,6 +131,13 @@ function quickNew() {
   let filter = '';
 
   const say = (m, bad) => { errEl.textContent = m || ''; errEl.className = 'qn-f-r' + (bad ? ' bad' : ''); };
+  $$('[data-scope]', ovl).forEach(b => b.onclick = () => {
+    scope = b.dataset.scope;
+    try { localStorage.setItem('cnpQnScope', scope); } catch (e) {}
+    $$('[data-scope]', ovl).forEach(x => x.classList.toggle('on', x.dataset.scope === scope));
+    if (step === 'intent') { const keep = inp.value; showIntents(); inp.value = keep; }
+    else { inp.value = subject; showIntents(); }
+  });
 
   const paint = () => {
     listEl.innerHTML = rows.length ? rows.map((r, i) => `
@@ -139,7 +162,7 @@ function quickNew() {
     step = 'intent'; intent = null; filter = ''; cur = 0;
     crumbEl.hidden = true;
     lblEl.textContent = 'Τι γίνεται με αυτό;';
-    rows = INTENTS.map(it => ({label: it.title, sub: it.hint(), ic: it.ic, col: it.col, it}));
+    rows = intentsFor().map(it => ({label: it.title, sub: it.hint(), ic: it.ic, col: it.col, it}));
     paint();
     inp.focus();
   };
@@ -170,13 +193,15 @@ function quickNew() {
   const buildPick = () => {
     const q = norm(filter);
     if (intent.need === 'project') {
-      let list = projects.slice();
+      /* Στο «εσωτερικό» μόνο τα δικά μας έργα· στο «έργο πελάτη» μόνο έργα πελατών. */
+      let list = projects.filter(p => scope === 'internal' ? isInternalProj(p) : !isInternalProj(p));
+      if (!list.length && scope === 'internal') { list = projects.filter(isInternalProj); }
       /* Το έργο που κοιτάς τώρα πάει πρώτο — τις περισσότερες φορές αυτό θέλεις. */
-      if (curProject && !q) { list = [curProject].concat(list.filter(p => p.id !== curProject.id)); }
+      if (curProject && !q && list.some(p => p.id === curProject.id)) { list = [curProject].concat(list.filter(p => p.id !== curProject.id)); }
       rows = list
         .filter(p => !q || norm(p.name).includes(q) || norm(p.clientName).includes(q))
         .slice(0, 60)
-        .map(p => ({label: p.name, sub: p.clientName || 'λειτουργικό', ic: I.folder, col: p.color || '#0090dd',
+        .map(p => ({label: p.name, sub: p.clientName || 'εσωτερικό / R&D', ic: I.folder, col: p.color || '#0090dd',
           tag: (curProject && p.id === curProject.id && !q) ? 'εδώ είσαι' : '',
           go: {project: p.id}}));
     } else if (intent.need === 'client') {

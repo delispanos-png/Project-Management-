@@ -3207,3 +3207,8 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 .unsaved-hint{font-size:11px;color:#e0a020;font-weight:700;white-space:nowrap;align-self:center}
 @media (prefers-reduced-motion:reduce){.btn.has-changes{animation:none}}
 .tk-offer-ref .inp{font-variant-numeric:tabular-nums}.tk-offer-more{margin-top:8px}
+/* Παλέτα «Νέο»: διακόπτης πελάτη / εσωτερικού πάνω-πάνω */
+.qn-scope{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 18px 4px}
+.qn-kp{padding:8px 11px;border-radius:10px}
+.qn-kp .kp-d{font-size:10.5px}
+@media (max-width:560px){.qn-scope{grid-template-columns:1fr}}
