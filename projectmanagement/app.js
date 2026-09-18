@@ -107,6 +107,13 @@ const suStat = (ic, n, l, col, extra) => `<div class="su-stat" ${extra || ''}><d
 const S = {boot: null, view: 'myday', project: 0, theme: localStorage.cnpTheme || 'light'};
 document.documentElement.dataset.theme = S.theme;
 
+/* HTML από επικόλληση/εισαγωγή: ξαναπερνά από τον parser σε απομονωμένο <template>, ώστε
+   κάθε ανοιχτό tag να κλείσει ΜΕΣΑ στο απόσπασμα. Αλλιώς ένα ανισόρροπο <div> σε μία ενέργεια
+   «κατάπινε» ό,τι ακολουθούσε στην καρτέλα (εργασία #191). */
+function cnpBalanced(html) {
+  const s = String(html || ''); if (s.indexOf('<') < 0) { return s; }
+  const t = document.createElement('template'); t.innerHTML = s; return t.innerHTML;
+}
 async function api(a, data) {
   const opt = data ? {method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'}} : {};
   const r = await fetch('api.php?a=' + a + (data ? '' : '&_=' + Date.now()), {credentials: 'same-origin', ...opt});
@@ -2060,7 +2067,7 @@ async function openTask(id, entryId, opts) {
         ${canEditBrief
           ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι… (@Όνομα = ειδοποίηση)', {min: 110})
             + `<div class="tk-brief-foot"><button class="btn btn-p btn-sm" id="dBriefSave">Αποθήκευση ζητουμένου</button><span class="mut" id="dBriefHint" style="font-size:11px"></span></div>`
-          : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? d.descr : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>`}
+          : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? cnpBalanced(d.descr) : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>`}
         <details class="tk-att" open><summary id="dFilesSum">${I.clip} Συνημμένα ζητουμένου<b data-attn></b></summary>
           <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
       </div></div>
@@ -2113,7 +2120,7 @@ async function openTask(id, entryId, opts) {
               <button type="button" class="th-btn" data-react="${it.id}" title="Αντίδραση">☺</button>
               <button type="button" class="th-btn" data-more="${it.id}" title="Ενέργειες πάνω σε αυτό">⋯</button>
             </div>
-            <div class="act-body th-body" data-ctext="${it.id}">${it.fmt === 'html' ? it.title : stepHtml(it.title)}</div>
+            <div class="act-body th-body" data-ctext="${it.id}">${it.fmt === 'html' ? cnpBalanced(it.title) : stepHtml(it.title)}</div>
             ${files(it.files)}
             ${reacts.length ? `<div class="th-reacts">${reacts.map(r => `<button type="button" class="th-react${r.mine ? ' mine' : ''}" data-rc="${r.code}" data-rid="${it.id}" title="${esc(r.who.join(', '))}">${REACT[r.code] || r.code} ${r.n}</button>`).join('')}</div>` : ''}
             <span hidden><button type="button" data-cedit="${it.id}"></button><button type="button" data-cattach="${it.id}"></button><button type="button" data-cdelstep="${it.id}"></button></span>
@@ -4082,7 +4089,7 @@ document.addEventListener('keydown', e => {
   }
 }, true);
 
-window.CNP = {S, api, esc, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop,
   cnpMsgHtml, cnpWireMsgLinks, $, $$};

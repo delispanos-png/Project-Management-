@@ -592,7 +592,53 @@ function cnp_clean_html($html, $max = 12000)
     $html = preg_replace('/\sstyle\s*=\s*("[^"]*"|\'[^\']*\')/i', '', $html);           // inline styles → out
     // target=_blank + rel για ασφάλεια σε συνδέσμους
     $html = preg_replace('/<a\s+(?![^>]*\btarget=)/i', '<a target="_blank" rel="noopener noreferrer" ', $html);
-    return mb_substr(trim($html), 0, (int) $max);
+    return cnp_balance_html(mb_substr(trim($html), 0, (int) $max));
+}
+
+/**
+ * Η συζήτηση είναι για ανθρώπους: κώδικας, XML/HTML, SQL, JSON κ.λπ. δεν καταχωρούνται ως
+ * ενέργεια (18/9/2026, εργασία #191: 20.000 χαρακτήρες XML της ΗΔΥΚΑ μέσα σε μήνυμα).
+ * Επιστρέφει true αν ≥4 γραμμές (ή ≥3 και πάνω από το 1/3) μοιάζουν με κώδικα.
+ */
+function cnp_looks_like_code($html)
+{
+    $plain = html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
+    if (preg_match('#<(pre|code)\b#i', (string) $html)) { return true; }
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\R/u', $plain)), 'strlen'));
+    if (count($lines) < 3) { return false; }
+    $codey = 0;
+    foreach ($lines as $ln) {
+        if (preg_match('#^</?[a-zA-Z][\w:.-]*(\s[^>]*)?/?>#', $ln)                      // <tag …> / </tag>
+            || preg_match('#^[\[\]{}();]+,?$#', $ln)                                    // } ]; ) {
+            || preg_match('#^(\$\w+|var |let |const |function\b|def |class |import |from .* import|#include|using |namespace |<\?php|SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE|curl |wget |sudo |apt |npm |composer |git )#i', $ln)
+            || preg_match('#^"[\w.-]+"\s*:\s*#', $ln)                                    // "key": value (JSON)
+            || preg_match('#[;{}]$#', $ln) && preg_match('#[=()\[\]]#', $ln)) {              // γραμμή κώδικα
+            $codey++;
+        }
+    }
+    return $codey >= 4 || ($codey >= 3 && $codey * 3 > count($lines));
+}
+
+/**
+ * Ισορροπεί τα tags: κάθε <div>/<b>/… που άνοιξε κλείνει ΜΕΣΑ στο ίδιο απόσπασμα.
+ * Χωρίς αυτό, ένα μήνυμα που κόπηκε στο όριο (ή επικολλήθηκε ήδη ανισόρροπο) «κατάπινε»
+ * ό,τι ακολουθούσε στην καρτέλα — εργασία #191: το πλαϊνό πάνελ μπήκε μέσα στη συζήτηση.
+ */
+function cnp_balance_html($html)
+{
+    $html = (string) $html;
+    if ($html === '' || strpos($html, '<') === false) { return $html; }
+    $html = preg_replace('/<[^>]*$/s', '', $html);      // tag που κόπηκε στη μέση (όριο μήκους)
+    $prev = libxml_use_internal_errors(true);
+    $doc = new \DOMDocument();
+    $ok = $doc->loadHTML('<?xml encoding="UTF-8"><html><body><div id="cnp-root">' . $html . '</div></body></html>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prev);
+    $root = $ok ? $doc->getElementById('cnp-root') : null;
+    if (!$root) { return $html; }
+    $out = '';
+    foreach ($root->childNodes as $n) { $out .= $doc->saveHTML($n); }
+    return $out;
 }
 
 /**
@@ -5653,6 +5699,8 @@ case 'check_add':
     /* Πλούσιο κείμενο: εικόνες μέσα στη ροή, όχι συνημμένα δίπλα. Ο καθαριστής
        είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
     $isHtml = !empty($in['html']);
+    if (cnp_looks_like_code($title)) { fail('Κώδικας, XML ή HTML δεν μπαίνει στη συζήτηση — επισύναψέ το ως αρχείο (📎) και γράψε με δυο λόγια τι θέλεις.'); }
+    if (mb_strlen(trim(strip_tags($title))) > 6000) { fail('Πολύ μεγάλη ενέργεια (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 6.000). Βάλε το εκτενές κείμενο στο ζητούμενο ή σε συνημμένο, και εδώ την ουσία.'); }
     $stored = $isHtml ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000);
     $id = Db::addCheckItem($tid, $stored, $adminId);
     if ($isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
@@ -5680,6 +5728,7 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     }
     cnp_task_lock_guard($t);
     $isHtml2 = !empty($in['html']);
+    if (cnp_looks_like_code($title)) { fail('Κώδικας, XML ή HTML δεν μπαίνει στη συζήτηση — επισύναψέ το ως αρχείο (📎).'); }
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->update([
         'title' => $isHtml2 ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000),
         'fmt' => $isHtml2 ? 'html' : ($ci->fmt ?? null),
