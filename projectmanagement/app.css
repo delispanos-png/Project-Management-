@@ -3200,3 +3200,9 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 .tk-offer-acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}
 .tk-offer-lnk{display:flex;align-items:center;gap:6px}
 .tk-offer-lnk .pill{cursor:pointer;border:0;font:inherit;font-size:12px}
+/* Αποθήκευση: καθαρό = κανονικό κουμπί (όχι «απενεργοποιημένο»)· με αλλαγές = μπλε που «ανασαίνει» + λέξη δίπλα */
+.btn.is-clean{background:var(--card);color:var(--txt);border-color:var(--line)}
+.btn.has-changes{animation:saveBreath 1.6s ease-in-out infinite}
+@keyframes saveBreath{0%,100%{box-shadow:0 0 0 0 rgba(0,144,221,.45)}50%{box-shadow:0 0 0 6px rgba(0,144,221,0)}}
+.unsaved-hint{font-size:11px;color:#e0a020;font-weight:700;white-space:nowrap;align-self:center}
+@media (prefers-reduced-motion:reduce){.btn.has-changes{animation:none}}

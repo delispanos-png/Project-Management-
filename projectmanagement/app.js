@@ -2412,8 +2412,19 @@ async function openTask(id, entryId) {
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
       source: $('#fSource', dr) ? $('#fSource', dr).value : undefined,
       est: estMins(($('#fEst', dr) || {}).value),
+      /* «Αποθήκευση» σώζει ΟΛΑ όσα άλλαξαν στην καρτέλα — και το ζητούμενο, αν
+         το επεξεργάστηκε ο συντάκτης του. Αλλιώς το κείμενο χανόταν όταν το
+         «Αποθήκευση» πατιόταν από την ερώτηση του ✕. */
+      descr: (canEditBrief && $('#fDescr', dr) && rteVal('fDescr') !== (d.descr || '')) ? rteVal('fDescr') : undefined,
       ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined}, over || {});
 
+    /* Μισογραμμένη ενέργεια στον συνθέτη: καταχωρείται κι αυτή, δεν πετιέται. */
+    { const ed = $('#chkNew', dr); const html = ed ? ed.innerHTML.trim() : '';
+      if (html && html !== '<br>') {
+        const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er && er.message}));
+        if (ra && ra.err) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); return; }
+        ed.innerHTML = '';
+      } }
     let r = await api('save_task', payload()).then(() => ({ok: true}))
       .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
 
@@ -3181,6 +3192,12 @@ function _cnpPaintSave(box) {
   b.classList.toggle('btn-p', dirty);
   b.classList.toggle('btn-o', !dirty);
   b.classList.toggle('is-clean', !dirty);
+  b.classList.toggle('has-changes', dirty);
+  b.title = dirty ? 'Υπάρχουν αλλαγές που δεν έχουν αποθηκευτεί' : 'Δεν έχεις αλλάξει κάτι ακόμη';
+  /* Μια λέξη δίπλα στο κουμπί: το «γκρίζο = τίποτα ν' αποθηκευτεί» δεν το διαβάζει κανείς. */
+  let hint = b.parentElement ? b.parentElement.querySelector('.unsaved-hint') : null;
+  if (dirty && !hint && b.parentElement) { hint = document.createElement('span'); hint.className = 'unsaved-hint'; hint.textContent = '● μη αποθηκευμένες αλλαγές'; b.after(hint); }
+  if (!dirty && hint) { hint.remove(); }
 }
 /** Σημάδεψε χειροκίνητα (για κουμπιά/chips που δεν είναι input). */
 function markDirty(el) {
@@ -3215,7 +3232,7 @@ async function cnpAskClose(box) {
   const saveBtn = _cnpSaveBtn(box);
   const r = await cnpDialog({
     title: I.alert + ' Μη αποθηκευμένες αλλαγές',
-    body: 'Έκανες αλλαγές που δεν έχουν αποθηκευτεί.' + (saveBtn ? ' Θέλεις να τις αποθηκεύσω;' : ''),
+    body: 'Έκανες αλλαγές που δεν έχουν αποθηκευτεί.' + (saveBtn ? ' Πάτα «Αποθήκευση» για να κρατηθούν (πεδία, ζητούμενο, κείμενο ενέργειας) — ή «Απόρριψη» για να χαθούν.' : ''),
     ok: saveBtn ? 'Αποθήκευση' : 'Κλείσιμο χωρίς αποθήκευση',
     cancel: 'Συνέχεια επεξεργασίας',
     third: saveBtn ? 'Απόρριψη αλλαγών' : null,
