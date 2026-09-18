@@ -3467,6 +3467,8 @@ R.projects = async function () {
       const all = [];
       bd.columns.forEach(col => col.tasks.forEach(t => all.push(Object.assign({st: col.status}, t))));
       const depOf = id => (S.boot.depts || []).find(x => x.id === +id);
+      /* Ο λογαριασμός «Support Team / Cloud On» είναι ταυτότητα, όχι άνθρωπος — δεν αναλαμβάνει. */
+      const isSvcAcct = a => /support team|\bbot\b/i.test(a.name || '') || String(a.name || '').trim() === 'Cloud On';
       const open = all.filter(t => !t.done), done = all.filter(t => t.done);
       const line = t => {
         const dp = depOf(t.dept);
@@ -3475,7 +3477,8 @@ R.projects = async function () {
           <a href="javascript:" data-ptask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.title)}</a>
           ${dp ? `<span class="pill pill-mut">${esc(dp.name)}</span>`
             : '<span class="pill pill-warn">χωρίς department</span>'}
-          ${t.assignee ? `<span class="ava" title="${esc(adminName(t.assignee))}">${esc(adminIni(t.assignee))}</span>` : '<span class="mut" style="font-size:11px">αναθέτης;</span>'}
+          <button type="button" class="pj-asg${t.assignee ? '' : ' none'}" data-pasg="${t.id}" title="${t.assignee ? 'Ανατέθηκε σε ' + esc(adminName(t.assignee)) + ' — κλικ για αλλαγή' : 'Χωρίς ανάθεση — κλικ για να αναθέσεις'}">
+            ${t.assignee ? `<span class="ava">${esc(adminIni(t.assignee))}</span> ${esc(adminName(t.assignee).split(' ')[0])}` : '👤 ανάθεση…'}</button>
           <span class="${t.due && t.due < today() && !t.done ? 'pill pill-bad' : 'mut'}" style="font-size:11px;white-space:nowrap">${t.due ? dShort(t.due) : '—'}</span>
         </div>`;
       };
@@ -3494,17 +3497,38 @@ R.projects = async function () {
           <select class="inp" id="pjTDep" style="width:auto;min-width:150px">
             <option value="">— διάλεξε department —</option>
             ${(S.boot.depts || []).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
+          <select class="inp" id="pjTAsg" style="width:auto;min-width:150px" title="Σε ποιον ανατίθεται η νέα εργασία">
+            <option value="">— ανάθεση σε… —</option>
+            <option value="${S.boot.me.id}">σε εμένα (${esc(adminName(S.boot.me.id))})</option>
+            ${(S.boot.admins || []).filter(a => a.id !== S.boot.me.id && !isSvcAcct(a)).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
           <button class="btn btn-p btn-sm" id="pjTAdd">+</button></div>`;
       $$('[data-ptask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.ptask); });
       const add = async () => {
         const v = $('#pjTNew', box).value.trim(); if (!v) return;
         const dep = +$('#pjTDep', box).value || 0;
         if (!dep) { toast('Διάλεξε department για την εργασία', true); $('#pjTDep', box).focus(); return; }
-        await api('quick_task', {project: p.id, dept: dep, title: v, status: 0});
-        toast('Προστέθηκε'); loadTasks();
+        const asg = +$('#pjTAsg', box).value || 0;
+        const r = await api('quick_task', {project: p.id, dept: dep, title: v, status: 0, assignee: asg}).catch(e => ({err: e && e.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        toast(asg ? 'Προστέθηκε και ανατέθηκε στον ' + adminName(asg) : 'Προστέθηκε'); loadTasks();
       };
       $('#pjTAdd', box).onclick = add;
       $('#pjTNew', box).onkeydown = e => { if (e.key === 'Enter') add(); };
+      /* Ανάθεση επί τόπου: κλικ στο όνομα/«ανάθεση…» → λίστα συναδέλφων. */
+      $$('[data-pasg]', box).forEach(b => b.onclick = e => {
+        e.stopPropagation();
+        const tid = +b.dataset.pasg;
+        const cur = (all.find(x => x.id === tid) || {}).assignee || 0;
+        const items = [{icon: I.user, label: 'σε εμένα (' + adminName(S.boot.me.id) + ')', on: () => setAsg(tid, S.boot.me.id)}]
+          .concat((S.boot.admins || []).filter(a => a.id !== S.boot.me.id && !isSvcAcct(a)).map(a => ({label: (a.id === cur ? '✓ ' : '') + a.name, on: () => setAsg(tid, a.id)})));
+        if (cur) { items.push({icon: I.trash, label: 'Χωρίς ανάθεση', on: () => setAsg(tid, 0)}); }
+        window.CNP.miniMenu(b, items);
+      });
+      const setAsg = async (tid, aid) => {
+        const r = await api('save_task', {task: tid, assignee: aid}).catch(e => ({err: e && e.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        toast(aid ? 'Ανατέθηκε στον ' + adminName(aid) : 'Αφαιρέθηκε η ανάθεση'); loadTasks();
+      };
     };
     loadTasks();
 
