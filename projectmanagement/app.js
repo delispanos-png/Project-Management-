@@ -1892,7 +1892,7 @@ window._cnpTimerAsked_ = window._cnpTimerAsked_ || {};
 
 /* ═════════ TASK DRAWER ═════════ */
 let timerInt = null;
-async function openTask(id) {
+async function openTask(id, entryId) {
   const d = await api('task&id=' + id).catch(() => null);
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   closeDrawer();
@@ -1976,6 +1976,10 @@ async function openTask(id) {
   /* Ο επιβλέπων = όποιος άνοιξε την εργασία (ορίζεται αυτόματα, δεν επιλέγεται). */
   const supId = creatorId || t.ball || 0;
   const chkDone = d.check.filter(x => x.done).length;
+  /* Αντιδράσεις: ο κωδικός ζει στη βάση (utf8mb3 — όχι emoji), το emoji ζει εδώ. */
+  const REACT = {up: '👍', ok: '✅', eyes: '👀', heart: '❤️', party: '🎉', think: '🤔', down: '👎'};
+  const REACT_LBL = {up: 'Συμφωνώ', ok: 'Έγινε', eyes: 'Το είδα', heart: 'Μπράβο', party: 'Τέλεια', think: 'Το σκέφτομαι', down: 'Διαφωνώ'};
+  const avaColor = aid => { const P = ['#0090dd', '#7b5cd6', '#1f9d57', '#e0a020', '#e2515f', '#0aa5a8', '#c2569b', '#5c6bc0']; return P[(+aid || 0) % P.length]; };
   const tkD = d.ticket || null;
   /* Χρεώσιμο: η απόφαση ανήκει στην ΕΡΓΑΣΙΑ και μένει. Μέχρι τις 15/9/2026 η
      προεπιλογή ήταν σκέτο «υπάρχει πελάτης → ναι» και ξαναγύριζε σε «ναι» σε κάθε
@@ -2057,28 +2061,64 @@ async function openTask(id) {
           <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
       </div></div>
 
-    <div class="card tk-step"><div class="card-h">${I.checkSquare} <b>Ενέργειες</b>
+    ${(() => {
+      /* ── Η ροή της εργασίας, όπως συζήτηση: οι ενέργειες (posts), τα παλιά μηνύματα
+         και τα ΣΥΜΒΑΝΤΑ του ιστορικού (κατάσταση, μπάλα, χρέωση, χρόνος) σε ένα
+         χρονολόγιο — ποιος είπε τι, πότε, και τι άλλαξε ανάμεσα. ── */
+      const EV_SKIP = {edit: 1, comment: 1};
+      const evText = a => {
+        const dt = esc(a.detail || '');
+        if (a.action === 'status') { const m = String(a.detail || '').split('→'); return m.length === 2 ? `άλλαξε την κατάσταση σε <b class="th-st">${esc(m[1].trim())}</b> <span class="mut">(από ${esc(m[0].trim())})</span>` : `άλλαξε την κατάσταση — ${dt}`; }
+        if (a.action === 'create') { return `δημιούργησε την εργασία <span class="mut">${dt}</span>`; }
+        if (a.action === 'auto') { return `<span class="mut">${dt}</span>`; }
+        if (a.action === 'assign') { return dt; }
+        if (a.action === 'billing') { return `💶 ${dt}`; }
+        if (a.action === 'time' || a.action === 'timer') { return `⏱ ${dt}`; }
+        if (a.action === 'checkin') { return `❓ ${dt}`; }
+        return dt || esc(a.action);
+      };
+      const items = [];
+      (d.check || []).forEach(it => items.push({k: 'post', at: it.at || '', it}));
+      (d.comments || []).forEach(c => items.push({k: 'msg', at: c.at || '', c}));
+      (d.activity || []).forEach(a => { if (!EV_SKIP[a.action]) { items.push({k: 'ev', at: a.at || '', a}); } });
+      items.sort((x, y) => String(x.at).localeCompare(String(y.at)));
+      const SHOW = 12, hidden = Math.max(0, items.length - SHOW);
+      const files = list => (list || []).length ? `<div class="th-files">${list.map(f => `
+        <a class="th-file" href="api.php?a=file_get&id=${f.id}" target="_blank" rel="noopener" title="${esc(f.name)}">
+          <span class="th-file-ic">${I.fileText || I.clip}</span><span class="th-file-n">${esc(f.name)}</span>${f.sizeh ? `<span class="mut">${esc(f.sizeh)}</span>` : ''}</a>`).join('')}</div>` : '';
+      const groupReacts = rs => { const g = {}; (rs || []).forEach(r => { (g[r.code] = g[r.code] || {code: r.code, n: 0, who: [], mine: false}); g[r.code].n++; g[r.code].who.push(r.by); if (r.byId === me.id) { g[r.code].mine = true; } }); return Object.values(g); };
+      const ava = (aid, name) => `<span class="th-ava" style="background:${avaColor(aid)}" title="${esc(name || '')}">${esc(adminIni(aid) || String(name || '?').slice(0, 2).toUpperCase())}</span>`;
+      const row = (x, i) => {
+        const hide = i < hidden ? ' th-hid' : '';
+        if (x.k === 'ev') { const a = x.a; return `<div class="th-item th-ev${hide}">${ava(a.byId, a.by)}<div class="th-main"><span class="th-evt"><b>${esc(a.by)}</b> ${evText(a)}</span><span class="th-time">${tShort(a.at)}</span></div></div>`; }
+        if (x.k === 'msg') { const c = x.c; return `<div class="th-item th-post th-legacy${hide}">${ava(c.byId, c.by)}<div class="th-main">
+          <div class="th-head"><b>${esc(c.by)}</b><span class="mut" style="font-size:11px">μήνυμα${c.to && c.to > 0 ? ' προς ' + esc(adminName(c.to)) : ''}</span><span class="th-time">${tShort(c.at)}</span></div>
+          <div class="th-body">${esc(c.body || '').replace(/\n/g, '<br>')}</div>${files(c.files)}</div></div>`; }
+        const it = x.it; const reacts = groupReacts(it.reacts);
+        return `<div class="th-item th-post${it.done ? ' done' : ''}${hide}" data-crow="${it.id}" id="thp${it.id}">
+          ${ava(it.byId, it.by)}
+          <div class="th-main">
+            <div class="th-head">
+              ${t.isDelivery ? `<input type="checkbox" class="act-chk" data-chk="${it.id}" ${it.done ? 'checked' : ''} title="Ενέργεια παράδοσης">` : ''}
+              <b>${esc(it.by || '—')}</b>
+              <span class="th-time">${tShort(it.at)}</span>
+              <span style="flex:1"></span>
+              <button type="button" class="th-btn" data-react="${it.id}" title="Αντίδραση">☺</button>
+              <button type="button" class="th-btn" data-more="${it.id}" title="Ενέργειες πάνω σε αυτό">⋯</button>
+            </div>
+            <div class="act-body th-body" data-ctext="${it.id}">${it.fmt === 'html' ? it.title : stepHtml(it.title)}</div>
+            ${files(it.files)}
+            ${reacts.length ? `<div class="th-reacts">${reacts.map(r => `<button type="button" class="th-react${r.mine ? ' mine' : ''}" data-rc="${r.code}" data-rid="${it.id}" title="${esc(r.who.join(', '))}">${REACT[r.code] || r.code} ${r.n}</button>`).join('')}</div>` : ''}
+            <span hidden><button type="button" data-cedit="${it.id}"></button><button type="button" data-cattach="${it.id}"></button><button type="button" data-cdelstep="${it.id}"></button></span>
+          </div></div>`;
+      };
+      return `<div class="card tk-step"><div class="card-h">💬 <b>Συζήτηση & ενέργειες</b>
       <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
-      <span class="mut" style="font-weight:600;font-size:11px">— τι έγινε και τι μένει · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · Ctrl+Enter καταχωρεί</span></div>
+      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · Ctrl+Enter καταχωρεί</span></div>
       <div class="card-b">
-        <div id="dCheck" class="act-list">
-          ${d.check.map(it => `<div class="act ${it.done ? 'done' : ''}" data-crow="${it.id}">
-            ${t.isDelivery ? `<input type="checkbox" class="act-chk" data-chk="${it.id}" ${it.done ? 'checked' : ''} title="Ενέργεια παράδοσης">` : ''}
-            <div class="act-main">
-              <div class="act-body" data-ctext="${it.id}">${it.fmt === 'html' ? it.title : stepHtml(it.title)}</div>
-              ${(it.files || []).length ? `<div class="act-files">${it.files.map(f => `
-                <a class="act-file" href="api.php?a=file_get&id=${f.id}" target="_blank" rel="noopener" title="${esc(f.name)}">
-                  ${I.clip} ${esc(f.name)} <span class="mut">${esc(f.sizeh || '')}</span></a>`).join('')}</div>` : ''}
-              <div class="act-meta">
-                ${it.by ? `<b>${esc(it.by)}</b>` : '<span class="mut">—</span>'}
-                ${it.at ? `<span class="mut">· ${tShort(it.at)}</span>` : ''}
-                <span style="flex:1"></span>
-                <button type="button" class="chk-act" data-cedit="${it.id}" title="Επεξεργασία">${I.edit}</button>
-                <button type="button" class="chk-act" data-cattach="${it.id}" title="Επισύναψη αρχείου">${I.clip}</button>
-                <button type="button" class="chk-act chk-act-del" data-cdelstep="${it.id}" title="Διαγραφή">${I.trash}</button>
-              </div>
-            </div></div>`).join('')
-            || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
+        <div id="dCheck" class="th">
+          ${hidden ? `<button type="button" class="th-more" id="thMore">${I.chev} ${hidden} παλαιότερα</button>` : ''}
+          ${items.map(row).join('') || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
         </div>
         <div class="act-composer">
           <div class="act-edit" id="chkNew" contenteditable="true" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
@@ -2092,7 +2132,8 @@ async function openTask(id) {
         ${d.legacyFiles && d.legacyFiles.length ? `<details class="tk-att" id="dCheckAtt" style="margin-top:10px">
           <summary>${I.clip} Παλαιά συνημμένα ενεργειών <b>${d.legacyFiles.length}</b></summary>
           <div id="dCheckFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>` : ''}
-      </div></div>
+      </div></div>`;
+    })()}
 
     ${t.done ? `<div class="card done-card"><div class="card-b">
       <b>✔ Ολοκληρώθηκε</b> <span class="mut">${esc(tShort(t.doneAt))}${t.doneBy ? ' — ' + esc(adminName(t.doneBy)) : ''}</span>
@@ -2827,9 +2868,60 @@ async function openTask(id) {
     if (r && r.err) { toast(r.err, true); return; }
     openTask(id);
   });
+  /* ── ⋯ μενού ανά post: ό,τι μπορείς να κάνεις ΠΑΝΩ σε μια ενέργεια ── */
+  const plainOf = it => String(it.fmt === 'html' ? it.title.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '') : it.title).replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  const clickHidden = (attr, cid) => { const x = dr.querySelector(`[${attr}="${cid}"]`); if (x) { x.click(); } };
+  $$('[data-more]', dr).forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const cid = +b.dataset.more; const it = (d.check || []).find(x => x.id === cid); if (!it) { return; }
+    const plain = plainOf(it);
+    const rows = [
+      {icon: I.edit, label: 'Επεξεργασία', on: () => clickHidden('data-cedit', cid)},
+      {icon: I.link, label: 'Αντιγραφή συνδέσμου', on: async () => {
+        try { await navigator.clipboard.writeText(location.origin + '/project/#/task/' + id + '/e/' + cid); toast('Ο σύνδεσμος αντιγράφηκε'); } catch (x) { toast('Δεν αντιγράφηκε', true); } }},
+      {icon: I.checkSquare, label: 'Στο πλάνο μου', on: async () => {
+        const r = await api('todo_add', {text: (plain.slice(0, 240) || 'Ενέργεια') + ' — #' + id}).catch(er => ({err: er && er.message}));
+        toast(r && r.err ? r.err : 'Μπήκε στο πλάνο σου', !!(r && r.err)); }},
+      {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => {
+        const n = $('#tNote', dr), m = $('#tMins', dr);
+        if (n) { n.value = plain.slice(0, 120); }
+        if (m) { m.scrollIntoView({block: 'center', behavior: 'smooth'}); m.focus(); }
+        toast('Γράψε τα λεπτά — η σημείωση συμπληρώθηκε από την ενέργεια'); }},
+      {icon: I.rocket, label: 'Μετατροπή σε εργασία', on: async () => {
+        if (!(await cnpConfirm('Να γίνει η ενέργεια ξεχωριστή εργασία;', {body: 'Νέα εργασία στο ίδιο έργο/τμήμα, με το κείμενο της ενέργειας ως ζητούμενο. Η ενέργεια μένει εδώ.', ok: 'Δημιουργία'}))) { return; }
+        const r = await api('check_to_task', {id: cid}).catch(er => ({err: er && er.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        toast('Δημιουργήθηκε η εργασία #' + r.id); openTask(r.id); }},
+      {icon: I.clip, label: 'Επισύναψη αρχείου', on: () => clickHidden('data-cattach', cid)},
+      {icon: I.trash, label: 'Διαγραφή', on: () => clickHidden('data-cdelstep', cid)},
+      {icon: I.user, label: 'Από ' + (it.by || '—') + (it.at ? ' · ' + tShort(it.at) : '')},
+    ];
+    miniMenu(b, rows);
+  });
+  const react = async (cid, code) => {
+    const r = await api('check_react', {id: cid, code}).catch(er => ({err: er && er.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    openTask(id);
+  };
+  $$('[data-react]', dr).forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const cid = +b.dataset.react;
+    miniMenu(b, Object.keys(REACT).map(code => ({label: REACT[code] + '  ' + REACT_LBL[code], on: () => react(cid, code)})));
+  });
+  $$('.th-react', dr).forEach(b => b.onclick = () => react(+b.dataset.rid, b.dataset.rc));
+  { const more = $('#thMore', dr); if (more) { more.onclick = () => { $$('.th-hid', dr).forEach(x => x.classList.remove('th-hid')); more.remove(); }; } }
+  /* Σύνδεσμος σε συγκεκριμένη ενέργεια (#/task/N/e/M): ξεδίπλωσε, κύλισε, φώτισε. */
+  { const em = entryId ? [null, String(entryId)] : location.hash.match(/\/e\/(\d+)/);
+    if (em) {
+      const el = $('#thp' + em[1], dr);
+      if (el) {
+        $$('.th-hid', dr).forEach(x => x.classList.remove('th-hid')); const mb = $('#thMore', dr); if (mb) { mb.remove(); }
+        setTimeout(() => { el.scrollIntoView({block: 'center'}); el.classList.add('th-hl'); }, 250);
+      }
+    } }
   $$('#dCheck input[data-chk]', dr).forEach(cb => cb.onchange = async () => {
     await api('check_toggle', {id: +cb.dataset.chk});
-    cb.closest('.act').classList.toggle('done', cb.checked);
+    const rowEl = cb.closest('.th-post, .act'); if (rowEl) { rowEl.classList.toggle('done', cb.checked); }
   });
 
   /* Τίτλος: αλλάζει επί τόπου από την κεφαλίδα — δεν υπάρχει πια δεύτερο πεδίο δεξιά. */
@@ -3884,8 +3976,9 @@ window.CNP = {S, api, esc, billingQueue, palette: cnpPalette, cnpDenied, cnpCan,
   renderShell();
   const m = location.hash.match(/^#\/(\w+)(?:\/(\d+))?/);
   if (m && m[1] === 'task' && m[2]) {          // deep-link από email/παλιά URLs
+    const em0 = location.hash.match(/\/e\/(\d+)/);   // …/e/45 = συγκεκριμένη ενέργεια
     go('myday');
-    openTask(+m[2]);
+    openTask(+m[2], em0 ? +em0[1] : 0);
   } else {
     go(m ? m[1] : 'myday', m ? m[2] : undefined);
   }
@@ -3894,7 +3987,7 @@ window.CNP = {S, api, esc, billingQueue, palette: cnpPalette, cnpDenied, cnpCan,
     if (!h) { return; }
     /* «task» δεν είναι οθόνη — είναι καρτέλα. Χωρίς αυτό, ένα #/task/119 από
        ειδοποίηση ή μήνυμα δεν άνοιγε τίποτα μέχρι να κάνεις refresh. */
-    if (h[1] === 'task' && h[2]) { openTask(+h[2]); return; }
+    if (h[1] === 'task' && h[2]) { const em1 = location.hash.match(/\/e\/(\d+)/); openTask(+h[2], em1 ? +em1[1] : 0); return; }
     /* Και ίδια οθόνη με άλλο id είναι νέα πλοήγηση (πελάτης → έργο → τμήμα). */
     if (h[1] !== S.view || (h[2] || '') !== (S.viewArg || '')) { go(h[1], h[2]); }
   });

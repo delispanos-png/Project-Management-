@@ -1596,3 +1596,9 @@ remote_active) + οι row-level (task/board μέσω canSeeTask/canSeeProject).
 `version` και `topstats` (`needs`, `pending`). Το καμπανάκι δείχνει ενότητα «Εκκρεμούν — θέλουν απάντηση» με «Άνοιξε»
 (ξανανοίγει το ίδιο popup: `showHelpAlert(a, true)` / `meetPop`), «✓» (help_done) και RSVP επί τόπου· badge = αδιάβαστα + εκκρεμότητες.
 Chip «σε ζητούν» στην πάνω μπάρα ανοίγει το καμπανάκι. `cnp_meet_row()` κοινή γραμμή σύσκεψης για version & καμπανάκι.
+
+## Καρτέλα εργασίας: «Συζήτηση & ενέργειες» τύπου GoodDay (18/9/2026)
+
+Ενιαίο κυλιόμενο παράθυρο (ζητούμενο + ροή), χρονολόγιο με συμβάντα ιστορικού (`task` payload: `activity` πλέον με `id`/`byId`,
+300 εγγραφές), αντιδράσεις (`mod_cpm_check_react`, action `check_react`), «Μετατροπή σε εργασία» (`check_to_task`),
+σύνδεσμος σε ενέργεια `#/task/N/e/M` (router boot + hashchange → `openTask(id, entryId)`). CSS `.th-*`. Όλα στο `cnp_open_actions` (row-level).

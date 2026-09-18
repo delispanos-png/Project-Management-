@@ -2857,6 +2857,11 @@ function cnp_task_lock_guard($t)
     }
 }
 
+/** Μπορεί να ανοίξει νέα εργασία δίπλα σε αυτή (ίδιο έργο/τμήμα); Ό,τι ισχύει και για την αλλαγή της. */
+function cnp_can_create_task_in($adminId, $isFull, $t)
+{
+    return cnp_task_write_ok($adminId, $isFull, $t);
+}
 function cnp_task_write_ok($adminId, $isFull, $t)
 {
     if ($isFull) {
@@ -3084,7 +3089,7 @@ function cnp_open_actions()
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
         'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
-        'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
+        'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
         // υπέρβαση εκτίμησης: λίστα μόνο για επικεφαλή/υπεύθυνο (row-level canAsk), ερώτηση & απάντηση row-level
@@ -3599,9 +3604,16 @@ case 'task':
             $ckFiles[(int) $fr->ref_id][] = cnp_file_row($fr);
         }
     }
+    $ckReacts = [];
+    if ($ckIds && Capsule::schema()->hasTable('mod_cpm_check_react')) {
+        foreach (Capsule::table('mod_cpm_check_react')->whereIn('check_id', $ckIds)->orderBy('id')->get() as $rr) {
+            $ckReacts[(int) $rr->check_id][] = ['code' => (string) $rr->code, 'byId' => (int) $rr->admin_id, 'by' => Db::adminName((int) $rr->admin_id)];
+        }
+    }
     $check = [];
     foreach (Db::checklist($t->id) as $it) {
         $check[] = ['id' => (int) $it->id, 'title' => $it->title, 'done' => (bool) $it->done,
+            'reacts' => $ckReacts[(int) $it->id] ?? [],
             'fmt' => isset($it->fmt) ? (string) $it->fmt : '',
             'files' => $ckFiles[(int) $it->id] ?? [],
             /* Ποιος το έγραψε: σε εργασία που περνά από τρία χέρια, χωρίς αυτό
@@ -3611,8 +3623,11 @@ case 'task':
             'at' => $it->created_at ?? null];
     }
     $acts = [];
-    foreach (Db::activity($t->id, 30) as $a) {
-        $acts[] = ['action' => $a->action, 'detail' => $a->detail, 'by' => Db::adminName($a->admin_id), 'at' => $a->created_at];
+    /* Ολόκληρο το ιστορικό (όχι μόνο 30): μπαίνει ως «συμβάντα» μέσα στη ροή της
+       συζήτησης — αλλαγή κατάστασης, μπάλα, χρέωση, χρόνος — με ποιον και πότε. */
+    foreach (Db::activity($t->id, 300) as $a) {
+        $acts[] = ['id' => (int) $a->id, 'action' => $a->action, 'detail' => $a->detail,
+            'by' => Db::adminName($a->admin_id), 'byId' => (int) $a->admin_id, 'at' => $a->created_at];
     }
     /* Ticket συνδεδεμένο με την εργασία: δεν αρκεί ο τίτλος. Ο χειριστής θέλει
        να δει ΤΙ έγινε χωρίς να ψάξει ξανά το ticket στα Tickets — φέρνουμε
@@ -5563,6 +5578,49 @@ case 'check_del':
     cnp_task_lock_guard($t);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->delete();
     out(['ok' => true]);
+
+case 'check_react':                      // 👍 ✅ 👀 … πάνω σε ενέργεια (toggle)
+    $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
+    $codeR = (string) ($in['code'] ?? '');
+    if (!$ci || !in_array($codeR, ['up', 'ok', 'eyes', 'heart', 'party', 'think', 'down'], true)) { fail('input'); }
+    $tR = Db::task((int) $ci->task_id);
+    if (!$tR || !Db::canSeeTask($adminId, $tR)) { fail('input'); }
+    $qR = Capsule::table('mod_cpm_check_react')->where('check_id', (int) $ci->id)->where('admin_id', $adminId)->where('code', $codeR);
+    if ($qR->exists()) { $qR->delete(); $onR = false; }
+    else {
+        Capsule::table('mod_cpm_check_react')->insert(['check_id' => (int) $ci->id, 'admin_id' => $adminId, 'code' => $codeR, 'created_at' => date('Y-m-d H:i:s')]);
+        $onR = true;
+        /* Ο συγγραφέας μαθαίνει ότι κάποιος αντέδρασε — χαμηλόφωνα, μόνο καμπανάκι. */
+        if ((int) $ci->created_by && (int) $ci->created_by !== $adminId) {
+            $lblR = ['up' => 'συμφωνεί', 'ok' => 'το επιβεβαίωσε', 'eyes' => 'το είδε', 'heart' => 'το εκτίμησε', 'party' => 'το γιόρτασε', 'think' => 'το σκέφτεται', 'down' => 'διαφωνεί'][$codeR];
+            Db::pushNotification((int) $ci->created_by, 'info', Db::adminName($adminId) . ' ' . $lblR . ' — «' . mb_substr(trim(strip_tags((string) $ci->title)), 0, 60) . '»',
+                'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $ci->task_id);
+        }
+    }
+    out(['ok' => true, 'on' => $onR]);
+
+case 'check_to_task':                    // «Μετατροπή σε εργασία»: η ενέργεια γίνεται δική της εργασία
+    $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ci) { fail('input'); }
+    $tP = Db::task((int) $ci->task_id);
+    if (!$tP || !Db::canSeeTask($adminId, $tP)) { fail('input'); }
+    if (!cnp_can_create_task_in($adminId, $FULL, $tP)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» στο έργο', 403); }
+    $plain = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace('/<br\s*\/?>/i', ' ', (string) $ci->title)), ENT_QUOTES, 'UTF-8')));
+    $titleN = mb_substr($plain !== '' ? $plain : 'Από ενέργεια της #' . (int) $tP->id, 0, 200);
+    $descrN = '<p><em>Από ενέργεια της εργασίας #' . (int) $tP->id . ' «' . htmlspecialchars((string) $tP->title, ENT_QUOTES, 'UTF-8') . '»'
+        . ((int) $ci->created_by ? ' (' . htmlspecialchars(Db::adminName((int) $ci->created_by), ENT_QUOTES, 'UTF-8') . ')' : '') . '</em></p>'
+        . (($ci->fmt ?? '') === 'html' ? (string) $ci->title : nl2br(htmlspecialchars((string) $ci->title, ENT_QUOTES, 'UTF-8')));
+    $newId = Db::saveTask(0, [
+        'project_id' => $tP->project_id ?: null, 'dept_id' => $tP->dept_id ?: null, 'product_id' => $tP->product_id ?? null,
+        'title' => $titleN, 'descr' => cnp_clean_html($descrN, 60000),
+        'status_id' => Db::firstStatusId(), 'priority' => (int) $tP->priority,
+        'assignee' => (int) ($in['assignee'] ?? 0) ?: null, 'action_user' => $adminId,
+        'ticketid' => $tP->ticketid ?: null,
+    ], $adminId);
+    Db::logActivity($newId, $adminId, 'create', 'Από ενέργεια της εργασίας #' . (int) $tP->id);
+    Db::logActivity((int) $tP->id, $adminId, 'edit', 'Η ενέργεια #' . (int) $ci->id . ' έγινε εργασία #' . $newId);
+    if (!empty($in['assignee']) && (int) $in['assignee'] !== $adminId) { Notify::assigned($newId, (int) $in['assignee'], $adminId); }
+    out(['ok' => true, 'id' => $newId, 'title' => $titleN]);
 
 case 'check_toggle':
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();

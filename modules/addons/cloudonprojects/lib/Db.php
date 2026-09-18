@@ -134,6 +134,19 @@ class Db
             }
         }
 
+        /* Αντιδράσεις (👍 ✅ 👀 …) σε ενέργειες της συζήτησης μιας εργασίας. Ο κωδικός
+           είναι λέξη (up/ok/eyes/…), όχι emoji — η βάση είναι utf8mb3. */
+        if (!$s->hasTable('mod_cpm_check_react')) {
+            $s->create('mod_cpm_check_react', function ($t) {
+                $t->increments('id');
+                $t->integer('check_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned();
+                $t->string('code', 12);
+                $t->timestamp('created_at')->nullable();
+                $t->unique(['check_id', 'admin_id', 'code']);
+            });
+        }
+
         /* Υπενθυμίσεις εξόφλησης που στάλθηκαν από τα «Ανοιχτά υπόλοιπα»: σε ποιον,
            για ποια παραστατικά, πόσα χρωστούσε τότε, από ποιο κανάλι. Έτσι φαίνεται
            «ειδοποιήθηκε στις …» και δεν στέλνουμε δύο φορές την ίδια μέρα. */
