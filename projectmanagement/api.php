@@ -5220,11 +5220,16 @@ case 'quick_task':
         fail('input');
     }
     $sid = (int) ($in['status'] ?? 0);
-    /* Ο ΕΠΙΒΛΕΠΩΝ (action_user) είναι ΠΑΝΤΑ όποιος άνοιξε την εργασία — παίρνεται
-       αυτόματα από τον χρήστη, δεν το ορίζει κανείς για λογαριασμό άλλου. */
+    /* Ρόλοι (απόφαση 18/9/2026):
+       - ΕΠΙΒΛΕΠΩΝ = created_by, πάντα όποιος άνοιξε την εργασία (αυτόματα).
+       - ΑΝΑΔΟΧΟΣ = assignee, όποιος την εκτελεί.
+       - ΜΠΑΛΑ = action_user: ΚΕΝΗ στη δημιουργία. Την περνά ρητά όποιος τελειώνει
+         το κομμάτι του («Παράδοση») στον επόμενο. Πριν, πήγαινε αυτόματα στον
+         δημιουργό — άρα ο τεχνικός έβλεπε «η μπάλα είναι στον Χ» ενώ τη δουλειά
+         την έκανε ο ίδιος, και ο δημιουργός τη βρισκε στη «Μέρα μου» του. */
     $new = ['project_id' => $pid ?: null, 'title' => $title,
         'status_id' => Db::status($sid) ? $sid : Db::firstStatusId(),
-        'action_user' => $adminId,
+        'action_user' => null,
         'internal' => !empty($in['internal']) ? 1 : 0,           // από τον διακόπτη «Εσωτερικό / R&D» της παλέτας
         'is_offer' => !empty($in['is_offer']) ? 1 : 0];
     if ((int) ($in['dept'] ?? 0)) {
@@ -5699,7 +5704,7 @@ case 'check_to_task':                    // «Μετατροπή σε εργασ
         'project_id' => $tP->project_id ?: null, 'dept_id' => $tP->dept_id ?: null, 'product_id' => $tP->product_id ?? null,
         'title' => $titleN, 'descr' => cnp_clean_html($descrN, 60000),
         'status_id' => Db::firstStatusId(), 'priority' => (int) $tP->priority,
-        'assignee' => (int) ($in['assignee'] ?? 0) ?: null, 'action_user' => $adminId,
+        'assignee' => (int) ($in['assignee'] ?? 0) ?: null, 'action_user' => null,
         'ticketid' => $tP->ticketid ?: null,
     ], $adminId);
     Db::logActivity($newId, $adminId, 'create', 'Από ενέργεια της εργασίας #' . (int) $tP->id);
@@ -6210,7 +6215,7 @@ case 'call_log':                         // η καταχώρηση
             'descr' => cnp_clean_html(nl2br(trim(($phone9 ? 'Τηλέφωνο: ' . $phone9 . "\n" : '')
                 . ($detail9 ?: '')))) ?: null,
             'assignee' => $asg9,
-            'action_user' => $asg9,
+            'action_user' => null,          // η μπάλα μένει κενή στη δημιουργία (ίδιος κανόνας παντού)
             'due_date' => $fup9,
             'created_by' => $adminId,
         ], $adminId);
