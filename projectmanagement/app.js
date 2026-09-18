@@ -2087,7 +2087,10 @@ async function openTask(id, entryId) {
         <a class="th-file" href="api.php?a=file_get&id=${f.id}" target="_blank" rel="noopener" title="${esc(f.name)}">
           <span class="th-file-ic">${I.fileText || I.clip}</span><span class="th-file-n">${esc(f.name)}</span>${f.sizeh ? `<span class="mut">${esc(f.sizeh)}</span>` : ''}</a>`).join('')}</div>` : '';
       const groupReacts = rs => { const g = {}; (rs || []).forEach(r => { (g[r.code] = g[r.code] || {code: r.code, n: 0, who: [], mine: false}); g[r.code].n++; g[r.code].who.push(r.by); if (r.byId === me.id) { g[r.code].mine = true; } }); return Object.values(g); };
-      const ava = (aid, name) => `<span class="th-ava" style="background:${avaColor(aid)}" title="${esc(name || '')}">${esc(adminIni(aid) || String(name || '?').slice(0, 2).toUpperCase())}</span>`;
+      /* Χωρίς συγγραφέα (βήμα από module ή παλιά εγγραφή): ουδέτερο avatar, όχι «?». */
+      const ava = (aid, name) => aid
+        ? `<span class="th-ava" style="background:${avaColor(aid)}" title="${esc(name || '')}">${esc(adminIni(aid) || String(name || '?').slice(0, 2).toUpperCase())}</span>`
+        : `<span class="th-ava th-ava-sys" title="Βήμα εργασίας">${I.checkSquare}</span>`;
       const row = (x, i) => {
         const hide = i < hidden ? ' th-hid' : '';
         if (x.k === 'ev') { const a = x.a; return `<div class="th-item th-ev${hide}">${ava(a.byId, a.by)}<div class="th-main"><span class="th-evt"><b>${esc(a.by)}</b> ${evText(a)}</span><span class="th-time">${tShort(a.at)}</span></div></div>`; }
@@ -2100,7 +2103,7 @@ async function openTask(id, entryId) {
           <div class="th-main">
             <div class="th-head">
               ${t.isDelivery ? `<input type="checkbox" class="act-chk" data-chk="${it.id}" ${it.done ? 'checked' : ''} title="Ενέργεια παράδοσης">` : ''}
-              <b>${esc(it.by || '—')}</b>
+              <b>${esc(it.by || 'Βήμα εργασίας')}</b>
               <span class="th-time">${tShort(it.at)}</span>
               <span style="flex:1"></span>
               <button type="button" class="th-btn" data-react="${it.id}" title="Αντίδραση">☺</button>

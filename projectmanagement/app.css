@@ -3178,3 +3178,4 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 .tk-step > .card-b > .th{flex:none;overflow:visible;padding:10px 14px 4px}
 .tk-step > .card-b > .act-composer{position:sticky;bottom:0;z-index:2;background:var(--card);box-shadow:0 -10px 14px -10px rgba(0,0,0,.18);margin:8px 14px 12px}
 .tk-steps-max > .tk-col-main > .tk-step{flex:1 1 auto}
+.th-ava-sys{background:var(--line);color:var(--mut)}.th-ava-sys svg{width:14px;height:14px}
