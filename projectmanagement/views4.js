@@ -3060,8 +3060,36 @@ function showHelpAlert(a) {
   HELP_SHOWN.add(a.id);
   api('help_seen', {id: a.id}).catch(() => {});     // μη ξαναχτυπήσει από επόμενο poll
   const voice = a.kind === 'voice';
+  const checkin = a.kind === 'checkin';
   const ovl = document.createElement('div');
   ovl.className = 'ovl show help-ovl';
+  if (checkin) {
+    /* «Τι γίνεται;» από τον επικεφαλή: δύο κουμπιά και προαιρετική γραμμή — η απάντηση
+       γυρίζει σε αυτόν που ρώτησε. «Χρειάζομαι βοήθεια» γίνεται κανονικό 🆘 προς αυτόν. */
+    ovl.innerHTML = `<div class="help-alert checkin" onclick="event.stopPropagation()">
+      <div class="help-ring">💬</div>
+      <div class="help-who"><b>${esc(a.from)}</b> ρωτά τι γίνεται</div>
+      <div class="help-msg">${esc(a.message)}</div>
+      ${a.taskTitle ? `<div class="help-ctx">${I.checkSquare} ${esc(a.taskTitle)}</div>` : ''}
+      <input class="inp" id="ckNote" placeholder="Δυο λόγια (προαιρετικά) — π.χ. «τελειώνω σε 1 ώρα» ή «κόλλησα στο X»" style="margin-top:10px">
+      <div class="help-f">
+        ${a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξέ την</button>` : ''}
+        <button class="btn btn-danger" id="ckHelp">🆘 Χρειάζομαι βοήθεια</button>
+        <button class="btn btn-p" id="ckOk">✅ Όλα καλά</button>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    helpBeep();
+    const close = () => ovl.remove();
+    const reply = async ans => {
+      const r = await api('checkin_reply', {id: a.id, answer: ans, note: ovl.querySelector('#ckNote').value.trim()}).catch(e => ({err: e && e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast(ans === 'help' ? '🆘 Ζητήθηκε βοήθεια από τον ' + a.from : '✅ Απάντησες «όλα καλά»'); close();
+    };
+    ovl.querySelector('#ckOk').onclick = () => reply('ok');
+    ovl.querySelector('#ckHelp').onclick = () => reply('help');
+    const op = ovl.querySelector('#haOpen'); if (op) { op.onclick = () => { openTask(a.taskId); }; }
+    return;
+  }
   ovl.innerHTML = `<div class="help-alert${voice ? ' voice' : ''}" onclick="event.stopPropagation()">
     <div class="help-ring">${voice ? '🔊' : '🆘'}</div>
     <div class="help-who"><b>${esc(a.from)}</b> ${voice ? 'σε καλεί στη φωνή' : 'χρειάζεται τη βοήθειά σου'}</div>

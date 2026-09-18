@@ -3105,3 +3105,14 @@ html[data-theme="dark"] .pbx-alert{background:#3a2c14;color:#f1e3c8}
   /* Η κεφαλίδα δεν χωράει υπόμνημα + οδηγία σε 390px — γίνονταν τρεις σειρές. */
   .td-phint,.td-legend{display:none}
 }
+
+/* ═══════════ Υπέρβαση εκτίμησης (Overrun) ═══════════ */
+.tk-over{border:1px solid #e0a020;border-left-width:4px;border-radius:var(--r);padding:10px 14px;margin-bottom:12px;background:#fff8e6}
+html[data-theme="dark"] .tk-over{background:#3a2c14}
+.tk-over.l2{border-color:#e07a20}.tk-over.l3{border-color:var(--bad);background:#fff0f0}
+html[data-theme="dark"] .tk-over.l3{background:#3a1c1c}
+.tk-over-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.tk-over-ck{margin-top:8px;font-size:12.5px;padding:7px 10px;border-radius:9px;background:rgba(0,0,0,.04)}
+.tk-over-ck.ok{color:var(--ok)}.tk-over-ck.help{color:var(--bad);font-weight:600}.tk-over-ck.wait{color:var(--mut)}
+.help-alert.checkin .help-ring{background:#0090dd22}
+.ov-row{cursor:pointer}

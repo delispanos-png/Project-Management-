@@ -18,6 +18,7 @@ use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
 use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
 use WHMCS\Module\Addon\CloudonProjects\Pbx;
+use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
@@ -27,6 +28,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pharmacy.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Overrun.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PharmacyOneType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PbxType.php';
@@ -3026,6 +3028,8 @@ function cnp_open_actions()
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
+        // υπέρβαση εκτίμησης: λίστα μόνο για επικεφαλή/υπεύθυνο (row-level canAsk), ερώτηση & απάντηση row-level
+        'overruns', 'overrun_checkin', 'checkin_reply',
         // αρχεία (row-level μέσα στην ενέργεια)
         'file_presign_put', 'file_confirm', 'file_upload', 'file_list', 'file_get',
         'file_delete',
@@ -3646,6 +3650,17 @@ case 'task':
         'timerHere' => $running && (int) $running->task_id === (int) $t->id
             ? ['id' => (int) $running->id, 'since' => $running->started_at] : null,
         'timerElsewhere' => $running && (int) $running->task_id !== (int) $t->id ? (int) $running->task_id : null,
+        /* ⚠ Υπέρβαση εκτίμησης (ώρες/ημέρες) + η τελευταία ερώτηση «τι γίνεται» + αν μπορώ να ρωτήσω. */
+        'overrun' => (function () use ($t, $adminId, $FULL) {
+            $st = Overrun::taskStatus($t);
+            $agent = Overrun::taskAgent($t);
+            $mgr = $t->project_id ? (int) (Capsule::table('mod_cpm_projects')->where('id', (int) $t->project_id)->value('manager_id') ?: 0) : 0;
+            return ['hours' => $st['hours'], 'days' => $st['days'],
+                'hoursText' => $st['hours'] ? Overrun::describe('hours', $st['hours']) : null,
+                'daysText' => $st['days'] ? Overrun::describe('days', $st['days']) : null,
+                'agent' => $agent, 'canAsk' => $agent ? Overrun::canAsk($adminId, $FULL, $agent, $mgr) : false,
+                'checkin' => Overrun::lastCheckin('task', (int) $t->id)];
+        })(),
         'scClient' => Time::scReady() ? clientLabel(Time::clientForTask($t)) : null]);
 
 /* ================= MY DAY ================= */
@@ -5547,6 +5562,69 @@ case 'help_ask':
     /* Email επίσης — αν λείπει από την οθόνη, να το δει και εκεί. */
     Notify::helpAsked($hid);
     out(['ok' => true, 'id' => $hid]);
+
+/* ================= ΥΠΕΡΒΑΣΗ ΕΚΤΙΜΗΣΗΣ — «τι γίνεται; χρειάζεσαι βοήθεια;» ================= */
+case 'overruns':                          // οι τωρινές υπερβάσεις που με αφορούν ως επικεφαλή/υπεύθυνο
+    out(['items' => Overrun::openList($adminId, $FULL), 'pct' => Overrun::pct(), 'enabled' => Overrun::enabled()]);
+
+case 'overrun_checkin':                   // ο επικεφαλής ρωτά τον άνθρωπο της εργασίας/έργου
+    $whatC = ($in['what'] ?? 'task') === 'project' ? 'project' : 'task';
+    $idC = (int) ($in['id'] ?? 0);
+    $msgC = mb_substr(trim((string) ($in['message'] ?? '')), 0, 2000);
+    if ($whatC === 'task') {
+        $rowC = Db::task($idC);
+        if (!$rowC || !Db::canSeeTask($adminId, $rowC)) { fail('task', 404); }
+        $agentC = Overrun::taskAgent($rowC);
+        $mgrC = $rowC->project_id ? (int) (Capsule::table('mod_cpm_projects')->where('id', (int) $rowC->project_id)->value('manager_id') ?: 0) : 0;
+        $titleC = (string) $rowC->title;
+        $urlC = 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $idC;
+    } else {
+        $rowC = Db::project($idC);
+        if (!$rowC || (!$FULL && !Db::canSeeProject($adminId, $idC))) { fail('project', 404); }
+        $agentC = Overrun::projectAgent($rowC);
+        $mgrC = 0;
+        $titleC = (string) $rowC->name;
+        $urlC = '/project/#/board/' . $idC;
+    }
+    if (!$agentC) { fail('Η εργασία δεν έχει ανάδοχο — δεν υπάρχει ποιον να ρωτήσεις'); }
+    if (!Overrun::canAsk($adminId, $FULL, $agentC, $mgrC)) { fail('Ρωτά ο επικεφαλής της ομάδας του ή ο υπεύθυνος του έργου', 403); }
+    if ($msgC === '') { $msgC = 'Βλέπω ότι «' . mb_substr($titleC, 0, 80) . '» ξεπέρασε την εκτίμηση. Τι γίνεται; Χρειάζεσαι βοήθεια;'; }
+    $hidC = Capsule::table('mod_cpm_help')->insertGetId([
+        'from_admin' => $adminId, 'to_admin' => $agentC, 'task_id' => $whatC === 'task' ? $idC : null,
+        'project_id' => $whatC === 'project' ? $idC : null, 'kind' => 'checkin',
+        'message' => $msgC, 'status' => 'open', 'created_at' => date('Y-m-d H:i:s')]);
+    Db::pushNotification($agentC, 'checkin', '❓ ' . Db::adminName($adminId) . ' ρωτά τι γίνεται με «' . mb_substr($titleC, 0, 70) . '»', $urlC);
+    if ($whatC === 'task') { Db::logActivity($idC, $adminId, 'checkin', 'Ρώτησε τον ' . Db::adminName($agentC) . ' τι γίνεται (υπέρβαση εκτίμησης)'); }
+    out(['ok' => true, 'id' => $hidC, 'to' => Db::adminName($agentC)]);
+
+case 'checkin_reply':                     // ο άνθρωπος απαντά: όλα καλά / χρειάζομαι βοήθεια
+    $hC = Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))->where('kind', 'checkin')->first();
+    if (!$hC) { fail('checkin', 404); }
+    if ((int) $hC->to_admin !== $adminId) { fail('Απαντά μόνο αυτός που ρωτήθηκε', 403); }
+    $ansC = ($in['answer'] ?? 'ok') === 'help' ? 'help' : 'ok';
+    $noteC = mb_substr(trim((string) ($in['note'] ?? '')), 0, 500);
+    Capsule::table('mod_cpm_help')->where('id', (int) $hC->id)->update(['status' => 'done', 'answer' => $ansC, 'answer_note' => $noteC ?: null,
+        'done_at' => date('Y-m-d H:i:s'), 'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+    $meN = Db::adminName($adminId);
+    $ctxC = $hC->task_id ? (string) (Db::task((int) $hC->task_id)->title ?? '')
+        : ($hC->project_id ? (string) (Capsule::table('mod_cpm_projects')->where('id', (int) $hC->project_id)->value('name') ?: '') : '');
+    $urlR = $hC->task_id ? 'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $hC->task_id
+        : ($hC->project_id ? '/project/#/board/' . (int) $hC->project_id : '/project/#/myday');
+    if ($ansC === 'help') {
+        /* «Χρειάζομαι βοήθεια» = κανονική έκκληση βοήθειας προς αυτόν που ρώτησε — σκάει
+           το 🆘 του, με email, όπως κάθε άλλη. */
+        $hidR = Capsule::table('mod_cpm_help')->insertGetId([
+            'from_admin' => $adminId, 'to_admin' => (int) $hC->from_admin, 'task_id' => $hC->task_id ?: null,
+            'project_id' => $hC->project_id ?: null, 'kind' => 'help',
+            'message' => ($noteC !== '' ? $noteC : 'Χρειάζομαι βοήθεια') . ($ctxC !== '' ? ' — «' . mb_substr($ctxC, 0, 80) . '»' : ''),
+            'status' => 'open', 'created_at' => date('Y-m-d H:i:s')]);
+        Db::pushNotification((int) $hC->from_admin, 'help', '🆘 ' . $meN . ' χρειάζεται τη βοήθειά σου' . ($ctxC !== '' ? ' — ' . mb_substr($ctxC, 0, 60) : ''), $urlR);
+        Notify::helpAsked($hidR);
+    } else {
+        Db::pushNotification((int) $hC->from_admin, 'checkin', '✅ ' . $meN . ': όλα καλά' . ($ctxC !== '' ? ' με «' . mb_substr($ctxC, 0, 60) . '»' : '') . ($noteC !== '' ? ' — ' . mb_substr($noteC, 0, 120) : ''), $urlR);
+    }
+    if ($hC->task_id) { Db::logActivity((int) $hC->task_id, $adminId, 'checkin', $ansC === 'help' ? 'Απάντησε: χρειάζομαι βοήθεια' . ($noteC ? ' — ' . $noteC : '') : 'Απάντησε: όλα καλά' . ($noteC ? ' — ' . $noteC : '')); }
+    out(['ok' => true, 'answer' => $ansC]);
 
 case 'help_seen':                         // ο παραλήπτης είδε το «μπαμ» → μη ξαναχτυπήσει
     Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))
@@ -10122,12 +10200,15 @@ case 'search':
 /* ================= ΡΥΘΜΙΣΕΙΣ (in-app) ================= */
 case 'settings_get':
     $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
-        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
+        'overrun_on', 'overrun_pct', 'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     $vals = [];
     foreach ($keys as $k) {
         $vals[$k] = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', $k)->value('value') ?? '');
     }
+    /* Υπέρβαση εκτίμησης: ανοιχτή από προεπιλογή (ποτέ δεν αποθηκεύτηκε = on), 10%. */
+    if (!Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'overrun_on')->exists()) { $vals['overrun_on'] = 'on'; }
+    if ($vals['overrun_pct'] === '') { $vals['overrun_pct'] = '10'; }
     $vals['s3_secret_set'] = $vals['s3_secret'] !== '' ? '1' : '';   // δεν εκθέτουμε το secret
     $vals['s3_secret'] = '';
     /* Το AI key είναι μυστικό όπως κάθε άλλο: δεν φεύγει ποτέ προς τον browser.
@@ -10151,7 +10232,7 @@ case 'settings_get':
 
 case 'settings_save':
     $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
-        'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas',
+        'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas', 'overrun_on', 'overrun_pct',
         'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {

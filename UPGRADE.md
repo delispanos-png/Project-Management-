@@ -1569,3 +1569,22 @@ remote_active) + οι row-level (task/board μέσω canSeeTask/canSeeProject).
 | Πίνακας | `mod_cpm_pay_reminders` (Db::install) — ποιος/πότε/πόσα/κανάλι, για «ειδοποιήθηκε στις …» |
 
 Δεν αγγίζει core WHMCS.
+
+## Υπέρβαση εκτίμησης → «τι γίνεται; χρειάζεσαι βοήθεια;» (18/9/2026)
+
+`lib/Overrun.php` (νέο): κάθε 10΄ από το `crons/pulse.php`. Εργασία/έργο που ξεπερνά την εκτίμηση σε ΩΡΕΣ
+(καταγεγραμμένος + τρέχων χρόνος vs estimate_minutes / est_hours) ή ΗΜΕΡΕΣ (ημέρες από έναρξη vs deadline−έναρξη,
+ποτέ λιγότερο από 1 ημέρα μετά το deadline) κατά `overrun_pct` (προεπιλογή 10%) → καμπανάκι + web push + email
+(Notify::sendTo, παρακάμπτει τον κλειστό καθολικό διακόπτη) στους ΕΠΙΚΕΦΑΛΗΣ των ομάδων του ανθρώπου (+ υπεύθυνο έργου).
+Τρία σκαλιά (l1=pct, l2=+50%, l3=+100%), καθένα μία φορά ανά παραλήπτη — dedupe στο `mod_cpm_deadline_alerts`
+(kind `ovh_task/ovd_task/ovh_proj/ovd_proj`). Στην ενεργοποίηση έγινε `Overrun::seed()` (σιωπηλή σήμανση των 28 τότε
+υπερβάσεων) ώστε να μη βγει «τσουνάμι» την πρώτη μέρα.
+
+| Τι | Πού |
+|---|---|
+| API | `overruns` (λίστα για επικεφαλή/υπεύθυνο, row-level), `overrun_checkin` (ερώτηση → mod_cpm_help kind=checkin), `checkin_reply` (όλα καλά / χρειάζομαι βοήθεια → γίνεται 🆘 προς αυτόν που ρώτησε) — όλα στο `cnp_open_actions` |
+| Καρτέλα task | `task` payload → `overrun{hours,days,canAsk,checkin}` → banner `.tk-over` + κουμπί «Ρώτα τι γίνεται» |
+| Η μέρα μου | κάρτα «⚠ Υπερβάσεις εκτίμησης στην ομάδα σου» (`.ov-row`) |
+| Popup | views4 `showHelpAlert` kind=checkin: «✅ Όλα καλά» / «🆘 Χρειάζομαι βοήθεια» + σημείωση |
+| Ρυθμίσεις | Λειτουργία → «Υπέρβαση εκτίμησης»: `overrun_on`, `overrun_pct` |
+| Σχήμα | `mod_cpm_help` + `project_id`, `answer`, `answer_note` (Db::install) |

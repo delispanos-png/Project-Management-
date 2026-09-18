@@ -122,6 +122,18 @@ class Db
             });
         }
 
+        /* «Τι γίνεται;» (check-in) από επικεφαλή προς τον άνθρωπο μιας εργασίας/έργου
+           που ξεπέρασε την εκτίμηση: ζει στο mod_cpm_help (kind=checkin) και θέλει
+           έργο (όταν δεν είναι εργασία) και την απάντηση «όλα καλά / θέλω βοήθεια». */
+        if ($s->hasTable('mod_cpm_help')) {
+            if (!$s->hasColumn('mod_cpm_help', 'project_id')) {
+                $s->table('mod_cpm_help', function ($t) { $t->integer('project_id')->unsigned()->nullable()->after('task_id'); });
+            }
+            if (!$s->hasColumn('mod_cpm_help', 'answer')) {
+                $s->table('mod_cpm_help', function ($t) { $t->string('answer', 12)->nullable(); $t->string('answer_note', 500)->nullable(); });
+            }
+        }
+
         /* Υπενθυμίσεις εξόφλησης που στάλθηκαν από τα «Ανοιχτά υπόλοιπα»: σε ποιον,
            για ποια παραστατικά, πόσα χρωστούσε τότε, από ποιο κανάλι. Έτσι φαίνεται
            «ειδοποιήθηκε στις …» και δεν στέλνουμε δύο φορές την ίδια μέρα. */

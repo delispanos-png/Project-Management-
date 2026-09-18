@@ -1968,6 +1968,28 @@ async function openTask(id) {
     <button class="drawer-x" id="dX">✕</button>
   </div>
   <div class="drawer-b tk-modal-b">
+    ${(() => {
+      /* ⚠ Υπέρβαση εκτίμησης: φαίνεται σε όλους· ο επικεφαλής/υπεύθυνος μπορεί να ρωτήσει
+         «τι γίνεται» με ένα κλικ, και εδώ φαίνεται και η απάντηση. */
+      const ov = d.overrun || {};
+      if (!ov.hours && !ov.days) { return ''; }
+      const worst = Math.max(ov.hours ? ov.hours.pct : 0, ov.days ? ov.days.pct : 0);
+      const ck = ov.checkin;
+      const ckHtml = ck
+        ? (ck.status === 'done'
+          ? `<div class="tk-over-ck ${ck.answer === 'help' ? 'help' : 'ok'}">${ck.answer === 'help' ? '🆘' : '✅'} <b>${esc(ck.to)}</b> απάντησε ${esc(tShort(ck.doneAt || ck.at))}: ${ck.answer === 'help' ? 'χρειάζεται βοήθεια' : 'όλα καλά'}${ck.answerNote ? ` — «${esc(ck.answerNote)}»` : ''}</div>`
+          : `<div class="tk-over-ck wait">💬 <b>${esc(ck.by)}</b> ρώτησε ${esc(tShort(ck.at))} — περιμένει απάντηση από ${esc(ck.to)}</div>`)
+        : '';
+      return `<div class="tk-over ${worst >= 100 ? 'l3' : (worst >= 50 ? 'l2' : 'l1')}">
+        <div class="tk-over-h">⚠ <b>Υπέρβαση εκτίμησης</b>
+          ${ov.hours ? `<span class="pill pill-warn" title="Καταγεγραμμένος χρόνος σε σχέση με την εκτίμηση">⏱ ${esc(ov.hoursText)}</span>` : ''}
+          ${ov.days ? `<span class="pill pill-bad" title="Ημέρες από την έναρξη σε σχέση με το πλάνο">📅 ${esc(ov.daysText)}</span>` : ''}
+          <span style="flex:1"></span>
+          ${ov.canAsk ? `<button class="btn btn-sm btn-p" id="dAsk" title="Στέλνει στον ${esc(adminName(ov.agent))} ερώτηση «τι γίνεται; χρειάζεσαι βοήθεια;» — η απάντηση γυρίζει σε σένα">💬 Ρώτα τι γίνεται</button>` : ''}
+        </div>
+        ${ckHtml}
+      </div>`;
+    })()}
     <div class="card tk-brief"><div class="card-h">${I.doc || ''} <b>Το ζητούμενο</b>
       <span class="mut" style="font-weight:600;font-size:11px">— τι ακριβώς πρέπει να γίνει · γράψε <b>@Όνομα</b> για να ειδοποιήσεις συνάδελφο</span>
       ${canEditBrief ? '' : '<span class="pill pill-mut" style="margin-left:auto;flex:none" title="Το ορίζει μόνο ο δημιουργός της εργασίας">read-only</span>'}</div>
@@ -2554,6 +2576,16 @@ async function openTask(id) {
     toast(on ? 'Χρεώσιμο ✓' : 'Χωρίς χρέωση');
     openTask(id);
   });
+  /* «Ρώτα τι γίνεται»: προσυμπληρωμένη ερώτηση, αλλάζει πριν φύγει. */
+  { const ab = $('#dAsk', dr); if (ab) ab.onclick = async () => {
+    const who = adminName((d.overrun || {}).agent);
+    const msg = await cnpDialog({title: '💬 Ρώτα τον ' + who, body: 'Θα του φτάσει ως ειδοποίηση με δύο κουμπιά: «Όλα καλά» / «Χρειάζομαι βοήθεια». Η απάντηση γυρίζει σε σένα.',
+      input: `Βλέπω ότι «${(t.title || '').slice(0, 80)}» ξεπέρασε την εκτίμηση. Τι γίνεται; Χρειάζεσαι βοήθεια;`, rows: 4, max: 2000, ok: '💬 Στείλε', cancel: 'Άκυρο'});
+    if (msg === null) { return; }
+    const r = await api('overrun_checkin', {what: 'task', id, message: msg}).catch(e => ({err: e && e.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('💬 Ρωτήθηκε ο ' + (r.to || who)); openTask(id);
+  }; }
   $('#tAdd', dr).onclick = async () => {
     const m = +$('#tMins').value; if (!m) return;
     await api('time_add', {task: id, mins: m, billable: $('#tBill') ? $('#tBill').checked : false, note: $('#tNote').value});
@@ -3041,6 +3073,9 @@ async function vMyDay() {
   /* «@εσύ»: αναφορές σε εργασίες που περιμένουν την προσοχή μου (GoodDay-style). */
   const mn = await api('mentions').catch(() => ({items: []}));
   const mentions = mn.items || [];
+  /* ⚠ Υπερβάσεις εκτίμησης στην ομάδα μου (μόνο όσες μπορώ να ρωτήσω ως επικεφαλής/υπεύθυνος). */
+  const ovr = await api('overruns').catch(() => ({items: []}));
+  const overruns = ovr.items || [];
   const st = d.stats;
   const coachCol = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)'};
   const coach = d.coach || [];
@@ -3054,6 +3089,20 @@ async function vMyDay() {
     ${mentions.map(m => `<div class="qrow" data-mtask="${m.taskId}" data-mid="${m.id}">
       <span class="qt">${esc(m.text)}</span>
       <span class="mut" style="flex:none;font-size:11px">${tShort(m.at)}</span></div>`).join('')}
+    </div></div>` : ''}
+  ${overruns.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--warn)">
+    <div class="card-h">⚠ Υπερβάσεις εκτίμησης στην ομάδα σου
+      <span class="mut" style="font-weight:600;font-size:11.5px">— ξεπέρασαν την εκτίμηση κατά ${esc(String(ovr.pct || 10))}%+· ρώτα τι γίνεται πριν χαθεί το deadline</span></div>
+    <div class="card-b" style="padding-top:6px">
+    ${overruns.map(o => `<div class="qrow ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
+      <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
+      <span class="qt">${o.what === 'project' ? '📁 ' : ''}${esc(o.title)}
+        <span class="mut">${esc(o.agentName)}${o.hoursText ? ' · ⏱ ' + esc(o.hoursText) : ''}${o.daysText ? ' · 📅 ' + esc(o.daysText) : ''}</span></span>
+      ${o.checkin ? (o.checkin.status === 'done'
+        ? `<span class="pill ${o.checkin.answer === 'help' ? 'pill-bad' : 'pill-ok'}" style="flex:none" title="${esc(o.checkin.answerNote || '')}">${o.checkin.answer === 'help' ? '🆘 θέλει βοήθεια' : '✅ όλα καλά'}</span>`
+        : '<span class="pill pill-info" style="flex:none">💬 ρωτήθηκε</span>') : ''}
+      <button class="btn btn-sm btn-o" data-ovask style="flex:none">💬 Ρώτα</button>
+    </div>`).join('')}
     </div></div>` : ''}
   ${queue.length ? `<div class="card" style="margin-bottom:14px;border-left:4px solid var(--bad)">
     <div class="card-h">${I.compass} Η σειρά της ημέρας
@@ -3181,6 +3230,21 @@ async function vMyDay() {
     await api('mention_read', {id: +r.dataset.mid}).catch(() => {});
     if (+r.dataset.mtask) { openTask(+r.dataset.mtask); }
     r.remove();
+  });
+  $$('#content .ov-row').forEach(r => {
+    const what = r.dataset.ovwhat, oid = +r.dataset.ovid;
+    r.onclick = e => { if (e.target.closest('[data-ovask]')) { return; } if (what === 'task') { openTask(oid); } else { go('board', oid); } };
+    const b = r.querySelector('[data-ovask]');
+    if (b) b.onclick = async e => {
+      e.stopPropagation();
+      const o = overruns.find(x => x.what === what && x.id === oid) || {};
+      const msg = await cnpDialog({title: '💬 Ρώτα τον ' + (o.agentName || ''), body: 'Θα του φτάσει ως ειδοποίηση με «Όλα καλά» / «Χρειάζομαι βοήθεια». Η απάντηση γυρίζει σε σένα.',
+        input: `Βλέπω ότι «${(o.title || '').slice(0, 80)}» ξεπέρασε την εκτίμηση. Τι γίνεται; Χρειάζεσαι βοήθεια;`, rows: 4, max: 2000, ok: '💬 Στείλε', cancel: 'Άκυρο'});
+      if (msg === null) { return; }
+      const x = await api('overrun_checkin', {what, id: oid, message: msg}).catch(err => ({err: err && err.message}));
+      if (x && x.err) { toast(x.err, true); return; }
+      toast('💬 Ρωτήθηκε ο ' + (x.to || o.agentName)); vMyDay();
+    };
   });
   $$('#content [data-qtk]').forEach(r => r.onclick = () => go('inbox', r.dataset.qtk));
   $$('#content [data-dltask]').forEach(r => r.onclick = () => openTask(+r.dataset.dltask));

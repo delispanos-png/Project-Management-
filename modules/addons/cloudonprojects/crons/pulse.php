@@ -13,12 +13,14 @@ use WHMCS\Module\Addon\CloudonProjects\Notify;
 use WHMCS\Module\Addon\CloudonProjects\Auto;
 use WHMCS\Module\Addon\CloudonProjects\Deadlines;
 use WHMCS\Module\Addon\CloudonProjects\TicketIdle;
+use WHMCS\Module\Addon\CloudonProjects\Overrun;
 
 require_once __DIR__ . '/../lib/Db.php';
 require_once __DIR__ . '/../lib/Notify.php';
 require_once __DIR__ . '/../lib/Auto.php';
 require_once __DIR__ . '/../lib/Deadlines.php';
 require_once __DIR__ . '/../lib/TicketIdle.php';
+require_once __DIR__ . '/../lib/Overrun.php';
 
 /* SLA breaches → automations (μία φορά ανά ticket, dedupe στο Auto::once) */
 try {
@@ -88,6 +90,17 @@ try {
     }
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] προθεσμίες ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
+}
+
+/* ⚠ Υπέρβαση εκτίμησης (ώρες / ημέρες): ο επικεφαλής της ομάδας μαθαίνει ότι κάποιος
+   ξεπέρασε την εκτίμησή του, για να ρωτήσει αν χρειάζεται βοήθεια. Dedupe ανά σκαλί. */
+try {
+    $ovSent = Overrun::run(getenv('CPM_DRY') ? true : false);
+    if ($ovSent) {
+        echo '[' . date('H:i:s') . "] υπερβάσεις: $ovSent ειδοποιήσεις\n";
+    }
+} catch (\Throwable $e) {
+    echo '[' . date('H:i:s') . '] υπερβάσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
 }
 
 /* 🔕 Tickets που περιμένουν τον πελάτη: υπενθύμιση και μετά αυτόματο κλείσιμο.
