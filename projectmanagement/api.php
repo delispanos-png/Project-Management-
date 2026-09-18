@@ -3031,7 +3031,7 @@ function cnp_action_cap($action)
         $add('support.tickets', ['canned']);
 
         /* ── Η ΟΜΑΔΑ (νέο κύκλωμα 12/9/2026) ── */
-        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_file', 'chat_status',
+        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_file', 'chat_status',
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
@@ -11583,12 +11583,19 @@ case 'chat_msgs':
     $maxId = $after;
     foreach ($msgs as $m9) {
         $maxId = max($maxId, (int) $m9->id);
+        if (!empty($m9->deleted_at)) {
+            $outM[] = ['id' => (int) $m9->id, 'by' => (int) $m9->admin_id, 'body' => '', 'at' => $m9->created_at, 'file' => null, 'deleted' => true];
+            continue;
+        }
         $outM[] = ['id' => (int) $m9->id, 'by' => (int) $m9->admin_id,
-            'body' => $m9->body, 'at' => $m9->created_at,
+            /* utf8mb3: 4-byte emoji που σώθηκαν παλιά ως «????» δεν έχουν νόημα στην οθόνη */
+            'body' => $m9->body === null ? null : preg_replace('/(\?\?\?\?\s?)+/', '', (string) $m9->body), 'at' => $m9->created_at,
             'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id,
                 'mime' => $m9->mime, 'kind' => Storage::kindFromMime($m9->mime),
                 'url' => 'api.php?a=chat_file&id=' . (int) $m9->id] : null];
     }
+    /* Διαγραφές των τελευταίων 15΄ σε αυτό το κανάλι: όποιος έχει ήδη το μήνυμα στην οθόνη το αφαιρεί. */
+    $delIds = Capsule::table('mod_cpm_chat')->where('channel', $ch)->where('deleted_at', '>=', date('Y-m-d H:i:s', time() - 900))->pluck('id')->all();
     // mark read
     if ($maxId > 0) {
         if (Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->where('channel', $ch)->exists()) {
@@ -11598,7 +11605,17 @@ case 'chat_msgs':
             Capsule::table('mod_cpm_chat_reads')->insert(['admin_id' => $adminId, 'channel' => $ch, 'last_id' => $maxId]);
         }
     }
-    out(['messages' => $outM]);
+    out(['messages' => $outM, 'deleted' => array_map('intval', $delIds)]);
+
+case 'chat_del':                        // διαγραφή δικού μου μηνύματος (Full: οποιουδήποτε) — soft, με αφαίρεση αρχείου
+    $mD = Capsule::table('mod_cpm_chat')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$mD || !cnp_chat_access($mD->channel, $adminId)) { fail('message', 404); }
+    if ((int) $mD->admin_id !== $adminId && !$FULL) { fail('Μπορείς να σβήσεις μόνο δικά σου μηνύματα', 403); }
+    if (!empty($mD->deleted_at)) { out(['ok' => true]); }
+    if ($mD->storage_id) { try { Storage::delete((int) $mD->storage_id); } catch (\Throwable $e) { } }
+    Capsule::table('mod_cpm_chat')->where('id', (int) $mD->id)->update(['body' => null, 'filename' => null, 'storage_id' => null, 'mime' => null, 'size' => null,
+        'deleted_at' => date('Y-m-d H:i:s'), 'deleted_by' => $adminId]);
+    out(['ok' => true]);
 
 case 'chat_send':
     if (!empty($_FILES)) {
@@ -11608,7 +11625,8 @@ case 'chat_send':
     if (!cnp_chat_access($ch, $adminId)) {
         fail('channel', 403);
     }
-    $body = mb_substr(trim($in['body'] ?? ''), 0, 4000);
+    /* utf8mb3: τα 4-byte emoji θα γίνονταν «????» — κόβονται πριν την αποθήκευση */
+    $body = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 4000);
     $fn = null;
     $sz = null;
     $storageId = null;

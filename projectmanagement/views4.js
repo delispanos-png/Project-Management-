@@ -1325,10 +1325,10 @@ R.chat = async function () {
           <label class="btn btn-o btn-sm" style="cursor:pointer" title="Αρχείο">${I.clip}<input type="file" id="chFile" style="display:none"></label>
           <span id="chFn" class="mut" style="font-size:11px"></span>
           <input class="inp" id="chIn" placeholder="Μήνυμα… (Enter) — ή επικόλλησε εικόνα με Ctrl+V" style="flex:1">
-          <button class="btn btn-o btn-sm" id="chMic" title="Φωνητικό μήνυμα — πάτα για ηχογράφηση">${MIC_SVG}</button>
+          <div class="ch-rec" id="chRec" hidden></div>
+          <button class="btn btn-o btn-sm" id="chMic" title="Φωνητικό μήνυμα — κράτα πατημένο όσο μιλάς, άφησέ το για να σταλεί">${MIC_SVG}</button>
           <button class="btn btn-p btn-sm" id="chSend">${I.send}</button>
         </div>
-        <div class="ch-rec" id="chRec" hidden></div>
       </div>
     </div>
   </div>`;
@@ -1403,7 +1403,11 @@ R.chat = async function () {
       st.lastId = m.id;
       const div = document.createElement('div');
       div.className = 'ch-m' + (m.by === S.boot.me.id ? ' me' : '');
-      div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>
+      div.dataset.mid = m.id;
+      if (m.deleted) { div.classList.add('deleted'); div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div><span class="mut">🚫 Το μήνυμα διαγράφηκε</span>`; box.appendChild(div); return; }
+      /* Διαγραφή: δικά μου μηνύματα (ο Full: όλα). Εμφανίζεται στο hover / πάτημα στο κινητό. */
+      const canDel = m.by === S.boot.me.id || S.boot.me.full;
+      div.innerHTML = (canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : '') + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>
         ${m.body ? cnpMsgHtml(m.body) : ''}
         ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${fu}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
@@ -1413,11 +1417,19 @@ R.chat = async function () {
       if (m.file && m.file.kind === 'audio') {
         const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id);
         const secs = (() => { const x = /(\d+):(\d\d)/.exec(m.body || ''); return x ? (+x[1]) * 60 + (+x[2]) : 0; })();
-        div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chVoiceHtml(fu, secs, m.file.name);
+        div.innerHTML = (canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : '') + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chVoiceHtml(fu, secs, m.file.name);
       }
       box.appendChild(div);
       cnpWireMsgLinks(div);
       chWireVoice(div);
+      const db = div.querySelector('[data-chdel]');
+      if (db) db.onclick = async e => {
+        e.stopPropagation();
+        if (!(await cnpConfirm('Να διαγραφεί το μήνυμα για όλους;', {ok: I.trash + ' Διαγραφή', cancel: 'Άκυρο', danger: true}))) return;
+        const r = await api('chat_del', {id: m.id}).catch(err => ({err: err.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        div.classList.add('deleted'); div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div><span class="mut">🚫 Το μήνυμα διαγράφηκε</span>`;
+      };
     });
     if (msgs.length && (stick || st.lastId === msgs[msgs.length - 1].id)) box.scrollTop = box.scrollHeight;
   };
@@ -1427,6 +1439,8 @@ R.chat = async function () {
     loading = true;
     const r = await api('chat_msgs&channel=' + st.ch + '&after=' + Math.max(0, st.lastId)).catch(() => null);
     loading = false;
+    /* Διαγραφές από άλλους (ή από άλλη συσκευή μου): ό,τι είναι ήδη στην οθόνη γίνεται «διαγράφηκε». */
+    if (r && Array.isArray(r.deleted)) r.deleted.forEach(id => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + id + '"]:not(.deleted)'); if (el) { const h = el.querySelector('.h'); el.classList.add('deleted'); el.innerHTML = (h ? h.outerHTML : '') + '<span class="mut">🚫 Το μήνυμα διαγράφηκε</span>'; } });
     if (r && r.messages.length) render(r.messages);
     else if (st.lastId === 0) { const b = $('#chMsgs'); if (b) b.innerHTML = '<div class="empty" style="margin:auto">Καμία συζήτηση ακόμη — πες ένα γεια 👋</div>'; st.lastId = -1; }
   };
@@ -1496,57 +1510,60 @@ R.chat = async function () {
   $('#chSend').onclick = send;
   $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
   $('#chFile').onchange = () => { $('#chFn').textContent = $('#chFile').files[0]?.name || ''; };
-  /* ── 🎙 Φωνητικό μήνυμα: ηχογράφηση → προεπισκόπηση → αποστολή ως αρχείο ήχου ──
-     Το «τι ώρα/πόσο» μπαίνει στο κείμενο («🎙 0:12») γιατί το webm της ηχογράφησης δεν
-     έχει διάρκεια στα metadata (Chrome) — έτσι ο player και η ειδοποίηση την ξέρουν. */
+  /* ── 🎙 Φωνητικό μήνυμα: ΚΡΑΤΑΣ πατημένο το μικρόφωνο → ηχογραφεί· το αφήνεις → φεύγει αμέσως.
+     Χωρίς «Στοπ», χωρίς «Στείλε». Πολύ σύντομο πάτημα (<0,7΄΄) = τίποτα, με υπόδειξη. Esc = άκυρο.
+     Η διάρκεια μπαίνει στο κείμενο («🎙 0:12») γιατί το webm ηχογράφησης δεν την έχει στα metadata. */
   const recUi = $('#chRec'), micBtn = $('#chMic');
-  let rec = null, recChunks = [], recT0 = 0, recTimer = null, recBlob = null, recMime = '', recStream = null;
+  let rec = null, recChunks = [], recT0 = 0, recTimer = null, recMime = '', recStream = null, recCancel = false, recBusy = false;
   const recFmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
-  const recStop = () => { if (recStream) { recStream.getTracks().forEach(t => t.stop()); recStream = null; } clearInterval(recTimer); recTimer = null; };
-  const recReset = () => { recStop(); rec = null; recChunks = []; recBlob = null; recUi.hidden = true; recUi.innerHTML = ''; micBtn.classList.remove('on'); };
-  const recPaint = () => {
-    const secs = Math.round((Date.now() - recT0) / 1000);
-    if (rec && rec.state === 'recording') {
-      recUi.innerHTML = `<span class="ch-rec-dot"></span><b>Ηχογράφηση</b> <span class="ch-rec-t" id="chRecT">${recFmt(secs)}</span>
-        <span class="mut" style="font-size:11px">· μέγιστο 5΄</span><span style="flex:1"></span>
-        <button class="btn btn-o btn-sm" id="chRecX">✕ Άκυρο</button><button class="btn btn-p btn-sm" id="chRecStop">■ Στοπ</button>`;
-      $('#chRecX').onclick = recReset;
-      $('#chRecStop').onclick = () => { try { rec.stop(); } catch (e) { recReset(); } };
-    }
-  };
+  const recStopTracks = () => { if (recStream) { recStream.getTracks().forEach(t => t.stop()); recStream = null; } clearInterval(recTimer); recTimer = null; };
+  const recShow = on => { recUi.hidden = !on; const inp = $('#chIn'); if (inp) { inp.style.display = on ? 'none' : ''; } };
+  const recReset = () => { recStopTracks(); rec = null; recChunks = []; recShow(false); recUi.innerHTML = ''; micBtn.classList.remove('on'); };
   const recStart = async () => {
+    if (recBusy || (rec && rec.state === 'recording')) { return; }
     if (!navigator.mediaDevices || !window.MediaRecorder) { toast('Ο browser δεν υποστηρίζει ηχογράφηση', true); return; }
+    recBusy = true; recCancel = false;
+    micBtn.classList.add('on'); recShow(true);
+    recUi.innerHTML = `<span class="ch-rec-dot"></span><b>Ηχογράφηση…</b> <span class="ch-rec-t" id="chRecT">0:00</span>
+      <span class="mut ch-rec-hint">· άφησε το μικρόφωνο για να σταλεί · Esc = άκυρο</span>`;
     try { recStream = await navigator.mediaDevices.getUserMedia({audio: true}); }
-    catch (e) { toast('Δεν δόθηκε πρόσβαση στο μικρόφωνο', true); return; }
+    catch (e) { toast('Δεν δόθηκε πρόσβαση στο μικρόφωνο', true); recBusy = false; recReset(); return; }
+    if (recCancel) { recBusy = false; recReset(); return; }   // το άφησε πριν προλάβει να ανοίξει το μικρόφωνο
     recMime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t)) || '';
     try { rec = new MediaRecorder(recStream, recMime ? {mimeType: recMime, audioBitsPerSecond: 48000} : undefined); }
-    catch (e) { toast('Δεν ξεκίνησε η ηχογράφηση', true); recStop(); return; }
+    catch (e) { toast('Δεν ξεκίνησε η ηχογράφηση', true); recBusy = false; recReset(); return; }
     recChunks = []; recT0 = Date.now();
     rec.ondataavailable = e => { if (e.data && e.data.size) { recChunks.push(e.data); } };
-    rec.onstop = () => {
-      const secs = Math.max(1, Math.round((Date.now() - recT0) / 1000));
-      recStop();
-      recBlob = new Blob(recChunks, {type: (rec.mimeType || recMime || 'audio/webm').split(';')[0]});
-      if (recBlob.size < 1000) { toast('Πολύ σύντομο — δεν ηχογραφήθηκε τίποτα', true); recReset(); return; }
-      const url = URL.createObjectURL(recBlob);
-      recUi.innerHTML = `<span class="mut" style="font-size:12px;font-weight:700">🎙 Έτοιμο · ${recFmt(secs)}</span>${chVoiceHtml(url, secs, '')}<span style="flex:1"></span>
-        <button class="btn btn-o btn-sm" id="chRecX" title="Πέτα το και ξαναγράψε">✕</button><button class="btn btn-p btn-sm" id="chRecSend">${I.send} Στείλε</button>`;
-      chWireVoice(recUi);
-      $('#chRecX').onclick = () => { URL.revokeObjectURL(url); recReset(); };
-      $('#chRecSend').onclick = async () => {
-        const ext = /mp4/.test(recBlob.type) ? 'm4a' : /ogg/.test(recBlob.type) ? 'ogg' : 'webm';
-        const d = new Date(), pad = n => String(n).padStart(2, '0');
-        const file = new File([recBlob], 'voice-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.' + ext, {type: recBlob.type});
-        $('#chRecSend').disabled = true;
-        if (await sendOne('🎙 Φωνητικό μήνυμα · ' + recFmt(secs), file)) { URL.revokeObjectURL(url); recReset(); if (st.lastId === -1) st.lastId = 0; load(); }
-        else { $('#chRecSend').disabled = false; }
-      };
+    rec.onstop = async () => {
+      const secs = Math.round((Date.now() - recT0) / 1000);
+      const blob = new Blob(recChunks, {type: (rec.mimeType || recMime || 'audio/webm').split(';')[0]});
+      const cancelled = recCancel, tooShort = (Date.now() - recT0) < 700 || blob.size < 1000;
+      recReset(); recBusy = false;
+      if (cancelled) { toast('Η ηχογράφηση ακυρώθηκε'); return; }
+      if (tooShort) { toast('Κράτα πατημένο το μικρόφωνο όσο μιλάς — άφησέ το για να σταλεί'); return; }
+      const ext = /mp4/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+      const d = new Date(), pad = n => String(n).padStart(2, '0');
+      const file = new File([blob], 'voice-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.' + ext, {type: blob.type});
+      recShow(true); recUi.innerHTML = '<span class="mut" style="font-size:12px">🎙 Αποστολή φωνητικού (' + recFmt(Math.max(1, secs)) + ')…</span>';
+      const ok = await sendOne('🎙 Φωνητικό μήνυμα · ' + recFmt(Math.max(1, secs)), file);
+      recShow(false); recUi.innerHTML = '';
+      if (ok) { if (st.lastId === -1) st.lastId = 0; load(); }
     };
     rec.start(250);
-    micBtn.classList.add('on'); recUi.hidden = false; recPaint();
-    recTimer = setInterval(() => { const t = $('#chRecT'); if (t) { t.textContent = recFmt(Math.round((Date.now() - recT0) / 1000)); } if (Date.now() - recT0 > 5 * 60000 && rec && rec.state === 'recording') { rec.stop(); } }, 500);
+    recBusy = false;
+    recTimer = setInterval(() => { const t = $('#chRecT'); if (t) { t.textContent = recFmt(Math.round((Date.now() - recT0) / 1000)); } if (Date.now() - recT0 > 5 * 60000 && rec && rec.state === 'recording') { rec.stop(); } }, 300);
   };
-  micBtn.onclick = () => { if (rec && rec.state === 'recording') { rec.stop(); } else if (recUi.hidden) { recStart(); } };
+  const recRelease = () => {
+    if (rec && rec.state === 'recording') { try { rec.stop(); } catch (e) { recReset(); } }
+    else if (recBusy) { recCancel = true; }   // ακόμη περιμένει άδεια μικροφώνου
+  };
+  micBtn.style.touchAction = 'none';
+  micBtn.onpointerdown = e => { e.preventDefault(); try { micBtn.setPointerCapture(e.pointerId); } catch (x) {} recStart(); };
+  micBtn.onpointerup = e => { e.preventDefault(); recRelease(); };
+  micBtn.onpointercancel = () => { recRelease(); };
+  micBtn.oncontextmenu = e => e.preventDefault();   // long-press σε κινητό δεν ανοίγει μενού
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && rec && rec.state === 'recording') { recCancel = true; rec.stop(); } });
+  window.addEventListener('blur', () => { if (rec && rec.state === 'recording') { recRelease(); } });
   $('#chIn').onpaste = e => {
     const items = [...((e.clipboardData || {}).items || [])];
     let took = false;

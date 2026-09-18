@@ -3308,7 +3308,9 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 }
 
 /* ═══ Chat: φωνητικά μηνύματα ═══ */
-.ch-rec{display:flex;align-items:center;gap:9px;padding:8px 12px;border-top:1px dashed var(--line);font-size:13px;flex-wrap:wrap}
+.ch-rec{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:0 10px;min-height:36px;font-size:13px;border-radius:9px;background:#e2515f12;overflow:hidden;white-space:nowrap}
+.ch-rec-hint{font-size:11px;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:768px){.ch-rec-hint{display:none}}
 .ch-rec-dot{width:11px;height:11px;border-radius:50%;background:var(--bad);animation:chRecPulse 1s ease-in-out infinite;flex:none}
 @keyframes chRecPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
 .ch-rec-t{font-variant-numeric:tabular-nums;font-weight:800;color:var(--bad)}
@@ -3324,3 +3326,12 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .ch-vdl{flex:none;opacity:.6;display:inline-flex}.ch-vdl:hover{opacity:1}.ch-vdl svg{width:14px;height:14px}
 .ch-voice.playing .ch-vp{background:var(--bad)}
 .ch-rec .ch-voice{margin-top:0;background:var(--bg2)}
+
+/* ═══ Chat: διαγραφή μηνύματος ═══ */
+.ch-m{position:relative}
+.ch-del{position:absolute;top:4px;right:6px;width:24px;height:24px;border-radius:7px;border:none;background:var(--card);color:var(--mut);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.ch-del svg{width:13px;height:13px}
+.ch-m:hover .ch-del,.ch-m:focus-within .ch-del{opacity:1}
+.ch-del:hover{color:var(--bad)}
+.ch-m.deleted{opacity:.6;font-style:italic}
+@media(hover:none){.ch-del{opacity:.5}}
