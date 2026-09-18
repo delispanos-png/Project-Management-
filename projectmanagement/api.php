@@ -3031,7 +3031,7 @@ function cnp_action_cap($action)
         $add('support.tickets', ['canned']);
 
         /* ── Η ΟΜΑΔΑ (νέο κύκλωμα 12/9/2026) ── */
-        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_edit', 'chat_file', 'chat_status',
+        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_edit', 'chat_react', 'chat_file', 'chat_status',
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
@@ -11581,6 +11581,25 @@ case 'chat_msgs':
         : $q6->orderBy('id', 'desc')->limit(60)->get()->reverse()->values();
     $outM = [];
     $maxId = $after;
+    /* Αντιδράσεις: ανά μήνυμα, {code: [ονόματα]} + τα δικά μου. Για τα μηνύματα που φέρνουμε, συν όσα
+       άλλαξαν αντίδραση τα τελευταία 15΄ (react_at) ώστε να ενημερώνονται όσοι τα έχουν ήδη στην οθόνη. */
+    $reactFor = function (array $ids) use ($adminId) {
+        $out = [];
+        if (!$ids) { return $out; }
+        foreach (Capsule::table('mod_cpm_chat_react')->whereIn('msg_id', $ids)->orderBy('id')->get() as $r) {
+            $out[(int) $r->msg_id][$r->code][] = ['id' => (int) $r->admin_id, 'name' => Db::adminName((int) $r->admin_id), 'me' => (int) $r->admin_id === $adminId];
+        }
+        return $out;
+    };
+    $idsM = array_map(function ($m) { return (int) $m->id; }, is_array($msgs) ? $msgs : $msgs->all());
+    $reactsM = $reactFor($idsM);
+    $quoteOf = function ($rid) {
+        if (!$rid) { return null; }
+        $q = Capsule::table('mod_cpm_chat')->where('id', (int) $rid)->first();
+        if (!$q) { return null; }
+        $txt = !empty($q->deleted_at) ? '🚫 διαγράφηκε' : ($q->body ? mb_substr(preg_replace('/(\?\?\?\?\s?)+/', '', trim((string) $q->body)), 0, 120) : ($q->mime && strpos((string) $q->mime, 'audio/') === 0 ? '🎙 φωνητικό' : '📎 ' . (string) $q->filename));
+        return ['id' => (int) $q->id, 'by' => (int) $q->admin_id, 'name' => Db::adminName((int) $q->admin_id), 'text' => $txt];
+    };
     foreach ($msgs as $m9) {
         $maxId = max($maxId, (int) $m9->id);
         if (!empty($m9->deleted_at)) {
@@ -11591,6 +11610,8 @@ case 'chat_msgs':
             /* utf8mb3: 4-byte emoji που σώθηκαν παλιά ως «????» δεν έχουν νόημα στην οθόνη */
             'body' => $m9->body === null ? null : preg_replace('/(\?\?\?\?\s?)+/', '', (string) $m9->body), 'at' => $m9->created_at,
             'edited' => !empty($m9->edited_at),
+            'reply' => $quoteOf($m9->reply_to ?? 0),
+            'reacts' => $reactsM[(int) $m9->id] ?? (object) [],
             /* Διόρθωση μόνο το πρώτο λεπτό (κανόνας 18/9/2026): πόσα δευτερόλεπτα μένουν */
             'editLeft' => (int) $m9->admin_id === $adminId && !$m9->filename ? max(0, 60 - (time() - strtotime($m9->created_at))) : 0,
             'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id,
@@ -11631,7 +11652,24 @@ case 'chat_msgs':
         $rr = $rowsR[$mid9] ?? null;
         $reads[] = ['id' => $mid9, 'name' => Db::adminName($mid9), 'lastId' => $rr ? (int) $rr->last_id : 0, 'at' => $rr ? $rr->updated_at : null];
     }
-    out(['messages' => $outM, 'deleted' => array_map('intval', $delIds), 'edited' => $edits, 'reads' => $reads, 'members' => count($membersR)]);
+    $reactUpd = [];
+    if ($after > 0) {
+        $chg = Capsule::table('mod_cpm_chat')->where('channel', $ch)->where('react_at', '>=', date('Y-m-d H:i:s', time() - 900))->pluck('id')->all();
+        $chg = array_map('intval', $chg);
+        $rr9 = $reactFor($chg);
+        foreach ($chg as $cid9) { $reactUpd[] = ['id' => $cid9, 'reacts' => $rr9[$cid9] ?? (object) []]; }
+    }
+    out(['messages' => $outM, 'deleted' => array_map('intval', $delIds), 'edited' => $edits, 'reads' => $reads, 'members' => count($membersR), 'reactUpd' => $reactUpd]);
+
+case 'chat_react':                      // 👍 ✅ … πάνω σε μήνυμα chat (toggle)
+    $mR = Capsule::table('mod_cpm_chat')->where('id', (int) ($in['id'] ?? 0))->first();
+    $codeR = (string) ($in['code'] ?? '');
+    if (!$mR || !empty($mR->deleted_at) || !cnp_chat_access($mR->channel, $adminId) || !in_array($codeR, ['up', 'ok', 'eyes', 'heart', 'party', 'think', 'down'], true)) { fail('input'); }
+    $qR = Capsule::table('mod_cpm_chat_react')->where('msg_id', (int) $mR->id)->where('admin_id', $adminId)->where('code', $codeR);
+    if ($qR->exists()) { $qR->delete(); $onR = false; }
+    else { Capsule::table('mod_cpm_chat_react')->insert(['msg_id' => (int) $mR->id, 'admin_id' => $adminId, 'code' => $codeR, 'created_at' => date('Y-m-d H:i:s')]); $onR = true; }
+    Capsule::table('mod_cpm_chat')->where('id', (int) $mR->id)->update(['react_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'on' => $onR]);
 
 case 'chat_edit':                       // επεξεργασία δικού μου ΓΡΑΠΤΟΥ μηνύματος
     $mE = Capsule::table('mod_cpm_chat')->where('id', (int) ($in['id'] ?? 0))->first();
@@ -11687,9 +11725,12 @@ case 'chat_send':
     if ($body === '' && !$fn) {
         fail('empty');
     }
+    /* Απάντηση με παράθεμα: μόνο σε μήνυμα του ΙΔΙΟΥ καναλιού */
+    $replyTo = (int) ($in['reply_to'] ?? 0);
+    if ($replyTo && !Capsule::table('mod_cpm_chat')->where('id', $replyTo)->where('channel', $ch)->exists()) { $replyTo = 0; }
     $mid = Capsule::table('mod_cpm_chat')->insertGetId(['channel' => $ch, 'admin_id' => $adminId,
         'body' => $body ?: null, 'filename' => $fn, 'storage_id' => $storageId, 'mime' => $fmime, 'size' => $sz,
-        'created_at' => date('Y-m-d H:i:s')]);
+        'reply_to' => $replyTo ?: null, 'created_at' => date('Y-m-d H:i:s')]);
     Db::setPref($adminId, 'last_seen', (string) time());
     // καμπανάκι στους παραλήπτες (DM: ο άλλος, ομάδα: όλα τα μέλη) — εκτός offline
     $recips = [];

@@ -1263,11 +1263,43 @@ function chPaintReads(reads, members) {
       cls = who.length ? 'read' : '';
     }
     let f = el.querySelector('.ch-rcpt');
-    if (!f) { f = document.createElement('div'); f.className = 'ch-rcpt'; el.appendChild(f); }
+    if (!f) { f = document.createElement('div'); f.className = 'ch-rcpt'; const rx = el.querySelector('.ch-reacts'); if (rx) { rx.before(f); } else { el.appendChild(f); } }
     if (f.textContent !== txt) { f.textContent = txt; }
     f.className = 'ch-rcpt ' + cls;
     f.title = who.length ? who.map(r => r.name).join(', ') : 'Δεν το έχει δει ακόμη κανείς';
   });
+}
+const CH_REACT = {up: '👍', ok: '✅', heart: '❤️', party: '🎉', eyes: '👀', think: '🤔', down: '👎'};
+/* Μπάρα αντιδράσεων κάτω από το μήνυμα: {code: [{name, me}]} → pills· η δική μου έχει περίγραμμα. */
+function chReactsHtml(reacts) {
+  const codes = Object.keys(reacts || {}).filter(c => (reacts[c] || []).length);
+  if (!codes.length) { return ''; }
+  return `<div class="ch-reacts">${codes.map(c => { const who = reacts[c]; const mine = who.some(w => w.me);
+    return `<button type="button" class="ch-react${mine ? ' mine' : ''}" data-chreact="${c}" title="${esc(who.map(w => w.name).join(', '))}">${CH_REACT[c] || c} ${who.length}</button>`; }).join('')}</div>`;
+}
+function chQuoteHtml(q) {
+  if (!q) { return ''; }
+  return `<div class="ch-quote" data-chgoto="${q.id}" title="Πήγαινε στο αρχικό μήνυμα"><b>${esc(q.name)}</b><span>${esc(q.text || '')}</span></div>`;
+}
+/* Διπλό κλικ σε μήνυμα = μεγέθυνση: το ίδιο περιεχόμενο σε παράθυρο, μεγάλα γράμματα, εικόνα πλήρους μεγέθους. */
+function chZoom(div) {
+  const body = div.querySelector('.ch-body'), img = div.querySelector('img'), voice = div.querySelector('.ch-voice'), h = div.querySelector('.h');
+  const ovl = document.createElement('div'); ovl.className = 'ovl show ch-zoom-ovl';
+  ovl.innerHTML = `<div class="ch-zoom" onclick="event.stopPropagation()">
+    <button class="drawer-x ch-zoom-x" title="Κλείσιμο (Esc)">✕</button>
+    <div class="ch-zoom-h">${h ? h.innerHTML : ''}</div>
+    ${div.querySelector('.ch-quote') ? div.querySelector('.ch-quote').outerHTML : ''}
+    ${body && body.innerHTML.trim() ? `<div class="ch-zoom-b">${body.innerHTML}</div>` : ''}
+    ${img ? `<img src="${img.src}" class="ch-zoom-img">` : ''}
+    ${voice ? voice.outerHTML.replace(/ class="ch-voice/, ' class="ch-voice big') : ''}
+  </div>`;
+  document.body.appendChild(ovl);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey);
+  ovl.onclick = close; ovl.querySelector('.ch-zoom-x').onclick = close;
+  const v = ovl.querySelector('.ch-voice'); if (v) { v._wired = false; chWireVoice(ovl); }
+  cnpWireMsgLinks(ovl);
 }
 function chWireVoice(root) {
   root.querySelectorAll('.ch-voice').forEach(v => {
@@ -1435,7 +1467,9 @@ R.chat = async function () {
       /* Διαγραφή: δικά μου μηνύματα (ο Full: όλα). Εμφανίζεται στο hover / πάτημα στο κινητό. */
       const canDel = m.by === S.boot.me.id || S.boot.me.full;
       const canEdit = m.by === S.boot.me.id && !m.file && !!m.body && (m.editLeft || 0) > 0;
-      div.innerHTML = `<span class="ch-acts">${canEdit ? `<button class="ch-del" data-chedit="${m.id}" title="Επεξεργασία">${I.edit}</button>` : ''}${canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : ''}</span>` + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}${m.edited ? ' <i class="ch-edited">· επεξεργάστηκε</i>' : ''}</div>
+      const acts = `<span class="ch-acts"><button class="ch-del" data-chrx="${m.id}" title="Αντίδραση">🙂</button><button class="ch-del" data-chreply="${m.id}" title="Απάντηση με παράθεμα">↩</button>${canEdit ? `<button class="ch-del" data-chedit="${m.id}" title="Επεξεργασία">${I.edit}</button>` : ''}${canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : ''}</span>`;
+      div.innerHTML = acts + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}${m.edited ? ' <i class="ch-edited">· επεξεργάστηκε</i>' : ''}</div>
+        ${chQuoteHtml(m.reply)}
         <div class="ch-body">${m.body ? cnpMsgHtml(m.body) : ''}</div>
         ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${fu}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
@@ -1445,11 +1479,14 @@ R.chat = async function () {
       if (m.file && m.file.kind === 'audio') {
         const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id);
         const secs = (() => { const x = /(\d+):(\d\d)/.exec(m.body || ''); return x ? (+x[1]) * 60 + (+x[2]) : 0; })();
-        div.innerHTML = `<span class="ch-acts">${canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : ''}</span>` + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chVoiceHtml(fu, secs, m.file.name);
+        div.innerHTML = `<span class="ch-acts"><button class="ch-del" data-chrx="${m.id}" title="Αντίδραση">🙂</button><button class="ch-del" data-chreply="${m.id}" title="Απάντηση με παράθεμα">↩</button>${canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : ''}</span>` + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chQuoteHtml(m.reply) + chVoiceHtml(fu, secs, m.file.name);
       }
+      div.insertAdjacentHTML('beforeend', chReactsHtml(m.reacts));
+      div._m = m;
       box.appendChild(div);
       cnpWireMsgLinks(div);
       chWireVoice(div);
+      chWireMsg(div);
       const eb = div.querySelector('[data-chedit]');
       if (eb) { eb.title = 'Επεξεργασία (μόνο το πρώτο λεπτό)'; setTimeout(() => eb.remove(), Math.max(1000, (m.editLeft || 0) * 1000)); }
       if (eb) eb.onclick = async e => {
@@ -1480,6 +1517,7 @@ R.chat = async function () {
     const r = await api('chat_msgs&channel=' + st.ch + '&after=' + Math.max(0, st.lastId)).catch(() => null);
     loading = false;
     /* Διαγραφές από άλλους (ή από άλλη συσκευή μου): ό,τι είναι ήδη στην οθόνη γίνεται «διαγράφηκε». */
+    if (r && Array.isArray(r.reactUpd)) r.reactUpd.forEach(x => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + x.id + '"]:not(.deleted)'); if (el) { chSetReacts(el, x.reacts); } });
     if (r && Array.isArray(r.edited)) r.edited.forEach(x => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + x.id + '"]:not(.deleted)'); if (!el || el._body === x.body) return; const bd = el.querySelector('.ch-body'); if (bd) { el._body = x.body; bd.innerHTML = cnpMsgHtml(x.body); cnpWireMsgLinks(bd); const h = el.querySelector('.h'); if (h && !h.querySelector('.ch-edited')) { h.insertAdjacentHTML('beforeend', ' <i class="ch-edited">· επεξεργάστηκε</i>'); } } });
     if (r && Array.isArray(r.deleted)) r.deleted.forEach(id => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + id + '"]:not(.deleted)'); if (el) { const h = el.querySelector('.h'); el.classList.add('deleted'); el.innerHTML = (h ? h.outerHTML : '') + '<span class="mut">🚫 Το μήνυμα διαγράφηκε</span>'; } });
     if (r && r.messages.length) render(r.messages);
@@ -1517,9 +1555,58 @@ R.chat = async function () {
     pend.push(nf); paintPend();
     return true;
   };
+  /* ── ↩ Απάντηση με παράθεμα: μπάρα πάνω από τη σύνθεση, φεύγει με ✕ ή μετά την αποστολή ── */
+  let replyTo = 0;
+  const paintReply = () => {
+    let bar = $('#chReplyBar');
+    if (!replyTo) { if (bar) bar.remove(); return; }
+    const src = document.querySelector('#chMsgs .ch-m[data-mid="' + replyTo + '"]'), m = src && src._m;
+    if (!bar) { bar = document.createElement('div'); bar.id = 'chReplyBar'; bar.className = 'ch-replybar'; $('.ch-comp').before(bar); }
+    const txt = m ? (m.body ? m.body.slice(0, 120) : (m.file && m.file.kind === 'audio' ? '🎙 φωνητικό' : '📎 ' + ((m.file || {}).name || ''))) : '';
+    bar.innerHTML = `<span class="ch-replybar-l">↩ Απάντηση σε <b>${esc(m ? adminName(m.by) : '')}</b><span class="mut"> ${esc(txt)}</span></span><button class="btn btn-o btn-sm" id="chReplyX" title="Χωρίς παράθεμα">✕</button>`;
+    $('#chReplyX').onclick = () => { replyTo = 0; paintReply(); };
+  };
+  const chSetReacts = (el, reacts) => {
+    const old = el.querySelector('.ch-reacts'); if (old) old.remove();
+    const rc = el.querySelector('.ch-rcpt');
+    if (rc) { rc.insertAdjacentHTML('beforebegin', chReactsHtml(reacts)); } else { el.insertAdjacentHTML('beforeend', chReactsHtml(reacts)); }
+    if (el._m) el._m.reacts = reacts;
+    el.querySelectorAll('[data-chreact]').forEach(b => b.onclick = e => { e.stopPropagation(); chToggleReact(el, b.dataset.chreact); });
+  };
+  const chToggleReact = async (el, code) => {
+    const m = el._m; if (!m) return;
+    const r = await api('chat_react', {id: m.id, code}).catch(err => ({err: err.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    const reacts = Object.assign({}, m.reacts || {});
+    const me = S.boot.me;
+    const list = (reacts[code] || []).filter(w => !w.me);
+    if (r.on) list.push({id: me.id, name: me.name, me: true});
+    if (list.length) reacts[code] = list; else delete reacts[code];
+    chSetReacts(el, reacts);
+  };
+  const chWireMsg = div => {
+    const m = div._m; if (!m) return;
+    const rx = div.querySelector('[data-chrx]');
+    if (rx) rx.onclick = e => {
+      e.stopPropagation();
+      document.querySelectorAll('.ch-rxpick').forEach(x => x.remove());
+      const pk = document.createElement('div'); pk.className = 'ch-rxpick';
+      pk.innerHTML = Object.keys(CH_REACT).map(c => `<button type="button" data-c="${c}">${CH_REACT[c]}</button>`).join('');
+      div.appendChild(pk);
+      pk.querySelectorAll('[data-c]').forEach(b => b.onclick = ev => { ev.stopPropagation(); pk.remove(); chToggleReact(div, b.dataset.c); });
+      setTimeout(() => document.addEventListener('click', () => pk.remove(), {once: true}), 0);
+    };
+    const rp = div.querySelector('[data-chreply]');
+    if (rp) rp.onclick = e => { e.stopPropagation(); replyTo = m.id; paintReply(); $('#chIn').focus(); };
+    div.querySelectorAll('[data-chreact]').forEach(b => b.onclick = e => { e.stopPropagation(); chToggleReact(div, b.dataset.chreact); });
+    const q = div.querySelector('[data-chgoto]');
+    if (q) q.onclick = e => { e.stopPropagation(); const t = document.querySelector('#chMsgs .ch-m[data-mid="' + q.dataset.chgoto + '"]'); if (!t) { toast('Το αρχικό μήνυμα είναι πιο παλιά'); return; } t.scrollIntoView({block: 'center', behavior: 'smooth'}); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1600); };
+    div.ondblclick = e => { if (e.target.closest('button,a,input,audio,video')) return; const sel = window.getSelection(); if (sel) sel.removeAllRanges(); chZoom(div); };
+  };
   const sendOne = async (body, file) => {
     const fd = new FormData();
     fd.append('channel', st.ch); fd.append('body', body); fd.append('file', file);
+    if (replyTo) { fd.append('reply_to', replyTo); replyTo = 0; paintReply(); }
     const r = await fetch('api.php?a=chat_send', {method: 'POST', body: fd, credentials: 'same-origin'})
       .then(x => x.json()).catch(() => ({error: 'Απέτυχε η αποστολή'}));
     if (r.error) { toast(r.error, true); return false; }
@@ -1543,7 +1630,8 @@ R.chat = async function () {
         txt = '';
         $('#chFile').value = ''; $('#chFn').textContent = '';
       } else if (txt) {
-        await api('chat_send', {channel: st.ch, body: txt});
+        const rt = replyTo; replyTo = 0; paintReply();
+        await api('chat_send', {channel: st.ch, body: txt, reply_to: rt || 0});
       }
       $('#chIn').value = '';
       if (st.lastId === -1) st.lastId = 0;
@@ -1551,7 +1639,7 @@ R.chat = async function () {
     } finally { if (btn) { btn.disabled = false; } }
   };
   $('#chSend').onclick = send;
-  $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+  $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } if (e.key === 'Escape' && replyTo) { replyTo = 0; paintReply(); } };
   $('#chFile').onchange = () => { $('#chFn').textContent = $('#chFile').files[0]?.name || ''; };
   /* ── 🎙 Φωνητικό μήνυμα: ΚΡΑΤΑΣ πατημένο το μικρόφωνο → ηχογραφεί· το αφήνεις → φεύγει αμέσως.
      Χωρίς «Στοπ», χωρίς «Στείλε». Πολύ σύντομο πάτημα (<0,7΄΄) = τίποτα, με υπόδειξη. Esc = άκυρο.

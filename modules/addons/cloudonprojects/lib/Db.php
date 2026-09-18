@@ -791,6 +791,18 @@ class Db
         if ($s->hasTable('mod_cpm_chat_reads') && !$s->hasColumn('mod_cpm_chat_reads', 'updated_at')) {
             $s->table('mod_cpm_chat_reads', function ($t) { $t->dateTime('updated_at')->nullable(); });
         }
+        if ($s->hasTable('mod_cpm_chat') && !$s->hasColumn('mod_cpm_chat', 'reply_to')) {
+            $s->table('mod_cpm_chat', function ($t) { $t->integer('reply_to')->unsigned()->nullable(); $t->dateTime('react_at')->nullable(); });
+        }
+        if (!$s->hasTable('mod_cpm_chat_react')) {
+            $s->create('mod_cpm_chat_react', function ($t) {
+                $t->increments('id');
+                $t->integer('msg_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned();
+                $t->string('code', 12);
+                $t->dateTime('created_at');
+            });
+        }
         if ($s->hasTable('mod_cpm_chat') && !$s->hasColumn('mod_cpm_chat', 'edited_at')) {
             $s->table('mod_cpm_chat', function ($t) { $t->dateTime('edited_at')->nullable(); });
         }
