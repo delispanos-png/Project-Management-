@@ -16,6 +16,20 @@ if ($room === '' || ($isGuest && pm_verify_meet($tok) !== $room)) {
     exit;
 }
 $isRemote = strpos($room, 'r') === 0;   // δωμάτια remote υποστήριξης (r…) vs meetings (m…)
+/* Δωμάτιο δεμένο με γεγονός ημερολογίου: έχει ώρα λήξης. Μετά τη λήξη δεν ξανανοίγει. */
+$win = pm_meet_window($room);
+if ($win && $win['ended']) {
+    $backE = $adminId > 0 ? '/project/#/calendar' : '';
+    echo '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CloudOn Meet</title>'
+        . '<body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;padding:70px 20px;background:#0f172a;color:#e5eaf1">'
+        . '<div style="font-size:56px">⏰</div><h2 style="margin:10px 0 6px">Το meeting ολοκληρώθηκε</h2>'
+        . '<p style="color:#8595ac;max-width:520px;margin:0 auto 22px;line-height:1.5">«' . htmlspecialchars($win['title']) . '» είχε ώρα λήξης '
+        . date('H:i', $win['endTs']) . ' (' . date('d/m', $win['endTs']) . '). Το δωμάτιο έκλεισε.<br>'
+        . ($adminId > 0 ? 'Για συνέχεια, φτιάξε <b>νέο meeting</b> από το ημερολόγιο — θα έχει νέο σύνδεσμο.' : 'Αν χρειάζεται συνέχεια, ο διοργανωτής θα σας στείλει νέο σύνδεσμο.') . '</p>'
+        . ($backE ? '<a href="' . $backE . '" style="display:inline-block;background:#0090dd;color:#fff;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:700">Επιστροφή στο ημερολόγιο</a>' : '')
+        . '</body>';
+    exit;
+}
 // Έξοδος/επιστροφή στην εφαρμογή — μόνο για την ομάδα (οι guests δεν έχουν πάνελ).
 // Σε PWA/standalone δεν υπάρχει back του browser, άρα ΠΡΕΠΕΙ να υπάρχει ρητό κουμπί.
 $backUrl = $isGuest ? '' : ($isRemote ? '/project/#/inbox' : '/project/#/calendar');
@@ -157,7 +171,8 @@ h1 b{color:var(--brand)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       <span><?= htmlspecialchars($backLabel) ?></span></button>
     <?php endif; ?>
-    <b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span></div>
+    <b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span><?= $win ? ' · <span id="endAt" title="Το meeting κλείνει αυτόματα στη λήξη">λήγει ' . date('H:i', $win['endTs']) . '</span>' : '' ?></div>
+  <div id="endBanner" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9;background:#eba63c;color:#1a1200;font-weight:800;padding:10px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:15px"></div>
   <div id="grid"></div>
   <div id="bar">
     <button class="rbtn" id="cMic" title="Μικρόφωνο"></button>
@@ -206,6 +221,9 @@ const IS_GUEST = <?= $isGuest ? 'true' : 'false' ?>;
 const IS_REMOTE = <?= $isRemote ? 'true' : 'false' ?>;
 const API = 'api.php';
 const ICE = <?= $iceJson ?>;
+const MEET_END = <?= $win ? (int) $win['endTs'] * 1000 : 0 ?>;      // ms, ώρα server
+const MEET_TITLE = <?= json_encode($win ? $win['title'] : '') ?>;
+const SERVER_NOW = <?= time() * 1000 ?>;
 const $ = s => document.querySelector(s);
 
 /* Σύγχρονα line icons (Feather-style) */
@@ -560,6 +578,8 @@ async function poll() {
   }
   if (pollFails) { pollFails = 0; updCnt(); }
   if (r.restored) { toast('🔄 Επανασυνδέθηκες στο δωμάτιο'); }
+  if (r.end) { applyEnd(r.end, false); }
+  if (r.extendOk !== null && r.extendOk !== undefined) { extendOk = r.extendOk; extendWhy = r.extendWhy || ''; }
   for (const m of r.messages) { lastMsg = Math.max(lastMsg, m.id); try { await handleMsg(m); } catch (e) {} }
   const alive = new Set(r.roster.map(x => x.peer));
   const now = Date.now();
@@ -592,6 +612,7 @@ async function rejoin(why) {
   for (let i = 0; i < 20; i++) {
     try {
       const r = await api('rtc_join', {name: myNameVal()});
+      if (r && r.ended) { endDone = true; rejoining = false; leaveCleanup(); showEnded(); return; }
       if (r && r.peer) {
         me = r.peer; lastMsg = 0; pollFails = 0;
         if (oldTile) { oldTile.id = 'tile-' + me; }
@@ -626,7 +647,8 @@ $('#joinBtn').onclick = async () => {
     sTrack.onended = () => toast('Ο διαμοιρασμός οθόνης σταμάτησε — κλείστε τη σελίδα για τερματισμό');
   }
   const r = await api('rtc_join', {name: myNameVal()});
-  if (!r.peer) { toast('Σφάλμα σύνδεσης'); return; }
+  if (r && r.ended) { showEnded(); return; }
+  if (!r.peer) { toast(r && r.error ? r.error : 'Σφάλμα σύνδεσης'); return; }
   me = r.peer;
   $('#pre').style.display = 'none';
   $('#call').style.display = 'flex';
@@ -704,6 +726,69 @@ function leaveCleanup() {
   if (rawStream) rawStream.getTracks().forEach(t => t.stop());
   me = null;   // μη στείλεις δεύτερο leave στο beforeunload
 }
+/* ─── Λήξη meeting: 5΄ πριν ειδοποιούνται ΟΛΟΙ, στη λήξη κλείνει η σύνδεση ─── */
+const clockSkew = SERVER_NOW - Date.now();      // ώρα server, όχι ρολόι browser
+const srvNow = () => Date.now() + clockSkew;
+let endWarned = false, endDone = false, meetEnd = MEET_END, extendOk = null, extendWhy = '';
+function beep(times) {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    for (let i = 0; i < (times || 2); i++) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.12;
+      o.connect(g); g.connect(ac.destination);
+      o.start(ac.currentTime + i * 0.35); o.stop(ac.currentTime + i * 0.35 + 0.22);
+    }
+  } catch (e) {}
+}
+function showEnded() {
+  document.body.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:20px;text-align:center">'
+    + '<div style="font-size:56px">⏰</div><h2>Το meeting ολοκληρώθηκε</h2>'
+    + '<div style="color:var(--mut);max-width:520px;line-height:1.5">' + (MEET_TITLE ? '«' + MEET_TITLE.replace(/</g, '&lt;') + '» — ' : '') + 'η ώρα λήξης πέρασε και το δωμάτιο έκλεισε.<br>'
+    + (BACK_URL ? 'Για συνέχεια, φτιάξε <b>νέο meeting</b> από το ημερολόγιο — θα έχει νέο σύνδεσμο.' : 'Αν χρειάζεται συνέχεια, ο διοργανωτής θα σας στείλει νέο σύνδεσμο.') + '</div>'
+    + (BACK_URL ? '<a class="btn btn-p" href="' + BACK_URL + '" style="text-decoration:none">Επιστροφή στο ημερολόγιο</a>' : '') + '</div>';
+}
+function endTick() {
+  if (!meetEnd || endDone) return;
+  const left = meetEnd - srvNow();
+  const b = $('#endBanner');
+  if (left <= 0) {
+    endDone = true;
+    if (me) { leaveCleanup(); }
+    showEnded();
+    return;
+  }
+  if (left <= 5 * 60000) {
+    const m = Math.floor(left / 60000), sec = Math.floor(left % 60000 / 1000);
+    if (b) {
+      b.style.display = me ? 'flex' : 'none';
+      const txt = '⏰ Μένουν ' + (m ? m + '΄ ' : '') + String(sec).padStart(2, '0') + '΄΄ — στη λήξη η σύνδεση κλείνει';
+      /* Παράταση: ΜΟΝΟ για την ομάδα και ΜΟΝΟ αν χωράει (ο server ελέγχει τα ημερολόγια των συμμετεχόντων). */
+      const ext = !IS_GUEST && extendOk === true ? '<button class="btn btn-p" id="extBtn" style="margin-left:12px;padding:5px 12px">+15΄ Παράταση</button>'
+        : (!IS_GUEST && extendOk === false ? '<span style="margin-left:12px;font-weight:600;opacity:.85;font-size:12.5px" title="' + extendWhy.replace(/"/g, '&quot;') + '">χωρίς παράταση — ' + extendWhy.replace(/</g, '&lt;') + '</span>' : '');
+      if (b.dataset.k !== txt + ext) { b.dataset.k = txt + ext; b.innerHTML = '<span>' + txt + '</span>' + ext; const eb = $('#extBtn'); if (eb) eb.onclick = extendMeeting; }
+      b.style.alignItems = 'center';
+      if (left <= 60000) { b.style.background = '#e2515f'; b.style.color = '#fff'; }
+    }
+    if (!endWarned && me) { endWarned = true; beep(3); toast('⏰ Μένουν 5 λεπτά — το meeting κλείνει στη λήξη'); }
+  } else if (b) { b.style.display = 'none'; }
+}
+async function extendMeeting() {
+  const eb = $('#extBtn'); if (eb) eb.disabled = true;
+  const r = await api('meet_extend', {mins: 15}).catch(() => null);
+  if (!r || !r.ok) { toast(r && r.error ? r.error : 'Δεν έγινε η παράταση'); if (eb) eb.disabled = false; return; }
+  applyEnd(r.end, true);
+}
+function applyEnd(newEnd, mine) {
+  if (!newEnd || newEnd === meetEnd) return;
+  const later = newEnd > meetEnd;
+  meetEnd = newEnd;
+  if (later) { endWarned = false; extendOk = null; const b = $('#endBanner'); if (b) { b.style.display = 'none'; b.style.background = '#eba63c'; b.style.color = '#1a1200'; } }
+  const ea = $('#endAt'); if (ea) ea.textContent = 'λήγει ' + new Date(newEnd).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false});
+  if (!mine) toast('⏰ Το meeting ' + (later ? 'παρατάθηκε' : 'άλλαξε') + ' — λήγει ' + new Date(newEnd).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}));
+  else toast('✅ Παράταση έως ' + new Date(newEnd).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}));
+}
+setInterval(endTick, 1000);
 function leave() {
   leaveCleanup();
   document.body.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:20px;text-align:center">'

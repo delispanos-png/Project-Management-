@@ -118,6 +118,46 @@ function pm_admin_id()
     return $aid;
 }
 
+/** 📅 Το γεγονός ημερολογίου στο οποίο ανήκει ένα δωμάτιο Meet (ή null για ad-hoc/φωνή/remote).
+ *  Το meeting έχει ώρα λήξης: 5΄ πριν ειδοποιούνται όλοι, στη λήξη κλείνει η σύνδεση και το
+ *  δωμάτιο δεν ξανανοίγει — για συνέχεια φτιάχνεται νέο meeting (18/9/2026). */
+function pm_meet_window($room)
+{
+    if ($room === '' || strpos($room, 'm') !== 0) { return null; }
+    $ev = Capsule::table('mod_cpm_events')->where('location', 'like', '%room=' . $room . '%')->orderByDesc('id')->first();
+    if (!$ev) { return null; }
+    $endTs = strtotime($ev->end_dt);
+    return ['id' => (int) $ev->id, 'title' => (string) $ev->title, 'start' => $ev->start_dt, 'end' => $ev->end_dt,
+        'startTs' => strtotime($ev->start_dt), 'endTs' => $endTs, 'ended' => $endTs < time()];
+}
+
+/** Χωράει παράταση; ΜΟΝΟ αν κανείς συμμετέχων (ή ο διοργανωτής) δεν έχει άλλο γεγονός που
+ *  αρχίζει πριν τη νέα λήξη. Επιστρέφει ['ok', 'why', 'newEnd']. */
+function pm_meet_extend_check(array $win, $mins)
+{
+    $mins = max(5, min(60, (int) $mins));
+    $newEnd = $win['endTs'] + $mins * 60;
+    $ev = Capsule::table('mod_cpm_events')->where('id', $win['id'])->first();
+    if (!$ev) { return ['ok' => false, 'why' => 'Το γεγονός δεν βρέθηκε', 'newEnd' => $newEnd]; }
+    $people = array_filter(array_map('intval', explode(',', (string) $ev->attendees)));
+    $people[] = (int) $ev->created_by;
+    $people = array_values(array_unique(array_filter($people)));
+    $endStr = date('Y-m-d H:i:s', $win['endTs']);
+    $newEndStr = date('Y-m-d H:i:s', $newEnd);
+    foreach (Capsule::table('mod_cpm_events')->where('id', '!=', $win['id'])
+        ->where('start_dt', '<', $newEndStr)->where('end_dt', '>', $endStr)->get() as $o) {
+        $att = array_filter(array_map('intval', explode(',', (string) $o->attendees)));
+        $att[] = (int) $o->created_by;
+        $hit = array_values(array_intersect($people, $att));
+        if ($hit) {
+            $who = Capsule::table('tbladmins')->where('id', $hit[0])->first(['firstname', 'lastname']);
+            return ['ok' => false, 'newEnd' => $newEnd,
+                'why' => 'Δεν χωράει: στις ' . date('H:i', strtotime($o->start_dt)) . ' ' . trim(($who->firstname ?? '') . ' ' . ($who->lastname ?? '')) . ' έχει «' . $o->title . '»'];
+        }
+    }
+    return ['ok' => true, 'why' => '', 'newEnd' => $newEnd];
+}
+
 /** 🎥 CloudOn Meet: μακρόβια tokens δωματίου (guests/πελάτες). */
 function pm_mint_meet($room, $ttl = 2592000)
 {

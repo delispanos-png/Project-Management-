@@ -3034,7 +3034,7 @@ function cnp_action_cap($action)
         $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_file', 'chat_status',
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
-            'rtc_leave', 'rtc_invite', 'meet_room']);
+            'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
@@ -11317,6 +11317,10 @@ case 'rtc_join':
     if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
         fail('room', 403);
     }
+    $winJ = pm_meet_window($room);
+    if ($winJ && $winJ['ended']) {
+        out(['error' => 'Το meeting «' . $winJ['title'] . '» ολοκληρώθηκε στις ' . date('H:i', $winJ['endTs']) . ' — για συνέχεια χρειάζεται νέο meeting', 'ended' => true]);
+    }
     $peer = substr(bin2hex(random_bytes(8)), 0, 12);
     $name = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim($in['name'] ?? ''), 0, 60) ?: 'Επισκέπτης');
     // καθάρισμα: πεθαμένοι peers + παλιά μηνύματα
@@ -11379,13 +11383,36 @@ case 'rtc_poll':
         ->where('last_seen', '>', date('Y-m-d H:i:s', time() - 75))->get() as $p9) {
         $roster[] = ['peer' => $p9->peer, 'name' => $p9->name];
     }
-    out(['messages' => $msgs, 'roster' => $roster, 'restored' => $restored, 'now' => time()]);
+    /* Ώρα λήξης (μπορεί να άλλαξε με παράταση) και, στα τελευταία 6΄, αν χωράει +15΄. */
+    $winP = pm_meet_window($room);
+    $extP = null;
+    if ($winP && $adminId > 0 && $winP['endTs'] - time() <= 360) { $extP = pm_meet_extend_check($winP, 15); }
+    out(['messages' => $msgs, 'roster' => $roster, 'restored' => $restored, 'now' => time(),
+        'end' => $winP ? $winP['endTs'] * 1000 : 0, 'extendOk' => $extP ? $extP['ok'] : null, 'extendWhy' => $extP ? $extP['why'] : '']);
 
 case 'rtc_leave':
     $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
     $peer = preg_replace('/[^a-f0-9]/', '', $in['peer'] ?? '');
     Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->delete();
     out(['ok' => true]);
+
+case 'meet_extend':                     // παράταση meeting από μέσα από την κλήση — ΜΟΝΟ αν χωράει
+    $roomX = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    $winX = pm_meet_window($roomX);
+    if (!$winX) { fail('Το δωμάτιο δεν ανήκει σε meeting του ημερολογίου'); }
+    if ($winX['ended']) { out(['error' => 'Το meeting έχει ήδη ολοκληρωθεί — χρειάζεται νέο', 'ended' => true]); }
+    $evX = Capsule::table('mod_cpm_events')->where('id', $winX['id'])->first();
+    $attX = array_filter(array_map('intval', explode(',', (string) $evX->attendees)));
+    if (!$FULL && (int) $evX->created_by !== $adminId && !in_array($adminId, $attX, true)) { fail('Μόνο συμμετέχων ή ο διοργανωτής παρατείνει', 403); }
+    $minsX = in_array((int) ($in['mins'] ?? 15), [10, 15, 30], true) ? (int) $in['mins'] : 15;
+    $chk = pm_meet_extend_check($winX, $minsX);
+    if (!$chk['ok']) { fail($chk['why']); }
+    Capsule::table('mod_cpm_events')->where('id', $winX['id'])->update(['end_dt' => date('Y-m-d H:i:s', $chk['newEnd'])]);
+    foreach ($attX as $aX) {
+        if ($aX === $adminId) { continue; }
+        Db::pushNotification($aX, 'info', '⏰ ' . Db::adminName($adminId) . ' παρέτεινε το meeting «' . $evX->title . '» έως ' . date('H:i', $chk['newEnd']), '/projectmanagement/#/calendar');
+    }
+    out(['ok' => true, 'end' => $chk['newEnd'] * 1000, 'endTxt' => date('H:i', $chk['newEnd'])]);
 
 case 'rtc_invite':                      // πρόσκληση ΚΑΤΑ ΤΗ ΔΙΑΡΚΕΙΑ του meeting (μόνο ομάδα)
     if ($adminId <= 0) {
