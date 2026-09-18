@@ -2796,6 +2796,9 @@ class Db
         if (!(int) $adminId) {
             return;
         }
+        /* Η βάση είναι utf8mb3: τα 4-byte emoji (🆘 💬 📣 …) γίνονται «????». Κόβονται εδώ
+           μία και καλή — η οθόνη βάζει το εικονίδιο ανά τύπο (cnp_notif_display). */
+        $title = trim((string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $title));
         Capsule::table('mod_cpm_notifications')->insert([
             'admin_id'   => (int) $adminId,
             'type'       => mb_substr($type, 0, 20),

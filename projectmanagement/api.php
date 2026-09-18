@@ -2204,11 +2204,24 @@ function cnp_notify_mentions($text, $taskId, $byAdminId, $where = '')
         return [];
     }
     $by = Db::adminName($byAdminId);
+    $excerpt = mb_substr(trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace('/<br\s*\/?>/i', ' ', (string) $text)), ENT_QUOTES, 'UTF-8'))), 0, 300);
     foreach (array_keys($hit) as $aid) {
+        if ((int) $aid === (int) $byAdminId) { continue; }
         Db::pushNotification($aid, 'mention',
             $by . ' σε ανέφερε' . ($where !== '' ? ' (' . $where . ')' : '') . ' στην εργασία #' . (int) $taskId
             . ' «' . mb_substr((string) $t->title, 0, 80) . '»',
             'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $taskId);
+        /* Η αναφορά είναι ΕΡΩΤΗΣΗ που περιμένει απάντηση: μπαίνει στις εκκρεμότητες
+           («σε ζητούν») του παραλήπτη μέχρι να γράψει κάτι στην ίδια εργασία ή να
+           την τακτοποιήσει. Μία ανοιχτή ανά (ερωτών → παραλήπτης, εργασία). */
+        $openM = Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')
+            ->where('from_admin', $byAdminId)->where('to_admin', (int) $aid)->where('task_id', (int) $taskId)->first();
+        if ($openM) {
+            Capsule::table('mod_cpm_help')->where('id', (int) $openM->id)->update(['message' => $excerpt, 'created_at' => date('Y-m-d H:i:s'), 'seen_at' => null]);
+        } else {
+            Capsule::table('mod_cpm_help')->insert(['from_admin' => $byAdminId, 'to_admin' => (int) $aid, 'task_id' => (int) $taskId,
+                'kind' => 'mention', 'message' => $excerpt, 'status' => 'open', 'created_at' => date('Y-m-d H:i:s')]);
+        }
     }
     return array_keys($hit);
 }
@@ -3006,7 +3019,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
         $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler']);
-        $add('projects.board.edit', ['gantt_move', 'quick_task', 'dep_add', 'dep_del',
+        $add('projects.board.edit', ['gantt_move', 'dep_add', 'dep_del',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
         $add('projects.modules.edit', ['template_save', 'template_step_save', 'template_step_move',
@@ -3118,6 +3131,7 @@ function cnp_open_actions()
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
         'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
+        'quick_task',   // προσωπική εργασία για όλους· έργο/ανάθεση ελέγχονται μέσα στην ενέργεια
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
@@ -3188,6 +3202,7 @@ case 'boot':
         $projects[] = ['id' => (int) $p->id, 'name' => $p->name, 'color' => $p->color,
             'client' => $p->clientid ? (int) $p->clientid : null, 'clientName' => clientLabel($p->clientid),
             'parent' => $p->parent_id ? (int) $p->parent_id : null,
+            'kind' => (string) ($p->kind ?? 'client'),
             'health' => $p->health, 'pstatus' => $p->pstatus];
     }
     $statuses = [];
@@ -5086,6 +5101,7 @@ case 'move_task':
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     $stChk = Db::status((int) ($in['status'] ?? 0));
+    if (!$stChk) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα και δοκίμασε ξανά'); }
     if ($stChk && $stChk->is_done) {
         $bm = Db::blockedMap([$t->id]);
         if (!empty($bm[(int) $t->id])) {
@@ -5213,11 +5229,19 @@ case 'task_reopen':                      // «πατήθηκε κατά λάθο
 case 'quick_task':
     $pid = (int) ($in['project'] ?? 0);
     $qdept = (int) ($in['dept'] ?? 0);
-    $title = mb_substr(trim($in['title'] ?? ''), 0, 200);
+    $titleRaw = trim($in['title'] ?? '');
+    if (mb_strlen($titleRaw) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($titleRaw) . ' χαρακτήρες — μέγιστο 200. Βάλε τα υπόλοιπα στο ζητούμενο.'); }
+    $title = $titleRaw;
     /* Χωρίς έργο επιτρέπεται — αρκεί να δηλωθεί department, ώστε να μη μείνει
        αζήτητη. Με έργο, χρειάζεται και δικαίωμα σε αυτό. */
     if ($title === '' || (!$pid && !$qdept) || ($pid && !Db::canSeeProject($adminId, $pid))) {
         fail('input');
+    }
+    /* Δικαιώματα (QA 18/9/2026): «Board: επεξεργασία» χρειάζεται για εργασία ΜΕΣΑ σε έργο
+       ή για ανάθεση σε άλλον. Προσωπική εργασία (χωρίς έργο, δική μου) την ανοίγει ο καθένας. */
+    $qAssPre = (int) ($in['assignee'] ?? 0);
+    if (($pid || ($qAssPre && $qAssPre !== $adminId)) && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) {
+        fail('Χρειάζεται δικαίωμα «Έργα & υλοποιήσεις → Board: επεξεργασία» για εργασία σε έργο ή ανάθεση σε συνάδελφο. Μπορείς να ανοίξεις εργασία για σένα («Κράτα το για μένα»).', 403);
     }
     $sid = (int) ($in['status'] ?? 0);
     /* Ρόλοι (απόφαση 18/9/2026):
@@ -5400,6 +5424,22 @@ case 'save_task':
     if (array_key_exists('prio', $in)) {
         $data['priority'] = min(2, max(0, (int) $in['prio']));
     }
+    /* ── Επικυρώσεις (QA 18/9/2026) — ελέγχονται πάνω στις ΤΕΛΙΚΕΣ τιμές (νέες ή υπάρχουσες) ── */
+    $eff = function ($k, $col) use ($data, $t) { return array_key_exists($k, $data) ? $data[$k] : ($t->$col ?? null); };
+    $vS = $eff('start_date', 'start_date'); $vD = $eff('due_date', 'due_date'); $vX = $eff('schedule_date', 'schedule_date');
+    $ok = function ($d) { return $d && strpos((string) $d, '0000') !== 0; };
+    if ($ok($vS) && $ok($vD) && strtotime($vD) < strtotime($vS)) { fail('Η λήξη (' . cnp_d($vD) . ') είναι πριν την έναρξη (' . cnp_d($vS) . ') — διόρθωσε τις ημερομηνίες'); }
+    if ($ok($vX) && $ok($vD) && strtotime($vX) < strtotime($vD)) { fail('Το deadline (' . cnp_d($vX) . ') είναι πριν τη λήξη (' . cnp_d($vD) . ') — το deadline είναι η τελευταία ημέρα, όχι νωρίτερη'); }
+    foreach (['assignee' => 'Ανάθεση', 'action_user' => 'Μπάλα'] as $colA => $lblA) {
+        if (array_key_exists($colA, $data) && $data[$colA]) {
+            if (!Capsule::table('tbladmins')->where('id', (int) $data[$colA])->where('disabled', 0)->exists()) { fail($lblA . ': ο χειριστής δεν υπάρχει ή είναι απενεργοποιημένος'); }
+        }
+    }
+    if (array_key_exists('estimate_minutes', $data) && $data['estimate_minutes'] !== null) {
+        if ($data['estimate_minutes'] < 0) { $data['estimate_minutes'] = null; }
+        if ($data['estimate_minutes'] > 6000) { fail('Εκτίμηση πάνω από 100 ώρες σε μία εργασία; Σπάσε την σε μικρότερες.'); }
+    }
+
     Db::saveTask($tid, $data, $adminId);
     Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
     out(['ok' => true]);
@@ -5583,6 +5623,10 @@ case 'time_add':
     if (!$t || !Db::canSeeTask($adminId, $t) || $mins <= 0) {
         fail('input');
     }
+    if ($mins > 720 && empty($in['force'])) {
+        out(['error' => 'Καταχωρείς ' . round($mins / 60, 1) . ' ώρες σε μία καταχώρηση. Είναι σωστό;', 'need' => 'confirm', 'mins' => $mins]);
+    }
+    if ($mins > 24 * 60 * 7) { fail('Πάνω από μία εβδομάδα σε μία καταχώρηση δεν γίνεται — σπάσε τον χρόνο σε ημέρες'); }
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
@@ -5613,6 +5657,16 @@ case 'check_add':
     $id = Db::addCheckItem($tid, $stored, $adminId);
     if ($isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
+    /* Έγραψα στην εργασία = απάντησα σε όποιον με ανέφερε εδώ. */
+    $ansM = Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)->get();
+    if (count($ansM)) {
+        Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)
+            ->update(['status' => 'done', 'answer' => 'ok', 'done_at' => date('Y-m-d H:i:s'), 'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+        foreach ($ansM as $hm) {
+            Db::pushNotification((int) $hm->from_admin, 'info', '✅ ' . Db::adminName($adminId) . ' απάντησε στην εργασία «' . mb_substr((string) $t->title, 0, 60) . '»',
+                'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid . '/e/' . $id);
+        }
+    }
     out(['ok' => true, 'id' => $id]);
 
 case 'check_edit':                       // διόρθωση βήματος (τυπογραφικό, συμπλήρωση, κομμένο κείμενο)
@@ -5649,6 +5703,7 @@ case 'check_del':
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
+    if (Capsule::schema()->hasTable('mod_cpm_check_react')) { Capsule::table('mod_cpm_check_react')->where('check_id', (int) $ci->id)->delete(); }
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->delete();
     out(['ok' => true]);
 
@@ -8447,6 +8502,17 @@ case 'task_delete':
     foreach (Capsule::table('mod_cpm_files')->where('task_id', $tid)->pluck('id') as $fid) {
         try { Storage::delete((int) $fid); } catch (\Throwable $e) { /* ένα ορφανό αρχείο δεν μπλοκάρει τη διαγραφή */ }
     }
+    /* Συνημμένα του νέου μηχανισμού (Storage): του ζητουμένου, των ενεργειών και των
+       μηνυμάτων — μαζί με το φυσικό αρχείο στο cloud. Και οι αντιδράσεις των ενεργειών. */
+    $ckIdsD = Capsule::table('mod_cpm_checklist')->where('task_id', $tid)->pluck('id')->all();
+    $cmIdsD = Capsule::table('mod_cpm_comments')->where('task_id', $tid)->pluck('id')->all();
+    $stQ = Capsule::table('mod_cpm_storage')->where('module', 'task')->where(function ($w) use ($tid, $ckIdsD, $cmIdsD) {
+        $w->where(function ($x) use ($tid) { $x->where('ref_type', 'task')->where('ref_id', $tid); });
+        if ($ckIdsD) { $w->orWhere(function ($x) use ($ckIdsD) { $x->where('ref_type', 'check')->whereIn('ref_id', $ckIdsD); }); }
+        if ($cmIdsD) { $w->orWhere(function ($x) use ($cmIdsD) { $x->where('ref_type', 'comment')->whereIn('ref_id', $cmIdsD); }); }
+    });
+    foreach ($stQ->pluck('id') as $sid) { try { Storage::delete((int) $sid); } catch (\Throwable $e) { } }
+    if ($ckIdsD && Capsule::schema()->hasTable('mod_cpm_check_react')) { Capsule::table('mod_cpm_check_react')->whereIn('check_id', $ckIdsD)->delete(); }
     foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
                  'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
                  'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers'] as $tb) {

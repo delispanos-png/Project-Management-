@@ -806,12 +806,12 @@ async function toggleBell() {
   /* Εκκρεμότητες: ό,τι ζητήθηκε από εμένα (βοήθεια, ερώτηση, φωνή, σύσκεψη) και δεν
      απαντήθηκε — μένει εδώ μέχρι να το τακτοποιήσω, ακόμη κι αν έκλεισα το popup. */
   const pd = d.pending || {help: [], meetings: [], mine: []};
-  const hk = k => k === 'voice' ? '🔊' : (k === 'checkin' ? '❓' : (k === 'offer' ? '📄' : '🆘'));
+  const hk = k => k === 'voice' ? '🔊' : (k === 'checkin' ? '❓' : (k === 'offer' ? '📄' : (k === 'mention' ? '💬' : '🆘')));
   const pendHtml = (pd.help.length || pd.meetings.length || pd.mine.length) ? `
     <div class="pop-sec">Εκκρεμούν — θέλουν απάντηση</div>
     ${pd.help.map(h => `<div class="prow" data-help="${h.id}">
       <span class="prow-ic">${hk(h.kind)}</span>
-      <span class="prow-t"><b>${esc(h.from)}</b> ${h.kind === 'voice' ? 'σε καλεί στη φωνή' : (h.kind === 'checkin' ? 'ρωτά τι γίνεται' : (h.kind === 'offer' ? 'ζητά να φτιάξεις προσφορά' : 'χρειάζεται τη βοήθειά σου'))}
+      <span class="prow-t"><b>${esc(h.from)}</b> ${h.kind === 'voice' ? 'σε καλεί στη φωνή' : (h.kind === 'checkin' ? 'ρωτά τι γίνεται' : (h.kind === 'offer' ? 'ζητά να φτιάξεις προσφορά' : (h.kind === 'mention' ? 'σε ρωτά σε εργασία — περιμένει απάντηση' : 'χρειάζεται τη βοήθειά σου')))}
         <span class="mut">${esc(h.message.slice(0, 90))}${h.taskTitle ? ' · ' + esc(h.taskTitle.slice(0, 50)) : ''}</span></span>
       <span class="prow-a"><button class="btn btn-sm btn-p" data-hopen="${h.id}" title="Ξανανοίγει το αίτημα για να απαντήσεις">Άνοιξε</button>
         ${h.kind !== 'checkin' ? `<button class="btn btn-sm btn-o" data-hdone="${h.id}" title="Τακτοποιήθηκε — φεύγει από εδώ">✓</button>` : ''}</span>
@@ -824,7 +824,7 @@ async function toggleBell() {
         <button class="btn btn-sm btn-o" data-mopen="${m.id}" title="Λεπτομέρειες">…</button></span></div>`).join('')}
     ${pd.mine.map(h => `<div class="prow mine" data-help="${h.id}">
       <span class="prow-ic">${hk(h.kind)}</span>
-      <span class="prow-t"><span class="mut">Περιμένεις απάντηση από</span> <b>${esc(h.to)}</b> <span class="mut">${esc(h.message.slice(0, 70))}${h.seen ? ' · το είδε' : ' · δεν το έχει δει'}</span></span>
+      <span class="prow-t"><span class="mut">${h.kind === 'mention' ? 'Τον ανέφερες, περιμένεις απάντηση από' : 'Περιμένεις απάντηση από'}</span> <b>${esc(h.to)}</b> <span class="mut">${esc(h.message.slice(0, 70))}${h.seen ? ' · το είδε' : ' · δεν το έχει δει'}</span></span>
       <span class="prow-a"><button class="btn btn-sm btn-o" data-hdone="${h.id}" title="Ακύρωση / τακτοποιήθηκε">✓</button></span>
       <span class="tm">${tShort(h.at)}</span></div>`).join('')}` : '';
   const pushRow = ('Notification' in window && 'PushManager' in window && Notification.permission !== 'granted')
@@ -2740,7 +2740,8 @@ async function openTask(id, entryId, opts) {
     if (cb && box) { cb.addEventListener('change', () => { box.hidden = !cb.checked; }); }
     const ownerId = (d.owner && d.owner.id) || 0, ownerName = (d.owner && d.owner.name) || '';
     const sel = $('#fOfferSel', dr);
-    if (sel) {
+    if (sel && !cnpCan('clients.offers')) { sel.innerHTML = '<option value="">— (χωρίς δικαίωμα προσφορών — γράψε μόνο τον αριθμό) —</option>'; sel.disabled = true; }
+    if (sel && cnpCan('clients.offers')) {
       api('offers' + (ownerId ? '&client=' + ownerId : '')).then(od => {
         const list = (od.offers || []).filter(o => !ownerId || o.client === ownerId);
         sel.innerHTML = '<option value="">— δέσε με υπάρχουσα προσφορά… —</option>' + list.map(o =>
@@ -2788,7 +2789,15 @@ async function openTask(id, entryId, opts) {
   }; }
   $('#tAdd', dr).onclick = async () => {
     const m = +$('#tMins').value; if (!m) return;
-    await api('time_add', {task: id, mins: m, billable: $('#tBill') ? $('#tBill').checked : false, note: $('#tNote').value});
+    if (m < 0) { toast('Αρνητικός χρόνος δεν καταχωρείται', true); return; }
+    const body = {task: id, mins: m, billable: $('#tBill') ? $('#tBill').checked : false, note: $('#tNote').value};
+    let r = await api('time_add', body).catch(e => ({err: e.message, data: e.data}));
+    if (r && r.err && r.data && r.data.need === 'confirm') {
+      /* Πάνω από 12 ώρες σε μία καταχώρηση: ο server ζητά επιβεβαίωση — συνήθως είναι λάθος πληκτρολόγησης. */
+      if (!(await cnpConfirm(r.err + '\n\n' + fmtMin(m) + ' σε μία καταχώρηση.', {title: '⚠ Πολύς χρόνος', ok: 'Ναι, είναι σωστό', cancel: 'Όχι, να το διορθώσω'}))) return;
+      r = await api('time_add', Object.assign({force: 1}, body)).catch(e => ({err: e.message}));
+    }
+    if (r && r.err) { toast(r.err, true); return; }
     toast('Καταχωρήθηκε ' + fmtMin(m)); openTask(id);
   };
   /* Εξαρτήσεις: υποψήφιες οι «αδελφές» εργασίες. Για εργασία έργου είναι οι
@@ -3081,8 +3090,12 @@ async function openTask(id, entryId, opts) {
      «Όχι» = μόνο προβολή: μπορείς να διαβάσεις, όχι να αλλάξεις. Ένα κουμπί
      «Ξεκίνα τον χρόνο» ξεκλειδώνει — δεν υπάρχει άλλη πόρτα. */
   /* Πρόχειρο που μόλις δημιουργήθηκε: καμία ερώτηση για χρόνο — πρώτα γράφει, μετά αποφασίζει. */
-  if (!opts.fresh && !t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id]) {
+  /* Ρωτά ΜΙΑ φορά την ημέρα ανά εργασία (localStorage): αν είπες «μόνο θα δω», δεν σε
+     ξαναρωτά σε κάθε άνοιγμα — υπάρχει το «▶ Ξεκίνα τον χρόνο» μέσα στην καρτέλα. */
+  const askedKey = 'cnpTimerAsked:' + id, askedToday = (() => { try { return localStorage.getItem(askedKey) === today(); } catch (e) { return false; } })();
+  if (!opts.fresh && !t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id] && !askedToday) {
     window._cnpTimerAsked_[id] = 1;
+    try { localStorage.setItem(askedKey, today()); } catch (e) {}
     const go2 = await cnpDialog({
       noClose: true,             // ο ✕ άφηνε την καρτέλα ξεκλείδωτη — τώρα δεν υπάρχει
       title: '▶ Ξεκινάς τώρα αυτή την εργασία;',
@@ -3093,8 +3106,10 @@ async function openTask(id, entryId, opts) {
       openTask(id);
       return;
     }
-    delete window._cnpTimerAsked_[id];   // αν ξανανοίξει, ξαναρωτάμε
+    delete window._cnpTimerAsked_[id];   // αύριο ξαναρωτάμε (localStorage ανά ημέρα)
     t._viewOnly = true;
+  } else if (!opts.fresh && !t.done && t.assignee === me.id && !d.timerHere && askedToday) {
+    t._viewOnly = true;   // απάντησε σήμερα «μόνο θα δω» — ίδιο αποτέλεσμα, χωρίς ερώτηση
   }
   if (t._viewOnly) {
     /* Η διαγραφή δεν χρειάζεται χρονόμετρο: όποιος έχει το δικαίωμα, σβήνει και από εδώ. */

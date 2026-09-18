@@ -89,7 +89,16 @@ function quickNew() {
     {k: 'assign', ic: I.users, col: '#e0a020', title: 'Ανάθεσέ το σε συνάδελφο',
      hint: () => 'διάλεξε ποιον', need: 'mate'},
   ];
-  const intentsFor = () => INTENTS.filter(x => x.k !== 'call' || (scope === 'client' && clients.length));
+  /* Τι ΔΕΝ γίνεται και γιατί — φαίνεται γκρι με τον λόγο, δεν εξαφανίζεται σιωπηλά (QA C3/A5).
+     Εργασία σε έργο ή ανάθεση σε άλλον = «Board: επεξεργασία»· δική μου = για όλους. */
+  const canBoard = cnpCan('projects.board.edit');
+  const blocked = it => {
+    if (!canBoard && (it.k === 'project' || it.k === 'assign' || it.k === 'call')) { return 'χρειάζεται «Board: επεξεργασία» — μπορείς μόνο δική σου εργασία'; }
+    if (it.k === 'call' && scope !== 'client') { return 'μόνο σε «Έργο πελάτη»'; }
+    if (it.k === 'call' && !clients.length) { return 'δεν υπάρχει έργο πελάτη για να δεθεί η κλήση — φτιάξε πρώτα έργο'; }
+    return '';
+  };
+  const intentsFor = () => INTENTS.filter(x => x.k !== 'call' || scope === 'client');
 
   const ovl = document.createElement('div');
   ovl.className = 'ovl show';
@@ -141,7 +150,7 @@ function quickNew() {
 
   const paint = () => {
     listEl.innerHTML = rows.length ? rows.map((r, i) => `
-      <button type="button" class="qn-row${i === cur ? ' on' : ''}" data-i="${i}">
+      <button type="button" class="qn-row${i === cur ? ' on' : ''}${r.dis ? ' dis' : ''}" data-i="${i}" ${r.dis ? 'title="' + esc(r.sub) + '"' : ''}>
         <span class="qn-r-ic" style="--c:${r.col || '#8595ac'}">${r.ic || ''}</span>
         <span class="qn-r-t"><b>${esc(r.label)}</b>${r.sub ? `<span class="mut">${esc(r.sub)}</span>` : ''}</span>
         ${r.tag ? `<span class="qn-r-tag">${esc(r.tag)}</span>` : ''}
@@ -162,7 +171,7 @@ function quickNew() {
     step = 'intent'; intent = null; filter = ''; cur = 0;
     crumbEl.hidden = true;
     lblEl.textContent = 'Τι γίνεται με αυτό;';
-    rows = intentsFor().map(it => ({label: it.title, sub: it.hint(), ic: it.ic, col: it.col, it}));
+    rows = intentsFor().map(it => { const why = blocked(it); return {label: it.title, sub: why || it.hint(), ic: it.ic, col: why ? '#8595ac' : it.col, dis: !!why, it}; });
     paint();
     inp.focus();
   };
@@ -233,7 +242,9 @@ function quickNew() {
   };
 
   /* ── Δημιουργία ── */
+  let creating = false;   // διπλό ⏎ = ΜΙΑ εργασία, όχι δύο
   const create = async (go, opts) => {
+    if (creating) { return; }
     const title = inp0();
     if (!title) { say('Γράψε πρώτα τι πρέπει να γίνει', true); inp.focus(); return; }
     const body = {title, status: 0, internal: scope === 'internal' ? 1 : 0};
@@ -247,8 +258,9 @@ function quickNew() {
       if (!myDept) { say('Δεν ανήκεις σε department — διάλεξε έργο', true); return; }
       body.dept = myDept.id;
     }
-    say('Δημιουργία…');
+    say('Δημιουργία…'); creating = true;
     const r = await api('quick_task', body).catch(e => ({err: e.message}));
+    creating = false;
     if (r.err) { say(r.err, true); return; }
     close();
     toast(r.started ? '▶ Δημιουργήθηκε — ο χρόνος τρέχει' : 'Δημιουργήθηκε ✓');
@@ -263,6 +275,7 @@ function quickNew() {
     const r = rows[cur];
     if (!r) { return; }
     if (step === 'intent') {
+      if (r.dis) { say(r.sub, true); return; }
       if (!inp.value.trim()) { say('Γράψε πρώτα τι πρέπει να γίνει', true); inp.focus(); return; }
       subject = inp.value.trim();
       const it = r.it;
@@ -304,7 +317,7 @@ function quickNew() {
   inp.oninput = () => {
     say('');
     if (step === 'pick') { filter = inp.value.trim(); buildPick(); }
-    else { rows = rows.map(r => Object.assign(r, {sub: r.it.hint()})); paint(); }
+    else { rows = rows.map(r => Object.assign(r, {sub: r.dis ? r.sub : r.it.hint()})); paint(); }
   };
   showIntents();
 }
@@ -3091,6 +3104,38 @@ function showHelpAlert(a, force) {
   const checkin = a.kind === 'checkin';
   const ovl = document.createElement('div');
   ovl.className = 'ovl show help-ovl';
+  if (a.kind === 'mention') {
+    /* @Όνομα μέσα σε ενέργεια εργασίας που ΔΕΝ είναι δική του: ερώτηση που περιμένει
+       απάντηση. Απαντά εδώ (γράφεται ως ενέργεια στην εργασία → η εκκρεμότητα κλείνει
+       μόνη της και ο ερωτών ειδοποιείται) ή ανοίγει την εργασία. */
+    ovl.innerHTML = `<div class="help-alert checkin" onclick="event.stopPropagation()">
+      <div class="help-ring">💬</div>
+      <div class="help-who"><b>${esc(a.from)}</b> σε ρωτά σε εργασία — περιμένει απάντηση</div>
+      <div class="help-msg">${esc(a.message)}</div>
+      ${a.taskTitle ? `<div class="help-ctx">${I.checkSquare} ${esc(a.taskTitle)}</div>` : ''}
+      <input class="inp" id="mnReply" placeholder="Απάντησε εδώ — γράφεται ως ενέργεια στην εργασία" style="margin-top:10px">
+      <div class="help-f">
+        ${a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε την εργασία</button>` : ''}
+        <button class="btn btn-o" id="haDone" title="Το είδα, δεν χρειάζεται απάντηση — φεύγει από τις εκκρεμότητες">✓ Το είδα</button>
+        <button class="btn btn-p" id="mnSend">Απάντησε</button>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    helpBeep();
+    const close = () => ovl.remove();
+    const inp = ovl.querySelector('#mnReply');
+    const send = async () => {
+      const txt = inp.value.trim(); if (!txt) { inp.focus(); return; }
+      const r = await api('check_add', {task: a.taskId, title: 'Απάντηση σε ' + a.from + ': ' + txt}).catch(e => ({err: e && e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast('✅ Απάντησες στον ' + a.from); close();
+    };
+    ovl.querySelector('#mnSend').onclick = send;
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); send(); } };
+    ovl.querySelector('#haDone').onclick = async () => { await api('help_done', {id: a.id}).catch(() => {}); toast('Τακτοποιήθηκε'); close(); };
+    const op = ovl.querySelector('#haOpen'); if (op) { op.onclick = () => { close(); openTask(a.taskId); }; }
+    setTimeout(() => inp.focus(), 50);
+    return;
+  }
   if (checkin) {
     /* «Τι γίνεται;» από τον επικεφαλή: δύο κουμπιά και προαιρετική γραμμή — η απάντηση
        γυρίζει σε αυτόν που ρώτησε. «Χρειάζομαι βοήθεια» γίνεται κανονικό 🆘 προς αυτόν. */

@@ -2079,7 +2079,7 @@ R.client360 = async function (cid) {
   c.innerHTML = `<div class="card" style="padding:13px 16px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">
     <input class="inp" id="c3Q" placeholder="Πληκτρολόγησε ID, όνομα, επωνυμία ή email…" autocomplete="off" style="max-width:400px;flex:1">
     ${cnpCan('clients.new') ? `<button class="btn btn-p" id="c3New">${I.plus} Νέος πελάτης</button>` : ''}</div>
-    <div id="c3Res"></div>`;
+    <div id="c3Res">${cid ? '' : `<div class="empty" style="margin-top:60px"><div class="big">${I.users}</div>Γράψε πάνω το όνομα ή τον αριθμό του πελάτη — ή διάλεξε από τη <a href="#/clientlist">Λίστα πελατών</a></div>`}</div>`;
   { const nb = $('#c3New'); if (nb) nb.onclick = () => openNewClient('', r => go('client360', r.id)); }
   const typeIco = {task: '🟦', task_done: '✅', time: '⏱', time_bill: '💶', ticket: '🎫',
     sc_plus: '🔋', sc_minus: '🪫', offer: '📄', offer_won: '🏆', offer_lost: '❌', payment: '💰', contact: '💬'};
@@ -3070,7 +3070,8 @@ R.projects = async function () {
     <td><span class="dot" style="background:${p.health ? hC[p.health] : p.color};width:11px;height:11px;margin-right:8px"></span>
       <a href="#/board/${p.id}" style="font-weight:700">${esc(p.name)}</a>
       ${p.offerId ? `<span class="pill pill-mut" title="Από προσφορά">${I.briefcase} </span>` : ''}
-      ${noProd(p) ? `<span class="pill pill-warn" title="Γενική εργασία — δεν έχει δεθεί ακόμη με προϊόν. Άνοιξε το έργο (✎) και διάλεξε προϊόν όταν ανοίξει το είδος.">χωρίς προϊόν</span>` : ''}</td>
+      ${noProd(p) ? `<span class="pill pill-warn" title="Γενική εργασία — δεν έχει δεθεί ακόμη με προϊόν. Άνοιξε το έργο (✎) και διάλεξε προϊόν όταν ανοίξει το είδος.">χωρίς προϊόν</span>` : ''}
+      ${noDept(p) ? `<span class="pill pill-warn" title="Παλιό έργο χωρίς τμήμα — το βλέπουν μόνο οι Full. Άνοιξε το έργο (✎) και όρισε τμήμα.">χωρίς τμήμα</span>` : ''}</td>
     <td>${esc(p.clientName || '—')}</td>
     <td>${p.pstatus ? `<span class="pill pill-info">${psL[p.pstatus]}</span>` : '—'}</td>
     <td class="${p.due && p.due < today() && p.pstatus !== 'done' ? 'pill pill-bad' : ''}">${p.due ? dShort(p.due) : '—'}</td>
@@ -3102,8 +3103,9 @@ R.projects = async function () {
   /* «Χωρίς προϊόν»: έργο πελάτη που δεν δέθηκε ακόμη με είδος — δουλεύει κανονικά,
      αλλά θέλει δέσιμο όταν ανοίξει το προϊόν. Το φίλτρο δείχνει τι εκκρεμεί. */
   const noProd = p => p.kind === 'client' && !p.product && !p.archived;
+  const noDept = p => !p.dept && !p.archived;
   const hit = p => (!st.q || norm([p.name, p.clientName, psL[p.pstatus] || ''].join(' ')).includes(norm(st.q)))
-    && (!st.noprod || noProd(p));
+    && (!st.noprod || noProd(p)) && (!st.nodept || noDept(p));
 
   const pjCard = (p, depth) => `<div class="pj-card${p.archived ? ' mut' : ''}">
     <div class="pj-top">
@@ -3113,6 +3115,7 @@ R.projects = async function () {
       ${p.pstatus ? `<span class="kb-tag" style="background:#0090dd18;color:#0374b0">${psL[p.pstatus]}</span>` : ''}
       ${p.offerId ? `<span class="kb-tag kb-tag-mut" title="Από προσφορά">${I.briefcase}</span>` : ''}
       ${noProd(p) ? '<span class="pill pill-warn" title="Δεν έχει δεθεί ακόμη με προϊόν">χωρίς προϊόν</span>' : ''}
+      ${noDept(p) ? '<span class="pill pill-warn" title="Χωρίς τμήμα — όρισε τμήμα στο έργο">χωρίς τμήμα</span>' : ''}
     </div>
     <div class="pj-meta">
       ${p.clientName ? `<span>${I.user} ${esc(p.clientName)}</span>` : ''}
@@ -3172,6 +3175,7 @@ R.projects = async function () {
       <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
         <input class="inp" id="prQ" placeholder="Ψάξε έργο — όνομα, πελάτη, κατάσταση…" value="${esc(st.q)}"></div>
       ${clientPjs.some(noProd) ? `<button class="btn btn-sm ${st.noprod ? 'btn-p' : 'btn-o'}" id="prNoProd" title="Έργα πελατών που δεν έχουν δεθεί με προϊόν">⚠ Χωρίς προϊόν <b>${clientPjs.filter(noProd).length}</b></button>` : ''}
+      ${d.projects.some(noDept) ? `<button class="btn btn-sm ${st.nodept ? 'btn-p' : 'btn-o'}" id="prNoDept" title="Έργα χωρίς τμήμα (παλιά) — τα βλέπουν μόνο οι Full· όρισε τμήμα">⚠ Χωρίς τμήμα <b>${d.projects.filter(noDept).length}</b></button>` : ''}
       ${d.canRecur ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
       ${d.canCreate ? `<button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
     </div>
@@ -3748,6 +3752,7 @@ R.projects = async function () {
     };
   };
   { const np = $('#prNoProd'); if (np) { np.onclick = () => { st.noprod = !st.noprod; R.projects(); }; } }
+  { const nd = $('#prNoDept'); if (nd) { nd.onclick = () => { st.nodept = !st.nodept; R.projects(); }; } }
   $('#prNew').onclick = () => openProj(null);
   /* Έρχεσαι από την καρτέλα πελάτη με «Νέο έργο» — ο πελάτης είναι ήδη γνωστός. */
   if (R.projects._pre) {

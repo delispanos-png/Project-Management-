@@ -317,7 +317,9 @@ section('Δικαιώματα PM — κάλυψη ενεργειών');
     $c0 = strpos($api, 'function cnp_caps('); $c1 = strpos($api, 'function cnp_caps_of(');
     preg_match_all("/^\\s+'([a-z]+\\.[a-z_.]+)'\\s+=>\\s+\\['(view|edit|delete|power)'/m", substr($api, $c0, $c1 - $c0), $kk);
     $used = []; foreach ($mapped as $cap) { foreach (explode('|', $cap) as $k) { $used[$k] = 1; } }
-    $dead = array_values(array_filter($kk[1], function ($k) use ($used) { return !isset($used[$k]); }));
+    /* Πληροφοριακές δυνατότητες: οι ενέργειές τους κρίνονται row-level (πρόσωπο έγκρισης, δικός σου χρόνος). */
+    $infoCaps = ['reports.time' => 1, 'finance.billing_ok' => 1];
+    $dead = array_values(array_filter($kk[1], function ($k) use ($used, $infoCaps) { return !isset($used[$k]) && !isset($infoCaps[$k]); }));
     if ($dead) { warn('Δυνατότητες που δεν φυλάνε καμία ενέργεια', implode(', ', $dead)); }
     else { ok('Κάθε δυνατότητα φυλάει τουλάχιστον μία ενέργεια', count($kk[1]) . ' δυνατότητες'); }
 })();
