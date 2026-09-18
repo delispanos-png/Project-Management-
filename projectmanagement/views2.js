@@ -1109,6 +1109,23 @@ async function openOfferComments(offerId) {
   load();
 }
 window.CNP.openOfferComments = openOfferComments;
+/* Νέα προσφορά ΓΙΑ μια εργασία (από την καρτέλα της ή από αίτημα συναδέλφου):
+   ανοίγει τη σωστή φόρμα με τον πελάτη έτοιμο και, στην αποθήκευση, δένεται με την εργασία. */
+window.CNP.newOfferFor = async function ({client, name, task, kind}) {
+  kind = kind || 'plain';
+  if (kind === 'pharmacyone' && window.openPharmacy) { window.openPharmacy(0, {client, name, task}); return; }
+  if (kind === 'pbx' && window.openPbx) { window.openPbx(0, {client, name, task}); return; }
+  const od = await api('offers').catch(() => null); if (!od) { toast('Σφάλμα', true); return; }
+  openOffer._task = task || 0;
+  openOffer(null, od);
+  const ci = $('#oClientId'), cn = $('#oClient'); if (ci && client) { ci.value = client; } if (cn && name) { cn.value = name; }
+};
+/* Άνοιγμα υπάρχουσας προσφοράς με το id της (η καρτέλα εργασίας δεν έχει τη λίστα). */
+window.CNP.openOfferById = async function (id) {
+  const od = await api('offers').catch(() => null); if (!od) { toast('Σφάλμα', true); return; }
+  const o = od.offers.find(x => x.id === +id); if (!o) { toast('Η προσφορά δεν βρέθηκε', true); return; }
+  openOffer(o, od);
+};
 
 function openOffer(o, d) {
   /* Η προσφορά PharmacyOne γεννήθηκε από τον κοστολογητή· εκεί επιστρέφει κιόλας,
@@ -1153,10 +1170,12 @@ function openOffer(o, d) {
   $('#dX').onclick = () => cnpAskClose(dr);
   clientAuto('oClient', 'oCliL', 'oClientId');
   $('#oSave', dr).onclick = async () => {
+    const forTask = openOffer._task || 0; openOffer._task = 0;
     await api('save_offer', {offer: o.id || 0, title: $('#oTitle').value, client: +$('#oClientId').value || 0,
       amount: $('#oAmount').value !== '' ? +$('#oAmount').value : null, stage: $('#oStage').value,
-      expected: $('#oExp').value || null, descr: rteVal('oDescr')});
-    toast('Αποθηκεύτηκε'); closeDrawer(); R.offers();
+      expected: $('#oExp').value || null, descr: rteVal('oDescr'), task: forTask});
+    toast(forTask ? 'Αποθηκεύτηκε και δέθηκε με την εργασία #' + forTask : 'Αποθηκεύτηκε'); closeDrawer();
+    if (forTask && window.CNP.openTask) { window.CNP.openTask(forTask); } else { R.offers(); }
   };
   const ocm = $('#oComments', dr); if (ocm) ocm.onclick = () => openOfferComments(o.id);
   const odl = $('#oDel', dr); if (odl) odl.onclick = async () => {

@@ -46,6 +46,7 @@ async function openPharmacy(offerId, pre) {
     offer: offerId || 0,
     client: (pre && pre.client) || 0,
     clientName: (pre && pre.name) || '',
+    task: (pre && pre.task) || 0,          // εργασία που ζήτησε την προσφορά → δένεται στην αποθήκευση
     tab: 'setup',
     cfg: {p: Object.assign({}, defs.defaults.p), yn: Object.assign({}, defs.defaults.yn),
       q: Object.assign({}, defs.defaults.q || {}), rd: Object.assign({}, defs.defaults.rd || {}),
@@ -744,7 +745,7 @@ async function openPharmacy(offerId, pre) {
   async function save() {
     if (!st.clientName.trim()) { toast('Δώσε επωνυμία πελάτη', true); $('#phWho', body).focus(); return; }
     const btn = $('#phSave', body); btn.disabled = true;
-    const r = await api('pharmacy_save', {offer: st.offer, client: st.client,
+    const r = await api('pharmacy_save', {offer: st.offer, client: st.client, task: st.task || 0,
       clientName: st.clientName, config: st.cfg})
       .catch(e => ({ok: false, error: e && e.message}));
     btn.disabled = false;

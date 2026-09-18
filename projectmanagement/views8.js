@@ -46,6 +46,7 @@ async function openPbx(offerId, pre) {
     offer: offerId || 0,
     client: (pre && pre.client) || 0,
     clientName: (pre && pre.name) || '',
+    task: (pre && pre.task) || 0,
     tab: 'setup',
     cfg: {plat: '3cx', ext: 5, sc: 8, disc: 0, qty: {}, on: {}, price: {},
       o: {seller: defs.me || '', city: 'Αθήνα', vat: 24, validDays: 30, intro: defs.intro || '', full: 0,
@@ -567,7 +568,7 @@ async function openPbx(offerId, pre) {
   async function save() {
     if (!st.clientName.trim()) { toast('Δώσε επωνυμία πελάτη', true); $('#pxWho', body).focus(); return; }
     const btn = $('#pxSave', body); btn.disabled = true;
-    const r = await api('pbx_save', {offer: st.offer, client: st.client, clientName: st.clientName, config: st.cfg})
+    const r = await api('pbx_save', {offer: st.offer, client: st.client, clientName: st.clientName, config: st.cfg, task: st.task || 0})
       .catch(e => ({ok: false, error: e && e.message}));
     btn.disabled = false;
     if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }

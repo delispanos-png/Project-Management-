@@ -806,12 +806,12 @@ async function toggleBell() {
   /* Εκκρεμότητες: ό,τι ζητήθηκε από εμένα (βοήθεια, ερώτηση, φωνή, σύσκεψη) και δεν
      απαντήθηκε — μένει εδώ μέχρι να το τακτοποιήσω, ακόμη κι αν έκλεισα το popup. */
   const pd = d.pending || {help: [], meetings: [], mine: []};
-  const hk = k => k === 'voice' ? '🔊' : (k === 'checkin' ? '❓' : '🆘');
+  const hk = k => k === 'voice' ? '🔊' : (k === 'checkin' ? '❓' : (k === 'offer' ? '📄' : '🆘'));
   const pendHtml = (pd.help.length || pd.meetings.length || pd.mine.length) ? `
     <div class="pop-sec">Εκκρεμούν — θέλουν απάντηση</div>
     ${pd.help.map(h => `<div class="prow" data-help="${h.id}">
       <span class="prow-ic">${hk(h.kind)}</span>
-      <span class="prow-t"><b>${esc(h.from)}</b> ${h.kind === 'voice' ? 'σε καλεί στη φωνή' : (h.kind === 'checkin' ? 'ρωτά τι γίνεται' : 'χρειάζεται τη βοήθειά σου')}
+      <span class="prow-t"><b>${esc(h.from)}</b> ${h.kind === 'voice' ? 'σε καλεί στη φωνή' : (h.kind === 'checkin' ? 'ρωτά τι γίνεται' : (h.kind === 'offer' ? 'ζητά να φτιάξεις προσφορά' : 'χρειάζεται τη βοήθειά σου'))}
         <span class="mut">${esc(h.message.slice(0, 90))}${h.taskTitle ? ' · ' + esc(h.taskTitle.slice(0, 50)) : ''}</span></span>
       <span class="prow-a"><button class="btn btn-sm btn-p" data-hopen="${h.id}" title="Ξανανοίγει το αίτημα για να απαντήσεις">Άνοιξε</button>
         ${h.kind !== 'checkin' ? `<button class="btn btn-sm btn-o" data-hdone="${h.id}" title="Τακτοποιήθηκε — φεύγει από εδώ">✓</button>` : ''}</span>
@@ -2210,6 +2210,16 @@ async function openTask(id, entryId) {
       </div>
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
         <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>
+      <div class="tk-offer-box" id="fOfferBox" ${t.isOffer ? '' : 'hidden'}>
+        ${d.offer ? `<div class="tk-offer-lnk"><button type="button" class="pill pill-info" id="fOfferOpen" title="Άνοιγμα της προσφοράς">${I.doc} ${esc(d.offer.title)} · ${esc(d.offer.stageName)}${d.offer.amount ? ' · ' + fmtEur(d.offer.amount) : ''}</button>
+            <button type="button" class="th-btn" id="fOfferUnlink" title="Λύσιμο από αυτή την προσφορά">✕</button></div>`
+          : `<select class="inp" id="fOfferSel" title="Δέσε με υπάρχουσα προσφορά του πελάτη"><option value="">— δέσε με υπάρχουσα προσφορά… —</option></select>
+            <div class="tk-offer-acts">
+              <button type="button" class="btn btn-sm btn-p" id="fOfferNew">${I.plus} Νέα προσφορά</button>
+              <button type="button" class="btn btn-sm btn-o" id="fOfferAsk" title="Ζήτα από συνάδελφο να φτιάξει την προσφορά — θα ειδοποιηθεί και θα μείνει στις εκκρεμότητές του">📣 Ζήτα από συνάδελφο…</button>
+            </div>
+            ${d.offerReq ? `<div class="mut" style="font-size:11px;margin-top:5px">${d.offerReq.status === 'open' ? '⏳' : '✓'} Ζητήθηκε από <b>${esc(d.offerReq.by)}</b> προς <b>${esc(d.offerReq.to)}</b> · ${tShort(d.offerReq.at)}${d.offerReq.status === 'open' ? ' — εκκρεμεί' : ''}</div>` : ''}`}
+      </div>
       <div class="tk-src" title="Από ποιο κανάλι μας ήρθε το αίτημα">
         <span class="mut">Ήρθε από:</span>
         ${[['phone', '📞 Τηλεφωνική'], ['email', '✉ Email']].map(([k, lb]) =>
@@ -2675,6 +2685,47 @@ async function openTask(id, entryId) {
     toast(on ? 'Χρεώσιμο ✓' : 'Χωρίς χρέωση');
     openTask(id);
   });
+  /* ── «Αφορά προσφορά»: δέσιμο με υπάρχουσα, νέα, ή αίτημα σε συνάδελφο ── */
+  { const cb = $('#fOffer', dr), box = $('#fOfferBox', dr);
+    if (cb && box) { cb.addEventListener('change', () => { box.hidden = !cb.checked; }); }
+    const ownerId = (d.owner && d.owner.id) || 0, ownerName = (d.owner && d.owner.name) || '';
+    const sel = $('#fOfferSel', dr);
+    if (sel) {
+      api('offers' + (ownerId ? '&client=' + ownerId : '')).then(od => {
+        const list = (od.offers || []).filter(o => !ownerId || o.client === ownerId);
+        sel.innerHTML = '<option value="">— δέσε με υπάρχουσα προσφορά… —</option>' + list.map(o =>
+          `<option value="${o.id}">${esc(o.title)}${o.value ? ' · ' + fmtEur(o.value) : ''}</option>`).join('')
+          + (list.length ? '' : '<option value="" disabled>ο πελάτης δεν έχει προσφορές</option>');
+      }).catch(() => {});
+      sel.onchange = async () => {
+        const oid = +sel.value || 0; if (!oid) { return; }
+        const r = await api('save_task', {task: id, offer: oid}).catch(e => ({err: e && e.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        toast('Δέθηκε με την προσφορά'); openTask(id);
+      };
+    }
+    const nb = $('#fOfferNew', dr); if (nb) { nb.onclick = e => { e.stopPropagation();
+      miniMenu(nb, [{icon: I.doc, label: 'Γενική προσφορά', on: () => window.CNP.newOfferFor({client: ownerId, name: ownerName, task: id, kind: 'plain'})},
+        {icon: I.doc, label: 'PharmacyOne', on: () => window.CNP.newOfferFor({client: ownerId, name: ownerName, task: id, kind: 'pharmacyone'})},
+        {icon: I.phone, label: 'Τηλεφωνικό κέντρο', on: () => window.CNP.newOfferFor({client: ownerId, name: ownerName, task: id, kind: 'pbx'})}]); }; }
+    const ab = $('#fOfferAsk', dr); if (ab) { ab.onclick = e => { e.stopPropagation();
+      const isSvc = a => /support team|\bbot\b/i.test(a.name || '') || String(a.name || '').trim() === 'Cloud On';
+      miniMenu(ab, (S.boot.admins || []).filter(a => a.id !== me.id && !isSvc(a)).map(a => ({label: a.name, on: async () => {
+        const msg = await cnpDialog({title: '📣 Ζήτα προσφορά από τον ' + a.name, body: 'Θα του φτάσει ως αίτημα (καμπανάκι + «σε ζητούν») και θα μείνει εκκρεμές μέχρι να φτιάξει και να δέσει την προσφορά.',
+          input: `Χρειάζεται προσφορά για «${(t.title || '').slice(0, 80)}»${ownerName ? ' — πελάτης ' + ownerName : ''}. Όταν τη φτιάξεις, δέσε την με την εργασία.`, rows: 4, max: 2000, ok: '📣 Στείλε', cancel: 'Άκυρο'});
+        if (msg === null) { return; }
+        const r = await api('task_offer_request', {task: id, to: a.id, message: msg}).catch(er => ({err: er && er.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        toast('📣 Ζητήθηκε προσφορά από τον ' + (r.to || a.name)); openTask(id);
+      }}))); }; }
+    const ob = $('#fOfferOpen', dr); if (ob) { ob.onclick = () => { if (window.CNP.openOfferById) { window.CNP.openOfferById(d.offer.id); } }; }
+    const ub = $('#fOfferUnlink', dr); if (ub) { ub.onclick = async () => {
+      if (!(await cnpConfirm('Λύσιμο της εργασίας από την προσφορά «' + (d.offer.title || '') + '»;', {ok: 'Λύσιμο'}))) { return; }
+      const r = await api('save_task', {task: id, offer: 0}).catch(e => ({err: e && e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      openTask(id);
+    }; }
+  }
   /* «Ρώτα τι γίνεται»: προσυμπληρωμένη ερώτηση, αλλάζει πριν φύγει. */
   { const ab = $('#dAsk', dr); if (ab) ab.onclick = async () => {
     const who = adminName((d.overrun || {}).agent);

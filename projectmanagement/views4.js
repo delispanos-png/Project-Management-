@@ -3094,13 +3094,14 @@ function showHelpAlert(a, force) {
   }
   ovl.innerHTML = `<div class="help-alert${voice ? ' voice' : ''}" onclick="event.stopPropagation()">
     <div class="help-ring">${voice ? '🔊' : '🆘'}</div>
-    <div class="help-who"><b>${esc(a.from)}</b> ${voice ? 'σε καλεί στη φωνή' : 'χρειάζεται τη βοήθειά σου'}</div>
+    <div class="help-who"><b>${esc(a.from)}</b> ${voice ? 'σε καλεί στη φωνή' : (a.kind === 'offer' ? 'ζητά να φτιάξεις ΠΡΟΣΦΟΡΑ' : 'χρειάζεται τη βοήθειά σου')}</div>
     <div class="help-msg">${esc(a.message)}</div>
     ${a.taskTitle ? `<div class="help-ctx">${I.checkSquare} ${esc(a.taskTitle)}</div>` : ''}
     <div class="help-f">
       ${voice
         ? `<button class="btn btn-o" id="haOk">Όχι τώρα</button><button class="btn btn-p" id="haVoice">🎙 Μπες στη φωνή</button>`
-        : (a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε το θέμα</button>` : `<button class="btn btn-o" id="haChat">${I.chat} Άνοιξε chat</button>`)
+        : (a.kind === 'offer' && a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε την εργασία</button><button class="btn btn-p" id="haOffer">${I.doc} Νέα προσφορά</button>` : '')
+          + (a.kind !== 'offer' ? (a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε το θέμα</button>` : `<button class="btn btn-o" id="haChat">${I.chat} Άνοιξε chat</button>`) : '')
           + `<button class="btn btn-p" id="haOk">Το είδα — καλώ τώρα</button>
              <button class="btn btn-o" id="haDone" title="Τακτοποιήθηκε — φεύγει από τις εκκρεμότητες">✓ Τακτοποιήθηκε</button>`}
     </div></div>`;
@@ -3122,6 +3123,11 @@ function showHelpAlert(a, force) {
   const dn = ovl.querySelector('#haDone'); if (dn) { dn.onclick = async () => { await api('help_done', {id: a.id}).catch(() => {}); toast('Τακτοποιήθηκε'); close(); }; }
   const op = ovl.querySelector('#haOpen'); if (op) { op.onclick = () => { close(); openTask(a.taskId); }; }
   const ch = ovl.querySelector('#haChat'); if (ch) { ch.onclick = () => { close(); go('chat'); }; }
+  const ho = ovl.querySelector('#haOffer'); if (ho) { ho.onclick = () => { close();
+    const items = [{icon: I.doc, label: 'Γενική προσφορά', on: () => window.CNP.newOfferFor({client: a.clientId || 0, name: '', task: a.taskId, kind: 'plain'})},
+      {icon: I.doc, label: 'PharmacyOne', on: () => window.CNP.newOfferFor({client: a.clientId || 0, name: '', task: a.taskId, kind: 'pharmacyone'})},
+      {icon: I.phone, label: 'Τηλεφωνικό κέντρο', on: () => window.CNP.newOfferFor({client: a.clientId || 0, name: '', task: a.taskId, kind: 'pbx'})}];
+    window.CNP.miniMenu(ho, items); }; }
   const hv = ovl.querySelector('#haVoice'); if (hv) { hv.onclick = () => { close(); window.open(VOICE_URL, '_blank'); go('chat'); }; }
 }
 

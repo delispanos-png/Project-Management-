@@ -1769,6 +1769,7 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
         'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
         'delivery' => !empty($t->is_delivery),
         'isOffer' => !empty($t->is_offer),                       // αφορά προσφορά → προτεραιότητα
+        'offerId' => isset($t->offer_id) && $t->offer_id ? (int) $t->offer_id : null,   // η ΣΥΓΚΕΚΡΙΜΕΝΗ προσφορά
         'creator' => isset($t->created_by) && $t->created_by ? (int) $t->created_by : null,   // ο επιβλέπων
         'billOk' => !empty($t->billing_ok),
         /* null = αυτόματο (υπάρχει πελάτης → χρεώσιμο)· 0 = δεν χρεώνεται ποτέ· 1 = πάντα. */
@@ -2462,6 +2463,7 @@ function cnp_pending_for($adminId, $FULL)
             'taskId' => $hr->task_id ? (int) $hr->task_id : 0,
             'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
             'projectId' => !empty($hr->project_id) ? (int) $hr->project_id : 0,
+            'clientId' => $hr->task_id ? (int) Time::clientForTask(Db::task((int) $hr->task_id)) : 0,
             'at' => $hr->created_at, 'seen' => !empty($hr->seen_at)];
     }
     $mine = [];
@@ -2862,6 +2864,31 @@ function cnp_can_create_task_in($adminId, $isFull, $t)
 {
     return cnp_task_write_ok($adminId, $isFull, $t);
 }
+/**
+ * Δένει μια προσφορά που μόλις δημιουργήθηκε/αποθηκεύτηκε με την εργασία που τη ζήτησε:
+ * κλείνει το αίτημα «φτιάξε προσφορά», ειδοποιεί όποιον το ζήτησε και τον επιβλέποντα.
+ */
+function cnp_link_offer_to_task($taskId, $offerId, $adminId)
+{
+    $t = Db::task((int) $taskId);
+    $o = Db::offer((int) $offerId);
+    if (!$t || !$o) { return false; }
+    Capsule::table('mod_cpm_tasks')->where('id', (int) $t->id)->update(['offer_id' => (int) $o->id, 'is_offer' => 1]);
+    $reqs = Capsule::table('mod_cpm_help')->where('kind', 'offer')->where('task_id', (int) $t->id)->where('status', 'open')->get();
+    Capsule::table('mod_cpm_help')->where('kind', 'offer')->where('task_id', (int) $t->id)->where('status', 'open')
+        ->update(['status' => 'done', 'answer' => 'ok', 'done_at' => date('Y-m-d H:i:s'), 'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+    $tell = [];
+    foreach ($reqs as $r) { $tell[(int) $r->from_admin] = 1; }
+    if (!empty($t->created_by)) { $tell[(int) $t->created_by] = 1; }
+    unset($tell[(int) $adminId]);
+    foreach (array_keys($tell) as $aid) {
+        Db::pushNotification($aid, 'info', '✅ ' . Db::adminName($adminId) . ' έφτιαξε την προσφορά «' . mb_substr((string) $o->title, 0, 60) . '» για την εργασία «' . mb_substr((string) $t->title, 0, 50) . '»',
+            'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $t->id);
+    }
+    Db::logActivity((int) $t->id, $adminId, 'edit', 'Δέθηκε η προσφορά «' . mb_substr((string) $o->title, 0, 80) . '» (#' . (int) $o->id . ')');
+    return true;
+}
+
 function cnp_task_write_ok($adminId, $isFull, $t)
 {
     if ($isFull) {
@@ -3089,7 +3116,7 @@ function cnp_open_actions()
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
         'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
-        'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'time_bill', 'watch', 'remind',
+        'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
         'help_done',
         // υπέρβαση εκτίμησης: λίστα μόνο για επικεφαλή/υπεύθυνο (row-level canAsk), ερώτηση & απάντηση row-level
@@ -3724,6 +3751,20 @@ case 'task':
         'timerHere' => $running && (int) $running->task_id === (int) $t->id
             ? ['id' => (int) $running->id, 'since' => $running->started_at] : null,
         'timerElsewhere' => $running && (int) $running->task_id !== (int) $t->id ? (int) $running->task_id : null,
+        /* 📄 Η δεμένη προσφορά (αν υπάρχει) και το τελευταίο αίτημα «φτιάξε προσφορά». */
+        'offer' => (function () use ($t) {
+            if (empty($t->offer_id)) { return null; }
+            $o9 = Db::offer((int) $t->offer_id);
+            if (!$o9) { return null; }
+            $sg = Db::offerStages()[$o9->stage] ?? null;
+            return ['id' => (int) $o9->id, 'title' => (string) $o9->title, 'kind' => (string) ($o9->kind ?: 'plain'),
+                'stage' => (string) $o9->stage, 'stageName' => $sg ? $sg[0] : (string) $o9->stage, 'amount' => (float) ($o9->amount ?? 0)];
+        })(),
+        'offerReq' => (function () use ($t) {
+            $h = Capsule::table('mod_cpm_help')->where('kind', 'offer')->where('task_id', (int) $t->id)->orderBy('id', 'desc')->first();
+            return $h ? ['id' => (int) $h->id, 'by' => Db::adminName((int) $h->from_admin), 'byId' => (int) $h->from_admin,
+                'to' => Db::adminName((int) $h->to_admin), 'toId' => (int) $h->to_admin, 'at' => $h->created_at, 'status' => (string) $h->status] : null;
+        })(),
         /* ⚠ Υπέρβαση εκτίμησης (ώρες/ημέρες) + η τελευταία ερώτηση «τι γίνεται» + αν μπορώ να ρωτήσω. */
         'overrun' => (function () use ($t, $adminId, $FULL) {
             $st = Overrun::taskStatus($t);
@@ -5228,6 +5269,13 @@ case 'save_task':
         $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
         cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο');   // @Όνομα → «πρόσεξέ με»
     }
+    if (array_key_exists('offer', $in)) {
+        /* Δέσιμο με συγκεκριμένη προσφορά (0 = λύσιμο). Δεμένη προσφορά = «αφορά προσφορά». */
+        $ofId = (int) $in['offer'];
+        if ($ofId && !Db::offer($ofId)) { fail('offer', 404); }
+        $data['offer_id'] = $ofId ?: null;
+        if ($ofId) { $data['is_offer'] = 1; }
+    }
     if (array_key_exists('is_offer', $in)) {
         $data['is_offer'] = !empty($in['is_offer']) ? 1 : 0;   // αφορά προσφορά → προτεραιότητα
     }
@@ -5578,6 +5626,23 @@ case 'check_del':
     cnp_task_lock_guard($t);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->delete();
     out(['ok' => true]);
+
+case 'task_offer_request':               // «φτιάξε προσφορά για αυτή την εργασία» προς συνάδελφο
+    $tO = Db::task((int) ($in['task'] ?? 0));
+    $toO = (int) ($in['to'] ?? 0);
+    if (!$tO || !Db::canSeeTask($adminId, $tO)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $tO)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403); }
+    if ($toO <= 0 || !Capsule::table('tbladmins')->where('id', $toO)->where('disabled', 0)->exists()) { fail('Διάλεξε συνάδελφο'); }
+    $clO = Time::clientForTask($tO);
+    $msgO = mb_substr(trim((string) ($in['message'] ?? '')), 0, 2000)
+        ?: ('Χρειάζεται προσφορά για «' . mb_substr((string) $tO->title, 0, 80) . '»' . ($clO ? ' — πελάτης ' . html_entity_decode(clientLabel($clO), ENT_QUOTES, 'UTF-8') : '') . '. Όταν τη φτιάξεις, δέσε την με την εργασία.');
+    $hidO = Capsule::table('mod_cpm_help')->insertGetId(['from_admin' => $adminId, 'to_admin' => $toO, 'task_id' => (int) $tO->id,
+        'kind' => 'offer', 'message' => $msgO, 'status' => 'open', 'created_at' => date('Y-m-d H:i:s')]);
+    Capsule::table('mod_cpm_tasks')->where('id', (int) $tO->id)->update(['is_offer' => 1]);
+    Db::pushNotification($toO, 'help', Db::adminName($adminId) . ' ζητά ΠΡΟΣΦΟΡΑ για «' . mb_substr((string) $tO->title, 0, 60) . '»',
+        'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $tO->id);
+    Db::logActivity((int) $tO->id, $adminId, 'edit', 'Ζήτησε προσφορά από τον ' . Db::adminName($toO));
+    out(['ok' => true, 'id' => $hidO, 'to' => Db::adminName($toO)]);
 
 case 'check_react':                      // 👍 ✅ 👀 … πάνω σε ενέργεια (toggle)
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
@@ -6672,7 +6737,9 @@ case 'save_offer':
     if (!$oid) {
         $data['created_by'] = $adminId;
     }
-    out(['ok' => true, 'id' => Db::saveOffer($oid, $data)]);
+    $savedOid = Db::saveOffer($oid, $data);
+    if ((int) ($in['task'] ?? 0)) { cnp_link_offer_to_task((int) $in['task'], $savedOid, $adminId); }
+    out(['ok' => true, 'id' => $savedOid]);
 
 case 'offer_track':                      // αποστολή / απάντηση / επόμενο follow-up
     $o = Db::offer((int) ($in['offer'] ?? 0));
@@ -6999,6 +7066,7 @@ case 'pharmacy_save':                    // δημιουργία / ενημέρ�
         $row9['expected_close'] = date('Y-m-d', strtotime('+' . max(1, (int) $cfg9['o']['validDays']) . ' days'));
         $oid9 = (int) Capsule::table('mod_cpm_offers')->insertGetId($row9);
     }
+    if ((int) ($in['task'] ?? 0)) { cnp_link_offer_to_task((int) $in['task'], $oid9, $adminId); }
     out(['ok' => true, 'offer' => $oid9, 'amount' => $amount9, 'title' => $title9]);
 
 case 'pharmacy_doc':                     // το έγγραφο της προσφοράς, έτοιμο για εκτύπωση
@@ -7208,6 +7276,7 @@ case 'pbx_save':                         // δημιουργία / ενημέρ�
         $rowP['expected_close'] = date('Y-m-d', strtotime('+' . max(1, (int) $cfgP['o']['validDays']) . ' days'));
         $oidP = (int) Capsule::table('mod_cpm_offers')->insertGetId($rowP);
     }
+    if ((int) ($in['task'] ?? 0)) { cnp_link_offer_to_task((int) $in['task'], $oidP, $adminId); }
     out(['ok' => true, 'offer' => $oidP, 'amount' => $amountP, 'title' => $titleP]);
 
 case 'pbx_doc':                          // το έγγραφο (αποθηκευμένη προσφορά ή ζωντανή ρύθμιση)
@@ -14520,6 +14589,7 @@ case 'version':
             'kind' => $hr->kind ?: 'help',
             'taskId' => $hr->task_id ? (int) $hr->task_id : 0,
             'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
+            'clientId' => $hr->task_id ? (int) Time::clientForTask(Db::task((int) $hr->task_id)) : 0,
             'at' => $hr->created_at];
     }
     /* 📅 Συσκέψεις: μια πρόσκληση δεν πρέπει να περιμένει να κοιτάξεις καμπανάκι.

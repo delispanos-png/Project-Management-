@@ -134,6 +134,11 @@ class Db
             }
         }
 
+        /* Η εργασία μπορεί να δένει με συγκεκριμένη προσφορά (όχι μόνο «αφορά προσφορά»). */
+        if (!$s->hasColumn('mod_cpm_tasks', 'offer_id')) {
+            $s->table('mod_cpm_tasks', function ($t) { $t->integer('offer_id')->unsigned()->nullable()->index(); });
+        }
+
         /* Αντιδράσεις (👍 ✅ 👀 …) σε ενέργειες της συζήτησης μιας εργασίας. Ο κωδικός
            είναι λέξη (up/ok/eyes/…), όχι emoji — η βάση είναι utf8mb3. */
         if (!$s->hasTable('mod_cpm_check_react')) {
