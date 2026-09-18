@@ -1904,6 +1904,10 @@ async function openTask(id, entryId, opts) {
   const d = await api('task&id=' + id).catch(() => null);
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   closeDrawer();
+  /* Το closeDrawer αφαιρεί την παλιά καρτέλα μετά από 300ms (animation). Στο ξανασχεδίασμα
+     (Start/Stop/αποθήκευση) η νέα μπαίνει ΑΜΕΣΩΣ — και για 300ms υπήρχαν δύο #dX: το ✕ της
+     νέας δενόταν στην παλιά και έμενε νεκρό («δεν με αφήνει να βγω»). Εδώ φεύγει τώρα. */
+  $$('.drawer.tk-modal').forEach(el => { const o = el.closest('.ovl'); el.remove(); if (o) { o.remove(); } });
   const t = d.task, me = S.boot.me;
   /* Το «ζητούμενο» το επεξεργάζεται μόνο ο δημιουργός της εργασίας ή Full admin·
      οι υπόλοιποι το βλέπουν read-only (ο server επιβάλλει τον ίδιο κανόνα). */
@@ -2394,7 +2398,7 @@ async function openTask(id, entryId, opts) {
     return true;
   };
   dr._askClose = () => (dr.dataset.fresh === '1' ? askFresh() : cnpAskClose(dr));
-  $('#dX').onclick = () => dr._askClose();
+  $('#dX', dr).onclick = () => dr._askClose();
   /* Χωρίς «Board: επεξεργασία» και χωρίς να είναι δική του εργασία (ανάδοχος/
      επιβλέπων/δημιουργός), η καρτέλα είναι ΜΟΝΟ για διάβασμα — ό,τι θα απέρριπτε
      ο server δεν προσφέρεται καν (12/9/2026). Κρύβουμε αντί να αφαιρούμε, ώστε
@@ -2445,12 +2449,12 @@ async function openTask(id, entryId, opts) {
     if (fe && fh) { fe.oninput = () => { const m = estMins(fe.value); fh.textContent = m ? '= ' + fmtMin(m) : ''; }; } }
   $('#dSave', dr).onclick = async () => {
     const payload = over => Object.assign({task: id,
-      due: $('#fDue').value || null, sched: $('#fSched').value || null, start: $('#fStart').value || null,
+      due: $('#fDue', dr).value || null, sched: $('#fSched', dr).value || null, start: $('#fStart', dr).value || null,
       startT: $('#fStartT', dr) ? ($('#fStartT', dr).value || null) : undefined,
       dueT: $('#fDueT', dr) ? ($('#fDueT', dr).value || null) : undefined,
-      type: +$('#fType').value || 0,
-      dept: +(($('#fDept') || {}).value) || 0,
-      assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
+      type: +$('#fType', dr).value || 0,
+      dept: +(($('#fDept', dr) || {}).value) || 0,
+      assignee: +$('#fAssignee', dr).value || 0, prio: +$('#fPrio', dr).value,
       ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
       offer_ref: $('#fOfferRef', dr) ? $('#fOfferRef', dr).value.trim() : undefined,
@@ -2718,8 +2722,18 @@ async function openTask(id, entryId, opts) {
     closeDrawer();
     if (r && r.project) { go('board', r.project); } else { R[S.view] && R[S.view](); }
   };
-  const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
+  /* Start/Stop ξανασχεδιάζουν την καρτέλα: ό,τι έγραψες και δεν αποθηκεύτηκε θα χανόταν
+     σιωπηλά. Αποθηκεύεται πρώτα· αν η αποθήκευση αποτύχει (π.χ. λάθος ημερομηνίες), το
+     χρονόμετρο δεν αγγίζεται και βλέπεις το μήνυμα. */
+  const saveFirst = async () => {
+    if (dr.dataset.dirty !== '1') { return true; }
+    const sb = $('#dSave', dr); if (!sb || !sb.onclick) { return true; }
+    await sb.onclick();
+    return dr.dataset.dirty !== '1';
+  };
+  const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { if (!(await saveFirst())) { return; } await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
   const tp = $('#tStop', dr); if (tp) tp.onclick = async () => {
+    if (!(await saveFirst())) { return; }
     const bill = d.owner
       ? await cnpConfirm('Να χρεωθεί ο χρόνος στον πελάτη;', {ok: I.coin + ' Χρεώσιμο', cancel: 'Χωρίς χρέωση'})
       : false;
@@ -2729,7 +2743,7 @@ async function openTask(id, entryId, opts) {
   if (d.timerHere) {
     const since = new Date(d.timerHere.since.replace(' ', 'T')).getTime();
     const tick = () => { const s = Math.floor((Date.now() - since) / 1000);
-      const el = $('#tLive'); if (!el) { clearInterval(timerInt); return; }
+      const el = $('#tLive', dr); if (!el) { clearInterval(timerInt); return; }
       el.textContent = `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
     tick(); timerInt = setInterval(tick, 1000);
   }
@@ -2795,9 +2809,9 @@ async function openTask(id, entryId, opts) {
     toast('💬 Ρωτήθηκε ο ' + (r.to || who)); openTask(id);
   }; }
   $('#tAdd', dr).onclick = async () => {
-    const m = +$('#tMins').value; if (!m) return;
+    const m = +$('#tMins', dr).value; if (!m) return;
     if (m < 0) { toast('Αρνητικός χρόνος δεν καταχωρείται', true); return; }
-    const body = {task: id, mins: m, billable: $('#tBill') ? $('#tBill').checked : false, note: $('#tNote').value};
+    const body = {task: id, mins: m, billable: $('#tBill', dr) ? $('#tBill', dr).checked : false, note: $('#tNote', dr).value};
     let r = await api('time_add', body).catch(e => ({err: e.message, data: e.data}));
     if (r && r.err && r.data && r.data.need === 'confirm') {
       /* Πάνω από 12 ώρες σε μία καταχώρηση: ο server ζητά επιβεβαίωση — συνήθως είναι λάθος πληκτρολόγησης. */
