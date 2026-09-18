@@ -788,6 +788,12 @@ class Db
         if ($s->hasTable('mod_cpm_chat') && !$s->hasColumn('mod_cpm_chat', 'deleted_at')) {
             $s->table('mod_cpm_chat', function ($t) { $t->dateTime('deleted_at')->nullable(); $t->integer('deleted_by')->unsigned()->nullable(); });
         }
+        if ($s->hasTable('mod_cpm_chat_reads') && !$s->hasColumn('mod_cpm_chat_reads', 'updated_at')) {
+            $s->table('mod_cpm_chat_reads', function ($t) { $t->dateTime('updated_at')->nullable(); });
+        }
+        if ($s->hasTable('mod_cpm_chat') && !$s->hasColumn('mod_cpm_chat', 'edited_at')) {
+            $s->table('mod_cpm_chat', function ($t) { $t->dateTime('edited_at')->nullable(); });
+        }
         if (!$s->hasTable('mod_cpm_chat_reads')) {
             $s->create('mod_cpm_chat_reads', function ($t) {
                 $t->integer('admin_id')->unsigned();

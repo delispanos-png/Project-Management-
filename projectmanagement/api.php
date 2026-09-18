@@ -3031,7 +3031,7 @@ function cnp_action_cap($action)
         $add('support.tickets', ['canned']);
 
         /* ── Η ΟΜΑΔΑ (νέο κύκλωμα 12/9/2026) ── */
-        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_file', 'chat_status',
+        $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_edit', 'chat_file', 'chat_status',
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
@@ -11590,22 +11590,61 @@ case 'chat_msgs':
         $outM[] = ['id' => (int) $m9->id, 'by' => (int) $m9->admin_id,
             /* utf8mb3: 4-byte emoji που σώθηκαν παλιά ως «????» δεν έχουν νόημα στην οθόνη */
             'body' => $m9->body === null ? null : preg_replace('/(\?\?\?\?\s?)+/', '', (string) $m9->body), 'at' => $m9->created_at,
+            'edited' => !empty($m9->edited_at),
+            /* Διόρθωση μόνο το πρώτο λεπτό (κανόνας 18/9/2026): πόσα δευτερόλεπτα μένουν */
+            'editLeft' => (int) $m9->admin_id === $adminId && !$m9->filename ? max(0, 60 - (time() - strtotime($m9->created_at))) : 0,
             'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id,
                 'mime' => $m9->mime, 'kind' => Storage::kindFromMime($m9->mime),
                 'url' => 'api.php?a=chat_file&id=' . (int) $m9->id] : null];
     }
     /* Διαγραφές των τελευταίων 15΄ σε αυτό το κανάλι: όποιος έχει ήδη το μήνυμα στην οθόνη το αφαιρεί. */
     $delIds = Capsule::table('mod_cpm_chat')->where('channel', $ch)->where('deleted_at', '>=', date('Y-m-d H:i:s', time() - 900))->pluck('id')->all();
-    // mark read
+    /* Επεξεργασίες των τελευταίων 15΄: το νέο κείμενο μπαίνει στη θέση του παλιού σε όσους το βλέπουν. */
+    $edits = [];
+    foreach (Capsule::table('mod_cpm_chat')->where('channel', $ch)->whereNull('deleted_at')->where('edited_at', '>=', date('Y-m-d H:i:s', time() - 900))->get(['id', 'body']) as $e9) {
+        $edits[] = ['id' => (int) $e9->id, 'body' => preg_replace('/(\?\?\?\?\s?)+/', '', (string) $e9->body)];
+    }
+    // mark read (με ώρα — για τις αποδείξεις ανάγνωσης)
     if ($maxId > 0) {
         if (Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->where('channel', $ch)->exists()) {
             Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->where('channel', $ch)
-                ->where('last_id', '<', $maxId)->update(['last_id' => $maxId]);
+                ->where('last_id', '<', $maxId)->update(['last_id' => $maxId, 'updated_at' => date('Y-m-d H:i:s')]);
         } else {
-            Capsule::table('mod_cpm_chat_reads')->insert(['admin_id' => $adminId, 'channel' => $ch, 'last_id' => $maxId]);
+            Capsule::table('mod_cpm_chat_reads')->insert(['admin_id' => $adminId, 'channel' => $ch, 'last_id' => $maxId, 'updated_at' => date('Y-m-d H:i:s')]);
         }
     }
-    out(['messages' => $outM, 'deleted' => array_map('intval', $delIds)]);
+    /* ✓✓ Ποιος έχει διαβάσει μέχρι πού: οι υπόλοιποι του καναλιού με το τελευταίο id που είδαν και πότε.
+       DM: ο άλλος. Ομάδα/#Ομάδα: όλα τα μέλη. Η οθόνη γράφει «Διαβάστηκε» κάτω από τα δικά μου. */
+    $membersR = [];
+    if ($ch === 'team') {
+        $membersR = Capsule::table('tbladmins')->where('disabled', 0)->pluck('id')->all();
+    } elseif (preg_match('/^d(\d+)-(\d+)$/', $ch, $mR)) {
+        $membersR = [(int) $mR[1], (int) $mR[2]];
+    } elseif (preg_match('/^g(\d+)$/', $ch, $mR)) {
+        $membersR = array_filter(array_map('intval', explode(',', (string) Capsule::table('mod_cpm_chat_groups')->where('id', (int) $mR[1])->value('members'))));
+    }
+    $membersR = array_values(array_diff(array_map('intval', $membersR), [$adminId]));
+    $reads = [];
+    $rowsR = [];
+    foreach (Capsule::table('mod_cpm_chat_reads')->where('channel', $ch)->whereIn('admin_id', $membersR ?: [0])->get() as $rr) { $rowsR[(int) $rr->admin_id] = $rr; }
+    foreach ($membersR as $mid9) {
+        $rr = $rowsR[$mid9] ?? null;
+        $reads[] = ['id' => $mid9, 'name' => Db::adminName($mid9), 'lastId' => $rr ? (int) $rr->last_id : 0, 'at' => $rr ? $rr->updated_at : null];
+    }
+    out(['messages' => $outM, 'deleted' => array_map('intval', $delIds), 'edited' => $edits, 'reads' => $reads, 'members' => count($membersR)]);
+
+case 'chat_edit':                       // επεξεργασία δικού μου ΓΡΑΠΤΟΥ μηνύματος
+    $mE = Capsule::table('mod_cpm_chat')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$mE || !cnp_chat_access($mE->channel, $adminId) || !empty($mE->deleted_at)) { fail('message', 404); }
+    if ((int) $mE->admin_id !== $adminId) { fail('Μπορείς να αλλάξεις μόνο δικά σου μηνύματα', 403); }
+    if ($mE->filename) { fail('Μήνυμα με αρχείο/φωνητικό δεν επεξεργάζεται — σβήσ’ το και στείλε νέο'); }
+    if (time() - strtotime($mE->created_at) > 60) { fail('Η διόρθωση επιτρέπεται μόνο το πρώτο λεπτό — μετά, σβήσ’ το και στείλε νέο'); }
+    $bodyE = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 4000);
+    if ($bodyE === '') { fail('Κενό μήνυμα — αν θέλεις να το αφαιρέσεις, πάτα διαγραφή'); }
+    if ($bodyE !== (string) $mE->body) {
+        Capsule::table('mod_cpm_chat')->where('id', (int) $mE->id)->update(['body' => $bodyE, 'edited_at' => date('Y-m-d H:i:s')]);
+    }
+    out(['ok' => true, 'body' => $bodyE]);
 
 case 'chat_del':                        // διαγραφή δικού μου μηνύματος (Full: οποιουδήποτε) — soft, με αφαίρεση αρχείου
     $mD = Capsule::table('mod_cpm_chat')->where('id', (int) ($in['id'] ?? 0))->first();

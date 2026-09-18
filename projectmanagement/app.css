@@ -3329,9 +3329,15 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 
 /* ═══ Chat: διαγραφή μηνύματος ═══ */
 .ch-m{position:relative}
-.ch-del{position:absolute;top:4px;right:6px;width:24px;height:24px;border-radius:7px;border:none;background:var(--card);color:var(--mut);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.ch-acts{position:absolute;top:4px;right:6px;display:flex;gap:3px}
+.ch-edited{font-style:italic;font-weight:400;opacity:.8}
+.ch-del{position:static;width:24px;height:24px;border-radius:7px;border:none;background:var(--card);color:var(--mut);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .ch-del svg{width:13px;height:13px}
 .ch-m:hover .ch-del,.ch-m:focus-within .ch-del{opacity:1}
 .ch-del:hover{color:var(--bad)}
 .ch-m.deleted{opacity:.6;font-style:italic}
 @media(hover:none){.ch-del{opacity:.5}}
+
+/* ═══ Chat: αποδείξεις ανάγνωσης ═══ */
+.ch-rcpt{font-size:10.5px;color:var(--mut);text-align:right;margin-top:3px;font-weight:600;cursor:default}
+.ch-rcpt.read{color:var(--brand)}

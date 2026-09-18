@@ -1242,6 +1242,33 @@ function chVoiceHtml(url, secs, name) {
     ${name ? `<a class="ch-vdl" href="${url}${url.indexOf('?') > 0 ? '&' : '?'}dl=1" download="${esc(name)}" title="Λήψη">${I.download}</a>` : ''}
   </div>`;
 }
+/* ✓✓ Αποδείξεις ανάγνωσης κάτω από τα ΔΙΚΑ ΜΟΥ μηνύματα. DM: «Διαβάστηκε HH:MM» / «Στάλθηκε».
+   Ομάδα: «Διαβάστηκε από 3/5» με ονόματα στο tooltip. Η ώρα είναι η στιγμή που ο άλλος
+   άνοιξε τη συνομιλία και είδε ως εκεί — γι' αυτό μπαίνει μόνο στο τελευταίο διαβασμένο. */
+function chPaintReads(reads, members) {
+  const mine = [...document.querySelectorAll('#chMsgs .ch-m.me:not(.deleted)')];
+  if (!mine.length) { return; }
+  const lastReadId = Math.max(0, ...reads.map(r => r.lastId));
+  mine.forEach(el => {
+    const id = +el.dataset.mid;
+    const who = reads.filter(r => r.lastId >= id);
+    let txt, cls;
+    if (members <= 1) {
+      const rd = who[0];
+      const hm = at => { const d = new Date(String(at).replace(' ', 'T')); return isNaN(d) ? '' : d.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}); };
+      txt = rd ? '✓✓ Διαβάστηκε' + (id === lastReadId && rd.at ? ' ' + hm(rd.at) : '') : '✓ Στάλθηκε';
+      cls = rd ? 'read' : '';
+    } else {
+      txt = who.length ? '✓✓ Διαβάστηκε από ' + who.length + '/' + members : '✓ Στάλθηκε';
+      cls = who.length ? 'read' : '';
+    }
+    let f = el.querySelector('.ch-rcpt');
+    if (!f) { f = document.createElement('div'); f.className = 'ch-rcpt'; el.appendChild(f); }
+    if (f.textContent !== txt) { f.textContent = txt; }
+    f.className = 'ch-rcpt ' + cls;
+    f.title = who.length ? who.map(r => r.name).join(', ') : 'Δεν το έχει δει ακόμη κανείς';
+  });
+}
 function chWireVoice(root) {
   root.querySelectorAll('.ch-voice').forEach(v => {
     if (v._wired) { return; } v._wired = true;
@@ -1407,8 +1434,9 @@ R.chat = async function () {
       if (m.deleted) { div.classList.add('deleted'); div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div><span class="mut">🚫 Το μήνυμα διαγράφηκε</span>`; box.appendChild(div); return; }
       /* Διαγραφή: δικά μου μηνύματα (ο Full: όλα). Εμφανίζεται στο hover / πάτημα στο κινητό. */
       const canDel = m.by === S.boot.me.id || S.boot.me.full;
-      div.innerHTML = (canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : '') + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>
-        ${m.body ? cnpMsgHtml(m.body) : ''}
+      const canEdit = m.by === S.boot.me.id && !m.file && !!m.body && (m.editLeft || 0) > 0;
+      div.innerHTML = `<span class="ch-acts">${canEdit ? `<button class="ch-del" data-chedit="${m.id}" title="Επεξεργασία">${I.edit}</button>` : ''}${canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : ''}</span>` + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}${m.edited ? ' <i class="ch-edited">· επεξεργάστηκε</i>' : ''}</div>
+        <div class="ch-body">${m.body ? cnpMsgHtml(m.body) : ''}</div>
         ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${fu}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
           <a class="ch-dl" href="${fu}&dl=1" download="${esc(m.file.name)}" title="Λήψη αρχείου">${I.download} Λήψη</a>
@@ -1417,11 +1445,23 @@ R.chat = async function () {
       if (m.file && m.file.kind === 'audio') {
         const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id);
         const secs = (() => { const x = /(\d+):(\d\d)/.exec(m.body || ''); return x ? (+x[1]) * 60 + (+x[2]) : 0; })();
-        div.innerHTML = (canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : '') + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chVoiceHtml(fu, secs, m.file.name);
+        div.innerHTML = `<span class="ch-acts">${canDel ? `<button class="ch-del" data-chdel="${m.id}" title="Διαγραφή μηνύματος">${I.trash}</button>` : ''}</span>` + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chVoiceHtml(fu, secs, m.file.name);
       }
       box.appendChild(div);
       cnpWireMsgLinks(div);
       chWireVoice(div);
+      const eb = div.querySelector('[data-chedit]');
+      if (eb) { eb.title = 'Επεξεργασία (μόνο το πρώτο λεπτό)'; setTimeout(() => eb.remove(), Math.max(1000, (m.editLeft || 0) * 1000)); }
+      if (eb) eb.onclick = async e => {
+        e.stopPropagation();
+        const cur = div._body !== undefined ? div._body : (m.body || '');
+        const txt = await window.CNP.cnpDialog({title: I.edit + ' Επεξεργασία μηνύματος', input: cur, rows: 4, max: 4000, ok: 'Αποθήκευση', cancel: 'Άκυρο'});
+        if (txt === null || txt === false) return;
+        const r = await api('chat_edit', {id: m.id, body: String(txt)}).catch(err => ({err: err.message}));
+        if (r && r.err) { toast(r.err, true); return; }
+        div._body = r.body; const bd = div.querySelector('.ch-body'); if (bd) { bd.innerHTML = cnpMsgHtml(r.body); cnpWireMsgLinks(bd); }
+        const h = div.querySelector('.h'); if (h && !h.querySelector('.ch-edited')) { h.insertAdjacentHTML('beforeend', ' <i class="ch-edited">· επεξεργάστηκε</i>'); }
+      };
       const db = div.querySelector('[data-chdel]');
       if (db) db.onclick = async e => {
         e.stopPropagation();
@@ -1440,8 +1480,11 @@ R.chat = async function () {
     const r = await api('chat_msgs&channel=' + st.ch + '&after=' + Math.max(0, st.lastId)).catch(() => null);
     loading = false;
     /* Διαγραφές από άλλους (ή από άλλη συσκευή μου): ό,τι είναι ήδη στην οθόνη γίνεται «διαγράφηκε». */
+    if (r && Array.isArray(r.edited)) r.edited.forEach(x => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + x.id + '"]:not(.deleted)'); if (!el || el._body === x.body) return; const bd = el.querySelector('.ch-body'); if (bd) { el._body = x.body; bd.innerHTML = cnpMsgHtml(x.body); cnpWireMsgLinks(bd); const h = el.querySelector('.h'); if (h && !h.querySelector('.ch-edited')) { h.insertAdjacentHTML('beforeend', ' <i class="ch-edited">· επεξεργάστηκε</i>'); } } });
     if (r && Array.isArray(r.deleted)) r.deleted.forEach(id => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + id + '"]:not(.deleted)'); if (el) { const h = el.querySelector('.h'); el.classList.add('deleted'); el.innerHTML = (h ? h.outerHTML : '') + '<span class="mut">🚫 Το μήνυμα διαγράφηκε</span>'; } });
     if (r && r.messages.length) render(r.messages);
+    if (r && Array.isArray(r.reads)) chPaintReads(r.reads, r.members || 0);
+    if (r && r.messages.length) { /* ήδη ζωγραφισμένα */ }
     else if (st.lastId === 0) { const b = $('#chMsgs'); if (b) b.innerHTML = '<div class="empty" style="margin:auto">Καμία συζήτηση ακόμη — πες ένα γεια 👋</div>'; st.lastId = -1; }
   };
   /* ── Επικόλληση στιγμιότυπου (Ctrl+V) ────────────────────────────────────
