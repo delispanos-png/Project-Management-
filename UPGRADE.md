@@ -1588,3 +1588,11 @@ remote_active) + οι row-level (task/board μέσω canSeeTask/canSeeProject).
 | Popup | views4 `showHelpAlert` kind=checkin: «✅ Όλα καλά» / «🆘 Χρειάζομαι βοήθεια» + σημείωση |
 | Ρυθμίσεις | Λειτουργία → «Υπέρβαση εκτίμησης»: `overrun_on`, `overrun_pct` |
 | Σχήμα | `mod_cpm_help` + `project_id`, `answer`, `answer_note` (Db::install) |
+
+## Εκκρεμότητες που θέλουν απάντηση — καμπανάκι + chip «σε ζητούν» (18/9/2026)
+
+`cnp_pending_for()` (api.php): ανοιχτές εκκλήσεις βοήθειας / ερωτήσεις «τι γίνεται» / κλήσεις φωνής (≤1 ώρα) προς τον χρήστη,
+προσκλήσεις σύσκεψης χωρίς RSVP, και όσα ζήτησε ο ίδιος και εκκρεμούν. Επιστρέφεται από `notifs` (`pending`, `pendingCount`),
+`version` και `topstats` (`needs`, `pending`). Το καμπανάκι δείχνει ενότητα «Εκκρεμούν — θέλουν απάντηση» με «Άνοιξε»
+(ξανανοίγει το ίδιο popup: `showHelpAlert(a, true)` / `meetPop`), «✓» (help_done) και RSVP επί τόπου· badge = αδιάβαστα + εκκρεμότητες.
+Chip «σε ζητούν» στην πάνω μπάρα ανοίγει το καμπανάκι. `cnp_meet_row()` κοινή γραμμή σύσκεψης για version & καμπανάκι.

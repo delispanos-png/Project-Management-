@@ -2428,6 +2428,65 @@ function cnp_client_lang($cl, $force = '')
     return (strtolower((string) $cl->language) === 'greek' || strtoupper((string) $cl->country) === 'GR') ? 'el' : 'en';
 }
 
+/** Μία πρόσκληση/υπενθύμιση σύσκεψης όπως τη θέλει το popup (meetPop) και το καμπανάκι. */
+function cnp_meet_row($evM, $kindM, $nowM)
+{
+    $startM = strtotime($evM->start_dt);
+    [$hIcoM, $hTxtM] = cnp_meeting_how($evM->mode, $evM->place, $evM->location, $evM->clientid ? clientLabel((int) $evM->clientid) : '');
+    return ['id' => (int) $evM->id, 'alert' => $kindM, 'title' => $evM->title,
+        'by' => Db::adminName((int) $evM->created_by),
+        'start' => $evM->start_dt, 'end' => $evM->end_dt,
+        'whenTxt' => date('d/m H:i', $startM) . '–' . date('H:i', strtotime($evM->end_dt)),
+        'inMin' => max(0, (int) round(($startM - $nowM) / 60)),
+        'how' => trim($hIcoM . ' ' . $hTxtM), 'mode' => $evM->mode,
+        'join' => ($evM->mode === 'video' || $evM->mode === 'phone') ? $evM->location : '',
+        'client' => $evM->clientid ? clientLabel((int) $evM->clientid) : ''];
+}
+
+/**
+ * Ό,τι ΠΕΡΙΜΕΝΕΙ απάντηση από κάποιον — ανεξάρτητα από το αν το popup «έσκασε» και
+ * κλείστηκε: ανοιχτές εκκλήσεις βοήθειας/ερωτήσεις προς αυτόν, προσκλήσεις σε σύσκεψη
+ * χωρίς RSVP, και όσα ζήτησε ο ίδιος και δεν απαντήθηκαν. Ζει στο καμπανάκι ώστε να
+ * ξαναβρίσκεται και να απαντιέται όποτε θέλει.
+ */
+function cnp_pending_for($adminId, $FULL)
+{
+    $help = [];
+    /* Οι κλήσεις στη φωνή είναι «τώρα ή ποτέ»: μετά από μία ώρα δεν έχουν νόημα ως εκκρεμότητα. */
+    $voiceCut = date('Y-m-d H:i:s', time() - 3600);
+    foreach (Capsule::table('mod_cpm_help')->where('to_admin', $adminId)->where('status', 'open')
+        ->where(function ($q) use ($voiceCut) { $q->where('kind', '!=', 'voice')->orWhere('created_at', '>=', $voiceCut); })
+        ->orderBy('id', 'desc')->limit(20)->get() as $hr) {
+        $help[] = ['id' => (int) $hr->id, 'fromId' => (int) $hr->from_admin, 'from' => Db::adminName((int) $hr->from_admin),
+            'message' => (string) $hr->message, 'kind' => $hr->kind ?: 'help',
+            'taskId' => $hr->task_id ? (int) $hr->task_id : 0,
+            'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
+            'projectId' => !empty($hr->project_id) ? (int) $hr->project_id : 0,
+            'at' => $hr->created_at, 'seen' => !empty($hr->seen_at)];
+    }
+    $mine = [];
+    foreach (Capsule::table('mod_cpm_help')->where('from_admin', $adminId)->where('status', 'open')->where('kind', '!=', 'voice')->orderBy('id', 'desc')->limit(20)->get() as $hr) {
+        $mine[] = ['id' => (int) $hr->id, 'toId' => (int) $hr->to_admin, 'to' => Db::adminName((int) $hr->to_admin),
+            'message' => (string) $hr->message, 'kind' => $hr->kind ?: 'help',
+            'taskId' => $hr->task_id ? (int) $hr->task_id : 0,
+            'taskTitle' => $hr->task_id ? (string) (Db::task((int) $hr->task_id)->title ?? '') : '',
+            'at' => $hr->created_at, 'seen' => !empty($hr->seen_at)];
+    }
+    $meet = [];
+    if (cnp_has_cap($adminId, $FULL, 'team.calendar')) {
+        $nowM = time();
+        $rsvpMine = [];
+        foreach (Capsule::table('mod_cpm_event_rsvp')->where('kind', 'admin')->where('ref', $adminId)->get() as $rm) { $rsvpMine[(int) $rm->event_id] = $rm->status; }
+        foreach (Capsule::table('mod_cpm_events')->whereIn('kind', ['meeting', 'appointment'])
+            ->where('attendees', 'like', '%,' . $adminId . ',%')->where('end_dt', '>=', date('Y-m-d H:i:s', $nowM))
+            ->orderBy('start_dt')->limit(20)->get() as $evM) {
+            if (!empty($rsvpMine[(int) $evM->id])) { continue; }   // απάντησε
+            $meet[] = cnp_meet_row($evM, 'invite', $nowM);
+        }
+    }
+    return ['help' => $help, 'meetings' => $meet, 'mine' => $mine, 'count' => count($help) + count($meet)];
+}
+
 function cnp_offer_protocol_fmt($seq)
 {
     return 'CLD-' . date('Y') . '-' . date('y') . str_pad((string) (int) $seq, 5, '0', STR_PAD_LEFT);
@@ -4917,11 +4976,12 @@ case 'notifs':
         $ns[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => cnp_notif_display($n->type, $n->title),
             'url' => $n->url, 'read' => (bool) $n->is_read, 'at' => $n->created_at];
     }
-    out(['unread' => Db::unreadCount($adminId), 'items' => $ns]);
+    $pendN = cnp_pending_for($adminId, $FULL);
+    out(['unread' => Db::unreadCount($adminId), 'items' => $ns, 'pending' => $pendN, 'pendingCount' => $pendN['count']]);
 
 case 'notif_read':
     Db::markNotifRead($adminId, (int) ($in['id'] ?? 0));
-    out(['ok' => true, 'unread' => Db::unreadCount($adminId)]);
+    out(['ok' => true, 'unread' => Db::unreadCount($adminId), 'pending' => cnp_pending_for($adminId, $FULL)['count']]);
 
 /* ---- Web Push (ειδοποιήσεις στη συσκευή, ακόμη κι με κλειστή εφαρμογή) ---- */
 case 'push_pubkey':
@@ -13958,7 +14018,8 @@ case 'topstats':                         // πάνω μενού: live σφυγμ
             if (!cnp_nonbillable_type($tyP)) { $billPend++; }
         }
     }
-    out(['tickets' => $tickets, 'sla' => $sla, 'today' => $todayN, 'ball' => $ball, 'billPend' => $billPend,
+    $needsT = cnp_pending_for($adminId, $FULL)['count'];   // 🆘 σε ζητούν: βοήθεια, ερωτήσεις, φωνή, προσκλήσεις
+    out(['needs' => $needsT, 'tickets' => $tickets, 'sla' => $sla, 'today' => $todayN, 'ball' => $ball, 'billPend' => $billPend,
         'presence' => cnp_presence($adminId),
         'status' => Db::pref($adminId, 'chat_status', 'online'), 'reason' => Db::pref($adminId, 'chat_reason', '')]);
 
@@ -14436,16 +14497,7 @@ case 'version':
         if (!$kindM) {
             continue;
         }
-        [$hIcoM, $hTxtM] = cnp_meeting_how($evM->mode, $evM->place, $evM->location,
-            $evM->clientid ? clientLabel((int) $evM->clientid) : '');
-        $meetAlerts[] = ['id' => $eidM, 'alert' => $kindM, 'title' => $evM->title,
-            'by' => Db::adminName((int) $evM->created_by),
-            'start' => $evM->start_dt, 'end' => $evM->end_dt,
-            'whenTxt' => date('d/m H:i', $startM) . '–' . date('H:i', strtotime($evM->end_dt)),
-            'inMin' => max(0, (int) round(($startM - $nowM) / 60)),
-            'how' => trim($hIcoM . ' ' . $hTxtM), 'mode' => $evM->mode,
-            'join' => ($evM->mode === 'video' || $evM->mode === 'phone') ? $evM->location : '',
-            'client' => $evM->clientid ? clientLabel((int) $evM->clientid) : ''];
+        $meetAlerts[] = cnp_meet_row($evM, $kindM, $nowM);
         if (count($meetAlerts) >= 3) {
             break;
         }
@@ -14472,7 +14524,8 @@ case 'version':
     out(['chatNew' => $chatNew,
         'v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
         'build' => cnp_asset_version(),
-        'unread' => Db::unreadCount($adminId), 'chatUnread' => $chatUnread, 'alerts' => $alerts,
+        'unread' => Db::unreadCount($adminId), 'pending' => cnp_pending_for($adminId, $FULL)['count'],
+        'chatUnread' => $chatUnread, 'alerts' => $alerts,
         'meetAlerts' => $meetAlerts, 'myTimer' => $myTimer]);
 
 case 'event_nudge':                      // «απάντησε» σε όσους δεν έχουν απαντήσει

@@ -564,12 +564,16 @@ async function loadTopStats() {
     {k: 'myday', ic: I.checkSquare, n: d.today, lbl: 'σήμερα', col: '#e0a020'},
     {k: 'myday', ic: I.zap, n: d.ball, lbl: 'εμένα', col: '#7b5cd6'},
   ];
+  /* 🆘 Σε ζητούν: εκκλήσεις βοήθειας, ερωτήσεις «τι γίνεται», κλήσεις στη φωνή και
+     προσκλήσεις σε σύσκεψη που δεν απάντησες. Ανοίγει το καμπανάκι, όπου απαντιούνται. */
+  chips.push({k: 'needs', ic: I.sos || I.bell, n: d.needs || 0, lbl: 'σε ζητούν', col: '#e2515f', warn: 1});
   /* Εκκρεμείς εγκρίσεις χρέωσης — το chip βγαίνει μόνο σε όποιον τις δίνει. */
   if (d.billPend) { chips.push({k: 'billq', ic: I.coin, n: d.billPend, lbl: 'εγκρίσεις', col: '#e0a020', warn: 1}); }
   box.innerHTML = chips.map(c => `<button class="pulse-chip${c.n && c.warn ? ' hot' : ''}${c.n ? '' : ' zero'}" data-pgo="${c.k}" title="${c.lbl}">
     <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join('');
   $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => {
     if (b.dataset.pgo === 'billq') { billingQueue(); return; }
+    if (b.dataset.pgo === 'needs') { const old = $('.pop'); if (old) { old.remove(); } toggleBell(); return; }
     go(b.dataset.pgo);
   });
   /* Pop-up: μία φορά ανά συνεδρία, και ξανά μόλις εμφανιστεί ΚΑΙΝΟΥΡΓΙΑ έγκριση.
@@ -797,21 +801,72 @@ async function cnpPushEnable() {
 }
 async function toggleBell() {
   const old = $('.pop'); if (old) { old.remove(); return; }
-  const d = await api('notifs'); updateBell(d.unread);
+  const d = await api('notifs'); updateBell(d.unread + (d.pendingCount || 0));
   const pop = document.createElement('div'); pop.className = 'pop';
+  /* Εκκρεμότητες: ό,τι ζητήθηκε από εμένα (βοήθεια, ερώτηση, φωνή, σύσκεψη) και δεν
+     απαντήθηκε — μένει εδώ μέχρι να το τακτοποιήσω, ακόμη κι αν έκλεισα το popup. */
+  const pd = d.pending || {help: [], meetings: [], mine: []};
+  const hk = k => k === 'voice' ? '🔊' : (k === 'checkin' ? '❓' : '🆘');
+  const pendHtml = (pd.help.length || pd.meetings.length || pd.mine.length) ? `
+    <div class="pop-sec">Εκκρεμούν — θέλουν απάντηση</div>
+    ${pd.help.map(h => `<div class="prow" data-help="${h.id}">
+      <span class="prow-ic">${hk(h.kind)}</span>
+      <span class="prow-t"><b>${esc(h.from)}</b> ${h.kind === 'voice' ? 'σε καλεί στη φωνή' : (h.kind === 'checkin' ? 'ρωτά τι γίνεται' : 'χρειάζεται τη βοήθειά σου')}
+        <span class="mut">${esc(h.message.slice(0, 90))}${h.taskTitle ? ' · ' + esc(h.taskTitle.slice(0, 50)) : ''}</span></span>
+      <span class="prow-a"><button class="btn btn-sm btn-p" data-hopen="${h.id}" title="Ξανανοίγει το αίτημα για να απαντήσεις">Άνοιξε</button>
+        ${h.kind !== 'checkin' ? `<button class="btn btn-sm btn-o" data-hdone="${h.id}" title="Τακτοποιήθηκε — φεύγει από εδώ">✓</button>` : ''}</span>
+      <span class="tm">${tShort(h.at)}</span></div>`).join('')}
+    ${pd.meetings.map(m => `<div class="prow" data-meet="${m.id}">
+      <span class="prow-ic">📅</span>
+      <span class="prow-t"><b>Πρόσκληση:</b> ${esc(m.title)} <span class="mut">${esc(m.whenTxt)}${m.by ? ' · από ' + esc(m.by) : ''}</span></span>
+      <span class="prow-a"><button class="btn btn-sm btn-p" data-mrsvp="accepted" title="Θα είμαι εκεί">✔</button>
+        <button class="btn btn-sm btn-o" data-mrsvp="declined" title="Δεν μπορώ">✖</button>
+        <button class="btn btn-sm btn-o" data-mopen="${m.id}" title="Λεπτομέρειες">…</button></span></div>`).join('')}
+    ${pd.mine.map(h => `<div class="prow mine" data-help="${h.id}">
+      <span class="prow-ic">${hk(h.kind)}</span>
+      <span class="prow-t"><span class="mut">Περιμένεις απάντηση από</span> <b>${esc(h.to)}</b> <span class="mut">${esc(h.message.slice(0, 70))}${h.seen ? ' · το είδε' : ' · δεν το έχει δει'}</span></span>
+      <span class="prow-a"><button class="btn btn-sm btn-o" data-hdone="${h.id}" title="Ακύρωση / τακτοποιήθηκε">✓</button></span>
+      <span class="tm">${tShort(h.at)}</span></div>`).join('')}` : '';
   const pushRow = ('Notification' in window && 'PushManager' in window && Notification.permission !== 'granted')
     ? `<a href="#" id="pushEnable" class="push-enable">${I.bell} Ενεργοποίηση ειδοποιήσεων σε αυτή τη συσκευή</a>` : '';
-  pop.innerHTML = `<div class="pop-h">Ειδοποιήσεις <a href="#" id="readAll" style="font-size:11px;font-weight:600">όλα ως διαβασμένα</a></div>` + pushRow +
+  pop.innerHTML = `<div class="pop-h">Ειδοποιήσεις <a href="#" id="readAll" style="font-size:11px;font-weight:600">όλα ως διαβασμένα</a></div>` + pushRow + pendHtml +
     (d.items.length ? d.items.map(n => `<a class="nrow ${n.read ? '' : 'unread'}" data-id="${n.id}" data-url="${esc(n.url || '')}">
       <span>${esc(n.title)}</span><span class="tm">${tShort(n.at)}</span></a>`).join('')
     : '<div class="empty" style="padding:22px">Καμία ειδοποίηση</div>');
   $('.bell-wrap').appendChild(pop);
   const pe = pop.querySelector('#pushEnable'); if (pe) { pe.onclick = e => { e.preventDefault(); e.stopPropagation(); cnpPushEnable(); }; }
+  /* Εκκρεμότητες: ξανάνοιγμα του ίδιου popup (με απάντηση), τακτοποίηση, RSVP επί τόπου. */
+  pop.querySelectorAll('[data-hopen]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const h = pd.help.find(x => x.id === +b.dataset.hopen); if (!h) { return; }
+    pop.remove();
+    if (window.CNP.showHelpAlert) { window.CNP.showHelpAlert(h, true); }
+  });
+  pop.querySelectorAll('[data-hdone]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    await api('help_done', {id: +b.dataset.hdone}).catch(() => {});
+    toast('Τακτοποιήθηκε'); pop.remove(); toggleBell();
+  });
+  pop.querySelectorAll('[data-mrsvp]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const id = +b.closest('[data-meet]').dataset.meet;
+    await api('event_rsvp', {id, status: b.dataset.mrsvp}).catch(() => {});
+    toast(b.dataset.mrsvp === 'accepted' ? '✔ Δήλωσες συμμετοχή' : 'Καταγράφηκε ότι δεν μπορείς');
+    pop.remove(); toggleBell();
+  });
+  pop.querySelectorAll('[data-mopen]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const m = pd.meetings.find(x => x.id === +b.dataset.mopen); if (!m) { return; }
+    pop.remove();
+    window._cnpMeetPop_ = window._cnpMeetPop_ || {}; delete window._cnpMeetPop_[m.id + ':' + m.alert];
+    meetPop(m);
+  });
   pop.onclick = async e => {
+    if (e.target.closest('.prow')) { return; }
     const a = e.target.closest('.nrow'); const ra = e.target.closest('#readAll');
-    if (ra) { e.preventDefault(); await api('notif_read', {id: 0}); updateBell(0); toggleBell(); return; }
+    if (ra) { e.preventDefault(); const r0 = await api('notif_read', {id: 0}); updateBell(r0.pending || 0); toggleBell(); return; }
     if (!a) return; e.preventDefault();
-    const r = await api('notif_read', {id: +a.dataset.id}); updateBell(r.unread);
+    const r = await api('notif_read', {id: +a.dataset.id}); updateBell(r.unread + (r.pending || 0));
     const url = a.dataset.url;
     const m = url && url.match(/tab=task&id=(\d+)/);
     const mt = url && url.match(/supporttickets\.php\?action=view&id=(\d+)/);
@@ -3889,7 +3944,10 @@ window.CNP = {S, api, esc, billingQueue, palette: cnpPalette, cnpDenied, cnpCan,
   setInterval(async () => {
     try {
       const d = await api('version' + (window._cnpChatSeen ? '&chatSince=' + window._cnpChatSeen : ''));
-      updateBell(d.unread);
+      updateBell(d.unread + (d.pending || 0));
+      /* το chip «σε ζητούν» ακολουθεί ζωντανά, χωρίς να ξαναφορτώνει όλα τα stats */
+      { const nc = document.querySelector('#topPulse [data-pgo="needs"]');
+        if (nc) { const n = d.pending || 0; nc.querySelector('.n').textContent = n; nc.classList.toggle('hot', n > 0); nc.classList.toggle('zero', !n); } }
       /* Μήνυμα chat ενώ δουλεύεις αλλού: το καμπανάκι δεν αρκεί. Βγάζουμε
          κάρτα με τον αποστολέα και το κείμενο, με ήχο και αναβοσβήνει ο τίτλος
          της καρτέλας — ώστε να το δεις ακόμη κι αν κοιτάς άλλο παράθυρο.

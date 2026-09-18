@@ -3055,9 +3055,11 @@ function helpBeep() {
 
 const VOICE_URL = 'https://my.cloudon.gr/projectmanagement/meet.php?room=mteamvoice';
 
-function showHelpAlert(a) {
-  if (!a || HELP_SHOWN.has(a.id)) { return; }
+function showHelpAlert(a, force) {
+  /* force = ξανάνοιγμα από το καμπανάκι: το ίδιο popup, με τα ίδια κουμπιά. */
+  if (!a || (!force && HELP_SHOWN.has(a.id))) { return; }
   HELP_SHOWN.add(a.id);
+  if (force) { document.querySelectorAll('.help-ovl').forEach(x => x.remove()); }
   api('help_seen', {id: a.id}).catch(() => {});     // μη ξαναχτυπήσει από επόμενο poll
   const voice = a.kind === 'voice';
   const checkin = a.kind === 'checkin';
@@ -3099,7 +3101,8 @@ function showHelpAlert(a) {
       ${voice
         ? `<button class="btn btn-o" id="haOk">Όχι τώρα</button><button class="btn btn-p" id="haVoice">🎙 Μπες στη φωνή</button>`
         : (a.taskId ? `<button class="btn btn-o" id="haOpen">${I.checkSquare} Άνοιξε το θέμα</button>` : `<button class="btn btn-o" id="haChat">${I.chat} Άνοιξε chat</button>`)
-          + `<button class="btn btn-p" id="haOk">Το είδα — καλώ τώρα</button>`}
+          + `<button class="btn btn-p" id="haOk">Το είδα — καλώ τώρα</button>
+             <button class="btn btn-o" id="haDone" title="Τακτοποιήθηκε — φεύγει από τις εκκρεμότητες">✓ Τακτοποιήθηκε</button>`}
     </div></div>`;
   document.body.appendChild(ovl);
   helpBeep();
@@ -3116,6 +3119,7 @@ function showHelpAlert(a) {
   };
   ovl.onclick = close;
   const ok = ovl.querySelector('#haOk'); if (ok) { ok.onclick = close; }
+  const dn = ovl.querySelector('#haDone'); if (dn) { dn.onclick = async () => { await api('help_done', {id: a.id}).catch(() => {}); toast('Τακτοποιήθηκε'); close(); }; }
   const op = ovl.querySelector('#haOpen'); if (op) { op.onclick = () => { close(); openTask(a.taskId); }; }
   const ch = ovl.querySelector('#haChat'); if (ch) { ch.onclick = () => { close(); go('chat'); }; }
   const hv = ovl.querySelector('#haVoice'); if (hv) { hv.onclick = () => { close(); window.open(VOICE_URL, '_blank'); go('chat'); }; }

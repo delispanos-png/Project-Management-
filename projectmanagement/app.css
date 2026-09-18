@@ -3116,3 +3116,14 @@ html[data-theme="dark"] .tk-over.l3{background:#3a1c1c}
 .tk-over-ck.ok{color:var(--ok)}.tk-over-ck.help{color:var(--bad);font-weight:600}.tk-over-ck.wait{color:var(--mut)}
 .help-alert.checkin .help-ring{background:#0090dd22}
 .ov-row{cursor:pointer}
+
+/* ═══════════ Καμπανάκι: εκκρεμότητες που θέλουν απάντηση ═══════════ */
+.pop-sec{padding:8px 14px 4px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--warn)}
+.prow{display:flex;gap:9px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);font-size:12.5px;background:#fff8e6}
+html[data-theme="dark"] .prow{background:#3a2c14}
+.prow.mine{background:transparent}
+.prow-ic{flex:none;font-size:16px}
+.prow-t{flex:1;min-width:0;line-height:1.35}
+.prow-t .mut{display:block;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prow-a{display:flex;gap:4px;flex:none}
+.prow .tm{flex:none;font-size:10.5px;color:var(--mut)}
