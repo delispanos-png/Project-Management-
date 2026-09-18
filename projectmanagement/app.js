@@ -1892,7 +1892,8 @@ window._cnpTimerAsked_ = window._cnpTimerAsked_ || {};
 
 /* ═════════ TASK DRAWER ═════════ */
 let timerInt = null;
-async function openTask(id, entryId) {
+async function openTask(id, entryId, opts) {
+  opts = opts || {};
   const d = await api('task&id=' + id).catch(() => null);
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   closeDrawer();
@@ -1995,6 +1996,9 @@ async function openTask(id, entryId) {
         <button type="button" class="tk-ttl-edit" id="dTitleEdit" title="Αλλαγή τίτλου">${I.edit}</button>
         ${d.owner ? `<a class="tk-cust-tag" href="#/client360/${d.owner.id}" data-navclose
            title="${d.owner.via === 'project' ? 'Πελάτης του έργου' : 'Πελάτης του ticket'}">${I.user} ${esc(d.owner.name)}</a>` : ''}
+        ${!d.owner ? (t.internal || d.project.kind === 'internal'
+          ? `<span class="tk-cust-tag tk-internal" title="Εσωτερική διαδικασία / R&D / βελτίωση — δεν κρέμεται σε πελάτη, ο χρόνος μετρά ως κόστος">${I.box} Εσωτερικό / R&D</span>`
+          : `<span class="tk-cust-tag tk-noclient" title="Δεν έχει δηλωθεί πελάτης ούτε ότι είναι εσωτερική — όρισέ το από τα πεδία δεξιά">${I.user} χωρίς πελάτη</span>`) : ''}
         ${d.project && !d.project.none ? `<a class="tk-cust-tag tk-pj-tag" href="#/board/${d.project.id}" data-navclose
            title="Το έργο στο οποίο ανήκει η εργασία${d.project.product ? ' · προϊόν: ' + esc(d.project.product) : ''}">📁 ${esc(d.project.name)}${
              d.project.product ? ` <span class="tk-pj-prod">· ${esc(d.project.product)}</span>` : ''}</a>` : ''}
@@ -2224,6 +2228,12 @@ async function openTask(id, entryId) {
             </div>
             ${d.offerReq ? `<div class="mut" style="font-size:11px;margin-top:5px">${d.offerReq.status === 'open' ? '⏳' : '✓'} Ζητήθηκε από <b>${esc(d.offerReq.by)}</b> προς <b>${esc(d.offerReq.to)}</b> · ${tShort(d.offerReq.at)}${d.offerReq.status === 'open' ? ' — εκκρεμεί' : ''}</div>` : ''}</details>`}
       </div>
+      ${!d.owner ? `<div class="tk-src" title="Εσωτερική διαδικασία / R&D: δεν κρέμεται σε πελάτη — ο χρόνος μετρά ως κόστος, δεν χρεώνεται">
+        <span class="mut">Αφορά:</span>
+        <button type="button" class="src-chip${t.internal ? ' on' : ''}" id="fInternalChip">${I.box} Εσωτερικό / R&D</button>
+        ${!t.internal ? '<span class="mut" style="font-size:11px">— ή δέσε την σε έργο πελάτη</span>' : ''}
+        <input type="hidden" id="fInternal" value="${t.internal ? 1 : 0}">
+      </div>` : ''}
       <div class="tk-src" title="Από ποιο κανάλι μας ήρθε το αίτημα">
         <span class="mut">Ήρθε από:</span>
         ${[['phone', '📞 Τηλεφωνική'], ['email', '✉ Email']].map(([k, lb]) =>
@@ -2355,7 +2365,29 @@ async function openTask(id, entryId) {
   })();
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 
-  $('#dX').onclick = () => cnpAskClose(dr);
+  { const ic = $('#fInternalChip', dr); if (ic) { ic.onclick = () => {
+      const h = $('#fInternal', dr); const on = !(+h.value); h.value = on ? 1 : 0; ic.classList.toggle('on', on); markDirty(dr); }; } }
+  /* Πρόχειρο (μόλις δημιουργήθηκε από την παλέτα): το ✕ ρωτά «να κρατηθεί;».
+     «Όχι» = σβήνεται αθόρυβα, σαν να μην άνοιξε ποτέ. «Ναι» = αποθηκεύεται ό,τι γράφτηκε. */
+  dr.dataset.fresh = opts.fresh ? '1' : '';
+  const askFresh = async () => {
+    const r = await cnpDialog({title: I.alert + ' Να κρατηθεί η εργασία;',
+      body: 'Μόλις τη δημιούργησες και δεν πάτησες «Αποθήκευση». Αν την άνοιξες κατά λάθος, πες «Όχι» και θα σβηστεί.',
+      ok: 'Ναι, κράτα την', cancel: 'Συνέχεια επεξεργασίας', third: 'Όχι, σβήσ’ την'});
+    if (r === false || r === null) { return false; }
+    if (r === 'third') {
+      const x = await api('task_delete', {id, draft: 1}).catch(e => ({err: e && e.message}));
+      if (x && x.err) { toast(x.err, true); return false; }
+      dr.dataset.fresh = ''; dr.dataset.dirty = ''; closeDrawer(); toast('Η εργασία δεν κρατήθηκε');
+      if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+      return true;
+    }
+    dr.dataset.fresh = ''; dr.dataset.dirty = '';
+    const sb = $('#dSave', dr); if (sb) { sb.click(); } else { closeDrawer(); }
+    return true;
+  };
+  dr._askClose = () => (dr.dataset.fresh === '1' ? askFresh() : cnpAskClose(dr));
+  $('#dX').onclick = () => dr._askClose();
   /* Χωρίς «Board: επεξεργασία» και χωρίς να είναι δική του εργασία (ανάδοχος/
      επιβλέπων/δημιουργός), η καρτέλα είναι ΜΟΝΟ για διάβασμα — ό,τι θα απέρριπτε
      ο server δεν προσφέρεται καν (12/9/2026). Κρύβουμε αντί να αφαιρούμε, ώστε
@@ -2415,6 +2447,7 @@ async function openTask(id, entryId) {
       ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
       offer_ref: $('#fOfferRef', dr) ? $('#fOfferRef', dr).value.trim() : undefined,
+      internal: $('#fInternal', dr) ? (+$('#fInternal', dr).value ? 1 : 0) : undefined,
       source: $('#fSource', dr) ? $('#fSource', dr).value : undefined,
       est: estMins(($('#fEst', dr) || {}).value),
       /* «Αποθήκευση» σώζει ΟΛΑ όσα άλλαξαν στην καρτέλα — και το ζητούμενο, αν
@@ -2460,6 +2493,7 @@ async function openTask(id, entryId) {
     }
     if (r.ok && extra.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
     if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
+    dr.dataset.fresh = ''; dr.dataset.dirty = '';
     toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
   /* Ανοίγει «καθαρό»: μέχρι να αλλάξει κάτι, το κουμπί είναι γκρίζο. */
@@ -3037,7 +3071,7 @@ async function openTask(id, entryId) {
   };
 
   if (t.done) {
-    lockCard('Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις');
+    lockCard('Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις', '#dDel');
   }
 
   /* ── Ο χρόνος πρώτα ────────────────────────────────────────────────────────
@@ -3046,7 +3080,8 @@ async function openTask(id, entryId) {
      καταγράφεται ποτέ σωστά και μετά τον «θυμόμαστε» στο τέλος της μέρας.
      «Όχι» = μόνο προβολή: μπορείς να διαβάσεις, όχι να αλλάξεις. Ένα κουμπί
      «Ξεκίνα τον χρόνο» ξεκλειδώνει — δεν υπάρχει άλλη πόρτα. */
-  if (!t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id]) {
+  /* Πρόχειρο που μόλις δημιουργήθηκε: καμία ερώτηση για χρόνο — πρώτα γράφει, μετά αποφασίζει. */
+  if (!opts.fresh && !t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id]) {
     window._cnpTimerAsked_[id] = 1;
     const go2 = await cnpDialog({
       noClose: true,             // ο ✕ άφηνε την καρτέλα ξεκλείδωτη — τώρα δεν υπάρχει
@@ -3062,7 +3097,8 @@ async function openTask(id, entryId) {
     t._viewOnly = true;
   }
   if (t._viewOnly) {
-    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart');
+    /* Η διαγραφή δεν χρειάζεται χρονόμετρο: όποιος έχει το δικαίωμα, σβήνει και από εδώ. */
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel');
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
     banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>
@@ -4163,5 +4199,12 @@ window.CNP = {S, api, esc, billingQueue, palette: cnpPalette, cnpDenied, cnpCan,
       }
     } catch (e) {}
   }, 12000);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') { return; }
+    if (document.querySelector('.pal-box, .help-ovl, #miniMenu')) { return; }   // διάλογοι/μενού έχουν δικό τους Esc
+    const fd = document.querySelector('.drawer.show');
+    if (fd && fd._askClose) { fd._askClose(); return; }
+    if (fd && fd.dataset.dirty === '1') { cnpAskClose(fd); return; }
+    closeDrawer();
+  });
 })();

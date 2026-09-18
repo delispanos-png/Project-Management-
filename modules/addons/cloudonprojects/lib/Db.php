@@ -140,6 +140,10 @@ class Db
         }
         /* Απλός αριθμός/κωδικός προσφοράς που πληκτρολογείται (π.χ. CLD-2026-2600005) —
            χωρίς να «μπλέξει» ολόκληρη η προσφορά. */
+        /* Εσωτερική εργασία (R&D / βελτίωση / διαδικασία) — δεν κρέμεται σε πελάτη. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'internal')) {
+            $s->table('mod_cpm_tasks', function ($t) { $t->tinyInteger('internal')->default(0); });
+        }
         if (!$s->hasColumn('mod_cpm_tasks', 'offer_ref')) {
             $s->table('mod_cpm_tasks', function ($t) { $t->string('offer_ref', 40)->nullable(); });
         }

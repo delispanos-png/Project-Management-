@@ -1769,6 +1769,7 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
         'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
         'delivery' => !empty($t->is_delivery),
         'isOffer' => !empty($t->is_offer),                       // αφορά προσφορά → προτεραιότητα
+        'internal' => !empty($t->internal),                       // εσωτερική διαδικασία / R&D — χωρίς πελάτη
         'offerId' => isset($t->offer_id) && $t->offer_id ? (int) $t->offer_id : null,   // η ΣΥΓΚΕΚΡΙΜΕΝΗ προσφορά
         'offerRef' => isset($t->offer_ref) && $t->offer_ref !== null ? (string) $t->offer_ref : '',   // ο αριθμός που πληκτρολογήθηκε
         'creator' => isset($t->created_by) && $t->created_by ? (int) $t->created_by : null,   // ο επιβλέπων
@@ -5224,6 +5225,7 @@ case 'quick_task':
     $new = ['project_id' => $pid ?: null, 'title' => $title,
         'status_id' => Db::status($sid) ? $sid : Db::firstStatusId(),
         'action_user' => $adminId,
+        'internal' => !empty($in['internal']) ? 1 : 0,           // από τον διακόπτη «Εσωτερικό / R&D» της παλέτας
         'is_offer' => !empty($in['is_offer']) ? 1 : 0];
     if ((int) ($in['dept'] ?? 0)) {
         $new['dept_id'] = (int) $in['dept'];
@@ -5270,6 +5272,7 @@ case 'save_task':
         $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
         cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο');   // @Όνομα → «πρόσεξέ με»
     }
+    if (array_key_exists('internal', $in)) { $data['internal'] = !empty($in['internal']) ? 1 : 0; }
     if (array_key_exists('offer_ref', $in)) {
         /* Ο αριθμός προσφοράς όπως πληκτρολογήθηκε. Αν ταιριάζει με πρωτόκολλο δικής μας
            προσφοράς, δένεται κιόλας — χωρίς να χρειάζεται να τη διαλέξει από λίστα. */
@@ -8449,6 +8452,12 @@ case 'task_delete':
     Capsule::table('mod_cpm_deps')->where('depends_on', $tid)->delete();
     Capsule::table('mod_cpm_tasks')->where('id', $tid)->delete();
 
+    /* Πρόχειρο που ακυρώθηκε αμέσως (άνοιξε κατά λάθος, ✕ → «Όχι»): δεν είναι
+       «διαγραφή» που πρέπει να μάθουν οι διαχειριστές — μόνο ίχνος στο log. */
+    if (!empty($in['draft']) && (int) $t->created_by === $adminId && (time() - (int) strtotime((string) $t->created_at)) < 900) {
+        logActivity('CloudOn PM: ακυρώθηκε πρόχειρη εργασία #' . $tid . ' «' . mb_substr($tTitle, 0, 70) . '» από ' . Db::adminName($adminId));
+        out(['ok' => true, 'project' => $tProj, 'draft' => true]);
+    }
     /* Κάθε διαγραφή φτάνει στους διαχειριστές. Ο ίδιος ο δράστης δεν
        ειδοποιείται για τη δική του πράξη. */
     $who = Db::adminName($adminId);

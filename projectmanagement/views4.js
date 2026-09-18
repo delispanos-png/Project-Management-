@@ -236,7 +236,7 @@ function quickNew() {
   const create = async (go, opts) => {
     const title = inp0();
     if (!title) { say('Γράψε πρώτα τι πρέπει να γίνει', true); inp.focus(); return; }
-    const body = {title, status: 0};
+    const body = {title, status: 0, internal: scope === 'internal' ? 1 : 0};
     if (go.project) { body.project = go.project; }
     if (go.assignee) { body.assignee = go.assignee; }
     if (opts && opts.mine) { body.assignee = me.id; }
@@ -252,7 +252,8 @@ function quickNew() {
     if (r.err) { say(r.err, true); return; }
     close();
     toast(r.started ? '▶ Δημιουργήθηκε — ο χρόνος τρέχει' : 'Δημιουργήθηκε ✓');
-    openTask(r.id);
+    /* Ανοίγει ως ΠΡΟΧΕΙΡΟ: αν κλείσει με ✕ χωρίς αποθήκευση, ρωτά «να κρατηθεί;» — «Όχι» τη σβήνει. */
+    openTask(r.id, 0, {fresh: true});
   };
   /* Ο τίτλος κρατιέται χωριστά: στο βήμα 2 το ίδιο πεδίο γίνεται αναζήτηση. */
   let subject = '';

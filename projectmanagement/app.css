@@ -3212,3 +3212,5 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 .qn-kp{padding:8px 11px;border-radius:10px}
 .qn-kp .kp-d{font-size:10.5px}
 @media (max-width:560px){.qn-scope{grid-template-columns:1fr}}
+.tk-cust-tag.tk-internal{background:#7b5cd61e;color:#5b3fb8;border-color:#7b5cd655}
+.tk-cust-tag.tk-noclient{background:var(--canvas);color:var(--mut);border-style:dashed}
