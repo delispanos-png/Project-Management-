@@ -5992,7 +5992,9 @@ case 'help_done':                         // τακτοποιήθηκε
 /* ---- Φωνή ομάδας: μόνιμο δωμάτιο (Discord-style) πάνω στο CloudOn Meet ---- */
 case 'voice_presence':                    // ποιος είναι μέσα στη φωνή τώρα
     $vroom = 'mteamvoice';
-    Capsule::table('mod_cpm_rtc_peers')->where('last_seen', '<', date('Y-m-d H:i:s', time() - 40))->delete();
+    /* 120s (ήταν 40s): laptop σε sleep ή αλλαγή δικτύου ΔΕΝ σβήνει τον συμμετέχοντα — και
+       το rtc_poll τον ξαναγράφει αν λείπει (18/9/2026). */
+    Capsule::table('mod_cpm_rtc_peers')->where('last_seen', '<', date('Y-m-d H:i:s', time() - 120))->delete();
     $vin = [];
     foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $vroom)
         ->where('last_seen', '>', date('Y-m-d H:i:s', time() - 35))->orderBy('id')->get() as $vp) {
@@ -11318,7 +11320,9 @@ case 'rtc_join':
     $peer = substr(bin2hex(random_bytes(8)), 0, 12);
     $name = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim($in['name'] ?? ''), 0, 60) ?: 'Επισκέπτης');
     // καθάρισμα: πεθαμένοι peers + παλιά μηνύματα
-    Capsule::table('mod_cpm_rtc_peers')->where('last_seen', '<', date('Y-m-d H:i:s', time() - 40))->delete();
+    /* 120s (ήταν 40s): laptop σε sleep ή αλλαγή δικτύου ΔΕΝ σβήνει τον συμμετέχοντα — και
+       το rtc_poll τον ξαναγράφει αν λείπει (18/9/2026). */
+    Capsule::table('mod_cpm_rtc_peers')->where('last_seen', '<', date('Y-m-d H:i:s', time() - 120))->delete();
     Capsule::table('mod_cpm_rtc_msgs')->where('created_at', '<', date('Y-m-d H:i:s', time() - 600))->delete();
     Capsule::table('mod_cpm_rtc_peers')->insert(['room' => $room, 'peer' => $peer, 'name' => $name,
         'admin_id' => $adminId > 0 ? $adminId : null, 'last_seen' => date('Y-m-d H:i:s')]);
@@ -11350,8 +11354,18 @@ case 'rtc_poll':
         fail('room', 403);
     }
     $peer = preg_replace('/[^a-f0-9]/', '', $_GET['peer'] ?? '');
-    Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)
-        ->update(['last_seen' => date('Y-m-d H:i:s')]);
+    if ($peer === '') { fail('input'); }
+    /* Upsert, όχι update: αν η γραμμή μου σβήστηκε (καθάρισμα «νεκρών» από άλλο join ενώ
+       είχα πρόβλημα δικτύου), ξαναμπαίνω στη λίστα μόλις ξαναμιλήσω — αλλιώς έμενα αόρατος
+       για πάντα ενώ η οθόνη μου έδειχνε «συνδεδεμένος» (18/9/2026). */
+    $nameP = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim((string) ($_GET['name'] ?? '')), 0, 60) ?: 'Επισκέπτης');
+    $upd = Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->update(['last_seen' => date('Y-m-d H:i:s')]);
+    $restored = false;
+    if (!$upd && !Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->exists()) {
+        Capsule::table('mod_cpm_rtc_peers')->insert(['room' => $room, 'peer' => $peer, 'name' => $nameP,
+            'admin_id' => $adminId > 0 ? $adminId : null, 'last_seen' => date('Y-m-d H:i:s')]);
+        $restored = true;
+    }
     $after = (int) ($_GET['after'] ?? 0);
     $msgs = [];
     foreach (Capsule::table('mod_cpm_rtc_msgs')->where('room', $room)->where('to_peer', $peer)
@@ -11359,11 +11373,13 @@ case 'rtc_poll':
         $msgs[] = ['id' => (int) $m9->id, 'from' => $m9->from_peer, 'kind' => $m9->kind, 'payload' => $m9->payload];
     }
     $roster = [];
+    /* 75s (ήταν 30s): tab στο παρασκήνιο >5΄ ή κλειδωμένο κινητό ρίχνει τα polls σε 1/λεπτό —
+       δεν σημαίνει ότι έφυγε. Το «bye» είναι η ρητή αποχώρηση. */
     foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $room)
-        ->where('last_seen', '>', date('Y-m-d H:i:s', time() - 30))->get() as $p9) {
+        ->where('last_seen', '>', date('Y-m-d H:i:s', time() - 75))->get() as $p9) {
         $roster[] = ['peer' => $p9->peer, 'name' => $p9->name];
     }
-    out(['messages' => $msgs, 'roster' => $roster]);
+    out(['messages' => $msgs, 'roster' => $roster, 'restored' => $restored, 'now' => time()]);
 
 case 'rtc_leave':
     $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');

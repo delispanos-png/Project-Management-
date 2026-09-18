@@ -477,11 +477,21 @@ function addTile(peer, name, isMe) {
   return t.querySelector('video');
 }
 function updCnt() {
-  $('#cnt').textContent = (Object.keys(pcs).length + 1) + ' συμμετέχοντες';
+  /* Μετράμε ΣΥΝΔΕΔΕΜΕΝΟΥΣ (όχι ημιτελείς προσκλήσεις): 1 = μόνος σου. */
+  const live = Object.values(pcs).filter(x => /connected|completed/.test(x.pc.iceConnectionState)).length;
+  $('#cnt').textContent = (live + 1) + ' συμμετέχοντες';
 }
 function newPc(peer, name) {
   const pc = new RTCPeerConnection(ICE);
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  if (stream) stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  /* Αυτοΐαση: αν η P2P σύνδεση πέσει (αλλαγή δικτύου, sleep), σβήνεται και ο «μικρότερος»
+     από τους δύο ξανακαλεί — δεν χρειάζεται reload (18/9/2026). */
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'failed') { dropPeer(peer); }
+    else if (pc.iceConnectionState === 'disconnected') {
+      setTimeout(() => { if (pcs[peer] && pcs[peer].pc === pc && ['disconnected', 'failed'].includes(pc.iceConnectionState)) { dropPeer(peer); } }, 8000);
+    }
+  };
   pc.onicecandidate = e => { if (e.candidate) api('rtc_signal', {peer: me, to: peer, kind: 'ice', payload: JSON.stringify(e.candidate)}); };
   pc.ontrack = e => {
     let v = document.querySelector('#tile-' + peer + ' video');
@@ -489,7 +499,8 @@ function newPc(peer, name) {
     if (v.srcObject !== e.streams[0]) v.srcObject = e.streams[0];
     const w = document.getElementById('rWait'); if (w) w.remove();
   };
-  pcs[peer] = {pc, name};
+  pc.onconnectionstatechange = updCnt;
+  pcs[peer] = {pc, name, at: Date.now()};
   updCnt();
   return pc;
 }
@@ -503,6 +514,14 @@ function myNameVal() { return $('#myName') ? ($('#myName').value.trim() || 'Επ
 async function handleMsg(m) {
   if (m.kind === 'offer') {
     const d = JSON.parse(m.payload);
+    /* Glare (κληθήκαμε ταυτόχρονα): ο ΜΙΚΡΟΤΕΡΟΣ id κρατά τη δική του πρόσκληση, ο μεγαλύτερος
+       υποχωρεί και απαντά. Έτσι δύο peers που ξανασυνδέονται δεν κολλάνε ποτέ σε αδιέξοδο. */
+    if (pcs[m.from] && pcs[m.from].pc.signalingState !== 'stable') {
+      if (me < m.from) { return; }
+      dropPeer(m.from);
+    } else if (pcs[m.from] && pcs[m.from].pc.remoteDescription) {
+      dropPeer(m.from);   // νέα πρόσκληση από peer που ξανασυνδέθηκε: φρέσκια σύνδεση
+    }
     const pc = pcs[m.from] ? pcs[m.from].pc : newPc(m.from, d.name || '…');
     if (d.name && pcs[m.from]) { pcs[m.from].name = d.name; const nm = document.querySelector('#tile-' + m.from + ' .nm'); if (nm) nm.textContent = d.name; }
     await pc.setRemoteDescription(d.sdp);
@@ -522,14 +541,73 @@ function dropPeer(peer) {
   const t = $('#tile-' + peer); if (t) t.remove();
   updCnt();
 }
+let pollFails = 0, rejoining = false;
+const seenAt = {};   // peer -> πότε πρωτοεμφανίστηκε στο roster χωρίς σύνδεση
+function setStatus(txt) { const el = $('#cnt'); if (el) el.textContent = txt; }
 async function poll() {
+  if (!me || rejoining) return;
+  let r;
   try {
-    const r = await api('rtc_poll', null, '&room=' + ROOM + '&peer=' + me + '&after=' + lastMsg);
-    for (const m of r.messages) { lastMsg = Math.max(lastMsg, m.id); await handleMsg(m); }
-    const alive = new Set(r.roster.map(x => x.peer));
-    Object.keys(pcs).forEach(p => { if (!alive.has(p)) dropPeer(p); });
-  } catch (e) {}
+    r = await api('rtc_poll', null, '&room=' + ROOM + '&peer=' + me + '&after=' + lastMsg + '&name=' + encodeURIComponent(myNameVal()));
+    if (!r || !Array.isArray(r.messages)) { throw new Error(r && r.error ? r.error : 'bad'); }
+  } catch (e) {
+    /* Ο server δεν απαντά ή αρνείται: μετά από 4 συνεχόμενες αποτυχίες (~5΄΄) ξαναμπαίνουμε
+       στο ΙΔΙΟ δωμάτιο αυτόματα, με νέο peer — όχι «κλείσε κι άνοιξε». */
+    pollFails++;
+    if (pollFails >= 2) setStatus('🔄 Πρόβλημα σύνδεσης… (' + pollFails + ')');
+    if (pollFails >= 4) { await rejoin('Χάθηκε η επικοινωνία με τον server'); }
+    return;
+  }
+  if (pollFails) { pollFails = 0; updCnt(); }
+  if (r.restored) { toast('🔄 Επανασυνδέθηκες στο δωμάτιο'); }
+  for (const m of r.messages) { lastMsg = Math.max(lastMsg, m.id); try { await handleMsg(m); } catch (e) {} }
+  const alive = new Set(r.roster.map(x => x.peer));
+  const now = Date.now();
+  Object.keys(pcs).forEach(p => {
+    if (!alive.has(p)) { dropPeer(p); delete seenAt[p]; return; }
+    /* Πρόσκληση που δεν κατέληξε ποτέ σε σύνδεση (ο άλλος δεν την είδε): μετά από 20΄΄ πετιέται
+       και ξανακαλούμε από την αρχή. */
+    const x = pcs[p];
+    if (now - x.at > 20000 && !/connected|completed/.test(x.pc.iceConnectionState) && x.pc.signalingState !== 'stable') { dropPeer(p); seenAt[p] = now; }
+  });
+  /* Κάποιος είναι στο δωμάτιο αλλά δεν έχουμε σύνδεση (έπεσε, ή ξαναμπήκε και η πρόσκλησή
+     του χάθηκε): μετά από 4΄΄ τον καλούμε εμείς. Αν εκείνος νομίζει ότι είναι ακόμη
+     συνδεδεμένος, θα δεχθεί τη νέα πρόσκληση και θα ανανεώσει τη σύνδεση. */
+  r.roster.forEach(p => {
+    if (p.peer === me || pcs[p.peer]) { delete seenAt[p.peer]; return; }
+    if (!seenAt[p.peer]) { seenAt[p.peer] = now; return; }
+    if (now - seenAt[p.peer] > 4000) { seenAt[p.peer] = now + 10000; callPeer(p.peer, p.name).catch(() => {}); }
+  });
 }
+/* Ξαναμπαίνουμε στο ίδιο δωμάτιο: νέο peer id, καθαρές συνδέσεις, καλούμε όλους. */
+async function rejoin(why) {
+  if (rejoining) return;
+  rejoining = true;
+  setStatus('🔄 Επανασύνδεση…');
+  if (why) toast(why + ' — επανασύνδεση…');
+  Object.keys(pcs).forEach(dropPeer);
+  const oldTile = me ? $('#tile-' + me) : null;
+  const oldMe = me;
+  if (oldMe) { api('rtc_leave', {peer: oldMe}).catch(() => {}); }   // να μη μείνει «φάντασμα» στη λίστα
+  for (let i = 0; i < 20; i++) {
+    try {
+      const r = await api('rtc_join', {name: myNameVal()});
+      if (r && r.peer) {
+        me = r.peer; lastMsg = 0; pollFails = 0;
+        if (oldTile) { oldTile.id = 'tile-' + me; }
+        r.roster.forEach(p => callPeer(p.peer, p.name).catch(() => {}));
+        rejoining = false; updCnt(); toast('✅ Ξανά μέσα');
+        return;
+      }
+    } catch (e) {}
+    await new Promise(res => setTimeout(res, Math.min(15000, 2000 * (i + 1))));
+  }
+  rejoining = false;
+  setStatus('⚠ Χωρίς σύνδεση — πάτα Επανασύνδεση');
+}
+/* Επιστροφή στο tab / επανασύνδεση δικτύου: άμεσο poll αντί να περιμένουμε τον κύκλο. */
+document.addEventListener('visibilitychange', () => { if (!document.hidden && me) poll(); });
+window.addEventListener('online', () => { if (me) poll(); });
 
 $('#joinBtn').onclick = async () => {
   if (IS_GUEST && !myNameVal()) { toast('Γράψε το όνομά σου'); return; }
@@ -573,7 +651,7 @@ $('#joinBtn').onclick = async () => {
     }
   }
   updCnt();
-  r.roster.forEach(p => callPeer(p.peer, p.name));   // ο νεοφερμένος καλεί τους υπάρχοντες
+  r.roster.forEach(p => callPeer(p.peer, p.name).catch(e => { console.warn('call failed', p, e); toast('Δεν έγινε σύνδεση με ' + p.name + ' — θα ξαναπροσπαθήσω'); }));
   pollT = setInterval(poll, 1200);
 };
 
@@ -636,7 +714,13 @@ function leave() {
 }
 $('#cLeave').onclick = leave;
 { const ex = $('#cExit'); if (ex) { ex.onclick = () => { leaveCleanup(); location.href = BACK_URL; }; } }
-window.addEventListener('beforeunload', () => { if (me) { navigator.sendBeacon && api('rtc_leave', {peer: me}); } });
+/* Κλείσιμο tab/reload: sendBeacon φτάνει ακόμη κι όταν η σελίδα πεθαίνει (το fetch κοβόταν) —
+   έτσι δεν μένει «φάντασμά» μας στη λίστα για τους άλλους. */
+window.addEventListener('pagehide', () => {
+  if (!me) return;
+  const url = API + '?a=rtc_leave' + (MT ? '&mt=' + encodeURIComponent(MT) : '');
+  try { navigator.sendBeacon(url, new Blob([JSON.stringify({room: ROOM, peer: me})], {type: 'application/json'})); } catch (e) {}
+});
 </script>
 </body>
 </html>
