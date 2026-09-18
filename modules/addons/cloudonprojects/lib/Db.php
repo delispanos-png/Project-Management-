@@ -138,6 +138,11 @@ class Db
         if (!$s->hasColumn('mod_cpm_tasks', 'offer_id')) {
             $s->table('mod_cpm_tasks', function ($t) { $t->integer('offer_id')->unsigned()->nullable()->index(); });
         }
+        /* Απλός αριθμός/κωδικός προσφοράς που πληκτρολογείται (π.χ. CLD-2026-2600005) —
+           χωρίς να «μπλέξει» ολόκληρη η προσφορά. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'offer_ref')) {
+            $s->table('mod_cpm_tasks', function ($t) { $t->string('offer_ref', 40)->nullable(); });
+        }
 
         /* Αντιδράσεις (👍 ✅ 👀 …) σε ενέργειες της συζήτησης μιας εργασίας. Ο κωδικός
            είναι λέξη (up/ok/eyes/…), όχι emoji — η βάση είναι utf8mb3. */

@@ -3206,3 +3206,4 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 @keyframes saveBreath{0%,100%{box-shadow:0 0 0 0 rgba(0,144,221,.45)}50%{box-shadow:0 0 0 6px rgba(0,144,221,0)}}
 .unsaved-hint{font-size:11px;color:#e0a020;font-weight:700;white-space:nowrap;align-self:center}
 @media (prefers-reduced-motion:reduce){.btn.has-changes{animation:none}}
+.tk-offer-ref .inp{font-variant-numeric:tabular-nums}.tk-offer-more{margin-top:8px}

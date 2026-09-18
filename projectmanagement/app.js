@@ -2003,7 +2003,7 @@ async function openTask(id, entryId) {
           ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα στην ανάθεση">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>`
           : t.ticketRef
             ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket της παλιάς πλατφόρμας — προτεραιότητα στην ανάθεση">${I.ticket} Ticket #${esc(t.ticketRef)}</span>` : ''}
-        ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} Προσφορά</span>` : ''}
+        ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} Προσφορά${t.offerRef ? ' ' + esc(t.offerRef) : (d.offer ? ' #' + d.offer.id : '')}</span>` : ''}
       </div>
       <div class="tk-sub">
         ${supId ? `<span class="tk-sup" title="Άνοιξε την εργασία και έχει την ευθύνη να την παρακολουθεί — ορίζεται αυτόματα από τον χρήστη">${I.eye} Επιβλέπων: <b>${esc(adminName(supId))}</b></span>` : ''}
@@ -2211,14 +2211,18 @@ async function openTask(id, entryId) {
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
         <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>
       <div class="tk-offer-box" id="fOfferBox" ${t.isOffer ? '' : 'hidden'}>
-        ${d.offer ? `<div class="tk-offer-lnk"><button type="button" class="pill pill-info" id="fOfferOpen" title="Άνοιγμα της προσφοράς">${I.doc} ${esc(d.offer.title)} · ${esc(d.offer.stageName)}${d.offer.amount ? ' · ' + fmtEur(d.offer.amount) : ''}</button>
+        ${d.offer ? `<div class="tk-offer-lnk">${t.offerRef ? `<span class="mut" style="font-size:11.5px">Αρ. <b>${esc(t.offerRef)}</b></span>` : ''}<button type="button" class="pill pill-info" id="fOfferOpen" title="Άνοιγμα της προσφοράς">${I.doc} ${esc(d.offer.title)} · ${esc(d.offer.stageName)}${d.offer.amount ? ' · ' + fmtEur(d.offer.amount) : ''}</button>
             <button type="button" class="th-btn" id="fOfferUnlink" title="Λύσιμο από αυτή την προσφορά">✕</button></div>`
-          : `<select class="inp" id="fOfferSel" title="Δέσε με υπάρχουσα προσφορά του πελάτη"><option value="">— δέσε με υπάρχουσα προσφορά… —</option></select>
+          : `<div class="tk-offer-ref"><label class="lbl" style="margin:0 0 3px">Αρ. προσφοράς</label>
+              <input class="inp" id="fOfferRef" value="${esc(t.offerRef || '')}" placeholder="π.χ. CLD-2026-2600005 ή #57" title="Γράψε τον αριθμό/κωδικό της προσφοράς. Αν είναι δική μας, δένεται μόνη της.">
+              <div class="mut" style="font-size:10.5px;margin-top:3px">Αποθηκεύεται με το «Αποθήκευση». Αν είναι δική μας προσφορά, δένεται αυτόματα.</div></div>
+            <details class="tk-offer-more"><summary class="mut" style="cursor:pointer;font-size:11px">ή διάλεξε από τις προσφορές του πελάτη / νέα / ζήτα από συνάδελφο</summary>
+            <select class="inp" id="fOfferSel" title="Δέσε με υπάρχουσα προσφορά του πελάτη" style="margin-top:6px"><option value="">— δέσε με υπάρχουσα προσφορά… —</option></select>
             <div class="tk-offer-acts">
               <button type="button" class="btn btn-sm btn-p" id="fOfferNew">${I.plus} Νέα προσφορά</button>
               <button type="button" class="btn btn-sm btn-o" id="fOfferAsk" title="Ζήτα από συνάδελφο να φτιάξει την προσφορά — θα ειδοποιηθεί και θα μείνει στις εκκρεμότητές του">📣 Ζήτα από συνάδελφο…</button>
             </div>
-            ${d.offerReq ? `<div class="mut" style="font-size:11px;margin-top:5px">${d.offerReq.status === 'open' ? '⏳' : '✓'} Ζητήθηκε από <b>${esc(d.offerReq.by)}</b> προς <b>${esc(d.offerReq.to)}</b> · ${tShort(d.offerReq.at)}${d.offerReq.status === 'open' ? ' — εκκρεμεί' : ''}</div>` : ''}`}
+            ${d.offerReq ? `<div class="mut" style="font-size:11px;margin-top:5px">${d.offerReq.status === 'open' ? '⏳' : '✓'} Ζητήθηκε από <b>${esc(d.offerReq.by)}</b> προς <b>${esc(d.offerReq.to)}</b> · ${tShort(d.offerReq.at)}${d.offerReq.status === 'open' ? ' — εκκρεμεί' : ''}</div>` : ''}</details>`}
       </div>
       <div class="tk-src" title="Από ποιο κανάλι μας ήρθε το αίτημα">
         <span class="mut">Ήρθε από:</span>
@@ -2410,6 +2414,7 @@ async function openTask(id, entryId) {
       assignee: +$('#fAssignee').value || 0, prio: +$('#fPrio').value,
       ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
       is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
+      offer_ref: $('#fOfferRef', dr) ? $('#fOfferRef', dr).value.trim() : undefined,
       source: $('#fSource', dr) ? $('#fSource', dr).value : undefined,
       est: estMins(($('#fEst', dr) || {}).value),
       /* «Αποθήκευση» σώζει ΟΛΑ όσα άλλαξαν στην καρτέλα — και το ζητούμενο, αν

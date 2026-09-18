@@ -1770,6 +1770,7 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
         'delivery' => !empty($t->is_delivery),
         'isOffer' => !empty($t->is_offer),                       // αφορά προσφορά → προτεραιότητα
         'offerId' => isset($t->offer_id) && $t->offer_id ? (int) $t->offer_id : null,   // η ΣΥΓΚΕΚΡΙΜΕΝΗ προσφορά
+        'offerRef' => isset($t->offer_ref) && $t->offer_ref !== null ? (string) $t->offer_ref : '',   // ο αριθμός που πληκτρολογήθηκε
         'creator' => isset($t->created_by) && $t->created_by ? (int) $t->created_by : null,   // ο επιβλέπων
         'billOk' => !empty($t->billing_ok),
         /* null = αυτόματο (υπάρχει πελάτης → χρεώσιμο)· 0 = δεν χρεώνεται ποτέ· 1 = πάντα. */
@@ -5268,6 +5269,22 @@ case 'save_task':
         }
         $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
         cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο');   // @Όνομα → «πρόσεξέ με»
+    }
+    if (array_key_exists('offer_ref', $in)) {
+        /* Ο αριθμός προσφοράς όπως πληκτρολογήθηκε. Αν ταιριάζει με πρωτόκολλο δικής μας
+           προσφοράς, δένεται κιόλας — χωρίς να χρειάζεται να τη διαλέξει από λίστα. */
+        $ref = mb_substr(trim((string) $in['offer_ref']), 0, 40);
+        $data['offer_ref'] = $ref !== '' ? $ref : null;
+        if ($ref !== '') {
+            $data['is_offer'] = 1;
+            $hit = null;
+            if (preg_match('/^#?(\d{1,9})$/', $ref, $mm)) { $hit = Db::offer((int) $mm[1]); }
+            if (!$hit) {
+                $hit = Capsule::table('mod_cpm_offers')->where('config', 'like', '%"protocol":"' . str_replace(['%', '_'], ['\%', '\_'], $ref) . '"%')->first();
+            }
+            /* Ο αριθμός είναι η αλήθεια: ταιριάζει → δένεται, δεν ταιριάζει → λύνεται παλιό δέσιμο. */
+            $data['offer_id'] = $hit ? (int) $hit->id : null;
+        }
     }
     if (array_key_exists('offer', $in)) {
         /* Δέσιμο με συγκεκριμένη προσφορά (0 = λύσιμο). Δεμένη προσφορά = «αφορά προσφορά». */
