@@ -3306,3 +3306,21 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .myd-done{opacity:1}
   .myd-time{width:auto}
 }
+
+/* ═══ Chat: φωνητικά μηνύματα ═══ */
+.ch-rec{display:flex;align-items:center;gap:9px;padding:8px 12px;border-top:1px dashed var(--line);font-size:13px;flex-wrap:wrap}
+.ch-rec-dot{width:11px;height:11px;border-radius:50%;background:var(--bad);animation:chRecPulse 1s ease-in-out infinite;flex:none}
+@keyframes chRecPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+.ch-rec-t{font-variant-numeric:tabular-nums;font-weight:800;color:var(--bad)}
+#chMic.on{background:var(--bad);color:#fff;border-color:var(--bad)}
+.ch-voice{display:flex;align-items:center;gap:9px;margin-top:4px;padding:7px 10px;border-radius:12px;background:#0090dd12;min-width:220px;max-width:340px}
+.ch-m.me .ch-voice{background:#0090dd22}
+.ch-vp{flex:none;width:32px;height:32px;border-radius:50%;border:none;background:var(--brand);color:#fff;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.ch-vp:hover{filter:brightness(1.1)}
+.ch-vbar{flex:1;height:6px;border-radius:99px;background:#8595ac44;cursor:pointer;overflow:hidden;min-width:90px}
+.ch-vbar>span{display:block;height:100%;width:0;background:var(--brand);border-radius:99px;transition:width .2s linear}
+.ch-m.me .ch-vbar>span{background:var(--brand-d)}
+.ch-vt{flex:none;font-size:11.5px;font-variant-numeric:tabular-nums;font-weight:700;min-width:34px;text-align:right}
+.ch-vdl{flex:none;opacity:.6;display:inline-flex}.ch-vdl:hover{opacity:1}.ch-vdl svg{width:14px;height:14px}
+.ch-voice.playing .ch-vp{background:var(--bad)}
+.ch-rec .ch-voice{margin-top:0;background:var(--bg2)}

@@ -11646,7 +11646,7 @@ case 'chat_send':
     foreach ($recips as $other) {
         if (!cnp_presence($other)['mute']) {
             Db::pushNotification($other, 'comment', '💬 ' . (isset($gname) ? "[$gname] " : '') . Db::adminName($adminId) . ': '
-                . mb_substr($body ?: ('📎 ' . $fn), 0, 80), '/projectmanagement/#/chat');
+                . mb_substr($body ?: (strpos((string) $fmime, 'audio/') === 0 ? '🎙 φωνητικό μήνυμα' : '📎 ' . $fn), 0, 80), '/projectmanagement/#/chat');
         }
     }
     out(['ok' => true, 'id' => $mid]);

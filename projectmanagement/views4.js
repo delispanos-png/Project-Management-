@@ -1229,6 +1229,36 @@ function openImport(products, reload) {
 }
 
 /* ═════════ 💬 ΕΣΩΤΕΡΙΚΟ CHAT ═════════ */
+const MIC_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+/* Player φωνητικού μηνύματος: ▶/❚❚, μπάρα με seek, χρόνος. Η διάρκεια έρχεται απ' έξω (secs)
+   γιατί τα webm ηχογράφησης δεν την έχουν στα metadata. */
+function chVoiceHtml(url, secs, name) {
+  const f = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  return `<div class="ch-voice" data-secs="${secs || 0}">
+    <button type="button" class="ch-vp" title="Αναπαραγωγή">▶</button>
+    <div class="ch-vbar" title="Κλικ για μετάβαση"><span></span></div>
+    <span class="ch-vt">${f(secs || 0)}</span>
+    <audio preload="metadata" src="${url}"></audio>
+    ${name ? `<a class="ch-vdl" href="${url}${url.indexOf('?') > 0 ? '&' : '?'}dl=1" download="${esc(name)}" title="Λήψη">${I.download}</a>` : ''}
+  </div>`;
+}
+function chWireVoice(root) {
+  root.querySelectorAll('.ch-voice').forEach(v => {
+    if (v._wired) { return; } v._wired = true;
+    const a = v.querySelector('audio'), b = v.querySelector('.ch-vp'), bar = v.querySelector('.ch-vbar'), fill = bar.querySelector('span'), t = v.querySelector('.ch-vt');
+    const f = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+    const dur = () => (isFinite(a.duration) && a.duration > 0) ? a.duration : (+v.dataset.secs || 0);
+    b.onclick = () => {
+      if (a.paused) { document.querySelectorAll('.ch-voice audio').forEach(o => { if (o !== a) { o.pause(); } }); a.play().catch(() => toast('Δεν παίζει ο ήχος', true)); }
+      else { a.pause(); }
+    };
+    a.onplay = () => { b.textContent = '❚❚'; v.classList.add('playing'); };
+    a.onpause = () => { b.textContent = '▶'; v.classList.remove('playing'); };
+    a.onended = () => { b.textContent = '▶'; v.classList.remove('playing'); fill.style.width = '0'; t.textContent = f(dur()); };
+    a.ontimeupdate = () => { const d = dur(); if (d) { fill.style.width = Math.min(100, a.currentTime / d * 100) + '%'; } t.textContent = f(a.currentTime); };
+    bar.onclick = e => { const d = dur(); if (!d) { return; } const r = bar.getBoundingClientRect(); a.currentTime = Math.max(0, Math.min(d, (e.clientX - r.left) / r.width * d)); };
+  });
+}
 R.chat = async function () {
   /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
   if (!cnpCan('team.chat')) { setTop('Chat'); $('#content').innerHTML = cnpDenied({message: 'Η συνομιλία της ομάδας δίνεται από το κύκλωμα «Η ομάδα → Chat»'}); return; }
@@ -1295,8 +1325,10 @@ R.chat = async function () {
           <label class="btn btn-o btn-sm" style="cursor:pointer" title="Αρχείο">${I.clip}<input type="file" id="chFile" style="display:none"></label>
           <span id="chFn" class="mut" style="font-size:11px"></span>
           <input class="inp" id="chIn" placeholder="Μήνυμα… (Enter) — ή επικόλλησε εικόνα με Ctrl+V" style="flex:1">
+          <button class="btn btn-o btn-sm" id="chMic" title="Φωνητικό μήνυμα — πάτα για ηχογράφηση">${MIC_SVG}</button>
           <button class="btn btn-p btn-sm" id="chSend">${I.send}</button>
         </div>
+        <div class="ch-rec" id="chRec" hidden></div>
       </div>
     </div>
   </div>`;
@@ -1377,8 +1409,15 @@ R.chat = async function () {
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
           <a class="ch-dl" href="${fu}&dl=1" download="${esc(m.file.name)}" title="Λήψη αρχείου">${I.download} Λήψη</a>
           ${m.file.kind === 'video' ? `<video src="${fu}" controls preload="metadata" style="width:100%;max-width:340px;max-height:240px;border-radius:8px;background:#000;margin-top:5px"></video>` : m.file.kind === 'image' ? `<img src="${fu}" loading="lazy" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:5px;display:block">` : ''}</div>`; })() : ''}`;
+      /* 🎙 Φωνητικό: αντί για «voice-….webm» + Λήψη, ένας player σαν μήνυμα (WhatsApp-style). */
+      if (m.file && m.file.kind === 'audio') {
+        const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id);
+        const secs = (() => { const x = /(\d+):(\d\d)/.exec(m.body || ''); return x ? (+x[1]) * 60 + (+x[2]) : 0; })();
+        div.innerHTML = `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}</div>` + chVoiceHtml(fu, secs, m.file.name);
+      }
       box.appendChild(div);
       cnpWireMsgLinks(div);
+      chWireVoice(div);
     });
     if (msgs.length && (stick || st.lastId === msgs[msgs.length - 1].id)) box.scrollTop = box.scrollHeight;
   };
@@ -1457,6 +1496,57 @@ R.chat = async function () {
   $('#chSend').onclick = send;
   $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
   $('#chFile').onchange = () => { $('#chFn').textContent = $('#chFile').files[0]?.name || ''; };
+  /* ── 🎙 Φωνητικό μήνυμα: ηχογράφηση → προεπισκόπηση → αποστολή ως αρχείο ήχου ──
+     Το «τι ώρα/πόσο» μπαίνει στο κείμενο («🎙 0:12») γιατί το webm της ηχογράφησης δεν
+     έχει διάρκεια στα metadata (Chrome) — έτσι ο player και η ειδοποίηση την ξέρουν. */
+  const recUi = $('#chRec'), micBtn = $('#chMic');
+  let rec = null, recChunks = [], recT0 = 0, recTimer = null, recBlob = null, recMime = '', recStream = null;
+  const recFmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  const recStop = () => { if (recStream) { recStream.getTracks().forEach(t => t.stop()); recStream = null; } clearInterval(recTimer); recTimer = null; };
+  const recReset = () => { recStop(); rec = null; recChunks = []; recBlob = null; recUi.hidden = true; recUi.innerHTML = ''; micBtn.classList.remove('on'); };
+  const recPaint = () => {
+    const secs = Math.round((Date.now() - recT0) / 1000);
+    if (rec && rec.state === 'recording') {
+      recUi.innerHTML = `<span class="ch-rec-dot"></span><b>Ηχογράφηση</b> <span class="ch-rec-t" id="chRecT">${recFmt(secs)}</span>
+        <span class="mut" style="font-size:11px">· μέγιστο 5΄</span><span style="flex:1"></span>
+        <button class="btn btn-o btn-sm" id="chRecX">✕ Άκυρο</button><button class="btn btn-p btn-sm" id="chRecStop">■ Στοπ</button>`;
+      $('#chRecX').onclick = recReset;
+      $('#chRecStop').onclick = () => { try { rec.stop(); } catch (e) { recReset(); } };
+    }
+  };
+  const recStart = async () => {
+    if (!navigator.mediaDevices || !window.MediaRecorder) { toast('Ο browser δεν υποστηρίζει ηχογράφηση', true); return; }
+    try { recStream = await navigator.mediaDevices.getUserMedia({audio: true}); }
+    catch (e) { toast('Δεν δόθηκε πρόσβαση στο μικρόφωνο', true); return; }
+    recMime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+    try { rec = new MediaRecorder(recStream, recMime ? {mimeType: recMime, audioBitsPerSecond: 48000} : undefined); }
+    catch (e) { toast('Δεν ξεκίνησε η ηχογράφηση', true); recStop(); return; }
+    recChunks = []; recT0 = Date.now();
+    rec.ondataavailable = e => { if (e.data && e.data.size) { recChunks.push(e.data); } };
+    rec.onstop = () => {
+      const secs = Math.max(1, Math.round((Date.now() - recT0) / 1000));
+      recStop();
+      recBlob = new Blob(recChunks, {type: (rec.mimeType || recMime || 'audio/webm').split(';')[0]});
+      if (recBlob.size < 1000) { toast('Πολύ σύντομο — δεν ηχογραφήθηκε τίποτα', true); recReset(); return; }
+      const url = URL.createObjectURL(recBlob);
+      recUi.innerHTML = `<span class="mut" style="font-size:12px;font-weight:700">🎙 Έτοιμο · ${recFmt(secs)}</span>${chVoiceHtml(url, secs, '')}<span style="flex:1"></span>
+        <button class="btn btn-o btn-sm" id="chRecX" title="Πέτα το και ξαναγράψε">✕</button><button class="btn btn-p btn-sm" id="chRecSend">${I.send} Στείλε</button>`;
+      chWireVoice(recUi);
+      $('#chRecX').onclick = () => { URL.revokeObjectURL(url); recReset(); };
+      $('#chRecSend').onclick = async () => {
+        const ext = /mp4/.test(recBlob.type) ? 'm4a' : /ogg/.test(recBlob.type) ? 'ogg' : 'webm';
+        const d = new Date(), pad = n => String(n).padStart(2, '0');
+        const file = new File([recBlob], 'voice-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.' + ext, {type: recBlob.type});
+        $('#chRecSend').disabled = true;
+        if (await sendOne('🎙 Φωνητικό μήνυμα · ' + recFmt(secs), file)) { URL.revokeObjectURL(url); recReset(); if (st.lastId === -1) st.lastId = 0; load(); }
+        else { $('#chRecSend').disabled = false; }
+      };
+    };
+    rec.start(250);
+    micBtn.classList.add('on'); recUi.hidden = false; recPaint();
+    recTimer = setInterval(() => { const t = $('#chRecT'); if (t) { t.textContent = recFmt(Math.round((Date.now() - recT0) / 1000)); } if (Date.now() - recT0 > 5 * 60000 && rec && rec.state === 'recording') { rec.stop(); } }, 500);
+  };
+  micBtn.onclick = () => { if (rec && rec.state === 'recording') { rec.stop(); } else if (recUi.hidden) { recStart(); } };
   $('#chIn').onpaste = e => {
     const items = [...((e.clipboardData || {}).items || [])];
     let took = false;
