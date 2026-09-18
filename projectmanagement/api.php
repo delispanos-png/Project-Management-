@@ -11236,9 +11236,13 @@ case 'scheduler':                        // Πρόγραμμα ανά άνθρω
             't.schedule_date', 't.priority', 't.estimate_minutes',
             'p.name as pname', 'p.color as pcolor', 'st.title as sname']);
 
+    /* ▶ Ποιες εργασίες έχουν χρονόμετρο που τρέχει ΤΩΡΑ (από τον ανάδοχό τους): φαίνονται «ζωντανές» στο πρόγραμμα. */
+    $runS = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['task_id', 'admin_id']) as $rl) { $runS[(int) $rl->task_id] = (int) $rl->admin_id; }
     $byPerson = [];
     foreach ($rowsS as $t) {
         $byPerson[(int) $t->assignee][] = [
+            'running' => isset($runS[(int) $t->id]),
             'id' => (int) $t->id, 'title' => $t->title,
             'start' => $t->start_date, 'end' => $t->due_date,
             'startT' => $t->start_time ? substr($t->start_time, 0, 5) : null,

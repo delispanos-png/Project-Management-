@@ -3371,3 +3371,12 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .ch-zoom .ch-voice.big .ch-vp{width:44px;height:44px;font-size:17px}
 .ch-zoom .ch-quote{max-width:none;font-size:14px}
 .ch-m{user-select:text}
+
+/* ═══ Πρόγραμμα ομάδας: υπο-λωρίδες, ζωντανή εργασία ═══ */
+.sc-bar.off{opacity:.62}
+.sc-bar.off:hover{opacity:1}
+.sc-bar.live{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ok),0 4px 12px rgba(22,162,106,.35);opacity:1;z-index:2}
+.sc-live{color:var(--ok);font-weight:900;animation:scLive 1.2s ease-in-out infinite}
+.sc-bar .sc-live{color:#fff}
+@keyframes scLive{0%,100%{opacity:1}50%{opacity:.35}}
+.sc-who .pill{flex:none}

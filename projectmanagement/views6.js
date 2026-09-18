@@ -1353,30 +1353,51 @@ R.scheduler = async function () {
     ${days.map(x => `<div class="sc-day${x.today ? ' now' : ''}${x.dow === 0 || x.dow === 6 ? ' we' : ''}" style="width:${CELL}px">
       <b>${x.d}</b><small>${['Κυ', 'Δε', 'Τρ', 'Τε', 'Πε', 'Πα', 'Σα'][x.dow]}</small></div>`).join('')}</div>`;
 
+  /* Υπο-λωρίδες: εργασίες του ίδιου ατόμου που επικαλύπτονται χρονικά ΔΕΝ πέφτουν η μία πάνω
+     στην άλλη — η καθεμιά παίρνει τη δική της σειρά (greedy: η πρώτη σειρά που έχει αδειάσει).
+     Η γραμμή του ατόμου ψηλώνει ανάλογα. */
+  const ROW = 34, PAD = 7;
+  const TODAY = today();
+  const stack = tasks => {
+    const sorted = tasks.slice().sort((a, b) => a.start.localeCompare(b.start) || b.end.localeCompare(a.end));
+    const ends = [];   // ανά υπο-λωρίδα: πότε τελειώνει η τελευταία εργασία της
+    sorted.forEach(t => {
+      let k = ends.findIndex(e => e < t.start);
+      if (k < 0) { k = ends.length; }
+      ends[k] = t.end; t._row = k;
+    });
+    return {tasks: sorted, rows: Math.max(1, ends.length)};
+  };
   const bar = t => {
     let s = idx(t.start), e = idx(t.end);
     const clipL = s < 0, clipR = e < 0;
     if (clipL) { s = 0; }
     if (clipR) { e = days.length - 1; }
     const w = Math.max(1, e - s + 1);
-    return `<div class="sc-bar${t.late ? ' late' : ''}${clipL ? ' clipL' : ''}${clipR ? ' clipR' : ''}"
+    const now = t.start <= TODAY && t.end >= TODAY;
+    return `<div class="sc-bar${t.late ? ' late' : ''}${clipL ? ' clipL' : ''}${clipR ? ' clipR' : ''}${t.running ? ' live' : ''}${now ? ' now' : ' off'}"
       data-sct="${t.id}" data-s="${t.start}" data-e="${t.end}"
-      style="left:${s * CELL + 2}px;width:${w * CELL - 4}px;background:${t.color}"
-      title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}">
+      style="left:${s * CELL + 2}px;width:${w * CELL - 4}px;top:${PAD + (t._row || 0) * ROW}px;background:${t.color}"
+      title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}${t.running ? '\n▶ τρέχει χρονόμετρο τώρα' : ''}${t.status ? '\n' + esc(t.status) : ''}">
       <span class="sc-grip l" data-grip="l"></span>
-      <span class="sc-t">${esc(t.title)}</span>
+      <span class="sc-t">${t.running ? '<span class="sc-live">▶</span> ' : ''}${esc(t.title)}</span>
       <span class="sc-grip r" data-grip="r"></span></div>`;
   };
 
-  const lane = l => `<div class="sc-lane" data-lane="${l.id}" style="width:${LEFT + W}px">
+  const lane = l => {
+    const st2 = stack(l.tasks);
+    const h = PAD * 2 + st2.rows * ROW;
+    const todayN = l.tasks.filter(t => t.start <= TODAY && t.end >= TODAY).length;
+    const live = l.tasks.some(t => t.running);
+    return `<div class="sc-lane" data-lane="${l.id}" style="width:${LEFT + W}px;min-height:${h}px">
     <div class="sc-who" style="width:${LEFT}px">
-      <span class="act-ava" style="--sc:var(--mut)">${esc(l.ini || '?')}</span>
-      <span class="sc-nm">${esc(l.name)}</span>
-      <span class="pill pill-mut">${l.tasks.length}</span></div>
-    <div class="sc-track" style="width:${W}px">
+      <span class="act-ava" style="--sc:${live ? 'var(--ok)' : 'var(--mut)'}">${esc(l.ini || '?')}</span>
+      <span class="sc-nm">${esc(l.name)}${live ? ' <span class="sc-live" title="Τρέχει χρονόμετρο τώρα">▶</span>' : ''}</span>
+      <span class="pill ${todayN > 2 ? 'pill-warn' : 'pill-mut'}" title="${todayN} σήμερα · ${l.tasks.length} στο διάστημα">${todayN > 2 ? '⚠ ' : ''}${todayN}/${l.tasks.length}</span></div>
+    <div class="sc-track" style="width:${W}px;height:${h}px">
       ${days.map((x, i) => `<span class="sc-cell${x.today ? ' now' : ''}${x.dow === 0 || x.dow === 6 ? ' we' : ''}" style="left:${i * CELL}px;width:${CELL}px"></span>`).join('')}
-      ${l.tasks.map(bar).join('')}
-    </div></div>`;
+      ${st2.tasks.map(bar).join('')}
+    </div></div>`; };
 
   c.innerHTML = `
   <div class="card" style="margin-bottom:12px"><div class="card-b" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
