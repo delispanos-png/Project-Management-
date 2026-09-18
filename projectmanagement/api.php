@@ -11242,7 +11242,9 @@ case 'scheduler':                        // Πρόγραμμα ανά άνθρω
     $byPerson = [];
     foreach ($rowsS as $t) {
         $byPerson[(int) $t->assignee][] = [
-            'running' => isset($runS[(int) $t->id]),
+            /* Ποιος τρέχει χρονόμετρο ΤΩΡΑ στην εργασία — μπορεί να μην είναι ο ανάδοχος (π.χ. πήρε τη μπάλα). */
+            'runBy' => isset($runS[(int) $t->id]) ? $runS[(int) $t->id] : 0,
+            'runByName' => isset($runS[(int) $t->id]) ? Db::adminName($runS[(int) $t->id]) : '',
             'id' => (int) $t->id, 'title' => $t->title,
             'start' => $t->start_date, 'end' => $t->due_date,
             'startT' => $t->start_time ? substr($t->start_time, 0, 5) : null,
@@ -11257,7 +11259,9 @@ case 'scheduler':                        // Πρόγραμμα ανά άνθρω
     $lanes = [];
     foreach ($ids as $aid) {
         if (!$aid) { continue; }
+        $prA = cnp_presence($aid);
         $lanes[] = ['id' => $aid, 'name' => Db::adminName($aid), 'ini' => initials(Db::adminName($aid)),
+            'presence' => $prA['status'], 'presenceLbl' => $prA['label'], 'presenceCol' => $prA['color'],
             'tasks' => $byPerson[$aid] ?? []];
     }
     /* Πρώτα όποιος έχει δουλειά — οι άδειες λωρίδες κάτω, για να μη σπρώχνουν. */

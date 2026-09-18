@@ -3380,3 +3380,6 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .sc-bar .sc-live{color:#fff}
 @keyframes scLive{0%,100%{opacity:1}50%{opacity:.35}}
 .sc-who .pill{flex:none}
+.sc-pr{display:block;font-size:10px;font-weight:600;color:var(--mut);line-height:1.1}
+.sc-lane.off .sc-nm{color:var(--mut)}
+.sc-runby{display:inline-block;margin-right:4px;font-size:10px;font-weight:800;background:rgba(255,255,255,.28);border-radius:999px;padding:0 6px;vertical-align:1px}

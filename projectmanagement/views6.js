@@ -1368,19 +1368,21 @@ R.scheduler = async function () {
     });
     return {tasks: sorted, rows: Math.max(1, ends.length)};
   };
-  const bar = t => {
+  const bar = (t, laneId) => {
+    const liveHere = t.runBy && t.runBy === laneId;      // ο ίδιος ο χειριστής της γραμμής δουλεύει τώρα
+    const liveOther = t.runBy && t.runBy !== laneId;     // κάποιος ΑΛΛΟΣ τρέχει χρόνο σε δική του εργασία
     let s = idx(t.start), e = idx(t.end);
     const clipL = s < 0, clipR = e < 0;
     if (clipL) { s = 0; }
     if (clipR) { e = days.length - 1; }
     const w = Math.max(1, e - s + 1);
     const now = t.start <= TODAY && t.end >= TODAY;
-    return `<div class="sc-bar${t.late ? ' late' : ''}${clipL ? ' clipL' : ''}${clipR ? ' clipR' : ''}${t.running ? ' live' : ''}${now ? ' now' : ' off'}"
+    return `<div class="sc-bar${t.late ? ' late' : ''}${clipL ? ' clipL' : ''}${clipR ? ' clipR' : ''}${liveHere ? ' live' : ''}${now ? ' now' : ' off'}"
       data-sct="${t.id}" data-s="${t.start}" data-e="${t.end}"
       style="left:${s * CELL + 2}px;width:${w * CELL - 4}px;top:${PAD + (t._row || 0) * ROW}px;background:${t.color}"
-      title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}${t.running ? '\n▶ τρέχει χρονόμετρο τώρα' : ''}${t.status ? '\n' + esc(t.status) : ''}">
+      title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}${liveHere ? '\n▶ τρέχει χρονόμετρο τώρα' : ''}${liveOther ? '\n▶ τρέχει χρόνο ο/η ' + esc(t.runByName) + ' (όχι ο ανάδοχος)' : ''}${t.status ? '\n' + esc(t.status) : ''}">
       <span class="sc-grip l" data-grip="l"></span>
-      <span class="sc-t">${t.running ? '<span class="sc-live">▶</span> ' : ''}${esc(t.title)}</span>
+      <span class="sc-t">${liveHere ? '<span class="sc-live">▶</span> ' : ''}${liveOther ? `<span class="sc-runby" title="Τρέχει χρόνο ο/η ${esc(t.runByName)} — όχι ο ανάδοχος">▶ ${esc(t.runByName.split(' ')[0])}</span> ` : ''}${esc(t.title)}</span>
       <span class="sc-grip r" data-grip="r"></span></div>`;
   };
 
@@ -1388,15 +1390,17 @@ R.scheduler = async function () {
     const st2 = stack(l.tasks);
     const h = PAD * 2 + st2.rows * ROW;
     const todayN = l.tasks.filter(t => t.start <= TODAY && t.end >= TODAY).length;
-    const live = l.tasks.some(t => t.running);
-    return `<div class="sc-lane" data-lane="${l.id}" style="width:${LEFT + W}px;min-height:${h}px">
-    <div class="sc-who" style="width:${LEFT}px">
-      <span class="act-ava" style="--sc:${live ? 'var(--ok)' : 'var(--mut)'}">${esc(l.ini || '?')}</span>
-      <span class="sc-nm">${esc(l.name)}${live ? ' <span class="sc-live" title="Τρέχει χρονόμετρο τώρα">▶</span>' : ''}</span>
+    /* ▶ στο όνομα ΜΟΝΟ αν ο ίδιος τρέχει χρόνο (σε οποιαδήποτε γραμμή) — όχι επειδή κάποιος άλλος δουλεύει δική του εργασία. */
+    const live = d.lanes.some(x => x.tasks.some(t => t.runBy === l.id));
+    const off = l.presence === 'offline' || l.presence === 'away';
+    return `<div class="sc-lane${off ? ' off' : ''}" data-lane="${l.id}" style="width:${LEFT + W}px;min-height:${h}px">
+    <div class="sc-who" style="width:${LEFT}px" title="${esc(l.presenceLbl || '')}">
+      <span class="act-ava" style="--sc:${esc(l.presenceCol || 'var(--mut)')}">${esc(l.ini || '?')}</span>
+      <span class="sc-nm">${esc(l.name)}${live ? ' <span class="sc-live" title="Τρέχει χρονόμετρο τώρα">▶</span>' : ''}<small class="sc-pr">${esc(l.presenceLbl || '')}</small></span>
       <span class="pill ${todayN > 2 ? 'pill-warn' : 'pill-mut'}" title="${todayN} σήμερα · ${l.tasks.length} στο διάστημα">${todayN > 2 ? '⚠ ' : ''}${todayN}/${l.tasks.length}</span></div>
     <div class="sc-track" style="width:${W}px;height:${h}px">
       ${days.map((x, i) => `<span class="sc-cell${x.today ? ' now' : ''}${x.dow === 0 || x.dow === 6 ? ' we' : ''}" style="left:${i * CELL}px;width:${CELL}px"></span>`).join('')}
-      ${st2.tasks.map(bar).join('')}
+      ${st2.tasks.map(t => bar(t, l.id)).join('')}
     </div></div>`; };
 
   c.innerHTML = `
