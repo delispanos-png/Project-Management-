@@ -40,10 +40,10 @@ class Pbx3cxBlueprint
        ίδιου του τμήματος (προστασία από βρόχο). Μετρήθηκε: ίδιο μήνυμα με
        From: support@ → κανένα ticket· με From: pbx-noreply@ → ticket.
        Το 3CX πρέπει να στέλνει από ΑΛΛΗ διεύθυνση. */
-    const TICKET_DN = '900';   // «CloudOn, Voicemail» — φωνητικό μήνυμα → voicemail@cloudon.gr
+    const TICKET_DN = '900';   // «CloudOn, Voicemail» — φωνητικό μήνυμα → TICKET_MAIL
     const TICKET_ID = 210;
     const TICKET_MAIL = 'pbx-vm-fvs422tli@cloudon.gr';
-    const TICKETS_DN = '903';  // «CloudOn, Tickets» — γραπτό αίτημα (email από την AI) → voiceticket@cloudon.gr
+    const TICKETS_DN = '903';  // «CloudOn, Tickets» — γραπτό αίτημα (email από την AI) → TICKETS_MAIL
     const TICKETS_MAIL = 'pbx-tk-kzjrl8hj4@cloudon.gr';
     const RULES_ALL = [12, 13];            // ForwardAll: Sip1.CloudOn.gr, Cyprus
     const SCRIPT_DN = '806';               // το παλιό call script — μένει ως εφεδρεία
