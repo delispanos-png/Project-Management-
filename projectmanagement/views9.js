@@ -264,7 +264,7 @@ R.calls = async function () {
   <div class="cl-cols">
     <div class="card"><div class="card-h">${I.users} Ανά χειριστή</div>
       <div class="card-b">${d.perAdmin.length ? d.perAdmin.map(a => `
-        <div class="cl-agg"><span class="cl-an">${esc(a.name)}</span>
+        <div class="cl-agg pick" data-adm="${a.id}" title="Δες με ποιους μίλησε"><span class="cl-an">${esc(a.name)}</span>
           <span class="cl-ab"><i style="width:${Math.round(a.talk / Math.max(1, d.perAdmin[0].talk) * 100)}%"></i></span>
           <span class="cl-av">${a.calls} κλήσεις · <b>${callHm(a.talk)}</b>${a.missed ? ` · <span style="color:var(--bad)">${a.missed} χαμένες</span>` : ''}</span>
         </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
@@ -272,12 +272,78 @@ R.calls = async function () {
     <div class="card"><div class="card-h">${I.building} Ποιος μας απασχολεί
       <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κατά χρόνο</span></div>
       <div class="card-b">${d.perClient.length ? d.perClient.map(x => `
-        <div class="cl-agg${x.client ? ' pick' : ''}" ${x.client ? `data-cli="${x.client}"` : ''}>
+        <div class="cl-agg pick" ${x.client ? `data-cli="${x.client}"` : `data-num="${esc(x.num || x.name)}"`}
+          title="Δες ποιος τον εξυπηρέτησε">
           <span class="cl-an">${esc(x.name)}</span>
           <span class="cl-ab"><i style="width:${Math.round(x.talk / Math.max(1, d.perClient[0].talk) * 100)}%;background:#7b5cd6"></i></span>
           <span class="cl-av">${x.calls} · <b>${callHm(x.talk)}</b></span>
         </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
   </div>
+
+  ${(() => {
+    /* ── ΠΟΤΕ ΜΑΣ ΠΙΕΖΟΥΝ ──
+       Δεν δείχνουμε μέσο όρο: δείχνουμε ΠΟΤΕ χτυπάει το τηλέφωνο και πότε μας
+       ξεφεύγει. Η ένταση του χρώματος είναι ο όγκος· η κόκκινη κουκκίδα κάτω
+       λέει ότι εκείνη την ώρα χάνουμε κλήσεις. Οι νεκρές ώρες κόβονται, γιατί
+       ένα 24ωρο με άδειες τις μισές στήλες κρύβει αυτό που μετράει. */
+    const hrs = d.byHour || [];
+    if (!hrs.length || !t.calls) { return ''; }
+    /* ΟΧΙ «κάθε ώρα με έστω μία κλήση»: τέσσερις νυχτερινές κλήσεις άπλωναν το
+       γράφημα σε 24 στήλες και στρίμωχναν το ωράριο σε ανάγνωστο πλάτος.
+       Κρατάμε τις ώρες με ουσιαστικό όγκο και λέμε ρητά πόσες έμειναν απ' έξω. */
+    const floor = Math.max(2, Math.round(t.calls * 0.005));
+    let lo = 23, hi = 0;
+    hrs.forEach((h, i) => { if (h.calls >= floor) { lo = Math.min(lo, i); hi = Math.max(hi, i); } });
+    if (lo > hi) { return ''; }
+    lo = Math.max(0, lo - 1); hi = Math.min(23, hi + 1);
+    const outside = hrs.reduce((n, h, i) => n + ((i < lo || i > hi) ? h.calls : 0), 0);
+    const span = [];
+    for (let i = lo; i <= hi; i++) { span.push(i); }
+    const max = Math.max(...hrs.map(h => h.calls), 1);
+    const dayN = ['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'];
+    const heat = d.heat || [];
+    const hmax = Math.max(1, ...heat.map(r => Math.max(...r)));
+    const busiest = hrs.map((h, i) => ({i, ...h})).sort((a, b) => b.calls - a.calls)[0];
+    /* Η χειρότερη ώρα ΔΕΝ είναι αυτή με το μεγαλύτερο ποσοστό απωλειών: μια ώρα
+       με 2 κλήσεις και 2 χαμένες βγάζει 100% και δεν σημαίνει τίποτα. Κοιτάμε
+       μόνο ώρες με πραγματικό όγκο — τουλάχιστον το 10% της αιχμής. */
+    const worst = hrs.map((h, i) => ({i, ...h}))
+      .filter(h => h.calls >= Math.max(5, max * 0.1))
+      .sort((a, b) => (b.missed / b.calls) - (a.missed / a.calls))[0];
+    const perDay = d.activeDays ? Math.round(t.calls / d.activeDays) : 0;
+    return `
+  <div class="card"><div class="card-h">${I.clock} Πότε μας πιέζουν
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${
+      d.activeDays ? `${d.activeDays} ημέρες με κίνηση · κατά μέσο όρο ${perDay} κλήσεις/ημέρα` : ''}</span></div>
+    <div class="card-b">
+      <div class="pk-bars">
+        ${span.map(i => {
+          const h = hrs[i] || {calls: 0, missed: 0};
+          const pct = Math.round(h.calls / max * 100);
+          const mp = h.calls ? Math.round(h.missed / h.calls * 100) : 0;
+          return `<div class="pk-c" title="${i}:00 — ${h.calls} κλήσεις${h.missed ? `, ${h.missed} χαμένες (${mp}%)` : ''}">
+            <span class="pk-n">${h.calls || ''}</span>
+            <span class="pk-b"><i style="height:${pct}%"></i>${
+              h.missed ? `<u style="height:${Math.round(h.missed / max * 100)}%"></u>` : ''}</span>
+            <span class="pk-h">${i}</span></div>`;
+        }).join('')}
+      </div>
+      <div class="pk-note">
+        ${busiest && busiest.calls ? `Αιχμή στις <b>${busiest.i}:00–${busiest.i + 1}:00</b> με ${busiest.calls} κλήσεις.` : ''}
+        ${worst && worst.missed ? ` Χειρότερη ώρα οι <b>${worst.i}:00</b> — ${worst.missed} από ${worst.calls} αναπάντητες (${Math.round(worst.missed / worst.calls * 100)}%).` : ''}
+        ${outside ? ` <span class="mut">${outside} ${outside === 1 ? 'κλήση' : 'κλήσεις'} εκτός αυτών των ωρών.</span>` : ''}
+      </div>
+      <div class="pk-grid">
+        <div class="pk-gh"><span></span>${span.map(i => `<span>${i}</span>`).join('')}</div>
+        ${heat.map((rowD, wd) => `<div class="pk-gr"><span class="pk-gd">${dayN[wd]}</span>${
+          span.map(i => {
+            const v = rowD[i] || 0;
+            return `<span class="pk-gc" style="--o:${v ? (0.14 + 0.86 * v / hmax).toFixed(2) : 0}"
+              title="${dayN[wd]} ${i}:00 — ${v} κλήσεις"></span>`;
+          }).join('')}</div>`).join('')}
+      </div>
+    </div></div>`;
+  })()}
 
   <div class="card"><div class="card-h">${I.phone} Οι κλήσεις
     <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${
@@ -309,10 +375,83 @@ R.calls = async function () {
   $$('[data-cli]').forEach(b => b.onclick = () => window.CNP.go('client360', b.dataset.cli));
   if (d.canLog) {
     $$('[data-call]').forEach(r => r.onclick = () => callNote(d.items.find(x => x.id === +r.dataset.call), d));
+  /* Το πλακίδιο λέει ΠΟΣΟ· το κλικ απαντά ΜΕ ΠΟΙΟΝ. */
+  $$('[data-adm]').forEach(r => r.onclick = () => callDrill({admin: +r.dataset.adm}, st));
+  $$('[data-cli]').forEach(r => r.onclick = () => callDrill({client: +r.dataset.cli}, st));
+  $$('[data-num]').forEach(r => r.onclick = () => callDrill({num: r.dataset.num}, st));
   }
 };
 
 /** Η καταγραφή του agent: τι έγινε, και αν χρεώνεται — με λόγο. */
+/* ═════════ Ανάλυση: με ποιον μίλησε ο χειριστής / ποιος σήκωσε τον πελάτη ═════════
+   Και οι δύο κατευθύνσεις είναι η ΙΔΙΑ ερώτηση από την άλλη μεριά, γι' αυτό
+   είναι ένας πίνακας και όχι δύο. Κρατάει το διάστημα της αναφοράς — αλλιώς τα
+   νούμερα δεν θα έδεναν με αυτά που μόλις κοίταζε ο χρήστης. */
+async function callDrill(what, st) {
+  const qs = ['d=' + st.d, 'days=' + st.days,
+    what.admin ? 'admin=' + what.admin : '',
+    what.client ? 'client=' + what.client : '',
+    what.num ? 'num=' + encodeURIComponent(what.num) : ''].filter(Boolean).join('&');
+
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+  ovl.innerHTML = `<div class="pal-box cd-box" onclick="event.stopPropagation()">
+    <div class="cd-b"><div class="skel" style="height:260px"></div></div></div>`;
+  document.body.appendChild(ovl);
+  const kill = () => ovl.remove();
+  ovl.onclick = kill;
+
+  const d = await api('call_drill&' + qs).catch(e => ({error: e && e.message}));
+  if (!d || d.error) {
+    $('.cd-b', ovl).innerHTML = `<div class="mut" style="padding:20px">${esc((d && d.error) || 'Δεν φορτώθηκε.')}</div>`;
+    return;
+  }
+  const t = d.totals;
+  const maxT = Math.max(1, ...d.rows.map(r => r.talk));
+  const period = st.days === 1 ? 'εκείνη την ημέρα' : `σε ${st.days} ημέρες`;
+
+  ovl.querySelector('.cd-box').innerHTML = `
+    <div class="cd-h">
+      <div>
+        <b>${esc(d.title)}</b>
+        <div class="mut" style="font-size:12px;margin-top:2px">
+          ${t.calls} κλήσεις ${period} · <b>${callHm(t.talk)}</b> στο τηλέφωνο
+          ${t.missed ? ` · <span style="color:var(--bad)">${t.missed} αναπάντητες</span>` : ''}
+          · ${t.in} εισερχ. / ${t.out} εξερχ.</div>
+      </div>
+      <button class="cd-x" title="Κλείσιμο">✕</button>
+    </div>
+    <div class="cd-b">
+      <div class="cd-sub">${d.mode === 'admin' ? 'Με ποιους μίλησε' : 'Ποιος τον εξυπηρέτησε'}</div>
+      ${d.rows.length ? d.rows.map(r => `
+        <div class="cl-agg${d.mode === 'admin' && r.id ? ' pick' : ''}" ${d.mode === 'admin' && r.id ? `data-go="${r.id}"` : ''}>
+          <span class="cl-an">${esc(r.name)}</span>
+          <span class="cl-ab"><i style="width:${Math.round(r.talk / maxT * 100)}%;background:${d.mode === 'admin' ? '#7b5cd6' : 'var(--brand)'}"></i></span>
+          <span class="cl-av">${r.calls} · <b>${callHm(r.talk)}</b>${
+            r.missed ? ` · <span style="color:var(--bad)">${r.missed} χαμ.</span>` : ''}</span>
+        </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}
+
+      <div class="cd-sub" style="margin-top:14px">Οι κλήσεις${
+        d.shown < t.calls ? ` <span class="mut" style="font-weight:400">— οι ${d.shown} πιο πρόσφατες από ${t.calls}</span>` : ''}</div>
+      <div class="cl-list">${d.items.map(x => `
+        <div class="cl-row${x.logged ? ' done' : ''}" data-dcall="${x.id}">
+          <span class="cl-d ${x.dir}">${x.dir === 'out' ? '↗' : '↙'}</span>
+          <span class="cl-t">${esc((x.at || '').slice(5, 16).replace('-', '/'))}</span>
+          <span class="cl-who">${d.mode === 'admin'
+            ? (x.clientName ? esc(x.clientName) : x.anon ? '<span class="mut">απόκρυψη</span>' : esc(x.other || '—'))
+            : (x.adminName ? esc(x.adminName) : '<span class="mut">—</span>')}</span>
+          <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+          <span class="cl-sum">${x.summary ? esc(x.summary) : (d.canLog ? '<span class="cl-todo">κατέγραψε</span>' : '')}</span>
+        </div>`).join('')}</div>
+    </div>`;
+  $('.cd-x', ovl).onclick = kill;
+  $$('[data-dcall]', ovl).forEach(r => r.onclick = () =>
+    callNote(d.items.find(x => x.id === +r.dataset.dcall), d));
+  /* Από «με ποιους μίλησε» → μπαίνεις στον πελάτη και βλέπεις ποιοι άλλοι
+     τον σηκώνουν. Η ίδια ερώτηση, από την άλλη μεριά. */
+  $$('[data-go]', ovl).forEach(r => r.onclick = () => { kill(); callDrill({client: +r.dataset.go}, st); });
+}
+
 function callNote(x, d0) {
   if (!x) { return; }
   d0 = d0 || {canLog: true};

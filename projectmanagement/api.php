@@ -3057,7 +3057,7 @@ function cnp_action_cap($action)
            δένεται στο clients.calls, το ίδιο cap με την καταγραφή κλήσης. */
         /* Η ανανέωση τραβάει τις κλήσεις των τελευταίων ημερών από το PBX. Δεν
            αγγίζει τίποτα δικό μας — γι' αυτό συνοδεύει την ίδια την αναφορά. */
-        $add('reports.calls', ['calls_report', 'calls_sync']);
+        $add('reports.calls', ['calls_report', 'calls_sync', 'call_drill']);
         /* Η ταύτιση τηλεφώνου με πελάτη είναι δουλειά αυτού που σήκωσε το
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
         $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
@@ -5471,6 +5471,9 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
             $perClient[$cName]['talk'] += (int) $cRow->talk;
         } else {
             $perClient[$cName] = ['name' => $cName, 'client' => $ck,
+                /* Ο ωμός αριθμός χρειάζεται για να μπορεί η οθόνη να ζητήσει
+                   ανάλυση και για όποιον ΔΕΝ είναι καταχωρημένος πελάτης. */
+                'num' => (string) $cRow->other_e164,
                 'calls' => (int) $cRow->calls, 'talk' => (int) $cRow->talk];
         }
     }
@@ -5502,7 +5505,34 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     usort($perAdmin, function ($a, $b) { return $b['talk'] <=> $a['talk']; });
     usort($perClient, function ($a, $b) { return $b['talk'] <=> $a['talk']; });
 
+    /* ── ΠΟΤΕ ΜΑΣ ΠΙΕΖΟΥΝ ──────────────────────────────────────────────────
+       Ο μέσος όρος της ημέρας δεν λέει τίποτα: σημασία έχει η ΩΡΑ που χτυπάνε
+       όλα μαζί και δεν προλαβαίνουμε. Γι' αυτό κρατάμε και τις ΧΑΜΕΝΕΣ ανά ώρα —
+       η πίεση δεν φαίνεται από τον όγκο, φαίνεται από το τι μας ξεφεύγει.
+       Ο μέσος όρος ανά ημέρα βγαίνει από το πλήθος των ημερών ΜΕ κλήσεις, όχι
+       από τις ημερολογιακές: αλλιώς τα σαββατοκύριακα ρίχνουν τεχνητά τα νούμερα. */
+    $heat = [];                      // [ημέρα 0=Δευ..6=Κυρ][ώρα 0..23] => κλήσεις
+    $byHour = array_fill(0, 24, ['calls' => 0, 'missed' => 0, 'talk' => 0]);
+    $activeDays = [];
+    foreach ($base()->selectRaw(
+        'WEEKDAY(started_at) wd, HOUR(started_at) hh, DATE(started_at) dd,'
+        . ' COUNT(*) n, SUM(answered=0) miss, COALESCE(SUM(talk_seconds),0) talk')
+        ->groupBy(Capsule::raw('WEEKDAY(started_at), HOUR(started_at), DATE(started_at)'))
+        ->get() as $h) {
+        $wd = (int) $h->wd; $hh = (int) $h->hh;
+        if (!isset($heat[$wd])) { $heat[$wd] = array_fill(0, 24, 0); }
+        $heat[$wd][$hh] += (int) $h->n;
+        $byHour[$hh]['calls']  += (int) $h->n;
+        $byHour[$hh]['missed'] += (int) $h->miss;
+        $byHour[$hh]['talk']   += (int) $h->talk;
+        $activeDays[$h->dd] = 1;
+    }
+    for ($w = 0; $w < 7; $w++) { if (!isset($heat[$w])) { $heat[$w] = array_fill(0, 24, 0); } }
+    ksort($heat);
+
     out(['date' => $cd, 'days' => $cDays, 'who' => $cWho, 'totals' => $tot,
+        'heat' => array_values($heat), 'byHour' => $byHour,
+        'activeDays' => count($activeDays),
         /* Η οθόνη πρέπει να ξέρει ότι βλέπει μέρος, για να το πει στον χρήστη. */
         'shown' => count($items), 'items' => $items, 'perAdmin' => array_values($perAdmin),
         'perClient' => array_slice(array_values($perClient), 0, 12),
@@ -5515,6 +5545,79 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
             }
             return $o;
         })()]);
+
+case 'call_drill':                       // «με ποιον μίλησε» / «ποιος τον εξυπηρέτησε»
+    /* Το πλακίδιο λέει ΠΟΣΟ. Η ερώτηση που ακολουθεί πάντα είναι ΜΕ ΠΟΙΟΝ.
+       Ίδιο διάστημα με την αναφορά — αλλιώς τα νούμερα δεν θα δένουν με αυτά
+       που μόλις κοίταζε ο χρήστης. */
+    $dD = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['d'] ?? '')) ? $_GET['d'] : date('Y-m-d');
+    $dDays = max(1, min(90, (int) ($_GET['days'] ?? 1)));
+    $dFrom = date('Y-m-d 00:00:00', strtotime($dD . ' -' . ($dDays - 1) . ' days'));
+    $dTo = $dD . ' 23:59:59';
+    $dAdmin = (int) ($_GET['admin'] ?? 0);
+    $dClient = (int) ($_GET['client'] ?? 0);
+    $dNum = substr(trim((string) ($_GET['num'] ?? '')), 0, 24);
+    if (!$dAdmin && !$dClient && $dNum === '') { fail('Διάλεξε χειριστή ή πελάτη'); }
+
+    $dq = function () use ($dFrom, $dTo, $dAdmin, $dClient, $dNum) {
+        $q = Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$dFrom, $dTo]);
+        if ($dAdmin) { $q->where('admin_id', $dAdmin); }
+        if ($dClient) { $q->where('clientid', $dClient); }
+        elseif ($dNum !== '') { $q->where('other_e164', $dNum); }
+        return $q;
+    };
+
+    $dSkip = Capsule::table('mod_cpm_phone_skip')->pluck('label', 'e164')->all();
+    $dRows = [];
+    if ($dAdmin) {
+        /* Ο χειριστής → με ποιους μίλησε. */
+        foreach ($dq()->groupBy(Capsule::raw('COALESCE(clientid,0), other_e164'))
+            ->selectRaw('COALESCE(clientid,0) cid, other_e164, COUNT(*) calls,'
+                . ' COALESCE(SUM(talk_seconds),0) talk, SUM(answered=0) missed')
+            ->orderByRaw('talk DESC')->limit(60)->get() as $g) {
+            $gc = (int) $g->cid;
+            $dRows[] = ['id' => $gc, 'num' => (string) $g->other_e164,
+                'name' => $gc ? clientLabel($gc)
+                    : ($g->other_e164 ? ($dSkip[$g->other_e164] ?? $g->other_e164) : 'απόκρυψη αριθμού'),
+                'calls' => (int) $g->calls, 'talk' => (int) $g->talk, 'missed' => (int) $g->missed];
+        }
+    } else {
+        /* Ο πελάτης → ποιος της ομάδας τον σήκωσε. */
+        foreach ($dq()->groupBy('admin_id')
+            ->selectRaw('admin_id, COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk, SUM(answered=0) missed')
+            ->orderByRaw('talk DESC')->get() as $g) {
+            $dRows[] = ['id' => (int) $g->admin_id,
+                'name' => $g->admin_id ? Db::adminName((int) $g->admin_id) : 'δεν το σήκωσε κανείς',
+                'calls' => (int) $g->calls, 'talk' => (int) $g->talk, 'missed' => (int) $g->missed];
+        }
+    }
+
+    $dAgg = $dq()->selectRaw('COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk,'
+        . " SUM(answered=0) missed, SUM(direction='in') inn, SUM(direction='out') outt")->first();
+    $dItems = [];
+    foreach ($dq()->orderBy('started_at', 'desc')->limit(120)->get() as $r) {
+        $rc = $r->clientid ? (int) $r->clientid : 0;
+        $dItems[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
+            'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
+            'other' => $r->other_e164 ?: ($r->direction === 'out' ? (string) $r->to_no : (string) $r->from_no),
+            'anon' => $r->client_match === 'anon',
+            'client' => $rc, 'clientName' => $rc ? clientLabel($rc) : '',
+            'admin' => $r->admin_id ? (int) $r->admin_id : 0,
+            'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
+            'summary' => $r->summary, 'bill' => $r->bill_status, 'billWhy' => $r->bill_reason,
+            'category' => $r->category, 'skipLabel' => (!$rc && $r->other_e164 && isset($dSkip[$r->other_e164]))
+                ? $dSkip[$r->other_e164] : '',
+            'logged' => (bool) $r->logged_at, 'followup' => (bool) $r->followup];
+    }
+
+    out(['mode' => $dAdmin ? 'admin' : 'client',
+        'title' => $dAdmin ? Db::adminName($dAdmin)
+            : ($dClient ? clientLabel($dClient) : ($dSkip[$dNum] ?? $dNum)),
+        'days' => $dDays,
+        'totals' => ['calls' => (int) $dAgg->calls, 'talk' => (int) $dAgg->talk,
+            'missed' => (int) $dAgg->missed, 'in' => (int) $dAgg->inn, 'out' => (int) $dAgg->outt],
+        'rows' => $dRows, 'items' => $dItems, 'shown' => count($dItems),
+        'canLog' => cnp_has_cap($adminId, $FULL, 'clients.calls')]);
 
 case 'call_note_save':                   // η καταγραφή του agent
     $nId = (int) ($in['id'] ?? 0);
