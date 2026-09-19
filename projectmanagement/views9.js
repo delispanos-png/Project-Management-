@@ -485,6 +485,10 @@ function callNote(x, d0) {
         <input class="inp" id="cnLq" placeholder="Γράψε όνομα πελάτη…" autocomplete="off"
           value="${esc(x.book ? (x.book.split('—')[0].trim()) : '')}">
         <div id="cnLres"></div>
+        ${cnpCan('comms.book.edit') ? `
+        <label class="cn-book"><input type="checkbox" id="cnLbook" checked>
+          ${x.book ? 'να ενημερωθεί και ο κατάλογος του 3CX' : 'να μπει και στον κατάλογο του 3CX'}
+          <span class="mut">— για να το βλέπει η ομάδα στο τηλέφωνο</span></label>` : ''}
         <button type="button" class="btn btn-sm btn-o" id="cnLskip" style="margin-top:7px">Δεν είναι πελάτης</button>
       </div>` : ''}
       <label class="lbl">Τι ζήτησε / τι έκανες</label>
@@ -517,7 +521,13 @@ function callNote(x, d0) {
       try {
         const r = await api('call_link', body);
         if (r.skip) { toast('Καταχωρήθηκε ως «' + r.label + '»'); }
-        else { toast(`${r.clientName} — ενημερώθηκαν ${r.updated} κλήσεις`); }
+        else {
+          const bk = r.book === 'created' ? ' · μπήκε και στο τηλεφωνικό κέντρο'
+            : r.book === 'updated' ? ' · ενημερώθηκε και το τηλεφωνικό κέντρο'
+            : (r.book && r.book.indexOf('error:') === 0) ? ' · ΟΜΩΣ ο κατάλογος 3CX δεν ενημερώθηκε' : '';
+          toast(`${r.clientName} — ενημερώθηκαν ${r.updated} κλήσεις${bk}`,
+            (r.book && r.book.indexOf('error:') === 0) ? 'err' : '');
+        }
         kill(); R.calls();
       } catch (e) { toast(e.message || 'Δεν αποθηκεύτηκε', 'err'); }
     };
@@ -533,7 +543,8 @@ function callNote(x, d0) {
               <span class="mut">#${c.id}</span></div>`).join('')
           : '<div class="mut" style="padding:7px 2px;font-size:12px">Κανένα αποτέλεσμα</div>';
         $$('.cn-pick', res).forEach(el => el.onclick = () =>
-          link({e164: x.other, client: +el.dataset.cid}));
+          link({e164: x.other, client: +el.dataset.cid,
+                toBook: !!($('#cnLbook', ovl) || {}).checked}));
       }, 260);
     };
     $('#cnLskip', ovl).onclick = () => {
@@ -562,4 +573,158 @@ function callNote(x, d0) {
     kill(); toast('Καταχωρήθηκε'); R.calls();
   };
   setTimeout(() => { const i = $('#cnS', ovl); if (i) { i.focus(); } }, 40);
+}
+
+
+/* ═══════════════ Εταιρικός κατάλογος 3CX ═══════════════
+   Ο κατάλογος του τηλεφωνικού κέντρου είναι αυτό που βλέπει ο συνάδελφος στην
+   οθόνη του τηλεφώνου όταν χτυπάει. Μέχρι τώρα τον διαχειριζόταν κανείς μόνο
+   από την κονσόλα του 3CX — και φαινόταν: 474 επαφές, με διπλοεγγραφές και
+   χωρίς καμία σχέση με το ποιος είναι πελάτης μας.
+
+   Εδώ τον βλέπεις ταξινομημένο κατά ΧΡΟΝΟ ΣΤΟ ΤΗΛΕΦΩΝΟ — ποιος μας απασχολεί
+   πραγματικά — και με ένδειξη ποιος λείπει από το WHMCS. */
+R.book = async function () {
+  if (!cnpCan('comms.book')) {
+    setTop('Εταιρικός κατάλογος');
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Σύστημα → Εταιρικός κατάλογος 3CX»'});
+    return;
+  }
+  setTop('Εταιρικός κατάλογος', 'Οι επαφές του τηλεφωνικού κέντρου — αυτό βλέπει η ομάδα όταν χτυπάει το τηλέφωνο');
+  const c = $('#content');
+  const st = R.book._s = R.book._s || {q: '', only: ''};
+  c.innerHTML = '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+
+  const d = await api(`book_list&q=${encodeURIComponent(st.q)}&only=${st.only}`).catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+
+  const FILTERS = [['', 'όλες'], ['unlinked', 'εκτός WHMCS'], ['linked', 'πελάτες μας'], ['dup', 'διπλές']];
+  c.innerHTML = `
+  <div class="cl-bar">
+    <div class="kb-sinput" style="max-width:340px"><span class="kb-sico">${I.search}</span>
+      <input class="inp" id="bkQ" placeholder="Όνομα, επωνυμία ή τηλέφωνο…" value="${esc(st.q)}"></div>
+    <div class="td-seg cl-seg">
+      ${FILTERS.map(([k, l]) => `<button data-bonly="${k}" class="${st.only === k ? 'on' : ''}">${l}</button>`).join('')}
+    </div>
+    <span style="flex:1"></span>
+    ${d.canEdit ? `<button class="btn-s" id="bkSync" title="Ξαναδιάβασε τον κατάλογο από το τηλεφωνικό κέντρο">↻ Συγχρονισμός</button>
+    <button class="btn btn-p btn-sm" id="bkNew">${I.plus} Νέα επαφή</button>` : ''}
+  </div>
+
+  <div class="cl-tiles">
+    <div class="su-stat"><div><div class="n">${d.total}</div><div class="l">επαφές</div></div></div>
+    <div class="su-stat"><div><div class="n">${d.numbers}</div><div class="l">τηλέφωνα</div></div></div>
+    <div class="su-stat"><div><div class="n" style="color:var(--bad)">${d.items.filter(x => !x.client).length}</div>
+      <div class="l">${st.only ? 'στη λίστα' : 'δεν είναι πελάτες στο WHMCS'}</div></div></div>
+  </div>
+
+  <div class="card"><div class="card-h">${I.contact || I.users} Επαφές
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κατά χρόνο στο τηλέφωνο${
+      d.canEdit ? ' · κλικ για αλλαγή' : ''}</span></div>
+    <div class="card-b" style="padding:4px 6px 8px">
+      ${d.items.length ? `<div class="bk-list">${d.items.map(b => `
+        <div class="bk-row${d.canEdit ? ' pick' : ''}" data-bk="${b.id}">
+          <span class="bk-n">${esc(b.name)}${b.dup
+            ? ' <span class="bk-dup" title="Ο ίδιος αριθμός υπάρχει και σε άλλη επαφή">διπλό</span>' : ''}</span>
+          <span class="bk-p">${b.nums.map(n => esc(n.e164)).join(' · ')}</span>
+          <span class="bk-c">${b.calls
+            ? `${b.calls} κλήσεις · <b>${callHm(b.talk)}</b>`
+            : '<span class="mut">καμία κλήση</span>'}</span>
+          <span class="bk-l">${b.client
+            ? `<a href="#/client/${b.client}" class="bk-ok" title="${esc(b.clientName)}">πελάτης</a>`
+            : '<span class="bk-no" title="Δεν βρέθηκε στο WHMCS με αυτό το τηλέφωνο">εκτός WHMCS</span>'}</span>
+        </div>`).join('')}</div>`
+        : `<div class="cl-empty">Καμία επαφή${st.q ? ' για «' + esc(st.q) + '»' : ''}.</div>`}
+    </div></div>`;
+
+  let tmr = null;
+  $('#bkQ').oninput = e => { clearTimeout(tmr); const v = e.target.value; tmr = setTimeout(() => { st.q = v; R.book(); }, 320); };
+  $$('[data-bonly]').forEach(b => b.onclick = () => { st.only = b.dataset.bonly; R.book(); });
+  if (d.canEdit) {
+    $('#bkNew').onclick = () => bookEdit(null, d);
+    $$('[data-bk]').forEach(r => r.onclick = e => {
+      if (e.target.closest('a')) { return; }        // ο σύνδεσμος πελάτη έχει τη δουλειά του
+      bookEdit(d.items.find(x => x.id === +r.dataset.bk), d);
+    });
+    $('#bkSync').onclick = async e => {
+      const b = e.currentTarget; b.disabled = true; b.textContent = '↻ διαβάζω…';
+      try { const r = await api('book_sync', {}); toast(`${r.sync.numbers} αριθμοί από το κέντρο`); R.book(); }
+      catch (err) { toast(err.message || 'Δεν έγινε', 'err'); b.disabled = false; b.textContent = '↻ Συγχρονισμός'; }
+    };
+  }
+};
+
+/* Η φόρμα επαφής. Γράφει ΑΠΕΥΘΕΙΑΣ στο τηλεφωνικό κέντρο — γι' αυτό λέει καθαρά
+   τι θα δει η ομάδα, και η διαγραφή ζητά επιβεβαίωση με το όνομα μπροστά. */
+function bookEdit(b, d0) {
+  const nums = {};
+  (b ? b.nums : []).forEach(n => { nums[n.field] = n.e164; });
+  const parts = (b ? b.name : '').split('—').map(x => x.trim());
+  const co = b ? (b.company || (parts.length > 1 ? parts[0] : '')) : '';
+  const per = b ? (parts.length > 1 ? parts[1] : (b.company ? '' : parts[0])) : '';
+  const sp = per.split(' ');
+
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+  ovl.innerHTML = `<div class="pal-box" style="margin:8vh auto 0;max-width:520px" onclick="event.stopPropagation()">
+    <div style="padding:17px 20px 4px">
+      <b style="font-size:15px;color:var(--ink)">${b ? 'Αλλαγή επαφής' : 'Νέα επαφή στο τηλεφωνικό κέντρο'}</b>
+      <div class="mut" style="font-size:12px;margin-top:3px">
+        Αυτό θα βλέπει η ομάδα στην οθόνη του τηλεφώνου όταν χτυπάει.${
+          b && b.calls ? ` Έχει ${b.calls} κλήσεις μαζί μας.` : ''}</div>
+    </div>
+    <div style="padding:8px 20px 4px">
+      <label class="lbl">Επωνυμία</label>
+      <input class="inp" id="bkCo" maxlength="120" value="${esc(co)}" placeholder="π.χ. ΦΑΡΜΑΚΕΙΟ ΠΑΠΑΔΟΠΟΥΛΟΥ">
+      <div class="bk-2">
+        <div><label class="lbl">Όνομα</label>
+          <input class="inp" id="bkFn" maxlength="60" value="${esc(sp[0] || '')}"></div>
+        <div><label class="lbl">Επώνυμο</label>
+          <input class="inp" id="bkLn" maxlength="60" value="${esc(sp.slice(1).join(' '))}"></div>
+      </div>
+      <label class="lbl" style="margin-top:11px">Τηλέφωνα <span class="mut" style="font-weight:400">— τουλάχιστον ένα</span></label>
+      <div class="bk-2">
+        <div><input class="inp" id="bkP1" maxlength="30" value="${esc(nums.PhoneNumber || '')}" placeholder="Κύριο"></div>
+        <div><input class="inp" id="bkP2" maxlength="30" value="${esc(nums.Mobile2 || '')}" placeholder="Κινητό"></div>
+      </div>
+      <div class="bk-2" style="margin-top:7px">
+        <div><input class="inp" id="bkP3" maxlength="30" value="${esc(nums.Business || '')}" placeholder="Σταθερό"></div>
+        <div><input class="inp" id="bkEm" maxlength="120" placeholder="Email"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center">
+        ${b && d0.canDel ? `<button class="btn btn-o" id="bkDel" style="color:var(--bad)">Διαγραφή</button>` : ''}
+        <span style="flex:1"></span>
+        <button class="btn btn-o" id="bkX">Άκυρο</button>
+        <button class="btn btn-p" id="bkOk">${b ? 'Αποθήκευση' : 'Καταχώρηση'}</button>
+      </div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const kill = () => ovl.remove();
+  ovl.onclick = kill;
+  $('#bkX', ovl).onclick = kill;
+  ($('#bkCo', ovl)).focus();
+
+  $('#bkOk', ovl).onclick = async e => {
+    const btn = e.currentTarget; btn.disabled = true;
+    try {
+      const r = await api('book_save', {
+        id: b ? b.id : 0,
+        company: $('#bkCo', ovl).value.trim(),
+        first: $('#bkFn', ovl).value.trim(), last: $('#bkLn', ovl).value.trim(),
+        phone: $('#bkP1', ovl).value.trim(), mobile: $('#bkP2', ovl).value.trim(),
+        business: $('#bkP3', ovl).value.trim(), email: $('#bkEm', ovl).value.trim()});
+      toast(`Καταχωρήθηκε: ${r.name}`);
+      kill(); R.book();
+    } catch (err) { toast(err.message || 'Δεν αποθηκεύτηκε', 'err'); btn.disabled = false; }
+  };
+  const del = $('#bkDel', ovl);
+  if (del) {
+    del.onclick = async () => {
+      /* Το όνομα μέσα στην ερώτηση επίτηδες: διαγράφεται από το ΤΗΛΕΦΩΝΙΚΟ
+         ΚΕΝΤΡΟ, το βλέπει όλη η ομάδα, και δεν γυρίζει πίσω. */
+      if (!confirm(`Διαγραφή του «${b.name}» από τον κατάλογο του τηλεφωνικού κέντρου;\n\nΔεν αναιρείται.`)) { return; }
+      try { await api('book_del', {id: b.id}); toast('Διαγράφηκε'); kill(); R.book(); }
+      catch (err) { toast(err.message || 'Δεν διαγράφηκε', 'err'); }
+    };
+  }
 }

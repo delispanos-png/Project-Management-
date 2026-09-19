@@ -283,6 +283,7 @@ function renderShell() {
     ['Σύστημα', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
       ['teams', I.tree, 'Ομάδες & δικαιώματα', 'admin.teams'],
       ['pbx', I.phone, 'Διασύνδεση 3CX', 'comms.pbx'],
+      ['book', I.contact || I.users, 'Εταιρικός κατάλογος', 'comms.book'],
       ['settings', I.gear, 'Ρυθμίσεις', 'admin.settings'],
     ]],
   ].map(([title, hint, items]) => [title, hint, items.filter(it => !it[3] || has(it[3]))]);
@@ -348,7 +349,7 @@ function renderShell() {
         profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
-        settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', calls: 'Τηλεφωνική δραστηριότητα', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
+        settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', book: 'Εταιρικός κατάλογος', calls: 'Τηλεφωνική δραστηριότητα', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
         chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', activity: 'Δραστηρ.', complaints: 'Παράπονα', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)

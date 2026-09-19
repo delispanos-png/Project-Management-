@@ -3585,3 +3585,32 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .cl-3cx{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.04em;
   padding:1px 4px;border-radius:4px;vertical-align:1px;
   background:var(--bg2,#eef2f7);color:var(--mut);border:1px solid var(--line)}
+
+/* ── Εταιρικός κατάλογος 3CX ── */
+.bk-list{display:flex;flex-direction:column}
+.bk-row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) 170px 96px;
+  gap:10px;align-items:center;padding:8px 10px;border-radius:8px;font-size:12.5px;
+  border-bottom:1px solid var(--line)}
+.bk-row:last-child{border-bottom:0}
+.bk-row.pick{cursor:pointer}
+.bk-row.pick:hover{background:var(--bg2,#f6f8fb)}
+.bk-n{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-p{color:var(--mut);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-c{color:var(--mut);font-size:11.5px;text-align:right}
+.bk-l{text-align:right}
+.bk-ok,.bk-no{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;
+  border:1px solid var(--line);text-decoration:none;display:inline-block}
+.bk-ok{color:#2a9d63;border-color:#bfe3cf;background:#f0faf4}
+.bk-no{color:#b06a12;border-color:#f0dcb8;background:#fdf7ec}
+.bk-2{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}
+.cl-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:14px}
+@media(max-width:760px){
+  .bk-row{grid-template-columns:1fr auto;row-gap:3px}
+  .bk-p{grid-column:1/-1}
+  .bk-c{text-align:left}
+  .bk-2{grid-template-columns:1fr}
+}
+.cn-book{display:flex;gap:7px;align-items:center;margin-top:9px;font-size:12px;color:var(--ink);cursor:pointer}
+.cn-book .mut{font-size:11.5px}
+.bk-dup{font-size:9px;font-weight:700;padding:1px 4px;border-radius:4px;vertical-align:1px;
+  color:#b06a12;border:1px solid #f0dcb8;background:#fdf7ec}

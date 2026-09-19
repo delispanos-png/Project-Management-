@@ -2687,6 +2687,9 @@ function cnp_caps()
         'team.voice'         => ['power',  'Φωνή ομάδας', 'Είσοδος στο δωμάτιο φωνής και κλήσεις προς συναδέλφους', 'team.chat'],
         /* CloudOn Agent — διασύνδεση τηλεφωνικού κέντρου. Οι ενέργειες ΠΡΟΣ το
            3CX (κλήση/μεταφορά/τερματισμός) θα πάρουν ΞΕΧΩΡΙΣΤΟ cap όταν έρθουν. */
+        'comms.book'         => ['view',   'Εταιρικός κατάλογος 3CX', 'Οι επαφές του τηλεφωνικού κέντρου — ποιος φαίνεται στις οθόνες των τηλεφώνων'],
+        'comms.book.edit'    => ['edit',   'Επεξεργασία καταλόγου', 'Καταχώρηση και αλλαγή επαφών στο τηλεφωνικό κέντρο', 'comms.book'],
+        'comms.book.delete'  => ['delete', 'Διαγραφή επαφής', 'Οριστική διαγραφή επαφής από το τηλεφωνικό κέντρο', 'comms.book'],
         'comms.pbx'          => ['view',   'Διασύνδεση 3CX', 'Κατάσταση σύνδεσης, υγεία, τεχνικό ημερολόγιο'],
         'comms.pbx.edit'     => ['edit',   'Ρύθμιση & κόστη', 'Στοιχεία σύνδεσης, έλεγχος, κόστος ανά χειριστή', 'comms.pbx'],
         'team.calendar'      => ['view',   'Ημερολόγιο', 'Κοινό ημερολόγιο: ραντεβού, meetings, άδειες (προβολή & RSVP)'],
@@ -3081,6 +3084,9 @@ function cnp_action_cap($action)
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
+        $add('comms.book', ['book_list']);
+        $add('comms.book.edit', ['book_save', 'book_sync']);
+        $add('comms.book.delete', ['book_del']);
         $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map']);
         /* Η ζωντανή εικόνα «ποιος μιλάει τώρα» ανήκει στη Δραστηριότητα της
            ομάδας, όχι στις ρυθμίσεις — γι' αυτό δένεται στο reports.activity. */
@@ -5676,6 +5682,151 @@ case 'call_drill':                       // «με ποιον μίλησε» / �
         'rows' => $dRows, 'items' => $dItems, 'shown' => count($dItems),
         'canLog' => cnp_has_cap($adminId, $FULL, 'clients.calls')]);
 
+case 'book_list':                        // ο εταιρικός κατάλογος του 3CX
+    /* Διαβάζουμε από τον ΔΙΚΟ μας πίνακα, όχι απευθείας από το PBX: είναι
+       ακαριαίο, δουλεύει και όταν το κέντρο έχει πρόβλημα, και μας επιτρέπει να
+       δείξουμε δίπλα πόσες κλήσεις έχει κάνει ο καθένας — κάτι που το 3CX δεν
+       ξέρει. Ο συγχρονισμός το φρεσκάρει κάθε βράδυ. */
+    $bq = trim((string) ($_GET['q'] ?? ''));
+    $bOnly = (string) ($_GET['only'] ?? '');      // '' | 'unlinked' | 'linked'
+
+    $bRows = Capsule::table('mod_cpm_pbx_book')->orderBy('name');
+    if ($bq !== '') {
+        $bLike = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $bq) . '%';
+        $bDigits = preg_replace('/\D/', '', $bq);
+        $bRows->where(function ($w) use ($bLike, $bDigits) {
+            $w->where('name', 'like', $bLike)->orWhere('company', 'like', $bLike);
+            if (strlen($bDigits) >= 3) { $w->orWhere('e164', 'like', '%' . $bDigits . '%'); }
+        });
+    }
+    /* Το όριο είναι ΑΡΙΘΜΟΙ, όχι επαφές: με 400 κόβονταν 139 επαφές χωρίς να το
+       πει κανείς. Ο κατάλογος είναι ~580 γραμμές συνολικά — χωράει άνετα. */
+    $bAll = $bRows->limit(3000)->get();
+
+    /* Μία γραμμή ανά ΕΠΑΦΗ, με όλα της τα τηλέφωνα μαζεμένα. */
+    $bBy = [];
+    foreach ($bAll as $r) {
+        $k = (int) $r->contact_id;
+        if (!isset($bBy[$k])) {
+            $bBy[$k] = ['id' => $k, 'name' => (string) $r->name, 'company' => (string) $r->company,
+                'nums' => [], 'calls' => 0, 'talk' => 0, 'client' => 0, 'clientName' => ''];
+        }
+        $bBy[$k]['nums'][] = ['e164' => (string) $r->e164, 'field' => (string) $r->field];
+    }
+    if ($bBy) {
+        $allNums = [];
+        foreach ($bBy as $b) { foreach ($b['nums'] as $n) { $allNums[] = $n['e164']; } }
+        /* Πόσο μας απασχολεί ο καθένας — ο λόγος που ο κατάλογος έχει νόημα. */
+        $stat = Capsule::table('mod_cpm_calls')->whereIn('other_e164', $allNums)
+            ->groupBy('other_e164')
+            ->selectRaw('other_e164, COUNT(*) n, COALESCE(SUM(talk_seconds),0) t')
+            ->pluck('n', 'other_e164')->all();
+        $statT = Capsule::table('mod_cpm_calls')->whereIn('other_e164', $allNums)
+            ->groupBy('other_e164')
+            ->selectRaw('other_e164, COALESCE(SUM(talk_seconds),0) t')
+            ->pluck('t', 'other_e164')->all();
+        /* Διπλοεγγραφές: ο ΙΔΙΟΣ αριθμός σε πολλές επαφές. Δεν τις σβήνουμε
+           μόνοι μας — μπορεί να είναι δύο πραγματικά άτομα στο ίδιο τηλεφωνικό
+           κέντρο. Τις σημαδεύουμε για να τις δει και να αποφασίσει άνθρωπος. */
+        $dupNums = Capsule::table('mod_cpm_pbx_book')->whereIn('e164', $allNums)
+            ->groupBy('e164')->havingRaw('COUNT(DISTINCT contact_id) > 1')
+            ->pluck('e164')->all();
+        $dupNums = array_flip($dupNums);
+
+        /* Και ποιος από αυτούς είναι ΗΔΗ πελάτης στο WHMCS. */
+        foreach ($bBy as $k => $b) {
+            $bBy[$k]['dup'] = false;
+            foreach ($b['nums'] as $n) {
+                $bBy[$k]['calls'] += (int) ($stat[$n['e164']] ?? 0);
+                $bBy[$k]['talk']  += (int) ($statT[$n['e164']] ?? 0);
+                if (isset($dupNums[$n['e164']])) { $bBy[$k]['dup'] = true; }
+                if (!$bBy[$k]['client']) {
+                    [$cid, ] = Pbx3cxCdr::matchClient($n['e164']);
+                    if ($cid) { $bBy[$k]['client'] = $cid; $bBy[$k]['clientName'] = clientLabel($cid); }
+                }
+            }
+        }
+    }
+    $bOut = array_values($bBy);
+    if ($bOnly === 'unlinked') { $bOut = array_values(array_filter($bOut, function ($b) { return !$b['client']; })); }
+    if ($bOnly === 'linked')   { $bOut = array_values(array_filter($bOut, function ($b) { return (bool) $b['client']; })); }
+    if ($bOnly === 'dup')      { $bOut = array_values(array_filter($bOut, function ($b) { return !empty($b['dup']); })); }
+    usort($bOut, function ($a, $b) { return $b['talk'] <=> $a['talk'] ?: strcasecmp($a['name'], $b['name']); });
+
+    out(['items' => $bOut, 'q' => $bq, 'only' => $bOnly,
+        'total' => (int) Capsule::table('mod_cpm_pbx_book')->distinct()->count('contact_id'),
+        'numbers' => (int) Capsule::table('mod_cpm_pbx_book')->count(),
+        'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.book.edit'),
+        'canDel' => cnp_has_cap($adminId, $FULL, 'comms.book.delete')]);
+
+case 'book_save':                        // καταχώρηση/αλλαγή επαφής ΣΤΟ 3CX
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    $bkId = (int) ($in['id'] ?? 0);
+    $bkCo = mb_substr(trim((string) ($in['company'] ?? '')), 0, 120);
+    $bkFn = mb_substr(trim((string) ($in['first'] ?? '')), 0, 60);
+    $bkLn = mb_substr(trim((string) ($in['last'] ?? '')), 0, 60);
+    if ($bkCo === '' && $bkFn === '' && $bkLn === '') { fail('Γράψε επωνυμία ή όνομα'); }
+
+    /* Τα τηλέφωνα κανονικοποιούνται ΠΡΙΝ φύγουν για το PBX: αλλιώς ο ίδιος
+       αριθμός γραμμένος αλλιώς δεν θα ταίριαζε ποτέ με τις κλήσεις. */
+    $bkPhones = [];
+    foreach (['PhoneNumber' => 'phone', 'Mobile2' => 'mobile', 'Business' => 'business'] as $f => $k) {
+        $v = trim((string) ($in[$k] ?? ''));
+        $bkPhones[$f] = $v === '' ? '' : Pbx3cxCdr::e164($v);
+    }
+    if (implode('', $bkPhones) === '') { fail('Χρειάζεται τουλάχιστον ένα τηλέφωνο'); }
+
+    $bkBody = array_filter([
+        'FirstName' => $bkFn, 'LastName' => $bkLn, 'CompanyName' => $bkCo,
+        'Email' => mb_substr(trim((string) ($in['email'] ?? '')), 0, 120),
+    ], function ($v) { return $v !== ''; });
+    /* Τα τηλέφωνα στέλνονται ΚΑΙ κενά: έτσι σβήνεται ένα που αφαιρέθηκε. */
+    $bkBody += $bkPhones;
+
+    try {
+        if ($bkId) {
+            Pbx3cxClient::xwrite('PATCH', 'Contacts(' . $bkId . ')', $bkBody);
+        } else {
+            $r = Pbx3cxClient::xwrite('POST', 'Contacts', $bkBody);
+            $bkId = (int) ($r['Id'] ?? 0);
+        }
+    } catch (\Throwable $e) { fail($e->getMessage()); }
+
+    /* Ο δικός μας πίνακας ενημερώνεται αμέσως — να μη χρειάζεται να περιμένει
+       κανείς τον νυχτερινό συγχρονισμό για να δει το όνομα στην αναφορά. */
+    $bkLabel = $bkCo !== '' && ($bkFn . $bkLn) !== ''
+        ? $bkCo . ' — ' . trim($bkFn . ' ' . $bkLn)
+        : ($bkCo !== '' ? $bkCo : trim($bkFn . ' ' . $bkLn));
+    Capsule::table('mod_cpm_pbx_book')->where('contact_id', $bkId)->delete();
+    foreach ($bkPhones as $f => $e) {
+        if ($e === '') { continue; }
+        Capsule::table('mod_cpm_pbx_book')->insert(['e164' => $e, 'contact_id' => $bkId,
+            'name' => mb_substr($bkLabel, 0, 160), 'company' => mb_substr($bkCo, 0, 160),
+            'field' => $f, 'synced_at' => date('Y-m-d H:i:s')]);
+    }
+    if (function_exists('logActivity')) {
+        logActivity('CPM: κατάλογος 3CX — ' . ($bkId ? 'επαφή #' . $bkId : 'νέα επαφή')
+            . ' «' . $bkLabel . '» από admin #' . $adminId);
+    }
+    out(['ok' => true, 'id' => $bkId, 'name' => $bkLabel]);
+
+case 'book_del':                         // διαγραφή επαφής ΑΠΟ το 3CX
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    $bdId = (int) ($in['id'] ?? 0);
+    if (!$bdId) { fail('Λείπει η επαφή'); }
+    $bdName = (string) Capsule::table('mod_cpm_pbx_book')->where('contact_id', $bdId)->value('name');
+    try { Pbx3cxClient::xwrite('DELETE', 'Contacts(' . $bdId . ')'); }
+    catch (\Throwable $e) { fail($e->getMessage()); }
+    Capsule::table('mod_cpm_pbx_book')->where('contact_id', $bdId)->delete();
+    if (function_exists('logActivity')) {
+        logActivity('CPM: κατάλογος 3CX — διαγραφή «' . $bdName . '» (#' . $bdId . ') από admin #' . $adminId);
+    }
+    out(['ok' => true]);
+
+case 'book_sync':                        // ξαναδιάβασε τον κατάλογο από το PBX
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    out(['ok' => true, 'sync' => Pbx3cxSync::book()]);
+
 case 'call_note_save':                   // η καταγραφή του agent
     $nId = (int) ($in['id'] ?? 0);
     $call = Capsule::table('mod_cpm_calls')->where('id', $nId)->first();
@@ -5778,12 +5929,48 @@ case 'call_link':                        // «αυτό το τηλέφωνο ε�
     /* Αναδρομικά: ό,τι έχει ήδη καταγραφεί με αυτόν τον αριθμό αποκτά πελάτη. */
     $lkN = Capsule::table('mod_cpm_calls')->where('other_e164', $lkE)
         ->update(['clientid' => $lkClient, 'client_match' => 'manual']);
+
+    /* ΚΑΙ ΣΤΟ ΤΗΛΕΦΩΝΟ: χωρίς αυτό, ο πελάτης θα φαινόταν με το όνομά του μόνο
+       σε αυτή την οθόνη, ενώ στη συσκευή του συναδέλφου θα συνέχιζε να χτυπάει
+       ένα γυμνό νούμερο. Προαιρετικό, γιατί γράφει στο τηλεφωνικό κέντρο. */
+    $lkBook = null;
+    if (!empty($in['toBook']) && cnp_has_cap($adminId, $FULL, 'comms.book.edit')
+        && Pbx3cxClient::configured()) {
+        $lkName = mb_substr(clientLabel($lkClient), 0, 120);
+        $lkHave = Capsule::table('mod_cpm_pbx_book')->where('e164', $lkE)->first();
+        try {
+            if ($lkHave && $lkHave->contact_id) {
+                Pbx3cxClient::xwrite('PATCH', 'Contacts(' . (int) $lkHave->contact_id . ')',
+                    ['CompanyName' => $lkName]);
+                $lkBook = 'updated';
+            } else {
+                $r = Pbx3cxClient::xwrite('POST', 'Contacts',
+                    ['CompanyName' => $lkName, 'PhoneNumber' => $lkE]);
+                $lkCid = (int) ($r['Id'] ?? 0);
+                if ($lkCid) {
+                    Capsule::table('mod_cpm_pbx_book')->updateOrInsert(
+                        ['e164' => $lkE, 'contact_id' => $lkCid],
+                        ['name' => $lkName, 'company' => $lkName,
+                         'field' => 'PhoneNumber', 'synced_at' => date('Y-m-d H:i:s')]);
+                }
+                $lkBook = 'created';
+            }
+            if ($lkBook === 'updated') {
+                Capsule::table('mod_cpm_pbx_book')->where('e164', $lkE)
+                    ->update(['name' => $lkName, 'company' => $lkName]);
+            }
+        } catch (\Throwable $eBk) {
+            /* Η σύνδεση με τον πελάτη ΕΓΙΝΕ — δεν τη γυρνάμε πίσω επειδή δεν
+               δέχτηκε το PBX. Το λέμε όμως, δεν το κρύβουμε. */
+            $lkBook = 'error:' . $eBk->getMessage();
+        }
+    }
     if (function_exists('logActivity')) {
         logActivity('CPM: τηλέφωνο ' . $lkE . ' → πελάτης #' . $lkClient
             . ' από admin #' . $adminId . ' (' . $lkN . ' κλήσεις)');
     }
     out(['ok' => true, 'updated' => (int) $lkN, 'client' => $lkClient,
-         'clientName' => clientLabel($lkClient)]);
+         'book' => $lkBook, 'clientName' => clientLabel($lkClient)]);
 
 case 'calls_sync':                       // τράβα τις κλήσεις των τελευταίων ημερών
     if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }

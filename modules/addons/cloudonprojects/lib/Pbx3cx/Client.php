@@ -147,6 +147,40 @@ class Pbx3cxClient
     }
 
     /**
+     * Γράψιμο στο XAPI — POST / PATCH / DELETE.
+     *
+     * Ξεχωριστή από το xapi() επίτηδες: το διάβασμα είναι ακίνδυνο και γίνεται
+     * παντού, το γράψιμο αλλάζει το τηλεφωνικό κέντρο και πρέπει να φαίνεται
+     * στον κώδικα ποιος το κάνει. Κάθε επιτυχία καταγράφεται.
+     *
+     * @return array|null  το σώμα της απάντησης, ή null σε 204
+     */
+    public static function xwrite($method, $path, array $body = null, $timeout = 25)
+    {
+        $method = strtoupper($method);
+        if (!in_array($method, ['POST', 'PATCH', 'DELETE'], true)) {
+            throw new \RuntimeException('Μη επιτρεπτή μέθοδος: ' . $method);
+        }
+        $url = self::baseUrl() . '/xapi/v1/' . ltrim($path, '/');
+        for ($try = 0; $try < 2; $try++) {
+            $r = self::http($method, $url, $body === null ? null : json_encode($body, JSON_UNESCAPED_UNICODE),
+                self::token($try > 0), true, $timeout);
+            if ($r['code'] === 401 && $try === 0) { continue; }
+            if ($r['code'] === 403) {
+                self::log('xapi', 'error', $method . ' ' . $path . ' → 403 (ο ρόλος δεν επιτρέπει εγγραφή)');
+                throw new \RuntimeException('Ο ρόλος του API client δεν επιτρέπει εγγραφή στο 3CX (403)');
+            }
+            if ($r['code'] < 200 || $r['code'] >= 300) {
+                self::log('xapi', 'error', $method . ' ' . $path . ' → HTTP ' . $r['code']
+                    . ($r['body'] ? ' · ' . mb_substr(preg_replace('/\s+/', ' ', $r['body']), 0, 160) : ''));
+                throw new \RuntimeException('Το 3CX απάντησε HTTP ' . $r['code']);
+            }
+            return $r['body'] !== '' ? json_decode($r['body'], true) : null;
+        }
+        throw new \RuntimeException('3CX XAPI: αποτυχία ταυτοποίησης');
+    }
+
+    /**
      * ΦΑΣΗ 0 — «πάγωμα συμβολαίου».
      * Ρωτάει το PBX τι ΑΚΡΙΒΩΣ υποστηρίζει, ώστε να μη σχεδιάζουμε στα τυφλά.
      * Δεν πετάει ποτέ: κάθε έλεγχος γυρίζει τη δική του κατάσταση.
@@ -279,8 +313,15 @@ class Pbx3cxClient
             CURLOPT_CUSTOMREQUEST => $method,
         ]);
         if ($form !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($form));
-            $h[] = 'Content-Type: application/x-www-form-urlencoded';
+            /* Πίνακας = OAuth (form-encoded). Έτοιμο κείμενο = JSON για το XAPI:
+               το /connect/token θέλει form, τα Contacts θέλουν JSON. */
+            if (is_string($form)) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $form);
+                $h[] = 'Content-Type: application/json';
+            } else {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($form));
+                $h[] = 'Content-Type: application/x-www-form-urlencoded';
+            }
         }
         curl_setopt($ch, CURLOPT_HTTPHEADER, $h);
         $body = curl_exec($ch);
