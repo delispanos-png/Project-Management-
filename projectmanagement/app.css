@@ -3743,3 +3743,13 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .cl-minl{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--mut);white-space:nowrap}
 .btn-s.on{border-color:var(--brand);color:var(--brand);font-weight:700}
 @media(max-width:760px){ .cl-filters .inp,.cl-filters .td-seg{flex:1 1 100%} }
+
+/* ── Δομή κέντρου (3CX blueprint) ── */
+.pbx-bp{display:flex;flex-direction:column;gap:6px}
+.pbx-bs{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:10px;background:var(--canvas);border:1px solid var(--line)}
+.pbx-bs.ok{border-color:#16a26a33}.pbx-bs.change{border-color:#e0a02055;background:#e0a0200a}.pbx-bs.error{border-color:#e2515f44;background:#e2515f0a}
+.pbx-bs.route{border-style:dashed}
+.pbx-bi{width:16px;text-align:center;font-size:12px;margin-top:1px}
+.pbx-bs.ok .pbx-bi{color:#16a26a}.pbx-bs.change .pbx-bi{color:#e0a020}.pbx-bs.error .pbx-bi{color:#e2515f}
+.pbx-bl{flex:1;display:flex;flex-direction:column;gap:2px;font-size:12.5px;min-width:0}.pbx-bl .mut{font-size:11.5px;word-break:break-word}
+.pbx-bs .btn{flex-shrink:0}

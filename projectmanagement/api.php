@@ -46,6 +46,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Client.php
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Sync.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Cdr.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Report.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Blueprint.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Book.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
@@ -3077,7 +3078,7 @@ function cnp_action_cap($action)
         $add('comms.book', ['book_list', 'book_get', 'book_fields']);
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import', 'book_push']);
         $add('comms.book.delete', ['book_del']);
-        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map']);
+        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan']);
         /* Η ζωντανή εικόνα «ποιος μιλάει τώρα» ανήκει στη Δραστηριότητα της
            ομάδας, όχι στις ρυθμίσεις — γι' αυτό δένεται στο reports.activity. */
         $add('reports.activity', ['pbx_live']);
@@ -3091,7 +3092,7 @@ function cnp_action_cap($action)
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
         $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
         $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
-            'pbx_sync', 'pbx_map_save', 'calls_backfill']);
+            'pbx_sync', 'pbx_map_save', 'calls_backfill', 'pbx_apply']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
@@ -5424,6 +5425,22 @@ case 'pbx_save':
 case 'pbx_probe':                        // ΦΑΣΗ 0 — τι υποστηρίζει ΑΥΤΟ το PBX
     if (!Pbx3cxClient::configured()) { fail('Συμπλήρωσε πρώτα URL, Client ID και Secret'); }
     out(['ok' => true, 'probe' => Pbx3cxClient::probe()]);
+
+case 'pbx_plan':                         // η δομή του κέντρου vs το σχέδιο — μόνο ανάγνωση
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    out(['ok' => true, 'plan' => Pbx3cxBlueprint::plan()]);
+
+case 'pbx_apply':                        // εφαρμογή βημάτων του σχεδίου στο PBX
+    /* Χωρίς keys: όλα τα χαμηλού ρίσκου. Η ΔΡΟΜΟΛΟΓΗΣΗ (route_*) εφαρμόζεται
+       ΜΟΝΟ αν ζητηθεί ρητά με το key της — αλλάζει πού πέφτουν οι πελάτες. */
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    $bpKeys = array_values(array_filter(array_map('strval', (array) ($in['keys'] ?? []))));
+    $bpRes = Pbx3cxBlueprint::apply($bpKeys, Db::adminName($adminId));
+    if (function_exists('logActivity')) {
+        logActivity('CPM: δομή 3CX από admin #' . $adminId . ' — ' . implode(',', $bpRes['done'])
+            . ($bpRes['errors'] ? ' · σφάλματα: ' . count($bpRes['errors']) : ''));
+    }
+    out(['ok' => empty($bpRes['errors']), 'result' => $bpRes, 'plan' => Pbx3cxBlueprint::plan()]);
 
 case 'pbx_log':
     $rows = [];

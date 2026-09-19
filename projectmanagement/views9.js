@@ -16,9 +16,10 @@ R.pbx = async function () {
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>';
-  const [d, m] = await Promise.all([
+  const [d, m, bp] = await Promise.all([
     api('pbx_settings').catch(() => null),
     api('pbx_map').catch(() => null),
+    api('pbx_plan').catch(() => null),
   ]);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   const ed = d.canEdit;
@@ -104,6 +105,24 @@ R.pbx = async function () {
       </div>
     </div></div>` : ''}
 
+  ${bp && bp.plan ? `<div class="card"><div class="card-h">${I.tree || I.list || I.gear} Δομή κέντρου
+    <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">έλεγχος: ${esc(bp.plan.at)}</span></div>
+    <div class="card-b">
+      <div class="mut" style="font-size:12px;margin-bottom:10px">
+        Η επιθυμητή δομή (τμήματα, ωράρια, ουρές, AI ρεσεψιόν) είναι γραμμένη στον κώδικα. Εδώ φαίνεται
+        <b>τι διαφέρει</b> στο ζωντανό κέντρο. Η <b>δρομολόγηση</b> των γραμμών αλλάζει μόνο με το δικό της κουμπί.</div>
+      <div class="pbx-bp">${bp.plan.steps.map(s => `<div class="pbx-bs ${esc(s.state)} ${esc(s.risk)}">
+        <span class="pbx-bi">${s.state === 'ok' ? '✔' : s.state === 'change' ? '●' : '✕'}</span>
+        <span class="pbx-bl"><b>${esc(s.label)}</b><span class="mut">${esc(s.detail)}</span></span>
+        ${ed && s.risk === 'route' && s.state === 'change'
+          ? `<button class="btn btn-o btn-sm" data-bp="${esc(s.key)}">${s.key === 'route_ai' ? 'Στείλε τις γραμμές στην AI' : 'Πίσω στο script'}</button>` : ''}
+      </div>`).join('')}</div>
+      ${ed ? `<div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-p" id="pxApply" ${bp.plan.pending ? '' : 'disabled'}>${I.zap} Εφαρμογή ${bp.plan.pending} αλλαγών</button>
+        <button class="btn btn-o btn-sm" id="pxPlan">Ξανά έλεγχος</button>
+        <span class="mut" style="font-size:11.5px">Κάθε βήμα καταγράφεται στο τεχνικό ημερολόγιο.</span></div>` : ''}
+    </div></div>` : ''}
+
   <div class="card"><div class="card-h">${I.coin} Κόστος ανά χειριστή
     <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">
       όπου δεν έχει οριστεί, ισχύει το γενικό ${d.fallbackRate}€/ώρα</span></div>
@@ -166,6 +185,28 @@ R.pbx = async function () {
         .catch(e => ({err: e.message}));
       if (r.err) { toast(r.err, true); return; }
       toast('Αποθηκεύτηκε — ο συγχρονισμός δεν θα το αλλάξει');
+      R.pbx();
+    });
+    const ap = $('#pxApply');
+    if (ap) { ap.onclick = async () => {
+      if (!(await window.CNP.cnpConfirm('Να εφαρμοστούν στο 3CX όλες οι αλλαγές χαμηλού ρίσκου (τμήματα, ωράρια, ουρές, εσωτερικό 900, AI ρεσεψιόν, καθάρισμα παλιών τμημάτων);\n\nΗ δρομολόγηση των γραμμών ΔΕΝ αλλάζει από εδώ.', {ok: 'Εφαρμογή', cancel: 'Άκυρο'}))) { return; }
+      ap.disabled = true; ap.textContent = 'Εφαρμογή…';
+      const r = await api('pbx_apply', {keys: []}).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); R.pbx(); return; }
+      toast(r.result.errors.length ? 'Με σφάλματα: ' + r.result.errors[0] : 'Έγιναν ' + r.result.done.length + ' βήματα', !!r.result.errors.length);
+      R.pbx();
+    }; }
+    const pl = $('#pxPlan'); if (pl) { pl.onclick = () => R.pbx(); }
+    $$('[data-bp]').forEach(b => b.onclick = async () => {
+      const toAi = b.dataset.bp === 'route_ai';
+      if (!(await window.CNP.cnpConfirm(toAi
+        ? 'Όλες οι εισερχόμενες κλήσεις (Sip1 και Cyprus) θα απαντώνται από την AI ρεσεψιόν (902).\n\nΤο script 806 μένει ως εφεδρεία — «Πίσω στο script» το επαναφέρει.'
+        : 'Οι εισερχόμενες κλήσεις επιστρέφουν στο παλιό script 806.',
+        {ok: toAi ? 'Στείλε στην AI' : 'Πίσω στο script', cancel: 'Άκυρο', danger: !toAi}))) { return; }
+      b.disabled = true;
+      const r = await api('pbx_apply', {keys: [b.dataset.bp]}).catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); R.pbx(); return; }
+      toast(r.result.errors.length ? 'Σφάλμα: ' + r.result.errors[0] : 'Η δρομολόγηση άλλαξε', !!r.result.errors.length);
       R.pbx();
     });
     $$('[data-rate]').forEach(b => b.onclick = async () => {
