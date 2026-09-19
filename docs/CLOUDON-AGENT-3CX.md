@@ -107,6 +107,33 @@ periodFrom, periodTo, …)`, που πλέον απαντά **200** — αλλά
 «επιτυχία» και θα έχανε σιωπηλά 17 μήνες — το χειρότερο δυνατό αποτέλεσμα για
 σύστημα που θα τροφοδοτεί χρόνο και χρέωση.
 
+### ΡΟΛΟΙ: τι δίνει ο καθένας (μετρημένο)
+
+| Ρόλος | Ρόλοι στο token | SystemStatus | CallHistoryView | CDR/DataConnector | GetCallLogData |
+|---|---|:--:|:--:|:--:|:--:|
+| System Administrator | `system_admins` | ✔ | ✖ | ✔ | ✖ |
+| Owner | `Reports, group_owners` | ✖ | ✔ | ✖ | 200 · **0** |
+| **System Owner** | `Reports, system_owners` | ✔ | ✔ | ✔ | 200 · **0** |
+
+**System Owner δίνει τα πάντα** — εκτός από δεδομένα στην αναφορά. Αυτό κλείνει
+οριστικά το ερώτημα «είναι δικαίωμα;»: **δεν είναι**. Έχουμε ρόλο `Reports` και
+η αναφορά απαντά κανονικά — απλώς δεν βλέπει εγγραφές, για κανένα εύρος.
+
+Ο λόγος είναι η **μεταφορά σε νέο server** (επιβεβαιώθηκε από τον πελάτη): το
+παλιό ιστορικό ήρθε ως αρχείο (`CallHistoryView`, ώς 15/04/2025) και ο πίνακας
+που διαβάζει η αναφορά έμεινε κενός.
+
+### Η κατάσταση των δύο εναλλακτικών (με System Owner)
+
+```
+DataConnectorSettings.OffloadDestination = None        ← αρρύθμιστο, διαθέσιμο
+  RemoteMySqlConfig { Host:"", Port:3306, Database:"", UserId:"", ... }
+CDRSettings: Enabled=true · LogType=SingleFileForAllCalls
+  12 ενεργά πεδία από 27: historyid, callid, duration, time-start,
+  time-answered, time-end, reason-terminated, from-no, to-no, from-dn,
+  to-dn, dial-no
+```
+
 ### Η πρόταση: CDR Active Socket
 
 Το `CDRSettings` δείχνει **ενεργό CDR** με `LogType=SingleFileForAllCalls`
