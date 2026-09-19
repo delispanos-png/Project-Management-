@@ -3086,7 +3086,7 @@ function cnp_action_cap($action)
            δένεται στο clients.calls, το ίδιο cap με την καταγραφή κλήσης. */
         /* Η ανανέωση τραβάει τις κλήσεις των τελευταίων ημερών από το PBX. Δεν
            αγγίζει τίποτα δικό μας — γι' αυτό συνοδεύει την ίδια την αναφορά. */
-        $add('reports.calls', ['calls_report', 'calls_sync', 'call_drill']);
+        $add('reports.calls', ['calls_report', 'calls_sync', 'call_drill', 'client_calls']);
         /* Η ταύτιση τηλεφώνου με πελάτη είναι δουλειά αυτού που σήκωσε το
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
         $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
@@ -5456,9 +5456,41 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
        Η λίστα κόβεται στις 500 γραμμές για να μη φορτώνει ατέλειωτα η οθόνη —
        αν μετρούσαμε πάνω σ' αυτήν, ένας μήνας με 2.000 κλήσεις θα εμφάνιζε 500
        και κάθε ποσοστό θα ήταν λάθος. Ο μήνας έχει ήδη περάσει τις 2.000. */
-    $base = function () use ($cFrom, $cTo, $cWho) {
+    /* ΤΑ ΦΙΛΤΡΑ. Όλα περνούν από ΕΝΑ σημείο, ώστε τα πλακίδια, οι κάρτες, ο
+       θερμικός χάρτης και η λίστα να λένε πάντα το ίδιο πράγμα. Αν κάποιο
+       φίλτρο εφαρμοζόταν μόνο στη λίστα, τα σύνολα από πάνω θα έλεγαν άλλα. */
+    $cDir  = in_array(($_GET['dir'] ?? ''), ['in', 'out'], true) ? $_GET['dir'] : '';
+    $cAns  = in_array(($_GET['ans'] ?? ''), ['yes', 'no'], true) ? $_GET['ans'] : '';
+    $cBill = in_array(($_GET['bill'] ?? ''), ['billable', 'free', 'contract', 'internal',
+        'warranty', 'none'], true) ? $_GET['bill'] : '';
+    $cCat  = substr(trim((string) ($_GET['cat'] ?? '')), 0, 20);
+    $cMin  = max(0, min(600, (int) ($_GET['min'] ?? 0)));      // ελάχιστα λεπτά ομιλίας
+    $cQ    = trim((string) ($_GET['q'] ?? ''));                // πελάτης, όνομα ή αριθμός
+
+    $base = function () use ($cFrom, $cTo, $cWho, $cDir, $cAns, $cBill, $cCat, $cMin, $cQ) {
         $q = Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$cFrom, $cTo]);
         if ($cWho) { $q->where('admin_id', $cWho); }
+        if ($cDir) { $q->where('direction', $cDir); }
+        if ($cAns === 'yes') { $q->where('answered', 1); }
+        if ($cAns === 'no')  { $q->where('answered', 0); }
+        /* «none» = δεν καταγράφηκε καθόλου — η ουρά δουλειάς του agent. */
+        if ($cBill === 'none') { $q->whereNull('logged_at'); }
+        elseif ($cBill)        { $q->where('bill_status', $cBill); }
+        if ($cCat !== '') { $q->where('category', $cCat); }
+        if ($cMin > 0) { $q->where('talk_seconds', '>=', $cMin * 60); }
+        if ($cQ !== '') {
+            /* Ψάχνει και σε αριθμό και σε όνομα καρτέλας — ο χρήστης δεν ξέρει
+               αν ο καλών είναι καταχωρημένος όταν πληκτρολογεί. */
+            $digits = preg_replace('/\D/', '', $cQ);
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $cQ) . '%';
+            $q->where(function ($w) use ($like, $digits) {
+                $w->whereIn('book_id', Capsule::table('mod_cpm_book')
+                    ->where('company', 'like', $like)->orWhere('first', 'like', $like)
+                    ->orWhere('last', 'like', $like)->select('id'));
+                if (strlen($digits) >= 3) { $w->orWhere('other_e164', 'like', '%' . $digits . '%'); }
+                $w->orWhere('summary', 'like', $like);
+            });
+        }
         return $q;
     };
 
@@ -5574,7 +5606,19 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     for ($w = 0; $w < 7; $w++) { if (!isset($heat[$w])) { $heat[$w] = array_fill(0, 24, 0); } }
     ksort($heat);
 
+    /* Οι κατηγορίες που ΥΠΑΡΧΟΥΝ στο διάστημα — για να μη γεμίζει το φίλτρο με
+       επιλογές που δίνουν μηδέν. */
+    $catsSeen = [];
+    foreach (Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$cFrom, $cTo])
+        ->whereNotNull('category')->where('category', '<>', '')
+        ->groupBy('category')->selectRaw('category, COUNT(*) n')->get() as $k) {
+        $catsSeen[] = ['key' => $k->category, 'n' => (int) $k->n];
+    }
+
     out(['date' => $cd, 'days' => $cDays, 'who' => $cWho, 'totals' => $tot,
+        'filters' => ['dir' => $cDir, 'ans' => $cAns, 'bill' => $cBill,
+            'cat' => $cCat, 'min' => $cMin, 'q' => $cQ],
+        'catsSeen' => $catsSeen,
         'heat' => array_values($heat), 'byHour' => $byHour,
         'activeDays' => count($activeDays),
         /* Η οθόνη πρέπει να ξέρει ότι βλέπει μέρος, για να το πει στον χρήστη. */
@@ -5589,6 +5633,109 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
             }
             return $o;
         })()]);
+
+case 'client_calls':                     // ΚΙΝΗΣΗ ΠΕΛΑΤΗ — για να τη δείξεις στον ίδιο
+    /* Η διαφορά από το call_drill: εκεί κοιτάς μέσα από την αναφορά της ημέρας,
+       εδώ κοιτάς ΕΝΑΝ πελάτη σε ΕΛΕΥΘΕΡΟ διάστημα — μήνα, τρίμηνο, χρονιά — και
+       το αποτέλεσμα είναι κάτι που μπορείς να στείλεις. Γι' αυτό υπάρχει και η
+       ανάλυση ανά μήνα: ο πελάτης ρωτάει «πόσο σας απασχόλησα», όχι «τι έγινε
+       την Τρίτη».
+
+       Ένας πελάτης μπορεί να έχει ΠΟΛΛΕΣ καρτέλες στον κατάλογο (κεντρικό,
+       υποκατάστημα, κινητό υπευθύνου) — τα μαζεύουμε όλα. */
+    $ccClient = (int) ($_GET['client'] ?? 0);
+    $ccBook   = (int) ($_GET['book'] ?? 0);
+    if (!$ccClient && !$ccBook) { fail('Διάλεξε πελάτη ή καρτέλα'); }
+
+    $ccFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['from'] ?? ''))
+        ? $_GET['from'] : date('Y-m-01', strtotime('-2 month'));
+    $ccTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['to'] ?? ''))
+        ? $_GET['to'] : date('Y-m-d');
+    if ($ccFrom > $ccTo) { [$ccFrom, $ccTo] = [$ccTo, $ccFrom]; }
+
+    $ccQ = function () use ($ccClient, $ccBook, $ccFrom, $ccTo) {
+        $q = Capsule::table('mod_cpm_calls')
+            ->whereBetween('started_at', [$ccFrom . ' 00:00:00', $ccTo . ' 23:59:59']);
+        if ($ccClient) { $q->where('clientid', $ccClient); }
+        else { $q->where('book_id', $ccBook); }
+        return $q;
+    };
+
+    /* Ποιον αφορά και με ποια τηλέφωνα — ο πελάτης θέλει να αναγνωρίσει τους
+       αριθμούς του μέσα στην αναφορά. */
+    $ccName = ''; $ccNums = [];
+    if ($ccClient) {
+        $ccName = clientLabel($ccClient);
+        $ccNums = Capsule::table('mod_cpm_book_phones as p')
+            ->join('mod_cpm_book as b', 'b.id', '=', 'p.book_id')
+            ->where('b.clientid', $ccClient)->pluck('p.e164')->all();
+    } else {
+        $bb = Capsule::table('mod_cpm_book')->where('id', $ccBook)->first();
+        if (!$bb) { fail('Δεν βρέθηκε η καρτέλα'); }
+        $ccName = Book::label((array) $bb);
+        $ccNums = Capsule::table('mod_cpm_book_phones')->where('book_id', $ccBook)->pluck('e164')->all();
+        if ($bb->clientid) { $ccClient = (int) $bb->clientid; }
+    }
+    /* Αριθμοί που εμφανίστηκαν σε κλήσεις αλλά δεν είναι στην καρτέλα —
+       συμβαίνει όταν κάποιος κάλεσε από άλλο τηλέφωνο της ίδιας εταιρείας. */
+    foreach ($ccQ()->distinct()->pluck('other_e164') as $n) {
+        if ($n !== '' && !in_array($n, $ccNums, true)) { $ccNums[] = $n; }
+    }
+
+    $ccAgg = $ccQ()->selectRaw(
+        'COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk, COALESCE(SUM(ring_seconds),0) wait,'
+        . " SUM(direction='in') inn, SUM(direction='out') outt, SUM(answered=0) missed,"
+        . ' SUM(logged_at IS NOT NULL) logged,'
+        . " COALESCE(SUM(CASE WHEN bill_status='billable' THEN talk_seconds ELSE 0 END),0) billable,"
+        . ' MIN(started_at) first_at, MAX(started_at) last_at')->first();
+
+    $ccAdmins = [];
+    foreach ($ccQ()->whereNotNull('admin_id')->groupBy('admin_id')
+        ->selectRaw('admin_id, COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk, SUM(answered=0) missed')
+        ->orderByRaw('talk DESC')->get() as $a) {
+        $ccAdmins[] = ['id' => (int) $a->admin_id, 'name' => Db::adminName((int) $a->admin_id),
+            'calls' => (int) $a->calls, 'talk' => (int) $a->talk, 'missed' => (int) $a->missed];
+    }
+
+    /* Ανά μήνα — η γραμμή που δείχνει αν μας απασχολεί όλο και περισσότερο. */
+    $ccMonths = [];
+    foreach ($ccQ()->groupBy(Capsule::raw("DATE_FORMAT(started_at,'%Y-%m')"))
+        ->selectRaw("DATE_FORMAT(started_at,'%Y-%m') ym, COUNT(*) calls,"
+            . ' COALESCE(SUM(talk_seconds),0) talk, SUM(answered=0) missed')
+        ->orderBy('ym')->get() as $m) {
+        $ccMonths[] = ['ym' => $m->ym, 'calls' => (int) $m->calls,
+            'talk' => (int) $m->talk, 'missed' => (int) $m->missed];
+    }
+
+    /* Τι είδους δουλειά ήταν — μόνο για όσες καταγράφηκαν. */
+    $ccCats = [];
+    foreach ($ccQ()->whereNotNull('category')->where('category', '<>', '')
+        ->groupBy('category')->selectRaw('category, COUNT(*) n, COALESCE(SUM(talk_seconds),0) t')
+        ->orderByRaw('t DESC')->get() as $k) {
+        $ccCats[] = ['key' => $k->category, 'calls' => (int) $k->n, 'talk' => (int) $k->t];
+    }
+
+    $ccItems = [];
+    foreach ($ccQ()->orderBy('started_at', 'desc')->limit(1000)->get() as $r) {
+        $ccItems[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
+            'talk' => (int) $r->talk_seconds, 'wait' => (int) $r->ring_seconds,
+            'answered' => (bool) $r->answered, 'other' => (string) $r->other_e164,
+            'admin' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
+            'summary' => (string) $r->summary, 'category' => (string) $r->category,
+            'bill' => (string) $r->bill_status, 'billWhy' => (string) $r->bill_reason,
+            'logged' => (bool) $r->logged_at];
+    }
+
+    out(['name' => $ccName, 'client' => $ccClient, 'book' => $ccBook,
+        'from' => $ccFrom, 'to' => $ccTo, 'numbers' => array_values($ccNums),
+        'totals' => ['calls' => (int) $ccAgg->calls, 'talk' => (int) $ccAgg->talk,
+            'wait' => (int) $ccAgg->wait, 'in' => (int) $ccAgg->inn, 'out' => (int) $ccAgg->outt,
+            'missed' => (int) $ccAgg->missed, 'logged' => (int) $ccAgg->logged,
+            'billable' => (int) $ccAgg->billable,
+            'firstAt' => $ccAgg->first_at, 'lastAt' => $ccAgg->last_at],
+        'admins' => $ccAdmins, 'months' => $ccMonths, 'cats' => $ccCats,
+        'items' => $ccItems, 'shown' => count($ccItems),
+        'canLog' => cnp_has_cap($adminId, $FULL, 'clients.calls')]);
 
 case 'call_drill':                       // «με ποιον μίλησε» / «ποιος τον εξυπηρέτησε»
     /* Το πλακίδιο λέει ΠΟΣΟ. Η ερώτηση που ακολουθεί πάντα είναι ΜΕ ΠΟΙΟΝ.

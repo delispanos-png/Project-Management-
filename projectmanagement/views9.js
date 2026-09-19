@@ -210,12 +210,16 @@ R.calls = async function () {
      νομίζει κανείς ότι βλέπει όλο τον χρόνο στο τηλέφωνο. */
   setTop('Τηλεφωνική δραστηριότητα', 'Ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης απασχολεί — εκτός εσωτερικών κλήσεων');
   const c = $('#content');
-  const st = R.calls._s = R.calls._s || {d: window.CNP.today(), days: 1, who: 0};
+  const st = R.calls._s = R.calls._s || {d: window.CNP.today(), days: 1, who: 0,
+    dir: '', ans: '', bill: '', cat: '', min: 0, q: '', open: false};
   c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
-  const d = await api(`calls_report&d=${st.d}&days=${st.days}&who=${st.who}`).catch(() => null);
+  const qs = `d=${st.d}&days=${st.days}&who=${st.who}&dir=${st.dir}&ans=${st.ans}`
+    + `&bill=${st.bill}&cat=${encodeURIComponent(st.cat)}&min=${st.min}&q=${encodeURIComponent(st.q)}`;
+  const d = await api('calls_report&' + qs).catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   const t = d.totals;
 
+  const nActive = ['dir', 'ans', 'bill', 'cat', 'q'].filter(k => st[k]).length + (st.min > 0 ? 1 : 0);
   const tile = (n, l, col) => `<div class="su-stat"><div><div class="n" style="color:${col || ''}">${n}</div>
     <div class="l">${l}</div></div></div>`;
 
@@ -253,9 +257,32 @@ R.calls = async function () {
       <option value="0">— όλη η ομάδα —</option>
       ${d.people.map(p => `<option value="${p.id}" ${p.id === st.who ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
     </select>
+    <button class="btn-s${nActive ? ' on' : ''}" id="clFilt">${I.filter || '⚙'} Φίλτρα${nActive ? ` (${nActive})` : ''}</button>
     <span style="flex:1"></span>
     <button class="btn-s" id="clSync" title="Τράβα ό,τι νέο από το τηλεφωνικό κέντρο">↻ Ανανέωση</button>
     <span class="mut" style="font-size:11.5px">${t.logged}/${t.calls} καταγεγραμμένες</span>
+  </div>
+
+  ${/* Δεύτερη σειρά, κρυμμένη μέχρι να τη ζητήσεις: η καθημερινή χρήση είναι
+       «τι έγινε σήμερα», τα φίλτρα είναι για όταν ψάχνεις κάτι συγκεκριμένο. */''}
+  <div class="cl-filters" ${st.open || nActive ? '' : 'hidden'}>
+    <input class="inp" id="clQ" placeholder="Πελάτης, αριθμός ή περίληψη…" value="${esc(st.q)}" style="min-width:210px;flex:1">
+    <div class="td-seg cl-seg">${[['', 'κάθε κατεύθυνση'], ['in', '↙ εισερχόμενες'], ['out', '↗ εξερχόμενες']]
+      .map(([k, l]) => `<button data-cdir="${k}" class="${st.dir === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="td-seg cl-seg">${[['', 'όλες'], ['yes', 'απαντημένες'], ['no', 'αναπάντητες']]
+      .map(([k, l]) => `<button data-cans="${k}" class="${st.ans === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <select class="inp" id="clBill" style="width:170px">
+      <option value="">— κάθε χρέωση —</option>
+      <option value="none" ${st.bill === 'none' ? 'selected' : ''}>δεν καταγράφηκαν</option>
+      ${Object.entries(CALL_BILL).map(([k, v]) => `<option value="${k}" ${st.bill === k ? 'selected' : ''}>${v[0]}</option>`).join('')}
+    </select>
+    ${(d.catsSeen || []).length ? `<select class="inp" id="clCat" style="width:160px">
+      <option value="">— κάθε κατηγορία —</option>
+      ${d.catsSeen.map(k => `<option value="${esc(k.key)}" ${st.cat === k.key ? 'selected' : ''}>${esc(CALL_CAT[k.key] || k.key)} (${k.n})</option>`).join('')}
+    </select>` : ''}
+    <label class="cl-minl">πάνω από
+      <input class="inp" id="clMin" type="number" min="0" max="600" value="${st.min || ''}" style="width:62px"> λεπτά</label>
+    ${nActive ? '<button class="btn-s" id="clClr">Καθάρισε</button>' : ''}
   </div>
 
   <div class="g4 grid" style="margin-bottom:14px">
@@ -362,6 +389,20 @@ R.calls = async function () {
     </div></div>`;
 
   $('#clD').onchange = e => { st.d = e.target.value; R.calls(); };
+  $('#clFilt').onclick = () => { st.open = !st.open; R.calls(); };
+  const F = $('.cl-filters');
+  if (F) {
+    let qt = null;
+    $('#clQ').oninput = e => { clearTimeout(qt); const v = e.target.value;
+      qt = setTimeout(() => { st.q = v.trim(); R.calls(); }, 350); };
+    $$('[data-cdir]').forEach(b => b.onclick = () => { st.dir = b.dataset.cdir; R.calls(); });
+    $$('[data-cans]').forEach(b => b.onclick = () => { st.ans = b.dataset.cans; R.calls(); });
+    $('#clBill').onchange = e => { st.bill = e.target.value; R.calls(); };
+    const cc = $('#clCat'); if (cc) { cc.onchange = e => { st.cat = e.target.value; R.calls(); }; }
+    $('#clMin').onchange = e => { st.min = Math.max(0, +e.target.value || 0); R.calls(); };
+    const cl = $('#clClr');
+    if (cl) { cl.onclick = () => { st.dir = ''; st.ans = ''; st.bill = ''; st.cat = ''; st.min = 0; st.q = ''; R.calls(); }; }
+  }
   /* Το pulse το κάνει μόνο του κάθε 10΄. Το κουμπί είναι για όποιον μόλις έκλεισε
      το τηλέφωνο και θέλει να δει την κλήση του τώρα, χωρίς να περιμένει. */
   $('#clSync').onclick = async e => {
@@ -423,6 +464,9 @@ async function callDrill(what, st) {
           ${t.missed ? ` · <span style="color:var(--bad)">${t.missed} αναπάντητες</span>` : ''}
           · ${t.in} εισερχ. / ${t.out} εξερχ.</div>
       </div>
+      ${d.mode === 'client' && cnpCan('reports.calls') && (what.client || what.num)
+        ? `<a class="btn-s" id="cdFull" href="#/clientcalls/${what.client ? 'c' + what.client : ''}"
+             title="Ολόκληρη η κίνησή του σε ελεύθερο διάστημα">Πλήρης κίνηση</a>` : ''}
       <button class="cd-x" title="Κλείσιμο">✕</button>
     </div>
     <div class="cd-b">
@@ -452,6 +496,8 @@ async function callDrill(what, st) {
         </div>`).join('')}</div>
     </div>`;
   $('.cd-x', ovl).onclick = kill;
+  const full = $('#cdFull', ovl);
+  if (full) { full.onclick = () => kill(); }   /* ο σύνδεσμος αλλάζει οθόνη — κλείσε το παράθυρο */
   $$('[data-dcall]', ovl).forEach(r => r.onclick = () =>
     callNote(d.items.find(x => x.id === +r.dataset.dcall), d));
   /* Από «με ποιους μίλησε» → μπαίνεις στον πελάτη και βλέπεις ποιοι άλλοι
@@ -849,6 +895,8 @@ async function bookCard(id, pre) {
 
   <div class="bc-actions">
     ${ed && d.canDel && K.id ? '<button class="btn btn-o" id="bcDel" style="color:var(--bad)">Διαγραφή</button>' : ''}
+    ${K.id && d.totals.calls && cnpCan('reports.calls')
+      ? `<a class="btn btn-o" href="#/clientcalls/${K.client ? 'c' + K.client : 'b' + K.id}">Η κίνησή του</a>` : ''}
     <span style="flex:1"></span>
     ${ed ? `<button class="btn btn-p" id="bcSave">Αποθήκευση</button>` : ''}
   </div>
@@ -1104,3 +1152,185 @@ function bookField(f) {
     };
   }
 }
+
+/* ═══════════════ ΚΙΝΗΣΗ ΠΕΛΑΤΗ ═══════════════
+   «Πόσο σας απασχόλησα;» — η ερώτηση που κάνει ο πελάτης, όχι εμείς. Γι' αυτό
+   εδώ το διάστημα είναι ελεύθερο (μήνας, τρίμηνο, χρονιά), η ανάλυση είναι ανά
+   μήνα και ανά χειριστή, και το αποτέλεσμα βγαίνει σε αρχείο που στέλνεται.
+
+   Δεν αντικαθιστά την ανάλυση της ημερήσιας αναφοράς: εκείνη απαντά «τι έγινε
+   χθες», αυτή «τι έγινε φέτος». */
+const CC_PRESETS = [
+  ['μήνας', () => [new Date().toISOString().slice(0, 8) + '01', window.CNP.today()]],
+  ['τρίμηνο', () => { const d = new Date(); d.setMonth(d.getMonth() - 2, 1);
+    return [d.toISOString().slice(0, 10), window.CNP.today()]; }],
+  ['φέτος', () => [new Date().getFullYear() + '-01-01', window.CNP.today()]],
+];
+
+R.clientcalls = async function (arg) {
+  if (!cnpCan('reports.calls')) {
+    setTop('Κίνηση πελάτη');
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Τηλεφωνική δραστηριότητα»'});
+    return;
+  }
+  setTop('Κίνηση πελάτη', 'Πόσες φορές μας πήρε, πόση ώρα, ποιος τον εξυπηρέτησε');
+  const c = $('#content');
+  const st = R.clientcalls._s = R.clientcalls._s || {client: 0, book: 0, name: '',
+    from: new Date().getFullYear() + '-01-01', to: window.CNP.today()};
+  /* Από σύνδεσμο: #/clientcalls/c212 ή #/clientcalls/b447 */
+  if (arg) {
+    const m = String(arg).match(/^([cb])(\d+)$/);
+    if (m) { st.client = m[1] === 'c' ? +m[2] : 0; st.book = m[1] === 'b' ? +m[2] : 0; }
+  }
+
+  if (!st.client && !st.book) {
+    c.innerHTML = `<div class="card"><div class="card-b">
+      <div class="cc-pick"><b>Ποιον πελάτη;</b>
+        <div class="mut" style="font-size:12.5px;margin:3px 0 10px">
+          Ψάξε πελάτη του WHMCS ή οποιαδήποτε επαφή του τηλεφωνικού καταλόγου.</div>
+        <input class="inp" id="ccQ" placeholder="Όνομα, επωνυμία ή τηλέφωνο…" autocomplete="off">
+        <div id="ccRes"></div></div>
+    </div></div>`;
+    let t = null;
+    $('#ccQ').oninput = e => {
+      clearTimeout(t); const v = e.target.value.trim();
+      if (v.length < 2) { $('#ccRes').innerHTML = ''; return; }
+      t = setTimeout(async () => {
+        const r = await api(`book_list&q=${encodeURIComponent(v)}`).catch(() => null);
+        const list = ((r && r.items) || []).slice(0, 10);
+        $('#ccRes').innerHTML = list.length ? list.map(b => `
+          <div class="cn-pick" data-cc="${b.client ? 'c' + b.client : 'b' + b.id}">
+            <b>${esc(b.name)}</b>
+            <span class="mut">${b.phones.map(p => esc(p.e164)).join(' · ')}${
+              b.calls ? ` · ${b.calls} κλήσεις` : ''}</span></div>`).join('')
+          : '<div class="mut" style="padding:8px 2px;font-size:12.5px">Κανένα αποτέλεσμα.</div>';
+        $$('.cn-pick').forEach(el => el.onclick = () => {
+          const m2 = el.dataset.cc.match(/^([cb])(\d+)$/);
+          st.client = m2[1] === 'c' ? +m2[2] : 0; st.book = m2[1] === 'b' ? +m2[2] : 0;
+          R.clientcalls();
+        });
+      }, 300);
+    };
+    $('#ccQ').focus();
+    return;
+  }
+
+  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+  const who = st.client ? 'client=' + st.client : 'book=' + st.book;
+  const d = await api(`client_calls&${who}&from=${st.from}&to=${st.to}`).catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  R.clientcalls._d = d;
+  const t = d.totals;
+  const maxM = Math.max(1, ...d.months.map(m => m.talk));
+  const maxA = Math.max(1, ...d.admins.map(a => a.talk));
+  const mName = ym => { const [y, m] = ym.split('-');
+    return ['Ιαν','Φεβ','Μαρ','Απρ','Μάι','Ιούν','Ιούλ','Αύγ','Σεπ','Οκτ','Νοέ','Δεκ'][+m - 1] + ' ' + y.slice(2); };
+
+  c.innerHTML = `
+  <div class="cl-bar">
+    <button class="btn-s" id="ccBack">← άλλος πελάτης</button>
+    <input type="date" class="inp" id="ccF" value="${st.from}" style="width:150px">
+    <span class="mut">έως</span>
+    <input type="date" class="inp" id="ccT" value="${st.to}" style="width:150px">
+    <div class="td-seg cl-seg">${CC_PRESETS.map((p, i) => `<button data-ccp="${i}">${p[0]}</button>`).join('')}</div>
+    <span style="flex:1"></span>
+    <button class="btn-s" id="ccCsv">${I.download || '⭳'} CSV</button>
+    <button class="btn-s" id="ccPrint">Εκτύπωση</button>
+  </div>
+
+  <div class="card cc-head"><div class="card-b">
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <b style="font-size:16px;color:var(--ink)">${esc(d.name)}</b>
+        <div class="mut" style="font-size:12px;margin-top:3px">
+          ${esc(d.from)} → ${esc(d.to)}${t.firstAt
+            ? ` · πρώτη επαφή ${esc(String(t.firstAt).slice(0, 10))}, τελευταία ${esc(String(t.lastAt).slice(0, 10))}` : ''}</div>
+        ${d.numbers.length ? `<div class="mut" style="font-size:11.5px;margin-top:4px">
+          Τηλέφωνα: ${d.numbers.slice(0, 6).map(esc).join(' · ')}${d.numbers.length > 6 ? ` +${d.numbers.length - 6}` : ''}</div>` : ''}
+      </div>
+      ${d.client ? `<a class="btn-s" href="#/client/${d.client}">Καρτέλα πελάτη</a>` : ''}
+    </div>
+  </div></div>
+
+  <div class="cl-tiles">
+    <div class="su-stat"><div><div class="n">${t.calls}</div><div class="l">κλήσεις</div></div></div>
+    <div class="su-stat"><div><div class="n" style="color:var(--brand)">${callHm(t.talk)}</div>
+      <div class="l">συνολικός χρόνος</div></div></div>
+    <div class="su-stat"><div><div class="n">${t.in} / ${t.out}</div><div class="l">εισερχόμενες / εξερχόμενες</div></div></div>
+    <div class="su-stat"><div><div class="n" style="color:${t.missed ? 'var(--bad)' : ''}">${t.missed}</div>
+      <div class="l">αναπάντητες</div></div></div>
+    <div class="su-stat"><div><div class="n" style="color:var(--ok)">${callHm(t.billable)}</div>
+      <div class="l">χρεώσιμος χρόνος</div></div></div>
+  </div>
+
+  <div class="cl-cols">
+    <div class="card"><div class="card-h">${I.users} Ποιος τον εξυπηρέτησε</div>
+      <div class="card-b">${d.admins.length ? d.admins.map(a => `
+        <div class="cl-agg"><span class="cl-an"><span class="cl-ant">${esc(a.name)}</span></span>
+          <span class="cl-ab"><i style="width:${Math.round(a.talk / maxA * 100)}%"></i></span>
+          <span class="cl-av">${a.calls} · <b>${callHm(a.talk)}</b>${
+            a.missed ? ` · <span style="color:var(--bad)">${a.missed} χαμ.</span>` : ''}</span>
+        </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
+
+    <div class="card"><div class="card-h">${I.chart || I.clock} Ανά μήνα</div>
+      <div class="card-b">${d.months.length ? d.months.map(m => `
+        <div class="cl-agg"><span class="cl-an"><span class="cl-ant">${mName(m.ym)}</span></span>
+          <span class="cl-ab"><i style="width:${Math.round(m.talk / maxM * 100)}%;background:#7b5cd6"></i></span>
+          <span class="cl-av">${m.calls} · <b>${callHm(m.talk)}</b></span>
+        </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
+  </div>
+
+  ${d.cats.length ? `<div class="card"><div class="card-h">${I.tree} Τι ζητούσε
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">από ${t.logged} καταγεγραμμένες κλήσεις</span></div>
+    <div class="card-b"><div class="cc-cats">${d.cats.map(k => `
+      <div class="cc-cat"><b>${esc(CALL_CAT[k.key] || k.key)}</b>
+        <span class="mut">${k.calls} · ${callHm(k.talk)}</span></div>`).join('')}</div></div></div>` : ''}
+
+  <div class="card"><div class="card-h">${I.phone} Οι κλήσεις
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${
+      d.shown < t.calls ? `οι ${d.shown} πιο πρόσφατες από ${t.calls}` : `${d.shown} κλήσεις`}</span></div>
+    <div class="card-b" style="padding:4px 6px 8px">
+      ${d.items.length ? `<div class="cl-list">${d.items.map(x => `
+        <div class="cl-row${x.logged ? ' done' : ''}" data-ccall="${x.id}">
+          <span class="cl-d ${x.dir}">${x.dir === 'out' ? '↗' : '↙'}</span>
+          <span class="cl-t">${esc(String(x.at).slice(0, 16).replace('T', ' ').slice(5))}</span>
+          <span class="cl-who">${esc(x.admin || '—')}</span>
+          <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+          <span class="cl-sum">${x.summary ? esc(x.summary) : (d.canLog ? '<span class="cl-todo">κατέγραψε</span>' : '')}</span>
+          <span class="cl-bill">${x.bill && CALL_BILL[x.bill]
+            ? `<span class="cl-b" style="--bc:${CALL_BILL[x.bill][1]}">${CALL_BILL[x.bill][0]}</span>` : ''}</span>
+        </div>`).join('')}</div>`
+        : '<div class="cl-empty">Καμία κλήση σε αυτό το διάστημα.</div>'}
+    </div></div>`;
+
+  $('#ccBack').onclick = () => { st.client = 0; st.book = 0; R.clientcalls(); };
+  $('#ccF').onchange = e => { st.from = e.target.value; R.clientcalls(); };
+  $('#ccT').onchange = e => { st.to = e.target.value; R.clientcalls(); };
+  $$('[data-ccp]').forEach(b => b.onclick = () => {
+    const [f, to] = CC_PRESETS[+b.dataset.ccp][1](); st.from = f; st.to = to; R.clientcalls();
+  });
+  $$('[data-ccall]').forEach(r => r.onclick = () =>
+    callNote(d.items.find(x => x.id === +r.dataset.ccall), d));
+  $('#ccPrint').onclick = () => window.print();
+  $('#ccCsv').onclick = () => {
+    /* Το αρχείο φεύγει προς τον πελάτη — γι' αυτό επικεφαλίδες στα ελληνικά,
+       ώρες σε λεπτά (όχι δευτερόλεπτα) και ημερομηνίες όπως τις διαβάζει
+       άνθρωπος, όχι όπως τις αποθηκεύει η βάση. */
+    const q = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const rows = [['Ημερομηνία', 'Ώρα', 'Κατεύθυνση', 'Αριθμός', 'Χειριστής',
+      'Διάρκεια (λεπτά)', 'Απαντήθηκε', 'Τι έγινε', 'Χρέωση'].map(q).join(';')];
+    d.items.slice().reverse().forEach(x => rows.push([
+      String(x.at).slice(0, 10), String(x.at).slice(11, 16),
+      x.dir === 'out' ? 'Εξερχόμενη' : 'Εισερχόμενη', x.other, x.admin,
+      (x.talk / 60).toFixed(1).replace('.', ','), x.answered ? 'Ναι' : 'Όχι',
+      x.summary, (CALL_BILL[x.bill] || [''])[0]].map(q).join(';')));
+    rows.push('');
+    rows.push([q('ΣΥΝΟΛΟ'), q(t.calls + ' κλήσεις'), q((t.talk / 60).toFixed(1).replace('.', ',') + ' λεπτά')].join(';'));
+    /* BOM, αλλιώς το Excel διαβάζει τα ελληνικά ως σύμβολα. */
+    const blob = new Blob(['﻿' + rows.join('\r\n')], {type: 'text/csv;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `κινηση-${d.name.replace(/[^\wΑ-Ωα-ωά-ώ]+/g, '-').slice(0, 40)}-${d.from}_${d.to}.csv`;
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+};

@@ -3722,3 +3722,24 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .cl-other{display:flex;align-items:center;gap:6px;min-width:0}
 .cl-ot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .cl-3cx{flex:none}
+
+/* ── Κίνηση πελάτη ── */
+.cc-pick{max-width:560px}
+.cc-head .card-b{padding:14px 18px}
+.cc-cats{display:flex;flex-wrap:wrap;gap:8px}
+.cc-cat{border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12.5px;
+  display:flex;gap:8px;align-items:baseline;background:var(--bg2)}
+.cc-cat .mut{font-size:11.5px}
+/* Η εκτύπωση φεύγει προς τον πελάτη: μένει μόνο η αναφορά. */
+@media print{
+  .side,.topbar,.cl-bar,.tabbar,#toasts{display:none!important}
+  #content{margin:0!important;padding:0!important}
+  .card{box-shadow:none;border:1px solid #ddd;break-inside:avoid}
+  .cl-row{break-inside:avoid}
+}
+
+/* Δεύτερη σειρά φίλτρων στην τηλεφωνική δραστηριότητα */
+.cl-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:-4px 0 14px}
+.cl-minl{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--mut);white-space:nowrap}
+.btn-s.on{border-color:var(--brand);color:var(--brand);font-weight:700}
+@media(max-width:760px){ .cl-filters .inp,.cl-filters .td-seg{flex:1 1 100%} }
