@@ -25,6 +25,7 @@ require_once __DIR__ . '/lib/Cover.php';
 require_once __DIR__ . '/lib/Notify.php';
 require_once __DIR__ . '/lib/Storage.php';
 require_once __DIR__ . '/lib/Pbx3cx/Client.php';   // CloudOn Agent — διασύνδεση 3CX
+require_once __DIR__ . '/lib/Pbx3cx/Sync.php';
 
 function cloudonprojects_config()
 {

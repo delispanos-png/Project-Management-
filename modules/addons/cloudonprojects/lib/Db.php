@@ -893,6 +893,24 @@ class Db
                 $t->unique(['admin_id', 'valid_from'], 'rate_once_per_day');
             });
         }
+        /* Ο χάρτης του τηλεφωνικού κέντρου: DN → χειριστής CloudOn.
+           ΔΕΝ είναι δεύτερο directory χρηστών — δείχνει στο tbladmins.
+           matched_by: πώς προέκυψε η αντιστοίχιση. Το 'manual' ΔΕΝ το πειράζει
+           ποτέ ο συγχρονισμός, αλλιώς κάθε νύχτα θα έσβηνε τη δουλειά του
+           διαχειριστή. */
+        if (!$s->hasTable('mod_cpm_pbx_map')) {
+            $s->create('mod_cpm_pbx_map', function ($t) {
+                $t->increments('id');
+                $t->string('dn', 20)->unique();               // 203, 807, 805…
+                $t->string('dn_type', 12)->index();           // extension | queue | ringgroup
+                $t->string('display_name', 120)->nullable();
+                $t->string('email', 160)->nullable();
+                $t->integer('admin_id')->unsigned()->nullable()->index();
+                $t->string('matched_by', 8)->default('none'); // email | manual | none
+                $t->tinyInteger('active')->default(1);        // υπάρχει ακόμη στο PBX;
+                $t->dateTime('synced_at')->nullable();
+            });
+        }
         /* Τεχνικό ημερολόγιο διασύνδεσης — debugging χωρίς δεύτερο σύστημα. */
         if (!$s->hasTable('mod_cpm_pbx_log')) {
             $s->create('mod_cpm_pbx_log', function ($t) {

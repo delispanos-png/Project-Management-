@@ -272,3 +272,21 @@ try {
 } catch (\Throwable $e) {
     if (function_exists('logActivity')) { logActivity('CPM daily ghost timers: ' . $e->getMessage()); }
 }
+
+/* ── 7) Συγχρονισμός δομής 3CX ─────────────────────────────────────────────
+   Νέο extension, αλλαγή ονόματος, νέα ουρά: να τα ξέρει το CloudOn χωρίς να
+   το θυμηθεί κανείς. Η χειροκίνητη αντιστοίχιση δεν πειράζεται ποτέ. */
+try {
+    require_once __DIR__ . '/../lib/Pbx3cx/Client.php';
+    require_once __DIR__ . '/../lib/Pbx3cx/Sync.php';
+    if (\WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient::configured()) {
+        $sy = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::run();
+        if (function_exists('logActivity')) {
+            logActivity('CPM daily: 3CX δομή — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']
+                . ', αντιστοιχισμένα ' . $sy['matched']
+                . ($sy['errors'] ? ' · ΣΦΑΛΜΑΤΑ: ' . implode(' | ', $sy['errors']) : ''));
+        }
+    }
+} catch (\Throwable $e) {
+    if (function_exists('logActivity')) { logActivity('CPM daily 3CX sync: ' . $e->getMessage()); }
+}

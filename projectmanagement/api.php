@@ -19,6 +19,7 @@ use WHMCS\Module\Addon\CloudonProjects\Report;
 use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
 use WHMCS\Module\Addon\CloudonProjects\Pbx;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient;
+use WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
@@ -39,6 +40,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Client.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Sync.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
 }
@@ -3041,8 +3043,9 @@ function cnp_action_cap($action)
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
-        $add('comms.pbx', ['pbx_settings', 'pbx_log']);
-        $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del']);
+        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map']);
+        $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
+            'pbx_sync', 'pbx_map_save']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
@@ -5394,6 +5397,47 @@ case 'pbx_rate_save':                    // κόστος ανά χειριστή
         ['admin_id' => $rAdmin, 'valid_from' => $rFrom],
         ['cost_per_hour' => $rVal, 'note' => mb_substr(trim((string) ($in['note'] ?? '')), 0, 160) ?: null,
          'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'pbx_map':                          // ο χάρτης DN → χειριστής
+    $lastSync = Pbx3cxClient::cfg('last_sync');
+    out(['items' => Pbx3cxSync::map(),
+        'lastSync' => $lastSync !== '' ? json_decode($lastSync, true) : null,
+        'admins' => (function () {
+            /* Db::admins() είναι collection, όχι πίνακας — array_filter() πάνω του σκάει. */
+            $o = [];
+            foreach (Db::admins() as $a) {
+                $nm = trim($a->firstname . ' ' . $a->lastname);
+                if (cnp_is_bot($nm, $a->username)) { continue; }
+                $o[] = ['id' => (int) $a->id, 'name' => $nm];
+            }
+            return $o;
+        })()]);
+
+case 'pbx_sync':                         // ΦΑΣΗ 3 — τράβα τη δομή από το PBX
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    $sy = Pbx3cxSync::run();
+    if (function_exists('logActivity')) {
+        logActivity('CPM: συγχρονισμός δομής 3CX από admin #' . $adminId
+            . ' — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']);
+    }
+    out(['ok' => empty($sy['errors']), 'sync' => $sy]);
+
+case 'pbx_map_save':                     // χειροκίνητη αντιστοίχιση — ΔΕΝ τη σβήνει ο συγχρονισμός
+    $mId = (int) ($in['id'] ?? 0);
+    $mAdmin = (int) ($in['admin'] ?? 0);
+    $row = Capsule::table('mod_cpm_pbx_map')->where('id', $mId)->first();
+    if (!$row) { fail('Δεν βρέθηκε'); }
+    if ($mAdmin && !Capsule::table('tbladmins')->where('id', $mAdmin)->where('disabled', 0)->exists()) {
+        fail('Άγνωστος χειριστής');
+    }
+    Capsule::table('mod_cpm_pbx_map')->where('id', $mId)->update([
+        'admin_id' => $mAdmin ?: null,
+        /* Το «κανένας» είναι κι αυτό απόφαση — μένει manual ώστε ο συγχρονισμός
+           να μην ξανακολλήσει αντιστοίχιση από email που ο διαχειριστής έβγαλε. */
+        'matched_by' => $mAdmin ? 'manual' : 'manual']);
+    Pbx3cxClient::log('sync', 'ok', 'Χειροκίνητη αντιστοίχιση DN ' . $row->dn . ' → '
+        . ($mAdmin ? Db::adminName($mAdmin) : 'κανένας') . ' από ' . Db::adminName($adminId));
     out(['ok' => true]);
 
 case 'pbx_rate_del':

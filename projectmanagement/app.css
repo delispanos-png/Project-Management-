@@ -3432,3 +3432,24 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .pbx-c.opt .pbx-ci{color:var(--mut)}
 .pbx-opt{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--mut);
   background:var(--line);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+/* Χάρτης PBX: DN → χειριστής */
+.pbx-map{display:flex;flex-direction:column;gap:2px}
+.pbx-m{display:grid;grid-template-columns:52px 58px minmax(0,1fr) 210px 96px;align-items:center;
+  gap:10px;padding:6px 10px;border-radius:9px}
+.pbx-m:hover{background:var(--hover)}
+.pbx-m.off{opacity:.45}
+.pbx-mt{font-size:9px;font-weight:800;letter-spacing:.3px;text-align:center;border-radius:5px;padding:2px 0;
+  color:var(--mut);background:var(--line)}
+.pbx-mt.queue{color:#7b5cd6;background:#7b5cd618}
+.pbx-mt.ringgroup{color:#e0a020;background:#e0a02018}
+.pbx-md{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.pbx-mn{font-size:12.5px;min-width:0;display:flex;flex-direction:column;gap:0;overflow:hidden}
+.pbx-mn .mut{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pbx-ms{padding:4px 8px;font-size:12px;max-width:100%}
+.pbx-mb{font-size:10px;font-weight:700;text-align:right;color:var(--mut)}
+.pbx-mb.manual{color:var(--brand)}
+@media (max-width:860px){
+  .pbx-m{grid-template-columns:48px 52px minmax(0,1fr);row-gap:4px}
+  .pbx-ms{grid-column:1/-1}
+  .pbx-mb{display:none}
+}

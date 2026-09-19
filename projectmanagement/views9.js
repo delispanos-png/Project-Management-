@@ -16,7 +16,10 @@ R.pbx = async function () {
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>';
-  const d = await api('pbx_settings').catch(() => null);
+  const [d, m] = await Promise.all([
+    api('pbx_settings').catch(() => null),
+    api('pbx_map').catch(() => null),
+  ]);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   const ed = d.canEdit;
 
@@ -77,6 +80,30 @@ R.pbx = async function () {
       <div id="pxMsg" class="mut" style="font-size:12px;margin-top:10px"></div>
     </div></div>
 
+  ${m ? `<div class="card"><div class="card-h">${I.tree || I.users} Χάρτης τηλεφωνικού κέντρου
+    <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">
+      ${m.lastSync ? 'τελευταίος συγχρονισμός: ' + esc(m.lastSync.at) : 'δεν έχει συγχρονιστεί ποτέ'}</span></div>
+    <div class="card-b">
+      <div class="mut" style="font-size:12px;margin-bottom:10px">
+        Ποιο extension ανήκει σε ποιον. Η αντιστοίχιση γίνεται αυτόματα με το <b>email</b> —
+        τα ονόματα διαφέρουν («Βασίλης Βάκρινος» vs «Vasilis Vakrinos») και τα DN αλλάζουν.
+        Ό,τι ορίσεις χειροκίνητα <b>δεν το ξαναγράφει</b> ο συγχρονισμός.
+      </div>
+      ${ed ? `<button class="btn btn-o btn-sm" id="pxSync" style="margin-bottom:12px">${I.repeat || I.zap} Συγχρονισμός τώρα</button>` : ''}
+      <div class="pbx-map">
+        ${m.items.length ? m.items.map(it => `<div class="pbx-m${it.active ? '' : ' off'}">
+          <span class="pbx-mt ${esc(it.type)}">${it.type === 'extension' ? 'DN' : it.type === 'queue' ? 'ΟΥΡΑ' : 'ΟΜΑΔΑ'}</span>
+          <span class="pbx-md">${esc(it.dn)}</span>
+          <span class="pbx-mn">${esc(it.name || '—')}${it.email ? `<span class="mut">${esc(it.email)}</span>` : ''}</span>
+          ${ed ? `<select class="inp pbx-ms" data-map="${it.id}">
+            <option value="0">— κανένας —</option>
+            ${m.admins.map(a => `<option value="${a.id}" ${a.id === it.admin ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
+          </select>` : `<span class="pbx-mn">${esc(it.adminName || '—')}</span>`}
+          <span class="pbx-mb ${esc(it.by)}">${it.by === 'email' ? 'από email' : it.by === 'manual' ? 'χειροκίνητα' : ''}</span>
+        </div>`).join('') : '<div class="mut" style="font-size:12.5px">Κανένα δεδομένο — πάτα «Συγχρονισμός τώρα».</div>'}
+      </div>
+    </div></div>` : ''}
+
   <div class="card"><div class="card-h">${I.coin} Κόστος ανά χειριστή
     <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">
       όπου δεν έχει οριστεί, ισχύει το γενικό ${d.fallbackRate}€/ώρα</span></div>
@@ -121,6 +148,26 @@ R.pbx = async function () {
         : '<div class="mut" style="font-size:12.5px">Καμία εγγραφή ακόμη.</div>';
       card.hidden = false;
     };
+    const sb = $('#pxSync');
+    if (sb) { sb.onclick = async () => {
+      sb.disabled = true; sb.textContent = 'Συγχρονισμός…';
+      const r = await api('pbx_sync', {}).catch(e => ({err: e.message}));
+      sb.disabled = false;
+      if (r.err) { toast(r.err, true); R.pbx(); return; }
+      const s2 = r.sync;
+      toast(s2.errors && s2.errors.length
+        ? 'Με σφάλματα: ' + s2.errors[0]
+        : `Νέα ${s2.new} · ενημερώθηκαν ${s2.updated} · αντιστοιχισμένα ${s2.matched}`,
+        !!(s2.errors && s2.errors.length));
+      R.pbx();
+    }; }
+    $$('[data-map]').forEach(sel => sel.onchange = async () => {
+      const r = await api('pbx_map_save', {id: +sel.dataset.map, admin: +sel.value})
+        .catch(e => ({err: e.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast('Αποθηκεύτηκε — ο συγχρονισμός δεν θα το αλλάξει');
+      R.pbx();
+    });
     $$('[data-rate]').forEach(b => b.onclick = async () => {
       const v = await window.CNP.cnpDialog({
         title: 'Κόστος ώρας — ' + b.dataset.name,
