@@ -3044,6 +3044,9 @@ function cnp_action_cap($action)
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
         $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map']);
+        /* Η ζωντανή εικόνα «ποιος μιλάει τώρα» ανήκει στη Δραστηριότητα της
+           ομάδας, όχι στις ρυθμίσεις — γι' αυτό δένεται στο reports.activity. */
+        $add('reports.activity', ['pbx_live']);
         $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
             'pbx_sync', 'pbx_map_save']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
@@ -5398,6 +5401,15 @@ case 'pbx_rate_save':                    // κόστος ανά χειριστή
         ['cost_per_hour' => $rVal, 'note' => mb_substr(trim((string) ($in['note'] ?? '')), 0, 160) ?: null,
          'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
     out(['ok' => true]);
+
+case 'pbx_live':                         // ποιος μιλάει ΤΩΡΑ
+    if (!Pbx3cxClient::configured()) { out(['on' => false, 'calls' => []]); }
+    try {
+        out(['on' => true, 'calls' => Pbx3cxSync::live()]);
+    } catch (\Throwable $eL) {
+        /* Το τηλεφωνικό κέντρο δεν πρέπει ΠΟΤΕ να ρίξει τη Δραστηριότητα. */
+        out(['on' => false, 'calls' => [], 'error' => $eL->getMessage()]);
+    }
 
 case 'pbx_map':                          // ο χάρτης DN → χειριστής
     $lastSync = Pbx3cxClient::cfg('last_sync');

@@ -3453,3 +3453,23 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .pbx-ms{grid-column:1/-1}
   .pbx-mb{display:none}
 }
+
+/* Στο τηλέφωνο τώρα (Δραστηριότητα) */
+.ph-list{display:flex;flex-direction:column;gap:2px}
+.ph-row{display:grid;grid-template-columns:10px minmax(0,1.1fr) 18px minmax(0,1fr) 120px 64px;
+  align-items:center;gap:10px;padding:7px 8px;border-radius:9px;font-size:13px}
+.ph-row:hover{background:var(--hover)}
+.ph-dot{width:9px;height:9px;border-radius:50%;background:var(--mut)}
+.ph-dot.on{background:#16a26a;box-shadow:0 0 0 3px #16a26a26}
+.ph-dot.ring{background:#e0a020;animation:phRing 1s ease-in-out infinite}
+@keyframes phRing{50%{opacity:.35}}
+.ph-who,.ph-other{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ph-other{font-variant-numeric:tabular-nums}
+.ph-arrow{color:var(--mut);text-align:center}
+.ph-st{font-size:11.5px;color:var(--mut)}
+.ph-t{font-size:12px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+@media (max-width:760px){
+  .ph-row{grid-template-columns:10px minmax(0,1fr) 60px;row-gap:2px}
+  .ph-arrow,.ph-st{display:none}
+  .ph-other{grid-column:2/-1;font-size:11.5px;color:var(--mut)}
+}

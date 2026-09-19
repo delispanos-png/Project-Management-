@@ -529,6 +529,7 @@ R.activity = async function () {
       ${actStat(I.ticket, s.repliesToday, 'απαντήσεις σήμερα', 'var(--info)')}
       ${actStat(I.checkSquare, s.doneToday, 'έκλεισαν σήμερα', s.doneToday ? 'var(--ok)' : 'var(--mut)')}
     </div>
+    <div id="actPhone" hidden></div>
 
     <div class="act-h">
       <b>Η ομάδα τώρα</b>
@@ -578,12 +579,42 @@ R.activity = async function () {
     $$('.act-row[data-tk]').forEach(el => el.onclick = () => go('#/inbox/' + el.dataset.tk));
   };
 
+  /* ── Στο τηλέφωνο τώρα ─────────────────────────────────────────────────
+     Η τηλεφωνική δραστηριότητα μπαίνει ΕΔΩ, μαζί με την υπόλοιπη δουλειά της
+     ομάδας — όχι σε ξεχωριστή οθόνη. Μια κλήση είναι δουλειά όπως κάθε άλλη.
+     Αν το κέντρο δεν απαντά, η λωρίδα απλώς δεν εμφανίζεται· η Δραστηριότητα
+     δεν εξαρτάται ποτέ από το τηλεφωνικό κέντρο. */
+  const paintPhone = async () => {
+    const box = $('#actPhone');
+    if (!box) { return; }
+    const r = await api('pbx_live').catch(() => null);
+    if (!r || !r.on) { box.hidden = true; return; }
+    const cs = r.calls || [];
+    box.hidden = false;
+    const mmss = x => Math.floor(x / 60) + '΄' + String(x % 60).padStart(2, '0') + '΄΄';
+    box.innerHTML = `<div class="card"><div class="card-h">${I.phone} Στο τηλέφωνο τώρα
+      <span class="pill ${cs.length ? 'pill-ok' : 'pill-mut'}" style="margin-left:6px">${cs.length}</span></div>
+      <div class="card-b">${cs.length ? `<div class="ph-list">${cs.map(x => `
+        <div class="ph-row">
+          <span class="ph-dot ${x.answered ? 'on' : 'ring'}"></span>
+          <span class="ph-who">${x.adminName
+            ? `<b>${esc(x.adminName)}</b>` : `<span class="mut">άγνωστο extension</span>`}</span>
+          <span class="ph-arrow">↔</span>
+          <span class="ph-other">${esc(x.other || '—')}</span>
+          <span class="ph-st">${x.answered ? 'σε συνομιλία' : esc(x.status || 'κουδουνίζει')}</span>
+          <span class="ph-t">${x.seconds ? mmss(x.seconds) : ''}</span>
+        </div>`).join('')}</div>`
+        : '<div class="mut" style="font-size:12.5px">Κανείς στο τηλέφωνο αυτή τη στιγμή.</div>'}
+      </div></div>`;
+  };
+
   const load = async () => {
     let e0 = null;
     const d = await api('activity&h=' + st.h).catch(e => { e0 = e; return null; });
     if (!d) { c.innerHTML = cnpDenied(e0); return false; }
     if (S.view !== 'activity') { return false; }   // άλλαξε οθόνη όσο φόρτωνε
     paint(d);
+    paintPhone();
     return true;
   };
 

@@ -125,6 +125,57 @@ class Pbx3cxSync
         return $all;
     }
 
+    /**
+     * ΖΩΝΤΑΝΕΣ ΚΛΗΣΕΙΣ — «ποιος μιλάει τώρα».
+     *
+     * Είναι το ΜΟΝΟ κομμάτι τηλεφωνικής δραστηριότητας που δίνει σήμερα το PBX
+     * μετά τη μεταφορά σε νέο server: το ιστορικό της αναφοράς είναι κενό, αλλά
+     * οι ενεργές κλήσεις διαβάζονται κανονικά. Τις δένουμε με τον χάρτη DN →
+     * χειριστή ώστε να φαίνεται ΟΝΟΜΑ, όχι νούμερο.
+     */
+    public static function live()
+    {
+        $j = Pbx3cxClient::xapi('ActiveCalls');
+        $rows = $j['value'] ?? [];
+        if (!$rows) { return []; }
+
+        /* Χάρτης DN → χειριστής, μία φορά. */
+        $map = [];
+        foreach (Capsule::table('mod_cpm_pbx_map')->whereNotNull('admin_id')->get() as $r) {
+            $map[(string) $r->dn] = ['id' => (int) $r->admin_id, 'name' => Db::adminName((int) $r->admin_id)];
+        }
+        /* Ένα «0030…» και ένα «+30…» είναι ο ίδιος πελάτης — κανονικοποίηση. */
+        $norm = function ($n) {
+            $d = preg_replace('/\D+/', '', (string) $n);
+            if ($d === '') { return ''; }
+            if (strpos($d, '0030') === 0) { $d = substr($d, 4); }
+            elseif (strpos($d, '30') === 0 && strlen($d) === 12) { $d = substr($d, 2); }
+            return $d;
+        };
+
+        $out = [];
+        foreach ($rows as $r) {
+            $from = (string) ($r['Caller'] ?? '');
+            $to = (string) ($r['Callee'] ?? '');
+            $who = $map[$from] ?? $map[$to] ?? null;
+            /* Ό,τι δεν είναι δικό μας extension είναι ο «άλλος» — ο πελάτης. */
+            $other = isset($map[$from]) ? $to : $from;
+            $started = !empty($r['EstablishedAt']) ? strtotime($r['EstablishedAt'])
+                : (!empty($r['LastChangeStatus']) ? strtotime($r['LastChangeStatus']) : 0);
+            $out[] = [
+                'id' => (int) ($r['Id'] ?? 0),
+                'status' => (string) ($r['Status'] ?? ''),
+                'answered' => !empty($r['EstablishedAt']),
+                'from' => $from, 'to' => $to,
+                'other' => $other, 'otherE164' => $norm($other),
+                'admin' => $who['id'] ?? 0, 'adminName' => $who['name'] ?? '',
+                'since' => $started ? date('Y-m-d H:i:s', $started) : null,
+                'seconds' => $started ? max(0, time() - $started) : 0,
+            ];
+        }
+        return $out;
+    }
+
     /** Ο χάρτης όπως τον βλέπει η οθόνη. */
     public static function map()
     {
