@@ -59,10 +59,13 @@ function out($data)
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
 }
-function fail($msg, $code = 400)
+function fail($msg, $code = 400, array $extra = [])
 {
+    /* Το $extra ταξιδεύει μαζί με το μήνυμα: η οθόνη χρειάζεται δομή για να
+       αντιδράσει (π.χ. «σε ποια άλλη καρτέλα ανήκει αυτό το τηλέφωνο»), όχι
+       μόνο κείμενο να δείξει. */
     http_response_code($code);
-    out(['error' => $msg]);
+    out(['error' => $msg] + $extra);
 }
 
 $action = $_GET['a'] ?? '';
@@ -5868,6 +5871,41 @@ case 'book_save':                        // αποθήκευση καρτέλα�
     }
     if (!$sPhones) { fail('Χρειάζεται τουλάχιστον ένα τηλέφωνο'); }
 
+    /* ΕΝΑ ΤΗΛΕΦΩΝΟ, ΜΙΑ ΚΑΡΤΕΛΑ.
+       Χωρίς αυτόν τον έλεγχο μπορούσες να φτιάξεις δεύτερη καρτέλα με τον ίδιο
+       αριθμό: οι κλήσεις έμεναν στην πρώτη (κερδίζει το μικρότερο id), η νέα
+       φαινόταν άδεια, και κανείς δεν καταλάβαινε γιατί. Έτσι ακριβώς γέμισε
+       διπλοεγγραφές ο κατάλογος του 3CX πριν τον αναλάβουμε. */
+    $sClash = [];
+    foreach (Capsule::table('mod_cpm_book_phones as p')
+        ->join('mod_cpm_book as b', 'b.id', '=', 'p.book_id')
+        ->whereIn('p.e164', array_keys($sPhones))
+        ->where('p.book_id', '<>', $sId ?: 0)
+        ->select('p.e164', 'b.id', 'b.company', 'b.first', 'b.last')->get() as $cl) {
+        $sClash[] = ['e164' => $cl->e164, 'id' => (int) $cl->id,
+            'name' => Book::label((array) $cl)];
+    }
+    /* Ο χρήστης μπορεί να πει «ναι, πάρ' το από εκεί» — τότε μεταφέρεται, δεν
+       διπλασιάζεται. Η άλλη καρτέλα μένει, απλώς χάνει αυτόν τον αριθμό. */
+    if ($sClash && empty($in['takePhones'])) {
+        $names = [];
+        foreach ($sClash as $c2) { $names[] = $c2['e164'] . ' → ' . $c2['name']; }
+        fail('Αυτό το τηλέφωνο ανήκει ήδη σε άλλη καρτέλα: ' . implode(' · ', $names),
+            409, ['clash' => $sClash]);
+    }
+    $sOrphan = [];
+    if ($sClash) {
+        foreach ($sClash as $c2) {
+            Capsule::table('mod_cpm_book_phones')->where('book_id', $c2['id'])
+                ->where('e164', $c2['e164'])->delete();
+            /* Αν η άλλη καρτέλα έμεινε χωρίς κανένα τηλέφωνο, δεν μπορεί πια να
+               ταυτιστεί με καμία κλήση — πρέπει να το μάθει κάποιος. */
+            if (!Capsule::table('mod_cpm_book_phones')->where('book_id', $c2['id'])->exists()) {
+                $sOrphan[] = $c2['name'];
+            }
+        }
+    }
+
     $sClient = (int) ($in['client'] ?? 0);
     if ($sClient && !Capsule::table('tblclients')->where('id', $sClient)->exists()) { $sClient = 0; }
     $sStatus = (string) ($in['status'] ?? 'active');
@@ -5933,7 +5971,9 @@ case 'book_save':                        // αποθήκευση καρτέλα�
     if (!empty($row['to_pbx'])) { $pbx = Book::push($sId); }
     elseif (!empty($in['dropFromPbx'])) { Book::unpush($sId); $pbx = ['ok' => true, 'removed' => true]; }
 
-    out(['ok' => true, 'id' => $sId, 'pbx' => $pbx]);
+    out(['ok' => true, 'id' => $sId, 'pbx' => $pbx,
+        'moved' => $sClash ? count($sClash) : 0,
+        'orphans' => $sOrphan]);
 
 case 'book_del':
     $dId = (int) ($in['id'] ?? 0);

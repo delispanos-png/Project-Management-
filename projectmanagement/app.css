@@ -9,6 +9,12 @@
   --brand:#0090dd;--brand2:#00a8ff;--brand-d:#0072ad;--ok:#16a26a;--warn:#eba63c;--bad:#e2515f;--violet:#7b5cd6;
   --info:#0374b0;
   --side:#131e33;--side2:#0e1626;--sideTxt:#a9b7cf;
+  /* ΑΠΑΛΟ ΦΟΝΤΟ — χρησιμοποιείται σε 26 σημεία (hover γραμμών, πλαίσια μέσα σε
+     κάρτες, μπάρες, θερμικός χάρτης). ΔΕΝ οριζόταν πουθενά: όσοι κανόνες το
+     ζητούσαν σκέτο έμεναν χωρίς φόντο, κι όσοι είχαν σκληρό fallback έμεναν
+     ανοιχτόχρωμοι και στο σκούρο θέμα. */
+  --bg2:#f4f7fb;
+  --accent:var(--brand);--accent-w:#e6f4fd;
   --r:14px;--r-sm:10px;
   --sh:0 1px 2px rgba(15,32,56,.05),0 10px 28px -18px rgba(15,32,56,.22);
   --sh-lg:0 12px 40px -12px rgba(15,32,56,.35);
@@ -17,6 +23,7 @@ html[data-theme="dark"]{
   --ink:#e8eef7;--txt:#b7c3d6;--mut:#6d7d95;--line:#243349;--canvas:#0e1626;--card:#16213511;
   --info:#4db3ea;
   --card:#182338;--side:#0b1220;--side2:#080e19;--sideTxt:#8b9ab3;
+  --bg2:#1f2c44;--accent-w:#14304a;
   --sh:0 1px 2px rgba(0,0,0,.3),0 10px 28px -18px rgba(0,0,0,.6);
   --sh-lg:0 12px 40px -12px rgba(0,0,0,.7);
 }
@@ -3518,23 +3525,23 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 
 /* Ταύτιση άγνωστου τηλεφώνου με πελάτη — μέσα στον διάλογο της κλήσης.
    Ξεχωρίζει οπτικά γιατί είναι ΕΡΩΤΗΣΗ, όχι πεδίο συμπλήρωσης. */
-.cn-link{background:var(--bg2,#f6f8fb);border:1px solid var(--line);border-radius:10px;
+.cn-link{background:var(--bg2);border:1px solid var(--line);border-radius:10px;
   padding:11px 12px;margin-bottom:13px}
 .cn-link .inp{font-size:12.5px;padding:7px 9px}
 .cn-pick{padding:7px 9px;border-radius:7px;cursor:pointer;font-size:12.5px;margin-top:3px}
-.cn-pick:hover{background:var(--accent-w,#e8f0fe)}
+.cn-pick:hover{background:var(--accent-w)}
 
 /* «Καταγραφή κλήσης» → οι πραγματικές κλήσεις του συναδέλφου, έτοιμες να
    διαλεχτούν. Μπαίνουν ΠΑΝΩ από τα πεδία, γιατί είναι ο συνηθισμένος δρόμος:
    χτύπησε το τηλέφωνο, το έκλεισες, γράφεις τι έγινε. */
-.qc-real{background:var(--bg2,#f6f8fb);border:1px solid var(--line);border-radius:10px;
+.qc-real{background:var(--bg2);border:1px solid var(--line);border-radius:10px;
   padding:8px 9px;margin-bottom:13px;max-height:190px;overflow:auto}
 .qc-real-h{font-size:11.5px;font-weight:600;color:var(--mut);margin:1px 2px 6px}
 .qc-real-i{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
   background:transparent;border:1px solid transparent;border-radius:7px;
   padding:6px 8px;cursor:pointer;font-size:12.5px;color:var(--ink)}
-.qc-real-i:hover{background:var(--card,#fff)}
-.qc-real-i.on{background:var(--card,#fff);border-color:var(--accent,#1668dc)}
+.qc-real-i:hover{background:var(--card)}
+.qc-real-i.on{background:var(--card);border-color:var(--accent)}
 .qc-real-d{font-weight:700;width:13px}
 .qc-real-d.in{color:#2a9d63}.qc-real-d.out{color:#1668dc}
 .qc-real-t{color:var(--mut);font-size:11.5px;width:74px;flex:none}
@@ -3547,12 +3554,12 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .cd-h>div:first-child{flex:1;min-width:0}
 .cd-h b{font-size:15px;color:var(--ink)}
 .cd-x{border:0;background:transparent;color:var(--mut);font-size:16px;cursor:pointer;padding:2px 6px;border-radius:6px}
-.cd-x:hover{background:var(--bg2,#f6f8fb);color:var(--ink)}
+.cd-x:hover{background:var(--bg2);color:var(--ink)}
 .cd-b{padding:12px 16px 16px;overflow:auto}
 .cd-sub{font-size:11.5px;font-weight:700;color:var(--mut);text-transform:uppercase;
   letter-spacing:.03em;margin:2px 2px 7px}
 .cl-agg.pick{cursor:pointer;border-radius:8px}
-.cl-agg.pick:hover{background:var(--bg2,#f6f8fb)}
+.cl-agg.pick:hover{background:var(--bg2)}
 
 /* ── «Πότε μας πιέζουν» ── */
 /* ΠΡΟΣΟΧΗ: align-items:stretch, ΟΧΙ flex-end. Με flex-end κάθε στήλη μάζευε το
@@ -3561,9 +3568,9 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .pk-bars{display:flex;align-items:stretch;gap:3px;height:130px;margin:2px 0 10px}
 .pk-c{flex:1;height:100%;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
 .pk-n{font-size:10px;color:var(--mut);height:12px;line-height:12px}
-.pk-b{flex:1;width:100%;background:var(--bg2,#eef2f7);border-radius:4px 4px 0 0;
+.pk-b{flex:1;width:100%;background:var(--bg2);border-radius:4px 4px 0 0;
   position:relative;display:flex;align-items:flex-end;overflow:hidden}
-.pk-b i{width:100%;background:var(--brand,#1668dc);border-radius:4px 4px 0 0;display:block}
+.pk-b i{width:100%;background:var(--brand);border-radius:4px 4px 0 0;display:block}
 /* Το κόκκινο κομμάτι κάθεται ΜΕΣΑ στη στήλη: δείχνει πόσο απ' αυτό τον όγκο χάθηκε. */
 .pk-b u{position:absolute;left:0;bottom:0;width:100%;background:#e2515f;display:block}
 .pk-h{font-size:10px;color:var(--mut)}
@@ -3573,7 +3580,7 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .pk-gh span{flex:1;text-align:center;font-size:9.5px;color:var(--mut);min-width:13px}
 .pk-gh span:first-child,.pk-gd{flex:none!important;width:34px;font-size:10.5px;color:var(--mut)}
 .pk-gc{flex:1;height:15px;min-width:13px;border-radius:3px;
-  background:color-mix(in srgb, var(--brand,#1668dc) calc(var(--o) * 100%), var(--bg2,#eef2f7))}
+  background:color-mix(in srgb, var(--brand) calc(var(--o) * 100%), var(--bg2))}
 @media(max-width:760px){
   .pk-bars{height:92px}
   .pk-n{display:none}
@@ -3584,7 +3591,7 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
    πελάτης είναι καταχωρημένος και δεν θα τον περάσει ποτέ. */
 .cl-3cx{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.04em;
   padding:1px 4px;border-radius:4px;vertical-align:1px;
-  background:var(--bg2,#eef2f7);color:var(--mut);border:1px solid var(--line)}
+  background:var(--bg2);color:var(--mut);border:1px solid var(--line)}
 
 /* ── Εταιρικός κατάλογος 3CX ── */
 .bk-list{display:flex;flex-direction:column}
@@ -3593,7 +3600,7 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   border-bottom:1px solid var(--line)}
 .bk-row:last-child{border-bottom:0}
 .bk-row.pick{cursor:pointer}
-.bk-row.pick:hover{background:var(--bg2,#f6f8fb)}
+.bk-row.pick:hover{background:var(--bg2)}
 .bk-n{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bk-p{color:var(--mut);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bk-c{color:var(--mut);font-size:11.5px;text-align:right}
@@ -3624,7 +3631,7 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   border-bottom:1px solid var(--line)}
 .bk-row:last-child{border-bottom:0}
 .bk-row.pick{cursor:pointer}
-.bk-row.pick:hover{background:var(--bg2,#f6f8fb)}
+.bk-row.pick:hover{background:var(--bg2)}
 .bk-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .bk-n{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bk-p{color:var(--mut);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -3644,7 +3651,7 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .bc-ph{display:grid;grid-template-columns:1fr 130px 28px;gap:7px;margin-bottom:7px;align-items:center}
 .bc-phx{border:0;background:transparent;color:var(--mut);cursor:pointer;font-size:13px;
   border-radius:6px;padding:4px 6px}
-.bc-phx:hover{background:var(--bg2,#f6f8fb);color:var(--bad)}
+.bc-phx:hover{background:var(--bg2);color:var(--bad)}
 .bc-cli{display:flex;gap:8px;align-items:center;font-size:13px}
 .bc-actions{display:flex;gap:8px;align-items:center;margin-top:18px;padding-top:14px;
   border-top:1px solid var(--line)}
@@ -3665,3 +3672,11 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .bc-tw{text-align:left}
 }
 .cn-row2{display:flex;gap:7px;margin-top:8px;flex-wrap:wrap}
+
+/* Τα χρωματιστά σήματα του καταλόγου σε σκούρο θέμα: κρατάμε το ΧΡΩΜΑ ως
+   σήμανση αλλά σκουραίνουμε το φόντο — αλλιώς ένα έντονο μπεζ πλακάκι πάνω σε
+   σκούρη σελίδα τραβάει το μάτι περισσότερο από το ίδιο το όνομα. */
+html[data-theme="dark"] .bk-ok{color:#5fd39b;border-color:#1f4a35;background:#13301f}
+html[data-theme="dark"] .bk-no{color:#e0aa5c;border-color:#4a3a1c;background:#2e2412}
+html[data-theme="dark"] .bk-dup,
+html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2e2412}

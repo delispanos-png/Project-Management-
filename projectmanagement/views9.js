@@ -672,11 +672,18 @@ R.book = async function () {
     const pb = $('#bkPush');
     if (pb) {
       pb.onclick = async () => {
+        /* ΓΡΑΦΕΙ ΣΤΟ ΖΩΝΤΑΝΟ ΤΗΛΕΦΩΝΙΚΟ ΚΕΝΤΡΟ. Ένα κατά λάθος κλικ βάζει
+           εκατοντάδες επαφές στις συσκευές όλης της ομάδας — και για να τις
+           βγάλεις πρέπει να τις σβήσεις μία-μία. Ρωτάμε πρώτα, με τον αριθμό
+           μπροστά ώστε να φαίνεται το μέγεθος. */
+        if (!confirm(`Θα σταλούν ${K.nopbx} επαφές στο τηλεφωνικό κέντρο.\n\n`
+          + 'Θα τις βλέπει όλη η ομάδα στις οθόνες των τηλεφώνων.\n\nΝα προχωρήσω;')) { return; }
         pb.disabled = true; pb.textContent = '↑ στέλνω…';
         try { const r = await api('book_push', {});
           toast(`Στάλθηκαν ${r.res.sent}${r.res.failed ? ` · απέτυχαν ${r.res.failed}` : ''}`,
             r.res.failed ? 'err' : ''); R.book(); }
-        catch (e) { toast(e.message || 'Δεν στάλθηκαν', 'err'); pb.disabled = false; }
+        catch (e) { toast(e.message || 'Δεν στάλθηκαν', 'err'); pb.disabled = false;
+          pb.textContent = `↑ Στα τηλέφωνα (${K.nopbx})`; }
       };
     }
   }
@@ -900,26 +907,54 @@ async function bookCard(id, pre) {
   if (!ed) { return; }
 
   $('#bcSave', body).onclick = async e => {
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'αποθηκεύω…';
+    const btn = e.currentTarget;
     const g = k => { const el = body.querySelector(`[data-k="${k}"]`); return el ? el.value.trim() : ''; };
     const fields = {};
     $$('[data-fid]', body).forEach(el => {
       fields[el.dataset.fid] = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value;
     });
-    try {
-      const r = await api('book_save', {
-        id: K.id, company: g('company'), first: g('first'), last: g('last'), title: g('title'),
-        email: g('email'), website: g('website'), vat: g('vat'), taxOffice: g('taxOffice'),
-        address: g('address'), city: g('city'), postcode: g('postcode'), tags: g('tags'),
-        notes: g('notes'), status: g('status'), owner: +g('owner') || 0,
-        nextAt: g('nextAt'), nextNote: g('nextNote'), client: client.id,
-        toPbx: $('#bcPbx', body).checked ? 1 : 0, dropFromPbx: !$('#bcPbx', body).checked,
-        phones: phones.filter(p => p.raw.trim()), fields});
-      const pbx = r.pbx;
-      toast('Αποθηκεύτηκε' + (pbx && pbx.ok ? ' — και στα τηλέφωνα'
-        : pbx && pbx.why ? ' — ΟΜΩΣ το 3CX: ' + pbx.why : ''), (pbx && !pbx.ok && pbx.why) ? 'err' : '');
-      closeDrawer(); R.book();
-    } catch (err) { toast(err.message || 'Δεν αποθηκεύτηκε', 'err'); btn.disabled = false; btn.textContent = 'Αποθήκευση'; }
+    const payload = () => ({
+      id: K.id, company: g('company'), first: g('first'), last: g('last'), title: g('title'),
+      email: g('email'), website: g('website'), vat: g('vat'), taxOffice: g('taxOffice'),
+      address: g('address'), city: g('city'), postcode: g('postcode'), tags: g('tags'),
+      notes: g('notes'), status: g('status'), owner: +g('owner') || 0,
+      nextAt: g('nextAt'), nextNote: g('nextNote'), client: client.id,
+      toPbx: $('#bcPbx', body).checked ? 1 : 0, dropFromPbx: !$('#bcPbx', body).checked,
+      phones: phones.filter(p => p.raw.trim()), fields});
+
+    const send = async extra => {
+      btn.disabled = true; btn.textContent = 'αποθηκεύω…';
+      try {
+        const r = await api('book_save', {...payload(), ...extra});
+        const pbx = r.pbx;
+        let msg = 'Αποθηκεύτηκε';
+        if (r.moved) { msg += ` — ${r.moved === 1 ? 'το τηλέφωνο μεταφέρθηκε' : `${r.moved} τηλέφωνα μεταφέρθηκαν`}`; }
+        if (pbx && pbx.ok) { msg += ' · και στα τηλέφωνα'; }
+        else if (pbx && pbx.why) { msg += ' · ΟΜΩΣ το 3CX: ' + pbx.why; }
+        if (r.orphans && r.orphans.length) {
+          msg += ` · η «${r.orphans[0]}» έμεινε χωρίς τηλέφωνο`;
+        }
+        toast(msg, (pbx && !pbx.ok && pbx.why) || (r.orphans && r.orphans.length) ? 'err' : '');
+        closeDrawer(); R.book();
+        return true;
+      } catch (err) {
+        /* 409 = το τηλέφωνο ανήκει αλλού. ΔΕΝ είναι αποτυχία, είναι ερώτηση:
+           ένα τηλέφωνο ανήκει σε μία καρτέλα, οπότε ή μεταφέρεται ή αλλάζει. */
+        const cl = err.data && err.data.clash;
+        btn.disabled = false; btn.textContent = 'Αποθήκευση';
+        if (cl && cl.length && !extra.takePhones) {
+          const list = cl.map(c => `${c.e164} → «${c.name}»`).join('\n');
+          if (confirm(`Το τηλέφωνο ανήκει ήδη σε άλλη καρτέλα:\n\n${list}\n\n`
+            + 'Να μεταφερθεί εδώ; Η άλλη καρτέλα μένει, απλώς χάνει αυτόν τον αριθμό.')) {
+            return send({takePhones: 1});
+          }
+          return false;
+        }
+        toast(err.message || 'Δεν αποθηκεύτηκε', 'err');
+        return false;
+      }
+    };
+    send({});
   };
 
   const del = $('#bcDel', body);
@@ -1019,13 +1054,18 @@ function bookField(f) {
   $('#bfL', ovl).focus();
 
   $('#bfOk', ovl).onclick = async e => {
-    e.currentTarget.disabled = true;
+    /* Το e.currentTarget μηδενίζεται μόλις τελειώσει ο handler — και επειδή
+       είμαστε async, το catch τρέχει ΜΕΤΑ. Κρατάμε το κουμπί σε μεταβλητή,
+       αλλιώς η αποτυχία έριχνε «Cannot set properties of null» και το κουμπί
+       έμενε κλειδωμένο για πάντα. */
+    const btn = e.currentTarget;
+    btn.disabled = true;
     try {
       await api('book_fields', {save: {id: f ? f.id : 0, label: $('#bfL', ovl).value.trim(),
         key: f ? f.key : '', type: $('#bfT', ovl).value, options: $('#bfO', ovl).value.trim(),
         hint: $('#bfH', ovl).value.trim(), off: !$('#bfA', ovl).checked}});
       toast('Αποθηκεύτηκε'); kill(); R.bookfields();
-    } catch (err) { toast(err.message || 'Δεν αποθηκεύτηκε', 'err'); e.currentTarget.disabled = false; }
+    } catch (err) { toast(err.message || 'Δεν αποθηκεύτηκε', 'err'); btn.disabled = false; }
   };
   const del = $('#bfD', ovl);
   if (del) {
