@@ -40,6 +40,11 @@ class Pbx3cxBlueprint
 
     const EMERG_MEMBERS = ['201', '202', '804'];
 
+    /** Ο ιδιοκτήτης. Ρόλοι που δίνει το 3CX: users, receptionists, group_admins,
+        managers, group_owners, system_admins, system_owners (ο ανώτατος). */
+    const OWNER_DN   = '201';
+    const OWNER_ROLE = 'system_owners';
+
     /** Ποιοι σηκώνουν το Support. Το «CloudOn» είναι όλοι οι υπόλοιποι. */
     const AGENTS_SUPPORT = ['305', '223', '221', '220', '212', '304'];
     const AGENTS_CLOUDON = ['201', '202', '203', '204'];
@@ -182,7 +187,7 @@ TXT;
             '$expand' => 'Members($select=Id,Number,Type)']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
         $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode',
-            '$expand' => 'Groups($select=GroupId)']);
+            '$expand' => 'Groups($select=GroupId;$expand=Rights($select=RoleName))']);
         foreach ($u['value'] ?? [] as $r) { $L['users'][(string) $r['Number']] = $r; }
         $q = Pbx3cxClient::xapi('Queues', ['$top' => 40, '$select' => 'Id,Number,Name,PollingStrategy,RingTimeout,MasterTimeout,ForwardNoAnswer,OutOfOfficeRoute,HolidaysRoute,AnnounceQueuePosition',
             '$expand' => 'Agents($select=Number),Managers($select=Number),Groups($select=GroupId)']);
@@ -232,6 +237,15 @@ TXT;
     private static function groupIds(array $dn)
     {
         return array_map(function ($g) { return (int) $g['GroupId']; }, $dn['Groups'] ?? []);
+    }
+
+    /** Ο ρόλος ενός DN μέσα σε ένα τμήμα ('' αν δεν είναι μέλος). */
+    private static function roleIn(array $dn, $gid)
+    {
+        foreach ($dn['Groups'] ?? [] as $g) {
+            if ((int) $g['GroupId'] === (int) $gid) { return (string) ($g['Rights']['RoleName'] ?? ''); }
+        }
+        return '';
     }
 
     /* ─────────────────────────── τα βήματα ─────────────────────────── */
@@ -294,6 +308,31 @@ TXT;
                 $have = self::memberNumbers($g);
                 foreach (array_diff(self::EMERG_MEMBERS, $have) as $num) { self::addToGroup($L, $num, self::G_EMERG); }
                 foreach (array_diff($have, self::EMERG_MEMBERS) as $num) { self::removeFromGroup($L, $num, self::G_EMERG); }
+            }];
+
+        /* 2β. Ο 201 είναι Ιδιοκτήτης (system_owners) σε ΟΛΑ τα τμήματα — ο ρόλος
+           ζει στη σχέση χρήστη-τμήματος (UserGroup.Rights.RoleName), όχι στον χρήστη. */
+        $S[] = ['key' => 'owner_201', 'label' => 'Ο 201 Ιδιοκτήτης (System Owner) σε CloudOn και Emergency',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $u = $L['users'][self::OWNER_DN] ?? null;
+                if (!$u) { return ['error', 'Δεν βρέθηκε το ' . self::OWNER_DN]; }
+                $d = [];
+                foreach ([self::G_CLOUDON => 'CloudOn', self::G_EMERG => 'Emergency'] as $gid => $nm) {
+                    $role = self::roleIn($u, $gid);
+                    if ($role !== self::OWNER_ROLE) { $d[] = $nm . ': «' . ($role ?: 'εκτός') . '» → ' . self::OWNER_ROLE; }
+                }
+                return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'ιδιοκτήτης και στα δύο'];
+            },
+            'apply' => function ($L) {
+                $u = $L['users'][self::OWNER_DN];
+                $groups = [];
+                foreach (self::groupIds($u) as $gid) {
+                    $g = ['GroupId' => $gid];
+                    if (in_array($gid, [self::G_CLOUDON, self::G_EMERG], true)) { $g['Rights'] = ['RoleName' => self::OWNER_ROLE]; }
+                    $groups[] = $g;
+                }
+                Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['Groups' => $groups]);
             }];
 
         /* 3. Νέες ουρές + διορθώσεις υπαρχουσών. */
