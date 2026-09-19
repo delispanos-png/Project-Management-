@@ -27,9 +27,13 @@ class Pbx3cxBlueprint
     const G_EMERG   = 205;     // έκτακτη ανάγκη — 201, 202
     const AI_DN     = '902';   // AI ρεσεψιόν
     const AI_ID     = 218;
-    const TICKET_DN = '900';   // «CloudOn, Support» — το voicemail του γίνεται αίτημα
+    /* Δύο κουτιά (απόφαση 20/09/2026): φωνητικά μηνύματα και γραπτά tickets ΧΩΡΙΣΤΑ,
+       για να μη χάνεται τίποτα. Κάθε εσωτερικό του 3CX έχει ΕΝΑ email, άρα δύο εσωτερικά. */
+    const TICKET_DN = '900';   // «CloudOn, Voicemail» — φωνητικό μήνυμα → voicemail@cloudon.gr
     const TICKET_ID = 210;
-    const TICKET_MAIL = 'support@cloudon.gr';
+    const TICKET_MAIL = 'voicemail@cloudon.gr';
+    const TICKETS_DN = '903';  // «CloudOn, Tickets» — γραπτό αίτημα (email από την AI) → voiceticket@cloudon.gr
+    const TICKETS_MAIL = 'voiceticket@cloudon.gr';
     const RULES_ALL = [12, 13];            // ForwardAll: Sip1.CloudOn.gr, Cyprus
     const SCRIPT_DN = '806';               // το παλιό call script — μένει ως εφεδρεία
 
@@ -166,7 +170,8 @@ class Pbx3cxBlueprint
                     }, array_keys(self::TOPICS))),
                     [
                         $dir('804', 'Emergency', 'Queue', 'Έκτακτη ανάγκη εκτός ωραρίου: η επιχείρηση σταμάτησε, δεν εκδίδονται αποδείξεις, δεν λειτουργεί καθόλου το σύστημα'),
-                        $dir(self::TICKET_DN, 'CloudOn, Support', 'Extension', 'Κουτί αιτημάτων υποστήριξης: ΜΟΝΟ για email (ticket) ή voicemail (μήνυμα), ποτέ transfer'),
+                        $dir(self::TICKETS_DN, 'CloudOn, Tickets', 'Extension', 'Κουτί γραπτών αιτημάτων (ticket): ΜΟΝΟ ενέργεια email, ποτέ transfer'),
+                        $dir(self::TICKET_DN, 'CloudOn, Voicemail', 'Extension', 'Κουτί φωνητικών μηνυμάτων: ΜΟΝΟ ενέργεια voicemail, ποτέ transfer'),
                     ]),
                 'HumanHandoff' => $dir('811', 'CloudOn', 'Queue', 'Άνθρωπος της CloudOn'),
                 /* ΜΕΤΡΗΘΗΚΕ (web client 3CX): Action ∈ endcall | transfer | voicemail | chat | email.
@@ -361,10 +366,10 @@ class Pbx3cxBlueprint
 - Ticket ή μήνυμα → ΠΟΤΕ μεταβίβαση (transfer) στο 900. Βλ. «Ticket και μήνυμα».
 - Δεν καταλαβαίνεις μετά από δύο προσπάθειες → CloudOn (μέσα στο ωράριο) ή ticket/μήνυμα (εκτός).
 # Ticket και μήνυμα
-- Η επαφή «CloudOn, Support» (900) ΔΕΝ είναι άνθρωπος: είναι το κουτί αιτημάτων της υποστήριξης. Έχει email και θυρίδα. ΠΟΤΕ μην τη μεταβιβάσεις με transfer, ποτέ μην ελέγξεις αν «απαντά».
-- TICKET (γραπτό αίτημα): πάρε όνομα, επιχείρηση, τηλέφωνο επιστροφής (επιβεβαίωσε αν είναι αυτός από τον οποίο καλεί) και σύντομη περιγραφή (τι δεν λειτουργεί, από πότε, τι μήνυμα εμφανίζεται). Μετά κάλεσε την ενέργεια email προς την επαφή «CloudOn, Support» με περιεχόμενο: όνομα, επιχείρηση, τηλέφωνο, θέμα, περιγραφή. Επιβεβαίωσε σύντομα («Καταχωρήθηκε το αίτημά σας, θα σας καλέσουμε») και τερμάτισε με drop_call.
-- ΜΗΝΥΜΑ (ηχογραφημένο): πες «Αφήστε το μήνυμά σας μετά τον ήχο» και κάλεσε την ενέργεια voicemail προς την επαφή «CloudOn, Support». Δεν χρειάζονται στοιχεία πριν.
-- Αν η ενέργεια email δεν είναι διαθέσιμη, χρησιμοποίησε voicemail προς την ίδια επαφή, αφού πεις στον καλούντα να επαναλάβει σύντομα το θέμα μετά τον ήχο.
+- Δύο επαφές ΔΕΝ είναι άνθρωποι, είναι κουτιά: «CloudOn, Tickets» (γραπτά αιτήματα) και «CloudOn, Voicemail» (φωνητικά μηνύματα). ΠΟΤΕ μην τις μεταβιβάσεις με transfer, ποτέ μην ελέγξεις αν «απαντούν».
+- TICKET (γραπτό αίτημα): πάρε όνομα, επιχείρηση, τηλέφωνο επιστροφής (επιβεβαίωσε αν είναι αυτός από τον οποίο καλεί) και σύντομη περιγραφή (τι δεν λειτουργεί, από πότε, τι μήνυμα εμφανίζεται). Μετά κάλεσε την ενέργεια email προς την επαφή «CloudOn, Tickets» με περιεχόμενο: όνομα, επιχείρηση, τηλέφωνο, θέμα, περιγραφή. Επιβεβαίωσε σύντομα («Καταχωρήθηκε το αίτημά σας, θα σας καλέσουμε») και τερμάτισε με drop_call.
+- ΜΗΝΥΜΑ (ηχογραφημένο): πες «Αφήστε το μήνυμά σας μετά τον ήχο» και κάλεσε την ενέργεια voicemail προς την επαφή «CloudOn, Voicemail». Δεν χρειάζονται στοιχεία πριν.
+- Αν η ενέργεια email δεν είναι διαθέσιμη, χρησιμοποίησε voicemail προς την επαφή «CloudOn, Tickets», αφού πεις στον καλούντα να επαναλάβει σύντομα το θέμα μετά τον ήχο.
 - Επανάκληση = ticket με σημείωση «ζητά επανάκληση».
 # Μεταβίβαση
 ## Αναγνώριση
@@ -385,7 +390,7 @@ class Pbx3cxBlueprint
 - available=false → δες «Μη διαθέσιμοι προορισμοί».
 - Μηδέν ή πολλαπλά αποτελέσματα → μία σύντομη διευκρινιστική ερώτηση, μετά η εναλλακτική.
 ## Διαθέσιμες ενέργειες
-- transfer (μόνο σε ουρές θέματος και σε πρόσωπα), voicemail και email (μόνο προς «CloudOn, Support»), endcall. Καμία άλλη.
+- transfer (μόνο σε ουρές θέματος και σε πρόσωπα), email (μόνο προς «CloudOn, Tickets»), voicemail (μόνο προς «CloudOn, Voicemail» ή «CloudOn, Tickets»), endcall. Καμία άλλη.
 - Όταν ο καλών διαλέξει ρητά μία ενέργεια ή πει αντίο, μην κάνεις άλλη ερώτηση: μία σύντομη προφορική επιβεβαίωση και ΣΤΗΝ ΙΔΙΑ ΣΕΙΡΑ κάλεσε το αντίστοιχο εργαλείο.
 ## Μη διαθέσιμοι προορισμοί
 - Πες ότι όλοι οι συνεργάτες είναι απασχολημένοι αυτή τη στιγμή. Μη διαλέξεις μόνη σου άλλον προορισμό.
@@ -615,27 +620,42 @@ TXT;
         }
 
         /* 4. Το «κουτί αιτημάτων»: voicemail του 900 → email υποστήριξης, με απομαγνητοφώνηση. */
-        $S[] = ['key' => 'dn_ticket', 'label' => 'Εσωτερικό 900 — το μήνυμα γίνεται αίτημα (email ' . self::TICKET_MAIL . ', απομαγνητοφώνηση)',
-            'risk' => 'low',
-            'check' => function ($L) {
-                $u = $L['users'][self::TICKET_DN] ?? null;
-                if (!$u) { return ['error', 'Δεν βρέθηκε το 900']; }
-                $d = [];
-                if (mb_strtolower((string) $u['EmailAddress']) !== self::TICKET_MAIL) { $d[] = 'email «' . $u['EmailAddress'] . '» → ' . self::TICKET_MAIL; }
-                if (empty($u['VMEnabled'])) { $d[] = 'voicemail ανενεργό'; }
-                if (($u['VMEmailOptions'] ?? '') !== 'Attachment') { $d[] = 'επιλογή email «' . $u['VMEmailOptions'] . '» → Attachment'; }
-                if (($u['TranscriptionMode'] ?? '') !== 'Voicemail') { $d[] = 'απομαγνητοφώνηση «' . $u['TranscriptionMode'] . '» → Voicemail'; }
-                if ((int) $u['PrimaryGroupId'] !== self::G_CLOUDON) { $d[] = 'κύριο τμήμα → CloudOn'; }
-                return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'σωστό'];
-            },
-            'apply' => function ($L) {
-                $u = $L['users'][self::TICKET_DN];
-                $body = ['EmailAddress' => self::TICKET_MAIL, 'VMEnabled' => true, 'VMEmailOptions' => 'Attachment',
-                    'TranscriptionMode' => 'Voicemail', 'SendEmailMissedCalls' => false];
-                if (!in_array(self::G_CLOUDON, self::groupIds($u), true)) { self::addToGroup($L, self::TICKET_DN, self::G_CLOUDON); }
-                $body['PrimaryGroupId'] = self::G_CLOUDON;
-                Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', $body);
-            }];
+        foreach ([self::TICKET_DN => ['Voicemail', self::TICKET_MAIL, 'φωνητικά μηνύματα'],
+                  self::TICKETS_DN => ['Tickets', self::TICKETS_MAIL, 'γραπτά tickets από την AI']] as $bxDn => [$bxFirst, $bxMail, $bxWhat]) {
+            $S[] = ['key' => 'dn_box_' . $bxDn, 'label' => 'Κουτί ' . $bxDn . ' «CloudOn, ' . $bxFirst . '» — ' . $bxWhat . ' → ' . $bxMail,
+                'risk' => 'low',
+                'check' => function ($L) use ($bxDn, $bxFirst, $bxMail) {
+                    $u = $L['users'][$bxDn] ?? null;
+                    if (!$u) { return ['change', 'δεν υπάρχει — θα δημιουργηθεί']; }
+                    $d = [];
+                    if (($u['DisplayName'] ?? '') !== 'CloudOn, ' . $bxFirst) { $d[] = 'όνομα «' . $u['DisplayName'] . '» → «CloudOn, ' . $bxFirst . '»'; }
+                    if (mb_strtolower((string) $u['EmailAddress']) !== $bxMail) { $d[] = 'email «' . $u['EmailAddress'] . '» → ' . $bxMail; }
+                    if (empty($u['VMEnabled'])) { $d[] = 'voicemail ανενεργό'; }
+                    if (($u['VMEmailOptions'] ?? '') !== 'Attachment') { $d[] = 'επιλογή email «' . $u['VMEmailOptions'] . '» → Attachment'; }
+                    if (($u['TranscriptionMode'] ?? '') !== 'Voicemail') { $d[] = 'απομαγνητοφώνηση «' . $u['TranscriptionMode'] . '» → Voicemail'; }
+                    if ((int) $u['PrimaryGroupId'] !== self::G_CLOUDON) { $d[] = 'κύριο τμήμα → CloudOn'; }
+                    return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'σωστό'];
+                },
+                'apply' => function ($L) use ($bxDn, $bxFirst, $bxMail) {
+                    $body = ['FirstName' => $bxFirst, 'LastName' => 'CloudOn', 'EmailAddress' => $bxMail,
+                        'VMEnabled' => true, 'VMEmailOptions' => 'Attachment', 'TranscriptionMode' => 'Voicemail',
+                        'SendEmailMissedCalls' => false, 'PrimaryGroupId' => self::G_CLOUDON];
+                    $u = $L['users'][$bxDn] ?? null;
+                    if (!$u) {
+                        /* Κουτί = εσωτερικό χωρίς συσκευή: όλα πάνε voicemail, το voicemail πάει email.
+                           ΜΕΤΡΗΘΗΚΕ: το POST Users δέχεται ΜΟΝΟ τα βασικά (Number, ονόματα, email) —
+                           με VM/Transcription/Groups απαντά 400 «delta field is required». Τα υπόλοιπα με PATCH. */
+                        $new = Pbx3cxClient::xwrite('POST', 'Users', ['Number' => $bxDn, 'FirstName' => $bxFirst, 'LastName' => 'CloudOn', 'EmailAddress' => $bxMail]);
+                        Pbx3cxClient::log('blueprint', 'ok', 'Δημιουργήθηκε το κουτί ' . $bxDn . ' → ' . $bxMail);
+                        if (!empty($new['Id'])) {
+                            Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $new['Id'] . ')', $body);
+                        }
+                        return;
+                    }
+                    if (!in_array(self::G_CLOUDON, self::groupIds($u), true)) { self::addToGroup($L, $bxDn, self::G_CLOUDON); }
+                    Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', $body);
+                }];
+        }
 
         /* 5. Η AI ρεσεψιόν. */
         $S[] = ['key' => 'ai', 'label' => 'AI ρεσεψιόν (902) — ελληνικά, ροή και προορισμοί',
