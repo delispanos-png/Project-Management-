@@ -386,8 +386,17 @@ TXT;
                 }
                 foreach (self::OLD_GROUPS as $id => $nm) {
                     if (!isset($L['groups'][$id])) { continue; }
+                    /* ΜΕΤΡΗΘΗΚΕ: DELETE σε τμήμα με μέλη → 400 GROUP_WITH_MEMBERS_CANNOT_BE_DELETED.
+                       Πρώτα βγαίνουν ΟΛΑ τα μέλη (είναι ήδη στο CloudOn), μετά σβήνει. */
+                    foreach (self::memberNumbers($L['groups'][$id]) as $num) {
+                        try { self::removeFromGroup($L, $num, $id); }
+                        catch (\Throwable $e) { Pbx3cxClient::log('blueprint', 'error', 'Μέλος ' . $num . ' του #' . $id . ': ' . $e->getMessage()); }
+                    }
                     Pbx3cxClient::xwrite('DELETE', 'Groups(' . $id . ')');
                     Pbx3cxClient::log('blueprint', 'ok', 'Καταργήθηκε το τμήμα «' . $nm . '» (#' . $id . ')');
+                    /* Μετά τη διαγραφή τα Groups κάθε DN έχουν αλλάξει — αν στείλουμε
+                       τη σκαληνή λίστα, το επόμενο PATCH απαντά NOT_FOUND. Ξαναδιάβασε. */
+                    $L = self::live();
                 }
             }];
 
