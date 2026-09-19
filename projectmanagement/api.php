@@ -21,6 +21,7 @@ use WHMCS\Module\Addon\CloudonProjects\Pbx;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxCdr;
+use WHMCS\Module\Addon\CloudonProjects\Pbx3cxReport;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
@@ -43,6 +44,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Client.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Sync.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Cdr.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Report.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
 }
@@ -3053,10 +3055,14 @@ function cnp_action_cap($action)
         /* Η τηλεφωνική δραστηριότητα είναι ΑΝΑΦΟΡΑ της ομάδας. Η καταγραφή
            («τι έκανα, χρεώνεται ή όχι») ανήκει σε όποιον εξυπηρετεί — γι' αυτό
            δένεται στο clients.calls, το ίδιο cap με την καταγραφή κλήσης. */
-        $add('reports.calls', ['calls_report']);
-        $add('clients.calls', ['call_note_save']);
+        /* Η ανανέωση τραβάει τις κλήσεις των τελευταίων ημερών από το PBX. Δεν
+           αγγίζει τίποτα δικό μας — γι' αυτό συνοδεύει την ίδια την αναφορά. */
+        $add('reports.calls', ['calls_report', 'calls_sync']);
+        /* Η ταύτιση τηλεφώνου με πελάτη είναι δουλειά αυτού που σήκωσε το
+           τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
+        $add('clients.calls', ['call_note_save', 'call_link']);
         $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
-            'pbx_sync', 'pbx_map_save']);
+            'pbx_sync', 'pbx_map_save', 'calls_backfill']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
@@ -5417,41 +5423,67 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     $cTo = $cd . ' 23:59:59';
     $cWho = (int) ($_GET['who'] ?? 0);
 
-    $q = Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$cFrom, $cTo]);
-    if ($cWho) { $q->where('admin_id', $cWho); }
-    $rows = $q->orderBy('started_at', 'desc')->limit(500)->get();
+    /* ΤΑ ΣΥΝΟΛΑ ΒΓΑΙΝΟΥΝ ΑΠΟ ΟΛΟ ΤΟ ΔΙΑΣΤΗΜΑ, όχι από τη λίστα.
+       Η λίστα κόβεται στις 500 γραμμές για να μη φορτώνει ατέλειωτα η οθόνη —
+       αν μετρούσαμε πάνω σ' αυτήν, ένας μήνας με 2.000 κλήσεις θα εμφάνιζε 500
+       και κάθε ποσοστό θα ήταν λάθος. Ο μήνας έχει ήδη περάσει τις 2.000. */
+    $base = function () use ($cFrom, $cTo, $cWho) {
+        $q = Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$cFrom, $cTo]);
+        if ($cWho) { $q->where('admin_id', $cWho); }
+        return $q;
+    };
 
-    $items = []; $perAdmin = []; $perClient = [];
-    $tot = ['calls' => 0, 'talk' => 0, 'in' => 0, 'out' => 0, 'missed' => 0, 'logged' => 0, 'billable' => 0];
+    $agg = $base()->selectRaw(
+        'COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk,'
+        . " SUM(direction='in') inn, SUM(direction='out') outt,"
+        . ' SUM(answered=0) missed, SUM(logged_at IS NOT NULL) logged,'
+        . " COALESCE(SUM(CASE WHEN bill_status='billable' THEN talk_seconds ELSE 0 END),0) billable"
+    )->first();
+    $tot = ['calls' => (int) $agg->calls, 'talk' => (int) $agg->talk,
+        'in' => (int) $agg->inn, 'out' => (int) $agg->outt, 'missed' => (int) $agg->missed,
+        'logged' => (int) $agg->logged, 'billable' => (int) $agg->billable];
+
+    $perAdmin = [];
+    foreach ($base()->whereNotNull('admin_id')->groupBy('admin_id')
+        ->selectRaw('admin_id, COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk, SUM(answered=0) missed')
+        ->get() as $a) {
+        $perAdmin[] = ['id' => (int) $a->admin_id, 'name' => Db::adminName((int) $a->admin_id),
+            'calls' => (int) $a->calls, 'talk' => (int) $a->talk, 'missed' => (int) $a->missed];
+    }
+
+    /* Οι αριθμοί που κάποιος έχει ήδη χαρακτηρίσει «δεν είναι πελάτης»: να
+       φαίνεται το όνομα αντί για γυμνό νούμερο, και να μη ζητηθεί ξανά. */
+    $skipLab = Capsule::table('mod_cpm_phone_skip')->pluck('label', 'e164')->all();
+
+    /* Ο «πελάτης» είναι ο αναγνωρισμένος πελάτης· αν δεν ταυτίστηκε, ο ίδιος ο
+       αριθμός — αλλιώς όλοι οι άγνωστοι θα γίνονταν μία γραμμή. */
+    $perClient = [];
+    foreach ($base()->groupBy(Capsule::raw('COALESCE(clientid,0), other_e164'))
+        ->selectRaw('COALESCE(clientid,0) cid, other_e164, COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk')
+        ->orderByRaw('talk DESC')->limit(40)->get() as $cRow) {
+        $ck = (int) $cRow->cid;
+        $cName = $ck ? clientLabel($ck)
+            : ($cRow->other_e164
+                ? ($skipLab[$cRow->other_e164] ?? $cRow->other_e164)
+                : 'άγνωστος');
+        if (isset($perClient[$cName])) {
+            $perClient[$cName]['calls'] += (int) $cRow->calls;
+            $perClient[$cName]['talk'] += (int) $cRow->talk;
+        } else {
+            $perClient[$cName] = ['name' => $cName, 'client' => $ck,
+                'calls' => (int) $cRow->calls, 'talk' => (int) $cRow->talk];
+        }
+    }
+
+    $rows = $base()->orderBy('started_at', 'desc')->limit(500)->get();
+    $items = [];
     foreach ($rows as $r) {
-        $tot['calls']++;
-        $tot['talk'] += (int) $r->talk_seconds;
-        if ($r->direction === 'in') { $tot['in']++; }
-        if ($r->direction === 'out') { $tot['out']++; }
-        if (!$r->answered) { $tot['missed']++; }
-        if ($r->logged_at) { $tot['logged']++; }
-        if ($r->bill_status === 'billable') { $tot['billable'] += (int) $r->talk_seconds; }
-
-        if ($r->admin_id) {
-            $k = (int) $r->admin_id;
-            if (!isset($perAdmin[$k])) {
-                $perAdmin[$k] = ['id' => $k, 'name' => Db::adminName($k), 'calls' => 0, 'talk' => 0, 'missed' => 0];
-            }
-            $perAdmin[$k]['calls']++;
-            $perAdmin[$k]['talk'] += (int) $r->talk_seconds;
-            if (!$r->answered) { $perAdmin[$k]['missed']++; }
-        }
         $ck = $r->clientid ? (int) $r->clientid : 0;
-        $cName = $ck ? clientLabel($ck) : ($r->other_e164 ?: 'άγνωστος');
-        if (!isset($perClient[$cName])) {
-            $perClient[$cName] = ['name' => $cName, 'client' => $ck, 'calls' => 0, 'talk' => 0];
-        }
-        $perClient[$cName]['calls']++;
-        $perClient[$cName]['talk'] += (int) $r->talk_seconds;
-
         $items[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
             'other' => $r->other_e164 ?: ($r->from_no ?: $r->to_no),
             'client' => $ck, 'clientName' => $ck ? clientLabel($ck) : '',
+            'skipLabel' => (!$ck && $r->other_e164 && isset($skipLab[$r->other_e164]))
+                ? $skipLab[$r->other_e164] : '',
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
             'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
@@ -5463,7 +5495,8 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     usort($perClient, function ($a, $b) { return $b['talk'] <=> $a['talk']; });
 
     out(['date' => $cd, 'days' => $cDays, 'who' => $cWho, 'totals' => $tot,
-        'items' => $items, 'perAdmin' => array_values($perAdmin),
+        /* Η οθόνη πρέπει να ξέρει ότι βλέπει μέρος, για να το πει στον χρήστη. */
+        'shown' => count($items), 'items' => $items, 'perAdmin' => array_values($perAdmin),
         'perClient' => array_slice(array_values($perClient), 0, 12),
         'canLog' => cnp_has_cap($adminId, $FULL, 'clients.calls'),
         'people' => (function () {
@@ -5539,6 +5572,72 @@ case 'pbx_sync':                         // ΦΑΣΗ 3 — τράβα τη δο�
             . ' — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']);
     }
     out(['ok' => empty($sy['errors']), 'sync' => $sy]);
+
+case 'call_link':                        // «αυτό το τηλέφωνο είναι ο πελάτης Χ»
+    /* ΤΟ ΝΟΗΜΑ: το WHMCS έχει τηλέφωνο για 210 μόνο πελάτες, οπότε 9 στις 10
+       κλήσεις εμφανίζονταν σαν γυμνός αριθμός. Εδώ ο συνάδελφος που μόλις
+       μίλησε λέει ποιος ήταν — μία φορά, και ισχύει για ΟΛΕΣ τις κλήσεις του
+       αριθμού, περασμένες και μελλοντικές. */
+    $lkE = substr(trim((string) ($in['e164'] ?? '')), 0, 24);
+    if ($lkE === '') { fail('Λείπει ο αριθμός'); }
+    $lkClient = (int) ($in['client'] ?? 0);
+    $lkSkip   = !empty($in['skip']);
+    $lkLabel  = mb_substr(trim((string) ($in['label'] ?? '')), 0, 80);
+
+    if ($lkSkip) {
+        if ($lkLabel === '') { fail('Γράψε ποιος είναι — αλλιώς θα ξαναρωτήσει ο επόμενος'); }
+        Capsule::table('mod_cpm_phone_skip')->updateOrInsert(['e164' => $lkE],
+            ['label' => $lkLabel, 'admin_id' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+        /* Οι κλήσεις του μένουν χωρίς πελάτη — απλώς δεν ξαναρωτάμε. */
+        out(['ok' => true, 'skip' => true, 'label' => $lkLabel]);
+    }
+
+    if (!$lkClient) { fail('Διάλεξε πελάτη'); }
+    if (!Capsule::table('tblclients')->where('id', $lkClient)->exists()) { fail('Άγνωστος πελάτης'); }
+
+    /* Γράφεται στις επαφές του πελάτη — τον ίδιο πίνακα που ήδη κοιτάζει η
+       αυτόματη ταύτιση. Έτσι κάθε ΝΕΑ κλήση βρίσκει τον πελάτη μόνη της. */
+    Capsule::table('mod_cpm_client_contacts')->updateOrInsert(
+        ['clientid' => $lkClient, 'kind' => 'phone', 'value' => $lkE],
+        ['label' => $lkLabel ?: 'από τηλεφωνική δραστηριότητα', 'created_at' => date('Y-m-d H:i:s')]);
+    Capsule::table('mod_cpm_phone_skip')->where('e164', $lkE)->delete();
+
+    /* Αναδρομικά: ό,τι έχει ήδη καταγραφεί με αυτόν τον αριθμό αποκτά πελάτη. */
+    $lkN = Capsule::table('mod_cpm_calls')->where('other_e164', $lkE)
+        ->update(['clientid' => $lkClient, 'client_match' => 'manual']);
+    if (function_exists('logActivity')) {
+        logActivity('CPM: τηλέφωνο ' . $lkE . ' → πελάτης #' . $lkClient
+            . ' από admin #' . $adminId . ' (' . $lkN . ' κλήσεις)');
+    }
+    out(['ok' => true, 'updated' => (int) $lkN, 'client' => $lkClient,
+         'clientName' => clientLabel($lkClient)]);
+
+case 'calls_sync':                       // τράβα τις κλήσεις των τελευταίων ημερών
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    /* Προεπιλογή 2 ημέρες: το PBX συμπληρώνει καθυστερημένα σκέλη κλήσεων που
+       ξεκίνησαν χθες και τελείωσαν σήμερα. Ανώτατο 31 για να μη γίνει ποτέ
+       κατά λάθος σάρωση μηνών από κουμπί οθόνης. */
+    $cDays = max(1, min(31, (int) ($in['days'] ?? 2)));
+    $cRes = Pbx3cxReport::range(date('Y-m-d', strtotime('-' . ($cDays - 1) . ' day')), date('Y-m-d'));
+    out(['ok' => true, 'sync' => $cRes]);
+
+case 'calls_backfill':                   // άντληση ιστορικού διαστήματος
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    $bFrom = substr((string) ($in['from'] ?? ''), 0, 10);
+    $bTo   = substr((string) ($in['to'] ?? ''), 0, 10);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $bFrom) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $bTo)) {
+        fail('Δώσε ημερομηνίες από/έως');
+    }
+    if ($bFrom > $bTo) { fail('Η αρχή είναι μετά το τέλος'); }
+    /* Ένα αίτημα = το πολύ ένας μήνας. Το PBX απαντά ανά ημέρα σε δέκατα, αλλά
+       μεγάλα διαστήματα κρατούν την αίτηση ανοιχτή λεπτά ολόκληρα. */
+    if ((strtotime($bTo) - strtotime($bFrom)) > 31 * 86400) { fail('Ζήτα έως έναν μήνα κάθε φορά'); }
+    $bRes = Pbx3cxReport::range($bFrom, $bTo);
+    if (function_exists('logActivity')) {
+        logActivity('CPM: άντληση κλήσεων ' . $bFrom . '→' . $bTo . ' από admin #' . $adminId
+            . ' — νέες ' . $bRes['new']);
+    }
+    out(['ok' => true, 'sync' => $bRes]);
 
 case 'pbx_map_save':                     // χειροκίνητη αντιστοίχιση — ΔΕΝ τη σβήνει ο συγχρονισμός
     $mId = (int) ($in['id'] ?? 0);

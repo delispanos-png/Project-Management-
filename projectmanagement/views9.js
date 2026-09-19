@@ -244,6 +244,7 @@ R.calls = async function () {
       ${d.people.map(p => `<option value="${p.id}" ${p.id === st.who ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
     </select>
     <span style="flex:1"></span>
+    <button class="btn-s" id="clSync" title="Τράβα ό,τι νέο από το τηλεφωνικό κέντρο">↻ Ανανέωση</button>
     <span class="mut" style="font-size:11.5px">${t.logged}/${t.calls} καταγεγραμμένες</span>
   </div>
 
@@ -273,24 +274,42 @@ R.calls = async function () {
   </div>
 
   <div class="card"><div class="card-h">${I.phone} Οι κλήσεις
-    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ σε γραμμή για καταγραφή</span></div>
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">${
+      /* Τα πλακίδια μετρούν ΟΛΟ το διάστημα· η λίστα δείχνει τις πιο πρόσφατες.
+         Χωρίς αυτή τη φράση θα νόμιζε κανείς ότι λείπουν κλήσεις. */
+      d.shown < t.calls
+        ? `οι ${d.shown} πιο πρόσφατες από ${t.calls} · κλικ σε γραμμή για καταγραφή`
+        : 'κλικ σε γραμμή για καταγραφή'}</span></div>
     <div class="card-b" style="padding:4px 6px 8px">
       ${d.items.length ? `<div class="cl-list">${d.items.map(row).join('')}</div>`
         : `<div class="cl-empty">Καμία κλήση σε αυτό το διάστημα.</div>`}
     </div></div>`;
 
   $('#clD').onchange = e => { st.d = e.target.value; R.calls(); };
+  /* Το pulse το κάνει μόνο του κάθε 10΄. Το κουμπί είναι για όποιον μόλις έκλεισε
+     το τηλέφωνο και θέλει να δει την κλήση του τώρα, χωρίς να περιμένει. */
+  $('#clSync').onclick = async e => {
+    const b = e.currentTarget; const was = b.textContent;
+    b.disabled = true; b.textContent = '↻ φέρνω…';
+    try {
+      const r = await api('calls_sync', {days: 2});
+      toast(r.sync.new ? `${r.sync.new} νέες κλήσεις` : 'Δεν υπάρχει κάτι νέο');
+      if (r.sync.new || r.sync.updated) { R.calls(); return; }
+    } catch (err) { toast(err.message || 'Δεν έγινε η ανανέωση', 'err'); }
+    b.disabled = false; b.textContent = was;
+  };
   $('#clWho').onchange = e => { st.who = +e.target.value; R.calls(); };
   $$('[data-cdays]').forEach(b => b.onclick = () => { st.days = +b.dataset.cdays; R.calls(); });
   $$('[data-cli]').forEach(b => b.onclick = () => window.CNP.go('client360', b.dataset.cli));
   if (d.canLog) {
-    $$('[data-call]').forEach(r => r.onclick = () => callNote(d.items.find(x => x.id === +r.dataset.call)));
+    $$('[data-call]').forEach(r => r.onclick = () => callNote(d.items.find(x => x.id === +r.dataset.call), d));
   }
 };
 
 /** Η καταγραφή του agent: τι έγινε, και αν χρεώνεται — με λόγο. */
-function callNote(x) {
+function callNote(x, d0) {
   if (!x) { return; }
+  d0 = d0 || {canLog: true};
   const ovl = document.createElement('div');
   ovl.className = 'ovl show'; ovl.style.zIndex = 330;
   ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:520px" onclick="event.stopPropagation()">
@@ -301,6 +320,19 @@ function callNote(x) {
         <b>${esc(x.clientName || x.other || '—')}</b>${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
     </div>
     <div style="padding:8px 20px 4px">
+      ${/* Η ΤΑΥΤΙΣΗ ΠΡΩΤΑ: αν δεν ξέρουμε ποιος είναι, τίποτα άλλο δεν έχει
+            αξία — ούτε χρέωση, ούτε «ποιος μας απασχολεί». Το WHMCS έχει
+            τηλέφωνο μόνο για 210 πελάτες, οπότε το ερώτημα βγαίνει συχνά. */
+        (!x.client && x.other && d0.canLog) ? `
+      <div class="cn-link" id="cnLinkBox">
+        <div style="font-size:12.5px;font-weight:600;color:var(--ink)">Ποιος είναι το ${esc(x.other)};</div>
+        <div class="mut" style="font-size:11.5px;margin:2px 0 7px">
+          ${x.skipLabel ? 'Καταχωρημένο ως <b>' + esc(x.skipLabel) + '</b> — μπορείς να το αλλάξεις.'
+            : 'Θα ισχύσει για όλες τις κλήσεις του, παλιές και νέες.'}</div>
+        <input class="inp" id="cnLq" placeholder="Γράψε όνομα πελάτη…" autocomplete="off">
+        <div id="cnLres"></div>
+        <button type="button" class="btn btn-sm btn-o" id="cnLskip" style="margin-top:7px">Δεν είναι πελάτης</button>
+      </div>` : ''}
       <label class="lbl">Τι ζήτησε / τι έκανες</label>
       <input class="inp" id="cnS" maxlength="500" value="${esc(x.summary || '')}" placeholder="π.χ. Ρύθμιση XML Skroutz — έγινε επί τόπου">
       <label class="lbl" style="margin-top:11px">Κατηγορία</label>
@@ -321,6 +353,40 @@ function callNote(x) {
   const kill = () => ovl.remove();
   ovl.onclick = kill;
   $('#cnX', ovl).onclick = kill;
+
+  /* Αναζήτηση πελάτη — ίδιο endpoint με την υπόλοιπη εφαρμογή. */
+  const lq = $('#cnLq', ovl);
+  if (lq) {
+    let tmr = null;
+    const res = $('#cnLres', ovl);
+    const link = async body => {
+      try {
+        const r = await api('call_link', body);
+        if (r.skip) { toast('Καταχωρήθηκε ως «' + r.label + '»'); }
+        else { toast(`${r.clientName} — ενημερώθηκαν ${r.updated} κλήσεις`); }
+        kill(); R.calls();
+      } catch (e) { toast(e.message || 'Δεν αποθηκεύτηκε', 'err'); }
+    };
+    lq.oninput = () => {
+      clearTimeout(tmr);
+      const v = lq.value.trim();
+      if (v.length < 2) { res.innerHTML = ''; return; }
+      tmr = setTimeout(async () => {
+        const r = await api('client_search&q=' + encodeURIComponent(v)).catch(() => null);
+        const list = (r && r.results) || [];
+        res.innerHTML = list.length
+          ? list.slice(0, 6).map(c => `<div class="cn-pick" data-cid="${c.id}"><b>${esc(c.name)}</b>
+              <span class="mut">#${c.id}</span></div>`).join('')
+          : '<div class="mut" style="padding:7px 2px;font-size:12px">Κανένα αποτέλεσμα</div>';
+        $$('.cn-pick', res).forEach(el => el.onclick = () =>
+          link({e164: x.other, client: +el.dataset.cid}));
+      }, 260);
+    };
+    $('#cnLskip', ovl).onclick = () => {
+      const lbl = prompt('Ποιος είναι; (π.χ. ΔΕΗ, τηλεπωλήσεις, προμηθευτής)', x.skipLabel || '');
+      if (lbl && lbl.trim()) { link({e164: x.other, skip: true, label: lbl.trim()}); }
+    };
+  }
 
   let cat = x.category || '', bill = x.bill || '';
   const paint = () => {

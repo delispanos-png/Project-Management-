@@ -66,9 +66,25 @@ class Pbx3cxCdr
     {
         $d = preg_replace('/\D+/', '', (string) $n);
         if ($d === '') { return ''; }
-        if (strpos($d, '0030') === 0) { $d = substr($d, 4); }
-        elseif (strpos($d, '30') === 0 && strlen($d) === 12) { $d = substr($d, 2); }
-        return strlen($d) >= 9 ? '+30' . substr($d, -10) : $d;
+
+        /* Διεθνής κλήση: το 00 είναι το πρόθεμα εξόδου, ό,τι ακολουθεί είναι
+           ολόκληρος ο ξένος αριθμός με τον κωδικό χώρας του.
+           ΜΗΝ του κολλήσεις +30: το 0035799687016 (Κύπρος) γινόταν
+           +305799687016, δηλαδή ανύπαρκτος ελληνικός αριθμός. */
+        if (strpos($d, '00') === 0) {
+            $d = substr($d, 2);
+            if (strpos($d, '30') === 0 && strlen($d) === 12) { $d = substr($d, 2); }
+            else { return strlen($d) >= 8 ? '+' . $d : $d; }
+        } elseif (strpos($d, '30') === 0 && strlen($d) === 12) {
+            $d = substr($d, 2);
+        }
+
+        /* Ελληνικός: 10 ψηφία, ξεκινά με 2 (σταθερό) ή 6 (κινητό). */
+        if (strlen($d) === 10 && ($d[0] === '2' || $d[0] === '6')) { return '+30' . $d; }
+        /* Μεγαλύτερος χωρίς 00 — έχει ήδη κωδικό χώρας. */
+        if (strlen($d) > 10) { return '+' . $d; }
+        /* Εσωτερικό ή σύντομος κωδικός — άφησέ τον όπως είναι. */
+        return $d;
     }
 
     /**
@@ -179,6 +195,13 @@ class Pbx3cxCdr
             ->whereRaw("REPLACE(REPLACE(REPLACE(REPLACE(phonenumber,' ',''),'-',''),'.',''),'+','') LIKE ?", ['%' . $d10])
             ->value('id');
         if ($c) { return [(int) $c, 'whmcs']; }
+
+        /* 3) Δευτερεύουσες επαφές πελατών — ο υπεύθυνος που καλεί από το δικό
+              του τηλέφωνο, όχι από το κεντρικό της εταιρείας. */
+        $c = Capsule::table('tblcontacts')->where('phonenumber', '<>', '')
+            ->whereRaw("REPLACE(REPLACE(REPLACE(REPLACE(phonenumber,' ',''),'-',''),'.',''),'+','') LIKE ?", ['%' . $d10])
+            ->value('userid');
+        if ($c) { return [(int) $c, 'contact']; }
 
         return [null, 'none'];
     }

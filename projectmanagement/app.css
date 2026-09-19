@@ -3515,3 +3515,11 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .cl-who{display:none}
   .cl-bill{grid-column:3/-1}
 }
+
+/* Ταύτιση άγνωστου τηλεφώνου με πελάτη — μέσα στον διάλογο της κλήσης.
+   Ξεχωρίζει οπτικά γιατί είναι ΕΡΩΤΗΣΗ, όχι πεδίο συμπλήρωσης. */
+.cn-link{background:var(--bg2,#f6f8fb);border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;margin-bottom:13px}
+.cn-link .inp{font-size:12.5px;padding:7px 9px}
+.cn-pick{padding:7px 9px;border-radius:7px;cursor:pointer;font-size:12.5px;margin-top:3px}
+.cn-pick:hover{background:var(--accent-w,#e8f0fe)}

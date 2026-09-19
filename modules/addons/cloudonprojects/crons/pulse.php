@@ -117,3 +117,27 @@ try {
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] ticket autoclose ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
 }
+
+/* ☎ Τηλεφωνική δραστηριότητα: τραβάμε τις κλήσεις από τις αναφορές του 3CX.
+   Δύο ημέρες κάθε φορά, γιατί μια κλήση που ξεκίνησε αργά χθες συμπληρώνεται
+   σήμερα. Η άντληση είναι ιδεμποτική — ό,τι έγραψε ο συνάδελφος μετά την κλήση
+   (περίληψη, χρέωση, αιτιολογία) δεν πειράζεται.
+
+   ΓΙΑΤΙ ΕΔΩ ΚΑΙ ΟΧΙ ΜΕ SOCKET: το CDR του 3CX θα ήθελε μόνιμη υπηρεσία που
+   ακούει σε ανοιχτή θύρα. Οι αναφορές απαντούν σε δέκατα του δευτερολέπτου και
+   δεν χρειάζονται τίποτα απ' αυτά. */
+try {
+    require_once __DIR__ . '/../lib/Pbx3cx/Client.php';
+    require_once __DIR__ . '/../lib/Pbx3cx/Cdr.php';
+    require_once __DIR__ . '/../lib/Pbx3cx/Report.php';
+    if (\WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient::configured()) {
+        $cl = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxReport::range(
+            date('Y-m-d', strtotime('-1 day')), date('Y-m-d'));
+        if ($cl['new'] || $cl['updated']) {
+            echo '[' . date('H:i:s') . '] κλήσεις: ' . $cl['new'] . ' νέες, '
+                . $cl['updated'] . " ενημερώθηκαν\n";
+        }
+    }
+} catch (\Throwable $e) {
+    echo '[' . date('H:i:s') . '] κλήσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
+}
