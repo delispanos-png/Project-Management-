@@ -339,6 +339,8 @@ class Pbx3cxReport
                 $row['created_at'] = date('Y-m-d H:i:s');
                 Capsule::table('mod_cpm_calls')->insert($row);
                 $new++;
+                /* Σκιώδης δρομολόγηση: τι ΘΑ αποφασίζαμε για αυτή την κλήση. */
+                if (class_exists(__NAMESPACE__ . '\Route')) { Route::shadow($row, $hist); }
             }
         }
         return ['new' => $new, 'updated' => $upd, 'legs' => $seen,

@@ -47,6 +47,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Sync.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Cdr.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Report.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Blueprint.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Route.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Book.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
@@ -2696,6 +2697,7 @@ function cnp_caps()
         'comms.book'         => ['view',   'Εταιρικός κατάλογος 3CX', 'Οι επαφές του τηλεφωνικού κέντρου — ποιος φαίνεται στις οθόνες των τηλεφώνων'],
         'comms.book.edit'    => ['edit',   'Επεξεργασία καταλόγου', 'Καταχώρηση και αλλαγή επαφών στο τηλεφωνικό κέντρο', 'comms.book'],
         'comms.book.delete'  => ['delete', 'Διαγραφή επαφής', 'Οριστική διαγραφή επαφής από το τηλεφωνικό κέντρο', 'comms.book'],
+        'comms.route'        => ['view',   'Δρομολόγηση κλήσεων', 'Τι αποφασίζει το κέντρο για κάθε γνωστό πελάτη — και γιατί'],
         'comms.pbx'          => ['view',   'Διασύνδεση 3CX', 'Κατάσταση σύνδεσης, υγεία, τεχνικό ημερολόγιο'],
         'comms.pbx.edit'     => ['edit',   'Ρύθμιση & κόστη', 'Στοιχεία σύνδεσης, έλεγχος, κόστος ανά χειριστή', 'comms.pbx'],
         'team.calendar'      => ['view',   'Ημερολόγιο', 'Κοινό ημερολόγιο: ραντεβού, meetings, άδειες (προβολή & RSVP)'],
@@ -3079,6 +3081,9 @@ function cnp_action_cap($action)
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import', 'book_push']);
         $add('comms.book.delete', ['book_del']);
         $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan', 'pbx_ai_calls']);
+        $add('comms.route', ['route_overview']);
+        /* Οι ορισμοί (προϊόντα → ουρές) χρειάζονται και στην καρτέλα του καταλόγου. */
+        $add('comms.book', ['route_defs']);
         /* Η ζωντανή εικόνα «ποιος μιλάει τώρα» ανήκει στη Δραστηριότητα της
            ομάδας, όχι στις ρυθμίσεις — γι' αυτό δένεται στο reports.activity. */
         $add('reports.activity', ['pbx_live']);
@@ -5430,6 +5435,49 @@ case 'pbx_plan':                         // η δομή του κέντρου vs
     if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
     out(['ok' => true, 'plan' => Pbx3cxBlueprint::plan()]);
 
+case 'route_defs':                       // προϊόντα → ουρές, για την καρτέλα του καταλόγου
+    out(['products' => Route::productList(), 'queues' => Route::queues()]);
+
+case 'route_overview':                   // ΔΡΟΜΟΛΟΓΗΣΗ ΚΑΤΑ ΠΕΛΑΤΗ — τι θα αποφάσιζε το κέντρο, και πόσο έτοιμος είναι ο κατάλογος
+    $rvDays = max(1, min(60, (int) ($_GET['days'] ?? 14)));
+    $rvSince = date('Y-m-d 00:00:00', strtotime('-' . ($rvDays - 1) . ' days'));
+    $rvRows = [];
+    foreach (Capsule::table('mod_cpm_pbx_route_log')->where('created_at', '>=', $rvSince)
+        ->orderBy('created_at', 'desc')->limit(200)->get() as $r) {
+        $rvName = '';
+        if ($r->book_id) {
+            $bb = Capsule::table('mod_cpm_book')->where('id', $r->book_id)->first(['company', 'first', 'last']);
+            if ($bb) { $rvName = Book::label((array) $bb); }
+        }
+        $rvRows[] = ['id' => (int) $r->id, 'at' => $r->created_at, 'e164' => $r->e164, 'book' => (int) $r->book_id,
+            'name' => $rvName, 'mode' => $r->mode, 'decision' => $r->decision, 'dn' => $r->dn,
+            'dnName' => isset(Pbx3cxBlueprint::TOPICS[$r->dn]) ? Pbx3cxBlueprint::TOPICS[$r->dn]['name'] : ($r->dn === Route::AI_DN ? 'Ρεσεψιόν' : $r->dn),
+            'reason' => (string) $r->reason, 'applied' => (int) $r->applied];
+    }
+    $rvAgg = [];
+    foreach (Capsule::table('mod_cpm_pbx_route_log')->where('created_at', '>=', $rvSince)
+        ->selectRaw('decision, COUNT(*) n')->groupBy('decision')->get() as $a) { $rvAgg[$a->decision] = (int) $a->n; }
+    /* Πόσο έτοιμος είναι ο κατάλογος: μόνο οι καρτέλες που ΚΑΛΟΥΝ μετράνε. */
+    $rvBook = Capsule::table('mod_cpm_book')->selectRaw(
+        'COUNT(*) total, SUM(support_cover=1) covered, SUM(support_cover=0) nocover, SUM(support_cover IS NULL) unknown, '
+        . "SUM(products IS NOT NULL AND products<>'') withprod, SUM(clientid>0) clients")->first();
+    $rvGaps = [];
+    foreach (Capsule::table('mod_cpm_book as b')
+        ->leftJoin('mod_cpm_calls as c', 'c.book_id', '=', 'b.id')
+        ->where('c.direction', 'in')->where('c.started_at', '>=', date('Y-m-d', strtotime('-90 days')))
+        ->where(function ($q) { $q->whereNull('b.support_cover')->orWhereNull('b.products')->orWhere('b.products', ''); })
+        ->groupBy('b.id')->selectRaw('b.id, b.company, b.first, b.last, b.support_cover, b.products, COUNT(c.id) n, MAX(c.started_at) last')
+        ->orderByDesc('n')->limit(40)->get() as $g) {
+        $rvGaps[] = ['id' => (int) $g->id, 'name' => Book::label((array) $g), 'calls' => (int) $g->n, 'last' => $g->last,
+            'cover' => $g->support_cover === null ? '' : (string) (int) $g->support_cover, 'products' => Route::parseProducts($g->products ?? '')];
+    }
+    out(['days' => $rvDays, 'mode' => Pbx3cxBlueprint::agentMode(), 'modeLabel' => Pbx3cxBlueprint::modeLabel(Pbx3cxBlueprint::agentMode()),
+        'live' => false, 'items' => $rvRows, 'agg' => $rvAgg,
+        'book' => ['total' => (int) $rvBook->total, 'covered' => (int) $rvBook->covered, 'nocover' => (int) $rvBook->nocover,
+            'unknown' => (int) $rvBook->unknown, 'withProducts' => (int) $rvBook->withprod, 'clients' => (int) $rvBook->clients],
+        'gaps' => $rvGaps, 'products' => Route::productList(), 'queues' => Route::queues(),
+        'canBook' => cnp_has_cap($adminId, $FULL, 'comms.book.edit')]);
+
 case 'pbx_ai_calls':                     // οι τελευταίες κλήσεις της AI ρεσεψιόν, με κείμενο — το υλικό της εκπαίδευσης
     if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
     $aiDn = Pbx3cxBlueprint::AI_DN;
@@ -6051,6 +6099,9 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
             'nextAt' => $g->next_at, 'nextNote' => (string) $g->next_note,
             'client' => $g->clientid ? (int) $g->clientid : 0,
             'clientName' => $g->clientid ? clientLabel((int) $g->clientid) : '',
+            'products' => Route::parseProducts($g->products ?? ''),
+            'cover' => $g->support_cover === null ? '' : (string) (int) $g->support_cover,
+            'routeDn' => (string) ($g->route_dn ?? ''),
             'toPbx' => (int) $g->to_pbx, 'pbxId' => $g->pbx_id ? (int) $g->pbx_id : 0,
             'pbxAt' => $g->pbx_at, 'pbxError' => (string) $g->pbx_error,
             'createdAt' => $g->created_at, 'updatedAt' => $g->updated_at,
@@ -6059,6 +6110,8 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
         'phones' => $gPh, 'fields' => $gFields, 'timeline' => $gTl, 'calls' => $gCalls,
         'totals' => ['calls' => (int) $gAgg->n, 'talk' => (int) $gAgg->t, 'missed' => (int) $gAgg->miss],
         'statuses' => Book::statuses(),
+        'routing' => ['products' => Route::productList(), 'queues' => Route::queues(),
+            'decision' => $gPh ? Route::decide($gPh[0]['e164']) : null],
         'labels' => array_map(function ($v) { return $v[0]; }, Book::phoneLabels()),
         'people' => (function () {
             /* Db::admins() επιστρέφει Collection, όχι πίνακα — και οι bot
@@ -6154,6 +6207,10 @@ case 'book_save':                        // αποθήκευση καρτέλα�
         'next_note' => mb_substr(trim((string) ($in['nextNote'] ?? '')), 0, 200) ?: null,
         'clientid' => $sClient ?: null,
         'to_pbx' => !empty($in['toPbx']) ? 1 : 0,
+        /* Δρομολόγηση κατά πελάτη: προϊόντα, κάλυψη, «πάντα σε». */
+        'products' => implode(',', Route::parseProducts(implode(',', (array) ($in['products'] ?? [])))) ?: null,
+        'support_cover' => in_array((string) ($in['cover'] ?? ''), ['0', '1'], true) ? (int) $in['cover'] : null,
+        'route_dn' => isset(Pbx3cxBlueprint::TOPICS[(string) ($in['routeDn'] ?? '')]) ? (string) $in['routeDn'] : null,
         'updated_by' => $adminId, 'updated_at' => date('Y-m-d H:i:s'),
     ];
 

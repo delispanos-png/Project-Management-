@@ -876,6 +876,7 @@ async function bookCard(id, pre) {
     /* Τα δικά μας πεδία χρειάζονται και στη νέα καρτέλα. */
     const ff = await api('book_fields').catch(() => null);
     if (ff) { d.fields = (ff.fields || []).filter(f => f.active).map(f => ({...f, value: ''})); }
+    d.routing = await api('route_defs').catch(() => null);
   }
   const K = d.card;
   const ed = d.canEdit;
@@ -926,6 +927,30 @@ async function bookCard(id, pre) {
 
   <div class="bc-f" style="margin-top:10px"><label class="lbl">Πελάτης WHMCS</label>
     <div id="bcCli"></div></div>
+
+  <div class="bc-sec">${I.zap} Δρομολόγηση κλήσεων</div>
+  <div class="mut" style="font-size:12px;margin-bottom:8px">
+    Τι έχει από εμάς και αν καλύπτεται από τεχνική υποστήριξη. Με αυτά το κέντρο στέλνει την κλήση του
+    <b>κατευθείαν στη σωστή ουρά</b>, χωρίς ρεσεψιόν. Στην αμφιβολία, πάει στη ρεσεψιόν.</div>
+  <div class="bc-prods">${((d.routing && d.routing.products) || []).map(p => `<label class="bc-chk">
+    <input type="checkbox" data-prod="${esc(p.key)}" ${(K.products || []).includes(p.key) ? 'checked' : ''} ${ed ? '' : 'disabled'}>
+    ${esc(p.label)} <span class="mut">→ ${esc(String(p.queue).replace(/ \(.*\)$/, ''))}</span></label>`).join('')}</div>
+  <div class="bc-grid">
+    <div class="bc-f"><label class="lbl">Τεχνική υποστήριξη</label>
+      <select class="inp" data-k="cover" ${ed ? '' : 'disabled'}>
+        <option value="" ${!K.cover ? 'selected' : ''}>— δεν ξέρουμε ακόμη —</option>
+        <option value="1" ${K.cover === '1' ? 'selected' : ''}>καλύπτεται — συνδέεται με τεχνικό</option>
+        <option value="0" ${K.cover === '0' ? 'selected' : ''}>δεν καλύπτεται — ρεσεψιόν, μήνυμα ή email</option>
+      </select></div>
+    <div class="bc-f"><label class="lbl">Πάντα σε <span class="mut" style="font-weight:400">— υπερισχύει των προϊόντων</span></label>
+      <select class="inp" data-k="routeDn" ${ed ? '' : 'disabled'}>
+        <option value="">— αυτόματα, από τα προϊόντα —</option>
+        ${Object.entries((d.routing && d.routing.queues) || {}).map(([dn, l]) => `<option value="${dn}" ${K.routeDn === dn ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+      </select></div>
+  </div>
+  ${d.routing && d.routing.decision ? `<div class="bc-dec ${esc(d.routing.decision.decision)}">
+    Αν καλούσε τώρα: <b>${d.routing.decision.decision === 'queue' ? 'κατευθείαν στην ουρά ' + esc(d.routing.decision.dn) : 'ρεσεψιόν'}</b>
+    <span class="mut">— ${esc(d.routing.decision.reason)}</span></div>` : ''}
 
   <div class="bc-sec">${I.contact || I.user} Στοιχεία</div>
   <div class="bc-grid">
@@ -1060,6 +1085,8 @@ async function bookCard(id, pre) {
       notes: g('notes'), status: g('status'), owner: +g('owner') || 0,
       nextAt: g('nextAt'), nextNote: g('nextNote'), client: client.id,
       toPbx: $('#bcPbx', body).checked ? 1 : 0, dropFromPbx: !$('#bcPbx', body).checked,
+      products: $$('[data-prod]', body).filter(el => el.checked).map(el => el.dataset.prod),
+      cover: g('cover'), routeDn: g('routeDn'),
       phones: phones.filter(p => p.raw.trim()), fields});
 
     const send = async extra => {
@@ -1400,4 +1427,85 @@ R.clientcalls = async function (arg) {
     a.download = `κινηση-${d.name.replace(/[^\wΑ-Ωα-ωά-ώ]+/g, '-').slice(0, 40)}-${d.from}_${d.to}.csv`;
     a.click(); URL.revokeObjectURL(a.href);
   };
+};
+
+/* ═══════════ ΔΡΟΜΟΛΟΓΗΣΗ ΚΛΗΣΕΩΝ ═══════════
+   Η ερώτηση που απαντά: αν το κέντρο αποφάσιζε μόνο του, με βάση τον κατάλογο,
+   πού θα έστελνε κάθε κλήση — και είναι ο κατάλογος αρκετά γεμάτος για να το
+   αφήσουμε; Στάδιο 1 = σκιώδες: μόνο καταγραφή, καμία δρομολόγηση. */
+const RT_DEC = {queue: ['κατευθείαν σε ουρά', '#16a26a'], ai: ['ρεσεψιόν', '#8595ac'],
+  ai_nocover: ['ρεσεψιόν (χωρίς κάλυψη)', '#e0a020'], drop: ['απόρριψη', '#e2515f']};
+R.route = async function () {
+  if (!cnpCan('comms.route')) {
+    setTop('Δρομολόγηση κλήσεων');
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Επικοινωνίες → Δρομολόγηση κλήσεων»'});
+    return;
+  }
+  setTop('Δρομολόγηση κλήσεων', 'Τι θα αποφάσιζε το κέντρο για κάθε γνωστό πελάτη — και γιατί');
+  const c = $('#content');
+  const st = R.route._s = R.route._s || {days: 14, only: ''};
+  c.innerHTML = '<div class="skel" style="height:120px;margin-bottom:14px"></div><div class="skel" style="height:400px"></div>';
+  const d = await api('route_overview&days=' + st.days).catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  const B = d.book, A = d.agg || {};
+  const tot = Object.values(A).reduce((s, n) => s + n, 0);
+  const items = st.only ? d.items.filter(x => x.decision === st.only) : d.items;
+  const chip = (k, l, n) => `<button class="kb-chip${st.only === k ? ' on' : ''}" data-ronly="${k}">${l} <b>${n}</b></button>`;
+
+  c.innerHTML = `
+  <div class="card"><div class="card-b">
+    <div class="rt-head">
+      <span class="pbx-mode ${esc(d.mode)}" style="margin:0">${esc(d.modeLabel)}</span>
+      <span class="rt-stage">${d.live ? 'ΖΩΝΤΑΝΗ δρομολόγηση' : 'ΣΚΙΩΔΕΣ στάδιο — μόνο καταγραφή, οι κλήσεις πάνε όπως και πριν'}</span>
+      <span style="flex:1"></span>
+      <select class="inp" id="rtDays" style="width:150px">
+        ${[7, 14, 30, 60].map(n => `<option value="${n}" ${st.days === n ? 'selected' : ''}>${n} ημέρες</option>`).join('')}
+      </select>
+    </div>
+    <div class="su-tiles" style="margin-top:12px">
+      <div class="su-tile"><div class="su-tv">${B.total}</div><div class="su-tl">καρτέλες στον κατάλογο</div></div>
+      <div class="su-tile ok"><div class="su-tv">${B.covered}</div><div class="su-tl">καλύπτονται από υποστήριξη</div></div>
+      <div class="su-tile warn"><div class="su-tv">${B.nocover}</div><div class="su-tl">δεν καλύπτονται</div></div>
+      <div class="su-tile"><div class="su-tv">${B.unknown}</div><div class="su-tl">δεν έχει σημειωθεί κάλυψη</div></div>
+      <div class="su-tile"><div class="su-tv">${B.withProducts}</div><div class="su-tl">με προϊόντα σημειωμένα</div></div>
+    </div>
+  </div></div>
+
+  <div class="card"><div class="card-h">${I.list || I.doc} Τι θα αποφάσιζε — τελευταίες ${d.days} ημέρες
+    <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">${tot} εισερχόμενες</span></div>
+    <div class="card-b">
+      <div class="bk-chips" style="margin-bottom:10px">
+        ${chip('', 'όλες', tot)}${Object.entries(RT_DEC).map(([k, v]) => A[k] ? chip(k, v[0], A[k]) : '').join('')}
+      </div>
+      ${items.length ? `<div class="rt-list">${items.map(x => { const dc = RT_DEC[x.decision] || RT_DEC.ai; return `
+        <div class="rt-row">
+          <span class="rt-at mut">${esc(String(x.at).slice(5, 16))}</span>
+          <span class="rt-who">${x.book ? `<a href="#" data-rbook="${x.book}"><b>${esc(x.name)}</b></a><span class="mut">${esc(x.e164)}</span>` : `<b>${esc(x.e164 || 'ανώνυμος')}</b><span class="mut">άγνωστος</span>`}</span>
+          <span class="rt-dec" style="color:${dc[1]}">${x.decision === 'queue' ? '→ ' + esc(x.dnName) : dc[0]}</span>
+          <span class="rt-why mut">${esc(x.reason)}</span>
+        </div>`; }).join('')}</div>` : '<div class="mut" style="font-size:12.5px">Καμία καταγραφή ακόμη. Γεμίζει με κάθε εισερχόμενη κλήση.</div>'}
+    </div></div>
+
+  <div class="card"><div class="card-h">${I.alert} Κενά του καταλόγου
+    <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">επαφές που ΚΑΛΟΥΝ (90 ημέρες) χωρίς κάλυψη ή προϊόντα — ξεκίνα από αυτές</span></div>
+    <div class="card-b">
+      ${d.gaps.length ? `<div class="rt-list">${d.gaps.map(g => `
+        <div class="rt-row">
+          <span class="rt-at mut">${esc(String(g.last || '').slice(5, 16))}</span>
+          <span class="rt-who"><a href="#" data-rbook="${g.id}"><b>${esc(g.name)}</b></a><span class="mut">${g.calls} κλήσεις</span></span>
+          <span class="rt-dec mut">${g.cover === '' ? 'κάλυψη;' : (g.cover === '1' ? 'καλύπτεται' : 'δεν καλύπτεται')}</span>
+          <span class="rt-why mut">${g.products.length ? g.products.join(', ') : 'χωρίς προϊόντα'}</span>
+        </div>`).join('')}</div>` : '<div class="mut" style="font-size:12.5px">Όλες οι επαφές που καλούν έχουν κάλυψη και προϊόντα.</div>'}
+    </div></div>
+
+  <div class="card"><div class="card-h">${I.tree || I.gear} Προϊόν → ουρά</div>
+    <div class="card-b"><div class="rt-list">${d.products.map(p => `<div class="rt-row">
+      <span class="rt-who"><b>${esc(p.label)}</b></span>
+      <span class="rt-dec">→ ${esc(p.queue)}</span></div>`).join('')}</div>
+      <div class="mut" style="font-size:11.5px;margin-top:8px">Η σειρά των συνεργατών ορίζεται στη Δομή κέντρου (Διασύνδεση 3CX).</div>
+    </div></div>`;
+
+  $('#rtDays').onchange = e => { st.days = +e.target.value; R.route(); };
+  $$('[data-ronly]').forEach(b => b.onclick = () => { st.only = b.dataset.ronly; R.route(); });
+  $$('[data-rbook]').forEach(a => a.onclick = e => { e.preventDefault(); bookCard(+a.dataset.rbook); });
 };

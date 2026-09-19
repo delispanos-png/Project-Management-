@@ -963,10 +963,34 @@ class Db
             'next_at'     => 'date NULL',                           // επόμενη επαφή
             'next_note'   => 'varchar(200) NULL',
             'last_call_at' => 'datetime NULL',                      // υπολογίζεται από τις κλήσεις
+            /* ΔΡΟΜΟΛΟΓΗΣΗ ΚΑΤΑ ΠΕΛΑΤΗ (20/09/2026): τι έχει από εμάς και αν
+               καλύπτεται από υποστήριξη — με αυτά το κέντρο στέλνει την κλήση
+               κατευθείαν στη σωστή ουρά. Βλ. Pbx3cx/Route.php. */
+            'products'      => 'varchar(160) NULL',                 // softone,pharmacyone,3cx,…
+            'support_cover' => 'tinyint(4) NULL',                   // 1 καλύπτεται · 0 όχι · NULL άγνωστο
+            'route_dn'      => 'varchar(8) NULL',                   // «πάντα σε» ουρά (υπερισχύει)
         ] as $col => $def) {
             if (!$s->hasColumn('mod_cpm_book', $col)) {
                 Capsule::statement('ALTER TABLE mod_cpm_book ADD COLUMN `' . $col . '` ' . $def);
             }
+        }
+        /* Οι αποφάσεις δρομολόγησης — πρώτα σκιώδεις (applied=0), για να
+           ελεγχθεί ο κατάλογος με πραγματικές κλήσεις πριν αγγίξουμε το 3CX. */
+        if (!$s->hasTable('mod_cpm_pbx_route_log')) {
+            $s->create('mod_cpm_pbx_route_log', function ($t) {
+                $t->increments('id');
+                $t->string('e164', 24);
+                $t->unsignedInteger('book_id')->nullable();
+                $t->string('mode', 12);
+                $t->string('decision', 12);
+                $t->string('dn', 8);
+                $t->string('reason', 200)->nullable();
+                $t->tinyInteger('applied')->default(0);
+                $t->string('history_id', 64)->nullable();
+                $t->dateTime('created_at');
+                $t->index('history_id', 'ix_rhist');
+                $t->index('created_at', 'ix_rat');
+            });
         }
         /* Η κλήση δείχνει στην καρτέλα του καταλόγου — μία πηγή αναγνώρισης. */
         if (!$s->hasColumn('mod_cpm_calls', 'book_id')) {

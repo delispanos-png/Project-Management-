@@ -233,6 +233,7 @@ function renderShell() {
          είναι προμηθευτές, συνεργάτες ή υποψήφιοι. Δικός του πίνακας, δική του
          καρτέλα, δικά του δικαιώματα. */
       ['book', I.contact || I.users, 'Τηλεφωνικός κατάλογος', 'comms.book'],
+      ['route', I.zap, 'Δρομολόγηση κλήσεων', 'comms.route'],
       ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
       ['crm', I.target, 'CRM & leads', 'clients.crm'],
       ['offers', I.doc, 'Προσφορές', 'clients.offers'],
