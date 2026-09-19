@@ -227,13 +227,14 @@ R.calls = async function () {
     ${dirIco(x.dir)}
     <span class="cl-t">${esc((x.at || '').slice(11, 16))}</span>
     <span class="cl-who">${x.adminName ? esc(x.adminName) : '<span class="mut">—</span>'}</span>
-    <span class="cl-other">${x.clientName ? `<b>${esc(x.clientName)}</b>`
-      : x.skipLabel ? `<span class="mut">${esc(x.skipLabel)}</span>`
-      : x.anon ? '<span class="mut" title="Ο καλών απέκρυψε τον αριθμό του">απόκρυψη αριθμού</span>'
-      /* Όνομα από τον κατάλογο του 3CX: φαίνεται, αλλά σημαδεμένο — δεν είναι
-         πελάτης στο WHMCS ακόμη, και δεν πρέπει να νομίζει κανείς ότι είναι. */
-      : x.book ? `${esc(x.book)} <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο — δεν είναι συνδεδεμένος με πελάτη WHMCS">κατάλογος</span>`
-      : esc(x.other || '—')}</span>
+    ${/* ΤΟ ΣΗΜΑ ΕΞΩ ΑΠΟ ΤΟ ΚΕΙΜΕΝΟ. Όταν ζούσε μέσα στο κελί που κόβεται, σε
+         στενή οθόνη κοβόταν πρώτο αυτό — δηλαδή χανόταν ακριβώς η πληροφορία
+         «αυτός δεν είναι πελάτης ακόμη». Τώρα κόβεται το όνομα, το σήμα μένει. */''}
+    <span class="cl-other">${x.clientName ? `<b class="cl-ot">${esc(x.clientName)}</b>`
+      : x.skipLabel ? `<span class="cl-ot mut">${esc(x.skipLabel)}</span>`
+      : x.anon ? '<span class="cl-ot mut" title="Ο καλών απέκρυψε τον αριθμό του">απόκρυψη αριθμού</span>'
+      : x.book ? `<span class="cl-ot">${esc(x.book)}</span><span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο — δεν είναι συνδεδεμένος με πελάτη WHMCS">κατάλογος</span>`
+      : `<span class="cl-ot">${esc(x.other || '—')}</span>`}</span>
     <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
     <span class="cl-sum">${x.summary ? esc(x.summary) : '<span class="mut">—</span>'}</span>
     <span class="cl-bill">${x.bill
@@ -267,7 +268,7 @@ R.calls = async function () {
   <div class="cl-cols">
     <div class="card"><div class="card-h">${I.users} Ανά χειριστή</div>
       <div class="card-b">${d.perAdmin.length ? d.perAdmin.map(a => `
-        <div class="cl-agg pick" data-adm="${a.id}" title="Δες με ποιους μίλησε"><span class="cl-an">${esc(a.name)}</span>
+        <div class="cl-agg pick" data-adm="${a.id}" title="Δες με ποιους μίλησε"><span class="cl-an"><span class="cl-ant">${esc(a.name)}</span></span>
           <span class="cl-ab"><i style="width:${Math.round(a.talk / Math.max(1, d.perAdmin[0].talk) * 100)}%"></i></span>
           <span class="cl-av">${a.calls} κλήσεις · <b>${callHm(a.talk)}</b>${a.missed ? ` · <span style="color:var(--bad)">${a.missed} χαμένες</span>` : ''}</span>
         </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
@@ -277,7 +278,7 @@ R.calls = async function () {
       <div class="card-b">${d.perClient.length ? d.perClient.map(x => `
         <div class="cl-agg pick" ${x.client ? `data-cli="${x.client}"` : `data-num="${esc(x.num || x.name)}"`}
           title="Δες ποιος τον εξυπηρέτησε">
-          <span class="cl-an">${esc(x.name)}${x.book ? ' <span class="cl-3cx">3CX</span>' : ''}</span>
+          <span class="cl-an"><span class="cl-ant">${esc(x.name)}</span>${x.book ? '<span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>' : ''}</span>
           <span class="cl-ab"><i style="width:${Math.round(x.talk / Math.max(1, d.perClient[0].talk) * 100)}%;background:#7b5cd6"></i></span>
           <span class="cl-av">${x.calls} · <b>${callHm(x.talk)}</b></span>
         </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
@@ -428,7 +429,7 @@ async function callDrill(what, st) {
       <div class="cd-sub">${d.mode === 'admin' ? 'Με ποιους μίλησε' : 'Ποιος τον εξυπηρέτησε'}</div>
       ${d.rows.length ? d.rows.map(r => `
         <div class="cl-agg${d.mode === 'admin' && r.id ? ' pick' : ''}" ${d.mode === 'admin' && r.id ? `data-go="${r.id}"` : ''}>
-          <span class="cl-an">${esc(r.name)}${r.book ? ' <span class="cl-3cx">3CX</span>' : ''}</span>
+          <span class="cl-an"><span class="cl-ant">${esc(r.name)}</span>${r.book ? '<span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>' : ''}</span>
           <span class="cl-ab"><i style="width:${Math.round(r.talk / maxT * 100)}%;background:${d.mode === 'admin' ? '#7b5cd6' : 'var(--brand)'}"></i></span>
           <span class="cl-av">${r.calls} · <b>${callHm(r.talk)}</b>${
             r.missed ? ` · <span style="color:var(--bad)">${r.missed} χαμ.</span>` : ''}</span>
@@ -443,7 +444,7 @@ async function callDrill(what, st) {
           <span class="cl-who">${d.mode === 'admin'
             ? (x.clientName ? esc(x.clientName)
                : x.anon ? '<span class="mut">απόκρυψη</span>'
-               : x.book ? `${esc(x.book)} <span class="cl-3cx">3CX</span>`
+               : x.book ? `${esc(x.book)} <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>`
                : esc(x.other || '—'))
             : (x.adminName ? esc(x.adminName) : '<span class="mut">—</span>')}</span>
           <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
@@ -469,7 +470,7 @@ function callNote(x, d0) {
       <div class="mut" style="font-size:12px;margin-top:3px">
         ${esc((x.at || '').slice(0, 16))} · ${x.dir === 'in' ? 'εισερχόμενη από' : x.dir === 'out' ? 'εξερχόμενη προς' : 'εσωτερική'}
         <b>${esc(x.clientName || x.skipLabel || x.book || (x.anon ? 'απόκρυψη αριθμού' : x.other) || '—')}</b>${
-          x.book && !x.clientName ? ' <span class="cl-3cx">3CX</span>' : ''}${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
+          x.book && !x.clientName ? ' <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>' : ''}${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
     </div>
     <div style="padding:8px 20px 4px">
       ${/* Η ΤΑΥΤΙΣΗ ΠΡΩΤΑ: αν δεν ξέρουμε ποιος είναι, τίποτα άλλο δεν έχει
@@ -556,8 +557,13 @@ function callNote(x, d0) {
     const card = $('#cnLcard', ovl);
     if (card) {
       card.onclick = () => {
+        /* ΚΟΥΒΑΛΑΜΕ Ο,ΤΙ ΕΓΡΑΨΕ. Ο συνάδελφος πληκτρολογεί το όνομα εδώ, δεν
+           βρίσκεται πελάτης, πατάει «Καταχώρηση» — και μέχρι τώρα η καρτέλα
+           άνοιγε άδεια και το ξανάγραφε. Έτσι προέκυψε καρτέλα με το όνομα
+           γραμμένο δύο φορές, μία στην επωνυμία και μία στο ονοματεπώνυμο. */
+        const typed = (lq.value || '').trim();
         kill();
-        bookCard(x.bookId || 0, {phone: x.other, company: x.book || ''});
+        bookCard(x.bookId || 0, {phone: x.other, company: x.book || typed});
       };
     }
     $('#cnLskip', ovl).onclick = () => {
@@ -617,6 +623,7 @@ R.book = async function () {
   const CHIPS = [['', 'όλες', K.all], ['client', 'πελάτες', K.client],
                  ['noclient', 'χωρίς πελάτη', K.all - K.client],
                  ['nopbx', 'δεν πήγαν στα τηλέφωνα', K.nopbx],
+                 ['dup', 'διπλό τηλέφωνο', K.dup],
                  ['due', 'θέλουν κίνηση', K.due]];
 
   c.innerHTML = `
@@ -645,19 +652,24 @@ R.book = async function () {
   <div class="card"><div class="card-b" style="padding:4px 6px 8px">
     ${d.items.length ? `<div class="bk-list">${d.items.map(b => {
       const s = BK_ST[b.status] || BK_ST.active;
-      return `<div class="bk-row pick" data-bk="${b.id}">
+      /* Γραμμή που κάνει κλικ ΠΡΕΠΕΙ να φτάνεται και με πληκτρολόγιο — αλλιώς
+         620 καρτέλες είναι απρόσιτες για όποιον δεν χρησιμοποιεί ποντίκι. */
+      return `<div class="bk-row pick" data-bk="${b.id}" role="button" tabindex="0"
+        aria-label="${esc(b.name)}">
         <span class="bk-dot" style="background:${s[1]}" title="${s[0]}"></span>
-        <span class="bk-n">${esc(b.name)}
-          ${b.dup ? '<span class="bk-dup" title="Ο ίδιος αριθμός υπάρχει και σε άλλη καρτέλα">διπλό</span>' : ''}
-          ${b.pbxError ? `<span class="bk-dup" style="color:var(--bad);border-color:#f2c9cd;background:#fdf0f1" title="${esc(b.pbxError)}">δεν στάλθηκε</span>` : ''}
-          ${b.city ? `<span class="mut" style="font-weight:400"> · ${esc(b.city)}</span>` : ''}</span>
+        <span class="bk-n"><span class="bk-nt">${esc(b.name)}</span>${
+          b.city ? `<span class="bk-city mut">${esc(b.city)}</span>` : ''}${
+          b.dup ? '<span class="bk-dup" title="Ο ίδιος αριθμός υπάρχει και σε άλλη καρτέλα">διπλό</span>' : ''}${
+          b.pbxError ? `<span class="bk-dup bk-bad" title="${esc(b.pbxError)}">δεν στάλθηκε</span>` : ''}</span>
         <span class="bk-p">${b.phones.map(p => esc(p.e164)).join(' · ')}</span>
         <span class="bk-c">${b.calls ? `${b.calls} κλήσεις · <b>${callHm(b.talk)}</b>` : '<span class="mut">—</span>'}</span>
         <span class="bk-l">${b.client ? '<span class="bk-ok">πελάτης</span>'
           : (b.toPbx && !b.pbx ? '<span class="bk-no">εκτός 3CX</span>' : '')}
           ${b.nextAt ? `<span class="bk-due" title="${esc(b.nextNote)}">${esc(b.nextAt.slice(5))}</span>` : ''}</span>
       </div>`; }).join('')}</div>`
-      : `<div class="cl-empty">Καμία καρτέλα${st.q ? ' για «' + esc(st.q) + '»' : ''}.</div>`}
+      : `<div class="cl-empty">Καμία καρτέλα${st.q ? ' για «' + esc(st.q) + '»' : ''}${
+          st.only || st.status ? ' με αυτό το φίλτρο' : ''}.${
+          (st.q || st.only || st.status) ? ' <a href="#" id="bkClr">Καθάρισε τα φίλτρα</a>' : ''}</div>`}
   </div></div>`;
 
   let tmr = null;
@@ -665,7 +677,13 @@ R.book = async function () {
   $('#bkSt').onchange = e => { st.status = e.target.value; R.book(); };
   $('#bkSort').onchange = e => { st.sort = e.target.value; R.book(); };
   $$('[data-bonly]').forEach(b => b.onclick = () => { st.only = b.dataset.bonly; R.book(); });
-  $$('[data-bk]').forEach(r => r.onclick = () => bookCard(+r.dataset.bk));
+  const clr = $('#bkClr');
+  if (clr) { clr.onclick = e => { e.preventDefault(); st.q = ''; st.only = ''; st.status = ''; R.book(); }; }
+  $$('[data-bk]').forEach(r => {
+    const open = () => bookCard(+r.dataset.bk);
+    r.onclick = open;
+    r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+  });
   if (d.canEdit) {
     $('#bkNew').onclick = () => bookCard(0);
     $('#bkImp').onclick = () => bookImport();
@@ -764,19 +782,14 @@ async function bookCard(id, pre) {
       title="${esc(K.pbxError)}">δεν στάλθηκε στο 3CX</span>` : ''}
   </div>
 
+  ${/* Η ΣΕΙΡΑ ΕΧΕΙ ΣΗΜΑΣΙΑ: ποιος είναι και πώς τον βρίσκεις πρώτα. Οι
+       λεπτομέρειες (ΑΦΜ, διεύθυνση, ετικέτες) πάνε κάτω — στο κινητό έπρεπε
+       να προσπεράσεις δώδεκα πεδία κειμένου για να φτάσεις στα τηλέφωνα. */''}
   <div class="bc-grid">
     ${inp('company', 'Επωνυμία', K.company)}
     ${inp('title', 'Θέση / ρόλος', K.title)}
     ${inp('first', 'Όνομα', K.first)}
     ${inp('last', 'Επώνυμο', K.last)}
-    ${inp('email', 'Email', K.email, 'type="email"')}
-    ${inp('website', 'Ιστοσελίδα', K.website)}
-    ${inp('vat', 'ΑΦΜ', K.vat)}
-    ${inp('taxOffice', 'ΔΟΥ', K.taxOffice)}
-    ${inp('address', 'Διεύθυνση', K.address)}
-    ${inp('city', 'Πόλη', K.city)}
-    ${inp('postcode', 'ΤΚ', K.postcode)}
-    ${inp('tags', 'Ετικέτες', K.tags, 'placeholder="χωρισμένες με κόμμα"')}
   </div>
 
   <div class="bc-sec">${I.phone} Τηλέφωνα</div>
@@ -800,6 +813,18 @@ async function bookCard(id, pre) {
 
   <div class="bc-f" style="margin-top:10px"><label class="lbl">Πελάτης WHMCS</label>
     <div id="bcCli"></div></div>
+
+  <div class="bc-sec">${I.contact || I.user} Στοιχεία</div>
+  <div class="bc-grid">
+    ${inp('email', 'Email', K.email, 'type="email"')}
+    ${inp('website', 'Ιστοσελίδα', K.website)}
+    ${inp('vat', 'ΑΦΜ', K.vat)}
+    ${inp('taxOffice', 'ΔΟΥ', K.taxOffice)}
+    ${inp('address', 'Διεύθυνση', K.address)}
+    ${inp('city', 'Πόλη', K.city)}
+    ${inp('postcode', 'ΤΚ', K.postcode)}
+    ${inp('tags', 'Ετικέτες', K.tags, 'placeholder="χωρισμένες με κόμμα"')}
+  </div>
 
   ${d.fields.length ? `<div class="bc-sec">${I.tree} Δικά μας πεδία</div>
   <div class="bc-grid">${d.fields.map(f => `<div class="bc-f">
@@ -1007,7 +1032,8 @@ R.bookfields = async function () {
     ${d.fields.length ? `<div class="bk-list">${d.fields.map(f => `
       <div class="bk-row pick" data-bf="${f.id}">
         <span class="bk-dot" style="background:${f.active ? '#2a9d63' : '#8595ac'}"></span>
-        <span class="bk-n">${esc(f.label)}${f.hint ? `<span class="mut" style="font-weight:400"> · ${esc(f.hint)}</span>` : ''}</span>
+        <span class="bk-n"><span class="bk-nt">${esc(f.label)}</span>${
+          f.hint ? `<span class="bk-city mut">${esc(f.hint)}</span>` : ''}</span>
         <span class="bk-p">${esc(BF_TYPES[f.type] || f.type)}${f.options ? ` · ${esc(f.options)}` : ''}</span>
         <span class="bk-c">${f.used ? `${f.used} καρτέλες` : '<span class="mut">αχρησιμοποίητο</span>'}</span>
         <span class="bk-l">${f.active ? '' : '<span class="bk-no">ανενεργό</span>'}</span>

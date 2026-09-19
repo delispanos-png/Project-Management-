@@ -37,6 +37,27 @@ class Book
                 'supplier' => 'Προμηθευτής', 'inactive' => 'Ανενεργός'];
     }
 
+    /**
+     * Καθαρίζει κείμενο που ήρθε HTML-ξεφευγμένο.
+     *
+     * Το WHMCS αποθηκεύει τις επωνυμίες ξεφευγμένες: «Σ.ΛΕΩΝ &amp; ΣΙΑ Ε.Ε».
+     * Αν το κρατήσουμε έτσι, η οθόνη το ξαναξεφεύγει και ο χρήστης διαβάζει
+     * κυριολεκτικά «&amp;» — και το ίδιο ταξιδεύει και στις οθόνες των
+     * τηλεφώνων μέσω του 3CX.
+     */
+    public static function plain($v)
+    {
+        $v = trim((string) $v);
+        if ($v === '' || strpos($v, '&') === false) { return $v; }
+        /* Δύο περάσματα: κάποια πεδία είναι διπλά ξεφευγμένα (&amp;amp;). */
+        for ($i = 0; $i < 2 && strpos($v, '&') !== false; $i++) {
+            $d = html_entity_decode($v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($d === $v) { break; }
+            $v = $d;
+        }
+        return trim($v);
+    }
+
     /** Το όνομα που βλέπει άνθρωπος — και που στέλνεται στο τηλέφωνο. */
     public static function label(array $b)
     {
@@ -224,15 +245,15 @@ class Book
                 $res['skipped']++;
                 continue;
             }
-            $co = trim((string) $c->companyname);
+            $co = self::plain($c->companyname);
             $id = (int) Capsule::table('mod_cpm_book')->insertGetId([
                 'kind' => $co !== '' ? 'company' : 'person',
                 'company' => $co !== '' ? mb_substr($co, 0, 160) : null,
-                'first' => mb_substr(trim((string) $c->firstname), 0, 60) ?: null,
-                'last' => mb_substr(trim((string) $c->lastname), 0, 60) ?: null,
-                'email' => mb_substr(trim((string) $c->email), 0, 120) ?: null,
-                'address' => mb_substr(trim((string) $c->address1), 0, 200) ?: null,
-                'city' => mb_substr(trim((string) $c->city), 0, 80) ?: null,
+                'first' => mb_substr(self::plain($c->firstname), 0, 60) ?: null,
+                'last' => mb_substr(self::plain($c->lastname), 0, 60) ?: null,
+                'email' => mb_substr(self::plain($c->email), 0, 120) ?: null,
+                'address' => mb_substr(self::plain($c->address1), 0, 200) ?: null,
+                'city' => mb_substr(self::plain($c->city), 0, 80) ?: null,
                 'postcode' => mb_substr(trim((string) $c->postcode), 0, 12) ?: null,
                 'country' => mb_substr(trim((string) $c->country), 0, 40) ?: null,
                 'status' => 'active', 'clientid' => $cid, 'to_pbx' => 1,

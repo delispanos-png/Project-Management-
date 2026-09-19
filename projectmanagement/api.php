@@ -5704,6 +5704,19 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
     if ($bOnly === 'nopbx')    { $q->where('b.to_pbx', 1)->whereNull('b.pbx_id'); }
     if ($bOnly === 'pbxerr')   { $q->whereNotNull('b.pbx_error'); }
     if ($bOnly === 'due')      { $q->whereNotNull('b.next_at')->where('b.next_at', '<=', date('Y-m-d')); }
+    /* Οι καρτέλες που μοιράζονται τηλέφωνο με άλλη. Δεν τις ενώνουμε μόνοι μας:
+       μπορεί να είναι δύο πραγματικά άτομα στο ίδιο τηλεφωνικό κέντρο. */
+    if ($bOnly === 'dup') {
+        $q->whereIn('b.id', Capsule::table('mod_cpm_book_phones')
+            ->whereIn('e164', Capsule::table('mod_cpm_book_phones')
+                ->groupBy('e164')->havingRaw('COUNT(DISTINCT book_id) > 1')->select('e164'))
+            ->select('book_id'));
+    }
+    /* Άγνωστη τιμή = λάθος, όχι «δείξε τα πάντα». Πριν, ένα τυπογραφικό στο
+       φίλτρο επέστρεφε σιωπηλά ολόκληρο τον κατάλογο σαν να μη ζητήθηκε τίποτα. */
+    if ($bOnly !== '' && !in_array($bOnly, ['client', 'noclient', 'nopbx', 'pbxerr', 'due', 'dup'], true)) {
+        fail('Άγνωστο φίλτρο: ' . $bOnly);
+    }
 
     $rows = $q->orderBy('b.id')->limit(2000)->get();
     $ids = array_map(function ($r) { return (int) $r->id; }, $rows->all());
@@ -5755,7 +5768,12 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
         ];
     }
     usort($out, function ($a, $b) use ($bSort) {
-        if ($bSort === 'name') { return strcasecmp($a['name'], $b['name']); }
+        if ($bSort === 'name') {
+            /* Αγνοούμε σημεία στίξης στην αρχή: αλλιώς όλες οι «(Παρασύρης)» και
+               «(ΦΑΡΜΑΚΕΙΟ …)» μαζεύονταν πρώτες, πριν από το Α. */
+            $k = function ($x) { return preg_replace('/^[^\p{L}\p{N}]+/u', '', mb_strtoupper($x, 'UTF-8')); };
+            return strcoll($k($a['name']), $k($b['name'])) ?: strcasecmp($a['name'], $b['name']);
+        }
         if ($bSort === 'recent') { return strcmp((string) $b['lastCall'], (string) $a['lastCall']); }
         return $b['talk'] <=> $a['talk'] ?: strcasecmp($a['name'], $b['name']);
     });
@@ -5768,6 +5786,10 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
             'pbxerr' => (int) Capsule::table('mod_cpm_book')->whereNotNull('pbx_error')->count(),
             'due' => (int) Capsule::table('mod_cpm_book')->whereNotNull('next_at')
                 ->where('next_at', '<=', date('Y-m-d'))->count(),
+            'dup' => (int) Capsule::table('mod_cpm_book_phones')
+                ->whereIn('e164', Capsule::table('mod_cpm_book_phones')
+                    ->groupBy('e164')->havingRaw('COUNT(DISTINCT book_id) > 1')->select('e164'))
+                ->distinct()->count('book_id'),
         ],
         'statuses' => Book::statuses(),
         'labels' => array_map(function ($v) { return $v[0]; }, Book::phoneLabels()),
