@@ -29,6 +29,7 @@ class AiTickets
     /** Λέξεις που σημαίνουν «ζήτησε κάτι που πρέπει να φτάσει σε άνθρωπο». */
     const WANT = '/ticket|τικετ|τίκετ|αίτημ|αιτημ|μήνυμ|μηνυμ|επανάκλ|επανακλ|να με καλέσ|να με καλεσ|καλέστε με|να σας καλέσ|θυρίδ|voicemail|καταχωρ/iu';
     const SPAM = '/spam|τηλεπωλ|telemarket|scam|απάτ/iu';
+    const HOSTILE = '/υβρι|ύβρι|απειλ|προσβλητ|hostil|abus|threat/iu';
 
     /** Ο κύκλος: διάβασε τις πρόσφατες κλήσεις της ρεσεψιόν και κλείσε τα κενά. */
     public static function sweep()
@@ -95,6 +96,8 @@ class AiTickets
         }
         if (($r['CallType'] ?? '') === 'Local') { $out['reason'] = 'εσωτερική δοκιμή'; return $out; }
         if (preg_match(self::SPAM, $sum)) { $out['decision'] = 'spam'; $out['reason'] = 'spam κατά την περίληψη'; return $out; }
+        /* Υβριστικός καλών: η ρεσεψιόν έκλεισε επίτηδες — δεν ανοίγει ticket. */
+        if (preg_match(self::HOSTILE, $sum)) { $out['decision'] = 'hostile'; $out['reason'] = 'υβριστικός καλών — η κλήση τερματίστηκε επίτηδες'; return $out; }
         if (stripos($sum, 'No meaningful conversation') !== false && mb_strlen($text) < 200) {
             $out['decision'] = 'empty'; $out['reason'] = 'χωρίς ουσιαστική συνομιλία'; return $out;
         }
