@@ -65,16 +65,60 @@ class Pbx3cxReport
     }
 
     /** Ο χάρτης DN → admin, μία φορά ανά τρέξιμο. */
-    private static function map()
+    private static function map($fresh = false)
     {
         static $m = null;
-        if ($m === null) {
+        if ($m === null || $fresh) {
             $m = [];
             foreach (Capsule::table('mod_cpm_pbx_map')->get() as $r) {
                 $m[(string) $r->dn] = ['admin' => (int) $r->admin_id, 'name' => (string) $r->display_name];
             }
         }
         return $m;
+    }
+
+    /**
+     * DN που μιλάει στο ιστορικό αλλά δεν υπάρχει πια στο PBX.
+     *
+     * ΓΙΑΤΙ: το 224 έκανε 184 κλήσεις και μετά το extension διαγράφηκε. Ο
+     * συγχρονισμός δομής φέρνει μόνο ό,τι ΥΠΑΡΧΕΙ, οπότε αυτές οι κλήσεις
+     * έμεναν για πάντα «απαντημένες χωρίς χειριστή» — χρόνος δουλειάς που δεν
+     * πιστωνόταν σε κανέναν, χωρίς καν να φαίνεται ότι λείπει.
+     *
+     * Το ΟΝΟΜΑ το δίνει η ίδια η αναφορά: το SourceDisplayName γράφει
+     * «Σιουμπάλας, Θωμάς (224)». Μπαίνει λοιπόν στον χάρτη με το όνομά του και
+     * μένει ένα κλικ, να δείξει κάποιος ποιος συνάδελφος είναι. Την αντιστοίχιση
+     * ΔΕΝ την κάνουμε από το όνομα — δύο άνθρωποι μπορεί να λέγονται ίδια.
+     *
+     * @param array $dns  [dn => όνομα όπως το γράφει το PBX]
+     */
+    private static function noteOrphanDns(array $dns)
+    {
+        $map = self::map();
+        $added = 0;
+        foreach ($dns as $dn => $name) {
+            $dn = trim((string) $dn);
+            /* 3ψήφια εσωτερικά και μόνο. Τα 4-5ψήφια είναι trunks (10004), τα
+               8xx/9xx είναι ουρές και σενάρια του ίδιου του 3CX — δεν είναι
+               άνθρωποι και δεν έχει νόημα να ζητάμε να τους βρει κάποιος
+               χειριστή. Με τον πρώτο κανόνα μπήκε στον χάρτη το ίδιο το 806. */
+            if ($dn === '' || isset($map[$dn]) || !preg_match('/^\d{3}$/', $dn)
+                || $dn[0] === '8' || $dn[0] === '9') { continue; }
+            /* «Σιουμπάλας, Θωμάς (224)» → «Σιουμπάλας, Θωμάς» */
+            $nm = trim(preg_replace('/\s*\(\d+\)\s*$/u', '', (string) $name));
+            Capsule::table('mod_cpm_pbx_map')->insert([
+                'dn' => $dn, 'dn_type' => 'extension',
+                'display_name' => ($nm !== '' ? $nm : 'DN ' . $dn) . ' — δεν υπάρχει πια στο PBX',
+                'admin_id' => null, 'matched_by' => 'none', 'active' => 0,
+                'synced_at' => date('Y-m-d H:i:s')]);
+            $added++;
+        }
+        if ($added) {
+            self::map(true);
+            Pbx3cxClient::log('sync', 'ok', $added . ' DN από παλιές κλήσεις δεν υπάρχουν πια '
+                . 'στο PBX — μπήκαν στον χάρτη για χειροκίνητη αντιστοίχιση');
+        }
+        return $added;
     }
 
     /** Το DN ενός σκέλους. ΠΡΟΣΟΧΗ στα ονόματα — διαφέρουν ανά αναφορά. */
@@ -154,6 +198,9 @@ class Pbx3cxReport
         }
 
         $other = self::other($first, $dir);
+        /* Ο καλών έκρυψε τον αριθμό του. Είναι κανονική κλήση — αν το αφήσουμε
+           κενό, στην οθόνη βγαίνει «—» σαν να λείπει δεδομένο. */
+        $anon = strcasecmp($other, 'anonymous') === 0 || $other === '';
         $raw = array_filter([
             'legs'  => count($legs),
             'ai'    => $aiSummary !== '' ? mb_substr($aiSummary, 0, 400) : null,
@@ -172,7 +219,8 @@ class Pbx3cxReport
             'from_no'      => substr($dir === 'out' ? $agentDn : $other, 0, 40),
             'to_no'        => substr($dir === 'out' ? $other : $agentDn, 0, 40),
             'final_dn'     => substr($agentDn, 0, 20),
-            'other_e164'   => substr(Pbx3cxCdr::e164($other), 0, 24),
+            'other_e164'   => $anon ? '' : substr(Pbx3cxCdr::e164($other), 0, 24),
+            'client_match' => $anon ? 'anon' : null,
             'admin_id'     => $adminId ?: null,
             'pbx_cost'     => round($cost, 4),
             'raw'          => $raw ? json_encode($raw, JSON_UNESCAPED_UNICODE) : null,
@@ -195,9 +243,31 @@ class Pbx3cxReport
             foreach (self::pull($s[1], $s[2], $from, $to) as $r) {
                 $h = (string) ($r['CallHistoryId'] ?? '');
                 if ($h === '') { continue; }
+                /* ΔΕΝ ΕΙΝΑΙ ΤΗΛΕΦΩΝΑ: το 3CX περνάει από τις ίδιες αναφορές και
+                   τις συνεδρίες LiveChat και τα WebMeeting. Έμπαιναν ως κλήσεις
+                   με κενό αριθμό και μηδέν ομιλία, δηλαδή σαν αναπάντητες. */
+                if (stripos((string) ($r['TrunkName'] ?? ''), 'WebMeeting') !== false) { continue; }
+                if (strcasecmp(trim((string) ($r['SourceCallerId'] ?? '')), 'LiveChat') === 0) { continue; }
                 $legs[$s[0] . '|' . $h][] = $r;
             }
         }
+
+        /* Πρώτα τα άγνωστα DN: αν τα καταχωρήσουμε τώρα, οι κλήσεις αυτού του
+           τρεξίματος θα βρουν αμέσως τη γραμμή τους στον χάρτη. */
+        /* ΜΟΝΟ από εξερχόμενες. Ένα μενού ή μια ουρά ΔΕΝ σηκώνει ποτέ το
+           τηλέφωνο για να καλέσει έξω — άρα όποιο DN κάλεσε, ήταν άνθρωπος.
+           Και το όνομά του το γράφει η ίδια η αναφορά. */
+        $allDns = [];
+        foreach ($legs as $key => $group) {
+            if (strpos($key, 'out|') !== 0) { continue; }
+            foreach ($group as $l) {
+                $dn0 = self::legDn($l, 'out');
+                if ($dn0 !== '' && !isset($allDns[$dn0])) {
+                    $allDns[$dn0] = (string) ($l['SourceDisplayName'] ?? '');
+                }
+            }
+        }
+        self::noteOrphanDns($allDns);
 
         $seen = 0; $built = [];
         foreach ($legs as $key => $group) {
@@ -244,9 +314,16 @@ class Pbx3cxReport
                 continue;
             }
 
-            [$cid, $how] = Pbx3cxCdr::matchClient($row['other_e164']);
-            $row['clientid']     = $cid;
-            $row['client_match'] = $how;
+            /* Η απόκρυψη αριθμού έχει ήδη σημειωθεί στο fold() — μην τη σβήσεις
+               με «none», γιατί «δεν ξέρουμε ποιος» και «δεν θέλησε να πει ποιος»
+               είναι διαφορετικά πράγματα και φαίνονται διαφορετικά στην οθόνη. */
+            if (($row['client_match'] ?? null) === 'anon') {
+                $row['clientid'] = null;
+            } else {
+                [$cid, $how] = Pbx3cxCdr::matchClient($row['other_e164']);
+                $row['clientid']     = $cid;
+                $row['client_match'] = $how;
+            }
 
             $exists = Capsule::table('mod_cpm_calls')->where('history_id', $hist)->first();
             /* Μια κλήση μπορεί να εμφανιστεί ΚΑΙ στις δύο αναφορές — εισερχόμενη

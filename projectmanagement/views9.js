@@ -205,7 +205,10 @@ R.calls = async function () {
     $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Τηλεφωνική δραστηριότητα»'});
     return;
   }
-  setTop('Τηλεφωνική δραστηριότητα', 'Ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης απασχολεί');
+  /* Οι εσωτερικές κλήσεις (συνάδελφος → συνάδελφο) ΔΕΝ μετριούνται: το PBX δεν
+     τις δίνει από καμία αναφορά που δουλεύει. Καλύτερα να το λέμε παρά να
+     νομίζει κανείς ότι βλέπει όλο τον χρόνο στο τηλέφωνο. */
+  setTop('Τηλεφωνική δραστηριότητα', 'Ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης απασχολεί — εκτός εσωτερικών κλήσεων');
   const c = $('#content');
   const st = R.calls._s = R.calls._s || {d: window.CNP.today(), days: 1, who: 0};
   c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
@@ -224,7 +227,10 @@ R.calls = async function () {
     ${dirIco(x.dir)}
     <span class="cl-t">${esc((x.at || '').slice(11, 16))}</span>
     <span class="cl-who">${x.adminName ? esc(x.adminName) : '<span class="mut">—</span>'}</span>
-    <span class="cl-other">${x.clientName ? `<b>${esc(x.clientName)}</b>` : esc(x.other || '—')}</span>
+    <span class="cl-other">${x.clientName ? `<b>${esc(x.clientName)}</b>`
+      : x.skipLabel ? `<span class="mut">${esc(x.skipLabel)}</span>`
+      : x.anon ? '<span class="mut" title="Ο καλών απέκρυψε τον αριθμό του">απόκρυψη αριθμού</span>'
+      : esc(x.other || '—')}</span>
     <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
     <span class="cl-sum">${x.summary ? esc(x.summary) : '<span class="mut">—</span>'}</span>
     <span class="cl-bill">${x.bill
@@ -317,13 +323,13 @@ function callNote(x, d0) {
       <b style="font-size:15px;color:var(--ink)">Τι έγινε σε αυτή την κλήση;</b>
       <div class="mut" style="font-size:12px;margin-top:3px">
         ${esc((x.at || '').slice(0, 16))} · ${x.dir === 'in' ? 'εισερχόμενη από' : x.dir === 'out' ? 'εξερχόμενη προς' : 'εσωτερική'}
-        <b>${esc(x.clientName || x.other || '—')}</b>${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
+        <b>${esc(x.clientName || x.skipLabel || (x.anon ? 'απόκρυψη αριθμού' : x.other) || '—')}</b>${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
     </div>
     <div style="padding:8px 20px 4px">
       ${/* Η ΤΑΥΤΙΣΗ ΠΡΩΤΑ: αν δεν ξέρουμε ποιος είναι, τίποτα άλλο δεν έχει
             αξία — ούτε χρέωση, ούτε «ποιος μας απασχολεί». Το WHMCS έχει
             τηλέφωνο μόνο για 210 πελάτες, οπότε το ερώτημα βγαίνει συχνά. */
-        (!x.client && x.other && d0.canLog) ? `
+        (!x.client && x.other && !x.anon && d0.canLog) ? `
       <div class="cn-link" id="cnLinkBox">
         <div style="font-size:12.5px;font-weight:600;color:var(--ink)">Ποιος είναι το ${esc(x.other)};</div>
         <div class="mut" style="font-size:11.5px;margin:2px 0 7px">

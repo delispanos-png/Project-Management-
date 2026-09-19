@@ -5465,7 +5465,7 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
         $cName = $ck ? clientLabel($ck)
             : ($cRow->other_e164
                 ? ($skipLab[$cRow->other_e164] ?? $cRow->other_e164)
-                : 'άγνωστος');
+                : 'απόκρυψη αριθμού');
         if (isset($perClient[$cName])) {
             $perClient[$cName]['calls'] += (int) $cRow->calls;
             $perClient[$cName]['talk'] += (int) $cRow->talk;
@@ -5480,10 +5480,18 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     foreach ($rows as $r) {
         $ck = $r->clientid ? (int) $r->clientid : 0;
         $items[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
-            'other' => $r->other_e164 ?: ($r->from_no ?: $r->to_no),
+            /* Ο «άλλος» είναι ο ΑΠΕΝΑΝΤΙ. Σε εξερχόμενη το from_no είναι το DN
+               του ίδιου του συναδέλφου — αν το δείξουμε, η γραμμή λέει ότι
+               μίλησε με τον εαυτό του. Κρατάμε το ωμό κείμενο όταν δεν βγήκε
+               κανονικός αριθμός («###», όνομα ταχείας κλήσης). */
+            'other' => $r->other_e164 ?: ($r->direction === 'out'
+                ? (string) $r->to_no : (string) $r->from_no),
             'client' => $ck, 'clientName' => $ck ? clientLabel($ck) : '',
             'skipLabel' => (!$ck && $r->other_e164 && isset($skipLab[$r->other_e164]))
                 ? $skipLab[$r->other_e164] : '',
+            /* «Έκρυψε τον αριθμό» ≠ «δεν τον αναγνωρίσαμε». Το πρώτο δεν
+               διορθώνεται με καμία ταύτιση — μην το ζητήσεις από τον χρήστη. */
+            'anon' => $r->client_match === 'anon',
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
             'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
@@ -5652,9 +5660,15 @@ case 'pbx_map_save':                     // χειροκίνητη αντιστ�
         /* Το «κανένας» είναι κι αυτό απόφαση — μένει manual ώστε ο συγχρονισμός
            να μην ξανακολλήσει αντιστοίχιση από email που ο διαχειριστής έβγαλε. */
         'matched_by' => $mAdmin ? 'manual' : 'manual']);
+    /* ΑΝΑΔΡΟΜΙΚΑ, όπως και στα τηλέφωνα: το DN 224 είχε 184 κλήσεις πριν
+       διαγραφεί το extension. Χωρίς αυτό, η αντιστοίχιση θα έπιανε μόνο από
+       σήμερα και ο περασμένος χρόνος δεν θα πιστωνόταν ποτέ σε κανέναν. */
+    $mCalls = Capsule::table('mod_cpm_calls')->where('final_dn', $row->dn)
+        ->update(['admin_id' => $mAdmin ?: null]);
     Pbx3cxClient::log('sync', 'ok', 'Χειροκίνητη αντιστοίχιση DN ' . $row->dn . ' → '
-        . ($mAdmin ? Db::adminName($mAdmin) : 'κανένας') . ' από ' . Db::adminName($adminId));
-    out(['ok' => true]);
+        . ($mAdmin ? Db::adminName($mAdmin) : 'κανένας') . ' από ' . Db::adminName($adminId)
+        . ($mCalls ? ' · ενημερώθηκαν ' . $mCalls . ' κλήσεις' : ''));
+    out(['ok' => true, 'calls' => (int) $mCalls]);
 
 case 'pbx_rate_del':
     Capsule::table('mod_cpm_cost_rates')->where('id', (int) ($in['id'] ?? 0))->delete();
