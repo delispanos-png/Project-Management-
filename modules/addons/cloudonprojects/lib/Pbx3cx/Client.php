@@ -126,12 +126,12 @@ class Pbx3cxClient
      * Κλήση στο XAPI. Ένα retry σε 401 (ληγμένο token) — πέρα από αυτό,
      * σφάλμα προς τα πάνω· δεν κρύβουμε αποτυχίες.
      */
-    public static function xapi($path, array $query = [])
+    public static function xapi($path, array $query = [], $timeout = 25)
     {
         $url = self::baseUrl() . '/xapi/v1/' . ltrim($path, '/');
         if ($query) { $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query); }
         for ($try = 0; $try < 2; $try++) {
-            $r = self::http('GET', $url, null, self::token($try > 0));
+            $r = self::http('GET', $url, null, self::token($try > 0), false, $timeout);
             if ($r['code'] === 401 && $try === 0) { continue; }
             if ($r['code'] === 403) {
                 self::log('xapi', 'error', $path . ' → 403 (ο ρόλος του API client δεν το επιτρέπει)');
@@ -266,14 +266,14 @@ class Pbx3cxClient
     }
 
     /** Ένα σημείο για κάθε HTTP — ώστε timeouts/TLS να ρυθμίζονται μία φορά. */
-    private static function http($method, $url, $form = null, $token = null, $isAuth = false)
+    private static function http($method, $url, $form = null, $token = null, $isAuth = false, $timeout = 25)
     {
         $ch = curl_init($url);
         $h = ['Accept: application/json'];
         if ($token) { $h[] = 'Authorization: Bearer ' . $token; }
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 25,
+            CURLOPT_TIMEOUT => max(5, (int) $timeout),
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,

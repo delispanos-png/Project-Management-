@@ -20,6 +20,7 @@ use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
 use WHMCS\Module\Addon\CloudonProjects\Pbx;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync;
+use WHMCS\Module\Addon\CloudonProjects\Pbx3cxCdr;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
@@ -41,6 +42,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Client.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Sync.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Cdr.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
 }
@@ -2699,6 +2701,7 @@ function cnp_caps()
 
         // ═══ ΑΝΑΦΟΡΕΣ & ΑΠΟΔΟΣΗ (μόνο προβολή) ═══
         'reports.activity'  => ['view', 'Δραστηριότητα', 'Τι κάνει η ομάδα αυτή τη στιγμή'],
+        'reports.calls'     => ['view', 'Τηλεφωνική δραστηριότητα', 'Ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης απασχολεί περισσότερο'],
         'reports.triage'    => ['view', 'Πλάνο ημέρας', 'Τι πρέπει να πιαστεί σήμερα, με σειρά'],
         'reports.kpi'       => ['view', 'KPI Dashboard', 'Οι αριθμοί της εξυπηρέτησης'],
         'reports.rootcause' => ['view', 'Ανάλυση ριζών', 'Γιατί ξαναέρχονται τα ίδια αιτήματα'],
@@ -3047,6 +3050,11 @@ function cnp_action_cap($action)
         /* Η ζωντανή εικόνα «ποιος μιλάει τώρα» ανήκει στη Δραστηριότητα της
            ομάδας, όχι στις ρυθμίσεις — γι' αυτό δένεται στο reports.activity. */
         $add('reports.activity', ['pbx_live']);
+        /* Η τηλεφωνική δραστηριότητα είναι ΑΝΑΦΟΡΑ της ομάδας. Η καταγραφή
+           («τι έκανα, χρεώνεται ή όχι») ανήκει σε όποιον εξυπηρετεί — γι' αυτό
+           δένεται στο clients.calls, το ίδιο cap με την καταγραφή κλήσης. */
+        $add('reports.calls', ['calls_report']);
+        $add('clients.calls', ['call_note_save']);
         $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
             'pbx_sync', 'pbx_map_save']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
@@ -5400,6 +5408,103 @@ case 'pbx_rate_save':                    // κόστος ανά χειριστή
         ['admin_id' => $rAdmin, 'valid_from' => $rFrom],
         ['cost_per_hour' => $rVal, 'note' => mb_substr(trim((string) ($in['note'] ?? '')), 0, 160) ?: null,
          'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'calls_report':                     // Η τηλεφωνική δραστηριότητα της ομάδας
+    $cd = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['d'] ?? '')) ? $_GET['d'] : date('Y-m-d');
+    $cDays = max(1, min(90, (int) ($_GET['days'] ?? 1)));
+    $cFrom = date('Y-m-d 00:00:00', strtotime($cd . ' -' . ($cDays - 1) . ' days'));
+    $cTo = $cd . ' 23:59:59';
+    $cWho = (int) ($_GET['who'] ?? 0);
+
+    $q = Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$cFrom, $cTo]);
+    if ($cWho) { $q->where('admin_id', $cWho); }
+    $rows = $q->orderBy('started_at', 'desc')->limit(500)->get();
+
+    $items = []; $perAdmin = []; $perClient = [];
+    $tot = ['calls' => 0, 'talk' => 0, 'in' => 0, 'out' => 0, 'missed' => 0, 'logged' => 0, 'billable' => 0];
+    foreach ($rows as $r) {
+        $tot['calls']++;
+        $tot['talk'] += (int) $r->talk_seconds;
+        if ($r->direction === 'in') { $tot['in']++; }
+        if ($r->direction === 'out') { $tot['out']++; }
+        if (!$r->answered) { $tot['missed']++; }
+        if ($r->logged_at) { $tot['logged']++; }
+        if ($r->bill_status === 'billable') { $tot['billable'] += (int) $r->talk_seconds; }
+
+        if ($r->admin_id) {
+            $k = (int) $r->admin_id;
+            if (!isset($perAdmin[$k])) {
+                $perAdmin[$k] = ['id' => $k, 'name' => Db::adminName($k), 'calls' => 0, 'talk' => 0, 'missed' => 0];
+            }
+            $perAdmin[$k]['calls']++;
+            $perAdmin[$k]['talk'] += (int) $r->talk_seconds;
+            if (!$r->answered) { $perAdmin[$k]['missed']++; }
+        }
+        $ck = $r->clientid ? (int) $r->clientid : 0;
+        $cName = $ck ? clientLabel($ck) : ($r->other_e164 ?: 'άγνωστος');
+        if (!isset($perClient[$cName])) {
+            $perClient[$cName] = ['name' => $cName, 'client' => $ck, 'calls' => 0, 'talk' => 0];
+        }
+        $perClient[$cName]['calls']++;
+        $perClient[$cName]['talk'] += (int) $r->talk_seconds;
+
+        $items[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
+            'other' => $r->other_e164 ?: ($r->from_no ?: $r->to_no),
+            'client' => $ck, 'clientName' => $ck ? clientLabel($ck) : '',
+            'admin' => $r->admin_id ? (int) $r->admin_id : 0,
+            'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
+            'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
+            'reason' => $r->reason, 'summary' => $r->summary,
+            'category' => $r->category, 'bill' => $r->bill_status, 'billWhy' => $r->bill_reason,
+            'logged' => (bool) $r->logged_at, 'followup' => (bool) $r->followup];
+    }
+    usort($perAdmin, function ($a, $b) { return $b['talk'] <=> $a['talk']; });
+    usort($perClient, function ($a, $b) { return $b['talk'] <=> $a['talk']; });
+
+    out(['date' => $cd, 'days' => $cDays, 'who' => $cWho, 'totals' => $tot,
+        'items' => $items, 'perAdmin' => array_values($perAdmin),
+        'perClient' => array_slice(array_values($perClient), 0, 12),
+        'canLog' => cnp_has_cap($adminId, $FULL, 'clients.calls'),
+        'people' => (function () {
+            $o = [];
+            foreach (Db::admins() as $a) {
+                $nm = trim($a->firstname . ' ' . $a->lastname);
+                if (!cnp_is_bot($nm, $a->username)) { $o[] = ['id' => (int) $a->id, 'name' => $nm]; }
+            }
+            return $o;
+        })()]);
+
+case 'call_note_save':                   // η καταγραφή του agent
+    $nId = (int) ($in['id'] ?? 0);
+    $call = Capsule::table('mod_cpm_calls')->where('id', $nId)->first();
+    if (!$call) { fail('Δεν βρέθηκε η κλήση'); }
+    $nBill = in_array($in['bill'] ?? '', ['billable', 'free', 'contract', 'internal', 'warranty'], true)
+        ? $in['bill'] : null;
+    $nWhy = mb_substr(trim((string) ($in['why'] ?? '')), 0, 255);
+    /* Η χρέωση ΠΡΕΠΕΙ να αιτιολογείται — αλλιώς δεν στέκει σε κανέναν έλεγχο. */
+    if ($nBill === 'billable' && $nWhy === '') {
+        fail('Γράψε γιατί χρεώνεται — χωρίς αιτιολογία δεν καταχωρείται');
+    }
+    /* Ενημερώνουμε ΜΟΝΟ ό,τι στάλθηκε. Μια μερική κλήση δεν πρέπει να σβήνει
+       ό,τι έγραψε άλλος — βρέθηκε στη δοκιμή: δεύτερη καταχώρηση με μόνο το
+       πεδίο χρέωσης μηδένισε την περιγραφή του πρώτου. */
+    $upd = ['logged_by' => $adminId, 'logged_at' => date('Y-m-d H:i:s')];
+    if (array_key_exists('summary', $in)) {
+        $upd['summary'] = mb_substr(trim((string) $in['summary']), 0, 500) ?: null;
+    }
+    if (array_key_exists('category', $in)) {
+        $upd['category'] = in_array($in['category'], ['support', 'technical', 'training',
+            'consulting', 'sales', 'billing', 'complaint', 'other'], true) ? $in['category'] : null;
+    }
+    if (array_key_exists('bill', $in)) {
+        $upd['bill_status'] = $nBill;
+        $upd['bill_reason'] = $nWhy ?: null;
+    }
+    if (array_key_exists('followup', $in)) { $upd['followup'] = !empty($in['followup']) ? 1 : 0; }
+    Capsule::table('mod_cpm_calls')->where('id', $nId)->update($upd);
+    Db::logActivity(0, $adminId, 'call', 'Καταγραφή κλήσης #' . $nId
+        . ($nBill ? ' — ' . $nBill . ($nWhy !== '' ? ': ' . $nWhy : '') : ''));
     out(['ok' => true]);
 
 case 'pbx_live':                         // ποιος μιλάει ΤΩΡΑ

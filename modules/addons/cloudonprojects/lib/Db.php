@@ -911,6 +911,50 @@ class Db
                 $t->dateTime('synced_at')->nullable();
             });
         }
+        /* Οι κλήσεις. Κλειδί ταυτότητας: το historyid του 3CX — έτσι η ίδια
+           κλήση να έρθει δέκα φορές, μία γραμμή θα υπάρχει.
+           ΔΕΝ αποθηκεύεται ηχογράφηση (απόφαση 19/09/2026) — μόνο μεταδεδομένα. */
+        if (!$s->hasTable('mod_cpm_calls')) {
+            $s->create('mod_cpm_calls', function ($t) {
+                $t->increments('id');
+                $t->string('history_id', 40)->unique();      // historyid — idempotency
+                $t->string('call_id', 40)->nullable()->index();
+                $t->string('direction', 8)->nullable();       // in | out | internal
+                $t->dateTime('started_at')->index();
+                $t->dateTime('answered_at')->nullable();
+                $t->dateTime('ended_at')->nullable();
+                $t->integer('ring_seconds')->unsigned()->default(0);
+                $t->integer('talk_seconds')->unsigned()->default(0);
+                $t->tinyInteger('answered')->default(0);
+                $t->string('reason', 40)->nullable();          // reason-terminated
+                $t->string('from_no', 40)->nullable();
+                $t->string('to_no', 40)->nullable();
+                $t->string('from_dn', 20)->nullable()->index();
+                $t->string('to_dn', 20)->nullable()->index();
+                $t->string('final_dn', 20)->nullable();
+                $t->string('other_e164', 24)->nullable()->index();  // ο «άλλος», κανονικοποιημένος
+                $t->integer('admin_id')->unsigned()->nullable()->index();
+                $t->integer('clientid')->unsigned()->nullable()->index();
+                $t->string('client_match', 10)->nullable();    // contact|whmcs|manual|none
+                $t->decimal('pbx_cost', 10, 4)->nullable();    // bill-cost από τον πάροχο
+                $t->integer('interaction_id')->unsigned()->nullable()->index();
+                $t->text('raw')->nullable();                   // η ωμή γραμμή, για επανεπεξεργασία
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+        /* Η ΚΑΤΑΓΡΑΦΗ ΤΟΥ AGENT — τι έγινε στην κλήση, και αν χρεώνεται.
+           Το AI μπορεί να προτείνει· ο άνθρωπος αποφασίζει και υπογράφει. */
+        if (!$s->hasColumn('mod_cpm_calls', 'summary')) {
+            $s->table('mod_cpm_calls', function ($t) {
+                $t->string('summary', 500)->nullable();      // τι ζήτησε / τι έγινε
+                $t->string('category', 20)->nullable();      // support|technical|training|...
+                $t->string('bill_status', 12)->nullable();   // billable|free|contract|internal|warranty
+                $t->string('bill_reason', 255)->nullable();  // ΓΙΑΤΙ — υποχρεωτικό όταν χρεώνεται
+                $t->integer('logged_by')->unsigned()->nullable();
+                $t->dateTime('logged_at')->nullable();
+                $t->tinyInteger('followup')->default(0);
+            });
+        }
         /* Τεχνικό ημερολόγιο διασύνδεσης — debugging χωρίς δεύτερο σύστημα. */
         if (!$s->hasTable('mod_cpm_pbx_log')) {
             $s->create('mod_cpm_pbx_log', function ($t) {

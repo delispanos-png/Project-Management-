@@ -262,6 +262,7 @@ function renderShell() {
     ['Αναφορές & απόδοση', 'τι προχωράει, τι κολλάει, ποιος παραδίδει', [
       ...((me.leads || []).length || me.full ? [['myteam', I.crown || I.users, 'Η ομάδα μου']] : []),
       ['activity', I.zap, 'Δραστηριότητα', 'reports.activity'],
+      ['calls', I.phone, 'Τηλεφωνική δραστηριότητα', 'reports.calls'],
       ['teamday', I.sun, 'Η μέρα της ομάδας', 'reports.activity'],
       ['reschedules', I.cal, 'Αναπρογραμματισμοί', 'reports.activity'],
       ['triage', I.flag, 'Πλάνο ημέρας', 'reports.triage'],
@@ -347,7 +348,7 @@ function renderShell() {
         profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
-        settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
+        settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', calls: 'Τηλεφωνική δραστηριότητα', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
         chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', activity: 'Δραστηρ.', complaints: 'Παράπονα', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)

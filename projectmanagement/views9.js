@@ -181,3 +181,165 @@ R.pbx = async function () {
     });
   }
 };
+
+
+/* ═══════════ ΤΗΛΕΦΩΝΙΚΗ ΔΡΑΣΤΗΡΙΟΤΗΤΑ ═══════════
+   Η ερώτηση που απαντά: ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης μας
+   απασχολεί — και τι έγινε σε κάθε κλήση. Χωρίς αυτό, ο χρόνος στο τηλέφωνο
+   είναι αόρατος στη μέρα της ομάδας. */
+const CALL_CAT = {support: 'Υποστήριξη', technical: 'Τεχνικό', training: 'Εκπαίδευση',
+  consulting: 'Συμβουλευτική', sales: 'Πωλήσεις', billing: 'Χρεώσεις',
+  complaint: 'Παράπονο', other: 'Άλλο'};
+const CALL_BILL = {billable: ['Χρεώσιμο', '#16a26a'], free: ['Χωρίς χρέωση', '#8595ac'],
+  contract: ['Στο συμβόλαιο', '#0090dd'], internal: ['Εσωτερικό', '#7b5cd6'],
+  warranty: ['Εγγύηση', '#e0a020']};
+const callHm = s2 => {
+  s2 = Math.max(0, +s2 || 0);
+  const h = Math.floor(s2 / 3600), m = Math.floor(s2 % 3600 / 60);
+  return h ? h + 'ω ' + m + '΄' : (m ? m + '΄ ' + (s2 % 60) + '΄΄' : s2 + '΄΄');
+};
+
+R.calls = async function () {
+  if (!cnpCan('reports.calls')) {
+    setTop('Τηλεφωνική δραστηριότητα');
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Τηλεφωνική δραστηριότητα»'});
+    return;
+  }
+  setTop('Τηλεφωνική δραστηριότητα', 'Ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης απασχολεί');
+  const c = $('#content');
+  const st = R.calls._s = R.calls._s || {d: window.CNP.today(), days: 1, who: 0};
+  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+  const d = await api(`calls_report&d=${st.d}&days=${st.days}&who=${st.who}`).catch(() => null);
+  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  const t = d.totals;
+
+  const tile = (n, l, col) => `<div class="su-stat"><div><div class="n" style="color:${col || ''}">${n}</div>
+    <div class="l">${l}</div></div></div>`;
+
+  const dirIco = x => x === 'in' ? '<span class="cl-d in" title="Εισερχόμενη">↙</span>'
+    : x === 'out' ? '<span class="cl-d out" title="Εξερχόμενη">↗</span>'
+    : '<span class="cl-d int" title="Εσωτερική">↔</span>';
+
+  const row = x => `<div class="cl-row${x.logged ? ' done' : ''}" data-call="${x.id}">
+    ${dirIco(x.dir)}
+    <span class="cl-t">${esc((x.at || '').slice(11, 16))}</span>
+    <span class="cl-who">${x.adminName ? esc(x.adminName) : '<span class="mut">—</span>'}</span>
+    <span class="cl-other">${x.clientName ? `<b>${esc(x.clientName)}</b>` : esc(x.other || '—')}</span>
+    <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+    <span class="cl-sum">${x.summary ? esc(x.summary) : '<span class="mut">—</span>'}</span>
+    <span class="cl-bill">${x.bill
+      ? `<span class="cl-b" style="--bc:${CALL_BILL[x.bill][1]}">${CALL_BILL[x.bill][0]}</span>`
+      : (d.canLog ? '<span class="cl-todo">κατέγραψε</span>' : '')}</span>
+  </div>`;
+
+  c.innerHTML = `
+  <div class="cl-bar">
+    <input type="date" class="inp" id="clD" value="${st.d}" style="width:160px">
+    <div class="td-seg cl-seg">
+      ${[[1, 'σήμερα'], [7, '7 ημέρες'], [30, '30 ημέρες']].map(([n, l]) =>
+        `<button data-cdays="${n}" class="${st.days === n ? 'on' : ''}">${l}</button>`).join('')}
+    </div>
+    <select class="inp" id="clWho" style="width:210px">
+      <option value="0">— όλη η ομάδα —</option>
+      ${d.people.map(p => `<option value="${p.id}" ${p.id === st.who ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+    </select>
+    <span style="flex:1"></span>
+    <span class="mut" style="font-size:11.5px">${t.logged}/${t.calls} καταγεγραμμένες</span>
+  </div>
+
+  <div class="g4 grid" style="margin-bottom:14px">
+    ${tile(t.calls, 'κλήσεις')}
+    ${tile(callHm(t.talk), 'χρόνος στο τηλέφωνο', 'var(--brand)')}
+    ${tile(t.missed, 'αναπάντητες', t.missed ? 'var(--bad)' : '')}
+    ${tile(callHm(t.billable), 'χρεώσιμος χρόνος', 'var(--ok)')}
+  </div>
+
+  <div class="cl-cols">
+    <div class="card"><div class="card-h">${I.users} Ανά χειριστή</div>
+      <div class="card-b">${d.perAdmin.length ? d.perAdmin.map(a => `
+        <div class="cl-agg"><span class="cl-an">${esc(a.name)}</span>
+          <span class="cl-ab"><i style="width:${Math.round(a.talk / Math.max(1, d.perAdmin[0].talk) * 100)}%"></i></span>
+          <span class="cl-av">${a.calls} κλήσεις · <b>${callHm(a.talk)}</b>${a.missed ? ` · <span style="color:var(--bad)">${a.missed} χαμένες</span>` : ''}</span>
+        </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
+
+    <div class="card"><div class="card-h">${I.building} Ποιος μας απασχολεί
+      <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κατά χρόνο</span></div>
+      <div class="card-b">${d.perClient.length ? d.perClient.map(x => `
+        <div class="cl-agg${x.client ? ' pick' : ''}" ${x.client ? `data-cli="${x.client}"` : ''}>
+          <span class="cl-an">${esc(x.name)}</span>
+          <span class="cl-ab"><i style="width:${Math.round(x.talk / Math.max(1, d.perClient[0].talk) * 100)}%;background:#7b5cd6"></i></span>
+          <span class="cl-av">${x.calls} · <b>${callHm(x.talk)}</b></span>
+        </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
+  </div>
+
+  <div class="card"><div class="card-h">${I.phone} Οι κλήσεις
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:auto">κλικ σε γραμμή για καταγραφή</span></div>
+    <div class="card-b" style="padding:4px 6px 8px">
+      ${d.items.length ? `<div class="cl-list">${d.items.map(row).join('')}</div>`
+        : `<div class="cl-empty">Καμία κλήση σε αυτό το διάστημα.</div>`}
+    </div></div>`;
+
+  $('#clD').onchange = e => { st.d = e.target.value; R.calls(); };
+  $('#clWho').onchange = e => { st.who = +e.target.value; R.calls(); };
+  $$('[data-cdays]').forEach(b => b.onclick = () => { st.days = +b.dataset.cdays; R.calls(); });
+  $$('[data-cli]').forEach(b => b.onclick = () => window.CNP.go('client360', b.dataset.cli));
+  if (d.canLog) {
+    $$('[data-call]').forEach(r => r.onclick = () => callNote(d.items.find(x => x.id === +r.dataset.call)));
+  }
+};
+
+/** Η καταγραφή του agent: τι έγινε, και αν χρεώνεται — με λόγο. */
+function callNote(x) {
+  if (!x) { return; }
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+  ovl.innerHTML = `<div class="pal-box" style="margin:9vh auto 0;max-width:520px" onclick="event.stopPropagation()">
+    <div style="padding:17px 20px 6px">
+      <b style="font-size:15px;color:var(--ink)">Τι έγινε σε αυτή την κλήση;</b>
+      <div class="mut" style="font-size:12px;margin-top:3px">
+        ${esc((x.at || '').slice(0, 16))} · ${x.dir === 'in' ? 'εισερχόμενη από' : x.dir === 'out' ? 'εξερχόμενη προς' : 'εσωτερική'}
+        <b>${esc(x.clientName || x.other || '—')}</b>${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
+    </div>
+    <div style="padding:8px 20px 4px">
+      <label class="lbl">Τι ζήτησε / τι έκανες</label>
+      <input class="inp" id="cnS" maxlength="500" value="${esc(x.summary || '')}" placeholder="π.χ. Ρύθμιση XML Skroutz — έγινε επί τόπου">
+      <label class="lbl" style="margin-top:11px">Κατηγορία</label>
+      <div class="cn-chips" id="cnCat"></div>
+      <label class="lbl" style="margin-top:11px">Χρέωση</label>
+      <div class="cn-chips" id="cnBill"></div>
+      <div id="cnWhyBox" style="margin-top:9px" hidden>
+        <label class="lbl">Γιατί χρεώνεται <span class="mut" style="font-weight:400">— υποχρεωτικό</span></label>
+        <input class="inp" id="cnWhy" maxlength="255" value="${esc(x.billWhy || '')}" placeholder="π.χ. εκτός συμβολαίου · νέα παραμετροποίηση">
+      </div>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:11px;font-size:12.5px">
+        <input type="checkbox" id="cnF" ${x.followup ? 'checked' : ''}> Χρειάζεται συνέχεια</label>
+      <div style="display:flex;gap:8px;margin-top:15px;justify-content:flex-end">
+        <button class="btn btn-o" id="cnX">Άκυρο</button>
+        <button class="btn btn-p" id="cnOk">Καταχώρηση</button></div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const kill = () => ovl.remove();
+  ovl.onclick = kill;
+  $('#cnX', ovl).onclick = kill;
+
+  let cat = x.category || '', bill = x.bill || '';
+  const paint = () => {
+    $('#cnCat', ovl).innerHTML = Object.entries(CALL_CAT).map(([k, l]) =>
+      `<button type="button" class="btn btn-sm ${cat === k ? 'btn-p' : 'btn-o'}" data-cat="${k}">${l}</button>`).join('');
+    $('#cnBill', ovl).innerHTML = Object.entries(CALL_BILL).map(([k, [l]]) =>
+      `<button type="button" class="btn btn-sm ${bill === k ? 'btn-p' : 'btn-o'}" data-bill="${k}">${l}</button>`).join('');
+    $('#cnWhyBox', ovl).hidden = bill !== 'billable';
+    $$('[data-cat]', ovl).forEach(b => b.onclick = () => { cat = b.dataset.cat; paint(); });
+    $$('[data-bill]', ovl).forEach(b => b.onclick = () => { bill = b.dataset.bill; paint(); });
+  };
+  paint();
+
+  $('#cnOk', ovl).onclick = async () => {
+    const r = await api('call_note_save', {id: x.id, summary: $('#cnS', ovl).value,
+      category: cat, bill, why: $('#cnWhy', ovl).value, followup: $('#cnF', ovl).checked})
+      .catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    kill(); toast('Καταχωρήθηκε'); R.calls();
+  };
+  setTimeout(() => { const i = $('#cnS', ovl); if (i) { i.focus(); } }, 40);
+}
