@@ -45,6 +45,9 @@ class Pbx3cxBlueprint
     const OWNER_DN   = '201';
     const OWNER_ROLE = 'system_owners';
 
+    /** Μοντέλο φωνής (realtime). Διαθέσιμα στο PBX: gpt-realtime-2.1, -2, -1.5, -2.1-mini. */
+    const AI_REALTIME = 'gpt-realtime-2.1';
+
     /** Ποιοι σηκώνουν το Support. Το «CloudOn» είναι όλοι οι υπόλοιποι. */
     const AGENTS_SUPPORT = ['305', '223', '221', '220', '212', '304'];
     const AGENTS_CLOUDON = ['201', '202', '203', '204'];
@@ -148,6 +151,12 @@ class Pbx3cxBlueprint
 - Σκοπός σου: να καταλάβεις γρήγορα τι χρειάζεται ο καλών και να τον συνδέσεις με άνθρωπο της ομάδας.
 - Σύντομες προτάσεις, ευγενικός και επαγγελματικός τόνος. Μία ερώτηση κάθε φορά. Δεν δίνεις τεχνικές οδηγίες και δεν λύνεις προβλήματα εσύ.
 
+# Φωνή και ύφος
+- Μίλα όπως μια πραγματική, ευγενική ρεσεψιονίστ στο τηλέφωνο: ζεστά, ήρεμα, με φυσικό ρυθμό και μικρές παύσεις. Όχι μονότονα, όχι βιαστικά, όχι σαν εκφωνητής.
+- Καθημερινά ελληνικά, απλές λέξεις. Πες «Μάλιστα», «Βεβαίως», «Μισό λεπτό» όπου ταιριάζει. Μη διαβάζεις λίστες επιλογών σαν μενού.
+- Άφησε τον καλούντα να μιλήσει και να ολοκληρώσει. Μην τον διακόπτεις. Αν δεν κατάλαβες, ζήτα ευγενικά να το ξαναπεί.
+- Προφέρε σωστά τα ονόματα προϊόντων: «Σοφτ-Ουάν» (SoftOne), «Φάρμασι-Ουάν» (PharmacyOne), «Κλάουντ-Ον» (CloudOn), «Καρ-Ον» (CarOn).
+
 # Η εταιρεία
 CloudOn: υπηρεσίες πληροφορικής σε Ελλάδα και Κύπρο. SoftOne ERP, PharmacyOne (λογισμικό φαρμακείου), cloud, servers, δίκτυα, τηλεφωνία VoIP, CarOn, e-commerce.
 Ωράριο: Δευτέρα έως Παρασκευή 09:00 έως 17:00. Έκτακτη υποστήριξη: Δευτέρα έως Παρασκευή 17:01 έως 20:00 και Σάββατο 09:30 έως 14:00.
@@ -197,6 +206,7 @@ TXT;
         $ai = Pbx3cxClient::xapi('Users', ['$top' => 1, '$filter' => "Number eq '" . self::AI_DN . "'",
             '$select' => 'Id,Number,DisplayName,AgentSettings']);
         $L['agent'] = $ai['value'][0] ?? null;
+        $L['ai_settings'] = Pbx3cxClient::xapi('AISettings');
         $ir = Pbx3cxClient::xapi('InboundRules', ['$top' => 40,
             '$select' => 'Id,Condition,OfficeHoursDestination,OutOfOfficeHoursDestination,HolidaysDestination',
             '$expand' => 'TrunkDN($select=Number,Name)']);
@@ -396,6 +406,18 @@ TXT;
                 /* Στέλνουμε ΟΛΟ το AgentSettings: ό,τι δεν ορίζουμε μένει όπως ήταν. */
                 $as = array_merge($cur, $want['AgentSettings']);
                 Pbx3cxClient::xwrite('PATCH', 'Users(' . self::AI_ID . ')', ['DisplayName' => $want['DisplayName'], 'AgentSettings' => $as]);
+            }];
+
+        /* 5β. Το μοντέλο φωνής ΟΛΩΝ των AI agents (ρύθμιση συστήματος). Το παλιό
+           «gpt-realtime» ακούγεται μηχανικό· το 2.1 είναι το πιο φυσικό που δίνει το PBX. */
+        $S[] = ['key' => 'ai_model', 'label' => 'Μοντέλο φωνής AI → ' . self::AI_REALTIME,
+            'risk' => 'low',
+            'check' => function ($L) {
+                $cur = (string) ($L['ai_settings']['RealtimeModel'] ?? '');
+                return [$cur === self::AI_REALTIME ? 'ok' : 'change', $cur === self::AI_REALTIME ? 'σωστό' : '«' . $cur . '» → ' . self::AI_REALTIME];
+            },
+            'apply' => function ($L) {
+                Pbx3cxClient::xwrite('PATCH', 'AISettings', ['RealtimeModel' => self::AI_REALTIME]);
             }];
 
         /* 6. Καθάρισμα παλιών τμημάτων — ΜΟΝΟ αφού όλοι είναι στο CloudOn. */
