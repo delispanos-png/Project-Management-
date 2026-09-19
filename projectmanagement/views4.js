@@ -334,6 +334,7 @@ function quickCall(pre) {
   const canTask = cnpCan('projects.board');
   const canTk = cnpCan('support.tickets');
   const who = {type: null, id: 0, name: '', phone: ''};
+  let picked = 0;               // η πραγματική κλήση του PBX, αν διαλέχθηκε
   const depts = (S.boot.depts || []).filter(d => d.id);
   const ovl = document.createElement('div');
   ovl.className = 'ovl show';
@@ -346,6 +347,7 @@ function quickCall(pre) {
       </div>
     </div>
     <div class="qc-b">
+      <div id="qcReal" hidden></div>
       <label class="lbl">Ποιος πήρε</label>
       <input class="inp" id="qcWho" placeholder="Όνομα, επωνυμία ή αριθμός τηλεφώνου…" autocomplete="off">
       <div id="qcPick"></div>
@@ -398,7 +400,9 @@ function quickCall(pre) {
     s.hidden = false;
     s.innerHTML = `<span class="pill ${who.type ? 'pill-ok' : 'pill-warn'}">${
       who.type === 'lead' ? I.target : (who.type ? I.user : I.alert)} ${esc(who.name)}${
-      who.phone ? ` <span class="mut">${esc(who.phone)}</span>` : ''}${
+      /* Όταν δεν ξέρουμε όνομα, το «όνομα» ΕΙΝΑΙ ο αριθμός — μην τον γράψεις
+         δύο φορές στην ίδια πινακίδα. */
+      who.phone && who.phone !== who.name ? ` <span class="mut">${esc(who.phone)}</span>` : ''}${
       who.type ? '' : ' — άγνωστος'}</span>
       <button class="qc-clr" title="Καθάρισμα">✕</button>`;
     s.querySelector('.qc-clr').onclick = () => {
@@ -499,6 +503,7 @@ function quickCall(pre) {
       client: who.type === 'client' ? who.id : 0,
       lead: who.type === 'lead' ? who.id : 0,
       then, followup: $q('#qcFup').value || '',
+      pbxCall: picked,
     };
     if (then === 'task') {
       body.project = +($q('#qcPj') || {}).value || 0;
@@ -531,6 +536,43 @@ function quickCall(pre) {
     $q('#qcWho').focus();
   }
   thenTabs();
+
+  /* ── ΟΙ ΠΡΑΓΜΑΤΙΚΕΣ ΣΟΥ ΚΛΗΣΕΙΣ ──
+     Το τηλεφωνικό κέντρο ξέρει ήδη ποιον πήρες, πότε και πόση ώρα. Δεν έχει
+     νόημα να τα ξαναγράφεις — ούτε να χρειάζεται να μπεις στη λίστα κλήσεων για
+     να καταγράψεις. Διάλεξε την κλήση και γράψε μόνο τι έγινε. */
+  if (!pre || !pre.client) {
+    api('my_calls_open&days=3').then(r => {
+      const list = (r && r.items) || [];
+      if (!list.length) { return; }
+      const box = $q('#qcReal');
+      const hm = s => s >= 60 ? Math.round(s / 60) + '΄' : s + '΄΄';
+      box.hidden = false;
+      box.innerHTML = `<div class="qc-real">
+        <div class="qc-real-h">Οι κλήσεις σου — διάλεξε και γράψε μόνο τι έγινε</div>
+        ${list.map(c => `<button type="button" class="qc-real-i" data-rc="${c.id}">
+          <span class="qc-real-d ${c.dir}">${c.dir === 'out' ? '↗' : '↙'}</span>
+          <span class="qc-real-t">${esc((c.at || '').slice(5, 16).replace('-', '/'))}</span>
+          <span class="qc-real-w">${c.clientName ? `<b>${esc(c.clientName)}</b>`
+            : c.anon ? '<i class="mut">απόκρυψη αριθμού</i>' : esc(c.other || '—')}</span>
+          <span class="qc-real-m">${c.answered ? hm(c.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+        </button>`).join('')}</div>`;
+      $$('.qc-real-i', box).forEach(el => el.onclick = () => {
+        const c = list.find(x => x.id === +el.dataset.rc);
+        if (!c) { return; }
+        picked = c.id;
+        $$('.qc-real-i', box).forEach(o => o.classList.toggle('on', o === el));
+        /* Κατεύθυνση, συνομιλητής και λεπτά έρχονται από το κέντρο. */
+        $$('[data-dir]', ovl).forEach(b => b.classList.toggle('on', b.dataset.dir === c.dir));
+        if (c.client) { who.type = 'client'; who.id = c.client; who.name = c.clientName; who.phone = c.other || ''; }
+        else { who.type = null; who.id = 0; who.name = c.anon ? 'απόκρυψη αριθμού' : (c.other || ''); who.phone = c.other || ''; }
+        $q('#qcWho').value = who.name;
+        showSel();
+        $q('#qcMin').value = c.answered ? Math.max(1, Math.round(c.talk / 60)) : 0;
+        $q('#qcSum').focus();
+      });
+    }).catch(() => {});
+  }
 }
 window.CNP.quickCall = quickCall;
 

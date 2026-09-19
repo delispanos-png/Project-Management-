@@ -3060,7 +3060,7 @@ function cnp_action_cap($action)
         $add('reports.calls', ['calls_report', 'calls_sync']);
         /* Η ταύτιση τηλεφώνου με πελάτη είναι δουλειά αυτού που σήκωσε το
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
-        $add('clients.calls', ['call_note_save', 'call_link']);
+        $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
         $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
             'pbx_sync', 'pbx_map_save', 'calls_backfill']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
@@ -6694,6 +6694,25 @@ case 'call_recent':                      // οι τελευταίες μου κ�
     }
     out(['rows' => $rows9]);
 
+case 'my_calls_open':                    // ΟΙ ΔΙΚΕΣ ΣΟΥ κλήσεις που δεν έχουν καταγραφεί
+    /* Χωρίς αυτό, η «Καταγραφή κλήσης» ζητούσε να ξαναγράψεις ό,τι ήδη ξέρει το
+       τηλεφωνικό κέντρο: ποιον πήρες, πότε, πόση ώρα. Εδώ τα φέρνουμε έτοιμα —
+       ο συνάδελφος γράφει μόνο ΤΙ έγινε. */
+    $mcFrom = date('Y-m-d 00:00:00', strtotime('-' . max(1, min(14, (int) ($_GET['days'] ?? 3))) . ' days'));
+    $mcOut = [];
+    foreach (Capsule::table('mod_cpm_calls')->where('admin_id', $adminId)
+        ->where('started_at', '>=', $mcFrom)->whereNull('logged_at')
+        ->orderBy('started_at', 'desc')->limit(15)->get() as $mc) {
+        $mcOut[] = [
+            'id' => (int) $mc->id, 'at' => $mc->started_at, 'dir' => $mc->direction,
+            'talk' => (int) $mc->talk_seconds, 'answered' => (bool) $mc->answered,
+            'client' => $mc->clientid ? (int) $mc->clientid : 0,
+            'clientName' => $mc->clientid ? clientLabel((int) $mc->clientid) : '',
+            'other' => $mc->other_e164 ?: ($mc->direction === 'out' ? (string) $mc->to_no : (string) $mc->from_no),
+            'anon' => $mc->client_match === 'anon'];
+    }
+    out(['items' => $mcOut]);
+
 case 'call_log':                         // η καταχώρηση
     $sum9 = mb_substr(trim((string) ($in['summary'] ?? '')), 0, 255);
     if ($sum9 === '') { fail('Γράψε τι ζήτησε ο καλών'); }
@@ -6770,7 +6789,28 @@ case 'call_log':                         // η καταχώρηση
         Time::push($eid9, (int) $cid9);   // ο πελάτης της κλήσης, που η εργασία δεν τον ξέρει
         $timed9 = true;
     }
+    /* Αν η καταγραφή ξεκίνησε από πραγματική κλήση του PBX, σημειώνεται ΚΑΙ
+       εκεί — αλλιώς η ίδια κλήση θα ζητούσε καταγραφή για πάντα, και στην
+       «Τηλεφωνική δραστηριότητα» θα έμοιαζε αγνοημένη ενώ έχει απαντηθεί. */
+    $pbxId9 = (int) ($in['pbxCall'] ?? 0);
+    if ($pbxId9) {
+        $row9 = Capsule::table('mod_cpm_calls')->where('id', $pbxId9)->first();
+        /* Μόνο δική σου κλήση — δεν γράφεις στο όνομα άλλου. */
+        if ($row9 && (int) $row9->admin_id === $adminId) {
+            Capsule::table('mod_cpm_calls')->where('id', $pbxId9)->update([
+                'summary'     => mb_substr($sum9, 0, 500),
+                'bill_status' => !empty($in['billable']) ? 'billable' : 'free',
+                'bill_reason' => !empty($in['billable'])
+                    ? mb_substr(trim((string) ($in['billWhy'] ?? $sum9)), 0, 255) : null,
+                'logged_by'   => $adminId,
+                'logged_at'   => date('Y-m-d H:i:s'),
+                'followup'    => $fup9 ? 1 : 0,
+                'clientid'    => $cid9 ?: $row9->clientid,
+                'interaction_id' => null]);
+        }
+    }
     out(['ok' => true, 'task' => $taskId9, 'ticket' => $tkId9, 'timed' => $timed9,
+        'pbx' => $pbxId9 ?: 0,
         'billNeedsTask' => $mins9 > 0 && !$taskId9 && !empty($in['billable'])]);
 
 /* ================= ΛΙΣΤΑ / ΗΜΕΡΟΛΟΓΙΟ / ΧΡΟΝΟΣ ================= */
