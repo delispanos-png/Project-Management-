@@ -29,11 +29,22 @@ class Pbx3cxBlueprint
     const AI_ID     = 218;
     /* Δύο κουτιά (απόφαση 20/09/2026): φωνητικά μηνύματα και γραπτά tickets ΧΩΡΙΣΤΑ,
        για να μη χάνεται τίποτα. Κάθε εσωτερικό του 3CX έχει ΕΝΑ email, άρα δύο εσωτερικά. */
+    /* ΟΙ ΔΙΕΥΘΥΝΣΕΙΣ ΕΙΝΑΙ ΕΠΙΤΗΔΕΣ ΑΚΑΤΑΛΑΒΙΣΤΕΣ (20/09/2026).
+       Οι παλιές voicemail@/voiceticket@ ήταν εύκολα μαντεύσιμες και δέχονταν
+       ήδη επιθέσεις. Εδώ μπαίνουν ΜΟΝΟ φωνητικά και γραπτά του κέντρου, δεν
+       τις δίνουμε σε κανέναν, και κάθε μία έχει φίλτρο sieve που στέλνει στον
+       φάκελο «Απόρριψη» ό,τι δεν ήρθε από το PBX (95.217.164.9).
+
+       ΠΡΟΣΟΧΗ — ΤΟ ΚΕΝΤΡΟ ΔΕΝ ΠΡΕΠΕΙ ΝΑ ΣΤΕΛΝΕΙ ΩΣ support@cloudon.gr:
+       το WHMCS πετάει ΣΙΩΠΗΛΑ κάθε μήνυμα που έχει αποστολέα τη διεύθυνση του
+       ίδιου του τμήματος (προστασία από βρόχο). Μετρήθηκε: ίδιο μήνυμα με
+       From: support@ → κανένα ticket· με From: pbx-noreply@ → ticket.
+       Το 3CX πρέπει να στέλνει από ΑΛΛΗ διεύθυνση. */
     const TICKET_DN = '900';   // «CloudOn, Voicemail» — φωνητικό μήνυμα → voicemail@cloudon.gr
     const TICKET_ID = 210;
-    const TICKET_MAIL = 'voicemail@cloudon.gr';
+    const TICKET_MAIL = 'pbx-vm-fvs422tli@cloudon.gr';
     const TICKETS_DN = '903';  // «CloudOn, Tickets» — γραπτό αίτημα (email από την AI) → voiceticket@cloudon.gr
-    const TICKETS_MAIL = 'voiceticket@cloudon.gr';
+    const TICKETS_MAIL = 'pbx-tk-kzjrl8hj4@cloudon.gr';
     const RULES_ALL = [12, 13];            // ForwardAll: Sip1.CloudOn.gr, Cyprus
     const SCRIPT_DN = '806';               // το παλιό call script — μένει ως εφεδρεία
 
