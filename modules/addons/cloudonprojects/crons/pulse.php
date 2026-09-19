@@ -144,6 +144,15 @@ try {
         if ($am && $am['changed']) {
             echo '[' . date('H:i:s') . '] AI ρεσεψιόν: κατάσταση ' . $am['mode'] . "\n";
         }
+        /* Δίχτυ ασφαλείας: ό,τι ζήτησε ο πελάτης από τη ρεσεψιόν και δεν έγινε
+           ticket, γίνεται ticket από εμάς — από το κείμενο της κλήσης. */
+        require_once __DIR__ . '/../lib/Book.php';
+        require_once __DIR__ . '/../lib/Pbx3cx/AiTickets.php';
+        $an = \WHMCS\Module\Addon\CloudonProjects\AiTickets::sweep();
+        if ($an['created'] || $an['errors']) {
+            echo '[' . date('H:i:s') . '] δίχτυ ρεσεψιόν: ' . $an['created'] . ' tickets'
+                . ($an['errors'] ? ' · σφάλματα: ' . implode(' | ', $an['errors']) : '') . "\n";
+        }
     }
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] κλήσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";

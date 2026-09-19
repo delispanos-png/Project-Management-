@@ -3778,3 +3778,5 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .rt-at{flex:0 0 92px;font-size:11.5px}.rt-who{flex:0 0 230px;display:flex;flex-direction:column;min-width:0}.rt-who .mut{font-size:11px}
 .rt-dec{flex:0 0 190px;font-weight:600}.rt-why{flex:1;min-width:200px;font-size:11.5px}
 @media (max-width:768px){.rt-who,.rt-dec{flex-basis:auto}}
+.pbx-aitk{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:#16a26a22;color:#16a26a;text-decoration:none}
+.pbx-aitk.bad{background:#e2515f22;color:#e2515f}

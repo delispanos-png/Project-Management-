@@ -974,6 +974,20 @@ class Db
                 Capsule::statement('ALTER TABLE mod_cpm_book ADD COLUMN `' . $col . '` ' . $def);
             }
         }
+        /* Το δίχτυ ασφαλείας της ρεσεψιόν: μία γραμμή ανά ηχογράφηση του 902 —
+           τι αποφασίσαμε (ticket/linked/human/empty/spam/none) και ποιο ticket. */
+        if (!$s->hasTable('mod_cpm_ai_calls')) {
+            $s->create('mod_cpm_ai_calls', function ($t) {
+                $t->unsignedInteger('recording_id')->primary();
+                $t->dateTime('started_at');
+                $t->string('e164', 24)->nullable();
+                $t->unsignedInteger('book_id')->nullable();
+                $t->string('decision', 12);
+                $t->string('reason', 200)->nullable();
+                $t->unsignedInteger('ticket_id')->nullable();
+                $t->dateTime('created_at');
+            });
+        }
         /* Οι αποφάσεις δρομολόγησης — πρώτα σκιώδεις (applied=0), για να
            ελεγχθεί ο κατάλογος με πραγματικές κλήσεις πριν αγγίξουμε το 3CX. */
         if (!$s->hasTable('mod_cpm_pbx_route_log')) {

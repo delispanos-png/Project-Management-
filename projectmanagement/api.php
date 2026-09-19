@@ -5493,7 +5493,11 @@ case 'pbx_ai_calls':                     // οι τελευταίες κλήσε
             $other = (string) ($r['FromDn'] === $aiDn ? ($r['ToCallerNumber'] ?: $r['ToDisplayName']) : ($r['FromCallerNumber'] ?: $r['FromDisplayName']));
             $names = $other !== '' ? Book::resolveMany([Pbx3cxCdr::e164($other)]) : [];
             $nm = $names ? reset($names) : null;
+            $aiNet = Capsule::table('mod_cpm_ai_calls')->where('recording_id', (int) $r['Id'])->first();
+            $aiTk = $aiNet && $aiNet->ticket_id ? Capsule::table('tbltickets')->where('id', $aiNet->ticket_id)->first(['tid', 'status']) : null;
             $aiRows[] = ['id' => (int) $r['Id'], 'at' => $st ? date('Y-m-d H:i', $st) : '',
+                'net' => $aiNet ? ['decision' => $aiNet->decision, 'reason' => (string) $aiNet->reason,
+                    'ticket' => $aiTk ? (string) $aiTk->tid : '', 'ticketId' => (int) ($aiNet->ticket_id ?: 0), 'status' => $aiTk ? (string) $aiTk->status : ''] : null,
                 'seconds' => ($st && $en) ? max(0, $en - $st) : 0, 'type' => (string) ($r['CallType'] ?? ''),
                 'other' => $other, 'otherName' => is_array($nm) ? (string) ($nm['name'] ?? '') : (string) $nm,
                 'transcribed' => !empty($r['IsTranscribed']) && trim((string) $r['Transcription']) !== '',
