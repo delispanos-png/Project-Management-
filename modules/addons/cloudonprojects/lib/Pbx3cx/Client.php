@@ -210,20 +210,19 @@ class Pbx3cxClient
             }
             return $hit . ' από ' . $tot . ' ταυτίζονται αυτόματα με email';
         });
-        $add('history', 'Ιστορικό κλήσεων', function () {
-            /* Η ΠΗΓΗ ΑΛΗΘΕΙΑΣ της αρχιτεκτονικής — αν δεν διαβάζεται, δεν έχουμε ιστορικό.
-               ΠΡΟΣΟΧΗ: το CallHistoryView ΔΕΝ δέχεται $filter (HTTP 500) ούτε
-               $orderby (timeout σε 123k εγγραφές) — μόνο $top/$count. */
-            $j = self::xapi('CallHistoryView', ['$top' => 1, '$count' => 'true']);
-            $n = (int) ($j['@odata.count'] ?? 0);
-            $last = '';
-            try {
-                $l = self::xapi('LastCdrAndChatMessageTimestamp');
-                $last = (string) ($l['value'][0]['LastCdrStartedAt'] ?? '');
-            } catch (\Throwable $e) { /* προαιρετικό */ }
-            return number_format($n, 0, ',', '.') . ' segments'
-                . ($last !== '' ? ' · τελευταία κλήση ' . substr($last, 0, 16) : '');
-        });
+        $add('history', 'Τελευταία κλήση στο PBX', function () {
+            /* ΔΕΝ αγγίζουμε το CallHistoryView. Είναι αρχείο ~123.000 γραμμών και
+               κάθε ερώτημα πάνω του σαρώνει τα πάντα — ακόμη και $top=1 κάνει
+               timeout. Στις 19/09/2026 τέτοια ερωτήματα έριξαν την PostgreSQL
+               του PBX: τα τηλέφωνα χτυπούσαν, αλλά κανείς δεν μπορούσε να
+               συνδεθεί (HTTP 500 σε κάθε έκδοση token, web login και API).
+               Ο LastCdrAndChatMessageTimestamp δίνει την ίδια πληροφορία
+               ακαριαία. Τα τρέχοντα δεδομένα έρχονται από το CDR. */
+            $l = self::xapi('LastCdrAndChatMessageTimestamp', [], 10);
+            $last = (string) ($l['value'][0]['LastCdrStartedAt'] ?? '');
+            if ($last === '') { throw new \RuntimeException('δεν επιστράφηκε χρόνος'); }
+            return substr(str_replace('T', ' ', $last), 0, 16);
+        }, false);
         $add('cdr', 'CDR (εφεδρικός δρόμος)', function () {
             $j = self::xapi('CDRSettings');
             if (empty($j['Enabled'])) { throw new \RuntimeException('απενεργοποιημένο'); }
