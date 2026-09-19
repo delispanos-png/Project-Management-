@@ -61,9 +61,30 @@ class Pbx3cxBlueprint
         . "Τηλέφωνο 210 7222560, Πελοποννήσου 13, Αγία Παρασκευή. Email: info@, sales@, support@, accounting@cloudon.gr. Πύλη πελατών: my.cloudon.gr.\n\n"
         . "CloudOn is a managed IT services provider in Greece and Cyprus: SoftOne ERP, PharmacyOne pharmacy software, cloud infrastructure, VoIP, managed IT, CarOn, e-commerce.";
 
-    /** Ποιοι σηκώνουν το Support. Το «CloudOn» είναι όλοι οι υπόλοιποι. */
-    const AGENTS_SUPPORT = ['305', '223', '221', '220', '212', '304'];
-    const AGENTS_CLOUDON = ['201', '202', '203', '204'];
+    /**
+     * ΘΕΜΑ → ουρά → ΣΕΙΡΑ εσωτερικών (απόφαση 20/09/2026, Παναγιώτης).
+     *
+     * Η σειρά τηρείται από την ΟΥΡΑ (PollingStrategy=Hunt: χτυπά τους χειριστές
+     * με τη σειρά της λίστας), όχι από την AI. Η AI μαθαίνει μόνο να αναγνωρίζει
+     * το θέμα. Έτσι η σειρά κρατιέται ακόμη κι αν η AI μπερδευτεί.
+     * Yeastar: η οδηγία κόπηκε — μπήκε μαζί με το 3CX (212 → 202) μέχρι νεωτέρας.
+     */
+    const TOPICS = [
+        '810' => ['name' => 'Support',    'agents' => ['212', '220', '203', '204'],
+            'descr' => 'SoftOne (Soft1, ERP, τιμολόγηση, παραστατικά, myDATA, εμπορική διαχείριση) και PharmacyOne (λογισμικό φαρμακείου, συνταγές, ΗΔΙΚΑ, ταμείο φαρμακείου)'],
+        '812' => ['name' => 'Telephony',  'agents' => ['212', '202'],
+            'descr' => 'Τηλεφωνικό κέντρο 3CX ή Yeastar, τηλεφωνία, VoIP, γραμμές, τηλεφωνικές συσκευές'],
+        '813' => ['name' => 'Cloud',      'agents' => ['212', '202', '201'],
+            'descr' => 'Cloud υπηρεσίες, server στο cloud, VPS, hosting, backup, email, δίκτυο, internet, πρόβλημα με server'],
+        '811' => ['name' => 'CloudOn',    'agents' => ['202', '203'],
+            'descr' => 'Πωλήσεις και γενικά: προσφορά, νέος πελάτης, πληροφορίες υπηρεσιών, ενδιαφέρον για συνεργασία, δεν είναι πελάτης, οτιδήποτε άλλο'],
+        '807' => ['name' => 'CarOn',      'agents' => ['203', '212'],
+            'descr' => 'CarOn: εφαρμογή ενοικιάσεων αυτοκινήτων, car rental'],
+        '800' => ['name' => 'Accounting', 'agents' => ['204', '202'],
+            'descr' => 'Λογιστήριο: τιμολόγια, πληρωμές, υπόλοιπα, εξοφλήσεις, λογιστικά θέματα'],
+        '814' => ['name' => 'Vision',     'agents' => ['220', '212'],
+            'descr' => 'RxVision ή BoxVisio (εφαρμογές vision, οπτική αναγνώριση)'],
+    ];
 
     /* ─────────────────────────── επιθυμητή δομή ─────────────────────────── */
 
@@ -102,28 +123,26 @@ class Pbx3cxBlueprint
     /**
      * Οι ουρές όπως πρέπει να είναι. Κλειδί = αριθμός.
      *
-     * ΔΥΟ ουρές (απόφαση 19/09/2026): «Support» και «CloudOn». Η AI ρεσεψιόν
-     * στέλνει ΠΑΝΤΑ στο Support μέσα στο ωράριο· εκτός ωραρίου η ουρά η ίδια
-     * προωθεί στο Emergency (OutOfOfficeRoute), και το Emergency εκτός του
-     * δικού του ωραρίου στο κουτί αιτημάτων (voicemail 900). Οι παλιές ουρές
-     * (800/801/802/803/807) μένουν ως έχουν — δεύτερο βήμα.
+     * Μία ουρά ανά ΘΕΜΑ (self::TOPICS), όλες με Hunt = η σειρά των χειριστών
+     * είναι νόμος. Εκτός ωραρίου η ουρά η ίδια προωθεί στο Emergency
+     * (OutOfOfficeRoute), και το Emergency εκτός του δικού του ωραρίου στο
+     * κουτί αιτημάτων (voicemail 900). Αναπάντητη μέσα στο ωράριο → voicemail 900.
+     * Οι ουρές 801/802/803 μένουν ως έχουν — δεν τις χρησιμοποιεί η AI.
      */
     public static function queues()
     {
         $vmTicket = self::dest('VoiceMail', self::TICKET_DN);
-        return [
-            '810' => ['Name' => 'Support', 'PollingStrategy' => 'LongestWaiting', 'RingTimeout' => 20,
-                'MasterTimeout' => 120, 'Agents' => self::AGENTS_SUPPORT, 'Managers' => ['201'],
+        $out = [];
+        foreach (self::TOPICS as $num => $t) {
+            $out[$num] = ['Name' => $t['name'], 'PollingStrategy' => 'Hunt', 'RingTimeout' => 20,
+                'MasterTimeout' => 120, 'Agents' => $t['agents'], 'Managers' => ['201'],
                 'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('Queue', '804'),
-                'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true],
-            '811' => ['Name' => 'CloudOn', 'PollingStrategy' => 'LongestWaiting', 'RingTimeout' => 20,
-                'MasterTimeout' => 120, 'Agents' => self::AGENTS_CLOUDON, 'Managers' => ['201'],
-                'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('Queue', '804'),
-                'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true],
-            '804' => ['Name' => 'Emergency', 'Agents' => ['201', '202'], 'Managers' => ['201'],
-                'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('VoiceMail', self::TICKET_DN),
-                'HolidaysRoute' => self::route('VoiceMail', self::TICKET_DN)],
-        ];
+                'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true];
+        }
+        $out['804'] = ['Name' => 'Emergency', 'Agents' => ['201', '202'], 'Managers' => ['201'],
+            'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('VoiceMail', self::TICKET_DN),
+            'HolidaysRoute' => self::route('VoiceMail', self::TICKET_DN)];
+        return $out;
     }
 
     /** Η AI ρεσεψιόν — τι λέει, πού στέλνει. */
@@ -141,12 +160,14 @@ class Pbx3cxBlueprint
                 'AgentType' => 'receptionist',
                 'FirstMessage' => 'Καλέσατε την CloudOn. Είμαι η ψηφιακή ρεσεψιόν. Πείτε μου σε τι μπορώ να βοηθήσω.',
                 'SystemPrompt' => self::systemPrompt(),
-                'RoutingDirectory' => [
-                    $dir('810', 'Support', 'Queue', 'Τεχνική υποστήριξη: SoftOne, PharmacyOne, server, δίκτυο, internet, email, τηλεφωνία, πρόβλημα, σφάλμα, δεν δουλεύει, ticket'),
-                    $dir('811', 'CloudOn', 'Queue', 'Γενικά: λογιστήριο, τιμολόγια, πληρωμές, πωλήσεις, προσφορά, νέος πελάτης, πληροφορίες, CarOn, οτιδήποτε μη τεχνικό'),
-                    $dir('804', 'Emergency', 'Queue', 'Έκτακτη ανάγκη εκτός ωραρίου: η επιχείρηση σταμάτησε, δεν εκδίδονται αποδείξεις, δεν λειτουργεί καθόλου το σύστημα'),
-                    $dir(self::TICKET_DN, 'CloudOn, Support', 'Extension', 'Καταχώρηση αιτήματος: επανάκληση ή μήνυμα που γίνεται ticket'),
-                ],
+                'RoutingDirectory' => array_merge(
+                    array_values(array_map(function ($num) use ($dir) {
+                        return $dir($num, self::TOPICS[$num]['name'], 'Queue', self::TOPICS[$num]['descr']);
+                    }, array_keys(self::TOPICS))),
+                    [
+                        $dir('804', 'Emergency', 'Queue', 'Έκτακτη ανάγκη εκτός ωραρίου: η επιχείρηση σταμάτησε, δεν εκδίδονται αποδείξεις, δεν λειτουργεί καθόλου το σύστημα'),
+                        $dir(self::TICKET_DN, 'CloudOn, Support', 'Extension', 'Καταχώρηση αιτήματος: επανάκληση ή μήνυμα που γίνεται ticket'),
+                    ]),
                 'HumanHandoff' => $dir('811', 'CloudOn', 'Queue', 'Άνθρωπος της CloudOn'),
                 'AgentFallback' => ['Number' => self::TICKET_DN, 'Action' => 'transfer', 'Tags' => []],
                 'CheckStatusBeforeTransfer' => true,
@@ -187,7 +208,7 @@ class Pbx3cxBlueprint
     {
         $rules = [
             'office' => "- Είμαστε ΑΝΟΙΧΤΑ (Δευτέρα έως Παρασκευή 09:00 έως 17:00).\n"
-                . "- Τεχνικό θέμα → Support. Οτιδήποτε άλλο → CloudOn.\n"
+                . "- Δρομολόγησε ΚΑΤΑ ΘΕΜΑ (βλ. «Πού συνδέεις»). Τη σειρά των συνεργατών την τηρεί η ουρά, όχι εσύ.\n"
                 . "- Αν ο προορισμός είναι απασχολημένος ή δεν απαντά → πρότεινε επανάκληση και στείλε στο «Καταχώρηση αιτήματος».",
             'emergency' => "- Το γραφείο είναι ΚΛΕΙΣΤΟ. Λειτουργεί ΜΟΝΟ η έκτακτη γραμμή.\n"
                 . "- ΜΗ μεταβιβάσεις σε Support ή CloudOn. Ενημέρωσε ότι το γραφείο λειτουργεί Δευτέρα έως Παρασκευή 09:00 έως 17:00.\n"
@@ -291,9 +312,15 @@ class Pbx3cxBlueprint
 - Γενική πληροφοριακή ερώτηση: σύντομη απάντηση και πρόσκληση για πιο συγκεκριμένο ερώτημα στην ίδια πρόταση.
 - Ποτέ μη δίνεις τιμές, χρόνους αποκατάστασης, υπόλοιπα ή προσωπικά στοιχεία συνεργατών.
 - Τεχνική υποστήριξη παρέχεται σε πελάτες με σύμβαση. Αν ο καλών λέει ότι δεν είναι πελάτης → CloudOn.
-# Πού συνδέεις
-- Τεχνικό θέμα (SoftOne, PharmacyOne, server, δίκτυο, internet, email, τηλεφωνία, σφάλμα, «δεν δουλεύει», ticket) → Support.
-- Λογιστήριο, τιμολόγια, πληρωμές, πωλήσεις, προσφορά, νέος πελάτης, πληροφορίες, CarOn, οτιδήποτε μη τεχνικό → CloudOn.
+# Πού συνδέεις (κατά θέμα, μέσα στο ωράριο)
+- SoftOne, Soft1, ERP, τιμολόγηση, παραστατικά, myDATA, PharmacyOne, φαρμακείο, συνταγές, ΗΔΙΚΑ → Support.
+- 3CX, Yeastar, τηλεφωνικό κέντρο, τηλεφωνία, VoIP, γραμμές, τηλέφωνα → Telephony.
+- Cloud, server, VPS, hosting, backup, email, δίκτυο, internet → Cloud.
+- Πωλήσεις, προσφορά, νέος πελάτης, πληροφορίες, δεν είναι πελάτης, δεν ξέρεις πού αλλού → CloudOn.
+- CarOn, ενοικιάσεις αυτοκινήτων → CarOn.
+- Λογιστήριο, τιμολόγια, πληρωμές, υπόλοιπα, εξοφλήσεις → Accounting.
+- RxVision, BoxVisio → Vision.
+- Αν το θέμα ακουμπά δύο περιοχές (π.χ. «το SoftOne δεν βγάζει τιμολόγιο»), προτίμησε το ΠΡΟΪΟΝ (Support), όχι το λογιστήριο.
 - Επείγον εκτός ωραρίου (η επιχείρηση σταμάτησε) → Emergency, ΜΟΝΟ όταν η τρέχουσα κατάσταση είναι ΕΚΤΑΚΤΗ ΓΡΑΜΜΗ.
 - Επανάκληση ή μήνυμα → «Καταχώρηση αιτήματος».
 - Δεν καταλαβαίνεις μετά από δύο προσπάθειες → CloudOn (μέσα στο ωράριο) ή «Καταχώρηση αιτήματος» (εκτός).
@@ -839,10 +866,11 @@ TXT;
             if (array_key_exists($k, $want) && $q[$k] != $want[$k]) { $d[] = $k . ' ' . json_encode($q[$k]) . ' → ' . json_encode($want[$k]); }
         }
         if (isset($want['Agents'])) {
+            /* Η ΣΕΙΡΑ μετράει (Hunt) — σύγκριση λίστας, όχι συνόλου. */
             $have = array_map(function ($a) { return (string) $a['Number']; }, $q['Agents'] ?? []);
-            $m = array_diff($want['Agents'], $have); $x = array_diff($have, $want['Agents']);
-            if ($m) { $d[] = 'λείπουν χειριστές ' . implode(',', $m); }
-            if ($x) { $d[] = 'περισσεύουν χειριστές ' . implode(',', $x); }
+            if ($have !== array_values($want['Agents'])) {
+                $d[] = 'χειριστές/σειρά ' . (implode('→', $have) ?: '—') . ' ⇒ ' . implode('→', $want['Agents']);
+            }
         }
         if (isset($want['ForwardNoAnswer']) && !self::sameDest($q['ForwardNoAnswer'] ?? null, $want['ForwardNoAnswer'])) {
             $d[] = 'αναπάντητη: ' . self::destText($q['ForwardNoAnswer'] ?? null) . ' → ' . self::destText($want['ForwardNoAnswer']);
@@ -871,7 +899,7 @@ TXT;
         foreach (['Agents', 'Managers'] as $k) {
             if (!isset($want[$k])) { continue; }
             $have = $q ? array_map(function ($a) { return (string) $a['Number']; }, $q[$k] ?? []) : [];
-            if (!$q || array_diff($want[$k], $have) || array_diff($have, $want[$k])) {
+            if (!$q || $have !== array_values($want[$k])) {
                 $b[$k] = array_map(function ($n) { return ['Number' => (string) $n]; }, $want[$k]);
             }
         }
