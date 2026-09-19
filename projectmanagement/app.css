@@ -3578,3 +3578,10 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .pk-bars{height:92px}
   .pk-n{display:none}
 }
+
+/* Σήμα «3CX»: το όνομα ήρθε από τον κατάλογο του τηλεφωνικού κέντρου, ΟΧΙ από
+   πελάτη του WHMCS. Πρέπει να ξεχωρίζει, αλλιώς κάποιος θα νομίσει ότι ο
+   πελάτης είναι καταχωρημένος και δεν θα τον περάσει ποτέ. */
+.cl-3cx{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.04em;
+  padding:1px 4px;border-radius:4px;vertical-align:1px;
+  background:var(--bg2,#eef2f7);color:var(--mut);border:1px solid var(--line)}

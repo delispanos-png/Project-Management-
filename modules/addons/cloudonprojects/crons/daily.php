@@ -281,6 +281,14 @@ try {
     require_once __DIR__ . '/../lib/Pbx3cx/Sync.php';
     if (\WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient::configured()) {
         $sy = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::run();
+        /* Και ο εταιρικός κατάλογος: καλύπτει το 53% των κλήσεων που το WHMCS
+           δεν αναγνωρίζει. Χωρίς αυτό, κάθε νέα επαφή που καταχωρεί η ομάδα στο
+           τηλεφωνικό κέντρο θα έμενε αόρατη εδώ. */
+        require_once __DIR__ . '/../lib/Pbx3cx/Cdr.php';
+        $bk = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::book();
+        if (function_exists('logActivity')) {
+            logActivity('CPM daily: κατάλογος 3CX — ' . $bk['numbers'] . ' αριθμοί');
+        }
         if (function_exists('logActivity')) {
             logActivity('CPM daily: 3CX δομή — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']
                 . ', αντιστοιχισμένα ' . $sy['matched']

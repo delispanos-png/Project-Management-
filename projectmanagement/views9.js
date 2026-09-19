@@ -230,6 +230,9 @@ R.calls = async function () {
     <span class="cl-other">${x.clientName ? `<b>${esc(x.clientName)}</b>`
       : x.skipLabel ? `<span class="mut">${esc(x.skipLabel)}</span>`
       : x.anon ? '<span class="mut" title="Ο καλών απέκρυψε τον αριθμό του">απόκρυψη αριθμού</span>'
+      /* Όνομα από τον κατάλογο του 3CX: φαίνεται, αλλά σημαδεμένο — δεν είναι
+         πελάτης στο WHMCS ακόμη, και δεν πρέπει να νομίζει κανείς ότι είναι. */
+      : x.book ? `${esc(x.book)} <span class="cl-3cx" title="Από τον κατάλογο του 3CX — δεν είναι πελάτης στο WHMCS">3CX</span>`
       : esc(x.other || '—')}</span>
     <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
     <span class="cl-sum">${x.summary ? esc(x.summary) : '<span class="mut">—</span>'}</span>
@@ -274,7 +277,7 @@ R.calls = async function () {
       <div class="card-b">${d.perClient.length ? d.perClient.map(x => `
         <div class="cl-agg pick" ${x.client ? `data-cli="${x.client}"` : `data-num="${esc(x.num || x.name)}"`}
           title="Δες ποιος τον εξυπηρέτησε">
-          <span class="cl-an">${esc(x.name)}</span>
+          <span class="cl-an">${esc(x.name)}${x.book ? ' <span class="cl-3cx">3CX</span>' : ''}</span>
           <span class="cl-ab"><i style="width:${Math.round(x.talk / Math.max(1, d.perClient[0].talk) * 100)}%;background:#7b5cd6"></i></span>
           <span class="cl-av">${x.calls} · <b>${callHm(x.talk)}</b></span>
         </div>`).join('') : '<div class="mut" style="font-size:12.5px">—</div>'}</div></div>
@@ -425,7 +428,7 @@ async function callDrill(what, st) {
       <div class="cd-sub">${d.mode === 'admin' ? 'Με ποιους μίλησε' : 'Ποιος τον εξυπηρέτησε'}</div>
       ${d.rows.length ? d.rows.map(r => `
         <div class="cl-agg${d.mode === 'admin' && r.id ? ' pick' : ''}" ${d.mode === 'admin' && r.id ? `data-go="${r.id}"` : ''}>
-          <span class="cl-an">${esc(r.name)}</span>
+          <span class="cl-an">${esc(r.name)}${r.book ? ' <span class="cl-3cx">3CX</span>' : ''}</span>
           <span class="cl-ab"><i style="width:${Math.round(r.talk / maxT * 100)}%;background:${d.mode === 'admin' ? '#7b5cd6' : 'var(--brand)'}"></i></span>
           <span class="cl-av">${r.calls} · <b>${callHm(r.talk)}</b>${
             r.missed ? ` · <span style="color:var(--bad)">${r.missed} χαμ.</span>` : ''}</span>
@@ -438,7 +441,10 @@ async function callDrill(what, st) {
           <span class="cl-d ${x.dir}">${x.dir === 'out' ? '↗' : '↙'}</span>
           <span class="cl-t">${esc((x.at || '').slice(5, 16).replace('-', '/'))}</span>
           <span class="cl-who">${d.mode === 'admin'
-            ? (x.clientName ? esc(x.clientName) : x.anon ? '<span class="mut">απόκρυψη</span>' : esc(x.other || '—'))
+            ? (x.clientName ? esc(x.clientName)
+               : x.anon ? '<span class="mut">απόκρυψη</span>'
+               : x.book ? `${esc(x.book)} <span class="cl-3cx">3CX</span>`
+               : esc(x.other || '—'))
             : (x.adminName ? esc(x.adminName) : '<span class="mut">—</span>')}</span>
           <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
           <span class="cl-sum">${x.summary ? esc(x.summary) : (d.canLog ? '<span class="cl-todo">κατέγραψε</span>' : '')}</span>
@@ -462,7 +468,8 @@ function callNote(x, d0) {
       <b style="font-size:15px;color:var(--ink)">Τι έγινε σε αυτή την κλήση;</b>
       <div class="mut" style="font-size:12px;margin-top:3px">
         ${esc((x.at || '').slice(0, 16))} · ${x.dir === 'in' ? 'εισερχόμενη από' : x.dir === 'out' ? 'εξερχόμενη προς' : 'εσωτερική'}
-        <b>${esc(x.clientName || x.skipLabel || (x.anon ? 'απόκρυψη αριθμού' : x.other) || '—')}</b>${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
+        <b>${esc(x.clientName || x.skipLabel || x.book || (x.anon ? 'απόκρυψη αριθμού' : x.other) || '—')}</b>${
+          x.book && !x.clientName ? ' <span class="cl-3cx">3CX</span>' : ''}${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
     </div>
     <div style="padding:8px 20px 4px">
       ${/* Η ΤΑΥΤΙΣΗ ΠΡΩΤΑ: αν δεν ξέρουμε ποιος είναι, τίποτα άλλο δεν έχει
@@ -473,8 +480,10 @@ function callNote(x, d0) {
         <div style="font-size:12.5px;font-weight:600;color:var(--ink)">Ποιος είναι το ${esc(x.other)};</div>
         <div class="mut" style="font-size:11.5px;margin:2px 0 7px">
           ${x.skipLabel ? 'Καταχωρημένο ως <b>' + esc(x.skipLabel) + '</b> — μπορείς να το αλλάξεις.'
+            : x.book ? 'Ο κατάλογος του 3CX λέει <b>' + esc(x.book) + '</b> — βρες τον στο WHMCS για να μετράει κανονικά.'
             : 'Θα ισχύσει για όλες τις κλήσεις του, παλιές και νέες.'}</div>
-        <input class="inp" id="cnLq" placeholder="Γράψε όνομα πελάτη…" autocomplete="off">
+        <input class="inp" id="cnLq" placeholder="Γράψε όνομα πελάτη…" autocomplete="off"
+          value="${esc(x.book ? (x.book.split('—')[0].trim()) : '')}">
         <div id="cnLres"></div>
         <button type="button" class="btn btn-sm btn-o" id="cnLskip" style="margin-top:7px">Δεν είναι πελάτης</button>
       </div>` : ''}

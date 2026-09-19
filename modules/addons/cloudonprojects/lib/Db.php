@@ -911,6 +911,23 @@ class Db
                 $t->dateTime('synced_at')->nullable();
             });
         }
+        /* Ο εταιρικός κατάλογος του 3CX — 476 επαφές που το WHMCS δεν ξέρει.
+           ΔΕΝ είναι πελάτες: είναι ό,τι έχει καταχωρήσει η ομάδα στο τηλεφωνικό
+           κέντρο. Τα κρατάμε για να μη βλέπουμε γυμνά νούμερα όσο ο πελάτης δεν
+           έχει περαστεί ακόμη στο WHMCS. Μία γραμμή ανά ΑΡΙΘΜΟ, όχι ανά επαφή:
+           μια επαφή έχει σταθερό, κινητό και fax. */
+        if (!$s->hasTable('mod_cpm_pbx_book')) {
+            $s->create('mod_cpm_pbx_book', function ($t) {
+                $t->increments('id');
+                $t->string('e164', 24)->index();
+                $t->integer('contact_id')->unsigned()->nullable();
+                $t->string('name', 160)->nullable();       // ό,τι δείχνουμε
+                $t->string('company', 160)->nullable();
+                $t->string('field', 16)->nullable();       // PhoneNumber | Mobile2 | Business…
+                $t->dateTime('synced_at')->nullable();
+                $t->unique(['e164', 'contact_id'], 'uq_book');
+            });
+        }
         /* Αριθμοί που ΞΕΡΟΥΜΕ ότι δεν ανήκουν σε πελάτη: προμηθευτές, τράπεζες,
            τηλεπωλήσεις. Χωρίς αυτό, ο ίδιος άγνωστος αριθμός ζητάει ταύτιση
            κάθε φορά που καλεί — και κάποιοι καλούν 300 φορές τον χρόνο. */

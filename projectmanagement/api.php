@@ -2768,6 +2768,39 @@ function cnp_explicit_caps()
     return ['reports.time'];
 }
 
+/**
+ * Ονόματα από τον εταιρικό κατάλογο του 3CX, για αριθμούς που το WHMCS δεν ξέρει.
+ *
+ * ΓΙΑΤΙ: το WHMCS έχει τηλέφωνο για 210 πελάτες — 9 στις 10 κλήσεις έβγαιναν
+ * γυμνό νούμερο. Ο κατάλογος του 3CX έχει 476 επαφές που η ομάδα έχει ήδη
+ * καταχωρήσει, και καλύπτει το 53% των κλήσεων. Είναι ΜΟΝΟ ετικέτα: κανένα
+ * clientid δεν γράφεται από εδώ, και η οθόνη το σημαδεύει ως «3CX» ώστε να
+ * φαίνεται ότι ο πελάτης δεν έχει περαστεί ακόμη κανονικά.
+ *
+ * @return array [e164 => όνομα]
+ */
+function cnp_book_names(array $nums)
+{
+    $nums = array_values(array_unique(array_filter($nums)));
+    if (!$nums) { return []; }
+    $by = [];
+    foreach (Capsule::table('mod_cpm_pbx_book')->whereIn('e164', $nums)
+        ->orderBy('contact_id')->get() as $r) {
+        $by[$r->e164][] = $r;
+    }
+    $out = [];
+    foreach ($by as $e => $rows) {
+        if (count($rows) === 1) { $out[$e] = (string) $rows[0]->name; continue; }
+        /* Πολλές επαφές στον ΙΔΙΟ αριθμό σημαίνει τηλεφωνικό κέντρο εταιρείας.
+           Δείχνουμε την εταιρεία — το όνομα ενός από τους υπαλλήλους θα ήταν
+           παραπλανητικό, γιατί σηκώνει όποιος τύχει. */
+        $co = '';
+        foreach ($rows as $r) { if (trim((string) $r->company) !== '') { $co = trim($r->company); break; } }
+        $out[$e] = $co !== '' ? $co : (string) $rows[0]->name;
+    }
+    return $out;
+}
+
 function cnp_has_cap($adminId, $isFull, $cap)
 {
     if ($isFull) {
@@ -5458,19 +5491,27 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     /* Ο «πελάτης» είναι ο αναγνωρισμένος πελάτης· αν δεν ταυτίστηκε, ο ίδιος ο
        αριθμός — αλλιώς όλοι οι άγνωστοι θα γίνονταν μία γραμμή. */
     $perClient = [];
-    foreach ($base()->groupBy(Capsule::raw('COALESCE(clientid,0), other_e164'))
+    /* Πρώτα μαζεύουμε τους αριθμούς, μετά ρωτάμε τον κατάλογο μία φορά. */
+    $pcRaw = $base()->groupBy(Capsule::raw('COALESCE(clientid,0), other_e164'))
         ->selectRaw('COALESCE(clientid,0) cid, other_e164, COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk')
-        ->orderByRaw('talk DESC')->limit(40)->get() as $cRow) {
+        ->orderByRaw('talk DESC')->limit(40)->get();
+    $bookPc = cnp_book_names(array_column($pcRaw->all(), 'other_e164'));
+    foreach ($pcRaw
+        as $cRow) {
         $ck = (int) $cRow->cid;
+        /* Σειρά προτεραιότητας: πελάτης WHMCS → χαρακτηρισμός «δεν είναι
+           πελάτης» → κατάλογος 3CX → γυμνός αριθμός. */
         $cName = $ck ? clientLabel($ck)
             : ($cRow->other_e164
-                ? ($skipLab[$cRow->other_e164] ?? $cRow->other_e164)
+                ? ($skipLab[$cRow->other_e164] ?? ($bookPc[$cRow->other_e164] ?? $cRow->other_e164))
                 : 'απόκρυψη αριθμού');
         if (isset($perClient[$cName])) {
             $perClient[$cName]['calls'] += (int) $cRow->calls;
             $perClient[$cName]['talk'] += (int) $cRow->talk;
         } else {
             $perClient[$cName] = ['name' => $cName, 'client' => $ck,
+                'book' => !$ck && $cRow->other_e164 && !isset($skipLab[$cRow->other_e164])
+                    && isset($bookPc[$cRow->other_e164]),
                 /* Ο ωμός αριθμός χρειάζεται για να μπορεί η οθόνη να ζητήσει
                    ανάλυση και για όποιον ΔΕΝ είναι καταχωρημένος πελάτης. */
                 'num' => (string) $cRow->other_e164,
@@ -5479,6 +5520,7 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
     }
 
     $rows = $base()->orderBy('started_at', 'desc')->limit(500)->get();
+    $bookIt = cnp_book_names(array_column($rows->all(), 'other_e164'));
     $items = [];
     foreach ($rows as $r) {
         $ck = $r->clientid ? (int) $r->clientid : 0;
@@ -5495,6 +5537,10 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
             /* «Έκρυψε τον αριθμό» ≠ «δεν τον αναγνωρίσαμε». Το πρώτο δεν
                διορθώνεται με καμία ταύτιση — μην το ζητήσεις από τον χρήστη. */
             'anon' => $r->client_match === 'anon',
+            /* Όνομα από το τηλεφωνικό κέντρο — προσωρινό, μέχρι να περαστεί ο
+               πελάτης στο WHMCS. Η οθόνη το δείχνει με σήμανση «3CX». */
+            'book' => (!$ck && $r->other_e164 && !isset($skipLab[$r->other_e164]))
+                ? ($bookIt[$r->other_e164] ?? '') : '',
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
             'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
@@ -5571,14 +5617,20 @@ case 'call_drill':                       // «με ποιον μίλησε» / �
     $dRows = [];
     if ($dAdmin) {
         /* Ο χειριστής → με ποιους μίλησε. */
-        foreach ($dq()->groupBy(Capsule::raw('COALESCE(clientid,0), other_e164'))
+        $dGrp = $dq()->groupBy(Capsule::raw('COALESCE(clientid,0), other_e164'))
             ->selectRaw('COALESCE(clientid,0) cid, other_e164, COUNT(*) calls,'
                 . ' COALESCE(SUM(talk_seconds),0) talk, SUM(answered=0) missed')
-            ->orderByRaw('talk DESC')->limit(60)->get() as $g) {
+            ->orderByRaw('talk DESC')->limit(60)->get();
+        $dBook = cnp_book_names(array_column($dGrp->all(), 'other_e164'));
+        foreach ($dGrp as $g) {
             $gc = (int) $g->cid;
             $dRows[] = ['id' => $gc, 'num' => (string) $g->other_e164,
                 'name' => $gc ? clientLabel($gc)
-                    : ($g->other_e164 ? ($dSkip[$g->other_e164] ?? $g->other_e164) : 'απόκρυψη αριθμού'),
+                    : ($g->other_e164
+                        ? ($dSkip[$g->other_e164] ?? ($dBook[$g->other_e164] ?? $g->other_e164))
+                        : 'απόκρυψη αριθμού'),
+                'book' => !$gc && $g->other_e164 && !isset($dSkip[$g->other_e164])
+                    && isset($dBook[$g->other_e164]),
                 'calls' => (int) $g->calls, 'talk' => (int) $g->talk, 'missed' => (int) $g->missed];
         }
     } else {
@@ -5595,12 +5647,16 @@ case 'call_drill':                       // «με ποιον μίλησε» / �
     $dAgg = $dq()->selectRaw('COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk,'
         . " SUM(answered=0) missed, SUM(direction='in') inn, SUM(direction='out') outt")->first();
     $dItems = [];
-    foreach ($dq()->orderBy('started_at', 'desc')->limit(120)->get() as $r) {
+    $dRowsRaw = $dq()->orderBy('started_at', 'desc')->limit(120)->get();
+    $dBookIt = cnp_book_names(array_column($dRowsRaw->all(), 'other_e164'));
+    foreach ($dRowsRaw as $r) {
         $rc = $r->clientid ? (int) $r->clientid : 0;
         $dItems[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
             'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
             'other' => $r->other_e164 ?: ($r->direction === 'out' ? (string) $r->to_no : (string) $r->from_no),
             'anon' => $r->client_match === 'anon',
+            'book' => (!$rc && $r->other_e164 && !isset($dSkip[$r->other_e164]))
+                ? ($dBookIt[$r->other_e164] ?? '') : '',
             'client' => $rc, 'clientName' => $rc ? clientLabel($rc) : '',
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
@@ -5612,7 +5668,8 @@ case 'call_drill':                       // «με ποιον μίλησε» / �
 
     out(['mode' => $dAdmin ? 'admin' : 'client',
         'title' => $dAdmin ? Db::adminName($dAdmin)
-            : ($dClient ? clientLabel($dClient) : ($dSkip[$dNum] ?? $dNum)),
+            : ($dClient ? clientLabel($dClient)
+                : ($dSkip[$dNum] ?? (cnp_book_names([$dNum])[$dNum] ?? $dNum))),
         'days' => $dDays,
         'totals' => ['calls' => (int) $dAgg->calls, 'talk' => (int) $dAgg->talk,
             'missed' => (int) $dAgg->missed, 'in' => (int) $dAgg->inn, 'out' => (int) $dAgg->outt],
@@ -5678,9 +5735,14 @@ case 'pbx_map':                          // ο χάρτης DN → χειρισ�
 case 'pbx_sync':                         // ΦΑΣΗ 3 — τράβα τη δομή από το PBX
     if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
     $sy = Pbx3cxSync::run();
+    /* Μαζί με τη δομή έρχεται και ο εταιρικός κατάλογος: είναι η πηγή που δίνει
+       όνομα στο 53% των κλήσεων που το WHMCS δεν αναγνωρίζει. */
+    try { $sy['book'] = Pbx3cxSync::book(); }
+    catch (\Throwable $eB) { $sy['errors'][] = 'Κατάλογος: ' . $eB->getMessage(); }
     if (function_exists('logActivity')) {
-        logActivity('CPM: συγχρονισμός δομής 3CX από admin #' . $adminId
-            . ' — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']);
+        logActivity('CPM: συγχρονισμός 3CX από admin #' . $adminId
+            . ' — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']
+            . ', κατάλογος ' . ($sy['book']['numbers'] ?? 0) . ' αριθμοί');
     }
     out(['ok' => empty($sy['errors']), 'sync' => $sy]);
 
@@ -6803,15 +6865,18 @@ case 'my_calls_open':                    // ΟΙ ΔΙΚΕΣ ΣΟΥ κλήσει�
        ο συνάδελφος γράφει μόνο ΤΙ έγινε. */
     $mcFrom = date('Y-m-d 00:00:00', strtotime('-' . max(1, min(14, (int) ($_GET['days'] ?? 3))) . ' days'));
     $mcOut = [];
-    foreach (Capsule::table('mod_cpm_calls')->where('admin_id', $adminId)
+    $mcRows = Capsule::table('mod_cpm_calls')->where('admin_id', $adminId)
         ->where('started_at', '>=', $mcFrom)->whereNull('logged_at')
-        ->orderBy('started_at', 'desc')->limit(15)->get() as $mc) {
+        ->orderBy('started_at', 'desc')->limit(15)->get();
+    $mcBook = cnp_book_names(array_column($mcRows->all(), 'other_e164'));
+    foreach ($mcRows as $mc) {
         $mcOut[] = [
             'id' => (int) $mc->id, 'at' => $mc->started_at, 'dir' => $mc->direction,
             'talk' => (int) $mc->talk_seconds, 'answered' => (bool) $mc->answered,
             'client' => $mc->clientid ? (int) $mc->clientid : 0,
             'clientName' => $mc->clientid ? clientLabel((int) $mc->clientid) : '',
             'other' => $mc->other_e164 ?: ($mc->direction === 'out' ? (string) $mc->to_no : (string) $mc->from_no),
+            'book' => $mc->clientid ? '' : ($mcBook[$mc->other_e164] ?? ''),
             'anon' => $mc->client_match === 'anon'];
     }
     out(['items' => $mcOut]);
