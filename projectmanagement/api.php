@@ -23,6 +23,8 @@ use WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxCdr;
 use WHMCS\Module\Addon\CloudonProjects\Book;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxReport;
+use WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint;
+use WHMCS\Module\Addon\CloudonProjects\Route;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
