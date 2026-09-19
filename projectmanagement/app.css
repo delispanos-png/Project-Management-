@@ -3428,3 +3428,7 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .pbx-rf{display:none}
   .pbx-lg{grid-template-columns:1fr;gap:2px}
 }
+.pbx-c.opt{border-style:dashed;opacity:.72}
+.pbx-c.opt .pbx-ci{color:var(--mut)}
+.pbx-opt{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--mut);
+  background:var(--line);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:1px}

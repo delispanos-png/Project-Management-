@@ -45,9 +45,9 @@ R.pbx = async function () {
         ${probe ? `<span class="mut pbx-when">έλεγχος: ${esc(probe.at)}</span>` : ''}
       </div>
       ${probe ? `<div class="pbx-checks">${Object.entries(probe.checks).map(([k, ch]) => `
-        <div class="pbx-c ${ch.ok ? 'ok' : 'bad'}">
-          <span class="pbx-ci">${ch.ok ? '✔' : '✕'}</span>
-          <span class="pbx-cl"><b>${esc(ch.label)}</b><span class="mut">${esc(ch.info || '')}</span></span>
+        <div class="pbx-c ${ch.ok ? 'ok' : (ch.critical === false ? 'opt' : 'bad')}">
+          <span class="pbx-ci">${ch.ok ? '✔' : (ch.critical === false ? '–' : '✕')}</span>
+          <span class="pbx-cl"><b>${esc(ch.label)}${ch.critical === false ? '<span class="pbx-opt">προαιρετικό</span>' : ''}</b><span class="mut">${esc(ch.info || '')}</span></span>
           <span class="mut pbx-cm">${ch.ms}ms</span>
         </div>`).join('')}</div>` : ''}
     </div>

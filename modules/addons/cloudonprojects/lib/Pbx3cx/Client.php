@@ -154,14 +154,19 @@ class Pbx3cxClient
     public static function probe()
     {
         $out = ['url' => self::baseUrl(), 'at' => date('Y-m-d H:i:s'), 'checks' => []];
-        $add = function ($key, $label, $cb) use (&$out) {
+        /* ΚΡΙΣΙΜΟ vs ΠΡΟΑΙΡΕΤΙΚΟ: ο ρόλος του API client στο 3CX δεν δίνει τα
+           πάντα ταυτόχρονα — με τον ρόλο που διαβάζει ιστορικό, χάνονται κάποιες
+           διαγνωστικές αναγνώσεις (SystemStatus, CDRSettings). Αυτό ΔΕΝ είναι
+           βλάβη: η διασύνδεση δουλεύει. Γι' αυτό μόνο τα κρίσιμα μετράνε στο
+           σκορ· τα προαιρετικά εμφανίζονται ως πληροφορία. */
+        $add = function ($key, $label, $cb, $critical = true) use (&$out) {
             $t0 = microtime(true);
             try {
                 $v = $cb();
                 $out['checks'][$key] = ['label' => $label, 'ok' => true, 'info' => $v,
-                    'ms' => (int) round((microtime(true) - $t0) * 1000)];
+                    'critical' => $critical, 'ms' => (int) round((microtime(true) - $t0) * 1000)];
             } catch (\Throwable $e) {
-                $out['checks'][$key] = ['label' => $label, 'ok' => false,
+                $out['checks'][$key] = ['label' => $label, 'ok' => false, 'critical' => $critical,
                     'info' => $e->getMessage(), 'ms' => (int) round((microtime(true) - $t0) * 1000)];
             }
         };
@@ -181,10 +186,10 @@ class Pbx3cxClient
             $j = self::xapi('SystemStatus');
             $v = $j['Version'] ?? '';
             if ($v === '') { throw new \RuntimeException('δεν επιστράφηκε έκδοση'); }
+            self::setCfg('pbx_version', $v);
             return 'v' . $v . ' · ' . (int) ($j['ExtensionsTotal'] ?? 0) . ' extensions, '
-                . (int) ($j['TrunksRegistered'] ?? 0) . '/' . (int) ($j['TrunksTotal'] ?? 0) . ' trunks, '
-                . (int) ($j['CallsActive'] ?? 0) . ' ενεργές κλήσεις';
-        });
+                . (int) ($j['TrunksRegistered'] ?? 0) . '/' . (int) ($j['TrunksTotal'] ?? 0) . ' trunks';
+        }, false);
         $add('users', 'Χρήστες / extensions', function () {
             $j = self::xapi('Users', ['$top' => 1, '$count' => 'true']);
             return ($j['@odata.count'] ?? count($j['value'] ?? [])) . ' extensions προς χαρτογράφηση';
@@ -206,15 +211,24 @@ class Pbx3cxClient
             return $hit . ' από ' . $tot . ' ταυτίζονται αυτόματα με email';
         });
         $add('history', 'Ιστορικό κλήσεων', function () {
-            /* Η ΠΗΓΗ ΑΛΗΘΕΙΑΣ της αρχιτεκτονικής — αν δεν διαβάζεται, δεν έχουμε ιστορικό. */
-            self::xapi('CallHistoryView', ['$top' => 1]);
-            return 'διαβάζεται';
+            /* Η ΠΗΓΗ ΑΛΗΘΕΙΑΣ της αρχιτεκτονικής — αν δεν διαβάζεται, δεν έχουμε ιστορικό.
+               ΠΡΟΣΟΧΗ: το CallHistoryView ΔΕΝ δέχεται $filter (HTTP 500) ούτε
+               $orderby (timeout σε 123k εγγραφές) — μόνο $top/$count. */
+            $j = self::xapi('CallHistoryView', ['$top' => 1, '$count' => 'true']);
+            $n = (int) ($j['@odata.count'] ?? 0);
+            $last = '';
+            try {
+                $l = self::xapi('LastCdrAndChatMessageTimestamp');
+                $last = (string) ($l['value'][0]['LastCdrStartedAt'] ?? '');
+            } catch (\Throwable $e) { /* προαιρετικό */ }
+            return number_format($n, 0, ',', '.') . ' segments'
+                . ($last !== '' ? ' · τελευταία κλήση ' . substr($last, 0, 16) : '');
         });
-        $add('cdr', 'CDR (εναλλακτικό ιστορικό)', function () {
+        $add('cdr', 'CDR (εφεδρικός δρόμος)', function () {
             $j = self::xapi('CDRSettings');
             if (empty($j['Enabled'])) { throw new \RuntimeException('απενεργοποιημένο'); }
             return 'ενεργό · ' . ($j['LogType'] ?? '—');
-        });
+        }, false);
         $add('ai', 'AI (περίληψη/απομαγνητοφώνηση)', function () {
             $j = self::xapi('AISettings');
             if (empty($j['Enabled'])) { throw new \RuntimeException('απενεργοποιημένο στο PBX'); }
@@ -226,10 +240,14 @@ class Pbx3cxClient
             if ($r['code'] >= 400) { throw new \RuntimeException('HTTP ' . $r['code']); }
             return 'διαθέσιμο';
         });
-        $ok = 0;
-        foreach ($out['checks'] as $c) { if ($c['ok']) { $ok++; } }
+        $ok = 0; $tot = 0;
+        foreach ($out['checks'] as $c) {
+            if (empty($c['critical'])) { continue; }
+            $tot++;
+            if ($c['ok']) { $ok++; }
+        }
         $out['ok'] = $ok;
-        $out['total'] = count($out['checks']);
+        $out['total'] = $tot;
         self::setCfg('last_probe', json_encode($out, JSON_UNESCAPED_UNICODE));
         return $out;
     }
