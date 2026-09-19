@@ -190,6 +190,14 @@ class Pbx3cxBlueprint
                 'AgentFallback' => ['Number' => self::TICKET_DN, 'Action' => 'voicemail', 'Tags' => []],
                 'CheckStatusBeforeTransfer' => true,
                 'EnableNameMatching' => true,
+                /* ΜΕΤΡΗΘΗΚΕ (20/09 01:57): με Notify=chat το «μήνυμα εστάλη» της ρεσεψιόν
+                   δεν έφτανε πουθενά (ούτε chat στο ιστορικό, ούτε email). Το Notify
+                   ορίζει πώς παραδίδεται ένα μήνυμα προς επαφή — θέλουμε email. */
+                'BossInterruptionSettings' => [
+                    'Block' => ['Instructions' => '', 'Action' => 'end'],
+                    'Interrupt' => ['Instructions' => '', 'Action' => 'approval'],
+                    'Notify' => ['Action' => 'email'],
+                ],
                 'SpamInstructions' => 'Τηλεπωλήσεις, αυτόματες κλήσεις, απάτες, ύποπτοι που ζητούν πληρωμές, κωδικούς ή απομακρυσμένη πρόσβαση.',
             ],
         ];
@@ -1025,6 +1033,8 @@ TXT;
                 if ((string) ($c['Number'] ?? '') !== (string) $v['Number'] || (string) ($c['Action'] ?? '') !== (string) ($v['Action'] ?? ($c['Action'] ?? ''))) { $d[] = $k . ' → ' . $v['Number']; }
             } elseif (is_bool($v)) {
                 if ((bool) $c !== $v) { $d[] = $k; }
+            } elseif (is_array($v)) {
+                if (json_encode($c) !== json_encode($v)) { $d[] = $k; }
             } elseif (trim(str_replace("\r", '', (string) $c)) !== trim((string) $v)) {
                 $d[] = $k === 'SystemPrompt' ? 'οδηγίες (prompt)' : ($k === 'FirstMessage' ? 'χαιρετισμός' : $k . ' «' . mb_substr((string) $c, 0, 20) . '» → «' . mb_substr((string) $v, 0, 20) . '»');
             }
