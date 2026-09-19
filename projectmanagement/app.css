@@ -3383,3 +3383,48 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .sc-pr{display:block;font-size:10px;font-weight:600;color:var(--mut);line-height:1.1}
 .sc-lane.off .sc-nm{color:var(--mut)}
 .sc-runby{display:inline-block;margin-right:4px;font-size:10px;font-weight:800;background:rgba(255,255,255,.28);border-radius:999px;padding:0 6px;vertical-align:1px}
+
+/* ═══ Διασύνδεση 3CX (CloudOn Agent) ══════════════════════════════════════ */
+.pbx-state{margin-bottom:14px;border-left:4px solid var(--mut)}
+.pbx-state.ok{border-left-color:#16a26a}
+.pbx-state.warn{border-left-color:#e0a020}
+.pbx-state.bad{border-left-color:#e2515f}
+.pbx-sh{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.pbx-sh b{font-size:14.5px}
+.pbx-sh .mut{font-size:12px}
+.pbx-when{margin-left:auto;font-size:11px}
+.pbx-dot{width:10px;height:10px;border-radius:50%;background:var(--mut);flex:none}
+.pbx-state.ok .pbx-dot{background:#16a26a;box-shadow:0 0 0 3px #16a26a26}
+.pbx-state.warn .pbx-dot{background:#e0a020;box-shadow:0 0 0 3px #e0a02026}
+.pbx-state.bad .pbx-dot{background:#e2515f;box-shadow:0 0 0 3px #e2515f26}
+.pbx-checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:7px;margin-top:13px}
+.pbx-c{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:10px;background:var(--canvas);
+  border:1px solid var(--line)}
+.pbx-c.ok{border-color:#16a26a33}
+.pbx-c.bad{border-color:#e2515f44;background:#e2515f0a}
+.pbx-ci{font-weight:800;flex:none;line-height:1.35}
+.pbx-c.ok .pbx-ci{color:#16a26a}
+.pbx-c.bad .pbx-ci{color:#e2515f}
+.pbx-cl{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.pbx-cl b{font-size:12.5px}
+.pbx-cl .mut{font-size:11px;overflow-wrap:anywhere}
+.pbx-cm{font-size:10.5px;flex:none}
+.pbx-rates{display:flex;flex-direction:column;gap:2px}
+.pbx-r{display:grid;grid-template-columns:minmax(0,1fr) 150px 120px 92px;align-items:center;gap:10px;
+  padding:7px 10px;border-radius:9px}
+.pbx-r:hover{background:var(--hover)}
+.pbx-rn{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pbx-rv{font-size:13px;display:flex;align-items:baseline;gap:4px}
+.pbx-rv .mut{font-size:11px}
+.pbx-rf{font-size:11px}
+.pbx-lg{display:grid;grid-template-columns:150px 70px minmax(0,1fr);gap:9px;padding:5px 0;
+  font-size:11.5px;border-top:1px solid var(--line)}
+.pbx-lg:first-child{border-top:none}
+.pbx-lt{font-size:11px}
+.pbx-lc{font-weight:700;color:var(--mut);text-transform:uppercase;font-size:10px;letter-spacing:.4px}
+.pbx-lg.error{color:var(--bad)}
+@media (max-width:760px){
+  .pbx-r{grid-template-columns:minmax(0,1fr) 100px;row-gap:3px}
+  .pbx-rf{display:none}
+  .pbx-lg{grid-template-columns:1fr;gap:2px}
+}

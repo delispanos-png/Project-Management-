@@ -877,6 +877,32 @@ class Db
                 $t->integer('prev_status_id')->unsigned()->nullable();
             });
         }
+        /* CloudOn Agent — κόστος ανά άνθρωπο με ΙΣΧΥ ΑΠΟ ημερομηνία.
+           Το module είχε ΕΝΑ γενικό cost_per_hour για όλη την εταιρεία· έτσι μια
+           αύξηση μισθού ξαναέγραφε αναδρομικά το κόστος όλων των παλιών κλήσεων.
+           Με valid_from, το ιστορικό μένει σωστό. */
+        if (!$s->hasTable('mod_cpm_cost_rates')) {
+            $s->create('mod_cpm_cost_rates', function ($t) {
+                $t->increments('id');
+                $t->integer('admin_id')->unsigned()->index();
+                $t->decimal('cost_per_hour', 10, 2)->default(0);
+                $t->date('valid_from')->index();
+                $t->string('note', 160)->nullable();
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->unique(['admin_id', 'valid_from'], 'rate_once_per_day');
+            });
+        }
+        /* Τεχνικό ημερολόγιο διασύνδεσης — debugging χωρίς δεύτερο σύστημα. */
+        if (!$s->hasTable('mod_cpm_pbx_log')) {
+            $s->create('mod_cpm_pbx_log', function ($t) {
+                $t->increments('id');
+                $t->string('channel', 16)->index();       // auth | xapi | ws | sync
+                $t->string('status', 10);                 // ok | error | retry
+                $t->string('message', 500);
+                $t->dateTime('created_at')->index();
+            });
+        }
         if (!$s->hasTable('mod_cpm_event_alerts')) {
             $s->create('mod_cpm_event_alerts', function ($t) {
                 $t->increments('id');

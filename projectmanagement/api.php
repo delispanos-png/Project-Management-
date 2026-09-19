@@ -18,6 +18,7 @@ use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
 use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
 use WHMCS\Module\Addon\CloudonProjects\Pbx;
+use WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
@@ -37,6 +38,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferTypes
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Notify.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/CvPhoto.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Storage.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Client.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
 }
@@ -2677,6 +2679,10 @@ function cnp_caps()
         // ═══ Η ΟΜΑΔΑ (συνεννόηση & διαθεσιμότητα) ═══
         'team.chat'          => ['view',   'Chat', 'Εσωτερική συνομιλία ομάδας — ανάγνωση & αποστολή, ομάδες συνομιλίας'],
         'team.voice'         => ['power',  'Φωνή ομάδας', 'Είσοδος στο δωμάτιο φωνής και κλήσεις προς συναδέλφους', 'team.chat'],
+        /* CloudOn Agent — διασύνδεση τηλεφωνικού κέντρου. Οι ενέργειες ΠΡΟΣ το
+           3CX (κλήση/μεταφορά/τερματισμός) θα πάρουν ΞΕΧΩΡΙΣΤΟ cap όταν έρθουν. */
+        'comms.pbx'          => ['view',   'Διασύνδεση 3CX', 'Κατάσταση σύνδεσης, υγεία, τεχνικό ημερολόγιο'],
+        'comms.pbx.edit'     => ['edit',   'Ρύθμιση & κόστη', 'Στοιχεία σύνδεσης, έλεγχος, κόστος ανά χειριστή', 'comms.pbx'],
         'team.calendar'      => ['view',   'Ημερολόγιο', 'Κοινό ημερολόγιο: ραντεβού, meetings, άδειες (προβολή & RSVP)'],
         'team.calendar.edit' => ['edit',   'Επεξεργασία', 'Δημιουργία, αλλαγή και διαγραφή γεγονότων', 'team.calendar'],
         'team.standup'       => ['view',   'Standup', 'Ημερήσια/εβδομαδιαία σύνοψη και ατζέντα της ομάδας'],
@@ -3035,6 +3041,8 @@ function cnp_action_cap($action)
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
+        $add('comms.pbx', ['pbx_settings', 'pbx_log']);
+        $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
@@ -5309,6 +5317,88 @@ case 'task_reopen':                      // «πατήθηκε κατά λάθο
     Db::logActivity($tR->id, $adminId, 'move',
         'Ξανάνοιξε — επέστρεψε σε «' . ($stR->title ?? '?') . '»');
     out(['ok' => true, 'status' => $backTo, 'statusTitle' => $stR->title ?? '']);
+
+/* ═══════════ CloudOn Agent — ΔΙΑΣΥΝΔΕΣΗ 3CX ═══════════
+   Φάση 0–2: στοιχεία σύνδεσης, ταυτοποίηση, «πάγωμα συμβολαίου» (τι υποστηρίζει
+   ΑΥΤΟ το PBX), και ευέλικτα κόστη ανά χειριστή. Καμία ανάγνωση κλήσεων ακόμη —
+   αυτό είναι η επόμενη φάση, αφού επιβεβαιωθεί το συμβόλαιο. */
+case 'pbx_settings':
+    $probeRaw = Pbx3cxClient::cfg('last_probe');
+    /* Κόστη: το ΤΡΕΧΟΝ ανά χειριστή + το ιστορικό του καθενός. */
+    $ratesAll = [];
+    foreach (Capsule::table('mod_cpm_cost_rates')->orderBy('admin_id')->orderBy('valid_from', 'desc')->get() as $rr) {
+        $ratesAll[] = ['id' => (int) $rr->id, 'admin' => (int) $rr->admin_id,
+            'name' => Db::adminName((int) $rr->admin_id),
+            'rate' => (float) $rr->cost_per_hour, 'from' => $rr->valid_from, 'note' => $rr->note];
+    }
+    $people = [];
+    foreach (Db::admins() as $ad) {
+        $nm = trim($ad->firstname . ' ' . $ad->lastname);
+        if (cnp_is_bot($nm, $ad->username)) { continue; }
+        $cur = Capsule::table('mod_cpm_cost_rates')->where('admin_id', $ad->id)
+            ->where('valid_from', '<=', date('Y-m-d'))->orderBy('valid_from', 'desc')->first();
+        $people[] = ['id' => (int) $ad->id, 'name' => $nm,
+            'rate' => $cur ? (float) $cur->cost_per_hour : null,
+            'from' => $cur ? $cur->valid_from : null];
+    }
+    out([
+        'url' => Pbx3cxClient::cfg('url'),
+        'clientId' => Pbx3cxClient::cfg('client_id'),
+        /* Το secret ΔΕΝ φεύγει ποτέ στον browser — μόνο αν υπάρχει. */
+        'hasSecret' => Pbx3cxClient::cfg('secret') !== '',
+        'configured' => Pbx3cxClient::configured(),
+        'probe' => $probeRaw !== '' ? json_decode($probeRaw, true) : null,
+        'fallbackRate' => (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudonprojects')->where('setting', 'cost_per_hour')->value('value') ?: 0)),
+        'people' => $people, 'rates' => $ratesAll,
+        'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.pbx.edit'),
+    ]);
+
+case 'pbx_save':
+    $pUrl = trim((string) ($in['url'] ?? ''));
+    if ($pUrl !== '' && !preg_match('#^https?://#i', $pUrl)) { $pUrl = 'https://' . $pUrl; }
+    if ($pUrl !== '' && !filter_var($pUrl, FILTER_VALIDATE_URL)) { fail('Μη έγκυρο URL'); }
+    Pbx3cxClient::setCfg('url', rtrim($pUrl, '/'));
+    Pbx3cxClient::setCfg('client_id', trim((string) ($in['clientId'] ?? '')));
+    /* Κενό secret = «μην το αλλάξεις» — αλλιώς κάθε αποθήκευση θα το έσβηνε. */
+    $newSec = (string) ($in['secret'] ?? '');
+    if ($newSec !== '') {
+        Pbx3cxClient::setCfg('secret', cnp_vault_enc($newSec));
+        Pbx3cxClient::setCfg('token_cache', '');          // νέο secret → πέτα το παλιό token
+        Pbx3cxClient::log('auth', 'ok', 'Αποθηκεύτηκε νέο secret από ' . Db::adminName($adminId));
+    }
+    if (function_exists('logActivity')) {
+        logActivity('CPM: ρυθμίσεις διασύνδεσης 3CX από admin #' . $adminId);
+    }
+    out(['ok' => true]);
+
+case 'pbx_probe':                        // ΦΑΣΗ 0 — τι υποστηρίζει ΑΥΤΟ το PBX
+    if (!Pbx3cxClient::configured()) { fail('Συμπλήρωσε πρώτα URL, Client ID και Secret'); }
+    out(['ok' => true, 'probe' => Pbx3cxClient::probe()]);
+
+case 'pbx_log':
+    $rows = [];
+    foreach (Capsule::table('mod_cpm_pbx_log')->orderBy('id', 'desc')->limit(120)->get() as $lr) {
+        $rows[] = ['id' => (int) $lr->id, 'channel' => $lr->channel, 'status' => $lr->status,
+            'message' => $lr->message, 'at' => $lr->created_at];
+    }
+    out(['items' => $rows]);
+
+case 'pbx_rate_save':                    // κόστος ανά χειριστή, με ισχύ από ημερομηνία
+    $rAdmin = (int) ($in['admin'] ?? 0);
+    $rFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['from'] ?? '')) ? $in['from'] : date('Y-m-d');
+    $rVal = round((float) str_replace(',', '.', (string) ($in['rate'] ?? 0)), 2);
+    if (!$rAdmin || !Capsule::table('tbladmins')->where('id', $rAdmin)->exists()) { fail('Διάλεξε χειριστή'); }
+    if ($rVal < 0 || $rVal > 10000) { fail('Μη λογικό κόστος'); }
+    Capsule::table('mod_cpm_cost_rates')->updateOrInsert(
+        ['admin_id' => $rAdmin, 'valid_from' => $rFrom],
+        ['cost_per_hour' => $rVal, 'note' => mb_substr(trim((string) ($in['note'] ?? '')), 0, 160) ?: null,
+         'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'pbx_rate_del':
+    Capsule::table('mod_cpm_cost_rates')->where('id', (int) ($in['id'] ?? 0))->delete();
+    out(['ok' => true]);
 
 case 'quick_task':
     $pid = (int) ($in['project'] ?? 0);
