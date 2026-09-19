@@ -180,7 +180,6 @@ class Pbx3cxBlueprint
                     }, array_keys(self::TOPICS))),
                     [
                         $dir('804', 'Emergency', 'Queue', 'Απογευματινή και Σαββάτου εξυπηρέτηση (εσωτερικός όρος «Emergency»): κάθε θέμα όταν η κατάσταση είναι ΕΚΤΑΚΤΗ ΓΡΑΜΜΗ'),
-                        $dir(self::TICKETS_DN, 'CloudOn, Tickets', 'Extension', 'Κουτί γραπτών αιτημάτων (ticket): ΜΟΝΟ ενέργεια email, ποτέ transfer'),
                     ]),
                 'HumanHandoff' => $dir('811', 'CloudOn', 'Queue', 'Άνθρωπος της CloudOn'),
                 /* ΜΕΤΡΗΘΗΚΕ (web client 3CX): Action ∈ endcall | transfer | voicemail | chat | email.
