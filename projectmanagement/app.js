@@ -233,7 +233,6 @@ function renderShell() {
          είναι προμηθευτές, συνεργάτες ή υποψήφιοι. Δικός του πίνακας, δική του
          καρτέλα, δικά του δικαιώματα. */
       ['book', I.contact || I.users, 'Τηλεφωνικός κατάλογος', 'comms.book'],
-      ['bookfields', I.tree, 'Πεδία καταλόγου', 'comms.book.edit'],
       ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
       ['crm', I.target, 'CRM & leads', 'clients.crm'],
       ['offers', I.doc, 'Προσφορές', 'clients.offers'],
@@ -288,6 +287,9 @@ function renderShell() {
     ['Σύστημα', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
       ['teams', I.tree, 'Ομάδες & δικαιώματα', 'admin.teams'],
       ['pbx', I.phone, 'Διασύνδεση 3CX', 'comms.pbx'],
+      /* Ο ορισμός των πεδίων είναι ρύθμιση, όχι καθημερινή δουλειά — μπαίνει
+         εδώ. Ο ίδιος ο κατάλογος μένει στους Πελάτες, όπου τον ψάχνει κανείς. */
+      ['bookfields', I.tree, 'Πεδία καταλόγου', 'comms.book.edit'],
       ['settings', I.gear, 'Ρυθμίσεις', 'admin.settings'],
     ]],
   ].map(([title, hint, items]) => [title, hint, items.filter(it => !it[3] || has(it[3]))]);

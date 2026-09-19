@@ -5530,10 +5530,12 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
             /* «Έκρυψε τον αριθμό» ≠ «δεν τον αναγνωρίσαμε». Το πρώτο δεν
                διορθώνεται με καμία ταύτιση — μην το ζητήσεις από τον χρήστη. */
             'anon' => $r->client_match === 'anon',
-            /* Όνομα από το τηλεφωνικό κέντρο — προσωρινό, μέχρι να περαστεί ο
-               πελάτης στο WHMCS. Η οθόνη το δείχνει με σήμανση «3CX». */
+            /* Όνομα από τον τηλεφωνικό κατάλογο, όταν δεν υπάρχει πελάτης. Το
+               id της καρτέλας ταξιδεύει μαζί, ώστε το κλικ να ανοίγει ΤΗΝ
+               καρτέλα και όχι μια κενή φόρμα. */
             'book' => (!$ck && $r->other_e164 && !isset($skipLab[$r->other_e164]))
                 ? ($bookIt[$r->other_e164] ?? '') : '',
+            'bookId' => $r->book_id ? (int) $r->book_id : 0,
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
             'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
@@ -5650,6 +5652,7 @@ case 'call_drill':                       // «με ποιον μίλησε» / �
             'anon' => $r->client_match === 'anon',
             'book' => (!$rc && $r->other_e164 && !isset($dSkip[$r->other_e164]))
                 ? ($dBookIt[$r->other_e164] ?? '') : '',
+            'bookId' => $r->book_id ? (int) $r->book_id : 0,
             'client' => $rc, 'clientName' => $rc ? clientLabel($rc) : '',
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
@@ -7257,6 +7260,7 @@ case 'my_calls_open':                    // ΟΙ ΔΙΚΕΣ ΣΟΥ κλήσει�
             'clientName' => $mc->clientid ? clientLabel((int) $mc->clientid) : '',
             'other' => $mc->other_e164 ?: ($mc->direction === 'out' ? (string) $mc->to_no : (string) $mc->from_no),
             'book' => $mc->clientid ? '' : ($mcBook[$mc->other_e164] ?? ''),
+            'bookId' => $mc->book_id ? (int) $mc->book_id : 0,
             'anon' => $mc->client_match === 'anon'];
     }
     out(['items' => $mcOut]);

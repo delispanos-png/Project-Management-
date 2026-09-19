@@ -232,7 +232,7 @@ R.calls = async function () {
       : x.anon ? '<span class="mut" title="Ο καλών απέκρυψε τον αριθμό του">απόκρυψη αριθμού</span>'
       /* Όνομα από τον κατάλογο του 3CX: φαίνεται, αλλά σημαδεμένο — δεν είναι
          πελάτης στο WHMCS ακόμη, και δεν πρέπει να νομίζει κανείς ότι είναι. */
-      : x.book ? `${esc(x.book)} <span class="cl-3cx" title="Από τον κατάλογο του 3CX — δεν είναι πελάτης στο WHMCS">3CX</span>`
+      : x.book ? `${esc(x.book)} <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο — δεν είναι συνδεδεμένος με πελάτη WHMCS">κατάλογος</span>`
       : esc(x.other || '—')}</span>
     <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
     <span class="cl-sum">${x.summary ? esc(x.summary) : '<span class="mut">—</span>'}</span>
@@ -485,11 +485,15 @@ function callNote(x, d0) {
         <input class="inp" id="cnLq" placeholder="Γράψε όνομα πελάτη…" autocomplete="off"
           value="${esc(x.book ? (x.book.split('—')[0].trim()) : '')}">
         <div id="cnLres"></div>
+        <div class="cn-row2">
+          ${cnpCan('comms.book') ? `<button type="button" class="btn btn-sm btn-p" id="cnLcard">
+            ${x.bookId ? 'Άνοιξε την καρτέλα' : 'Καταχώρηση στον κατάλογο'}</button>` : ''}
+          <button type="button" class="btn btn-sm btn-o" id="cnLskip">Δεν είναι πελάτης</button>
+        </div>
         ${cnpCan('comms.book.edit') ? `
         <label class="cn-book"><input type="checkbox" id="cnLbook" checked>
-          ${x.book ? 'να ενημερωθεί και ο κατάλογος του 3CX' : 'να μπει και στον κατάλογο του 3CX'}
-          <span class="mut">— για να το βλέπει η ομάδα στο τηλέφωνο</span></label>` : ''}
-        <button type="button" class="btn btn-sm btn-o" id="cnLskip" style="margin-top:7px">Δεν είναι πελάτης</button>
+          να μπει και στον κατάλογο
+          <span class="mut">— για να τον βλέπει η ομάδα στο τηλέφωνο</span></label>` : ''}
       </div>` : ''}
       <label class="lbl">Τι ζήτησε / τι έκανες</label>
       <input class="inp" id="cnS" maxlength="500" value="${esc(x.summary || '')}" placeholder="π.χ. Ρύθμιση XML Skroutz — έγινε επί τόπου">
@@ -547,6 +551,15 @@ function callNote(x, d0) {
                 toBook: !!($('#cnLbook', ovl) || {}).checked}));
       }, 260);
     };
+    /* Ο πλήρης δρόμος: ολόκληρη η καρτέλα, με τον αριθμό ήδη μέσα. Εκεί
+       μπαίνουν ΑΦΜ, διεύθυνση, υπεύθυνος — όσα δεν χωρούν σε ένα πεδίο. */
+    const card = $('#cnLcard', ovl);
+    if (card) {
+      card.onclick = () => {
+        kill();
+        bookCard(x.bookId || 0, {phone: x.other, company: x.book || ''});
+      };
+    }
     $('#cnLskip', ovl).onclick = () => {
       const lbl = prompt('Ποιος είναι; (π.χ. ΔΕΗ, τηλεπωλήσεις, προμηθευτής)', x.skipLabel || '');
       if (lbl && lbl.trim()) { link({e164: x.other, skip: true, label: lbl.trim()}); }
@@ -704,7 +717,7 @@ function bookImport() {
    Τέσσερα πράγματα σε ένα scroll: ποιος είναι, πώς τον βρίσκεις, τι τρέχει
    μαζί του, τι έχει γίνει. Ο κανόνας της καρτέλας task ισχύει και εδώ —
    ένα scroll, χωρίς διπλά. */
-async function bookCard(id) {
+async function bookCard(id, pre) {
   const dr = drawer(id ? 'Καρτέλα' : 'Νέα καρτέλα', '<div class="skel" style="height:420px"></div>', true);
   /* Το σώμα του drawer έχει id ppBody — κοινό για όλη την εφαρμογή. */
   const body = $('#ppBody', dr);
@@ -715,7 +728,11 @@ async function bookCard(id) {
     if (!d || d.error) { body.innerHTML = cnpDenied({message: (d && d.error) || 'Δεν φορτώθηκε.'}); return; }
   } else {
     const l = R.book._d || {};
-    d = {card: {id: 0, status: 'active', toPbx: 1}, phones: [], fields: [], timeline: [], calls: [],
+    /* Προσυμπλήρωση όταν ερχόμαστε από κλήση: ο αριθμός είναι ήδη γνωστός και
+       δεν έχει νόημα να τον ξαναγράψει κανείς. */
+    d = {card: {id: 0, status: 'active', toPbx: 1, company: (pre && pre.company) || ''},
+         phones: (pre && pre.phone) ? [{e164: pre.phone, raw: pre.phone, label: 'main'}] : [],
+         fields: [], timeline: [], calls: [],
          totals: {calls: 0, talk: 0, missed: 0}, statuses: l.statuses || {active: 'Ενεργός'},
          labels: l.labels || {main: 'Κύριο'}, people: [], canEdit: true, canDel: false};
     /* Τα δικά μας πεδία χρειάζονται και στη νέα καρτέλα. */

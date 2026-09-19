@@ -3664,3 +3664,4 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
   .bc-ti{grid-template-columns:1fr;row-gap:2px}
   .bc-tw{text-align:left}
 }
+.cn-row2{display:flex;gap:7px;margin-top:8px;flex-wrap:wrap}
