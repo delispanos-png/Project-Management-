@@ -126,12 +126,12 @@ class AiTickets
     {
         $when = date('d/m/Y H:i', strtotime((string) $r['StartTime']));
         $who = $d['name'] !== '' ? $d['name'] . ' (' . $d['e164'] . ')' : ($d['e164'] ?: 'ανώνυμος');
-        $body = "Αίτημα από την AI ρεσεψιόν — δίχτυ ασφαλείας του CloudOn Agent.\n"
-            . "Ο καλών ζήτησε ticket/μήνυμα/επανάκληση και δεν βρέθηκε ticket από τη ρεσεψιόν.\n\n"
+        /* ΜΟΝΟ η σύνοψη της AI (απόφαση 20/09/2026): η ηχογράφηση δεν προσθέτει
+           τίποτα και η πλήρης απομαγνητοφώνηση υπάρχει στην κάρτα «AI ρεσεψιόν».
+           Χωρίς σύνοψη, μπαίνει το κείμενο ως εφεδρεία. */
+        $body = "Αίτημα από την AI ρεσεψιόν.\n"
             . "Κλήση: " . $when . " από " . $who . "\n\n"
-            . ($sum !== '' ? "Περίληψη (3CX):\n" . $sum . "\n\n" : '')
-            . ($text !== '' ? "Απομαγνητοφώνηση:\n" . $text . "\n\n" : '')
-            . (!empty($r['RecordingUrl']) ? "Ηχογράφηση: " . $r['RecordingUrl'] . "\n" : '');
+            . ($sum !== '' ? $sum : "Απομαγνητοφώνηση:\n" . $text) . "\n";
         $params = ['deptid' => self::DEPT, 'subject' => 'Αίτημα από ρεσεψιόν: ' . ($d['name'] !== '' ? $d['name'] : $d['e164']),
             'message' => $body, 'priority' => 'Medium', 'markdown' => false];
         if ($d['clientid'] > 0) { $params['clientid'] = $d['clientid']; }
