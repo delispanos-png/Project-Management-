@@ -51,12 +51,34 @@ class Pbx3cxClient
         return self::baseUrl() !== '' && self::cfg('client_id') !== '' && self::cfg('secret') !== '';
     }
 
+    /**
+     * Το κλειδί του vault — ΤΟ ΙΔΙΟ που χρησιμοποιούν οι κωδικοί (pm_vault_key).
+     * Υλοποιείται εδώ και όχι μέσω cnp_vault_dec() του api.php, γιατί η κλάση
+     * πρέπει να δουλεύει ΚΑΙ από cron/worker, όπου το api.php δεν φορτώνεται.
+     * (Βρέθηκε στη δοκιμή: από CLI η αποκρυπτογράφηση γύριζε κενό και το 3CX
+     * απαντούσε invalid_client — σιωπηλή αποτυχία που θα χτυπούσε στη Φάση 5.)
+     */
+    private static function vaultKey()
+    {
+        $v = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+            ->where('setting', 'pm_vault_key')->value('value');
+        return $v ? base64_decode($v) : '';
+    }
+
     /** Το secret αποκρυπτογραφημένο — μένει στη μνήμη, δεν φεύγει ποτέ στο UI. */
     private static function secret()
     {
         $blob = self::cfg('secret');
         if ($blob === '') { return ''; }
-        return function_exists('cnp_vault_dec') ? (string) cnp_vault_dec($blob) : '';
+        $key = self::vaultKey();
+        if ($key === '') { return ''; }
+        $raw = base64_decode($blob);
+        if (strlen($raw) < 28) { return ''; }
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $ct = substr($raw, 28);
+        $plain = openssl_decrypt($ct, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        return $plain === false ? '' : (string) $plain;
     }
 
     /**
@@ -111,6 +133,10 @@ class Pbx3cxClient
         for ($try = 0; $try < 2; $try++) {
             $r = self::http('GET', $url, null, self::token($try > 0));
             if ($r['code'] === 401 && $try === 0) { continue; }
+            if ($r['code'] === 403) {
+                self::log('xapi', 'error', $path . ' → 403 (ο ρόλος του API client δεν το επιτρέπει)');
+                throw new \RuntimeException('δεν το επιτρέπει ο ρόλος του API client (403)');
+            }
             if ($r['code'] < 200 || $r['code'] >= 300) {
                 self::log('xapi', 'error', $path . ' → HTTP ' . $r['code']);
                 throw new \RuntimeException('3CX XAPI HTTP ' . $r['code'] . ' στο ' . $path);
@@ -149,17 +175,50 @@ class Pbx3cxClient
             $t = self::token(true);
             return 'token μήκους ' . strlen($t);
         });
+        /* Το Version είναι ΙΔΙΟΤΗΤΑ του singleton SystemStatus — όχι bound function.
+           (Το GetVersionType() είναι IsBound σε Pbx.SystemStatus· δεν καλείται από τη ρίζα.) */
         $add('version', 'Έκδοση PBX', function () {
-            $j = self::xapi('GetVersionType()');
-            return is_array($j) ? json_encode($j['value'] ?? $j, JSON_UNESCAPED_UNICODE) : (string) $j;
+            $j = self::xapi('SystemStatus');
+            $v = $j['Version'] ?? '';
+            if ($v === '') { throw new \RuntimeException('δεν επιστράφηκε έκδοση'); }
+            return 'v' . $v . ' · ' . (int) ($j['ExtensionsTotal'] ?? 0) . ' extensions, '
+                . (int) ($j['TrunksRegistered'] ?? 0) . '/' . (int) ($j['TrunksTotal'] ?? 0) . ' trunks, '
+                . (int) ($j['CallsActive'] ?? 0) . ' ενεργές κλήσεις';
         });
         $add('users', 'Χρήστες / extensions', function () {
             $j = self::xapi('Users', ['$top' => 1, '$count' => 'true']);
-            return ($j['@odata.count'] ?? count($j['value'] ?? [])) . ' extensions';
+            return ($j['@odata.count'] ?? count($j['value'] ?? [])) . ' extensions προς χαρτογράφηση';
         });
-        $add('calls', 'Ιστορικό κλήσεων', function () {
-            $j = self::xapi('ActiveCalls', ['$top' => 1]);
-            return 'ActiveCalls OK (' . count($j['value'] ?? []) . ' ενεργές τώρα)';
+        $add('map', 'Χαρτογράφηση DN → χειριστές', function () {
+            /* Το $select ΠΡΕΠΕΙ να περιλαμβάνει Id και το $top να μένει λογικό —
+               αλλιώς το XAPI απαντά 400 (επαληθεύτηκε στη δοκιμή). */
+            $j = self::xapi('Users', ['$top' => 50, '$select' => 'Id,Number,FirstName,LastName,EmailAddress']);
+            $mails = [];
+            foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['email']) as $a) {
+                $mails[mb_strtolower(trim((string) $a->email))] = true;
+            }
+            $hit = 0; $tot = 0;
+            foreach ($j['value'] ?? [] as $u) {
+                $tot++;
+                $em = mb_strtolower(trim((string) ($u['EmailAddress'] ?? '')));
+                if ($em !== '' && isset($mails[$em])) { $hit++; }
+            }
+            return $hit . ' από ' . $tot . ' ταυτίζονται αυτόματα με email';
+        });
+        $add('history', 'Ιστορικό κλήσεων', function () {
+            /* Η ΠΗΓΗ ΑΛΗΘΕΙΑΣ της αρχιτεκτονικής — αν δεν διαβάζεται, δεν έχουμε ιστορικό. */
+            self::xapi('CallHistoryView', ['$top' => 1]);
+            return 'διαβάζεται';
+        });
+        $add('cdr', 'CDR (εναλλακτικό ιστορικό)', function () {
+            $j = self::xapi('CDRSettings');
+            if (empty($j['Enabled'])) { throw new \RuntimeException('απενεργοποιημένο'); }
+            return 'ενεργό · ' . ($j['LogType'] ?? '—');
+        });
+        $add('ai', 'AI (περίληψη/απομαγνητοφώνηση)', function () {
+            $j = self::xapi('AISettings');
+            if (empty($j['Enabled'])) { throw new \RuntimeException('απενεργοποιημένο στο PBX'); }
+            return 'ενεργό · ' . ($j['Provider'] ?? '—');
         });
         $add('callcontrol', 'Call Control API', function () {
             $r = self::http('GET', self::baseUrl() . '/callcontrol', null, self::token());
