@@ -3092,7 +3092,7 @@ function cnp_action_cap($action)
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
         $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
         $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
-            'pbx_sync', 'pbx_map_save', 'calls_backfill', 'pbx_apply']);
+            'pbx_sync', 'pbx_map_save', 'calls_backfill', 'pbx_apply', 'pbx_ai_voice']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
         $add('team.standup', ['standup', 'agenda']);
@@ -5450,7 +5450,22 @@ case 'pbx_ai_calls':                     // οι τελευταίες κλήσε
                 'summary' => trim((string) ($r['Summary'] ?? '')), 'transcript' => trim((string) ($r['Transcription'] ?? ''))];
         }
     } catch (\Throwable $e) { fail('3CX: ' . $e->getMessage()); }
-    out(['items' => $aiRows, 'mode' => Pbx3cxBlueprint::agentMode(), 'modeLabel' => Pbx3cxBlueprint::modeLabel(Pbx3cxBlueprint::agentMode())]);
+    out(['items' => $aiRows, 'mode' => Pbx3cxBlueprint::agentMode(), 'modeLabel' => Pbx3cxBlueprint::modeLabel(Pbx3cxBlueprint::agentMode()),
+        'voice' => Pbx3cxBlueprint::voice(), 'voices' => Pbx3cxBlueprint::VOICES,
+        'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.pbx.edit')]);
+
+case 'pbx_ai_voice':                     // δοκιμή φωνής: αλλάζει ΑΜΕΣΩΣ στο 902, ο καλών το ακούει στην επόμενη κλήση
+    $aiVoice = (string) ($in['voice'] ?? '');
+    if (!isset(Pbx3cxBlueprint::VOICES[$aiVoice])) { fail('Άγνωστη φωνή'); }
+    Pbx3cxClient::setCfg('ai_voice', $aiVoice);
+    try {
+        $aiU = Pbx3cxClient::xapi('Users', ['$top' => 1, '$filter' => "Number eq '" . Pbx3cxBlueprint::AI_DN . "'", '$select' => 'Id,AgentSettings']);
+        $aiAs = $aiU['value'][0]['AgentSettings'] ?? [];
+        $aiAs['Voice'] = $aiVoice;
+        Pbx3cxClient::xwrite('PATCH', 'Users(' . Pbx3cxBlueprint::AI_ID . ')', ['AgentSettings' => $aiAs]);
+    } catch (\Throwable $e) { fail('3CX: ' . $e->getMessage()); }
+    Pbx3cxClient::log('blueprint', 'ok', 'Φωνή AI ρεσεψιόν → ' . $aiVoice . ' από ' . Db::adminName($adminId));
+    out(['ok' => true, 'voice' => $aiVoice]);
 
 case 'pbx_apply':                        // εφαρμογή βημάτων του σχεδίου στο PBX
     /* Χωρίς keys: όλα τα χαμηλού ρίσκου. Η ΔΡΟΜΟΛΟΓΗΣΗ (route_*) εφαρμόζεται

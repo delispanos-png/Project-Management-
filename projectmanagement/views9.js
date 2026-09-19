@@ -126,6 +126,7 @@ R.pbx = async function () {
 
   ${ac ? `<div class="card"><div class="card-h">${I.zap} AI ρεσεψιόν — τελευταίες κλήσεις
     <span class="pbx-mode ${esc(ac.mode)}">${esc(ac.modeLabel)}</span>
+    ${ac.canEdit ? `<select class="inp pbx-voice" id="pxVoice" title="Φωνή — αλλάζει αμέσως, κάλεσε το 902 για να την ακούσεις">${Object.entries(ac.voices || {}).map(([k, v]) => `<option value="${esc(k)}" ${k === ac.voice ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>` : `<span class="mut" style="font-size:11.5px;margin-left:8px">φωνή: ${esc(ac.voice || '')}</span>`}
     <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">η εκπαίδευση ξεκινά από εδώ: διάβασε τι είπε, σημείωσε τι θα έλεγε καλύτερα</span></div>
     <div class="card-b">
       ${ac.items.length ? `<div class="pbx-ai">${ac.items.map(x => `<details class="pbx-aic">
@@ -204,6 +205,14 @@ R.pbx = async function () {
       toast('Αποθηκεύτηκε — ο συγχρονισμός δεν θα το αλλάξει');
       R.pbx();
     });
+    const vs = $('#pxVoice');
+    if (vs) { vs.onchange = async () => {
+      vs.disabled = true;
+      const r = await api('pbx_ai_voice', {voice: vs.value}).catch(e => ({err: e.message}));
+      vs.disabled = false;
+      if (r.err) { toast(r.err, true); return; }
+      toast('Φωνή: ' + vs.options[vs.selectedIndex].text + ' — κάλεσε το 902 για να την ακούσεις');
+    }; }
     const ap = $('#pxApply');
     if (ap) { ap.onclick = async () => {
       if (!(await window.CNP.cnpConfirm('Να εφαρμοστούν στο 3CX όλες οι αλλαγές χαμηλού ρίσκου (τμήματα, ωράρια, ουρές, εσωτερικό 900, AI ρεσεψιόν, καθάρισμα παλιών τμημάτων);\n\nΗ δρομολόγηση των γραμμών ΔΕΝ αλλάζει από εδώ.', {ok: 'Εφαρμογή', cancel: 'Άκυρο'}))) { return; }
