@@ -759,6 +759,22 @@ TXT;
                 }
             }];
 
+        /* 5στ. Το 901 ήταν δεύτερος, ημιτελής AI agent (Personal Assistant, κενές
+           οδηγίες, παλιά φωνή) χωρίς καμία γραμμή προς αυτό. Μία AI είσοδος = το 902.
+           Απόφαση 20/09/2026: διαγραφή, για να μην μπερδεύει. */
+        $S[] = ['key' => 'del_901', 'label' => 'Διαγραφή του 901 (δεύτερος, αχρησιμοποίητος AI agent)',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $u = $L['users']['901'] ?? null;
+                return [$u ? 'change' : 'ok', $u ? 'υπάρχει ακόμη («' . $u['DisplayName'] . '») — θα διαγραφεί' : 'δεν υπάρχει'];
+            },
+            'apply' => function ($L) {
+                $u = $L['users']['901'] ?? null;
+                if (!$u) { return; }
+                Pbx3cxClient::xwrite('DELETE', 'Users(' . (int) $u['Id'] . ')');
+                Pbx3cxClient::log('blueprint', 'ok', 'Διαγράφηκε το 901 «' . $u['DisplayName'] . '»');
+            }];
+
         /* 6. Καθάρισμα παλιών τμημάτων — ΜΟΝΟ αφού όλοι είναι στο CloudOn. */
         $S[] = ['key' => 'g_cleanup', 'label' => 'Κατάργηση παλιών τμημάτων (' . implode(', ', self::OLD_GROUPS) . ')',
             'risk' => 'low',
