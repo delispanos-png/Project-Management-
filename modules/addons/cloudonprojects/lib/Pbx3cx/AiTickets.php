@@ -98,9 +98,18 @@ class AiTickets
         if (preg_match(self::SPAM, $sum)) { $out['decision'] = 'spam'; $out['reason'] = 'spam κατά την περίληψη'; return $out; }
         /* Υβριστικός καλών: η ρεσεψιόν έκλεισε επίτηδες — δεν ανοίγει ticket. */
         if (preg_match(self::HOSTILE, $sum)) { $out['decision'] = 'hostile'; $out['reason'] = 'υβριστικός καλών — η κλήση τερματίστηκε επίτηδες'; return $out; }
-        if (stripos($sum, 'No meaningful conversation') !== false && mb_strlen($text) < 200) {
+        /* ΜΕΤΡΗΘΗΚΕ (02:50): κλήση όπου ο καλών μόνο άκουσε τον χαιρετισμό έγινε ticket,
+           επειδή οι λέξεις «ticket ή μήνυμα» ήταν στα λόγια της ΡΕΣΕΨΙΟΝ. Άρα: η
+           σύνοψη «No meaningful conversation» αρκεί, και οι λέξεις-κλειδιά μετρούν
+           μόνο σε ό,τι απομένει αφού αφαιρεθούν οι γνωστές φράσεις της ρεσεψιόν. */
+        if (stripos($sum, 'No meaningful conversation') !== false) {
             $out['decision'] = 'empty'; $out['reason'] = 'χωρίς ουσιαστική συνομιλία'; return $out;
         }
+        $caller = self::callerText($text);
+        if (mb_strlen($caller) < 25) {
+            $out['decision'] = 'empty'; $out['reason'] = 'ο καλών δεν είπε ουσιαστικά τίποτα'; return $out;
+        }
+        $all = $caller . "\n" . preg_replace('/Αυτόματο μήνυμα[^\n]*/u', '', $sum);
         /* Μίλησε με άνθρωπο; Τότε ο άνθρωπος καταγράφει, όχι εμείς. */
         if ($e164 !== '' && Capsule::table('mod_cpm_calls')->where('other_e164', $e164)->where('answered', 1)
             ->whereBetween('started_at', [date('Y-m-d H:i:s', $start - 120), date('Y-m-d H:i:s', $start + 900)])->exists()) {
@@ -154,6 +163,24 @@ class AiTickets
             } catch (\Throwable $e) { /* το χρονολόγιο δεν χαλάει το ticket */ }
         }
         return $tid;
+    }
+
+    /** Ό,τι μένει από το κείμενο αφού φύγουν οι γνωστές φράσεις της ρεσεψιόν — δηλαδή τα λόγια του καλούντα. */
+    private static function callerText($text)
+    {
+        $pat = ['Καλέσατε την', 'Καλώς ήρθατε', 'Αυτή τη στιγμή είμαστε κλειστ', 'Το ωράριό μας', 'Μπορώ να καταχωρήσω',
+            'Πείτε μου το όνομά σας', 'Θέλετε να ανοίξουμε', 'Το όνομά σας', 'Η επιχείρησή σας', 'Να σας καλέσουμε',
+            'Πείτε μου με λίγα λόγια', 'Λοιπόν', 'Σωστά', 'Καταχωρήθηκε το αίτημά σας', 'Θα σας καλέσουμε', 'Καλή συνέχεια',
+            'Ευχαριστ', 'Μάλιστα', 'Βεβαίως', 'Πώς θα μπορούσαμε να σας βοηθήσουμε', 'Σας συνδέω', 'Καταλαβαίνω ότι είστε'];
+        $out = [];
+        foreach (preg_split('/(?<=[.;?!])\s+|\n+/u', (string) $text) as $s) {
+            $s = trim($s);
+            if ($s === '') { continue; }
+            $isAgent = false;
+            foreach ($pat as $p) { if (mb_stripos($s, $p) !== false) { $isAgent = true; break; } }
+            if (!$isAgent) { $out[] = $s; }
+        }
+        return implode(' ', $out);
     }
 
     private static function remember(array $r, array $d)
