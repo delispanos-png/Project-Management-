@@ -281,13 +281,16 @@ try {
     require_once __DIR__ . '/../lib/Pbx3cx/Sync.php';
     if (\WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient::configured()) {
         $sy = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::run();
-        /* Και ο εταιρικός κατάλογος: καλύπτει το 53% των κλήσεων που το WHMCS
-           δεν αναγνωρίζει. Χωρίς αυτό, κάθε νέα επαφή που καταχωρεί η ομάδα στο
-           τηλεφωνικό κέντρο θα έμενε αόρατη εδώ. */
+        /* Ο ΚΑΤΑΛΟΓΟΣ ΤΑΞΙΔΕΥΕΙ ΠΡΟΣ ΤΑ ΕΞΩ, όχι προς τα μέσα: η αλήθεια είναι
+           στο CloudOn και το τηλεφωνικό κέντρο είναι το αντίγραφο. Στέλνουμε
+           ό,τι άλλαξε ή δεν πρόλαβε να φύγει (π.χ. το PBX ήταν εκτός). */
         require_once __DIR__ . '/../lib/Pbx3cx/Cdr.php';
-        $bk = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::book();
-        if (function_exists('logActivity')) {
-            logActivity('CPM daily: κατάλογος 3CX — ' . $bk['numbers'] . ' αριθμοί');
+        require_once __DIR__ . '/../lib/Book.php';
+        $bk = \WHMCS\Module\Addon\CloudonProjects\Book::pushPending(300);
+        \WHMCS\Module\Addon\CloudonProjects\Book::refreshLastCall();
+        if (function_exists('logActivity') && ($bk['sent'] || $bk['failed'])) {
+            logActivity('CPM daily: κατάλογος → 3CX — στάλθηκαν ' . $bk['sent']
+                . ($bk['failed'] ? ', απέτυχαν ' . $bk['failed'] : ''));
         }
         if (function_exists('logActivity')) {
             logActivity('CPM daily: 3CX δομή — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']

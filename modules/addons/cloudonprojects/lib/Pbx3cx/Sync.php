@@ -188,66 +188,15 @@ class Pbx3cxSync
      * server) και ζητήθηκαν δεδομένα ΜΟΝΟ της τρέχουσας χρονιάς. Το ιστορικό
      * έρχεται από το CDR. Μην ξαναγραφτεί paging πάνω στο CallHistoryView. */
 
-    /**
-     * Ο εταιρικός κατάλογος του 3CX → δικός μας πίνακας.
+    /* ΑΦΑΙΡΕΘΗΚΕ: book() — διάβαζε τον κατάλογο του 3CX σε δικό μας καθρέφτη.
      *
-     * ΤΟ ΠΡΟΒΛΗΜΑ ΠΟΥ ΛΥΝΕΙ: το WHMCS έχει τηλέφωνο για 210 πελάτες, οπότε 9
-     * στις 10 κλήσεις έβγαιναν γυμνός αριθμός. Το τηλεφωνικό κέντρο όμως έχει
-     * 476 επαφές που η ομάδα έχει ήδη καταχωρήσει. Τις διαβάζουμε ώστε να
-     * φαίνεται ΟΝΟΜΑ μέχρι να περαστεί ο πελάτης κανονικά στο WHMCS.
+     * Ο κατάλογος δεν είναι πια αντίγραφο: είναι δικός μας (mod_cpm_book, με
+     * καρτέλα ανά επαφή) και ΕΜΕΙΣ ενημερώνουμε το τηλεφωνικό κέντρο. Το 3CX
+     * διαβάστηκε μία φορά, από το Book::importFromPbx().
      *
-     * ΔΕΝ γίνονται πελάτες: δεν αγγίζουμε το clientid πουθενά. Είναι μόνο
-     * ετικέτα εμφάνισης, και φαίνεται ρητά ότι προέρχεται από το 3CX.
-     */
-    public static function book()
-    {
-        /* ΠΡΟΣΟΧΗ: το πεδίο «Other» ΔΕΝ είναι πάντα τηλέφωνο — μετρήθηκε να
-           κρατά τίτλο θέσης («Senior Technical Consultant»). Δεχόμαστε μόνο
-           τιμές που μοιάζουν με αριθμό. */
-        $fields = ['PhoneNumber', 'Mobile2', 'Business', 'Business2', 'Home', 'Other'];
-        $now = date('Y-m-d H:i:s');
-        $seen = [];
-        $rows = 0;
-
-        for ($skip = 0; $skip < 5000; $skip += 100) {
-            $j = Pbx3cxClient::xapi('Contacts', ['$top' => 100, '$skip' => $skip], 30);
-            $v = $j['value'] ?? [];
-            if (!$v) { break; }
-            foreach ($v as $c) {
-                $cid = (int) ($c['Id'] ?? 0);
-                $nm = trim(trim((string) ($c['FirstName'] ?? '')) . ' ' . trim((string) ($c['LastName'] ?? '')));
-                $co = trim((string) ($c['CompanyName'] ?? ''));
-                /* Δείχνουμε ό,τι αναγνωρίζει άνθρωπος: επωνυμία αν υπάρχει,
-                   αλλιώς το όνομα. Αν υπάρχουν και τα δύο, μπαίνουν μαζί. */
-                $label = $co !== '' && $nm !== '' ? $co . ' — ' . $nm : ($co !== '' ? $co : $nm);
-                if ($label === '') { continue; }
-
-                foreach ($fields as $f) {
-                    $raw = trim((string) ($c[$f] ?? ''));
-                    if ($raw === '' || !preg_match('/^[\d\s()+.\-]{6,}$/', $raw)) { continue; }
-                    $e = Pbx3cxCdr::e164($raw);
-                    if ($e === '' || strlen(preg_replace('/\D/', '', $e)) < 8) { continue; }
-                    $key = $e . '|' . $cid;
-                    if (isset($seen[$key])) { continue; }
-                    $seen[$key] = 1;
-                    Capsule::table('mod_cpm_pbx_book')->updateOrInsert(
-                        ['e164' => $e, 'contact_id' => $cid],
-                        ['name' => mb_substr($label, 0, 160), 'company' => mb_substr($co, 0, 160),
-                         'field' => $f, 'synced_at' => $now]);
-                    $rows++;
-                }
-            }
-            if (count($v) < 100) { break; }
-        }
-
-        /* Ό,τι έφυγε από τον κατάλογο του 3CX φεύγει και από εδώ — αλλιώς θα
-           δείχναμε για πάντα όνομα που κάποιος έσβησε επίτηδες. */
-        $gone = Capsule::table('mod_cpm_pbx_book')->where('synced_at', '<', $now)->delete();
-
-        Pbx3cxClient::log('sync', 'ok', 'Κατάλογος 3CX: ' . $rows . ' αριθμοί'
-            . ($gone ? ' · έφυγαν ' . $gone : ''));
-        return ['numbers' => $rows, 'removed' => (int) $gone];
-    }
+     * Αν ξαναγραφόταν ανάγνωση από εκεί, θα είχαμε δύο πηγές για το ίδιο
+     * πράγμα και θα κέρδιζε πάντα ο τελευταίος που πάτησε αποθήκευση — χωρίς
+     * κανείς να ξέρει ποιος ούτε πότε. */
 
     /** Ο χάρτης όπως τον βλέπει η οθόνη. */
     public static function map()

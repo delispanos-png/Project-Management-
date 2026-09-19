@@ -844,6 +844,9 @@ function quickCx(pre) {
   else { $q('#cxWho').focus(); }
 }
 window.CNP.quickCx = quickCx;
+/* Ο κανόνας των shared helpers: ό,τι χρειάζεται άλλο view module περνά ΜΟΝΟ
+   από το window.CNP. Το drawer() το θέλει και ο τηλεφωνικός κατάλογος. */
+window.CNP.drawer = drawer;
 
 /* ───────── Η καρτέλα του παραπόνου ───────── */
 async function openCx(id) {

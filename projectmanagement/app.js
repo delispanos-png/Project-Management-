@@ -229,6 +229,11 @@ function renderShell() {
     ]],
     ['Πελάτες', 'ποιοι είναι, τι θέλουν, τι τους έχουμε προτείνει', [
       ['clientlist', I.users || I.list, 'Λίστα πελατών', 'clients.card'],
+      /* Ο κατάλογος ζει εδώ, αλλά ΔΕΝ είναι λίστα πελατών: οι 2 στις 3 επαφές
+         είναι προμηθευτές, συνεργάτες ή υποψήφιοι. Δικός του πίνακας, δική του
+         καρτέλα, δικά του δικαιώματα. */
+      ['book', I.contact || I.users, 'Τηλεφωνικός κατάλογος', 'comms.book'],
+      ['bookfields', I.tree, 'Πεδία καταλόγου', 'comms.book.edit'],
       ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
       ['crm', I.target, 'CRM & leads', 'clients.crm'],
       ['offers', I.doc, 'Προσφορές', 'clients.offers'],
@@ -283,7 +288,6 @@ function renderShell() {
     ['Σύστημα', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
       ['teams', I.tree, 'Ομάδες & δικαιώματα', 'admin.teams'],
       ['pbx', I.phone, 'Διασύνδεση 3CX', 'comms.pbx'],
-      ['book', I.contact || I.users, 'Εταιρικός κατάλογος', 'comms.book'],
       ['settings', I.gear, 'Ρυθμίσεις', 'admin.settings'],
     ]],
   ].map(([title, hint, items]) => [title, hint, items.filter(it => !it[3] || has(it[3]))]);
@@ -349,7 +353,7 @@ function renderShell() {
         profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
         triage: 'Πλάνο ημ.', rootcause: 'Ρίζες', kpi: 'KPI', profit: 'Κέρδη',
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
-        settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', book: 'Εταιρικός κατάλογος', calls: 'Τηλεφωνική δραστηριότητα', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
+        settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', book: 'Τηλεφωνικός κατάλογος', bookfields: 'Πεδία καταλόγου', calls: 'Τηλεφωνική δραστηριότητα', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
         chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', activity: 'Δραστηρ.', complaints: 'Παράπονα', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
       const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)

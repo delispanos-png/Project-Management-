@@ -911,23 +911,113 @@ class Db
                 $t->dateTime('synced_at')->nullable();
             });
         }
-        /* Ο εταιρικός κατάλογος του 3CX — 476 επαφές που το WHMCS δεν ξέρει.
-           ΔΕΝ είναι πελάτες: είναι ό,τι έχει καταχωρήσει η ομάδα στο τηλεφωνικό
-           κέντρο. Τα κρατάμε για να μη βλέπουμε γυμνά νούμερα όσο ο πελάτης δεν
-           έχει περαστεί ακόμη στο WHMCS. Μία γραμμή ανά ΑΡΙΘΜΟ, όχι ανά επαφή:
-           μια επαφή έχει σταθερό, κινητό και fax. */
-        if (!$s->hasTable('mod_cpm_pbx_book')) {
-            $s->create('mod_cpm_pbx_book', function ($t) {
+        /* ───────────────── Ο ΤΗΛΕΦΩΝΙΚΟΣ ΚΑΤΑΛΟΓΟΣ ─────────────────
+           Δικός ΜΑΣ κατάλογος, με καρτέλα ανά επαφή. Ο κατάλογος του 3CX δεν
+           αρκεί: κρατά όνομα και τρία τηλέφωνα, τίποτα άλλο — ούτε διεύθυνση,
+           ούτε ΑΦΜ, ούτε σημειώσεις, ούτε ποιος τον καταχώρησε.
+
+           Η ροή είναι ΜΙΑΣ ΚΑΤΕΥΘΥΝΣΗΣ: εδώ είναι η αλήθεια, και από εδώ
+           ενημερώνεται το τηλεφωνικό κέντρο. Το 3CX διαβάζεται ΜΟΝΟ την πρώτη
+           φορά, για να γεμίσει ο κατάλογος με ό,τι έχει ήδη καταχωρήσει η
+           ομάδα. Αν γράφαμε και προς τις δύο, θα κερδίζε πάντα ο τελευταίος
+           που πάτησε αποθήκευση — και κανείς δεν θα ήξερε ποιος. */
+        if (!$s->hasTable('mod_cpm_book')) {
+            $s->create('mod_cpm_book', function ($t) {
                 $t->increments('id');
-                $t->string('e164', 24)->index();
-                $t->integer('contact_id')->unsigned()->nullable();
-                $t->string('name', 160)->nullable();       // ό,τι δείχνουμε
+                $t->string('kind', 8)->default('company');    // company | person
                 $t->string('company', 160)->nullable();
-                $t->string('field', 16)->nullable();       // PhoneNumber | Mobile2 | Business…
-                $t->dateTime('synced_at')->nullable();
-                $t->unique(['e164', 'contact_id'], 'uq_book');
+                $t->string('first', 60)->nullable();
+                $t->string('last', 60)->nullable();
+                $t->string('title', 80)->nullable();          // θέση
+                $t->string('email', 120)->nullable();
+                $t->string('website', 160)->nullable();
+                $t->string('vat', 20)->nullable();            // ΑΦΜ
+                $t->string('tax_office', 60)->nullable();     // ΔΟΥ
+                $t->string('address', 200)->nullable();
+                $t->string('city', 80)->nullable();
+                $t->string('postcode', 12)->nullable();
+                $t->string('country', 40)->nullable();
+                $t->string('tags', 160)->nullable();
+                $t->text('notes')->nullable();
+                /* Η σύνδεση με πελάτη WHMCS είναι ΠΡΟΑΙΡΕΤΙΚΗ: πολλοί στον
+                   κατάλογο είναι προμηθευτές ή υποψήφιοι, όχι πελάτες. */
+                $t->integer('clientid')->unsigned()->nullable()->index();
+                /* Η ταυτότητα της επαφής στο 3CX, για να ξέρουμε τι να
+                   ενημερώσουμε αντί να δημιουργήσουμε διπλή. */
+                $t->integer('pbx_id')->unsigned()->nullable()->index();
+                $t->dateTime('pbx_at')->nullable();           // πότε στάλθηκε
+                $t->string('pbx_error', 200)->nullable();     // γιατί δεν στάλθηκε
+                $t->tinyInteger('to_pbx')->default(1);        // να φαίνεται στα τηλέφωνα;
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->integer('updated_by')->unsigned()->nullable();
+                $t->dateTime('created_at')->nullable();
+                $t->dateTime('updated_at')->nullable();
             });
         }
+        /* Η ΠΑΡΑΚΟΛΟΥΘΗΣΗ: κατάσταση, υπεύθυνος, επόμενη κίνηση. Χωρίς αυτά ο
+           κατάλογος είναι λίστα ονομάτων· με αυτά ξέρεις τι εκκρεμεί και σε
+           ποιον. */
+        foreach ([
+            'status'      => "varchar(16) NULL DEFAULT 'active'",   // active|prospect|supplier|inactive
+            'owner_id'    => 'int(10) unsigned NULL',               // ποιος το παρακολουθεί
+            'next_at'     => 'date NULL',                           // επόμενη επαφή
+            'next_note'   => 'varchar(200) NULL',
+            'last_call_at' => 'datetime NULL',                      // υπολογίζεται από τις κλήσεις
+        ] as $col => $def) {
+            if (!$s->hasColumn('mod_cpm_book', $col)) {
+                Capsule::statement('ALTER TABLE mod_cpm_book ADD COLUMN `' . $col . '` ' . $def);
+            }
+        }
+        /* Η κλήση δείχνει στην καρτέλα του καταλόγου — μία πηγή αναγνώρισης. */
+        if (!$s->hasColumn('mod_cpm_calls', 'book_id')) {
+            Capsule::statement('ALTER TABLE mod_cpm_calls ADD COLUMN `book_id` int(10) unsigned NULL');
+            Capsule::statement('ALTER TABLE mod_cpm_calls ADD INDEX `ix_cbook` (`book_id`)');
+        }
+        if (!$s->hasColumn('mod_cpm_interactions', 'book_id')) {
+            Capsule::statement('ALTER TABLE mod_cpm_interactions ADD COLUMN `book_id` int(10) unsigned NULL');
+            Capsule::statement('ALTER TABLE mod_cpm_interactions ADD INDEX `ix_book` (`book_id`)');
+        }
+
+        /* Τα τηλέφωνα ξεχωριστά: μια επαφή έχει κεντρικό, κινητό υπευθύνου,
+           fax και όσα ακόμη χρειαστεί. Σε στήλες δεν θα χωρούσαν ποτέ. */
+        if (!$s->hasTable('mod_cpm_book_phones')) {
+            $s->create('mod_cpm_book_phones', function ($t) {
+                $t->increments('id');
+                $t->integer('book_id')->unsigned()->index();
+                $t->string('e164', 24)->index();              // κανονικοποιημένο
+                $t->string('raw', 40)->nullable();            // όπως το έγραψαν
+                $t->string('label', 20)->default('main');     // main|mobile|work|fax|other
+                $t->integer('sort')->default(0);
+                $t->unique(['book_id', 'e164'], 'uq_book_phone');
+            });
+        }
+        /* ΕΥΕΛΙΞΙΑ: πεδία που ορίζει ο ίδιος ο διαχειριστής, χωρίς κώδικα.
+           Κάθε εταιρεία θέλει να κρατά κάτι δικό της — ώρες λειτουργίας, κωδικό
+           συνεργάτη, αριθμό άδειας. Αν τα βάζαμε σε στήλες, κάθε νέα απαίτηση
+           θα ήταν καινούργια έκδοση. */
+        if (!$s->hasTable('mod_cpm_book_fields')) {
+            $s->create('mod_cpm_book_fields', function ($t) {
+                $t->increments('id');
+                $t->string('fkey', 40)->unique();             // σταθερό κλειδί
+                $t->string('label', 80);
+                $t->string('ftype', 12)->default('text');     // text|textarea|number|date|select|check|url
+                $t->string('options', 400)->nullable();       // για select, χωρισμένα με |
+                $t->string('hint', 160)->nullable();
+                $t->integer('sort')->default(0);
+                $t->tinyInteger('active')->default(1);
+                $t->tinyInteger('in_list')->default(0);       // να φαίνεται στη λίστα;
+            });
+        }
+        if (!$s->hasTable('mod_cpm_book_values')) {
+            $s->create('mod_cpm_book_values', function ($t) {
+                $t->increments('id');
+                $t->integer('book_id')->unsigned()->index();
+                $t->integer('field_id')->unsigned()->index();
+                $t->text('value')->nullable();
+                $t->unique(['book_id', 'field_id'], 'uq_book_value');
+            });
+        }
+
         /* Αριθμοί που ΞΕΡΟΥΜΕ ότι δεν ανήκουν σε πελάτη: προμηθευτές, τράπεζες,
            τηλεπωλήσεις. Χωρίς αυτό, ο ίδιος άγνωστος αριθμός ζητάει ταύτιση
            κάθε φορά που καλεί — και κάποιοι καλούν 300 φορές τον χρόνο. */

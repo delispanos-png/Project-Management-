@@ -28,6 +28,7 @@ require_once __DIR__ . '/lib/Pbx3cx/Client.php';   // CloudOn Agent — διασ
 require_once __DIR__ . '/lib/Pbx3cx/Sync.php';
 require_once __DIR__ . '/lib/Pbx3cx/Cdr.php';
 require_once __DIR__ . '/lib/Pbx3cx/Report.php';
+require_once __DIR__ . '/lib/Book.php';
 
 function cloudonprojects_config()
 {
