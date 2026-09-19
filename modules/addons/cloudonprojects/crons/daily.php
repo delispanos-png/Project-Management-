@@ -281,17 +281,11 @@ try {
     require_once __DIR__ . '/../lib/Pbx3cx/Sync.php';
     if (\WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient::configured()) {
         $sy = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::run();
-        /* Ο ΚΑΤΑΛΟΓΟΣ ΤΑΞΙΔΕΥΕΙ ΠΡΟΣ ΤΑ ΕΞΩ, όχι προς τα μέσα: η αλήθεια είναι
-           στο CloudOn και το τηλεφωνικό κέντρο είναι το αντίγραφο. Στέλνουμε
-           ό,τι άλλαξε ή δεν πρόλαβε να φύγει (π.χ. το PBX ήταν εκτός). */
+        /* ΚΑΤΑΡΓΗΘΗΚΕ (20/09/2026) η αποστολή του καταλόγου στο 3CX — έσκαγε και
+           δεν χρειάζεται. Ο κατάλογος είναι μόνο δικός μας. */
         require_once __DIR__ . '/../lib/Pbx3cx/Cdr.php';
         require_once __DIR__ . '/../lib/Book.php';
-        $bk = \WHMCS\Module\Addon\CloudonProjects\Book::pushPending(300);
         \WHMCS\Module\Addon\CloudonProjects\Book::refreshLastCall();
-        if (function_exists('logActivity') && ($bk['sent'] || $bk['failed'])) {
-            logActivity('CPM daily: κατάλογος → 3CX — στάλθηκαν ' . $bk['sent']
-                . ($bk['failed'] ? ', απέτυχαν ' . $bk['failed'] : ''));
-        }
         if (function_exists('logActivity')) {
             logActivity('CPM daily: 3CX δομή — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']
                 . ', αντιστοιχισμένα ' . $sy['matched']

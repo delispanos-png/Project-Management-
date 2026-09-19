@@ -735,7 +735,6 @@ R.book = async function () {
   const K = d.counts;
   const CHIPS = [['', 'όλες', K.all], ['client', 'πελάτες', K.client],
                  ['noclient', 'χωρίς πελάτη', K.all - K.client],
-                 ['nopbx', 'δεν πήγαν στα τηλέφωνα', K.nopbx],
                  ['dup', 'διπλό τηλέφωνο', K.dup],
                  ['due', 'θέλουν κίνηση', K.due]];
 
@@ -753,13 +752,11 @@ R.book = async function () {
     </select>
     <span style="flex:1"></span>
     ${d.canEdit ? `<button class="btn-s" id="bkImp">Εισαγωγή</button>
-      ${K.nopbx ? `<button class="btn-s" id="bkPush" title="Στείλε στο τηλεφωνικό κέντρο όσες εκκρεμούν">↑ Στα τηλέφωνα (${K.nopbx})</button>` : ''}
       <button class="btn btn-p btn-sm" id="bkNew">${I.plus} Νέα καρτέλα</button>` : ''}
   </div>
 
   <div class="bk-chips">
     ${CHIPS.map(([k, l, n]) => `<button class="kb-chip${st.only === k ? ' on' : ''}" data-bonly="${k}">${l} <b>${n}</b></button>`).join('')}
-    ${K.pbxerr ? `<button class="kb-chip bk-err${st.only === 'pbxerr' ? ' on' : ''}" data-bonly="pbxerr">δεν στάλθηκαν <b>${K.pbxerr}</b></button>` : ''}
   </div>
 
   <div class="card"><div class="card-b" style="padding:4px 6px 8px">
@@ -772,12 +769,10 @@ R.book = async function () {
         <span class="bk-dot" style="background:${s[1]}" title="${s[0]}"></span>
         <span class="bk-n"><span class="bk-nt">${esc(b.name)}</span>${
           b.city ? `<span class="bk-city mut">${esc(b.city)}</span>` : ''}${
-          b.dup ? '<span class="bk-dup" title="Ο ίδιος αριθμός υπάρχει και σε άλλη καρτέλα">διπλό</span>' : ''}${
-          b.pbxError ? `<span class="bk-dup bk-bad" title="${esc(b.pbxError)}">δεν στάλθηκε</span>` : ''}</span>
+          b.dup ? '<span class="bk-dup" title="Ο ίδιος αριθμός υπάρχει και σε άλλη καρτέλα">διπλό</span>' : ''}</span>
         <span class="bk-p">${b.phones.map(p => esc(p.e164)).join(' · ')}</span>
         <span class="bk-c">${b.calls ? `${b.calls} κλήσεις · <b>${callHm(b.talk)}</b>` : '<span class="mut">—</span>'}</span>
-        <span class="bk-l">${b.client ? '<span class="bk-ok">πελάτης</span>'
-          : (b.toPbx && !b.pbx ? '<span class="bk-no">εκτός 3CX</span>' : '')}
+        <span class="bk-l">${b.client ? '<span class="bk-ok">πελάτης</span>' : ''}
           ${b.nextAt ? `<span class="bk-due" title="${esc(b.nextNote)}">${esc(b.nextAt.slice(5))}</span>` : ''}</span>
       </div>`; }).join('')}</div>`
       : `<div class="cl-empty">Καμία καρτέλα${st.q ? ' για «' + esc(st.q) + '»' : ''}${
@@ -800,23 +795,6 @@ R.book = async function () {
   if (d.canEdit) {
     $('#bkNew').onclick = () => bookCard(0);
     $('#bkImp').onclick = () => bookImport();
-    const pb = $('#bkPush');
-    if (pb) {
-      pb.onclick = async () => {
-        /* ΓΡΑΦΕΙ ΣΤΟ ΖΩΝΤΑΝΟ ΤΗΛΕΦΩΝΙΚΟ ΚΕΝΤΡΟ. Ένα κατά λάθος κλικ βάζει
-           εκατοντάδες επαφές στις συσκευές όλης της ομάδας — και για να τις
-           βγάλεις πρέπει να τις σβήσεις μία-μία. Ρωτάμε πρώτα, με τον αριθμό
-           μπροστά ώστε να φαίνεται το μέγεθος. */
-        if (!confirm(`Θα σταλούν ${K.nopbx} επαφές στο τηλεφωνικό κέντρο.\n\n`
-          + 'Θα τις βλέπει όλη η ομάδα στις οθόνες των τηλεφώνων.\n\nΝα προχωρήσω;')) { return; }
-        pb.disabled = true; pb.textContent = '↑ στέλνω…';
-        try { const r = await api('book_push', {});
-          toast(`Στάλθηκαν ${r.res.sent}${r.res.failed ? ` · απέτυχαν ${r.res.failed}` : ''}`,
-            r.res.failed ? 'err' : ''); R.book(); }
-        catch (e) { toast(e.message || 'Δεν στάλθηκαν', 'err'); pb.disabled = false;
-          pb.textContent = `↑ Στα τηλέφωνα (${K.nopbx})`; }
-      };
-    }
   }
 };
 
@@ -892,8 +870,6 @@ async function bookCard(id, pre) {
           d.totals.missed ? ` · ${d.totals.missed} αναπάντητες` : ''}` : 'Καμία κλήση ακόμη'}
         ${K.updatedAt ? ` · ενημερώθηκε ${esc(String(K.updatedAt).slice(0, 16))}${K.updatedBy ? ' από ' + esc(K.updatedBy) : ''}` : ''}</div>
     </div>
-    ${K.pbxError ? `<span class="bk-dup" style="color:var(--bad);border-color:#f2c9cd;background:#fdf0f1"
-      title="${esc(K.pbxError)}">δεν στάλθηκε στο 3CX</span>` : ''}
   </div>
 
   ${/* Η ΣΕΙΡΑ ΕΧΕΙ ΣΗΜΑΣΙΑ: ποιος είναι και πώς τον βρίσκεις πρώτα. Οι
@@ -980,10 +956,6 @@ async function bookCard(id, pre) {
   <div class="bc-f" style="margin-top:12px"><label class="lbl">Σημειώσεις</label>
     <textarea class="inp" data-k="notes" rows="3" ${ed ? '' : 'disabled'}>${esc(K.notes || '')}</textarea></div>
 
-  ${ed ? `<label class="cn-book" style="margin-top:12px">
-    <input type="checkbox" id="bcPbx" ${K.toPbx ? 'checked' : ''}>
-    να φαίνεται στις οθόνες των τηλεφώνων
-    <span class="mut">— στέλνεται στο 3CX με την αποθήκευση</span></label>` : ''}
 
   <div class="bc-actions">
     ${ed && d.canDel && K.id ? '<button class="btn btn-o" id="bcDel" style="color:var(--bad)">Διαγραφή</button>' : ''}
@@ -1084,7 +1056,6 @@ async function bookCard(id, pre) {
       address: g('address'), city: g('city'), postcode: g('postcode'), tags: g('tags'),
       notes: g('notes'), status: g('status'), owner: +g('owner') || 0,
       nextAt: g('nextAt'), nextNote: g('nextNote'), client: client.id,
-      toPbx: $('#bcPbx', body).checked ? 1 : 0, dropFromPbx: !$('#bcPbx', body).checked,
       products: $$('[data-prod]', body).filter(el => el.checked).map(el => el.dataset.prod),
       cover: g('cover'), routeDn: g('routeDn'),
       phones: phones.filter(p => p.raw.trim()), fields});
@@ -1096,12 +1067,10 @@ async function bookCard(id, pre) {
         const pbx = r.pbx;
         let msg = 'Αποθηκεύτηκε';
         if (r.moved) { msg += ` — ${r.moved === 1 ? 'το τηλέφωνο μεταφέρθηκε' : `${r.moved} τηλέφωνα μεταφέρθηκαν`}`; }
-        if (pbx && pbx.ok) { msg += ' · και στα τηλέφωνα'; }
-        else if (pbx && pbx.why) { msg += ' · ΟΜΩΣ το 3CX: ' + pbx.why; }
         if (r.orphans && r.orphans.length) {
           msg += ` · η «${r.orphans[0]}» έμεινε χωρίς τηλέφωνο`;
         }
-        toast(msg, (pbx && !pbx.ok && pbx.why) || (r.orphans && r.orphans.length) ? 'err' : '');
+        toast(msg, (r.orphans && r.orphans.length) ? 'err' : '');
         closeDrawer(); R.book();
         return true;
       } catch (err) {
@@ -1127,7 +1096,7 @@ async function bookCard(id, pre) {
   const del = $('#bcDel', body);
   if (del) {
     del.onclick = async () => {
-      if (!confirm(`Διαγραφή της καρτέλας «${K.name}»;\n\nΦεύγει και από το τηλεφωνικό κέντρο. Δεν αναιρείται.`)) { return; }
+      if (!confirm(`Διαγραφή της καρτέλας «${K.name}»;\n\nΔεν αναιρείται.`)) { return; }
       try { await api('book_del', {id: K.id}); toast('Διαγράφηκε'); closeDrawer(); R.book(); }
       catch (e2) { toast(e2.message || 'Δεν διαγράφηκε', 'err'); }
     };

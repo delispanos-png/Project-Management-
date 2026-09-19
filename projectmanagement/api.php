@@ -3080,7 +3080,7 @@ function cnp_action_cap($action)
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
         $add('comms.book', ['book_list', 'book_get', 'book_fields']);
-        $add('comms.book.edit', ['book_save', 'book_note', 'book_import', 'book_push']);
+        $add('comms.book.edit', ['book_save', 'book_note', 'book_import']);
         $add('comms.book.delete', ['book_del']);
         $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan', 'pbx_ai_calls']);
         $add('comms.route', ['route_overview']);
@@ -6033,8 +6033,8 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
         'counts' => [
             'all' => (int) Capsule::table('mod_cpm_book')->count(),
             'client' => (int) Capsule::table('mod_cpm_book')->whereNotNull('clientid')->count(),
-            'nopbx' => (int) Capsule::table('mod_cpm_book')->where('to_pbx', 1)->whereNull('pbx_id')->count(),
-            'pbxerr' => (int) Capsule::table('mod_cpm_book')->whereNotNull('pbx_error')->count(),
+            /* Η αποστολή στο 3CX καταργήθηκε — τα σήματα μένουν μηδέν ώστε να μη φαίνονται. */
+            'nopbx' => 0, 'pbxerr' => 0,
             'due' => (int) Capsule::table('mod_cpm_book')->whereNotNull('next_at')
                 ->where('next_at', '<=', date('Y-m-d'))->count(),
             'dup' => (int) Capsule::table('mod_cpm_book_phones')
@@ -6247,11 +6247,9 @@ case 'book_save':                        // αποθήκευση καρτέλα�
     foreach (array_unique(array_merge($old, array_keys($sPhones))) as $e) { Book::reindexCalls($e); }
     Book::refreshLastCall();
 
-    /* Και μετά, το τηλεφωνικό κέντρο. Η αποτυχία ΔΕΝ ακυρώνει την αποθήκευση:
-       η καρτέλα είναι δική μας, το 3CX είναι αντίγραφο. */
+    /* ΚΑΤΑΡΓΗΘΗΚΕ (20/09/2026): η αποστολή στον κατάλογο του 3CX. Έσκαγε σε
+       κάθε αποθήκευση και δεν χρειάζεται — η ταύτιση αριθμών γίνεται εδώ. */
     $pbx = null;
-    if (!empty($row['to_pbx'])) { $pbx = Book::push($sId); }
-    elseif (!empty($in['dropFromPbx'])) { Book::unpush($sId); $pbx = ['ok' => true, 'removed' => true]; }
 
     out(['ok' => true, 'id' => $sId, 'pbx' => $pbx,
         'moved' => $sClash ? count($sClash) : 0,
@@ -6262,7 +6260,6 @@ case 'book_del':
     $dB = Capsule::table('mod_cpm_book')->where('id', $dId)->first();
     if (!$dB) { fail('Δεν βρέθηκε'); }
     $dNums = Capsule::table('mod_cpm_book_phones')->where('book_id', $dId)->pluck('e164')->all();
-    Book::unpush($dId);
     Capsule::table('mod_cpm_book_phones')->where('book_id', $dId)->delete();
     Capsule::table('mod_cpm_book_values')->where('book_id', $dId)->delete();
     Capsule::table('mod_cpm_book')->where('id', $dId)->delete();
@@ -6310,11 +6307,8 @@ case 'book_import':                      // γέμισμα από 3CX και WHM
     }
     out(['ok' => true, 'res' => $res]);
 
-case 'book_push':                        // στείλε στο τηλεφωνικό κέντρο ό,τι εκκρεμεί
-    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση 3CX'); }
-    $pOne = (int) ($in['id'] ?? 0);
-    $res = $pOne ? Book::push($pOne) : Book::pushPending(300);
-    out(['ok' => true, 'res' => $res]);
+case 'book_push':                        // ΚΑΤΑΡΓΗΘΗΚΕ (20/09/2026) — ο κατάλογος δεν στέλνεται πια στο 3CX
+    fail('Η αποστολή του καταλόγου στο 3CX καταργήθηκε');
 
 case 'book_fields':                      // τα δικά μας πεδία — ορισμός
     if (!empty($in['save'])) {
@@ -6481,10 +6475,6 @@ case 'call_link':                        // «αυτό το τηλέφωνο ε�
             $lkBook = 'created';
         }
         Book::reindexCalls($lkE);
-        if (Pbx3cxClient::configured()) {
-            $pr = Book::push($lkBookId);
-            if (empty($pr['ok'])) { $lkBook = 'error:' . ($pr['why'] ?? '—'); }
-        }
     }
 
     out(['ok' => true, 'updated' => (int) $lkN, 'client' => $lkClient,
