@@ -21,16 +21,25 @@ use WHMCS\Database\Capsule;
 
 class Route
 {
-    /** Προϊόν → [ετικέτα, ουρά]. Οι ουρές είναι του Blueprint::TOPICS. */
+    /**
+     * Προϊόν → [ετικέτα, ουρά]. Η ΛΙΣΤΑ είναι του Παναγιώτη (20/09/2026) — δεν
+     * συμπληρώνεται αυτόματα από πουθενά. Οι ουρές είναι του Blueprint::TOPICS.
+     * PharmacyOne CY και τα τρία e-commerce πάνε προσωρινά σε Support/CloudOn
+     * μέχρι να οριστεί δική τους σειρά εσωτερικών.
+     */
     const PRODUCTS = [
-        'softone'     => ['SoftOne',          '810'],
-        'pharmacyone' => ['PharmacyOne',      '810'],
-        '3cx'         => ['3CX',              '812'],
-        'yeastar'     => ['Yeastar',          '812'],
-        'cloud'       => ['Cloud / servers',  '813'],
-        'caron'       => ['CarOn',            '807'],
-        'rxvision'    => ['RxVision',         '814'],
-        'boxvisio'    => ['BoxVisio',         '814'],
+        'cloud'          => ['Cloud services',   '813'],
+        'softone'        => ['SoftOne',          '810'],
+        'pharmacyone_gr' => ['PharmacyOne GR',   '810'],
+        'pharmacyone_cy' => ['PharmacyOne CY',   '810'],
+        '3cx'            => ['3CX',              '812'],
+        'yeastar'        => ['Yeastar',          '812'],
+        'caron'          => ['CarOn',            '807'],
+        'rxvision'       => ['RxVision',         '814'],
+        'boxvisio'       => ['BoxVisio',         '814'],
+        'ecommerce'      => ['E-Commerce',       '811'],
+        'marketplace'    => ['Marketplace',      '811'],
+        'courier'        => ['Courier module',   '811'],
     ];
 
     const AI_DN = '902';
