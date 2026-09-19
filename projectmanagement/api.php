@@ -3078,7 +3078,7 @@ function cnp_action_cap($action)
         $add('comms.book', ['book_list', 'book_get', 'book_fields']);
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import', 'book_push']);
         $add('comms.book.delete', ['book_del']);
-        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan']);
+        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan', 'pbx_ai_calls']);
         /* Η ζωντανή εικόνα «ποιος μιλάει τώρα» ανήκει στη Δραστηριότητα της
            ομάδας, όχι στις ρυθμίσεις — γι' αυτό δένεται στο reports.activity. */
         $add('reports.activity', ['pbx_live']);
@@ -5429,6 +5429,28 @@ case 'pbx_probe':                        // ΦΑΣΗ 0 — τι υποστηρί
 case 'pbx_plan':                         // η δομή του κέντρου vs το σχέδιο — μόνο ανάγνωση
     if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
     out(['ok' => true, 'plan' => Pbx3cxBlueprint::plan()]);
+
+case 'pbx_ai_calls':                     // οι τελευταίες κλήσεις της AI ρεσεψιόν, με κείμενο — το υλικό της εκπαίδευσης
+    if (!Pbx3cxClient::configured()) { fail('Δεν έχει ρυθμιστεί η διασύνδεση'); }
+    $aiDn = Pbx3cxBlueprint::AI_DN;
+    $aiRows = [];
+    try {
+        $aiJ = Pbx3cxClient::xapi('Recordings', ['$top' => 30, '$orderby' => 'StartTime desc',
+            '$filter' => "ToDn eq '" . $aiDn . "' or FromDn eq '" . $aiDn . "'",
+            '$select' => 'Id,StartTime,EndTime,CallType,FromDn,FromCallerNumber,FromDisplayName,ToDn,ToCallerNumber,ToDisplayName,IsTranscribed,Transcription,Summary,RecordingUrl']);
+        foreach ($aiJ['value'] ?? [] as $r) {
+            $st = strtotime((string) $r['StartTime']); $en = strtotime((string) $r['EndTime']);
+            $other = (string) ($r['FromDn'] === $aiDn ? ($r['ToCallerNumber'] ?: $r['ToDisplayName']) : ($r['FromCallerNumber'] ?: $r['FromDisplayName']));
+            $names = $other !== '' ? Book::resolveMany([Pbx3cxCdr::e164($other)]) : [];
+            $nm = $names ? reset($names) : null;
+            $aiRows[] = ['id' => (int) $r['Id'], 'at' => $st ? date('Y-m-d H:i', $st) : '',
+                'seconds' => ($st && $en) ? max(0, $en - $st) : 0, 'type' => (string) ($r['CallType'] ?? ''),
+                'other' => $other, 'otherName' => is_array($nm) ? (string) ($nm['name'] ?? '') : (string) $nm,
+                'transcribed' => !empty($r['IsTranscribed']) && trim((string) $r['Transcription']) !== '',
+                'summary' => trim((string) ($r['Summary'] ?? '')), 'transcript' => trim((string) ($r['Transcription'] ?? ''))];
+        }
+    } catch (\Throwable $e) { fail('3CX: ' . $e->getMessage()); }
+    out(['items' => $aiRows, 'mode' => Pbx3cxBlueprint::agentMode(), 'modeLabel' => Pbx3cxBlueprint::modeLabel(Pbx3cxBlueprint::agentMode())]);
 
 case 'pbx_apply':                        // εφαρμογή βημάτων του σχεδίου στο PBX
     /* Χωρίς keys: όλα τα χαμηλού ρίσκου. Η ΔΡΟΜΟΛΟΓΗΣΗ (route_*) εφαρμόζεται

@@ -16,10 +16,11 @@ R.pbx = async function () {
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>';
-  const [d, m, bp] = await Promise.all([
+  const [d, m, bp, ac] = await Promise.all([
     api('pbx_settings').catch(() => null),
     api('pbx_map').catch(() => null),
     api('pbx_plan').catch(() => null),
+    api('pbx_ai_calls').catch(() => null),
   ]);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   const ed = d.canEdit;
@@ -121,6 +122,22 @@ R.pbx = async function () {
         <button class="btn btn-p" id="pxApply" ${bp.plan.pending ? '' : 'disabled'}>${I.zap} Εφαρμογή ${bp.plan.pending} αλλαγών</button>
         <button class="btn btn-o btn-sm" id="pxPlan">Ξανά έλεγχος</button>
         <span class="mut" style="font-size:11.5px">Κάθε βήμα καταγράφεται στο τεχνικό ημερολόγιο.</span></div>` : ''}
+    </div></div>` : ''}
+
+  ${ac ? `<div class="card"><div class="card-h">${I.zap} AI ρεσεψιόν — τελευταίες κλήσεις
+    <span class="pbx-mode ${esc(ac.mode)}">${esc(ac.modeLabel)}</span>
+    <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">η εκπαίδευση ξεκινά από εδώ: διάβασε τι είπε, σημείωσε τι θα έλεγε καλύτερα</span></div>
+    <div class="card-b">
+      ${ac.items.length ? `<div class="pbx-ai">${ac.items.map(x => `<details class="pbx-aic">
+        <summary>
+          <span class="pbx-ait mut">${esc(x.at)}</span>
+          <span class="pbx-ain">${esc(x.otherName || x.other || '—')}${x.otherName && x.other ? `<span class="mut">${esc(x.other)}</span>` : ''}</span>
+          <span class="mut">${callHm(x.seconds)}</span>
+          <span class="pbx-ais">${x.summary ? esc(x.summary.slice(0, 140)) : (x.transcribed ? '<span class="mut">χωρίς περίληψη</span>' : '<span class="mut">χωρίς κείμενο</span>')}</span>
+        </summary>
+        ${x.summary ? `<div class="pbx-aisum">${esc(x.summary)}</div>` : ''}
+        <pre class="pbx-aitr">${esc(x.transcript || 'Χωρίς απομαγνητοφώνηση. Ενεργοποιείται από το βήμα «Ηχογράφηση και απομαγνητοφώνηση» στη Δομή κέντρου — ισχύει για τις επόμενες κλήσεις.')}</pre>
+      </details>`).join('')}</div>` : '<div class="mut" style="font-size:12.5px">Καμία κλήση στην AI ρεσεψιόν ακόμη. Κάλεσε το 902 από το εσωτερικό σου.</div>'}
     </div></div>` : ''}
 
   <div class="card"><div class="card-h">${I.coin} Κόστος ανά χειριστή

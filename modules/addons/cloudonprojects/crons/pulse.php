@@ -137,6 +137,13 @@ try {
             echo '[' . date('H:i:s') . '] κλήσεις: ' . $cl['new'] . ' νέες, '
                 . $cl['updated'] . " ενημερώθηκαν\n";
         }
+        /* Η AI ρεσεψιόν δεν έχει ρολόι: της λέμε εμείς αν είμαστε ανοιχτά, σε
+           έκτακτη γραμμή ή κλειστά. Ένα PATCH μόνο όταν αλλάζει η κατάσταση. */
+        require_once __DIR__ . '/../lib/Pbx3cx/Blueprint.php';
+        $am = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint::syncAgentMode();
+        if ($am && $am['changed']) {
+            echo '[' . date('H:i:s') . '] AI ρεσεψιόν: κατάσταση ' . $am['mode'] . "\n";
+        }
     }
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] κλήσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";

@@ -181,6 +181,44 @@ class Pbx3cxClient
     }
 
     /**
+     * Ανέβασμα αρχείων (multipart) — ΜΟΝΟ για τη βάση γνώσης των AI agents.
+     *
+     * ΜΕΤΡΗΘΗΚΕ από τον web client του 3CX (chunk 4146): POST
+     * /xapi/v1/AiSettings/UploadVectorFiles με πεδίο «files» (πολλά), απάντηση
+     * λίστα {FileName, Status, ExternalFileId}. Δεν υπάρχει στο OData $metadata.
+     *
+     * @param array $files  [όνομα => τοπική διαδρομή]
+     * @return array        η απάντηση του PBX (μία γραμμή ανά αρχείο)
+     */
+    public static function upload($path, array $files, $timeout = 120)
+    {
+        $url = self::baseUrl() . '/xapi/v1/' . ltrim($path, '/');
+        $post = [];
+        foreach ($files as $name => $local) {
+            $post['files[' . count($post) . ']'] = new \CURLFile($local, 'text/markdown', $name);
+        }
+        for ($try = 0; $try < 2; $try++) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_POST => true, CURLOPT_POSTFIELDS => $post,
+                CURLOPT_HTTPHEADER => ['Accept: application/json', 'Authorization: Bearer ' . self::token($try > 0)],
+            ]);
+            $body = (string) curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code === 401 && $try === 0) { continue; }
+            if ($code < 200 || $code >= 300) {
+                self::log('xapi', 'error', 'UPLOAD ' . $path . ' → HTTP ' . $code . ' · ' . mb_substr(preg_replace('/\s+/', ' ', $body), 0, 160));
+                throw new \RuntimeException('Το 3CX απάντησε HTTP ' . $code . ' στο ανέβασμα');
+            }
+            return json_decode($body, true) ?: [];
+        }
+        throw new \RuntimeException('3CX XAPI: αποτυχία ταυτοποίησης');
+    }
+
+    /**
      * ΦΑΣΗ 0 — «πάγωμα συμβολαίου».
      * Ρωτάει το PBX τι ΑΚΡΙΒΩΣ υποστηρίζει, ώστε να μη σχεδιάζουμε στα τυφλά.
      * Δεν πετάει ποτέ: κάθε έλεγχος γυρίζει τη δική του κατάσταση.
