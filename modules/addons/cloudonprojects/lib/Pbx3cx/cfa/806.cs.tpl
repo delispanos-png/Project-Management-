@@ -152,10 +152,10 @@ namespace CloudOnNew
       /* ── CloudOn: ΔΡΟΜΟΛΟΓΗΣΗ ΕΦΕΔΡΕΙΑΣ (806) ─────────────────────────────
          Παράγεται από το panel (Pbx3cxBlueprint::cfaScript) — ΜΗΝ το επεξεργαστείς
          στο 3CX, θα ξαναγραφτεί. Ωράρια και αργίες ίδια με την AI ρεσεψιόν:
-           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) → CloudOn ({{Q_CLOUDON}}) → θυρίδα
-           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}}) → θυρίδα
-           αλλιώς    μήνυμα «δεν λειτουργούμε» → θυρίδα ({{VM}}, γίνεται ticket)
-         Οι ουρές έχουν δικό τους ωράριο/αργίες στο κέντρο, οπότε αργία = θυρίδα. */
+           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) → CloudOn ({{Q_CLOUDON}})
+           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}})
+           αλλιώς    μήνυμα «δεν λειτουργούμε» → κλείσιμο (ΧΩΡΙΣ θυρίδα, απόφαση 20/09/2026)
+         Οι ουρές έχουν δικό τους ωράριο/αργίες στο κέντρο. */
       private static readonly HashSet<int> HolidaysEveryYear = new HashSet<int> { {{HOLIDAYS_REC}} };
       private static readonly HashSet<int> HolidaysOnce = new HashSet<int> { {{HOLIDAYS_ONCE}} };
 
@@ -209,24 +209,21 @@ namespace CloudOnNew
             ConditionalComponent Mode = scope.CreateComponent<ConditionalComponent>("Mode");
             mainFlowComponentList.Add(Mode);
 
-            /* Γραφείο: χαιρετισμός → Support (σειρά 212→220→203→204) → CloudOn → θυρίδα. */
+            /* Γραφείο: χαιρετισμός → Support (σειρά 212→220→203→204) → CloudOn. */
             Mode.ConditionList.Add(() => { return Convert.ToBoolean(IsOffice()); });
             Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_office"));
             Mode.ContainerList[0].ComponentList.Add(Play("GreetOffice", "CloudOnNewIVR.wav"));
             Mode.ContainerList[0].ComponentList.Add(Transfer("ToSupport", "{{Q_SUPPORT}}"));
             Mode.ContainerList[0].ComponentList.Add(Transfer("ToCloudOn", "{{Q_CLOUDON}}"));
-            Mode.ContainerList[0].ComponentList.Add(Transfer("ToVoicemailOffice", "{{VM}}"));
 
             /* Απόγευμα / Σάββατο: για τον πελάτη είμαστε ανοιχτά — ίδιος χαιρετισμός, ουρά Emergency. */
             Mode.ConditionList.Add(() => { return Convert.ToBoolean(IsEmergency()); });
             Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_emergency"));
             Mode.ContainerList[1].ComponentList.Add(Play("GreetEmergency", "CloudOnNewIVR.wav"));
             Mode.ContainerList[1].ComponentList.Add(Transfer("ToEmergency", "{{Q_EMERG}}"));
-            Mode.ContainerList[1].ComponentList.Add(Transfer("ToVoicemailEmergency", "{{VM}}"));
 
-            /* Εκτός λειτουργίας (ή απέτυχαν όλες οι μεταβιβάσεις): μήνυμα → θυρίδα → κλείσιμο. */
+            /* Εκτός λειτουργίας (ή απέτυχαν όλες οι μεταβιβάσεις): μήνυμα → κλείσιμο. */
             mainFlowComponentList.Add(Play("Closed", "CloudOnNewCoIVP.wav"));
-            mainFlowComponentList.Add(Transfer("ToVoicemailClosed", "{{VM}}"));
          }
 
          // Add a final DisconnectCall component to the main and error handler flows, in order to complete pending prompt playbacks...

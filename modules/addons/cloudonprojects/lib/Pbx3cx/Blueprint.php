@@ -523,8 +523,7 @@ TXT;
             else { $once[] = $h['Year'] * 10000 + $h['Month'] * 100 + $h['Day']; }
         }
         return strtr($tpl, ['{{HOLIDAYS_REC}}' => implode(', ', $rec), '{{HOLIDAYS_ONCE}}' => implode(', ', $once),
-            '{{Q_SUPPORT}}' => '810', '{{Q_CLOUDON}}' => '811', '{{Q_EMERG}}' => '804',
-            '{{VM}}' => '*4' . self::TICKET_DN]);
+            '{{Q_SUPPORT}}' => '810', '{{Q_CLOUDON}}' => '811', '{{Q_EMERG}}' => '804']);
     }
 
     /** Σύγκριση χωρίς θόρυβο αλλαγής γραμμής/κενών στο τέλος. */
@@ -1033,7 +1032,7 @@ TXT;
             }];
 
         /* 7. Η εφεδρική δρομολόγηση 806 ως κώδικας. */
-        $S[] = ['key' => 'cfa_806', 'label' => 'Εφεδρική δρομολόγηση ' . self::SCRIPT_DN . ' (script): ωράρια & αργίες της ρεσεψιόν, Support→CloudOn / Emergency, θυρίδα εκτός ωραρίου',
+        $S[] = ['key' => 'cfa_806', 'label' => 'Εφεδρική δρομολόγηση ' . self::SCRIPT_DN . ' (script): ωράρια & αργίες της ρεσεψιόν, Support→CloudOn / Emergency, εκτός ωραρίου μόνο μήνυμα',
             'risk' => 'low',
             'check' => function ($L) {
                 $c = $L['cfa'] ?? null;
