@@ -151,9 +151,12 @@ class AiTickets
         /* ΜΟΝΟ η σύνοψη της AI (απόφαση 20/09/2026): η ηχογράφηση δεν προσθέτει
            τίποτα και η πλήρης απομαγνητοφώνηση υπάρχει στην κάρτα «AI ρεσεψιόν».
            Χωρίς σύνοψη, μπαίνει το κείμενο ως εφεδρεία. */
+        /* Απόφαση 20/09: ΜΟΝΟ η παράγραφος «Summary» — όχι τα «Notes» και «Action Items»
+           του 3CX (επαναλαμβάνουν το ωράριο και περιγράφουν το προφανές). */
+        $core = self::summaryOnly($sum);
         $body = "Αίτημα από την AI ρεσεψιόν.\n"
             . "Κλήση: " . $when . " από " . $who . "\n\n"
-            . ($sum !== '' ? $sum : "Απομαγνητοφώνηση:\n" . $text) . "\n";
+            . ($core !== '' ? $core : "Απομαγνητοφώνηση:\n" . $text) . "\n";
         $params = ['deptid' => self::DEPT, 'subject' => 'Αίτημα από ρεσεψιόν: ' . ($d['name'] !== '' ? $d['name'] : $d['e164']),
             'message' => $body, 'priority' => 'Medium', 'markdown' => false];
         if ($d['clientid'] > 0) { $params['clientid'] = $d['clientid']; }
@@ -196,6 +199,16 @@ class AiTickets
         foreach ($asked as $k => $re) { if (!preg_match($re, $t)) { $missing[] = $k; } }
         $missing[] = 'επιβεβαίωση';
         return $missing;
+    }
+
+    /** Από τη σύνοψη του 3CX κρατάμε μόνο την παράγραφο «Summary», χωρίς την ετικέτα. */
+    private static function summaryOnly($sum)
+    {
+        $s = trim((string) $sum);
+        if ($s === '') { return ''; }
+        $s = preg_replace('/\n\s*(Notes|Action Items|Σημειώσεις|Ενέργειες)\s*:.*$/isu', '', $s);
+        $s = preg_replace('/^\s*(Summary|Σύνοψη|Περίληψη)\s*:\s*/iu', '', $s);
+        return trim($s);
     }
 
     /** Ό,τι μένει από το κείμενο αφού φύγουν οι γνωστές φράσεις της ρεσεψιόν — δηλαδή τα λόγια του καλούντα. */
