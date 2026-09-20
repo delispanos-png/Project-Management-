@@ -94,76 +94,218 @@ class Book
         return $co !== '' ? $co : $per;
     }
 
-    /**
-     * ΕΦΑΠΑΞ ΕΙΣΑΓΩΓΗ από τον κατάλογο του 3CX.
-     *
-     * Τρέχει μία φορά (ή ξανά για ό,τι προστέθηκε στο κέντρο εκτός CloudOn).
-     * Δεν πατάει ΠΟΤΕ πάνω σε καρτέλα που έχει ήδη επεξεργαστεί άνθρωπος: αν
-     * υπάρχει καρτέλα με αυτό το pbx_id, την προσπερνά.
-     */
-    public static function importFromPbx()
+    /* ── ΚΑΤΑΛΟΓΟΣ ↔ 3CX, ΔΙΠΛΗ ΚΑΤΕΥΘΥΝΣΗ (20/09/2026) ─────────────────────
+       Ο δικός μας κατάλογος είναι ο πλήρης και ΕΜΕΙΣ γράφουμε στο κέντρο
+       (push). Αλλά όποιος διορθώσει μια επαφή μέσα στο 3CX — από το app, τη
+       συσκευή ή την κονσόλα — δεν πρέπει να χάσει τη δουλειά του.
+
+       Το 3CX δεν λέει ΠΟΤΕ άλλαξε κάτι. Γι' αυτό συγκρίνουμε ό,τι ΒΛΕΠΟΥΜΕ εκεί
+       με ό,τι ΘΑ ΣΤΕΛΝΑΜΕ εμείς τώρα (pbxBody). Επειδή η αποστολή γράφει πάντα
+       ολόκληρη την επαφή, κάθε διαφορά σημαίνει ακριβώς «άλλαξε στο 3CX μετά την
+       τελευταία αποστολή» — και περνά στην καρτέλα. Κανόνες:
+       · Καρτέλα με δική της αλλαγή που δεν έχει σταλεί ακόμη: κερδίζει η καρτέλα.
+       · Νέα επαφή στο 3CX → νέα καρτέλα, ή δένεται σε καρτέλα με το ίδιο τηλέφωνο.
+       · Επαφή που σβήστηκε στο 3CX → η καρτέλα ΜΕΝΕΙ και ξαναστέλνεται. Η
+         διαγραφή γίνεται από εδώ, όχι από το τηλέφωνο.
+       · Αριθμός που ανήκει ήδη σε άλλη καρτέλα δεν μετακινείται σιωπηλά.
+       Τρέχει κάθε 10' από το pulse. */
+
+    /** Πεδία κειμένου του 3CX → στήλες της καρτέλας (και όρια μήκους). */
+    const PBX_TEXT = ['FirstName' => ['first', 60], 'LastName' => ['last', 60],
+                      'CompanyName' => ['company', 160], 'Email' => ['email', 120],
+                      'Title' => ['title', 80], 'Department' => ['department', 80]];
+
+    /** Όλες οι επαφές του κέντρου, ανά Id. ($skip/$orderby δίνουν 400 — σελίδες με Id gt.) */
+    public static function pbxContacts()
     {
-        $res = ['new' => 0, 'skipped' => 0, 'phones' => 0];
-        $labels = self::phoneLabels();
-        $toLabel = [];
-        foreach ($labels as $k => $v) { $toLabel[$v[1]] = $k; }
-
-        $known = Capsule::table('mod_cpm_book')->whereNotNull('pbx_id')->pluck('id', 'pbx_id')->all();
-        $now = date('Y-m-d H:i:s');
-
-        for ($skip = 0; $skip < 5000; $skip += 100) {
-            $j = Pbx3cxClient::xapi('Contacts', ['$top' => 100, '$skip' => $skip], 30);
+        $live = []; $last = 0;
+        for ($i = 0; $i < 100; $i++) {
+            $j = Pbx3cxClient::xapi('Contacts', ['$top' => 100, '$filter' => 'Id gt ' . $last], 30);
             $v = $j['value'] ?? [];
-            if (!$v) { break; }
             foreach ($v as $c) {
                 $pid = (int) ($c['Id'] ?? 0);
-                if (!$pid) { continue; }
-                if (isset($known[$pid])) { $res['skipped']++; continue; }
-
-                $row = [
-                    'kind' => trim((string) ($c['CompanyName'] ?? '')) !== '' ? 'company' : 'person',
-                    'company' => mb_substr(trim((string) ($c['CompanyName'] ?? '')), 0, 160) ?: null,
-                    'first' => mb_substr(trim((string) ($c['FirstName'] ?? '')), 0, 60) ?: null,
-                    'last' => mb_substr(trim((string) ($c['LastName'] ?? '')), 0, 60) ?: null,
-                    'title' => mb_substr(trim((string) ($c['Title'] ?? '')), 0, 80) ?: null,
-                    'email' => mb_substr(trim((string) ($c['Email'] ?? '')), 0, 120) ?: null,
-                    'status' => 'active', 'to_pbx' => 1,
-                    'pbx_id' => $pid, 'pbx_at' => $now,
-                    'created_at' => $now, 'updated_at' => $now,
-                ];
-                if (self::label($row) === '') { $res['skipped']++; continue; }
-
-                $phones = [];
-                foreach ($toLabel as $field => $lab) {
-                    $raw = trim((string) ($c[$field] ?? ''));
-                    /* ΠΡΟΣΟΧΗ: το «Other» του 3CX κρατά συχνά τίτλο θέσης, όχι
-                       τηλέφωνο. Δεχόμαστε μόνο ό,τι μοιάζει με αριθμό. */
-                    if ($raw === '' || !preg_match('/^[\d\s()+.\-]{6,}$/', $raw)) { continue; }
-                    $e = Pbx3cxCdr::e164($raw);
-                    if (strlen(preg_replace('/\D/', '', $e)) < 8) { continue; }
-                    $phones[$e] = ['label' => $lab, 'raw' => mb_substr($raw, 0, 40)];
-                }
-                if (!$phones) { $res['skipped']++; continue; }
-
-                $id = (int) Capsule::table('mod_cpm_book')->insertGetId($row);
-                $sort = 0;
-                foreach ($phones as $e => $p) {
-                    Capsule::table('mod_cpm_book_phones')->insertOrIgnore([
-                        'book_id' => $id, 'e164' => $e, 'raw' => $p['raw'],
-                        'label' => $p['label'], 'sort' => $sort++]);
-                    $res['phones']++;
-                }
-                $res['new']++;
-                $known[$pid] = $id;
+                if ($pid) { $live[$pid] = $c; $last = max($last, $pid); }
             }
             if (count($v) < 100) { break; }
         }
+        return $live;
+    }
 
-        self::linkClients();
-        self::refreshLastCall();
-        Pbx3cxClient::log('sync', 'ok', 'Κατάλογος: εισήχθησαν ' . $res['new']
-            . ' επαφές από το 3CX (' . $res['phones'] . ' τηλέφωνα)');
+    /** Τα τηλέφωνα μιας επαφής του 3CX, κανονικοποιημένα: e164 => [label, raw]. */
+    public static function pbxPhones(array $c)
+    {
+        $out = [];
+        foreach (self::phoneLabels() as $lab => $v) {
+            $raw = trim((string) ($c[$v[1]] ?? ''));
+            /* Το «Other» του 3CX κρατά συχνά τίτλο θέσης, όχι τηλέφωνο. */
+            if ($raw === '' || !preg_match('/^[\d\s()+.\-]{6,}$/', $raw)) { continue; }
+            $e = Pbx3cxCdr::e164($raw);
+            if (strlen(preg_replace('/\D/', '', $e)) < 8 || isset($out[$e])) { continue; }
+            $out[$e] = ['label' => $lab, 'raw' => mb_substr($raw, 0, 40)];
+        }
+        return $out;
+    }
+
+    /** Το επώνυμο χωρίς την εσωτερική σήμανση «[Support]» / «[Εταιρεία]». */
+    public static function stripHint($v)
+    {
+        return trim(preg_replace('/\s*\[[^\]]*\]\s*$/u', '', (string) $v));
+    }
+
+    /**
+     * Διαβάζει το κέντρο και φέρνει εδώ ό,τι άλλαξε εκεί.
+     * @return array new, linked, updated, gone, skipped, phones, changes[]
+     */
+    public static function pullFromPbx()
+    {
+        $res = ['new' => 0, 'linked' => 0, 'updated' => 0, 'gone' => 0, 'skipped' => 0, 'phones' => 0, 'changes' => []];
+        $live = self::pbxContacts();
+        if (!$live) { return $res; }   // κενή απάντηση: δεν πειράζουμε τίποτα
+        $now = date('Y-m-d H:i:s');
+        $cards = [];
+        foreach (Capsule::table('mod_cpm_book')->whereNotNull('pbx_id')->get() as $b) { $cards[(int) $b->pbx_id] = $b; }
+        $toLabel = [];
+        foreach (self::phoneLabels() as $k => $v) { $toLabel[$v[1]] = $k; }
+
+        foreach ($live as $pid => $c) {
+            $b = $cards[$pid] ?? null;
+            if (!$b) {
+                $r = self::adoptFromPbx($c, $now);
+                if ($r === 'new') { $res['new']++; } elseif ($r === 'linked') { $res['linked']++; } else { $res['skipped']++; }
+                if ($r === 'new' || $r === 'linked') { $res['changes'][] = self::label(['company' => $c['CompanyName'] ?? '', 'first' => $c['FirstName'] ?? '', 'last' => $c['LastName'] ?? '']) . ' (' . ($r === 'new' ? 'νέα από 3CX' : 'δέθηκε') . ')'; }
+                continue;
+            }
+            /* Δική μας αλλαγή που δεν έχει φύγει ακόμη: θα σταλεί, δεν διαβάζουμε. */
+            if ((int) $b->to_pbx === 1 && ($b->pbx_at === null || $b->updated_at > $b->pbx_at)) { $res['skipped']++; continue; }
+
+            $phones = Capsule::table('mod_cpm_book_phones')->where('book_id', $b->id)->orderBy('sort')->get();
+            $exp = self::pbxBody($b, $phones) ?: [];
+            $upd = []; $what = []; $touched = [];
+
+            foreach (self::PBX_TEXT as $f => $m) {
+                $lv = self::plain($c[$f] ?? ''); $ev = trim((string) ($exp[$f] ?? ''));
+                if ($f === 'LastName') { $lv = self::stripHint($lv); $ev = self::stripHint($ev); }
+                if ($lv === $ev) { continue; }
+                $upd[$m[0]] = mb_substr($lv, 0, $m[1]) ?: null;
+                $what[] = $m[0] . ' «' . $ev . '» → «' . $lv . '»';
+            }
+
+            /* Τηλέφωνα ως ΣΥΝΟΛΑ αριθμών, όχι ανά πεδίο: το «Κύριο» καθρεφτίζει το
+               πρώτο τηλέφωνο όταν δεν υπάρχει κύριο, οπότε η σύγκριση ανά πεδίο
+               θα έβλεπε φαντάσματα. Ένα έφυγε + ένα ήρθε = διόρθωση αριθμού. */
+            $expNums = [];
+            foreach ($toLabel as $f => $lab) { $v = trim((string) ($exp[$f] ?? '')); if ($v !== '') { $expNums[$v] = 1; } }
+            $liveNums = self::pbxPhones($c);
+            $cardNums = [];
+            foreach ($phones as $p) { $cardNums[$p->e164] = $p; }
+            $removed = []; $added = [];
+            foreach ($cardNums as $e => $p) { if (isset($expNums[$e]) && !isset($liveNums[$e])) { $removed[$e] = $p; } }
+            foreach ($liveNums as $e => $i) {
+                if (isset($cardNums[$e])) { continue; }
+                $owner = Capsule::table('mod_cpm_book_phones')->where('e164', $e)->where('book_id', '<>', $b->id)->value('book_id');
+                if ($owner) { $what[] = $e . ' ανήκει ήδη στην καρτέλα #' . $owner . ' — δεν μεταφέρθηκε'; continue; }
+                $added[$e] = $i;
+            }
+            if (count($removed) === 1 && count($added) === 1) {
+                $p = reset($removed); $e = array_key_first($added);
+                Capsule::table('mod_cpm_book_phones')->where('id', $p->id)
+                    ->update(['e164' => $e, 'raw' => $added[$e]['raw']]);
+                $touched[] = $p->e164; $touched[] = $e; $res['phones']++;
+                $what[] = 'τηλέφωνο ' . $p->e164 . ' → ' . $e;
+            } else {
+                foreach ($removed as $e => $p) {
+                    Capsule::table('mod_cpm_book_phones')->where('id', $p->id)->delete();
+                    $touched[] = $e; $res['phones']++; $what[] = 'αφαιρέθηκε ' . $e;
+                }
+                $sort = 90;
+                foreach ($added as $e => $i) {
+                    Capsule::table('mod_cpm_book_phones')->insertOrIgnore(['book_id' => $b->id, 'e164' => $e,
+                        'raw' => $i['raw'], 'label' => $i['label'], 'sort' => $sort++]);
+                    $touched[] = $e; $res['phones']++; $what[] = 'νέο ' . $e;
+                }
+            }
+            if (!$upd && !$touched) { continue; }
+
+            /* pbx_at = updated_at: η καρτέλα ΔΕΝ είναι «προς αποστολή» — ό,τι
+               μπήκε ήρθε από εκεί. updated_by κενό = το σύστημα, όχι άνθρωπος. */
+            $upd += ['updated_at' => $now, 'updated_by' => null, 'pbx_at' => $now, 'pbx_error' => null];
+            Capsule::table('mod_cpm_book')->where('id', $b->id)->update($upd);
+            foreach (array_unique($touched) as $e) { self::reindexCalls($e); }
+            $res['updated']++;
+            $res['changes'][] = self::label((array) $b) . ': ' . implode(', ', $what);
+        }
+
+        /* Σβήστηκε στο 3CX: η καρτέλα μένει· χωρίς pbx_id θα ξανασταλεί. */
+        foreach ($cards as $pid => $b) {
+            if (isset($live[$pid])) { continue; }
+            Capsule::table('mod_cpm_book')->where('id', $b->id)->update(['pbx_id' => null, 'pbx_at' => null]);
+            $res['gone']++;
+        }
+
+        if ($res['new'] || $res['linked']) { self::linkClients(); }
+        if ($res['new'] || $res['linked'] || $res['phones']) { self::refreshLastCall(); }
+        if ($res['new'] || $res['linked'] || $res['updated'] || $res['gone']) {
+            Pbx3cxClient::log('sync', 'ok', 'Κατάλογος ← 3CX: ' . $res['new'] . ' νέες, ' . $res['linked']
+                . ' δέθηκαν, ' . $res['updated'] . ' ενημερώθηκαν, ' . $res['gone'] . ' έλειπαν εκεί'
+                . ($res['changes'] ? ' — ' . mb_substr(implode(' · ', $res['changes']), 0, 700) : ''));
+        }
         return $res;
+    }
+
+    /**
+     * Επαφή που υπάρχει στο 3CX και όχι εδώ: νέα καρτέλα, ή δέσιμο σε καρτέλα
+     * που έχει ήδη κάποιο από τα τηλέφωνά της (χωρίς να χαθεί τίποτα δικό της).
+     * @return string new | linked | skipped
+     */
+    private static function adoptFromPbx(array $c, $now)
+    {
+        $pid = (int) ($c['Id'] ?? 0);
+        $row = [];
+        foreach (self::PBX_TEXT as $f => $m) {
+            $v = self::plain($c[$f] ?? '');
+            if ($f === 'LastName') { $v = self::stripHint($v); }
+            $row[$m[0]] = mb_substr($v, 0, $m[1]) ?: null;
+        }
+        $phones = self::pbxPhones($c);
+        if (!$pid || !$phones || self::label($row) === '') { return 'skipped'; }
+
+        $ex = Capsule::table('mod_cpm_book_phones as p')->join('mod_cpm_book as b', 'b.id', '=', 'p.book_id')
+            ->whereIn('p.e164', array_keys($phones))->orderBy('b.id')->select('b.*')->first();
+        if ($ex) {
+            if ($ex->pbx_id) { return 'skipped'; }   // διπλή επαφή στο 3CX — η καρτέλα δένεται ήδη αλλού
+            $upd = [];
+            foreach ($row as $k => $v) { if ($v !== null && trim((string) ($ex->$k ?? '')) === '') { $upd[$k] = $v; } }
+            $have = Capsule::table('mod_cpm_book_phones')->where('book_id', $ex->id)->pluck('e164')->all();
+            $sort = 90;
+            foreach ($phones as $e => $i) {
+                if (in_array($e, $have, true)) { continue; }
+                Capsule::table('mod_cpm_book_phones')->insertOrIgnore(['book_id' => $ex->id, 'e164' => $e,
+                    'raw' => $i['raw'], 'label' => $i['label'], 'sort' => $sort++]);
+            }
+            $upd += ['pbx_id' => $pid, 'pbx_at' => $now, 'pbx_error' => null, 'to_pbx' => 1, 'updated_at' => $now, 'updated_by' => null];
+            Capsule::table('mod_cpm_book')->where('id', $ex->id)->update($upd);
+            return 'linked';
+        }
+
+        $row += ['kind' => trim((string) $row['company']) !== '' ? 'company' : 'person',
+                 'status' => 'active', 'to_pbx' => 1, 'pbx_id' => $pid, 'pbx_at' => $now,
+                 'created_at' => $now, 'updated_at' => $now];
+        $id = (int) Capsule::table('mod_cpm_book')->insertGetId($row);
+        $sort = 0;
+        foreach ($phones as $e => $i) {
+            Capsule::table('mod_cpm_book_phones')->insertOrIgnore(['book_id' => $id, 'e164' => $e,
+                'raw' => $i['raw'], 'label' => $i['label'], 'sort' => $sort++]);
+            self::reindexCalls($e);
+        }
+        return 'new';
+    }
+
+    /** Το κουμπί «γέμισμα από 3CX» της οθόνης — πια το ίδιο με το pulse. */
+    public static function importFromPbx()
+    {
+        $r = self::pullFromPbx();
+        return ['new' => $r['new'] + $r['linked'], 'updated' => $r['updated'],
+                'skipped' => $r['skipped'], 'phones' => $r['phones']];
     }
 
     /**
@@ -323,18 +465,11 @@ class Book
     }
 
     /**
-     * Στέλνει ΜΙΑ καρτέλα στο τηλεφωνικό κέντρο.
-     *
-     * Δεν πετάει: αν το PBX αρνηθεί, η καρτέλα μένει και ο λόγος γράφεται στο
-     * pbx_error, ώστε να φαίνεται στην οθόνη ποιες δεν έφτασαν και γιατί.
+     * Η επαφή όπως τη στέλνουμε στο 3CX — ΚΑΙ το μέτρο σύγκρισης για ό,τι
+     * άλλαξε εκεί (βλ. pullFromPbx). null = δεν έχει τηλέφωνο, δεν στέλνεται.
      */
-    public static function push($id)
+    public static function pbxBody($b, $phones)
     {
-        $b = Capsule::table('mod_cpm_book')->where('id', (int) $id)->first();
-        if (!$b) { return ['ok' => false, 'why' => 'δεν βρέθηκε']; }
-
-        $phones = Capsule::table('mod_cpm_book_phones')->where('book_id', $b->id)
-            ->orderBy('sort')->get();
         $labels = self::phoneLabels();
 
         /* Το 3CX έχει ΣΥΓΚΕΚΡΙΜΕΝΑ πεδία τηλεφώνου. Στέλνουμε το καθένα στο
@@ -356,7 +491,8 @@ class Book
         $body = ['FirstName' => mb_substr((string) $b->first, 0, 50),
                  'LastName' => mb_substr($last . ($hint !== '' ? ' [' . $hint . ']' : ''), 0, 50),
                  'CompanyName' => mb_substr((string) $b->company, 0, 50), 'Email' => (string) $b->email,
-                 'Title' => mb_substr((string) $b->title, 0, 50)];
+                 'Title' => mb_substr((string) $b->title, 0, 50),
+                 'Department' => mb_substr((string) ($b->department ?? ''), 0, 50)];
         foreach ($labels as $k => $v) { $body[$v[1]] = ''; }
         $used = [];
         foreach ($phones as $p) {
@@ -365,11 +501,29 @@ class Book
             $body[$field] = $p->e164;
             $used[$field] = 1;
         }
-        if (!$used) { return ['ok' => false, 'why' => 'χωρίς τηλέφωνο']; }
+        if (!$used) { return null; }
         /* ΜΕΤΡΗΘΗΚΕ (20/09/2026): το 3CX απορρίπτει επαφή χωρίς PhoneNumber (το «Κύριο»)
            με CONTACTS_SPECIFY_PHONE_NUMBER — αυτό ήταν το «σκάσιμο» στην αποθήκευση για
            καρτέλες που είχαν μόνο κινητό. Το πρώτο τηλέφωνο μπαίνει και ως Κύριο. */
         if (empty($body['PhoneNumber'])) { $body['PhoneNumber'] = (string) $phones[0]->e164; }
+        return $body;
+    }
+
+    /**
+     * Στέλνει ΜΙΑ καρτέλα στο τηλεφωνικό κέντρο.
+     *
+     * Δεν πετάει: αν το PBX αρνηθεί, η καρτέλα μένει και ο λόγος γράφεται στο
+     * pbx_error, ώστε να φαίνεται στην οθόνη ποιες δεν έφτασαν και γιατί.
+     */
+    public static function push($id)
+    {
+        $b = Capsule::table('mod_cpm_book')->where('id', (int) $id)->first();
+        if (!$b) { return ['ok' => false, 'why' => 'δεν βρέθηκε']; }
+
+        $phones = Capsule::table('mod_cpm_book_phones')->where('book_id', $b->id)
+            ->orderBy('sort')->get();
+        $body = self::pbxBody($b, $phones);
+        if (!$body) { return ['ok' => false, 'why' => 'χωρίς τηλέφωνο']; }
 
         try {
             if ($b->pbx_id) {

@@ -6375,7 +6375,7 @@ case 'book_lookup':
                 'address' => Book::plain($lkCl->address1), 'city' => Book::plain($lkCl->city),
                 'postcode' => (string) $lkCl->postcode, 'country' => (string) $lkCl->country,
                 'vat' => preg_replace('/\D/', '', (string) Capsule::table('tblcustomfieldsvalues')
-                    ->where('relid', $lkCid)->where('fieldid', 1)->value('fieldvalue'))];
+                    ->where('relid', $lkCid)->where('fieldid', 1)->value('value'))];
         }
     }
     out($lkOut);

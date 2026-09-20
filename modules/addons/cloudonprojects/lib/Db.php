@@ -976,6 +976,8 @@ class Db
                πουθενά, και ο προμηθευτής έδειχνε «προϊόντα που έχει από εμάς».
                Η σχέση ζει πια σε δική της στήλη. */
             'rel'           => 'varchar(10) NULL',                  // client|supplier|partner|prospect
+            /* Τμήμα της επαφής — υπάρχει στο 3CX, το κρατάμε για να μη χάνεται (20/09/2026). */
+            'department'    => 'varchar(80) NULL',
         ] as $col => $def) {
             if (!$s->hasColumn('mod_cpm_book', $col)) {
                 Capsule::statement('ALTER TABLE mod_cpm_book ADD COLUMN `' . $col . '` ' . $def);

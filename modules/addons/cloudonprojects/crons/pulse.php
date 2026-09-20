@@ -153,6 +153,23 @@ try {
             echo '[' . date('H:i:s') . '] δίχτυ ρεσεψιόν: ' . $an['created'] . ' tickets'
                 . ($an['errors'] ? ' · σφάλματα: ' . implode(' | ', $an['errors']) : '') . "\n";
         }
+        /* Κατάλογος ↔ 3CX, διπλή κατεύθυνση (20/09/2026): ό,τι διορθώθηκε μέσα
+           στο κέντρο έρχεται εδώ, ό,τι δεν έχει φύγει ακόμη από εδώ φεύγει.
+           Route/Blueprint χρειάζονται: χωρίς αυτά η αποστολή θα έσβηνε τη
+           σήμανση ουράς «[Support]» από τα ονόματα. */
+        require_once __DIR__ . '/../lib/Pbx3cx/Route.php';
+        try {
+            $bp = \WHMCS\Module\Addon\CloudonProjects\Book::pullFromPbx();
+            $bs = \WHMCS\Module\Addon\CloudonProjects\Book::pushPending(50);
+            if ($bp['new'] || $bp['linked'] || $bp['updated'] || $bp['gone'] || $bs['sent'] || $bs['failed']) {
+                echo '[' . date('H:i:s') . '] κατάλογος ↔ 3CX: ' . $bp['new'] . ' νέες, ' . $bp['linked'] . ' δέθηκαν, '
+                    . $bp['updated'] . ' ήρθαν από 3CX, ' . $bp['gone'] . ' έλειπαν εκεί · στάλθηκαν '
+                    . $bs['sent'] . ($bs['failed'] ? ', απέτυχαν ' . $bs['failed'] : '') . "\n";
+                foreach ($bp['changes'] as $ch) { echo '    ' . $ch . "\n"; }
+            }
+        } catch (\Throwable $e) {
+            echo '[' . date('H:i:s') . '] κατάλογος ↔ 3CX ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
+        }
     }
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] κλήσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
