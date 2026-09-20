@@ -77,8 +77,10 @@ if (!isset($_COOKIE[$ck])) {
 }
 
 /* ---- δεδομένα έργου (client-safe) ---- */
-$doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
-$total = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->count();
+/* Ολοκληρωμένες = φάση done· οι ακυρωμένες δεν μετρούν πουθενά (όπως στο Db::projectProgress). */
+$doneIds = Capsule::table('mod_cpm_statuses')->where('phase', 'done')->pluck('id')->all() ?: [0];
+$cancelIds = Capsule::table('mod_cpm_statuses')->where('phase', 'cancel')->pluck('id')->all() ?: [0];
+$total = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->whereNotIn('status_id', $cancelIds)->count();
 $done = Capsule::table('mod_cpm_tasks')->where('project_id', $pid)->whereIn('status_id', $doneIds)->count();
 $pct = $total ? (int) round($done / $total * 100) : 0;
 
@@ -111,7 +113,8 @@ $comments = !empty($share->can_comment)
 
 $isDone = $pct >= 100 && ($total || count($todos));
 $statusLabel = $isDone ? 'Ολοκληρώθηκε' : ($pct > 0 ? 'Σε εξέλιξη' : 'Σε προετοιμασία');
-$statusColor = $isDone ? '#16a26a' : ($pct > 0 ? '#0090dd' : '#eba63c');
+/* Τα ίδια χρώματα με τις καταστάσεις της εφαρμογής (Ολοκληρώθηκε / Σε εξέλιξη / Έλεγχος). */
+$statusColor = $isDone ? '#1f9d57' : ($pct > 0 ? '#0097e4' : '#e0a020');
 
 $grDate = function ($d) {
     if (!$d) {

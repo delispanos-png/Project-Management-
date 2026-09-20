@@ -201,7 +201,7 @@ add_hook('AdminAreaViewTicketPage', 1, function ($vars) {
         $h = '<div class="alert alert-info" style="margin-top:10px"><i class="fas fa-tasks"></i> '
             . 'Project task <b>#' . (int) $task->id . '</b>: <a href="' . $link . '&tab=task&id=' . (int) $task->id . '"><b>'
             . htmlspecialchars($task->title) . '</b></a>'
-            . ' <span class="label" style="background:' . htmlspecialchars($st->color ?? '#888') . '">'
+            . ' <span class="label" style="background:' . htmlspecialchars($st->color ?? '#8291a9') . '">'
             . htmlspecialchars($st->title ?? '?') . '</span>'
             . ($proj ? ' <small class="text-muted">(' . htmlspecialchars($proj->name) . ')</small>' : '')
             . ($task->assignee ? ' — ' . htmlspecialchars(Db::adminName($task->assignee)) : '');

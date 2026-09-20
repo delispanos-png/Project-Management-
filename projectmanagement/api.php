@@ -2372,19 +2372,8 @@ function cnp_can_see_balances($adminId, $isFull)
  */
 function cnp_status_ends_work($statusId)
 {
-    $st = Db::status((int) $statusId);
-    if (!$st) {
-        return false;
-    }
-    if (!empty($st->is_done)) {
-        return true;
-    }
-    /* «Σε εξέλιξη» = η πρώτη μη-ολοκληρωμένη κατάσταση μετά το Backlog. */
-    $backlog = cnp_backlog_status_id();
-    $prog = Capsule::table('mod_cpm_statuses')->where('is_done', 0)
-        ->when($backlog, function ($q) use ($backlog) { return $q->where('id', '!=', $backlog); })
-        ->orderBy('sort')->first(['id', 'sort']);
-    return $prog ? ((int) $st->sort > (int) $prog->sort) : false;
+    /* 20/09/2026: το λέει ρητά η ΦΑΣΗ της κατάστασης (after/done/cancel), όχι η σειρά της. */
+    return Db::statusEndsWork((int) $statusId);
 }
 
 function cnp_backlog_status_id()
@@ -3247,7 +3236,7 @@ function cnp_action_cap($action)
 
         /* ── Η ΟΜΑΔΑ (νέο κύκλωμα 12/9/2026) ── */
         $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_edit', 'chat_react', 'chat_file', 'chat_status',
-            'chat_group_save', 'chat_group_del']);
+            'chat_group_save', 'chat_group_get', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
         $add('comms.book', ['book_list', 'book_get', 'book_fields', 'book_lookup']);
@@ -3372,7 +3361,7 @@ function cnp_action_cap($action)
         $add('admin.users.edit', ['addon_access_grant', 'user_save', 'user_pass', 'user_toggle']);
         $add('admin.users.delete', ['user_del']);
         $add('admin.settings', ['settings_get', 'tcats', 'tquotas']);
-        $add('admin.settings.edit', ['settings_save', 'status_save', 'type_save', 'tcat_save',
+        $add('admin.settings.edit', ['settings_save', 'status_save', 'status_move', 'type_save', 'tcat_save',
             'tcat_reorder', 'canned_save', 'lead_field_save', 'tquota_save', 'storage_test']);
         $add('admin.settings.delete', ['status_del', 'type_del', 'tcat_del', 'canned_del',
             'lead_field_del', 'tquota_del']);
@@ -3508,7 +3497,8 @@ case 'boot':
     }
     $statuses = [];
     foreach (Db::statuses() as $s) {
-        $statuses[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color, 'done' => (bool) $s->is_done];
+        $statuses[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color, 'done' => (bool) $s->is_done,
+            'phase' => (string) ($s->phase ?? ''), 'cancel' => ($s->phase ?? '') === 'cancel'];
     }
     $types = [];
     foreach (Db::taskTypes() as $ty) {
@@ -4387,9 +4377,9 @@ case 'myday':
 
     $overdueR = $myTasks()->whereNotNull('due_date')->where('due_date', '<', $today)->get(['id', 'title'])->all();
     $dueTodR  = $myTasks()->where('due_date', $today)->get(['id', 'title'])->all();
-    $wipR     = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->where('status_id', 2), $adminId)
+    $wipR     = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereIn('status_id', Db::statusIds('work')), $adminId)
         ->get(['id', 'title'])->all();
-    $staleR   = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereIn('status_id', [2, 3]), $adminId)
+    $staleR   = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereIn('status_id', Db::statusIds(['work', 'after'])), $adminId)
         ->where('updated_at', '<', date('Y-m-d', strtotime('-7 days')) . ' 23:59:59')->get(['id', 'title'])->all();
     $noDueR   = $myTasks()->whereNull('due_date')->get(['id', 'title'])->all();
     $overdue = count($overdueR); $dueTod = count($dueTodR); $wip = count($wipR);
@@ -4834,7 +4824,7 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             'ball' => $t->action_user ? (int) $t->action_user : 0,
             'ballName' => $t->action_user ? Db::adminName((int) $t->action_user) : '',
             'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
-            'done' => in_array((int) $t->status_id, $doneM, true),
+            'statusId' => (int) $t->status_id, 'done' => in_array((int) $t->status_id, $doneM, true),
             'sched' => $t->schedule_date, 'start' => $t->start_date, 'due' => $t->due_date,
             'est' => (int) $t->estimate_minutes,
             'startAt' => $startShown, 'startKind' => $startKind, 'age' => $ageDays, 'left' => $left,
@@ -5022,7 +5012,7 @@ case 'teamday':                          // Η μέρα της ομάδας — 
             'by' => $t->created_by ? Db::adminName((int) $t->created_by) : '',
             'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac',
             'internal' => $t->pkind === 'internal',
-            'status' => $t->sname ?: '', 'done' => in_array((int) $t->status_id, $doneT, true),
+            'status' => $t->sname ?: '', 'statusId' => (int) $t->status_id, 'done' => in_array((int) $t->status_id, $doneT, true),
             'sched' => $t->schedule_date, 'start' => $t->start_date, 'due' => $t->due_date,
             'est' => (int) $t->estimate_minutes, 'spent' => $spentT[(int) $t->id] ?? 0,
             'running' => isset($runT[(int) $t->id]) ? $runT[(int) $t->id]['mins'] : null];
@@ -8054,7 +8044,7 @@ case 'calendar':
         if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
             continue;
         }
-        $items[] = ['id' => (int) $t->id, 'title' => $t->title, 'due' => $t->due_date,
+        $items[] = ['id' => (int) $t->id, 'title' => $t->title, 'due' => $t->due_date, 'status' => (int) $t->status_id,
             'prio' => (int) $t->priority, 'done' => (bool) $t->completed_at,
             'color' => $t->project_color ?: '#8595ac', 'pname' => cnp_pn($t->project_name)];
     }
@@ -10498,6 +10488,7 @@ case 'ticket':
         }
     }
     $statuses = Capsule::table('tblticketstatuses')->orderBy('sortorder')->pluck('title')->all();
+    $statusColors = Capsule::table('tblticketstatuses')->pluck('color', 'title')->all();
 
     /* ── Συμφραζόμενα πελάτη ──────────────────────────────────────────────
        Χωρίς αυτά ο τεχνικός βλέπει μόνο επωνυμία και κείμενο: δεν ξέρει σε
@@ -10587,7 +10578,7 @@ case 'ticket':
         'cats' => cnp_ticket_cats(),
         'conv' => $conv, 'notes' => $notes,
         'task' => $task ? (int) $task->id : null,
-        'statuses' => $statuses]);
+        'statuses' => $statuses, 'statusColors' => $statusColors]);
 
 case 'ticket_reply':
     if (!empty($_FILES)) {          // multipart (με συνημμένα) → πεδία από $_POST
@@ -12263,14 +12254,15 @@ case 'settings_get':
     foreach (Db::statuses() as $s) {
         $cnt = Capsule::table('mod_cpm_tasks')->where('status_id', $s->id)->count();
         $sts[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color,
-            'done' => (bool) $s->is_done, 'sort' => (int) $s->sort, 'tasks' => $cnt];
+            'done' => (bool) $s->is_done, 'phase' => (string) ($s->phase ?? 'wait'), 'sort' => (int) $s->sort, 'tasks' => $cnt];
     }
+    $phases = Db::PHASES;
     $types = [];
     foreach (Db::taskTypes() as $ty) {
         $types[] = ['id' => (int) $ty->id, 'name' => $ty->name, 'icon' => $ty->icon, 'color' => $ty->color,
             'reqA' => (bool) $ty->req_assignee, 'reqD' => (bool) $ty->req_due, 'reqE' => (bool) $ty->req_estimate];
     }
-    out(['settings' => $vals, 'statuses' => $sts, 'types' => $types]);
+    out(['phases' => $phases, 'settings' => $vals, 'statuses' => $sts, 'types' => $types]);
 
 case 'settings_save':
     $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
@@ -12389,9 +12381,12 @@ case 'file_delete':
 
 case 'status_save':
     $sid = (int) ($in['id'] ?? 0);
+    /* Η ΦΑΣΗ είναι το νόημα της στήλης (βλ. Db::PHASES)· η is_done βγαίνει από αυτήν. */
+    $phase = (string) ($in['phase'] ?? '');
+    if (!isset(Db::PHASES[$phase])) { $phase = !empty($in['done']) ? 'done' : 'wait'; }
     $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 60) ?: 'Στήλη',
-        'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#8595ac',
-        'is_done' => !empty($in['done']) ? 1 : 0];
+        'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#8291a9',
+        'phase' => $phase, 'is_done' => in_array($phase, ['done', 'cancel'], true) ? 1 : 0];
     if ($sid) {
         Capsule::table('mod_cpm_statuses')->where('id', $sid)->update($data);
     } else {
@@ -12399,6 +12394,21 @@ case 'status_save':
         $sid = Capsule::table('mod_cpm_statuses')->insertGetId($data);
     }
     out(['ok' => true, 'id' => $sid]);
+
+case 'status_move':                      // σειρά στηλών: πάνω/κάτω — αυτή η σειρά είναι ο πίνακας kanban
+    $mvId = (int) ($in['id'] ?? 0); $mvDir = ($in['dir'] ?? '') === 'up' ? -1 : 1;
+    $mvAll = array_values(Db::statuses()->all());
+    $mvI = null;
+    foreach ($mvAll as $i => $r) { if ((int) $r->id === $mvId) { $mvI = $i; } }
+    if ($mvI === null) { fail('Δεν βρέθηκε η στήλη'); }
+    $mvJ = $mvI + $mvDir;
+    if ($mvJ < 0 || $mvJ >= count($mvAll)) { out(['ok' => true]); }
+    /* Οι τελικές μένουν στο τέλος: αλλαγή σειράς μόνο μέσα στην ίδια ομάδα (ανοιχτές / τελικές). */
+    $grp = function ($r) { return in_array((string) $r->phase, ['done', 'cancel'], true) ? 1 : 0; };
+    if ($grp($mvAll[$mvI]) !== $grp($mvAll[$mvJ])) { out(['ok' => true]); }
+    [$mvAll[$mvI], $mvAll[$mvJ]] = [$mvAll[$mvJ], $mvAll[$mvI]];
+    foreach ($mvAll as $i => $r) { Capsule::table('mod_cpm_statuses')->where('id', $r->id)->update(['sort' => $i + 1]); }
+    out(['ok' => true]);
 
 case 'status_del':
     $sid = (int) ($in['id'] ?? 0);
@@ -12478,7 +12488,7 @@ case 'auto_recipes':                     // 🍳 Έτοιμοι κανόνες �
        κάθε πεδίο. Οι συνταγές είναι οι περιπτώσεις που ζητήθηκαν στην πράξη,
        έτοιμες να ενεργοποιηθούν. */
     $me9 = $adminId;
-    $doneSt = (int) (Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id') ?: 0);
+    $doneSt = Db::doneStatusId();
     $recipes = [
         ['key' => 'sla_notify', 'name' => 'Παραβίαση SLA → ειδοποίηση διαχειριστών',
          'why' => 'Το SLA περνά σιωπηλά· κάποιος πρέπει να το μάθει τη στιγμή που συμβαίνει.',
@@ -12510,7 +12520,7 @@ case 'auto_recipes':                     // 🍳 Έτοιμοι κανόνες �
 
 case 'auto_recipe_add':
     $k9 = (string) ($in['key'] ?? '');
-    $doneSt2 = (int) (Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id') ?: 0);
+    $doneSt2 = Db::doneStatusId();
     $all9 = [
         'sla_notify'    => ['Παραβίαση SLA → ειδοποίηση διαχειριστών', 'sla_breach', '', 'notify', '-1'],
         'sla_escalate'  => ['Παραβίαση SLA → προτεραιότητα High', 'sla_breach', '', 'escalate', ''],
@@ -13176,19 +13186,67 @@ case 'event_rsvp_public':               // απάντηση πελάτη από 
     exit;
 
 /* ============ 💬 ΕΣΩΤΕΡΙΚΟ CHAT ============ */
-case 'chat_group_save':                 // δημιουργία ομάδας συνομιλίας
+case 'chat_group_get':                  // ποιοι είναι μέσα — και μπορώ να το αλλάξω;
+    $gg = Capsule::table('mod_cpm_chat_groups')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$gg) { fail('group', 404); }
+    $ggMem = array_values(array_filter(array_map('intval', explode(',', (string) $gg->members))));
+    /* Μόνο μέλος βλέπει τα μέλη. Μια ομάδα συνομιλίας δεν είναι δημόσια λίστα. */
+    if (!$FULL && !in_array($adminId, $ggMem, true)) { fail('group', 403); }
+    $ggPeople = [];
+    foreach (Db::admins() as $a6) {
+        $ggPeople[] = ['id' => (int) $a6->id, 'name' => Db::adminName((int) $a6->id)];
+    }
+    out(['ok' => true, 'id' => (int) $gg->id, 'name' => (string) $gg->name,
+        'members' => array_map(function ($mId) {
+            return ['id' => $mId, 'name' => Db::adminName($mId)];
+        }, $ggMem),
+        'createdBy' => (int) $gg->created_by,
+        'createdByName' => Db::adminName((int) $gg->created_by),
+        'createdAt' => $gg->created_at,
+        /* Αλλάζει όποιος την έφτιαξε ή διαχειριστής. Αν μπορούσε ο καθένας, θα
+           μπορούσες να βγάλεις έξω αυτόν που σε έβαλε μέσα. */
+        'canEdit' => ($FULL || (int) $gg->created_by === $adminId),
+        'people' => $ggPeople]);
+
+case 'chat_group_save':                 // δημιουργία ΚΑΙ αλλαγή ομάδας συνομιλίας
     $gname = mb_substr(trim($in['name'] ?? ''), 0, 80);
+    $gId0 = (int) ($in['id'] ?? 0);
     $gmem = array_values(array_unique(array_merge([$adminId],
         array_filter(array_map('intval', (array) ($in['members'] ?? []))))));
     if ($gname === '' || count($gmem) < 2) {
         fail('Όνομα και τουλάχιστον ένα ακόμη μέλος');
+    }
+    if ($gId0) {
+        /* ΑΛΛΑΓΗ ΥΠΑΡΧΟΥΣΑΣ. */
+        $gOld = Capsule::table('mod_cpm_chat_groups')->where('id', $gId0)->first();
+        if (!$gOld) { fail('group', 404); }
+        if (!$FULL && (int) $gOld->created_by !== $adminId) {
+            fail('Την ομάδα την αλλάζει όποιος τη δημιούργησε', 403);
+        }
+        /* Ο δημιουργός μένει ΠΑΝΤΑ μέσα: αλλιώς η ομάδα θα έμενε χωρίς κανέναν
+           που μπορεί να την αλλάξει. Ο `$adminId` μπαίνει ήδη παραπάνω, αλλά ο
+           διαχειριστής μπορεί να επεξεργάζεται ξένη ομάδα. */
+        $gmem = array_values(array_unique(array_merge([(int) $gOld->created_by], $gmem)));
+        $gPrev = array_values(array_filter(array_map('intval', explode(',', (string) $gOld->members))));
+        Capsule::table('mod_cpm_chat_groups')->where('id', $gId0)
+            ->update(['name' => $gname, 'members' => ',' . implode(',', $gmem) . ',']);
+        /* Ειδοποιούμε ΜΟΝΟ όποιον όντως μπήκε τώρα — όχι όλη την ομάδα σε κάθε
+           μετονομασία. */
+        foreach (array_diff($gmem, $gPrev) as $gm) {
+            if ($gm !== $adminId) {
+                Db::pushNotification($gm, 'info', 'Προστέθηκες στην ομάδα «' . $gname . '»', '/project/#/chat');
+            }
+        }
+        out(['ok' => true, 'id' => $gId0,
+            'added' => count(array_diff($gmem, $gPrev)),
+            'removed' => count(array_diff($gPrev, $gmem))]);
     }
     $gid = Capsule::table('mod_cpm_chat_groups')->insertGetId(['name' => $gname,
         'members' => ',' . implode(',', $gmem) . ',',
         'created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
     foreach ($gmem as $gm) {
         if ($gm !== $adminId) {
-            Db::pushNotification($gm, 'info', '💬 Προστέθηκες στην ομάδα «' . $gname . '»', '/projectmanagement/#/chat');
+            Db::pushNotification($gm, 'info', 'Προστέθηκες στην ομάδα «' . $gname . '»', '/project/#/chat');
         }
     }
     out(['ok' => true, 'id' => $gid]);

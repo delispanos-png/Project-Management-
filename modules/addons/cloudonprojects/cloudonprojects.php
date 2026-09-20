@@ -2274,7 +2274,7 @@ function cpm_tab_list($link, $mineAdminId = 0)
         echo '<tr>';
         echo '<td><a href="' . $link . '&tab=task&id=' . (int) $t->id . '"><b>' . cpm_e($t->title) . '</b></a></td>';
         echo '<td><span class="cnp-dot" style="background:' . cpm_e($t->project_color ?: '#8595ac') . '"></span> ' . cpm_e($t->project_name) . '</td>';
-        echo '<td><span class="label" style="background:' . cpm_e($st->color ?? '#888') . '">' . cpm_e($st->title ?? '?') . '</span></td>';
+        echo '<td><span class="label" style="background:' . cpm_e($st->color ?? '#8291a9') . '">' . cpm_e($st->title ?? '?') . '</span></td>';
         echo '<td>' . cpm_prio_badge($t->priority) . '</td>';
         echo '<td>' . cpm_e(Db::adminName($t->assignee)) . '</td>';
         echo '<td' . ($over ? ' class="cnp-due-over"' : '') . '>' . ($t->due_date ? cpm_e(date('d/m/Y', strtotime($t->due_date))) : '—') . '</td>';
@@ -2665,11 +2665,11 @@ function cloudonprojects_clientarea($vars)
     foreach (Db::statuses() as $s) {
         $statuses[(int) $s->id] = $s;
     }
-    $doneIds = [];
+    /* Ολοκληρωμένες = φάση done. Οι ακυρωμένες ούτε «έγιναν» ούτε «εκκρεμούν» — δεν εμφανίζονται. */
+    $doneIds = []; $cancelIds = [];
     foreach ($statuses as $sid => $s) {
-        if ($s->is_done) {
-            $doneIds[] = $sid;
-        }
+        if (($s->phase ?? '') === 'cancel') { $cancelIds[] = $sid; }
+        elseif ($s->is_done) { $doneIds[] = $sid; }
     }
     $projects = [];
     $rows = Capsule::table('mod_cpm_projects')->where('clientid', $uid)
@@ -2682,6 +2682,7 @@ function cloudonprojects_clientarea($vars)
         $open = [];
         $recent = [];
         foreach ($tasks as $t) {
+            if (in_array((int) $t->status_id, $cancelIds, true)) { continue; }
             $isDone = in_array((int) $t->status_id, $doneIds, true);
             if ($isDone) {
                 $done++;

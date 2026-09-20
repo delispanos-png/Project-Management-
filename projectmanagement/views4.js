@@ -1431,6 +1431,10 @@ R.chat = async function () {
           <b style="font-size:14.5px;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cur.name)}</b>
           <div class="mut" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cur.kind === 'dm' ? chPresence(cur) : cur.kind === 'group' ? (cur.members || 0) + ' μέλη' : 'Όλη η ομάδα'}</div>
         </div>
+        ${/* ΠΟΙΟΙ ΕΙΝΑΙ ΜΕΣΑ. Σε ομαδική συνομιλία έγραφε μόνο «4 μέλη» — δεν
+             ήξερες ποιοι, άρα ούτε ποιος διαβάζει ό,τι γράφεις. */''}
+        ${cur.kind === 'group' ? `<button class="btn btn-o btn-sm" id="chMem"
+          title="Ποιοι είναι στην ομάδα">${I.users || I.user} Μέλη</button>` : ''}
       </div>
       <div class="ch-msgs" id="chMsgs"><div class="skel" style="height:60px"></div></div>
       <div class="ch-comp-wrap">
@@ -1476,6 +1480,68 @@ R.chat = async function () {
     if (st.ch === 'g' + x.dataset.gdel) st.ch = 'team';
     toast(mine ? 'Η ομάδα διαγράφηκε' : 'Αποχώρησες'); R.chat();
   });
+  { const mb = $('#chMem'); if (mb) { mb.onclick = () => chatGroupCard(cur.groupId); } }
+
+  /**
+   * Η καρτέλα της ομάδας: ποιοι είναι μέσα, και — αν σου ανήκει — ποιοι θα είναι.
+   *
+   * Δεν είναι δεύτερη φόρμα «νέας ομάδας»: ανοίγει με τα πραγματικά μέλη
+   * τσεκαρισμένα, ώστε να βλέπεις την αλλαγή που κάνεις. Ο δημιουργός δεν
+   * ξετσεκάρεται — αν έφευγε, η ομάδα θα έμενε χωρίς κανέναν να τη διαχειρίζεται.
+   */
+  async function chatGroupCard(gid) {
+    const g = await api('chat_group_get&id=' + gid).catch(e => ({err: e.message}));
+    if (!g || g.err) { toast((g && g.err) || 'Δεν φορτώθηκε η ομάδα', true); return; }
+    const inIt = id => g.members.some(m => m.id === id);
+    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
+    ovl.innerHTML = `<div class="pal-box" style="margin:12vh auto 0;max-width:470px" onclick="event.stopPropagation()">
+      <div style="padding:20px 22px">
+        <b style="font-size:15.5px;color:var(--ink)"># ${esc(g.name)}</b>
+        <div class="mut" style="font-size:12px;margin-top:3px">
+          ${g.members.length} μέλη · την έφτιαξε ο/η ${esc(g.createdByName)}
+          ${g.createdAt ? ' · ' + esc(String(g.createdAt).slice(0, 10)) : ''}</div>
+
+        ${g.canEdit ? `<label class="lbl" style="margin-top:14px">Όνομα</label>
+          <input class="inp" id="gcName" maxlength="80" value="${esc(g.name)}">` : ''}
+
+        <label class="lbl" style="margin-top:13px">Μέλη${g.canEdit ? ' — βάλε ή βγάλε' : ''}</label>
+        <div class="gc-mem">
+          ${g.people.map(a => {
+            const locked = a.id === g.createdBy;
+            return `<label class="gc-m${inIt(a.id) ? ' on' : ''}${locked ? ' lock' : ''}"
+              title="${locked ? 'Ο δημιουργός της ομάδας μένει πάντα μέσα' : ''}">
+              <input type="checkbox" class="gcM" value="${a.id}" ${inIt(a.id) ? 'checked' : ''}
+                ${(!g.canEdit || locked) ? 'disabled' : ''}> ${esc(a.name)}</label>`;
+          }).join('')}
+        </div>
+
+        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+          <button class="btn btn-o" id="gcNo">${g.canEdit ? 'Άκυρο' : 'Κλείσιμο'}</button>
+          ${g.canEdit ? '<button class="btn btn-p" id="gcGo">Αποθήκευση</button>' : ''}</div>
+        ${g.canEdit ? '' : '<div class="mut" style="font-size:11.5px;margin-top:9px">Την ομάδα την αλλάζει όποιος τη δημιούργησε.</div>'}
+      </div></div>`;
+    document.body.appendChild(ovl);
+    const kill = () => ovl.remove();
+    ovl.onclick = kill;
+    ovl.querySelector('#gcNo').onclick = kill;
+    $$('.gc-m input:not(:disabled)', ovl).forEach(cb => cb.onchange = () =>
+      cb.closest('.gc-m').classList.toggle('on', cb.checked));
+    const go = ovl.querySelector('#gcGo');
+    if (go) { go.onclick = async () => {
+      const members = [...ovl.querySelectorAll('.gcM:checked')].map(x => +x.value);
+      const name = ovl.querySelector('#gcName').value.trim();
+      go.disabled = true;
+      const r = await api('chat_group_save', {id: g.id, name, members}).catch(e => ({err: e.message}));
+      if (!r || r.err) { toast((r && r.err) || 'Δεν αποθηκεύτηκε', true); go.disabled = false; return; }
+      kill();
+      const bits = [];
+      if (r.added)   { bits.push('+' + r.added); }
+      if (r.removed) { bits.push('−' + r.removed); }
+      toast('Η ομάδα ενημερώθηκε' + (bits.length ? ' (' + bits.join(' / ') + ')' : ''));
+      R.chat();
+    }; }
+  }
+
   $('#chNewGrp').onclick = () => {
     const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 300;
     

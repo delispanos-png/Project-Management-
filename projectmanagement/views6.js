@@ -5,7 +5,7 @@
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
 const {S, api, esc, fmtEur, dShort, dFull, today, toast, setTop, cnpConfirm, cnpDialog,
-  cnpDenied, cnpCan, cnpPrompt, closeDrawer, openTask, adminName, adminIni, I, go, $, $$} = window.CNP;
+  cnpDenied, cnpCan, cnpPrompt, closeDrawer, openTask, adminName, adminIni, I, go, stPill, CNP_ST, $, $$} = window.CNP;
 const R = window.R;
 
 /* «2ω 30΄» — ίδια γραφή με τον server (Cover::fmt), για να διαβάζονται μαζί. */
@@ -437,13 +437,9 @@ window.openPrepaid = openPrepaid;
 
 /* Τα ίδια χρώματα/ετικέτες με το chat και την πάνω μπάρα — η ετικέτα έρχεται
    έτοιμη από τον server (p.label), εδώ κρατάμε μόνο το χρώμα ως εφεδρεία. */
-const ACT_ST = {
-  online:  ['Διαθέσιμος', '#16a26a'],
-  busy:    ['Απασχολημένος', '#e0552b'],
-  meeting: ['Σε σύσκεψη', '#e0a020'],
-  away:    ['Λείπω', '#8595ac'],
-  offline: ['Εκτός', '#5d6b85'],
-};
+/* Ίδιες λέξεις και χρώματα με το μενού παρουσίας (CNP_ST) — όχι δεύτερο λεξιλόγιο. */
+const ACT_ST = Object.fromEntries(CNP_ST.map(x => [x[0], [x[1], x[2]]]));
+ACT_ST.busy = ['Απασχολημένος', '#e0552b'];
 const ACT_ICO = {plus: 'plus', board: 'board', doc: 'doc', user: 'user', chat: 'chat',
   clock: 'clock', play: 'play', zap: 'zap', mail: 'mail', ticket: 'ticket'};
 /** «πριν 3΄», «πριν 2ω», «χθες» */
@@ -1004,6 +1000,7 @@ R.teamday = async function () {
     return `<div class="td-row" data-tgo="${t.id}">
       <span class="td-dot" style="background:${t.color || '#8595ac'}"></span>
       <span class="td-title${t.done ? ' done' : ''}" title="${esc(t.title)}">${esc(t.title)}</span>
+      ${t.statusId ? stPill(t.statusId) : ''}
       <span class="td-time">${timeChip}</span>
       <span class="td-proj">${t.project ? `<span class="td-tag" title="${esc(t.project)}">${esc(t.project)}</span>` : ''}${t.internal ? '<span class="td-tag rnd">R&D</span>' : ''}</span>
       <span class="td-who">${t.who
@@ -1195,7 +1192,7 @@ R.myteam = async function () {
 
   const taskLine = t => `<div class="kb-item kb-trow" data-mtgo="${t.id}" style="cursor:pointer">
     <span class="kb-dot" style="background:${t.color}"></span>
-    <b>${esc(t.title)}</b>
+    <b>${esc(t.title)}</b> ${t.statusId ? stPill(t.statusId) : ''}
     <span class="kb-sum-meta">
       ${t.project ? `<span class="kb-tag">${esc(t.project)}</span>` : ''}
       <span class="mut">${t.who ? esc(t.who) : 'χωρίς ανάθεση'}</span>

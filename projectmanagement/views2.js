@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -546,7 +546,7 @@ R.calendar = async function (ym) {
       }).join('') +
       (byDay[date] || []).map(t => `<a class="ev ${t.done ? 'done' : date < today() ? 'over' : ''}"
         style="border-color:${t.color}" data-task="${t.id}" title="${esc(t.title + ' — ' + t.pname)}&#10;(διπλό κλικ για άνοιγμα)">
-        ${t.prio === 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`).join('') + '</td>';
+        ${t.status ? stDot(t.status) : ''}${t.prio === 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`).join('') + '</td>';
     col++;
   }
   while (col < 7) { cells += '<td class="other"></td>'; col++; }
@@ -608,7 +608,7 @@ R.calendar = async function (ym) {
       body += `<div class="cal-ag-row" data-agtask="${tk.id}" style="border-left-color:${tk.color}">
         <div class="cal-ag-ic" style="background:${tk.color}20">${I.checkSquare || '✔'}</div>
         <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio === 2 ? '❗ ' : ''}${esc(tk.title)}</b>
-          <div class="cal-ag-meta">Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
+          <div class="cal-ag-meta">${tk.status ? stPill(tk.status) + ' · ' : ''}Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
     });
     box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dt.getDay()]} ${dt.getDate()} ${mn}</b>
         <button class="btn btn-p btn-sm" id="calDayNew">${I.plus} Νέο εδώ</button></div>

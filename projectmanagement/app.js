@@ -175,6 +175,16 @@ window.addEventListener('unhandledrejection', e => {
 const adminName = id => (S.boot.admins.find(a => a.id === +id) || {}).name || '—';
 const adminIni = id => (S.boot.admins.find(a => a.id === +id) || {}).ini || '';
 const statusOf = id => S.boot.statuses.find(s => s.id === +id) || {};
+/* Η ΜΙΑ ετικέτα κατάστασης εργασίας — παντού η ίδια: κάρτα, λίστες, kanban, ημερολόγιο,
+   μέρα ομάδας. Κανένα άλλο σημείο δεν χρωματίζει κατάσταση μόνο του (20/09/2026). */
+const stPill = (id, extra) => {
+  const s = statusOf(id); const c = s.color || '#8291a9';
+  return `<span class="st-pill${s.phase ? ' st-' + s.phase : ''}" style="color:${c};background:${c}22;border-color:${c}55" title="Κατάσταση: ${esc(s.title || '—')}"${extra ? ' ' + extra : ''}>${esc(s.title || '—')}</span>`;
+};
+/* Η ίδια κατάσταση ως ΚΟΥΚΚΙΔΑ, για στενά κελιά (ημερολόγιο): ίδιο χρώμα, το όνομα στο title. */
+const stDot = id => { const s = statusOf(id); return `<i class="st-dot" style="background:${s.color || '#8291a9'}" title="Κατάσταση: ${esc(s.title || '—')}"></i>`; };
+/* Η κατάσταση «Ολοκληρώθηκε» — η φάση done, ΟΧΙ το «Ακυρωμένο» (κι αυτό είναι τελικό). */
+const doneStatus = () => S.boot.statuses.find(x => x.phase === 'done') || S.boot.statuses.find(x => x.done && !x.cancel) || S.boot.statuses.find(x => x.done);
 const typeOf = id => S.boot.types.find(t => t.id === +id);
 
 /* ───────── shell ───────── */
@@ -2170,7 +2180,7 @@ async function openTask(id, entryId, opts) {
         ${d.project && !d.project.none ? `<a class="tk-cust-tag tk-pj-tag" href="#/board/${d.project.id}" data-navclose
            title="Το έργο στο οποίο ανήκει η εργασία${d.project.product ? ' · προϊόν: ' + esc(d.project.product) : ''}">📁 ${esc(d.project.name)}${
              d.project.product ? ` <span class="tk-pj-prod">· ${esc(d.project.product)}</span>` : ''}</a>` : ''}
-        <button type="button" class="pill tk-st" id="dStPill" style="background:${stO.color || '#8291a9'}22;color:${stO.color || '#8291a9'}" title="Αλλαγή κατάστασης">${esc(stO.title || '—')} ▾</button>
+        <button type="button" class="pill tk-st st-pill" id="dStPill" style="background:${stO.color || '#8291a9'}22;color:${stO.color || '#8291a9'}" title="Αλλαγή κατάστασης">${esc(stO.title || '—')} ▾</button>
         ${t.ticket
           ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα στην ανάθεση">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>`
           : t.ticketRef
@@ -2694,7 +2704,7 @@ async function openTask(id, entryId, opts) {
   /* Ολοκλήρωση με δυο λόγια. Στέλνει τη μετακίνηση στην «τελική» στήλη — έτσι
      καθαρίζει και η μπάλα, και η εργασία φεύγει από «Η μέρα μου». */
   const dn = $('#dDone', dr); if (dn) dn.onclick = async () => {
-    const fin = S.boot.statuses.find(x => x.done);
+    const fin = doneStatus();
     if (!fin) { toast('Δεν υπάρχει στήλη ολοκλήρωσης', true); return; }
     const note = await askDone((dr.dataset.title || t.title));
     if (note === null) { return; }
@@ -3537,7 +3547,7 @@ async function vMyDay() {
     api('overruns').catch(() => ({items: []})),
   ]);
   const todos = mt.todos || [], overruns = ovr.items || [], pend = d.pending || {help: [], meetings: [], mine: []};
-  const st = d.stats || {}, TODAY = today(), fin = (S.boot.statuses || []).find(x => x.done);
+  const st = d.stats || {}, TODAY = today(), fin = doneStatus();
   const dayName = new Date().toLocaleDateString('el-GR', {weekday: 'long', day: 'numeric', month: 'long'});
   const hm = s => (s || '').slice(11, 16);
   const colL = {bad: 'var(--bad)', warn: 'var(--warn)', tip: 'var(--brand)', ok: 'var(--ok)', info: 'var(--info)'};
@@ -4322,7 +4332,7 @@ document.addEventListener('keydown', e => {
 }, true);
 
 window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
-  adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
+  adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};

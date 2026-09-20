@@ -1806,6 +1806,43 @@ class Db
                 'color' => '#8595ac', 'sort' => 10, 'is_done' => 1]);
         }
 
+        /* ΦΑΣΗ ΚΑΤΑΣΤΑΣΗΣ (20/09/2026). Μέχρι τώρα κάθε οθόνη μάντευε τι σημαίνει μια
+           κατάσταση από τη σειρά της ή από σκληρά ids (2 = «σε εξέλιξη»), και το
+           «Ακυρωμένο» μετρούσε ως ολοκληρωμένο παντού. Η φάση το λέει ρητά:
+           wait (Backlog, Ανατέθηκε, αναμονές) · work (Σε εξέλιξη) · after (Έλεγχος,
+           Δοκιμή, Προς τιμολόγηση — η δουλειά τελείωσε, περιμένει άλλον) · done · cancel.
+           Η is_done μένει ως παράγωγο (done ή cancel) για τον παλιό κώδικα. */
+        if ($s->hasTable('mod_cpm_statuses') && !$s->hasColumn('mod_cpm_statuses', 'phase')) {
+            Capsule::statement('ALTER TABLE mod_cpm_statuses ADD COLUMN `phase` varchar(8) NULL');
+        }
+        if ($s->hasTable('mod_cpm_statuses') && Capsule::table('mod_cpm_statuses')->whereNull('phase')->exists()) {
+            $guess = function ($title, $isDone) {
+                $t = mb_strtolower((string) $title);
+                if (preg_match('/ακυρ|cancel/u', $t)) { return 'cancel'; }
+                if ($isDone) { return 'done'; }
+                if (preg_match('/εξέλιξ|progress|doing/u', $t)) { return 'work'; }
+                if (preg_match('/έλεγχ|δοκιμ|test|review|τιμολ|invoice|bill|qa/u', $t)) { return 'after'; }
+                return 'wait';
+            };
+            foreach (Capsule::table('mod_cpm_statuses')->whereNull('phase')->get() as $st) {
+                Capsule::table('mod_cpm_statuses')->where('id', $st->id)->update(['phase' => $guess($st->title, (int) $st->is_done)]);
+            }
+            /* Μία φορά: οι τελικές στο τέλος, οι υπόλοιπες στη λογική σειρά της ροής. */
+            $order = ['wait' => 0, 'work' => 1, 'after' => 2, 'done' => 3, 'cancel' => 4];
+            $rows = Capsule::table('mod_cpm_statuses')->get()->all();
+            usort($rows, function ($a, $b) use ($order) {
+                /* Backlog πάντα πρώτο, «Ανατέθηκε» δεύτερο· μετά ό,τι λέει η φάση και η παλιά σειρά. */
+                $w = function ($r) use ($order) {
+                    $t = mb_strtolower($r->title);
+                    $pre = strpos($t, 'backlog') !== false ? -2 : (preg_match('/ανατέθ|assigned/u', $t) ? -1 : 0);
+                    return [$order[$r->phase] ?? 0, $pre, (int) $r->sort];
+                };
+                return $w($a) <=> $w($b);
+            });
+            $i = 1;
+            foreach ($rows as $r) { Capsule::table('mod_cpm_statuses')->where('id', $r->id)->update(['sort' => $i++]); }
+        }
+
         /* Οι «Ενέργειες» δέχονται πλέον πολλές γραμμές και κώδικα — το varchar(200)
            έκοβε ένα stack trace στη μέση. */
         if ($s->hasTable('mod_cpm_checklist')) {
@@ -1894,9 +1931,39 @@ class Db
     /* Statuses (1.4)                                                     */
     /* ------------------------------------------------------------------ */
 
+    /** Οι φάσεις μιας κατάστασης — η ΜΟΝΗ ερμηνεία του «τι σημαίνει» μια στήλη. */
+    const PHASES = ['wait' => 'Αναμονή (δεν έχει ξεκινήσει ή περιμένει)', 'work' => 'Σε εξέλιξη (δουλεύεται τώρα)',
+        'after' => 'Μετά την εργασία (έλεγχος, δοκιμή, τιμολόγηση)', 'done' => 'Ολοκληρωμένο', 'cancel' => 'Ακυρωμένο (δεν θα γίνει)'];
+
+    /** Όλες οι καταστάσεις, τελικές πάντα στο τέλος. */
     public static function statuses()
     {
-        return Capsule::table('mod_cpm_statuses')->orderBy('sort')->get();
+        return Capsule::table('mod_cpm_statuses')
+            ->orderByRaw("CASE phase WHEN 'done' THEN 1 WHEN 'cancel' THEN 2 ELSE 0 END")->orderBy('sort')->get();
+    }
+
+    /** Ids καταστάσεων μιας ή περισσότερων φάσεων. Ποτέ κενό: [0] για να μην σπάει το whereIn. */
+    public static function statusIds($phases)
+    {
+        $ids = Capsule::table('mod_cpm_statuses')->whereIn('phase', (array) $phases)->pluck('id')->all();
+        return array_map('intval', $ids) ?: [0];
+    }
+
+    /** Κλειστές = ολοκληρωμένες + ακυρωμένες (ό,τι έλεγε παλιά η is_done). */
+    public static function closedStatusIds() { return self::statusIds(['done', 'cancel']); }
+
+    /** Η κατάσταση «Ολοκληρώθηκε» — μία, ΟΧΙ το «Ακυρωμένο». */
+    public static function doneStatusId()
+    {
+        return (int) (Capsule::table('mod_cpm_statuses')->where('phase', 'done')->orderBy('sort')->value('id')
+            ?: Capsule::table('mod_cpm_statuses')->where('is_done', 1)->orderBy('sort')->value('id'));
+    }
+
+    /** Τελείωσε η δουλειά ΠΑΝΩ στην εργασία σε αυτή την κατάσταση; (after, done, cancel) */
+    public static function statusEndsWork($id)
+    {
+        $st = self::status($id);
+        return $st ? in_array((string) $st->phase, ['after', 'done', 'cancel'], true) : false;
     }
 
     public static function firstStatusId()
@@ -2480,7 +2547,7 @@ class Db
     {
         return Capsule::table('mod_cpm_tasks as t')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-            ->select('t.id', 't.title', 't.due_date', 't.priority', 't.completed_at', 't.assignee',
+            ->select('t.id', 't.title', 't.due_date', 't.priority', 't.completed_at', 't.assignee', 't.status_id',
                 't.project_id', 'p.name as project_name', 'p.color as project_color')
             ->whereNotNull('t.due_date')
             ->whereBetween('t.due_date', [$ym . '-01', date('Y-m-t', strtotime($ym . '-01'))])
@@ -2912,8 +2979,10 @@ class Db
     /** Πρόοδος project από tasks: [done, total, pct]. */
     public static function projectProgress($projectId)
     {
-        $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
-        $total = Capsule::table('mod_cpm_tasks')->where('project_id', (int) $projectId)->count();
+        /* Οι ακυρωμένες δεν μετρούν πουθενά: ούτε ως έγιναν, ούτε ως εκκρεμούν. */
+        $doneIds = self::statusIds('done');
+        $cancelIds = self::statusIds('cancel');
+        $total = Capsule::table('mod_cpm_tasks')->where('project_id', (int) $projectId)->whereNotIn('status_id', $cancelIds)->count();
         $done = Capsule::table('mod_cpm_tasks')->where('project_id', (int) $projectId)
             ->whereIn('status_id', $doneIds)->count();
         return [$done, $total, $total ? (int) round($done / $total * 100) : 0];
