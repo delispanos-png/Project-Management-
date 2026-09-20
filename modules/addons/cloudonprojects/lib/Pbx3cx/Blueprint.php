@@ -55,6 +55,8 @@ class Pbx3cxBlueprint
 
     const EMERG_MEMBERS = ['201', '202', '804'];
 
+    /** Ψηφία από το τέλος για ταύτιση καλούντος με επαφή (8: καλύπτει και Κύπρο). */
+    const PB_MATCH_DIGITS = 8;
     /** Ο ιδιοκτήτης. Ρόλοι που δίνει το 3CX: users, receptionists, group_admins,
         managers, group_owners, system_admins, system_owners (ο ανώτατος). */
     const OWNER_DN   = '201';
@@ -506,6 +508,7 @@ TXT;
     private static function live()
     {
         $L = [];
+        try { $L['pbset'] = Pbx3cxClient::xapi('PhonebookSettings'); } catch (\Throwable $e) { $L['pbset'] = []; }
         $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours,PromptSet',
             '$expand' => 'Members($select=Id,Number,Type),OfficeHolidays']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
@@ -896,6 +899,26 @@ TXT;
                     $as['Knowledgebase'] = [$id];
                     Pbx3cxClient::xwrite('PATCH', 'Users(' . self::AI_ID . ')', ['AgentSettings' => $as]);
                 }
+            }];
+
+        /* 5ε. Ταύτιση καλούντος με τον κατάλογο. Το 3CX ήταν σε «ακριβή ταύτιση»:
+           η κλήση έρχεται +306971234567 και αν η επαφή είχε 6971234567 (ή 0030…,
+           ή με κενά) το τηλέφωνο έδειχνε σκέτο νούμερο και η ρεσεψιόν δεν τον
+           γνώριζε. Με ταύτιση στα τελευταία 8 ψηφία, όπως κι αν έχει γραφτεί ο
+           αριθμός (εδώ, στο 3CX, σε συσκευή), ο καλών βρίσκεται. 8 και όχι 10:
+           οι κυπριακοί είναι 8ψήφιοι εθνικά. Απόφαση 20/09/2026. */
+        $S[] = ['key' => 'pb_match', 'label' => 'Αναγνώριση καλούντος: ταύτιση στα τελευταία ' . self::PB_MATCH_DIGITS . ' ψηφία, ανεξάρτητα από +30/0030/κενά',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $p = $L['pbset'] ?? [];
+                $ok = ($p['ResolvingType'] ?? '') === 'MatchLength' && (int) ($p['ResolvingLength'] ?? 0) === self::PB_MATCH_DIGITS;
+                if ($ok) { return ['ok', 'τελευταία ' . self::PB_MATCH_DIGITS . ' ψηφία']; }
+                $now = ($p['ResolvingType'] ?? '?') === 'MatchExact' ? 'ακριβής ταύτιση (χάνει +30/εθνικό)' : (($p['ResolvingType'] ?? '?') . ' ' . ($p['ResolvingLength'] ?? ''));
+                return ['change', 'τώρα: ' . $now];
+            },
+            'apply' => function ($L) {
+                Pbx3cxClient::xwrite('PATCH', 'PhonebookSettings', ['ResolvingType' => 'MatchLength', 'ResolvingLength' => self::PB_MATCH_DIGITS]);
+                Pbx3cxClient::log('blueprint', 'ok', 'Ταύτιση καλούντος με κατάλογο: τελευταία ' . self::PB_MATCH_DIGITS . ' ψηφία');
             }];
 
         /* 5στ. Το 901 ήταν δεύτερος, ημιτελής AI agent (Personal Assistant, κενές
