@@ -958,7 +958,7 @@ class Db
            κατάλογος είναι λίστα ονομάτων· με αυτά ξέρεις τι εκκρεμεί και σε
            ποιον. */
         foreach ([
-            'status'      => "varchar(16) NULL DEFAULT 'active'",   // active|prospect|supplier|inactive
+            'status'      => "varchar(16) NULL DEFAULT 'active'",   // active|inactive (η σχέση πήγε στο `rel`)
             'owner_id'    => 'int(10) unsigned NULL',               // ποιος το παρακολουθεί
             'next_at'     => 'date NULL',                           // επόμενη επαφή
             'next_note'   => 'varchar(200) NULL',
@@ -969,6 +969,13 @@ class Db
             'products'      => 'varchar(160) NULL',                 // softone,pharmacyone,3cx,…
             'support_cover' => 'tinyint(4) NULL',                   // 1 καλύπτεται · 0 όχι · NULL άγνωστο
             'route_dn'      => 'varchar(8) NULL',                   // «πάντα σε» ουρά (υπερισχύει)
+            /* ΤΙ ΜΑΣ ΕΙΝΑΙ (20/09/2026). Η «κατάσταση» έμπλεκε δύο εντελώς
+               διαφορετικά πράγματα: αν η επαφή είναι ενεργή (Ενεργός/Ανενεργός)
+               ΚΑΙ τι σχέση έχει μαζί μας (Υποψήφιος/Προμηθευτής). Έτσι μια
+               φαρμακαποθήκη με την οποία απλώς συνεργαζόμαστε δεν χωρούσε
+               πουθενά, και ο προμηθευτής έδειχνε «προϊόντα που έχει από εμάς».
+               Η σχέση ζει πια σε δική της στήλη. */
+            'rel'           => 'varchar(10) NULL',                  // client|supplier|partner|prospect
         ] as $col => $def) {
             if (!$s->hasColumn('mod_cpm_book', $col)) {
                 Capsule::statement('ALTER TABLE mod_cpm_book ADD COLUMN `' . $col . '` ' . $def);

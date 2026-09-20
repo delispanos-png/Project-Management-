@@ -25,11 +25,13 @@ use WHMCS\Module\Addon\CloudonProjects\Book;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxReport;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint;
 use WHMCS\Module\Addon\CloudonProjects\Route;
+use WHMCS\Module\Addon\CloudonProjects\Aade;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Aade.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
@@ -3207,6 +3209,7 @@ function cnp_action_cap($action)
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
         $add('comms.book', ['book_list', 'book_get', 'book_fields']);
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import']);
+        $add('comms.book.edit', ['book_afm']);
         $add('comms.book.delete', ['book_del']);
         $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan', 'pbx_ai_calls']);
         $add('comms.route', ['route_overview']);
@@ -6244,6 +6247,7 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
             'postcode' => (string) $g->postcode, 'country' => (string) $g->country,
             'tags' => (string) $g->tags, 'notes' => (string) $g->notes,
             'status' => (string) $g->status, 'owner' => $g->owner_id ? (int) $g->owner_id : 0,
+            'rel' => (string) ($g->rel ?? ''),
             'nextAt' => $g->next_at, 'nextNote' => (string) $g->next_note,
             'client' => $g->clientid ? (int) $g->clientid : 0,
             'clientName' => $g->clientid ? clientLabel((int) $g->clientid) : '',
@@ -6258,6 +6262,10 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
         'phones' => $gPh, 'fields' => $gFields, 'timeline' => $gTl, 'calls' => $gCalls,
         'totals' => ['calls' => (int) $gAgg->n, 'talk' => (int) $gAgg->t, 'missed' => (int) $gAgg->miss],
         'statuses' => Book::statuses(),
+        /* [ετικέτα, αν έχει δικά μας προϊόντα] — η οθόνη κρύβει μόνη της τη
+           δρομολόγηση όταν η σχέση δεν την αφορά. */
+        'rels' => Book::rels(),
+        'aade' => Aade::enabled(),
         'routing' => ['products' => Route::productList(), 'queues' => Route::queues(),
             'decision' => $gPh ? Route::decide($gPh[0]['e164']) : null],
         'labels' => array_map(function ($v) { return $v[0]; }, Book::phoneLabels()),
@@ -6273,6 +6281,27 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
         })(),
         'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.book.edit'),
         'canDel' => cnp_has_cap($adminId, $FULL, 'comms.book.delete')]);
+
+case 'book_afm':
+    /* ΤΟ ΑΦΜ ΦΤΑΝΕΙ. Τα υπόλοιπα στοιχεία τα δίνει η ΑΑΔΕ, ώστε η ποιότητα του
+       καταλόγου να μην εξαρτάται από το πόσο προσεκτικά πληκτρολογεί ο καθένας.
+       ΔΕΝ αποθηκεύουμε εδώ: γυρίζουμε τα στοιχεία στην οθόνη, τα βλέπει ο
+       χειριστής και πατάει Αποθήκευση — μια δημόσια βάση δεν γράφει από μόνη
+       της πάνω σε δουλεμένη καρτέλα. */
+    $aAfm = preg_replace('/\D/', '', (string) ($in['afm'] ?? ($_GET['afm'] ?? '')));
+    if ($aAfm === '') { fail('Γράψε ΑΦΜ'); }
+    if (!Aade::enabled()) { fail('Η υπηρεσία ΑΑΔΕ δεν είναι ρυθμισμένη — Σύστημα → Ρυθμίσεις'); }
+    $aRes = Aade::lookup($aAfm);
+    if (empty($aRes['ok'])) { fail((string) ($aRes['error'] ?? 'Η ΑΑΔΕ δεν απάντησε')); }
+    $aD = $aRes['data'];
+    /* Η ΑΑΔΕ γράφει τα πάντα ΚΕΦΑΛΑΙΑ και συχνά με διπλά κενά. */
+    $aClean = function ($v) { return trim(preg_replace('/\s+/u', ' ', (string) $v)); };
+    out(['ok' => true, 'afm' => (string) $aD['afm'],
+        'company' => $aClean($aD['name']), 'commercial' => $aClean($aD['title']),
+        'taxOffice' => $aClean($aD['doy']), 'address' => $aClean($aD['street']),
+        'city' => $aClean($aD['city']), 'postcode' => $aClean($aD['postcode']),
+        'isCompany' => (bool) $aD['is_company'], 'active' => (bool) $aD['active'],
+        'firmType' => $aClean($aD['firm_type']), 'kad' => $aClean($aD['kad'])]);
 
 case 'book_save':                        // αποθήκευση καρτέλας — ΚΑΙ αποστολή στο 3CX
     $sId = (int) ($in['id'] ?? 0);
@@ -6334,6 +6363,8 @@ case 'book_save':                        // αποθήκευση καρτέλα�
     if ($sClient && !Capsule::table('tblclients')->where('id', $sClient)->exists()) { $sClient = 0; }
     $sStatus = (string) ($in['status'] ?? 'active');
     if (!isset(Book::statuses()[$sStatus])) { $sStatus = 'active'; }
+    $sRel = (string) ($in['rel'] ?? '');
+    if (!isset(Book::rels()[$sRel])) { $sRel = ''; }
 
     $row = [
         'kind' => $sCo !== '' ? 'company' : 'person',
@@ -6350,6 +6381,7 @@ case 'book_save':                        // αποθήκευση καρτέλα�
         'tags' => mb_substr(trim((string) ($in['tags'] ?? '')), 0, 160) ?: null,
         'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 8000) ?: null,
         'status' => $sStatus,
+        'rel' => $sRel ?: null,
         'owner_id' => (int) ($in['owner'] ?? 0) ?: null,
         'next_at' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['nextAt'] ?? '')) ? $in['nextAt'] : null,
         'next_note' => mb_substr(trim((string) ($in['nextNote'] ?? '')), 0, 200) ?: null,

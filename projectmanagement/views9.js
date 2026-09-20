@@ -882,6 +882,16 @@ async function bookCard(id, pre) {
   ${/* Η ΣΕΙΡΑ ΕΧΕΙ ΣΗΜΑΣΙΑ: ποιος είναι και πώς τον βρίσκεις πρώτα. Οι
        λεπτομέρειες (ΑΦΜ, διεύθυνση, ετικέτες) πάνε κάτω — στο κινητό έπρεπε
        να προσπεράσεις δώδεκα πεδία κειμένου για να φτάσεις στα τηλέφωνα. */''}
+  ${/* ΤΙ ΜΑΣ ΕΙΝΑΙ — μπαίνει ΠΡΩΤΟ γιατί ορίζει τι άλλο έχει νόημα στην καρτέλα.
+       Ο προμηθευτής δεν έχει δικά μας προϊόντα (εμείς έχουμε δικά του), οπότε
+       η δρομολόγηση κλήσεων κρύβεται. */''}
+  <div class="bc-f" style="margin-bottom:10px">
+    <label class="lbl">Τι μας είναι</label>
+    <div class="bc-rel">${Object.entries(d.rels || {}).map(([k, v]) => `
+      <button type="button" class="bc-relb${K.rel === k ? ' on' : ''}" data-rel="${k}" ${ed ? '' : 'disabled'}>${esc(v[0])}</button>`).join('')}
+      <button type="button" class="bc-relb${K.rel ? '' : ' on'}" data-rel="" ${ed ? '' : 'disabled'}>— δεν ξέρουμε —</button>
+    </div></div>
+
   <div class="bc-grid">
     ${inp('company', 'Επωνυμία', K.company)}
     ${inp('title', 'Θέση / ρόλος', K.title)}
@@ -911,6 +921,7 @@ async function bookCard(id, pre) {
   <div class="bc-f" style="margin-top:10px"><label class="lbl">Πελάτης WHMCS</label>
     <div id="bcCli"></div></div>
 
+  <div id="bcRoute">
   <div class="bc-sec">${I.zap} Δρομολόγηση κλήσεων</div>
   <div class="mut" style="font-size:12px;margin-bottom:8px">
     Τι έχει από εμάς και αν καλύπτεται από τεχνική υποστήριξη. Με αυτά το κέντρο στέλνει την κλήση του
@@ -934,12 +945,20 @@ async function bookCard(id, pre) {
   ${d.routing && d.routing.decision ? `<div class="bc-dec ${esc(d.routing.decision.decision)}">
     Αν καλούσε τώρα: <b>${d.routing.decision.decision === 'queue' ? 'κατευθείαν στην ουρά ' + esc(d.routing.decision.dn) : 'ρεσεψιόν'}</b>
     <span class="mut">— ${esc(d.routing.decision.reason)}</span></div>` : ''}
+  </div>
 
   <div class="bc-sec">${I.contact || I.user} Στοιχεία</div>
   <div class="bc-grid">
     ${inp('email', 'Email', K.email, 'type="email"')}
     ${inp('website', 'Ιστοσελίδα', K.website)}
-    ${inp('vat', 'ΑΦΜ', K.vat)}
+    ${/* ΤΟ ΑΦΜ ΦΤΑΝΕΙ: επωνυμία, ΔΟΥ, διεύθυνση, πόλη και ΤΚ τα φέρνει η ΑΑΔΕ,
+         ώστε ο κατάλογος να μην εξαρτάται από το πόσο προσεκτικά πληκτρολογεί
+         ο καθένας. Δεν γράφει μόνη της: ο χειριστής βλέπει τι ήρθε και σώζει. */''}
+    <div class="bc-f"><label class="lbl">ΑΦΜ</label>
+      <div class="bc-afm">
+        <input class="inp" data-k="vat" value="${esc(K.vat || '')}" ${ed ? '' : 'disabled'} inputmode="numeric">
+        ${ed && d.aade ? '<button type="button" class="btn btn-o btn-sm" id="bcAfm" title="Φέρνει επωνυμία, ΔΟΥ και διεύθυνση από το μητρώο της ΑΑΔΕ">Άντληση από ΑΑΔΕ</button>' : ''}
+      </div></div>
     ${inp('taxOffice', 'ΔΟΥ', K.taxOffice)}
     ${inp('address', 'Διεύθυνση', K.address)}
     ${inp('city', 'Πόλη', K.city)}
@@ -1048,7 +1067,57 @@ async function bookCard(id, pre) {
   };
   paintCli();
 
+  /* ── ΤΙ ΜΑΣ ΕΙΝΑΙ ─────────────────────────────────────────────────────────
+     Η σχέση κρύβει ή δείχνει τη δρομολόγηση: ένας προμηθευτής δεν έχει δικά μας
+     προϊόντα, οπότε δεν έχει νόημα ούτε να τα ρωτάμε ούτε να δρομολογούμε τις
+     κλήσεις του στην υποστήριξη προϊόντος. Η απόκρυψη ισχύει και για όποιον
+     απλώς κοιτάζει, όχι μόνο για όποιον μπορεί να αλλάξει. */
+  let rel = K.rel || '';
+  const paintRel = () => {
+    const box = $('#bcRoute', body);
+    if (box) { box.hidden = !!(rel && d.rels && d.rels[rel] && d.rels[rel][1] === false); }
+    $$('[data-rel]', body).forEach(b => b.classList.toggle('on', b.dataset.rel === rel));
+  };
+  paintRel();
+
   if (!ed) { return; }
+
+  $$('[data-rel]', body).forEach(b => b.onclick = () => { rel = b.dataset.rel; paintRel(); });
+
+  /* ── ΑΦΜ → ΑΑΔΕ ──────────────────────────────────────────────────────────
+     Δεν γράφουμε πάνω σε ό,τι έχει ήδη συμπληρωθεί χωρίς να το πούμε: αν η ΑΑΔΕ
+     φέρνει κάτι διαφορετικό από αυτό που υπάρχει, ρωτάμε πρώτα. Τα κενά πεδία
+     γεμίζουν ελεύθερα — εκεί δεν χάνεται τίποτα. */
+  { const ab = $('#bcAfm', body); if (ab) { ab.onclick = async () => {
+    const vf = body.querySelector('[data-k="vat"]');
+    const afm = (vf.value || '').replace(/\D/g, '');
+    if (afm.length < 9) { toast('Γράψε πρώτα ΑΦΜ (9 ψηφία)', true); return; }
+    ab.disabled = true; const was = ab.textContent; ab.textContent = 'ρωτάω την ΑΑΔΕ…';
+    try {
+      const r = await api('book_afm', {afm}).catch(e => ({err: e.message}));
+      if (!r || r.err) { toast((r && r.err) || 'Η ΑΑΔΕ δεν απάντησε', true); return; }
+      const MAP = [['company', r.company, 'Επωνυμία'], ['taxOffice', r.taxOffice, 'ΔΟΥ'],
+                   ['address', r.address, 'Διεύθυνση'], ['city', r.city, 'Πόλη'],
+                   ['postcode', r.postcode, 'ΤΚ']];
+      const clash = MAP.filter(([k, v]) => v && (body.querySelector(`[data-k="${k}"]`) || {}).value.trim()
+        && body.querySelector(`[data-k="${k}"]`).value.trim() !== v);
+      if (clash.length && !(await cnpConfirm(
+        'Η ΑΑΔΕ δίνει διαφορετικά στοιχεία από αυτά που υπάρχουν:\n\n'
+        + clash.map(([k, v, l]) => `${l}: «${body.querySelector(`[data-k="${k}"]`).value.trim()}» → «${v}»`).join('\n')
+        + '\n\nΝα αντικατασταθούν;', {title: 'Άντληση από ΑΑΔΕ', ok: 'Ναι, πάρε τα της ΑΑΔΕ', cancel: 'Όχι, κράτα τα δικά μου'}))) {
+        toast('Συμπληρώθηκαν μόνο τα κενά πεδία');
+        MAP.forEach(([k, v]) => { const el = body.querySelector(`[data-k="${k}"]`);
+          if (el && v && !el.value.trim()) { el.value = v; } });
+        return;
+      }
+      MAP.forEach(([k, v]) => { const el = body.querySelector(`[data-k="${k}"]`); if (el && v) { el.value = v; } });
+      vf.value = r.afm || afm;
+      /* Εταιρεία από το μητρώο → η επωνυμία είναι το σωστό πεδίο, όχι το όνομα. */
+      if (r.isCompany && !rel) { rel = 'client'; paintRel(); }
+      toast(r.active ? 'Ήρθαν τα στοιχεία — πάτα Αποθήκευση'
+                     : 'Προσοχή: η ΑΑΔΕ τη δείχνει ΑΝΕΝΕΡΓΗ — πάτα Αποθήκευση αν το θέλεις', r.active ? '' : 'err');
+    } finally { ab.disabled = false; ab.textContent = was; }
+  }; } }
 
   $('#bcSave', body).onclick = async e => {
     const btn = e.currentTarget;
@@ -1061,7 +1130,7 @@ async function bookCard(id, pre) {
       id: K.id, company: g('company'), first: g('first'), last: g('last'), title: g('title'),
       email: g('email'), website: g('website'), vat: g('vat'), taxOffice: g('taxOffice'),
       address: g('address'), city: g('city'), postcode: g('postcode'), tags: g('tags'),
-      notes: g('notes'), status: g('status'), owner: +g('owner') || 0,
+      notes: g('notes'), status: g('status'), rel, owner: +g('owner') || 0,
       nextAt: g('nextAt'), nextNote: g('nextNote'), client: client.id,
       products: $$('[data-prod]', body).filter(el => el.checked).map(el => el.dataset.prod),
       cover: g('cover'), routeDn: g('routeDn'),

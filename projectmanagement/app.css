@@ -3790,3 +3790,21 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .cl-ai{display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;
   font-weight:800;letter-spacing:.4px;color:#fff;background:var(--brand)}
 .su-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+
+/* ── Τι μας είναι η επαφή ────────────────────────────────────────────────
+   Κουμπιά αντί για λίστα: είναι τέσσερις επιλογές, φαίνονται όλες μαζί και
+   διαλέγεις με ένα κλικ. Η επιλογή αλλάζει τι δείχνει η υπόλοιπη καρτέλα. */
+.bc-rel{display:flex;flex-wrap:wrap;gap:6px}
+.bc-relb{border:1px solid var(--line);background:var(--card);color:var(--txt);
+  border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;
+  transition:border-color .12s,color .12s,background .12s}
+.bc-relb:hover:not(:disabled):not(.on){border-color:var(--brand);color:var(--brand)}
+/* Το `.on` πρέπει να νικά το `:hover`: αλλιώς, όσο ο κέρσορας μένει πάνω στο
+   κουμπί που μόλις πάτησες, το κείμενο γίνεται μπλε πάνω σε μπλε και χάνεται. */
+.bc-relb.on, .bc-relb.on:hover{background:var(--brand);border-color:var(--brand);color:#fff}
+.bc-relb:disabled{cursor:default;opacity:.6}
+/* Το ΑΦΜ με το κουμπί άντλησης δίπλα — στο κινητό πέφτει από κάτω. */
+.bc-afm{display:flex;gap:7px;align-items:center}
+.bc-afm .inp{flex:1;min-width:0}
+.bc-afm .btn{white-space:nowrap;flex:0 0 auto}
+@media (max-width:520px){ .bc-afm{flex-wrap:wrap} .bc-afm .btn{width:100%} }
