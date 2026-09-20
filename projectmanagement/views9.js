@@ -10,7 +10,7 @@ const R = window.R;
 R.pbx = async function () {
   if (!cnpCan('comms.pbx')) {
     setTop('Διασύνδεση 3CX');
-    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Διασύνδεση 3CX»'});
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Διασύνδεση 3CX» — η οθόνη ζει στο Σύστημα → Ρυθμίσεις'});
     return;
   }
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
