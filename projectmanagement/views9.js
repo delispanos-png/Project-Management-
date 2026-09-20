@@ -1334,6 +1334,20 @@ const CC_PRESETS = [
   ['φέτος', () => [new Date().getFullYear() + '-01-01', window.CNP.today()]],
 ];
 
+/* Τα πρόσθετα φίλτρα της αναφοράς πελάτη. Κάθε ένα ξέρει μόνο πώς λέγεται και
+   τι επιλογές δίνει — η γραμμή τα χτίζει από εδώ, οπότε ένα νέο φίλτρο είναι
+   μία γραμμή κώδικα και τίποτα άλλο. */
+const CC_F = {
+  who:  {label: 'Χειριστής', opts: d => [['0', '— όλοι —']]
+           .concat((d.people || []).map(p => [String(p.id), p.name]))},
+  dir:  {label: 'Κατεύθυνση', opts: () => [['', '— κάθε —'], ['in', 'εισερχόμενες'], ['out', 'εξερχόμενες']]},
+  ans:  {label: 'Απάντηση', opts: () => [['', '— κάθε —'], ['yes', 'απαντημένες'],
+           ['ai', 'AI ρεσεψιόν'], ['no', 'αναπάντητες']]},
+  bill: {label: 'Χρέωση', opts: () => [['', '— κάθε —'], ['none', 'δεν καταγράφηκαν']]
+           .concat(Object.entries(CALL_BILL).map(([k, v]) => [k, v[0]]))},
+  min:  {label: 'Πάνω από', kind: 'num'},
+};
+
 R.clientcalls = async function (arg) {
   if (!cnpCan('reports.calls')) {
     setTop('Κίνηση πελάτη');
@@ -1343,7 +1357,11 @@ R.clientcalls = async function (arg) {
   setTop('Κίνηση πελάτη', 'Πόσες φορές μας πήρε, πόση ώρα, ποιος τον εξυπηρέτησε');
   const c = $('#content');
   const st = R.clientcalls._s = R.clientcalls._s || {client: 0, book: 0, name: '',
-    from: new Date().getFullYear() + '-01-01', to: window.CNP.today()};
+    from: new Date().getFullYear() + '-01-01', to: window.CNP.today(),
+    /* Ποια πρόσθετα φίλτρα έχει ανοίξει ο χρήστης και με ποια τιμή. Κρατιούνται
+       χωριστά από τις τιμές, γιατί ένα φίλτρο μπορεί να είναι ανοιχτό και κενό
+       («Χειριστής: όλοι») — και πρέπει να μείνει στη γραμμή για να το αλλάξει. */
+    open: [], f: {who: 0, dir: '', ans: '', bill: '', min: 0}, period: 2};
   /* Από σύνδεσμο: #/clientcalls/c212 ή #/clientcalls/b447 */
   if (arg) {
     const m = String(arg).match(/^([cb])(\d+)$/);
@@ -1384,7 +1402,9 @@ R.clientcalls = async function (arg) {
 
   cnpSkel(c, '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
   const who = st.client ? 'client=' + st.client : 'book=' + st.book;
-  const d = await api(`client_calls&${who}&from=${st.from}&to=${st.to}`).catch(() => null);
+  const fq = Object.entries(st.f).filter(([, v]) => v !== '' && v !== 0)
+    .map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join('');
+  const d = await api(`client_calls&${who}&from=${st.from}&to=${st.to}${fq}`).catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   R.clientcalls._d = d;
   const t = d.totals;
@@ -1394,15 +1414,44 @@ R.clientcalls = async function (arg) {
     return ['Ιαν','Φεβ','Μαρ','Απρ','Μάι','Ιούν','Ιούλ','Αύγ','Σεπ','Οκτ','Νοέ','Δεκ'][+m - 1] + ' ' + y.slice(2); };
 
   c.innerHTML = `
-  <div class="cl-bar">
-    <button class="btn-s" id="ccBack">← άλλος πελάτης</button>
-    <input type="date" class="inp" id="ccF" value="${st.from}" style="width:150px">
-    <span class="mut">έως</span>
-    <input type="date" class="inp" id="ccT" value="${st.to}" style="width:150px">
-    <div class="td-seg cl-seg">${CC_PRESETS.map((p, i) => `<button data-ccp="${i}">${p[0]}</button>`).join('')}</div>
-    <span style="flex:1"></span>
-    <button class="btn-s" id="ccCsv">${I.download || '⭳'} CSV</button>
-    <button class="btn-s" id="ccPrint">Εκτύπωση</button>
+  ${/* ΜΙΑ ΣΕΙΡΑ, ΠΡΟΟΔΕΥΤΙΚΑ.
+       Πριν ήταν τέσσερις σειρές — κουμπί, ημερομηνία, «έως», ημερομηνία,
+       προεπιλογές — και έσπρωχναν όλη την αναφορά προς τα κάτω. Τώρα φαίνονται
+       μόνο τα δύο που χρειάζονται πάντα (ποιος, πότε) και ό,τι άλλο θέλεις το
+       προσθέτεις ΣΤΗΝ ΙΔΙΑ γραμμή με το «+ φίλτρο». Ό,τι δεν χρησιμοποιείς δεν
+       πιάνει χώρο. */''}
+  <div class="fbar">
+    <button class="fchip fchip-who" id="ccBack" title="Αλλαγή πελάτη">
+      ${I.user || '👤'} <b>${esc(d.name)}</b> <span class="fchip-x">✕</span></button>
+
+    <label class="fchip"><span class="fchip-l">Περίοδος</span>
+      <select class="fchip-s" id="ccPer">
+        ${CC_PRESETS.map((p, i) => `<option value="${i}" ${st.period === i ? 'selected' : ''}>${p[0]}</option>`).join('')}
+        <option value="x" ${st.period === 'x' ? 'selected' : ''}>προσαρμοσμένη…</option>
+      </select></label>
+    ${st.period === 'x' ? `<label class="fchip"><span class="fchip-l">Από</span>
+      <input type="date" class="fchip-s" id="ccF" value="${st.from}"></label>
+    <label class="fchip"><span class="fchip-l">Έως</span>
+      <input type="date" class="fchip-s" id="ccT" value="${st.to}"></label>` : ''}
+
+    ${st.open.map(k => { const F = CC_F[k]; return `
+      <label class="fchip${st.f[k] ? ' on' : ''}"><span class="fchip-l">${F.label}</span>
+        ${F.kind === 'num'
+          ? `<input type="number" class="fchip-s" data-ccf="${k}" min="0" max="600" value="${st.f[k] || ''}" style="width:58px">
+             <span class="fchip-u">λεπτά</span>`
+          : `<select class="fchip-s" data-ccf="${k}">${F.opts(d).map(([v, l]) =>
+              `<option value="${v}" ${String(st.f[k]) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`}
+        <span class="fchip-x" data-ccx="${k}" title="Αφαίρεση">✕</span></label>`; }).join('')}
+
+    ${Object.keys(CC_F).some(k => !st.open.includes(k))
+      ? `<div class="fadd"><button class="fchip fchip-add" id="ccAdd">+ φίλτρο</button>
+          <div class="fmenu" id="ccMenu" hidden>${Object.entries(CC_F)
+            .filter(([k]) => !st.open.includes(k))
+            .map(([k, F]) => `<button data-ccadd="${k}">${F.label}</button>`).join('')}</div></div>` : ''}
+
+    <span class="fbar-sp"></span>
+    <button class="fchip" id="ccCsv">${I.download || '⭳'} CSV</button>
+    <button class="fchip" id="ccPrint">Εκτύπωση</button>
   </div>
 
   <div class="card cc-head"><div class="card-b">
@@ -1471,10 +1520,36 @@ R.clientcalls = async function (arg) {
     </div></div>`;
 
   $('#ccBack').onclick = () => { st.client = 0; st.book = 0; R.clientcalls(); };
-  $('#ccF').onchange = e => { st.from = e.target.value; R.clientcalls(); };
-  $('#ccT').onchange = e => { st.to = e.target.value; R.clientcalls(); };
-  $$('[data-ccp]').forEach(b => b.onclick = () => {
-    const [f, to] = CC_PRESETS[+b.dataset.ccp][1](); st.from = f; st.to = to; R.clientcalls();
+  $('#ccPer').onchange = e => {
+    const v = e.target.value;
+    if (v === 'x') { st.period = 'x'; }
+    else { st.period = +v; const [f, to] = CC_PRESETS[+v][1](); st.from = f; st.to = to; }
+    R.clientcalls();
+  };
+  { const f1 = $('#ccF'); if (f1) { f1.onchange = e => { st.from = e.target.value; R.clientcalls(); }; } }
+  { const t1 = $('#ccT'); if (t1) { t1.onchange = e => { st.to = e.target.value; R.clientcalls(); }; } }
+
+  /* Το μενού «+ φίλτρο» κλείνει με κλικ οπουδήποτε αλλού — αλλιώς μένει
+     ανοιχτό και σκεπάζει την αναφορά. */
+  { const ad = $('#ccAdd'), mn = $('#ccMenu');
+    if (ad && mn) {
+      ad.onclick = e => { e.stopPropagation(); mn.hidden = !mn.hidden; };
+      document.addEventListener('click', () => { mn.hidden = true; }, {once: true});
+      $$('[data-ccadd]', mn).forEach(b => b.onclick = () => {
+        st.open.push(b.dataset.ccadd); R.clientcalls();
+      });
+    } }
+  $$('[data-ccf]').forEach(el => el.onchange = () => {
+    const k = el.dataset.ccf;
+    st.f[k] = el.type === 'number' ? Math.max(0, +el.value || 0) : el.value;
+    R.clientcalls();
+  });
+  $$('[data-ccx]').forEach(el => el.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const k = el.dataset.ccx;
+    st.open = st.open.filter(x => x !== k);
+    st.f[k] = (k === 'who' || k === 'min') ? 0 : '';
+    R.clientcalls();
   });
   $$('[data-ccall]').forEach(r => r.onclick = () =>
     callNote(d.items.find(x => x.id === +r.dataset.ccall), d));

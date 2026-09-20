@@ -3834,3 +3834,42 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .bc-afm .inp{flex:1;min-width:0}
 .bc-afm .btn{white-space:nowrap;flex:0 0 auto}
 @media (max-width:520px){ .bc-afm{flex-wrap:wrap} .bc-afm .btn{width:100%} }
+
+/* ── Γραμμή φίλτρων: μία σειρά, προοδευτικά ──────────────────────────────
+   Το παλιό «κουμπί, ημερομηνία, έως, ημερομηνία, προεπιλογές» έπιανε τέσσερις
+   σειρές και έσπρωχνε την αναφορά εκτός οθόνης. Εδώ κάθε φίλτρο είναι ένα
+   κουμπάκι· φαίνονται μόνο όσα χρησιμοποιείς και τα υπόλοιπα μπαίνουν με το
+   «+ φίλτρο» ΣΤΗΝ ΙΔΙΑ γραμμή. */
+.fbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+.fbar-sp{flex:1 1 auto}
+.fchip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;
+  border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--txt);
+  font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;
+  transition:border-color .12s,color .12s}
+.fchip:hover{border-color:var(--brand);color:var(--brand)}
+/* «Ανοιχτό» δεν σημαίνει «φιλτράρει». Ξεχωρίζει μόνο όποιο έχει πράγματι τιμή,
+   ώστε με μια ματιά να ξέρεις τι περιορίζει τα νούμερα. */
+.fchip.on{border-color:var(--brand);background:var(--brand-soft)}
+.fchip.on .fchip-l{color:var(--brand)}
+.fchip-l{color:var(--mut);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px}
+.fchip-u{color:var(--mut);font-weight:400;font-size:11.5px}
+/* Τα πεδία μέσα στο κουμπάκι: χωρίς δικό τους πλαίσιο, ώστε να διαβάζεται σαν
+   ΕΝΑ αντικείμενο και όχι σαν φόρμα μέσα σε φόρμα. */
+.fchip-s{border:0;background:transparent;color:var(--ink);font:inherit;font-weight:700;
+  padding:0;margin:0;outline:0;cursor:pointer;max-width:170px}
+.fchip-s:focus{outline:0}
+.fchip-x{color:var(--mut);font-size:12px;font-weight:700;padding:0 1px;border-radius:50%}
+.fchip-x:hover{color:var(--bad)}
+.fchip-who{max-width:320px;overflow:hidden}
+.fchip-who b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fchip-add{border-style:dashed;color:var(--mut)}
+.fadd{position:relative;display:inline-flex}
+.fmenu{position:absolute;top:36px;left:0;z-index:40;min-width:170px;padding:5px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 12px 30px rgba(15,32,56,.18);display:flex;flex-direction:column;gap:2px}
+.fmenu[hidden]{display:none}
+.fmenu button{background:none;border:0;text-align:left;padding:7px 10px;border-radius:8px;
+  font-size:12.5px;font-weight:600;color:var(--txt);cursor:pointer}
+.fmenu button:hover{background:var(--hover);color:var(--brand)}
+@media (max-width:768px){ .fbar-sp{display:none} .fchip{height:30px;font-size:12px} }
+@media print{ .fbar{display:none!important} }

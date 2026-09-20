@@ -5904,11 +5904,29 @@ case 'client_calls':                     // ΚΙΝΗΣΗ ΠΕΛΑΤΗ — για
         ? $_GET['to'] : date('Y-m-d');
     if ($ccFrom > $ccTo) { [$ccFrom, $ccTo] = [$ccTo, $ccFrom]; }
 
-    $ccQ = function () use ($ccClient, $ccBook, $ccFrom, $ccTo) {
+    /* ΠΡΟΣΘΕΤΑ ΦΙΛΤΡΑ. Μπαίνουν ΜΕΣΑ στο κοινό ερώτημα, ώστε να ισχύουν παντού —
+       πλακίδια, ανά χειριστή, ανά μήνα, λίστα, CSV. Αν έμπαιναν μόνο στη λίστα,
+       ο πελάτης θα διάβαζε σύνολα που δεν ταιριάζουν με τις γραμμές από κάτω. */
+    $ccWho  = (int) ($_GET['who'] ?? 0);                     // χειριστής
+    $ccDir  = in_array(($_GET['dir'] ?? ''), ['in', 'out'], true) ? $_GET['dir'] : '';
+    $ccAns  = in_array(($_GET['ans'] ?? ''), ['yes', 'ai', 'no'], true) ? $_GET['ans'] : '';
+    $ccBill = (string) ($_GET['bill'] ?? '');
+    $ccMin  = max(0, (int) ($_GET['min'] ?? 0));             // πάνω από N λεπτά
+
+    $ccQ = function () use ($ccClient, $ccBook, $ccFrom, $ccTo, $ccWho, $ccDir, $ccAns, $ccBill, $ccMin) {
         $q = Capsule::table('mod_cpm_calls')
             ->whereBetween('started_at', [$ccFrom . ' 00:00:00', $ccTo . ' 23:59:59']);
         if ($ccClient) { $q->where('clientid', $ccClient); }
         else { $q->where('book_id', $ccBook); }
+        if ($ccWho)  { $q->where('admin_id', $ccWho); }
+        if ($ccDir)  { $q->where('direction', $ccDir); }
+        if ($ccAns === 'yes') { $q->where('answered', 1)->where(function ($w) {
+            $w->whereNull('handled')->orWhere('handled', '<>', 'ai'); }); }
+        if ($ccAns === 'ai')  { $q->where('handled', 'ai'); }
+        if ($ccAns === 'no')  { $q->where('answered', 0); }
+        if ($ccBill === 'none') { $q->whereNull('bill_status'); }
+        elseif ($ccBill !== '') { $q->where('bill_status', $ccBill); }
+        if ($ccMin > 0) { $q->where('talk_seconds', '>=', $ccMin * 60); }
         return $q;
     };
 
@@ -5987,6 +6005,15 @@ case 'client_calls':                     // ΚΙΝΗΣΗ ΠΕΛΑΤΗ — για
             'firstAt' => $ccAgg->first_at, 'lastAt' => $ccAgg->last_at],
         'admins' => $ccAdmins, 'months' => $ccMonths, 'cats' => $ccCats,
         'items' => $ccItems, 'shown' => count($ccItems),
+        /* Τι ισχύει αυτή τη στιγμή — η οθόνη ξαναχτίζει τη γραμμή φίλτρων από
+           εδώ, ώστε να μη διαφωνεί ποτέ με το τι μέτρησε ο server. */
+        'filters' => ['who' => $ccWho, 'dir' => $ccDir, 'ans' => $ccAns,
+            'bill' => $ccBill, 'min' => $ccMin],
+        'people' => (function () {
+            $o = [];
+            foreach (Db::admins() as $a) { $o[] = ['id' => (int) $a->id, 'name' => Db::adminName((int) $a->id)]; }
+            return $o;
+        })(),
         'canLog' => cnp_has_cap($adminId, $FULL, 'clients.calls')]);
 
 case 'call_drill':                       // «με ποιον μίλησε» / «ποιος τον εξυπηρέτησε»
