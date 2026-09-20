@@ -4,7 +4,7 @@
    Ο έλεγχος σύνδεσης ΔΕΝ είναι διακοσμητικός: ρωτάει το ίδιο το PBX και
    «παγώνει το συμβόλαιο» — τι υπάρχει, τι όχι, πόσο γρήγορα απαντά. */
 'use strict';
-const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, $, $$} = window.CNP;
+const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, $, $$} = window.CNP;
 const R = window.R;
 
 R.pbx = async function () {
@@ -15,7 +15,7 @@ R.pbx = async function () {
   }
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>');
   const [d, m, bp, ac] = await Promise.all([
     api('pbx_settings').catch(() => null),
     api('pbx_map').catch(() => null),
@@ -287,7 +287,7 @@ R.calls = async function () {
   const c = $('#content');
   const st = R.calls._s = R.calls._s || {d: window.CNP.today(), days: 1, who: 0,
     dir: '', ans: '', bill: '', cat: '', min: 0, q: '', open: false};
-  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
   const qs = `d=${st.d}&days=${st.days}&who=${st.who}&dir=${st.dir}&ans=${st.ans}`
     + `&bill=${st.bill}&cat=${encodeURIComponent(st.cat)}&min=${st.min}&q=${encodeURIComponent(st.q)}`;
   const d = await api('calls_report&' + qs).catch(() => null);
@@ -469,8 +469,7 @@ R.calls = async function () {
   const F = $('.cl-filters');
   if (F) {
     let qt = null;
-    $('#clQ').oninput = e => { clearTimeout(qt); const v = e.target.value;
-      qt = setTimeout(() => { st.q = v.trim(); R.calls(); }, 350); };
+    cnpSearch('clQ', v => { st.q = v; return R.calls(); }, 350);
     $$('[data-cdir]').forEach(b => b.onclick = () => { st.dir = b.dataset.cdir; R.calls(); });
     $$('[data-cans]').forEach(b => b.onclick = () => { st.ans = b.dataset.cans; R.calls(); });
     $('#clBill').onchange = e => { st.bill = e.target.value; R.calls(); };
@@ -734,8 +733,7 @@ R.book = async function () {
   setTop('Τηλεφωνικός κατάλογος', 'Ποιος είναι πίσω από κάθε αριθμό — και τι τρέχει μαζί του');
   const c = $('#content');
   const st = R.book._s = R.book._s || {q: '', only: '', status: '', sort: 'talk'};
-  c.innerHTML = '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
-
+  cnpSkel(c, '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
   const d = await api(`book_list&q=${encodeURIComponent(st.q)}&only=${st.only}&status=${st.status}&sort=${st.sort}`)
     .catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
@@ -790,7 +788,7 @@ R.book = async function () {
   </div></div>`;
 
   let tmr = null;
-  $('#bkQ').oninput = e => { clearTimeout(tmr); const v = e.target.value; tmr = setTimeout(() => { st.q = v; R.book(); }, 320); };
+  cnpSearch('bkQ', v => { st.q = v; return R.book(); }, 320);
   $('#bkSt').onchange = e => { st.status = e.target.value; R.book(); };
   $('#bkSort').onchange = e => { st.sort = e.target.value; R.book(); };
   $$('[data-bonly]').forEach(b => b.onclick = () => { st.only = b.dataset.bonly; R.book(); });
@@ -1138,7 +1136,7 @@ R.bookfields = async function () {
   }
   setTop('Πεδία καταλόγου', 'Τι επιπλέον κρατάμε σε κάθε καρτέλα — το ορίζεις εσύ, χωρίς προγραμματιστή');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:320px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:320px"></div>');
   const d = await api('book_fields').catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
 
@@ -1287,7 +1285,7 @@ R.clientcalls = async function (arg) {
     return;
   }
 
-  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
   const who = st.client ? 'client=' + st.client : 'book=' + st.book;
   const d = await api(`client_calls&${who}&from=${st.from}&to=${st.to}`).catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
@@ -1422,7 +1420,7 @@ R.route = async function () {
   setTop('Δρομολόγηση κλήσεων', 'Τι θα αποφάσιζε το κέντρο για κάθε γνωστό πελάτη — και γιατί');
   const c = $('#content');
   const st = R.route._s = R.route._s || {days: 14, only: ''};
-  c.innerHTML = '<div class="skel" style="height:120px;margin-bottom:14px"></div><div class="skel" style="height:400px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:120px;margin-bottom:14px"></div><div class="skel" style="height:400px"></div>');
   const d = await api('route_overview&days=' + st.days).catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   const B = d.book, A = d.agg || {};

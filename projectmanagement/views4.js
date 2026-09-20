@@ -2,7 +2,7 @@
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
-  cnpMsgHtml, cnpWireMsgLinks, I, $, $$} = window.CNP;
+  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, I, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -733,7 +733,7 @@ R.list = async function () {
   };
 
   let qt;
-  $('#lfQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { f.q = $('#lfQ').value.trim(); render(); }, 180); };
+  cnpSearch('lfQ', v => { f.q = v; render(); }, 180);
   $('#lfG').onchange = () => { f.group = $('#lfG').value; render(); };
   $('#lfO').onchange = () => { f.open = $('#lfO').checked ? 1 : 0; load(); };
   $('#lfM').onchange = () => { f.mine = $('#lfM').checked; render(); };
@@ -762,7 +762,7 @@ R.list = async function () {
 R.triage = async function () {
   setTop('Πλάνο ημέρας', 'Πρόταση: με ποια tickets ασχολούμαστε σήμερα — κρισιμότητα · αναμονή · SLA');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:340px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:340px"></div>');
   let dErr = null;
   const d = await api('triage').catch(e => { dErr = e; return null; });
   if (!d) { c.innerHTML = cnpDenied(dErr); return; }
@@ -1167,7 +1167,7 @@ R.knowledge = async function () {
   };
 
   let qt;
-  $('#kQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#kQ').value.trim(); st.page = {}; render(); }, 180); };
+  cnpSearch('kQ', v => { st.q = v; st.page = {}; render(); }, 180);
   $('#kQ').onkeydown = e => { if (e.key === 'Enter') deep(); };
   $('#kDeep').onclick = deep;
   $('#kNew').onclick = () => openForm(null);
@@ -1202,7 +1202,7 @@ function openImport(products, reload) {
     const url = $('#impUrl', ovl).value.trim();
     if (!url) { toast('Δώσε URL', true); return; }
     const res = $('#impRes', ovl);
-    res.innerHTML = '<div class="skel" style="height:120px"></div>';
+    cnpSkel(res, '<div class="skel" style="height:120px"></div>');
     const d = await api('kb_import_probe', {url}).catch(e => ({err: e.message}));
     if (d.err) { res.innerHTML = `<div class="mut" style="color:var(--bad);font-size:13px">${esc(d.err)}</div>`; return; }
     const cats = d.cats || {};
@@ -1798,7 +1798,7 @@ R.rootcause = async function (days) {
   setTop('Ανάλυση ριζών', 'Πού «πονάει» πραγματικά — ομαδοποίηση προβλημάτων & χρόνου ανά ρίζα');
   const c = $('#content');
   const st = R.rootcause._d = days || R.rootcause._d || 90;
-  c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>';
+  cnpSkel(c, '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(4) + '</div>');
   let dErr = null;
   const d = await api('rootcause&days=' + st).catch(e => { dErr = e; return null; });
   if (!d) { c.innerHTML = cnpDenied(dErr); return; }
@@ -1880,7 +1880,7 @@ R.standup = async function () {
   if (!cnpCan('team.standup')) { setTop('Standup'); $('#content').innerHTML = cnpDenied({message: 'Το standup δίνεται από το κύκλωμα «Η ομάδα → Standup»'}); return; }
   setTop('Standup', 'Ανοιχτά projects & tickets — τι είναι, πού ανήκει, τι πρέπει να ξέρεις');
   const c = $('#content');
-  c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:120px"></div>'.repeat(2) + '</div>';
+  cnpSkel(c, '<div class="grid g4">' + '<div class="skel" style="height:120px"></div>'.repeat(2) + '</div>');
   const d = await api('agenda').catch(() => null);
   if (!d) { c.innerHTML = `<div class="empty"><div class="big">${I.lock}</div>Δεν φορτώθηκε</div>`; return; }
   const hc = { green: 'var(--ok)', yellow: 'var(--warn)', red: 'var(--bad)' };
@@ -2062,7 +2062,7 @@ R.library = async function () {
   };
   await load();
   let qt;
-  $('#lbQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#lbQ').value.trim(); load(); }, 300); };
+  cnpSearch('lbQ', v => { st.q = v; return load(); }, 300);
   $('#lbNote').onclick = () => openLibForm('note', null);
   $('#lbLink').onclick = () => openLibForm('link', null);
   $('#lbFile').onchange = async e => {
@@ -2235,7 +2235,7 @@ function tdQuick() {
 R.todos = async function () {
   setTop('Το πλάνο μου', 'Τι έχεις να κάνεις — και πού έμεινες');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:70px;margin-bottom:12px"></div><div class="skel" style="height:340px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:70px;margin-bottom:12px"></div><div class="skel" style="height:340px"></div>');
   const st = R.todos._s = R.todos._s || {view: localStorage.cnpTodoView || 'date', showDone: false, notes: false, proj: 0};
   let d = null;
 
@@ -2576,7 +2576,7 @@ R.recruit = async function () {
   setTop('Προσλήψεις', 'Βιογραφικά υποψηφίων — αξιολόγηση με AI co-pilot');
   const c = $('#content');
   const st = R.recruit._s = R.recruit._s || {job: '', status: '', q: '', page: 1, per: 50, dups: false};
-  c.innerHTML = '<div class="skel" style="height:60px;margin-bottom:12px"></div><div class="skel" style="height:420px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:60px;margin-bottom:12px"></div><div class="skel" style="height:420px"></div>');
   let jErr = null;
   const jd = await api('cv_jobs').catch(e => { jErr = e; return null; });
   if (!jd) { c.innerHTML = cnpDenied(jErr); return; }
@@ -2657,7 +2657,7 @@ R.recruit = async function () {
   };
   await load();
   $('#cvJob').onchange = () => { st.job = $('#cvJob').value; st.page = 1; load(); };
-  let qt; $('#cvQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#cvQ').value.trim(); st.page = 1; load(); }, 300); };
+  cnpSearch('cvQ', v => { st.q = v; st.page = 1; return load(); }, 300);
   $('#cvAdd').onclick = () => openCvAdd(jd.jobs, load);
   $('#cvDups').onclick = () => { st.dups = !st.dups; st.page = 1; load(); };
   setView(st.view || 'cvs');
@@ -2686,8 +2686,7 @@ async function renderTrafficPanel(host) {
     return d <= 0 ? 'σήμερα' : (d === 1 ? 'χθες' : `πριν ${d} ημέρες`);
   };
 
-  host.innerHTML = '<div class="skel" style="height:96px;margin-bottom:12px"></div><div class="skel" style="height:340px"></div>';
-
+  cnpSkel(host, '<div class="skel" style="height:96px;margin-bottom:12px"></div><div class="skel" style="height:340px"></div>');
   const d = await api('cv_job_views', {days: st.days}).catch(() => null);
   if (!d) { host.innerHTML = `<div class="empty"><div class="big">${I.lock || ''}</div>Δεν ήταν δυνατή η φόρτωση.</div>`; return; }
 
@@ -2796,7 +2795,7 @@ async function renderTrafficPanel(host) {
 }
 
 function renderJobsPanel(host, reload) {
-  host.innerHTML = '<div class="skel" style="height:260px"></div>';
+  cnpSkel(host, '<div class="skel" style="height:260px"></div>');
   const render = async () => {
     const d = await api('cv_jobs');
     host.innerHTML = `
@@ -3108,7 +3107,7 @@ async function openCv(id) {
   const statuses = window._cvStatuses || {};
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer'; dr.style.width = 'min(780px,96vw)';
-  dr.innerHTML = '<div class="drawer-b"><div class="skel" style="height:340px"></div></div>';
+  cnpSkel(dr, '<div class="drawer-b"><div class="skel" style="height:340px"></div></div>');
   document.body.append(ovl, dr);
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
   const d = await api('cv_get&id=' + id);

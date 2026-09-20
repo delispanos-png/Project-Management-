@@ -1016,8 +1016,8 @@ window.R.remotebook = async function () {
   setTop('Απομακρυσμένες', 'Αποθηκευμένες συνδέσεις πελατών — ένα κλικ για σύνδεση');
   const c = $('#content');
   const st = R.remotebook._s = R.remotebook._s || {q: '', form: false, edit: null};
-  c.innerHTML = `<div class="grid g4" style="margin-bottom:14px">${'<div class="skel" style="height:56px"></div>'.repeat(4)}</div>
-    <div class="skel" style="height:300px"></div>`;
+  cnpSkel(c, `<div class="grid g4" style="margin-bottom:14px">${'<div class="skel" style="height:56px"></div>'.repeat(4)}</div>
+    <div class="skel" style="height:300px"></div>`);
   const d = await api('remote_book').catch(() => null);
   if (!d) { c.innerHTML = '<div class="empty"><div class="big">' + I.monitor + '</div>Δεν φορτώθηκε</div>'; return; }
   const rows = d.book || [], recent = d.recent || [], sx = d.stats || {};
@@ -1141,7 +1141,7 @@ window.R.remotebook = async function () {
 
   paint();
   let qt;
-  $('#rbQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#rbQ').value.trim(); paint(); }, 200); };
+  cnpSearch('rbQ', v => { st.q = v; paint(); }, 200);
   $('#rbNew').onclick = () => openForm(null);
   $('#rbSend').onclick = async () => {
     const em = await cnpPrompt('Σε ποιο email να σταλεί το πρόγραμμα «CloudOn Remote»;', {placeholder: 'email πελάτη', ok: 'Αποστολή'});
@@ -1439,6 +1439,60 @@ function cnpTopZ() {
 }
 
 /* ═══ In-app διαλογικά (αντί για browser confirm/prompt) ═══ */
+/**
+ * Πεδίο αναζήτησης που ΔΕΝ χάνει τον κέρσορα.
+ *
+ * Το πρόβλημα: κάθε γράμμα ξαναέγραφε ολόκληρη την οθόνη. Το παλιό <input>
+ * καταστρεφόταν μαζί με τα υπόλοιπα, οπότε η εστίαση έφευγε και το επόμενο
+ * γράμμα πήγαινε στο κενό — έπρεπε να ξανακλικάρεις μετά από κάθε πληκτρολόγηση.
+ *
+ * Εδώ κρατάμε ό,τι χρειάζεται ΠΡΙΝ το ξαναγράψιμο (κείμενο, θέση δρομέα, τυχόν
+ * επιλεγμένο κομμάτι) και το επαναφέρουμε μετά, βρίσκοντας το ΝΕΟ πεδίο με το
+ * ίδιο id. Αν ο χρήστης συνέχισε να γράφει όσο γινόταν το ξαναγράψιμο, κρατάει
+ * ό,τι έγραψε — δεν του «γυρίζει» την οθόνη πίσω.
+ *
+ * @param id     το id του πεδίου, χωρίς δίεση
+ * @param apply  τι κάνουμε με το κείμενο (συνήθως: κράτα το και ξαναζωγράφισε)
+ * @param ms     πόσο περιμένουμε να σταματήσει να γράφει
+ */
+cnpSearch._on = 0;                 // πόσα φιλτραρίσματα τρέχουν αυτή τη στιγμή
+function cnpSearch(id, apply, ms = 280) {
+  const el = $('#' + id);
+  if (!el) { return; }
+  let t = null, last = el.value, pos = el.selectionStart;
+  el.oninput = () => {
+    last = el.value;
+    pos = el.selectionStart;
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const typed = last;
+      cnpSearch._on++;
+      try { await apply(typed.trim(), typed); }
+      catch (e) { /* το φιλτράρισμα δεν ρίχνει την οθόνη */ }
+      finally { cnpSearch._on--; }
+      const n = $('#' + id);
+      if (!n) { return; }
+      /* Ο χρήστης μπορεί να έγραψε κι άλλο όσο τρέχαμε — προτεραιότητα ΠΑΝΤΑ σε
+         αυτόν: κρατάμε το ΤΕΛΕΥΤΑΙΟ κείμενο (last), όχι αυτό που είχε όταν
+         ξεκίνησε το φιλτράρισμα. Αλλιώς του «έτρωγε» γράμματα. */
+      if (n.value !== last) { n.value = last; }
+      if (document.activeElement !== n) { n.focus({preventScroll: true}); }
+      try { n.setSelectionRange(pos, pos); } catch (e) { }
+    }, ms);
+  };
+}
+
+/**
+ * Σκελετός φόρτωσης — ΕΚΤΟΣ αν ο χρήστης πληκτρολογεί σε αναζήτηση.
+ *
+ * Το «σβήνω τα πάντα και βάζω γκρι πλαίσια» είναι σωστό όταν μπαίνεις σε μια
+ * οθόνη. Όταν όμως γράφεις στο πεδίο αναζήτησης, παίρνει μαζί του και το ΙΔΙΟ
+ * το πεδίο: η οθόνη «αναβοσβήνει» και όσα πλήκτρα πατήθηκαν όσο έλειπε πήγαν
+ * στο κενό. Σε αυτή την περίπτωση η παλιά οθόνη μένει στη θέση της μέχρι να
+ * είναι έτοιμη η καινούργια.
+ */
+function cnpSkel(el, html) { if (el && !cnpSearch._on) { el.innerHTML = html; } }
+
 function cnpDialog(opts) {
   return new Promise(resolve => {
     const o = Object.assign({title: '', body: '', ok: 'OK', cancel: 'Άκυρο', input: null, danger: false}, opts);
@@ -3390,7 +3444,7 @@ async function vMyDay() {
   const me = S.boot.me;
   setTop('Η μέρα μου', _g + ', ' + me.name.split(' ')[0] + ' ' + _e);
   const c = $('#content');
-  c.innerHTML = '<div class="myd-wrap"><div class="skel" style="height:96px;margin-bottom:14px"></div><div class="myd-cols"><div><div class="skel" style="height:220px"></div></div><div><div class="skel" style="height:220px"></div></div></div></div>';
+  cnpSkel(c, '<div class="myd-wrap"><div class="skel" style="height:96px;margin-bottom:14px"></div><div class="myd-cols"><div><div class="skel" style="height:220px"></div></div><div><div class="skel" style="height:220px"></div></div></div></div>');
   const [d, mt, ovr] = await Promise.all([
     api('myday'),
     api('my_todos').catch(() => ({todos: []})),
@@ -3630,7 +3684,7 @@ async function vCrm() {
   setTop('CRM', 'Pipeline πωλήσεων — στόχοι → επαφή → πελάτες');
   const c = $('#content');
   const f = vCrm._f = vCrm._f || {fa: '', src: '', q: '', stage: '', closed: {}};
-  c.innerHTML = crmTabs('crm') + '<div class="kb">' + '<div class="skel" style="flex:1;min-height:280px"></div>'.repeat(5) + '</div>';
+  cnpSkel(c, crmTabs('crm') + '<div class="kb">' + '<div class="skel" style="flex:1;min-height:280px"></div>'.repeat(5) + '</div>');
   const d = await api('crm');
   const pct = d.target > 0 ? Math.min(100, Math.round(d.won / d.target * 100)) : 0;
   const flt = l => (!f.fa || String(l.assignee || '') === f.fa)
@@ -3719,7 +3773,7 @@ async function vCrm() {
   $('#cfA').onchange = () => { f.fa = $('#cfA').value; vCrm(); };
   $('#cfS').onchange = () => { f.src = $('#cfS').value; vCrm(); };
   let cqt;
-  $('#cfQ').oninput = () => { clearTimeout(cqt); cqt = setTimeout(() => { f.q = $('#cfQ').value.trim(); vCrm(); }, 320); };
+  cnpSearch('cfQ', v => { f.q = v; vCrm(); }, 320);
   $('#newLead').onclick = () => openLead(null, d);
   const nl2 = $('#newLead2'); if (nl2) { nl2.onclick = () => openLead(null, d); }
   $$('[data-cfstage]').forEach(b => b.onclick = () => { f.stage = b.dataset.cfstage; vCrm(); });
@@ -3976,7 +4030,7 @@ async function loadLeadExtras(leadId, dr) {
 async function vKpi() {
   setTop('KPI Dashboard', 'Η εικόνα της ομάδας σήμερα');
   const c = $('#content');
-  c.innerHTML = '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(6) + '</div>';
+  cnpSkel(c, '<div class="grid g4">' + '<div class="skel" style="height:90px"></div>'.repeat(6) + '</div>');
   let dErr = null;
   const d = await api('kpi').catch(e => { dErr = e; return null; });
   if (!d) { c.innerHTML = cnpDenied(dErr); return; }
@@ -4184,7 +4238,7 @@ document.addEventListener('keydown', e => {
 window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop,
-  cnpMsgHtml, cnpWireMsgLinks, $, $$};
+  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {

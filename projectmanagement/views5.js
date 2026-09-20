@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, cnpSearch, cnpSkel, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -20,7 +20,7 @@ R.gantt = async function () {
   const LEFTW = MOB ? LEFT_MOB : LEFT;
   /** Οι δύο βοηθητικές στήλες — στο κινητό δεν αποδίδονται καθόλου (χώρος για το χρονοδιάγραμμα). */
   const cols = (a, b) => MOB ? '' : `<div class="g-col">${a || ''}</div><div class="g-col g-col2">${b || ''}</div>`;
-  c.innerHTML = '<div class="skel" style="height:420px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:420px"></div>');
   const to = addD(st.from, st.weeks * 7);
   const d = await api(`gantt&from=${st.from}&to=${to}`);
   const days = [];
@@ -284,7 +284,7 @@ R.balances = async function () {
   const c = $('#content');
   if (!cnpCan('finance.balances')) { c.innerHTML = cnpDenied ? cnpDenied({message: 'Χρειάζεται δικαίωμα «Ανοιχτά υπόλοιπα»'}) : '<div class="empty" style="padding:44px">Χωρίς δικαίωμα.</div>'; return; }
   const canSend = cnpCan('finance.balances.edit');
-  c.innerHTML = '<div class="skel" style="height:220px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:220px"></div>');
   const st = R.balances._s = R.balances._s || {open: {}, f: 'all', q: ''};
   const norm = s => String(s || '').toLowerCase().replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι').replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
 
@@ -364,7 +364,7 @@ R.balances = async function () {
       ${rows.length ? '' : `<div class="empty" style="padding:44px">${all.length ? 'Κανείς με αυτά τα φίλτρα' : 'Κανένα ανοιχτό υπόλοιπο 🎉'}</div>`}`;
 
     let qt;
-    $('#blQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { st.q = $('#blQ').value.trim(); load(); }, 300); };
+    cnpSearch('blQ', v => { st.q = v; return load(); }, 300);
     $$('[data-bf]').forEach(b => b.onclick = () => { st.f = b.dataset.bf; load(); });
     const ex = $('[data-bexp]');
     if (ex) { ex.onclick = () => { const any = Object.values(st.open).some(Boolean); st.open = {}; if (!any) { rows.forEach(r => { st.open[r.client] = true; }); } load(); }; }
@@ -477,7 +477,7 @@ R.suspend = async function () {
   setTop('Αναστολές', 'Υπηρεσίες που πρέπει να πέσουν — η ενέργεια αναγνωρίζεται από το WHMCS');
   const c = $('#content');
   if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
-  c.innerHTML = '<div class="skel" style="height:220px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:220px"></div>');
   const st = R.suspend._s = R.suspend._s || {open: {}, machines: false, ripe: true};
 
   const load = async () => {
@@ -763,8 +763,7 @@ R.perf = async function () {
   const c = $('#content');
   if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
   const st = R.perf._s = R.perf._s || {p: 'month'};
-  c.innerHTML = '<div class="skel" style="height:240px"></div>';
-
+  cnpSkel(c, '<div class="skel" style="height:240px"></div>');
   const load = async () => {
     const d = await api('perf&p=' + st.p).catch(() => null);
     if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
@@ -845,7 +844,7 @@ R.perf = async function () {
 R.units = async function () {
   setTop('Departments', 'Πού απευθύνεται κάθε εργασία — και ποιες ομάδες το καλύπτουν');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:260px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:260px"></div>');
   const d = await api('depts_load');
   const tile = u => {
     const pct = u.total ? Math.round((u.total - u.open) / u.total * 100) : 0;
@@ -886,7 +885,7 @@ R.units = async function () {
 
 R.unit = async function (id) {
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:300px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:300px"></div>');
   const d = await api('dept_view&id=' + (+id || 0));
   setTop(d.dept.name, `${d.open} ανοιχτές εργασίες`);
   const prioT = ['', '⬆', '🔥'];
@@ -934,7 +933,7 @@ R.unit = async function (id) {
 R.templates = async function () {
   setTop('Modules', 'Τα δικά μας προϊόντα — το καθένα με το checklist παράδοσής του');
   const c = $('#content');
-  c.innerHTML = '<div class="skel" style="height:280px"></div>';
+  cnpSkel(c, '<div class="skel" style="height:280px"></div>');
   const d = await api('templates');
   const st = R.templates._st = R.templates._st || {open: null};
   const depName = id => (d.depts.find(x => x.id === id) || {}).name || '—';

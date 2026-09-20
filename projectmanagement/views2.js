@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -505,7 +505,7 @@ R.calendar = async function (ym) {
   if (!cnpCan('team.calendar')) { setTop('Ημερολόγιο'); $('#content').innerHTML = cnpDenied({message: 'Το κοινό ημερολόγιο δίνεται από το κύκλωμα «Η ομάδα → Ημερολόγιο»'}); return; }
   setTop('Ημερολόγιο ομάδας', 'Meetings · ραντεβού · άδειες · λήξεις tasks — η διαθεσιμότητα όλων');
   const c = $('#content');
-  c.innerHTML = skel(1, 400);
+  cnpSkel(c, skel(1, 400));
   const d = await api('calendar' + (ym ? '&ym=' + ym : ''));
   const [Y, M] = d.ym.split('-').map(Number);
   const first = new Date(Y, M - 1, 1), dim = new Date(Y, M, 0).getDate();
@@ -794,7 +794,7 @@ R.timeteam = function () { return R.time(); };
 R.offers = async function () {
   setTop('Προσφορές', 'Pipeline προσφορών — δεμένο με WHMCS Quotes');
   const c = $('#content');
-  c.innerHTML = skel(5, 280);
+  cnpSkel(c, skel(5, 280));
   const d = await api('offers');
   const openV = d.offers.filter(o => !d.stages.find(s => s.key === o.stage)?.closed).reduce((s, o) => s + o.value, 0);
   const won = d.offers.filter(o => o.stage === 'accepted');
@@ -944,7 +944,7 @@ R.offers = async function () {
   const npx = $('#newPbx'); if (npx) { npx.onclick = () => window.openPbx(0, null); }
   const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
   let oqt;
-  $('#ofQ').oninput = () => { clearTimeout(oqt); oqt = setTimeout(() => { st.q = $('#ofQ').value.trim(); R.offers(); }, 300); };
+  cnpSearch('ofQ', v => { st.q = v; return R.offers(); }, 300);
   $$('[data-ofstage]').forEach(b => b.onclick = () => { st.stage = b.dataset.ofstage; R.offers(); });
   $$('.kb-ghead[data-ostage]').forEach(h => h.onclick = () => {
     const k = h.dataset.ostage; st.closed[k] = !st.closed[k];
@@ -1453,7 +1453,7 @@ R.clientlist = async function () {
      χανόταν και τα επόμενα γράμματα πήγαιναν στο κενό. Έμοιαζε με «κόλλημα»,
      ήταν αναδόμηση 320ms πάνω στο χέρι του χειριστή. */
   const live = !!($('#clQ') && $('#clRes'));
-  if (!live) { c.innerHTML = skel(6, 84); }
+  if (!live) { cnpSkel(c, skel(6, 84)); }
   /* Οι απαντήσεις γυρίζουν εκτός σειράς: κρατάμε μόνο την πιο πρόσφατη. */
   const seq = (R.clientlist._seq = (R.clientlist._seq || 0) + 1);
   const d = await api('clients&status=' + encodeURIComponent(st.status) + '&q=' + encodeURIComponent(st.q) + '&page=' + st.page).catch(() => null);
@@ -1560,10 +1560,8 @@ R.clientlist = async function () {
   /* Το «✕» εμφανίζεται μόνο όταν υπάρχει κάτι να σβηστεί, και το πεδίο κρατά
      την εστίαση μετά — αλλιώς ο χειριστής πρέπει να ξανακλικάρει για να γράψει. */
   const clQx = () => { const x = $('#clQx'); if (x) { x.hidden = !$('#clQ').value; } };
-  $('#clQ').oninput = () => {
-    clQx();
-    clearTimeout(qt); qt = setTimeout(() => { st.q = $('#clQ').value.trim(); st.page = 1; R.clientlist(); }, 350);
-  };
+  { const _cq = $('#clQ'); _cq.addEventListener('input', clQx); }
+  cnpSearch('clQ', v => { st.q = v; st.page = 1; return R.clientlist(); }, 350);
   { const x = $('#clQx'); if (x) { x.onclick = () => {
       clearTimeout(qt);
       $('#clQ').value = ''; clQx(); $('#clQ').focus();
@@ -1767,7 +1765,7 @@ R.contacts = async function () {
 R.comms = async function () {
   setTop('CRM', 'Επικοινωνίες — ημερολόγιο επαφών & εκκρεμή follow-ups');
   const c = $('#content');
-  c.innerHTML = crmTabs('comms') + skel(1, 300);
+  cnpSkel(c, crmTabs('comms') + skel(1, 300));
   const d = await api('comms');
   const kindIco = {call: '📞', email: '✉️', meeting: '🤝', note: '📝'};
   const pending = d.recent.filter(r => r.followup && !r.followupDone && r.followup <= today());
@@ -1813,7 +1811,7 @@ R.comms = async function () {
 R.targets = async function (ym) {
   setTop('CRM', 'Στόχοι προϊόντων — ανά πωλητή, με πρόοδο');
   const c = $('#content');
-  c.innerHTML = crmTabs('targets') + skel(1, 300);
+  cnpSkel(c, crmTabs('targets') + skel(1, 300));
   let dErr = null;
   const d = await api('targets' + (ym ? '&ym=' + ym : '')).catch(e => { dErr = e; return null; });
   if (!d) { c.innerHTML = crmTabs('targets') + cnpDenied(dErr); return; }
@@ -2321,7 +2319,7 @@ R.paytrace = async function () {
     return;
   }
 
-  c.innerHTML = form + auditBox + skel(3);
+  cnpSkel(c, form + auditBox + skel(3));
   // ΟΧΙ audit() εδώ: θα έτρεχε παράλληλα με την αναζήτηση και όποιο απαντούσε
   // δεύτερο θα έσβηνε το αποτέλεσμα του άλλου. Καλείται αφού χτιστεί η σελίδα.
   const d = await api('pay_trace', {q: st.q}).catch(e => ({err: e.message}));
@@ -2429,7 +2427,7 @@ R.paytrace = async function () {
 
   async function audList(sec) {
     const host = $('#ptAudList');
-    host.innerHTML = '<div class="skel" style="height:180px"></div>';
+    cnpSkel(host, '<div class="skel" style="height:180px"></div>');
     const a = await api('fin_audit', {section: sec}).catch(() => null);
     if (!a || !a.rows) { host.innerHTML = '<div class="empty">—</div>'; return; }
 
@@ -2542,7 +2540,7 @@ R.paytrace = async function () {
      ΧΡΕΩΣΗ = αξία παραστατικού, ΠΙΣΤΩΣΗ = χρήματα που μπήκαν, τρέχον υπόλοιπο. */
   async function statement(cid) {
     const host = $('#ptStmt');
-    host.innerHTML = '<div class="skel" style="height:220px;margin-top:12px"></div>';
+    cnpSkel(host, '<div class="skel" style="height:220px;margin-top:12px"></div>');
     const st2 = await api('pay_statement', {client: cid}).catch(e => ({err: e.message}));
     if (st2.err || !st2.rows) { host.innerHTML = `<div class="empty">${esc(st2.err || '—')}</div>`; return; }
     const neg = v => v < -0.005;
@@ -2626,7 +2624,7 @@ R.profit = async function () {
   setTop('Κερδοφορία', 'Έσοδα − κόστος εργασίας − έξοδα, ανά πελάτη');
   const c = $('#content');
   const f = R.profit._f = R.profit._f || {};
-  c.innerHTML = skel(4);
+  cnpSkel(c, skel(4));
   const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join('&');
   let dErr = null;
   const d = await api('profit' + (qs ? '&' + qs : '')).catch(e => { dErr = e; return null; });
@@ -2677,7 +2675,7 @@ R.profit = async function () {
 R.teams = async function () {
   setTop('Ομάδες & δικαιώματα', 'Ποιος ανήκει πού — και τι μπορεί να δει');
   const c = $('#content');
-  c.innerHTML = skel(3, 200);
+  cnpSkel(c, skel(3, 200));
   const d = await api('teams');
   c.innerHTML = `
   ${d.canManage ? `<div class="card" style="padding:13px 16px;display:flex;gap:9px;flex-wrap:wrap">
@@ -3049,7 +3047,7 @@ function openTeam(t, d) {
 R.projects = async function () {
   setTop('Έργα', 'Έργα πελατών, εσωτερική ανάπτυξη (R&D) και λειτουργικά — κατάσταση, υγεία, πρόοδος');
   const c = $('#content');
-  c.innerHTML = skel(1, 340);
+  cnpSkel(c, skel(1, 340));
   const d = await api('portfolio');
   /* Τρεις διαδρομές, τρεις λίστες: δουλειά ΓΙΑ πελάτη, δική μας ανάπτυξη (R&D),
      και η παλιά ουρά τμήματος. Αν η ανάπτυξη έμενε μαζί με τα «λειτουργικά», δεν
@@ -3215,7 +3213,7 @@ R.projects = async function () {
     <tbody>${roots.filter(hit).map(p => row(p, 0) + kids(p.id).filter(hit).map(k => row(k, 1)).join('')).join('')}</tbody></table></div>` : ''}`}
   <div id="prExtra"></div>`;
   let pqt;
-  $('#prQ').oninput = () => { clearTimeout(pqt); pqt = setTimeout(() => { st.q = $('#prQ').value.trim(); R.projects(); }, 300); };
+  cnpSearch('prQ', v => { st.q = v; return R.projects(); }, 300);
   $$('.kb-ghead[data-pgrp]').forEach(h => h.onclick = e => {
     if (e.target.closest('a,button')) { return; }
     const k = h.dataset.pgrp; st.closed[k] = !st.closed[k];
@@ -3801,7 +3799,7 @@ R.projects = async function () {
 R.crmov = async function () {
   setTop('CRM', 'Επισκόπηση pipeline — αριθμοί & εκκρεμότητες');
   const c = $('#content');
-  c.innerHTML = crmTabs('crmov') + skel(4);
+  cnpSkel(c, crmTabs('crmov') + skel(4));
   const d = await api('crm_overview');
   const mt = await api('my_crm_tasks').catch(() => ({tasks: []}));
   const hl = await api('hot_leads').catch(() => ({leads: [], hot: 0, warm: 0, cold: 0}));
@@ -3879,7 +3877,7 @@ R.crmov = async function () {
 R.campaigns = async function () {
   setTop('CRM', 'Καμπάνιες — μέλη & απόδοση');
   const c = $('#content');
-  c.innerHTML = crmTabs('campaigns') + skel(1, 200);
+  cnpSkel(c, crmTabs('campaigns') + skel(1, 200));
   const d = await api('campaigns').catch(() => null);
   if (!d) { c.innerHTML = crmTabs('campaigns') + `<div class="empty"><div class="big">${I.megaphone}</div>Σφάλμα φόρτωσης</div>`; return; }
   const chIco = {email: I.mail, phone: I.phone, event: I.pin, social: I.megaphone, ads: I.megaphone, other: I.tag};
@@ -3985,7 +3983,7 @@ async function openCampaign(id, listD) {
 R.reports = async function () {
   setTop('CRM', 'Reports — αναλυτικά πωλήσεων');
   const c = $('#content');
-  c.innerHTML = crmTabs('reports') + skel(4);
+  cnpSkel(c, crmTabs('reports') + skel(4));
   let dErr = null;
   const d = await api('crm_reports').catch(e => { dErr = e; return null; });
   if (!d) { c.innerHTML = crmTabs('reports') + cnpDenied(dErr); return; }
@@ -4117,7 +4115,7 @@ Acme,Γιάννης,info@acme.gr,2101234567,Referral,contacted,500,,"></textarea
 R.profile = async function () {
   setTop('Το προφίλ μου', 'Στοιχεία, κωδικός, ειδοποιήσεις & δικαιώματα');
   const c = $('#content');
-  c.innerHTML = skel(4);
+  cnpSkel(c, skel(4));
   const d = await api('profile');
   const p = d.profile;
   const sw = (k, label, descr) => `
