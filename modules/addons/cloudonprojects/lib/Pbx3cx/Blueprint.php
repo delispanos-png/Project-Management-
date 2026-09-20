@@ -205,13 +205,13 @@ class Pbx3cxBlueprint
     public static function queues()
     {
         /* ΚΑΜΙΑ ΘΥΡΙΔΑ (απόφαση 20/09/2026): αναπάντητη → script 809 («όλοι κατειλημμένοι,
-           1 για επανάκληση»). Η Support πρώτα δοκιμάζει την CloudOn, όπως ζητήθηκε. */
+           1 για επανάκληση»). Χωρίς δεύτερη ουρά: απόφαση 20/09/2026, «το βήμα 4 στη θέση του 3». */
         $after = self::dest('RoutePoint', self::AFTER_DN);
         $out = [];
         foreach (self::TOPICS as $num => $t) {
             $out[$num] = ['Name' => $t['name'], 'PollingStrategy' => 'Hunt', 'RingTimeout' => 20,
                 'MasterTimeout' => 120, 'Agents' => $t['agents'], 'Managers' => ['201'],
-                'ForwardNoAnswer' => $num === '810' ? self::dest('Queue', '811') : $after, 'OutOfOfficeRoute' => self::route('Queue', '804'),
+                'ForwardNoAnswer' => $after, 'OutOfOfficeRoute' => self::route('Queue', '804'),
                 'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true,
                 'PromptSet' => self::PROMPT_SET_EL, 'OnHoldFile' => self::HOLD_MUSIC];
         }
