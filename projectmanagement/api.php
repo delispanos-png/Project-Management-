@@ -2799,6 +2799,7 @@ function cnp_caps()
         // ═══ ΥΠΟΣΤΗΡΙΞΗ ═══
         'support.tickets'        => ['view',   'Tickets', 'Προβολή αιτημάτων υποστήριξης'],
         'support.tickets.edit'   => ['edit',   'Επεξεργασία', 'Απάντηση, εσωτερική σημείωση, ανάθεση, κατηγοριοποίηση, αλλαγή status', 'support.tickets'],
+        'support.tickets.delete' => ['delete', 'Διαγραφή', 'Οριστική διαγραφή αιτήματος με όλη τη συνομιλία, τις σημειώσεις και τα συνημμένα του', 'support.tickets'],
         'support.kb'         => ['view',   'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων'],
         'support.kb.edit'    => ['edit',   'Επεξεργασία', 'Σύνταξη & μαζική εισαγωγή άρθρων', 'support.kb'],
         'support.kb.delete'  => ['delete', 'Διαγραφή', 'Διαγραφή άρθρων', 'support.kb'],
@@ -3263,6 +3264,7 @@ function cnp_action_cap($action)
         $add('support.kb', ['kb_list', 'kb_get', 'kb_match', 'kb_draft', 'kb_bulk']);
         $add('support.kb|support.tickets', ['kb_use']);
         $add('support.kb.edit', ['kb_save', 'kb_import_probe', 'kb_import_commit']);
+        $add('support.tickets.delete', ['ticket_delete']);
         $add('support.kb.delete', ['kb_del']);
 
         /* ── ΕΡΓΑ & ΥΛΟΠΟΙΗΣΕΙΣ ── */
@@ -11842,6 +11844,89 @@ case 'ticket_update':
         }
     }
     out(['ok' => ($r['result'] ?? '') === 'success', 'msg' => $r['message'] ?? null]);
+
+case 'ticket_delete':
+    /* ΟΡΙΣΤΙΚΗ ΔΙΑΓΡΑΦΗ ΑΙΤΗΜΑΤΟΣ.
+       Το δικαίωμα ελέγχεται στον server από τον κατάλογο ενεργειών
+       (support.tickets.delete) — δεν αρκεί να κρυφτεί το κουμπί.
+
+       Δύο βήματα επίτηδες: πρώτα `probe`, που λέει ΤΙ χάνεται, και μετά η
+       διαγραφή. Δεν θέλουμε «είσαι σίγουρος;» στα τυφλά όταν από πίσω
+       κρέμονται απαντήσεις πελάτη, καταγεγραμμένος χρόνος ή συνημμένα. */
+    $tid = (int) ($in['ticket'] ?? 0);
+    $tk  = Capsule::table('tbltickets')->where('id', $tid)->first(['id', 'tid', 'title', 'status', 'userid', 'name', 'email']);
+    if (!$tk) {
+        fail('ticket', 404);
+    }
+    $nRep = (int) Capsule::table('tblticketreplies')->where('tid', $tid)->count();
+    $nNot = (int) Capsule::table('tblticketnotes')->where('ticketid', $tid)->count();
+    $nAtt = (int) Capsule::table('tblticketreplies')->where('tid', $tid)->where('attachment', '!=', '')->count()
+          + (Capsule::table('tbltickets')->where('id', $tid)->where('attachment', '!=', '')->count() ? 1 : 0);
+
+    /* Η εργασία που άνοιξε από το ticket. Αν έχει πάνω της πραγματική δουλειά
+       (χρόνο ή σχόλια) ΔΕΝ τη σβήνουμε μαζί: ξεκολλάει και μένει. Αλλιώς είναι
+       απλώς ο δίδυμος του ticket και φεύγει μαζί του. */
+    $tsk = Capsule::table('mod_cpm_tasks')->where('ticketid', $tid)->first(['id', 'title']);
+    $tskMins = $tsk ? (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $tsk->id)->sum('minutes') : 0;
+    $tskCmts = $tsk ? (int) Capsule::table('mod_cpm_comments')->where('task_id', $tsk->id)->count() : 0;
+    $tskKeep = $tsk && ($tskMins > 0 || $tskCmts > 0);
+
+    if (!empty($in['probe'])) {
+        out(['ok' => true, 'tid' => (string) $tk->tid, 'title' => (string) $tk->title,
+            'status' => (string) $tk->status, 'replies' => $nRep, 'notes' => $nNot, 'atts' => $nAtt,
+            'task' => $tsk ? ['id' => (int) $tsk->id, 'mins' => $tskMins, 'comments' => $tskCmts,
+                'keep' => $tskKeep] : null]);
+    }
+
+    /* Η εργασία πρώτα, όσο υπάρχει ακόμη ο σύνδεσμος. */
+    if ($tsk && !$tskKeep) {
+        foreach (Capsule::table('mod_cpm_files')->where('task_id', $tsk->id)->pluck('id') as $fid9) {
+            try { Storage::delete((int) $fid9); } catch (\Throwable $e) { }
+        }
+        foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
+                     'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
+                     'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers'] as $tb9) {
+            if (Capsule::schema()->hasTable($tb9)) { Capsule::table($tb9)->where('task_id', $tsk->id)->delete(); }
+        }
+        Capsule::table('mod_cpm_deps')->where('depends_on', $tsk->id)->delete();
+        Capsule::table('mod_cpm_tasks')->where('id', $tsk->id)->delete();
+    } elseif ($tsk) {
+        Capsule::table('mod_cpm_tasks')->where('id', $tsk->id)->update(['ticketid' => null]);
+    }
+
+    $uname9 = Capsule::table('tbladmins')->where('id', $adminId)->value('username');
+    $r9 = localAPI('DeleteTicket', ['ticketid' => $tid], $uname9);
+    if (($r9['result'] ?? '') !== 'success') {
+        fail($r9['message'] ?? 'Το WHMCS δεν διέγραψε το αίτημα', 500);
+    }
+
+    /* Δικά μας υπολείμματα. Οι «δείκτες» επικοινωνίας λένε μόνο «άνοιξε ticket
+       #…» και δεν έχουν νόημα χωρίς αυτό· οι υπόλοιπες επικοινωνίες είναι
+       πραγματικές, οπότε απλώς ξεκολλάνε. */
+    Capsule::table('mod_cpm_interactions')->where('ticketid', $tid)->where('kind', 'ticket')->delete();
+    Capsule::table('mod_cpm_interactions')->where('ticketid', $tid)->update(['ticketid' => null]);
+    foreach (['mod_cpm_ticket_class' => 'ticketid', 'mod_cpm_ticket_alias' => 'tid',
+                 'mod_cpm_ticket_idle' => 'ticket_id', 'mod_cpm_ticket_usage' => 'ticketid'] as $tb9 => $cl9) {
+        if (Capsule::schema()->hasTable($tb9)) { Capsule::table($tb9)->where($cl9, $tid)->delete(); }
+    }
+    /* Το mod_cpm_ai_calls ΔΕΝ πειράζεται: η κλήση όντως έγινε και η Τηλεφωνική
+       δραστηριότητα δείχνει «ticket διαγράφηκε» — αυτό είναι το σωστό. */
+
+    $who9 = Db::adminName($adminId);
+    $lost9 = [];
+    if ($nRep) { $lost9[] = $nRep . ($nRep === 1 ? ' απάντηση' : ' απαντήσεις'); }
+    if ($nNot) { $lost9[] = $nNot . ($nNot === 1 ? ' σημείωση' : ' σημειώσεις'); }
+    if ($nAtt) { $lost9[] = $nAtt . ($nAtt === 1 ? ' συνημμένο' : ' συνημμένα'); }
+    if ($tsk && !$tskKeep) { $lost9[] = 'την εργασία #' . $tsk->id; }
+    $msg9 = 'Διαγράφηκε αίτημα #' . $tk->tid . ' «' . mb_substr((string) $tk->title, 0, 70) . '» από ' . $who9
+        . ($lost9 ? ' — μαζί με ' . implode(', ', $lost9) : '')
+        . ($tskKeep ? ' · η εργασία #' . $tsk->id . ' κρατήθηκε (έχει δουλειά πάνω της)' : '');
+    foreach (cnp_full_admin_ids() as $aid9) {
+        if ($aid9 === $adminId) { continue; }
+        Db::pushNotification($aid9, 'deleted', mb_substr($msg9, 0, 240), '/project/#/inbox');
+    }
+    logActivity('CloudOn PM: ' . $msg9 . ' (admin ' . $adminId . ')');
+    out(['ok' => true, 'taskKept' => $tskKeep ? (int) $tsk->id : 0]);
 
 case 'ticket_note':
     $tid = (int) ($in['ticket'] ?? 0);
