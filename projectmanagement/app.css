@@ -2904,12 +2904,18 @@ html[data-theme="dark"] .pbx-alert{background:#3a2c14;color:#f1e3c8}
 .st-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px}
 .st-chips .btn{font-size:11.5px}
 .st-foot{display:flex;align-items:center;gap:8px;padding:14px 20px 17px}
-/* κουκκίδες παρουσίας: όλες οι καταστάσεις */
-.ch-dot.busy,.ch-av-dot.busy{background:#e0552b}
-.ch-dot.meeting,.ch-av-dot.meeting{background:#e0a020}
-.ch-dot.online,.ch-av-dot.online{background:#16a26a}
-.ch-dot.away,.ch-av-dot.away{background:#8595ac}
+/* Κουκκίδες παρουσίας — ΤΑ ΧΡΩΜΑΤΑ ΤΟΥ 3CX, μετρημένα από τον client του.
+   Πρέπει να συμφωνούν με το cnp_presence_defs() και το CNP_ST· εδώ μένουν
+   σκληροκωδικοποιημένα γιατί το chat ζωγραφίζει με κλάση, όχι με τιμή. */
+.ch-dot.online,.ch-av-dot.online{background:#36B213}
+.ch-dot.away,.ch-av-dot.away{background:#FF9A0C}
+.ch-dot.dnd,.ch-av-dot.dnd{background:#E05B4A}
+.ch-dot.lunch,.ch-av-dot.lunch{background:#2FBBB3}
+.ch-dot.trip,.ch-av-dot.trip{background:#1D8FD2}
+.ch-dot.meeting,.ch-av-dot.meeting{background:#E05B4A}
 .ch-dot.offline,.ch-av-dot.offline{background:#5d6b85}
+/* Παλιός κωδικός, για γραμμές που δεν έχουν ξαναγραφτεί ακόμη. */
+.ch-dot.busy,.ch-av-dot.busy{background:#E05B4A}
 .ch-manual{font-size:9px;font-weight:800;color:var(--brand);margin-left:4px}
 /* Επικόλληση εικόνας στο chat — μικρογραφία μέσα στο πεδίο, πριν σταλεί */
 .ch-paste{display:flex;flex-wrap:wrap;gap:8px;padding:8px 10px 0}
