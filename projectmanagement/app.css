@@ -3894,3 +3894,19 @@ select.fchip-s{max-width:190px}
 .fchip-go{background:linear-gradient(135deg,var(--brand2),var(--brand));border-color:transparent;
   color:#fff;font-weight:700}
 .fchip-go:hover{color:#fff;border-color:transparent;box-shadow:0 5px 14px rgba(0,144,221,.35)}
+/* Φίλτρο «ναι/όχι»: ΕΙΝΑΙ η τιμή του, δεν έχει λεζάντα. */
+.fchip-b{gap:5px}
+.fchip-b.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.fchip-b.on:hover{background:var(--brand);color:#fff}
+.fchip-b.on .fchip-x{color:#ffffffaa}
+.fchip-b.on .fchip-x:hover{color:#fff}
+/* Αποθηκευμένα views: ΔΕΝ είναι φίλτρα — είναι συντομεύσεις σε σύνολα φίλτρων,
+   οπότε ζουν σε δική τους λεπτή γραμμή κάτω από τη γραμμή φίλτρων. */
+.fviews{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-6px 0 14px;
+  color:var(--mut);font-size:12px}
+.fview{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;
+  background:var(--canvas);border:1px solid var(--line);font-weight:600;color:var(--txt)}
+.fview span{cursor:pointer}
+.fview span:hover{color:var(--brand)}
+.fview b{cursor:pointer;opacity:.45;font-weight:700}
+.fview b:hover{opacity:1;color:var(--bad)}

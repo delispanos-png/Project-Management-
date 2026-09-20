@@ -2,7 +2,7 @@
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
-  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, I, $, $$} = window.CNP;
+  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -578,11 +578,23 @@ window.CNP.quickCall = quickCall;
 
 
 /* ═════════ Λίστα v2 — grouping + saved views ═════════ */
+/* Τα πρόσθετα φίλτρα της λίστας tasks. Το «μόνο ανοιχτά» ξεκινά ανοιχτό: είναι
+   η προεπιλογή της οθόνης, οπότε πρέπει να ΦΑΙΝΕΤΑΙ ότι ισχύει. */
+const LF_F = {
+  open: {label: 'Μόνο ανοιχτά', bool: 1},
+  mine: {label: 'Μόνο δικά μου', bool: 1},
+  proj: {label: 'Έργο', opts: d => [['', '— κάθε —']]
+           .concat((d.projects || []).map(n => [n, n]))},
+};
+
 R.list = async function () {
   setTop('Λίστα tasks', 'Όλα τα tasks ομαδοποιημένα — g+l');
   const c = $('#content');
   // ίδια δομή με τη Βιβλιοθήκη γνώσης: search + chips + ομαδοποίηση + φόρμα πίσω από κουμπί
-  const f = R.list._f = R.list._f || {open: 1, group: 'project', proj: '', q: '', fs: '', fa: '', mine: false, closed: {}};
+  const f = R.list._f = R.list._f || {open: 1, group: 'project', proj: '', q: '', fs: '', fa: '',
+    mine: 0, closed: {}, shown: ['open']};
+  if (!f.shown) { f.shown = ['open']; }
+  Object.keys(LF_F).forEach(k => { if (f[k] && !f.shown.includes(k)) { f.shown.push(k); } });
   const views = JSON.parse(localStorage.cnpViews || '[]');
   let D = {tasks: []};
   const GROUPS = {project: 'Ανά project', status: 'Ανά στήλη', assignee: 'Ανά χειριστή', prio: 'Ανά προτεραιότητα', '': 'Χωρίς ομαδοποίηση'};
@@ -590,26 +602,23 @@ R.list = async function () {
   const prioName = p => ['Κανονική', 'Υψηλή', 'Κρίσιμη'][p] || 'Κανονική';
 
   c.innerHTML = `
-  <div class="card kb-search">
-    <div class="kb-srow">
-      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-        <input class="inp" id="lfQ" placeholder="Ψάξε τα πάντα — τίτλο, project, χειριστή, κατάσταση…" value="${esc(f.q || '')}"></div>
-      <button class="btn btn-o btn-sm" id="lfCsv" title="Εξαγωγή CSV">${I.download} CSV</button>
-      <button class="btn btn-p btn-sm" id="lfNew">${I.plus} Νέο task</button>
-    </div>
-    <div class="kb-filters">
-      <button class="kb-chip${f.proj === '' ? ' on' : ''}" data-lproj="">Όλα <b id="lcAll"></b></button>
-      <span class="chipwrap" id="lProjChips"></span>
-      <select class="inp kb-sort" id="lfG">${Object.entries(GROUPS).map(([k, l]) => `<option value="${k}" ${f.group === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="kb-mine"><input type="checkbox" id="lfO" ${f.open ? 'checked' : ''}> Μόνο ανοιχτά</label>
-      <label class="kb-mine"><input type="checkbox" id="lfM" ${f.mine ? 'checked' : ''}> Μόνο δικά μου</label>
-      <button class="btn btn-o btn-sm" id="lfSave" title="Αποθήκευση αυτών των φίλτρων ως view">${I.pin}</button>
-    </div>
-    ${views.length ? `<div class="kb-filters" style="border-top:0;padding-top:0;margin-top:7px">
-      ${views.map((v, i) => `<span class="kb-chip" style="padding-right:4px">${I.pin}
-        <span data-view="${i}" style="cursor:pointer">${esc(v.name)}</span>
-        <b data-viewdel="${i}" style="cursor:pointer;padding:0 5px;opacity:.5">✕</b></span>`).join('')}</div>` : ''}
+  ${/* Ήταν τρεις σειρές μέσα σε κάρτα: αναζήτηση, μετά chips έργων + ομαδοποίηση
+       + δύο κουτάκια, μετά τα αποθηκευμένα views. Τώρα μία γραμμή κατά
+       docs/UI-STANDARD.md· τα έργα έγιναν φίλτρο, τα views μένουν ξεχωριστά
+       γιατί ΔΕΝ είναι φίλτρα — είναι συντομεύσεις σε σύνολα φίλτρων. */''}
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="lfQ" data-fk="q" value="${esc(f.q || '')}"
+      placeholder="τίτλο, project, χειριστή…" style="width:230px">`, !!f.q, '')}
+    ${fChip('Ομαδοποίηση', fSel('group', Object.entries(GROUPS), f.group), false, '')}
+    <span id="lfMore"></span>
+    <span class="fbar-sp"></span>
+    <button class="fchip" id="lfSave" title="Αποθήκευση αυτών των φίλτρων ως view">${I.pin} Αποθήκευση view</button>
+    <button class="fchip" id="lfCsv">${I.download} CSV</button>
+    <button class="fchip fchip-go" id="lfNew">${I.plus} Νέο task</button>
   </div>
+  ${views.length ? `<div class="fviews">${I.pin}
+    ${views.map((v, i) => `<span class="fview"><span data-view="${i}">${esc(v.name)}</span>
+      <b data-viewdel="${i}" title="Διαγραφή view">✕</b></span>`).join('')}</div>` : ''}
   <div id="lRes"><div class="skel" style="height:220px"></div></div>`;
 
   /* ── γραμμή task (ίδιο ύφος με τις καταχωρήσεις γνώσης) ── */
@@ -639,24 +648,18 @@ R.list = async function () {
     t.assignee ? adminName(t.assignee) : '', prioName(t.prio)].join(' ')).includes(norm(f.q));
 
   const render = () => {
+    /* ΠΡΩΤΑ η γραμμή. Ήταν στο τέλος, αλλά το render γυρίζει νωρίς όταν η λίστα
+       είναι άδεια — οπότε ακριβώς τη στιγμή που ένα φίλτρο έκοβε τα πάντα, το
+       κουμπάκι του δεν ανανεωνόταν και έδειχνε ανενεργό. */
+    paintBar();
     let list = D.tasks.filter(match);
     if (f.proj !== '') { list = list.filter(t => (t.pname || 'Χωρίς έργο') === f.proj); }
     if (f.mine) list = list.filter(t => t.assignee === S.boot.me.id);
 
-    /* Τα chips ομαδοποιούνται ανά ΟΝΟΜΑ έργου, όχι ανά id. Η ίδια γραμμή
-       δουλειάς («e-Commerce», «Marketplaces») υπάρχει ως ξεχωριστό έργο σε κάθε
-       πελάτη — πέντε πανομοιότυπα chips που δεν ξεχωρίζουν μεταξύ τους δεν
-       είναι φίλτρο, είναι θόρυβος. Ένα chip ανά γραμμή δουλειάς, και ο πελάτης
-       φαίνεται πάνω σε κάθε εργασία. */
-    const cnt = {};
-    D.tasks.filter(match).forEach(t => {
-      const k = t.pname || 'Χωρίς έργο';
-      (cnt[k] = cnt[k] || {n: 0, col: t.pcolor || '#8595ac'}).n++;
-    });
-    $('#lcAll').textContent = D.tasks.filter(match).length;
-    $('#lProjChips').innerHTML = Object.keys(cnt).sort((a, b) => a.localeCompare(b, 'el')).map(k =>
-      `<button class="kb-chip${f.proj === k ? ' on' : ''}" data-lproj="${esc(k)}" style="--kc:${cnt[k].col}">
-        <span class="kb-dot" style="background:${cnt[k].col}"></span>${esc(k)} <b>${cnt[k].n}</b></button>`).join('');
+    /* Τα έργα ομαδοποιούνται ανά ΟΝΟΜΑ, όχι ανά id: η ίδια γραμμή δουλειάς
+       («e-Commerce», «Marketplaces») υπάρχει ως ξεχωριστό έργο σε κάθε πελάτη,
+       και πέντε πανομοιότυπες επιλογές δεν είναι φίλτρο, είναι θόρυβος.
+       Ήταν σειρά από chips· τώρα είναι φίλτρο της γραμμής (βλ. paintBar). */
 
     const el = $('#lRes');
     if (!list.length) {
@@ -692,9 +695,24 @@ R.list = async function () {
     bindRows();
   };
 
+  /* Η ΛΙΣΤΑ ΕΡΓΩΝ ΕΡΧΕΤΑΙ ΜΕΤΑ ΤΗ ΓΡΑΜΜΗ. Ξαναχτίζουμε μόνο τα πρόσθετα
+     κουμπάκια, και μόνο όταν όντως άλλαξε κάτι μέσα τους — αλλιώς κάθε
+     πληκτρολόγηση στην αναζήτηση θα τα ξανάγραφε χωρίς λόγο. */
+  let barKey = '';
+  const paintBar = () => {
+    const box = $('#lfMore'); if (!box) { return; }
+    const projs = [...new Set(D.tasks.map(t => t.pname || 'Χωρίς έργο'))]
+      .sort((a, b) => a.localeCompare(b, 'el'));
+    const key = [f.shown.join('~'), projs.join('~'), f.open, f.mine, f.proj].join('|');
+    if (key === barKey) { return; }
+    barKey = key;
+    box.innerHTML = f.shown.map(k => fOne(k, LF_F[k], f, {projects: projs})).join('')
+      + fAdd(LF_F, f.shown);
+    fWire(f, LF_F, () => load());
+  };
+
   const bindRows = () => {
     $$('[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
-    $$('[data-lproj]').forEach(b => b.onclick = () => { f.proj = b.dataset.lproj; render(); });
     $$('.kb-ghead').forEach(h => h.onclick = () => {
       const g = h.dataset.lgrp; f.closed[g] = !f.closed[g];
       h.nextElementSibling.style.display = f.closed[g] ? 'none' : '';
@@ -732,11 +750,8 @@ R.list = async function () {
     render();
   };
 
-  let qt;
   cnpSearch('lfQ', v => { f.q = v; render(); }, 180);
-  $('#lfG').onchange = () => { f.group = $('#lfG').value; render(); };
-  $('#lfO').onchange = () => { f.open = $('#lfO').checked ? 1 : 0; load(); };
-  $('#lfM').onchange = () => { f.mine = $('#lfM').checked; render(); };
+  $('[data-fk="group"]').onchange = e => { f.group = e.target.value; render(); };
   $('#lfNew').onclick = () => window.CNP.quickNew();
   $('#lfSave').onclick = async () => {
     const name = await cnpPrompt('Όνομα view:', {title: I.pin + ' Αποθήκευση view', placeholder: 'π.χ. Bugs Τεχνικού', ok: 'Αποθήκευση'});

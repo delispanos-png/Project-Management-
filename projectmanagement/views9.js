@@ -4,7 +4,7 @@
    Ο έλεγχος σύνδεσης ΔΕΝ είναι διακοσμητικός: ρωτάει το ίδιο το PBX και
    «παγώνει το συμβόλαιο» — τι υπάρχει, τι όχι, πόσο γρήγορα απαντά. */
 'use strict';
-const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, $, $$} = window.CNP;
+const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, $, $$} = window.CNP;
 const R = window.R;
 
 R.pbx = async function () {
@@ -260,52 +260,6 @@ const CALL_CAT = {support: 'Υποστήριξη', technical: 'Τεχνικό', 
 const CALL_BILL = {billable: ['Χρεώσιμο', '#16a26a'], free: ['Χωρίς χρέωση', '#8595ac'],
   contract: ['Στο συμβόλαιο', '#0090dd'], internal: ['Εσωτερικό', '#7b5cd6'],
   warranty: ['Εγγύηση', '#e0a020']};
-/* ═══════════ ΓΡΑΜΜΗ ΦΙΛΤΡΩΝ — κοινός τρόπος για όλες τις οθόνες ═══════════
-   Ένα φίλτρο = ένα κουμπάκι με ετικέτα και τιμή. Όσα χρειάζονται πάντα είναι
-   μόνιμα· τα υπόλοιπα μπαίνουν προοδευτικά με το «+ φίλτρο», ΣΤΗΝ ΙΔΙΑ γραμμή,
-   και βγαίνουν με το ✕ τους. Έτσι η οθόνη δεν ξεκινά με δέκα άδεια πεδία. */
-const fSel = (key, opts, val) => `<select class="fchip-s" data-fk="${key}">${opts.map(([v, l]) =>
-  `<option value="${v}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-
-const fChip = (label, inner, on, rm) =>
-  `<label class="fchip${on ? ' on' : ''}"><span class="fchip-l">${esc(label)}</span>${inner}${
-    rm ? `<span class="fchip-x" data-fx="${rm}" title="Αφαίρεση">✕</span>` : ''}</label>`;
-
-/* Το «+ φίλτρο» δείχνει ΜΟΝΟ όσα δεν είναι ήδη στη γραμμή. Όταν δεν μένει
-   κανένα, εξαφανίζεται — κουμπί που δεν κάνει τίποτα είναι θόρυβος. */
-const fAdd = (defs, shown) => {
-  const left = Object.entries(defs).filter(([k]) => !shown.includes(k));
-  return left.length ? `<div class="fadd"><button class="fchip fchip-add" data-fadd-btn>+ φίλτρο</button>
-    <div class="fmenu" data-fmenu hidden>${left.map(([k, v]) =>
-      `<button data-fadd="${k}">${esc(v.label)}</button>`).join('')}</div></div>` : '';
-};
-
-/* Δένει τα κουμπάκια μιας γραμμής με την κατάσταση και ξαναζωγραφίζει. */
-const fWire = (st, defs, redraw) => {
-  const ad = $('[data-fadd-btn]'), mn = $('[data-fmenu]');
-  if (ad && mn) {
-    ad.onclick = e => { e.preventDefault(); e.stopPropagation(); mn.hidden = !mn.hidden; };
-    document.addEventListener('click', () => { mn.hidden = true; }, {once: true});
-    $$('[data-fadd]', mn).forEach(b => b.onclick = () => { st.shown.push(b.dataset.fadd); redraw(); });
-  }
-  $$('[data-fk]').forEach(el => el.onchange = () => {
-    const k = el.dataset.fk;
-    st[k] = el.type === 'number' ? Math.max(0, +el.value || 0) : el.value;
-    if (defs[k] && defs[k].num) { st[k] = Math.max(0, +el.value || 0); }
-    redraw();
-  });
-  $$('[data-fx]').forEach(el => el.onclick = e => {
-    e.preventDefault(); e.stopPropagation();
-    const k = el.dataset.fx;
-    st.shown = st.shown.filter(x => x !== k);
-    st[k] = (defs[k] && defs[k].num) ? 0 : '';
-    redraw();
-  });
-};
-
-/* Διαθέσιμα σε ΟΛΑ τα view modules: η γραμμή φίλτρων είναι κοινό πρότυπο, όχι
-   ιδιοκτησία αυτού του αρχείου. Βλ. docs/UI-STANDARD.md. */
-Object.assign(window.CNP, {fChip, fSel, fAdd, fWire});
 
 const callHm = s2 => {
   s2 = Math.max(0, +s2 || 0);

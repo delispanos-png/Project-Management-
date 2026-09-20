@@ -1444,6 +1444,71 @@ function cnpTopZ() {
 }
 
 /* ═══ In-app διαλογικά (αντί για browser confirm/prompt) ═══ */
+/* ═══════════ ΓΡΑΜΜΗ ΦΙΛΤΡΩΝ — κοινός τρόπος για όλες τις οθόνες ═══════════
+   Ένα φίλτρο = ένα κουμπάκι με ετικέτα και τιμή. Όσα χρειάζονται πάντα είναι
+   μόνιμα· τα υπόλοιπα μπαίνουν προοδευτικά με το «+ φίλτρο», ΣΤΗΝ ΙΔΙΑ γραμμή,
+   και βγαίνουν με το ✕ τους. Έτσι η οθόνη δεν ξεκινά με δέκα άδεια πεδία. */
+const fSel = (key, opts, val) => `<select class="fchip-s" data-fk="${key}">${opts.map(([v, l]) =>
+  `<option value="${v}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+
+const fChip = (label, inner, on, rm) =>
+  `<label class="fchip${on ? ' on' : ''}"><span class="fchip-l">${esc(label)}</span>${inner}${
+    rm ? `<span class="fchip-x" data-fx="${rm}" title="Αφαίρεση">✕</span>` : ''}</label>`;
+
+/* Φίλτρο «ναι/όχι» (π.χ. «μόνο ανοιχτά»). Δεν έχει ετικέτα+τιμή σαν τα άλλα:
+   ΕΙΝΑΙ η τιμή του. Γι' αυτό είναι κουμπί που ανάβει, όχι κουτάκι με λεζάντα —
+   ένα checkbox μέσα σε κουμπάκι διαβαζόταν σαν δεύτερη φόρμα. */
+const fBool = (key, label, on, rm) =>
+  `<button type="button" class="fchip fchip-b${on ? ' on' : ''}" data-fb="${key}">${
+    on ? '✓ ' : ''}${esc(label)}${rm ? `<span class="fchip-x" data-fx="${rm}" title="Αφαίρεση">✕</span>` : ''}</button>`;
+
+/* Χτίζει ΜΟΝΟ του το κουμπάκι ενός πρόσθετου φίλτρου από τον ορισμό του, ώστε
+   κάθε οθόνη να μη γράφει ξανά την ίδια τριάδα if. */
+const fOne = (k, F, st, d) => F.bool ? fBool(k, F.label, !!st[k], k)
+  : fChip(F.label,
+      F.num ? `<input type="number" class="fchip-s" data-fk="${k}" min="0" max="${F.max || 600}" value="${st[k] || ''}" style="width:52px">${
+                F.unit ? `<span class="fchip-u">${esc(F.unit)}</span>` : ''}`
+      : F.text ? `<input class="fchip-s" ${F.id ? `id="${F.id}"` : ''} data-fk="${k}" value="${esc(st[k] || '')}" placeholder="${esc(F.ph || '')}" style="width:${F.w || 190}px">`
+      : fSel(k, F.opts(d), st[k]), !!st[k], k);
+
+/* Το «+ φίλτρο» δείχνει ΜΟΝΟ όσα δεν είναι ήδη στη γραμμή. Όταν δεν μένει
+   κανένα, εξαφανίζεται — κουμπί που δεν κάνει τίποτα είναι θόρυβος. */
+const fAdd = (defs, shown) => {
+  const left = Object.entries(defs).filter(([k]) => !shown.includes(k));
+  return left.length ? `<div class="fadd"><button class="fchip fchip-add" data-fadd-btn>+ φίλτρο</button>
+    <div class="fmenu" data-fmenu hidden>${left.map(([k, v]) =>
+      `<button data-fadd="${k}">${esc(v.label)}</button>`).join('')}</div></div>` : '';
+};
+
+/* Δένει τα κουμπάκια μιας γραμμής με την κατάσταση και ξαναζωγραφίζει. */
+const fWire = (st, defs, redraw) => {
+  const ad = $('[data-fadd-btn]'), mn = $('[data-fmenu]');
+  if (ad && mn) {
+    ad.onclick = e => { e.preventDefault(); e.stopPropagation(); mn.hidden = !mn.hidden; };
+    document.addEventListener('click', () => { mn.hidden = true; }, {once: true});
+    $$('[data-fadd]', mn).forEach(b => b.onclick = () => { st.shown.push(b.dataset.fadd); redraw(); });
+  }
+  $$('[data-fk]').forEach(el => el.onchange = () => {
+    const k = el.dataset.fk;
+    st[k] = el.type === 'number' ? Math.max(0, +el.value || 0) : el.value;
+    if (defs[k] && defs[k].num) { st[k] = Math.max(0, +el.value || 0); }
+    redraw();
+  });
+  $$('[data-fb]').forEach(el => el.onclick = e => {
+    if (e.target.dataset.fx) { return; }          // το ✕ έχει δική του δουλειά
+    const k = el.dataset.fb;
+    st[k] = st[k] ? 0 : 1;
+    redraw();
+  });
+  $$('[data-fx]').forEach(el => el.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const k = el.dataset.fx;
+    st.shown = st.shown.filter(x => x !== k);
+    st[k] = (defs[k] && (defs[k].num || defs[k].bool)) ? 0 : '';
+    redraw();
+  });
+};
+
 /**
  * Πεδίο αναζήτησης που ΔΕΝ χάνει τον κέρσορα.
  *
@@ -4243,7 +4308,8 @@ document.addEventListener('keydown', e => {
 window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop,
-  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, $, $$};
+  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
+  fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {
