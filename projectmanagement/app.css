@@ -3910,3 +3910,10 @@ select.fchip-s{max-width:190px}
 .fview span:hover{color:var(--brand)}
 .fview b{cursor:pointer;opacity:.45;font-weight:700}
 .fview b:hover{opacity:1;color:var(--bad)}
+/* Διακόπτης ρύθμισης + ο πίνακας αντιστοίχισης καταστάσεων. */
+.px-sw{display:flex;align-items:center;gap:9px;font-size:13.5px;cursor:pointer}
+.px-sw input{width:16px;height:16px;margin:0;flex:0 0 auto}
+.px-map{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.px-mrow{background:var(--canvas);border:1px solid var(--line);border-radius:999px;
+  padding:4px 11px;font-size:12px;color:var(--mut)}
+.px-mrow b{color:var(--ink);font-weight:700}

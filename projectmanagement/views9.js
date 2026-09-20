@@ -7,6 +7,9 @@
 const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, $, $$} = window.CNP;
 const R = window.R;
 
+/* Τα ελληνικά των καταστάσεων, για τον πίνακα αντιστοίχισης. */
+const PRES_LBL = {online: 'Διαθέσιμος', busy: 'Απασχολημένος', meeting: 'Σε σύσκεψη', away: 'Λείπω'};
+
 R.pbx = async function () {
   if (!cnpCan('comms.pbx')) {
     setTop('Διασύνδεση 3CX');
@@ -23,6 +26,9 @@ R.pbx = async function () {
     api('pbx_ai_calls').catch(() => null),
   ]);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  /* Ξεχωριστά από το Promise.all: δεν είναι κρίσιμο για την οθόνη και δεν έχει
+     λόγο να την κρατά πίσω αν λείπει. */
+  d.presence = await api('pbx_presence').catch(() => null);
   const ed = d.canEdit;
 
   const probe = d.probe;
@@ -80,6 +86,28 @@ R.pbx = async function () {
         <button class="btn btn-o btn-sm" id="pxLog">Τεχνικό ημερολόγιο</button>
       </div>` : '<div class="mut" style="margin-top:12px">Μόνο προβολή — χρειάζεται «Ρύθμιση & κόστη».</div>'}
       <div id="pxMsg" class="mut" style="font-size:12px;margin-top:10px"></div>
+    </div></div>
+
+  ${/* ΜΙΑ ΔΗΛΩΣΗ, ΟΧΙ ΔΥΟ. Όταν δηλώνεις «σε σύσκεψη» ή «λείπω» στο εργαλείο,
+       αλλάζει και το προφίλ σου στο κέντρο — αλλιώς το τηλέφωνο συνέχιζε να
+       χτυπάει επειδή ξέχασες το δεύτερο πρόγραμμα. */''}
+  <div class="card"><div class="card-h">${I.user} Κατάσταση χειριστή → τηλέφωνο</div>
+    <div class="card-b">
+      <label class="px-sw">
+        <input type="checkbox" id="pxPres" ${d.presence && d.presence.on ? 'checked' : ''} ${ed ? '' : 'disabled'}>
+        <b>Η κατάσταση του Project Manager περνά στο 3CX</b></label>
+      <div class="mut" style="font-size:12px;margin-top:7px">
+        Δηλώνεις μία φορά, ισχύει και στα δύο. Αν το κέντρο δεν απαντήσει, η κατάσταση
+        αλλάζει κανονικά στο εργαλείο και το σφάλμα γράφεται στο τεχνικό ημερολόγιο —
+        μια βλάβη του τηλεφωνικού κέντρου δεν σε εμποδίζει να δηλώσεις ότι λείπεις.</div>
+      <div class="px-map">${Object.entries((d.presence && d.presence.map) || {}).map(([k, v]) =>
+        `<span class="px-mrow"><b>${esc(PRES_LBL[k] || k)}</b> → ${esc(v)}</span>`).join('')}</div>
+      <div class="mut" style="font-size:11.5px;margin-top:9px">
+        ${d.presence && d.presence.dn
+          ? `Το δικό σου εσωτερικό: <b>${esc(d.presence.dn)}</b>.`
+          : 'Δεν είσαι δεμένος με εσωτερικό — η δική σου κατάσταση δεν στέλνεται πουθενά.'}
+        Όσοι χειριστές δεν έχουν εσωτερικό απλώς παραλείπονται.</div>
+      <div id="pxPresMsg" class="mut" style="font-size:12px;margin-top:8px"></div>
     </div></div>
 
   ${m ? `<div class="card"><div class="card-h">${I.tree || I.users} Χάρτης τηλεφωνικού κέντρου
@@ -157,6 +185,17 @@ R.pbx = async function () {
   const msg = (t, bad) => { const m = $('#pxMsg'); if (m) { m.textContent = t; m.style.color = bad ? 'var(--bad)' : ''; } };
 
   if (ed) {
+    /* Ο διακόπτης του συγχρονισμού κατάστασης. */
+    { const pp = $('#pxPres'); if (pp) { pp.onchange = async () => {
+        const msg = $('#pxPresMsg');
+        msg.textContent = 'αποθηκεύω…';
+        const r = await api('pbx_presence', {on: pp.checked ? 1 : 0}).catch(e => ({err: e.message}));
+        if (!r || r.err) { msg.textContent = (r && r.err) || 'Δεν αποθηκεύτηκε'; pp.checked = !pp.checked; return; }
+        msg.textContent = r.on
+          ? '✔ Ενεργό — η επόμενη αλλαγή κατάστασης θα περάσει και στο τηλέφωνο.'
+          : 'Ανενεργό — η κατάσταση μένει μόνο στο Project Manager.';
+      }; } }
+
     $('#pxSave').onclick = async () => {
       const r = await api('pbx_save', {url: $('#pxUrl').value.trim(), clientId: $('#pxCid').value.trim(),
         secret: $('#pxSec').value}).catch(e => ({err: e.message}));
