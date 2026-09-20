@@ -2,7 +2,7 @@
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
-  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, $, $$} = window.CNP;
+  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -634,7 +634,7 @@ R.list = async function () {
         ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα: περιμένει ενέργεια από ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
         ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname)}</span>` : ''}
         ${t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : ''}
-        <span class="kb-tag" style="background:${stt.color}18;color:${stt.color}">${esc(stt.title)}</span>
+        ${stPill(t.status)}
         ${t.assignee ? `<span class="mut">${esc(adminName(t.assignee))}</span>` : '<span class="mut">χωρίς ανάθεση</span>'}
         ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
         ${t.mins ? `<span class="mut">${fmtMin(t.mins)}</span>` : ''}
@@ -1404,13 +1404,11 @@ R.chat = async function () {
     </div>
   </div>
   <div class="chat${st.mobileConv ? ' conv-open' : ''}">
+    ${/* Η ΚΑΤΑΣΤΑΣΗ ΑΛΛΑΖΕΙ ΑΠΟ ΕΝΑ ΣΗΜΕΙΟ: την πάνω μπάρα.
+         Εδώ υπήρχε δεύτερος επιλογέας — ίδιο πράγμα, δύο θέσεις. Δεν πρόσθετε
+         τίποτα (η πάνω μπάρα φαίνεται και μέσα στο chat) και μπέρδευε: άλλαζες
+         εδώ, άλλαζες εκεί, και δεν ήξερες ποιο μετράει. Αφαιρέθηκε. */''}
     <div class="ch-left">
-      <div class="ch-mystatus">
-        <span class="ch-dot ${esc(d.me.status)}"></span>
-        <button class="btn btn-o btn-sm" id="chSt" style="flex:1;justify-content:flex-start;font-weight:650"
-          title="${d.me.manual ? 'Το δήλωσες εσύ — αυτόματο: OFF' : 'Αυτόματο: ON — από τον παλμό της εφαρμογής'}">${esc(d.me.label)}${d.me.manual ? '' : ' <span class="st-tag">auto</span>'}</button>
-      </div>
-      ${d.me.reason || d.me.untilTxt ? `<div class="mut" style="font-size:11px;padding:6px 15px;cursor:pointer" id="chReasonEdit" title="Αλλαγή">${I.chat} ${esc([d.me.reason, d.me.untilTxt].filter(Boolean).join(' · '))} <span style="opacity:.6">· αλλαγή</span></div>` : ''}
       <div class="ch-list">
       ${d.channels.map(ch => `
         <div class="ch-row ${st.ch === ch.id ? 'on' : ''}" data-ch="${ch.id}">
@@ -1463,8 +1461,6 @@ R.chat = async function () {
   paintVoice();
   R.chat._vt = setInterval(paintVoice, 10000);
 
-  $('#chSt').onclick = () => window.CNP.statusPicker();
-  const re = $('#chReasonEdit'); if (re) { re.onclick = () => window.CNP.statusPicker(); }
   $$('.ch-row[data-ch]').forEach(r => r.onclick = e => {
     if (e.target.closest('[data-gdel]')) return;
     st.ch = r.dataset.ch; st.lastId = 0; st.mobileConv = true; R.chat();   // mobile: άνοιξε τη συνομιλία full-screen
