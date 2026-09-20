@@ -921,15 +921,40 @@ async function bookCard(id, pre) {
   <div class="bc-f" style="margin-top:10px"><label class="lbl">Πελάτης WHMCS</label>
     <div id="bcCli"></div></div>
 
+  ${/* ΤΑ ΠΡΟΪΟΝΤΑ ΟΜΑΔΟΠΟΙΗΜΕΝΑ ΑΝΑ ΟΥΡΑ.
+       Πριν ήταν δώδεκα κουτάκια απλωμένα σε μία σειρά, με το «→ Support»
+       επαναλαμβανόμενο έντεκα φορές — θόρυβος που έκρυβε ακριβώς αυτό που
+       έχει σημασία: πού καταλήγει η κλήση. Τώρα η ουρά λέγεται ΜΙΑ φορά, ως
+       τίτλος της ομάδας της, και τα προϊόντα είναι κουμπιά από κάτω. */''}
   <div id="bcRoute">
-  <div class="bc-sec">${I.zap} Δρομολόγηση κλήσεων</div>
-  <div class="mut" style="font-size:12px;margin-bottom:8px">
-    Τι έχει από εμάς και αν καλύπτεται από τεχνική υποστήριξη. Με αυτά το κέντρο στέλνει την κλήση του
-    <b>κατευθείαν στη σωστή ουρά</b>, χωρίς ρεσεψιόν. Στην αμφιβολία, πάει στη ρεσεψιόν.</div>
-  <div class="bc-prods">${((d.routing && d.routing.products) || []).map(p => `<label class="bc-chk">
-    <input type="checkbox" data-prod="${esc(p.key)}" ${(K.products || []).includes(p.key) ? 'checked' : ''} ${ed ? '' : 'disabled'}>
-    ${esc(p.label)} <span class="mut">→ ${esc(String(p.queue).replace(/ \(.*\)$/, ''))}</span></label>`).join('')}</div>
-  <div class="bc-grid">
+  <div class="bc-rhead">
+    <div class="bc-sec" style="margin:0;border:0;padding:0">${I.zap} Δρομολόγηση κλήσεων</div>
+    ${d.routing && d.routing.decision ? `<span class="bc-dec ${esc(d.routing.decision.decision)}">
+      Τώρα: <b>${d.routing.decision.decision === 'queue' ? 'ουρά ' + esc(d.routing.decision.dn) : 'ρεσεψιόν'}</b></span>` : ''}
+  </div>
+  <div class="mut" style="font-size:12px;margin-bottom:9px">
+    Τι έχει από εμάς. Με αυτά το κέντρο στέλνει την κλήση του <b>κατευθείαν στη σωστή ουρά</b>,
+    χωρίς ρεσεψιόν.${d.routing && d.routing.decision ? ` <span class="mut">${esc(d.routing.decision.reason)}.</span>` : ''}</div>
+
+  <div class="bc-qgrid">${(() => {
+    const prods = (d.routing && d.routing.products) || [];
+    const groups = new Map();
+    prods.forEach(p => {
+      const q = String(p.queue).replace(/ \(.*\)$/, '');      // «Support (212→220…)» → «Support»
+      if (!groups.has(q)) { groups.set(q, []); }
+      groups.get(q).push(p);
+    });
+    /* Οι μεγάλες ομάδες πρώτες — διαβάζονται σαν στήλες, όχι σαν λίστα. */
+    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([q, list]) => `
+      <div class="bc-qg">
+        <div class="bc-qgh">${esc(q)}</div>
+        ${list.map(p => `<label class="bc-prod${(K.products || []).includes(p.key) ? ' on' : ''}">
+          <input type="checkbox" data-prod="${esc(p.key)}" ${(K.products || []).includes(p.key) ? 'checked' : ''} ${ed ? '' : 'disabled'}>
+          ${esc(p.label)}</label>`).join('')}
+      </div>`).join('');
+  })()}</div>
+
+  <div class="bc-grid" style="margin-top:10px">
     <div class="bc-f"><label class="lbl">Τεχνική υποστήριξη</label>
       <select class="inp" data-k="cover" ${ed ? '' : 'disabled'}>
         <option value="" ${!K.cover ? 'selected' : ''}>— δεν ξέρουμε ακόμη —</option>
@@ -942,9 +967,6 @@ async function bookCard(id, pre) {
         ${Object.entries((d.routing && d.routing.queues) || {}).map(([dn, l]) => `<option value="${dn}" ${K.routeDn === dn ? 'selected' : ''}>${esc(l)}</option>`).join('')}
       </select></div>
   </div>
-  ${d.routing && d.routing.decision ? `<div class="bc-dec ${esc(d.routing.decision.decision)}">
-    Αν καλούσε τώρα: <b>${d.routing.decision.decision === 'queue' ? 'κατευθείαν στην ουρά ' + esc(d.routing.decision.dn) : 'ρεσεψιόν'}</b>
-    <span class="mut">— ${esc(d.routing.decision.reason)}</span></div>` : ''}
   </div>
 
   <div class="bc-sec">${I.contact || I.user} Στοιχεία</div>
@@ -1083,6 +1105,12 @@ async function bookCard(id, pre) {
   if (!ed) { return; }
 
   $$('[data-rel]', body).forEach(b => b.onclick = () => { rel = b.dataset.rel; paintRel(); });
+
+  /* Το κουμπί προϊόντος ανάβει μόλις το τσεκάρεις — αλλιώς η επιλογή φαίνεται
+     μόνο από το μικρό τικ και χάνεται μέσα στην ομάδα. */
+  $$('[data-prod]', body).forEach(cb => cb.onchange = () => {
+    cb.closest('.bc-prod').classList.toggle('on', cb.checked);
+  });
 
   /* ── ΑΦΜ → ΑΑΔΕ ──────────────────────────────────────────────────────────
      Δεν γράφουμε πάνω σε ό,τι έχει ήδη συμπληρωθεί χωρίς να το πούμε: αν η ΑΑΔΕ

@@ -3774,8 +3774,34 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 /* ── Δρομολόγηση κατά πελάτη ── */
 .bc-prods{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px}
 .bc-chk{display:flex;gap:6px;align-items:center;font-size:12.5px;cursor:pointer}
-.bc-dec{font-size:12.5px;padding:8px 10px;border-radius:10px;background:var(--canvas);border:1px solid var(--line);margin-top:4px}
-.bc-dec.queue{border-color:#16a26a55}.bc-dec.ai_nocover{border-color:#e0a02055}
+
+/* ── Δρομολόγηση: προϊόντα ανά ουρά ──────────────────────────────────────
+   Δώδεκα κουτάκια σε μία απλωμένη σειρά, με το «→ Support» έντεκα φορές, δεν
+   διαβάζονταν. Ομαδοποιημένα ανά προορισμό, η ουρά λέγεται μία φορά και
+   φαίνεται με τη ματιά πού καταλήγει τι. */
+.bc-rhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  border-top:1px solid var(--line);margin-top:16px;padding-top:13px;margin-bottom:5px}
+.bc-rhead .bc-dec{margin:0 0 0 auto}
+/* `align-items:start`: κάθε ομάδα ψηλή όσο το περιεχόμενό της. Χωρίς αυτό όλες
+   τεντώνονταν στο ύψος της μεγαλύτερης και άφηναν κενά από κάτω. */
+.bc-qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:9px;align-items:start}
+.bc-qg{border:1px solid var(--line);border-radius:11px;background:var(--canvas);padding:9px 10px 10px}
+.bc-qgh{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+  color:var(--mut);margin-bottom:7px}
+.bc-prod{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;
+  padding:5px 8px;border-radius:8px;border:1px solid transparent;background:var(--card);
+  margin-bottom:5px;transition:border-color .12s,color .12s}
+.bc-prod:last-child{margin-bottom:0}
+.bc-prod:hover{border-color:var(--brand)}
+.bc-prod.on{border-color:var(--brand);color:var(--brand);font-weight:700}
+.bc-prod input{margin:0;flex:0 0 auto}
+.bc-prod:has(input:disabled){cursor:default}
+.bc-prod:has(input:disabled):hover{border-color:transparent}
+
+.bc-dec{font-size:12px;padding:5px 11px;border-radius:999px;background:var(--canvas);
+  border:1px solid var(--line);white-space:nowrap}
+.bc-dec.queue{border-color:#16a26a55;background:#16a26a12}
+.bc-dec.ai_nocover{border-color:#e0a02055;background:#e0a02012}
 .rt-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .rt-stage{font-size:12px;font-weight:600;color:#e0a020}
 .rt-list{display:flex;flex-direction:column;gap:4px}
