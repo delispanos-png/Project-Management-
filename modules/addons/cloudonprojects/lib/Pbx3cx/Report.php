@@ -163,6 +163,12 @@ class Pbx3cxReport
 
         $talk = 0; $adminId = 0; $agentDn = ''; $best = -1; $wait = 0; $seenAgent = false;
         $cost = 0.0; $aiSummary = ''; $rec = '';
+        /* Η AI ρεσεψιόν ΑΠΑΝΤΑΕΙ κανονικά: μιλάει με τον καλούντα, κρατά στοιχεία
+           και ανοίγει ticket. Δεν είναι ούτε μενού ούτε χαμένη κλήση. Ο χρόνος
+           της όμως μετριέται ΞΕΧΩΡΙΣΤΑ — δεν είναι ώρα ανθρώπου. */
+        $aiDn = class_exists('\WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint')
+            ? (string) \WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint::AI_DN : '902';
+        $aiTalk = 0;
 
         foreach ($legs as $l) {
             $dn = self::legDn($l, $dir);
@@ -171,11 +177,15 @@ class Pbx3cxReport
             $isAgent = $dn !== '' && isset($map[$dn]) && $map[$dn]['admin'] > 0;
             $ok = $isAgent && (string) ($l['Status'] ?? '') === 'Answered' && $t > 0;
 
+            if ($dn === $aiDn && (string) ($l['Status'] ?? '') === 'Answered' && $t > 0) {
+                $aiTalk += $t;
+            }
+
             if ($ok) {
                 $seenAgent = true;
                 $talk += $t;
                 if ($t > $best) { $best = $t; $adminId = $map[$dn]['admin']; $agentDn = $dn; }
-            } elseif (!$seenAgent) {
+            } elseif (!$seenAgent && $dn !== $aiDn) {
                 /* Πριν απαντήσει άνθρωπος, ΚΑΙ το κουδούνισμα ΚΑΙ ο χρόνος στο
                    μενού/ουρά είναι αναμονή για τον πελάτη. */
                 $wait += $r + $t;
@@ -214,8 +224,13 @@ class Pbx3cxReport
             'started_at'   => self::dt($first['StartTime'] ?? ''),
             'ring_seconds' => $wait,
             'talk_seconds' => $talk,
-            'answered'     => $seenAgent ? 1 : 0,
-            'reason'       => $seenAgent ? 'Answered' : substr((string) ($last['Status'] ?? 'Unanswered'), 0, 40),
+            /* Απαντημένη = τη σήκωσε κάποιος, άνθρωπος Ή η AI. Χαμένη σημαίνει
+               ότι δεν μίλησε κανείς με τον καλούντα. */
+            'answered'     => ($seenAgent || $aiTalk > 0) ? 1 : 0,
+            'handled'      => $seenAgent ? 'human' : ($aiTalk > 0 ? 'ai' : null),
+            'ai_seconds'   => $aiTalk,
+            'reason'       => $seenAgent ? 'Answered'
+                : ($aiTalk > 0 ? 'AI' : substr((string) ($last['Status'] ?? 'Unanswered'), 0, 40)),
             'from_no'      => substr($dir === 'out' ? $agentDn : $other, 0, 40),
             'to_no'        => substr($dir === 'out' ? $other : $agentDn, 0, 40),
             'final_dn'     => substr($agentDn, 0, 20),
@@ -235,8 +250,16 @@ class Pbx3cxReport
      */
     public static function day($date)
     {
-        $from = $date . 'T00:00:00Z';
-        $to   = $date . 'T23:59:59Z';
+        /* ΤΟΠΙΚΗ ΗΜΕΡΑ, ΟΧΙ UTC. Το PBX δέχεται UTC· εμείς σκεφτόμαστε σε ώρα
+           Ελλάδας. Με σκέτο «Τ00:00:00Z» η «ημέρα» ήταν μετατοπισμένη κατά τρεις
+           ώρες και οι κλήσεις 00:00–03:00 έπεφταν στην προηγούμενη ημέρα —
+           κάτι που μπέρδευε κάθε χειροκίνητη άντληση συγκεκριμένης ημέρας. */
+        $tz  = new \DateTimeZone(date_default_timezone_get());
+        $utc = new \DateTimeZone('UTC');
+        $d0  = new \DateTime($date . ' 00:00:00', $tz);
+        $d1  = new \DateTime($date . ' 23:59:59', $tz);
+        $from = $d0->setTimezone($utc)->format('Y-m-d\TH:i:s\Z');
+        $to   = $d1->setTimezone($utc)->format('Y-m-d\TH:i:s\Z');
         $legs = [];
         foreach ([['in', 'ReportInboundCalls', 'GetInboundCalls'],
                   ['out', 'ReportOutboundCalls', 'GetOutboundCalls']] as $s) {
@@ -290,7 +313,8 @@ class Pbx3cxReport
         $drop = [];
         foreach ($built as $i => $b) {
             $isPrologue = $b['legs'] === 1 && empty($b['row']['admin_id'])
-                && (int) $b['row']['talk_seconds'] === 0 && $b['row']['final_dn'] === '';
+                && (int) $b['row']['talk_seconds'] === 0 && $b['row']['final_dn'] === ''
+                && (int) ($b['row']['ai_seconds'] ?? 0) === 0;
             if (!$isPrologue || $b['row']['other_e164'] === '') { continue; }
             foreach ($built as $k => $o) {
                 if ($k === $i || $o['row']['other_e164'] !== $b['row']['other_e164']) { continue; }

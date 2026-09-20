@@ -5568,7 +5568,7 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
        θερμικός χάρτης και η λίστα να λένε πάντα το ίδιο πράγμα. Αν κάποιο
        φίλτρο εφαρμοζόταν μόνο στη λίστα, τα σύνολα από πάνω θα έλεγαν άλλα. */
     $cDir  = in_array(($_GET['dir'] ?? ''), ['in', 'out'], true) ? $_GET['dir'] : '';
-    $cAns  = in_array(($_GET['ans'] ?? ''), ['yes', 'no'], true) ? $_GET['ans'] : '';
+    $cAns  = in_array(($_GET['ans'] ?? ''), ['yes', 'ai', 'no'], true) ? $_GET['ans'] : '';
     $cBill = in_array(($_GET['bill'] ?? ''), ['billable', 'free', 'contract', 'internal',
         'warranty', 'none'], true) ? $_GET['bill'] : '';
     $cCat  = substr(trim((string) ($_GET['cat'] ?? '')), 0, 20);
@@ -5579,7 +5579,13 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
         $q = Capsule::table('mod_cpm_calls')->whereBetween('started_at', [$cFrom, $cTo]);
         if ($cWho) { $q->where('admin_id', $cWho); }
         if ($cDir) { $q->where('direction', $cDir); }
-        if ($cAns === 'yes') { $q->where('answered', 1); }
+        /* «Απαντήθηκε» σημαίνει μίλησε άνθρωπος Ή η AI ρεσεψιόν. Το «ai»
+           απομονώνει όσες σήκωσε η ρεσεψιόν εκτός ωραρίου. */
+        /* ΟΧΙ `handled='human'`: οι παλιές γραμμές (πριν μπει η στήλη) έχουν κενό
+           `handled` και θα εξαφανίζονταν από τη λίστα. Ρωτάμε το αντίθετο. */
+        if ($cAns === 'yes') { $q->where('answered', 1)->where(function ($w) {
+            $w->whereNull('handled')->orWhere('handled', '<>', 'ai'); }); }
+        if ($cAns === 'ai')  { $q->where('handled', 'ai'); }
         if ($cAns === 'no')  { $q->where('answered', 0); }
         /* «none» = δεν καταγράφηκε καθόλου — η ουρά δουλειάς του agent. */
         if ($cBill === 'none') { $q->whereNull('logged_at'); }
@@ -5606,10 +5612,14 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
         'COUNT(*) calls, COALESCE(SUM(talk_seconds),0) talk,'
         . " SUM(direction='in') inn, SUM(direction='out') outt,"
         . ' SUM(answered=0) missed, SUM(logged_at IS NOT NULL) logged,'
+        . " SUM(handled='ai') ai, COALESCE(SUM(ai_seconds),0) aitalk,"
         . " COALESCE(SUM(CASE WHEN bill_status='billable' THEN talk_seconds ELSE 0 END),0) billable"
     )->first();
+    /* Ο χρόνος της AI μένει ΞΕΧΩΡΙΣΤΑ από το `talk`: δεν είναι χρόνος ομάδας και
+       δεν πρέπει να φουσκώνει τα νούμερα των ανθρώπων. */
     $tot = ['calls' => (int) $agg->calls, 'talk' => (int) $agg->talk,
         'in' => (int) $agg->inn, 'out' => (int) $agg->outt, 'missed' => (int) $agg->missed,
+        'ai' => (int) $agg->ai, 'aiTalk' => (int) $agg->aitalk,
         'logged' => (int) $agg->logged, 'billable' => (int) $agg->billable];
 
     $perAdmin = [];
@@ -5682,6 +5692,7 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
             'admin' => $r->admin_id ? (int) $r->admin_id : 0,
             'adminName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
             'talk' => (int) $r->talk_seconds, 'answered' => (bool) $r->answered,
+            'handled' => (string) $r->handled, 'aiTalk' => (int) $r->ai_seconds,
             'reason' => $r->reason, 'summary' => $r->summary,
             'category' => $r->category, 'bill' => $r->bill_status, 'billWhy' => $r->bill_reason,
             'logged' => (bool) $r->logged_at, 'followup' => (bool) $r->followup];
@@ -5827,7 +5838,8 @@ case 'client_calls':                     // ΚΙΝΗΣΗ ΠΕΛΑΤΗ — για
     foreach ($ccQ()->orderBy('started_at', 'desc')->limit(1000)->get() as $r) {
         $ccItems[] = ['id' => (int) $r->id, 'at' => $r->started_at, 'dir' => $r->direction,
             'talk' => (int) $r->talk_seconds, 'wait' => (int) $r->ring_seconds,
-            'answered' => (bool) $r->answered, 'other' => (string) $r->other_e164,
+            'answered' => (bool) $r->answered, 'handled' => (string) $r->handled,
+            'aiTalk' => (int) $r->ai_seconds, 'other' => (string) $r->other_e164,
             'admin' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
             'summary' => (string) $r->summary, 'category' => (string) $r->category,
             'bill' => (string) $r->bill_status, 'billWhy' => (string) $r->bill_reason,
@@ -6086,6 +6098,7 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
         ->orderBy('started_at', 'desc')->limit(40)->get() as $c) {
         $gCalls[] = ['id' => (int) $c->id, 'at' => $c->started_at, 'dir' => $c->direction,
             'talk' => (int) $c->talk_seconds, 'answered' => (bool) $c->answered,
+            'handled' => (string) $c->handled, 'aiTalk' => (int) $c->ai_seconds,
             'other' => (string) $c->other_e164,
             'admin' => $c->admin_id ? Db::adminName((int) $c->admin_id) : '',
             'summary' => (string) $c->summary, 'bill' => (string) $c->bill_status];
@@ -6310,9 +6323,6 @@ case 'book_import':                      // γέμισμα από 3CX και WHM
             . ' — ' . json_encode($res, JSON_UNESCAPED_UNICODE));
     }
     out(['ok' => true, 'res' => $res]);
-
-case 'book_push':                        // ΚΑΤΑΡΓΗΘΗΚΕ (20/09/2026) — ο κατάλογος δεν στέλνεται πια στο 3CX
-    fail('Η αποστολή του καταλόγου στο 3CX καταργήθηκε');
 
 case 'book_fields':                      // τα δικά μας πεδία — ορισμός
     if (!empty($in['save'])) {
@@ -7572,6 +7582,7 @@ case 'my_calls_open':                    // ΟΙ ΔΙΚΕΣ ΣΟΥ κλήσει�
         $mcOut[] = [
             'id' => (int) $mc->id, 'at' => $mc->started_at, 'dir' => $mc->direction,
             'talk' => (int) $mc->talk_seconds, 'answered' => (bool) $mc->answered,
+            'handled' => (string) $mc->handled,
             'client' => $mc->clientid ? (int) $mc->clientid : 0,
             'clientName' => $mc->clientid ? clientLabel((int) $mc->clientid) : '',
             'other' => $mc->other_e164 ?: ($mc->direction === 'out' ? (string) $mc->to_no : (string) $mc->from_no),

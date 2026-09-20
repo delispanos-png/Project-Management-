@@ -3780,3 +3780,7 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 @media (max-width:768px){.rt-who,.rt-dec{flex-basis:auto}}
 .pbx-aitk{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:#16a26a22;color:#16a26a;text-decoration:none}
 .pbx-aitk.bad{background:#e2515f22;color:#e2515f}
+
+/* Κλήση που σήκωσε η AI ρεσεψιόν: ούτε κανονική απάντηση ομάδας ούτε χαμένη. */
+.cl-ai{display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;
+  font-weight:800;letter-spacing:.4px;color:#fff;background:var(--brand)}

@@ -1006,6 +1006,19 @@ class Db
                 $t->index('created_at', 'ix_rat');
             });
         }
+        /* ΠΟΙΟΣ ΣΗΚΩΣΕ: άνθρωπος, η AI ρεσεψιόν, ή κανείς.
+           Πριν υπήρχαν δύο μόνο καταστάσεις και η AI έπεφτε στις «αναπάντητες» —
+           κλήσεις που απαντήθηκαν κανονικά, συζητήθηκαν και έγιναν ticket
+           εμφανίζονταν ως χαμένες. Ο χρόνος της AI μένει ΧΩΡΙΣΤΑ από τον χρόνο
+           της ομάδας: δεν είναι ώρα ανθρώπου και δεν πρέπει να τη φουσκώνει. */
+        foreach ([
+            'handled'    => "varchar(8) NULL",   // human | ai | (κενό = κανείς)
+            'ai_seconds' => 'int(10) unsigned NOT NULL DEFAULT 0',
+        ] as $col => $def) {
+            if (!$s->hasColumn('mod_cpm_calls', $col)) {
+                Capsule::statement('ALTER TABLE mod_cpm_calls ADD COLUMN `' . $col . '` ' . $def);
+            }
+        }
         /* Η κλήση δείχνει στην καρτέλα του καταλόγου — μία πηγή αναγνώρισης. */
         if (!$s->hasColumn('mod_cpm_calls', 'book_id')) {
             Capsule::statement('ALTER TABLE mod_cpm_calls ADD COLUMN `book_id` int(10) unsigned NULL');

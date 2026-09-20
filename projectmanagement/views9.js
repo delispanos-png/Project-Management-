@@ -266,6 +266,14 @@ const callHm = s2 => {
   return h ? h + 'ω ' + m + '΄' : (m ? m + '΄ ' + (s2 % 60) + '΄΄' : s2 + '΄΄');
 };
 
+/* Η διάρκεια μιας κλήσης λέγεται ΤΡΕΙΣ διαφορετικές ιστορίες και δεν πρέπει να
+   μπερδεύονται: μίλησε άνθρωπος, τη σήκωσε η AI ρεσεψιόν εκτός ωραρίου, ή δεν τη
+   σήκωσε κανείς. Πριν, όσες σήκωνε η AI εμφανίζονταν «αναπάντητες» — ενώ είχαν
+   απαντηθεί και είχαν γίνει ticket. */
+const callDur = x => x.handled === 'ai'
+  ? `<span class="cl-ai" title="Απάντησε η AI ρεσεψιόν εκτός ωραρίου — ${callHm(x.aiTalk || 0)}">AI</span>`
+  : (x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>');
+
 R.calls = async function () {
   if (!cnpCan('reports.calls')) {
     setTop('Τηλεφωνική δραστηριότητα');
@@ -306,7 +314,7 @@ R.calls = async function () {
       : x.anon ? '<span class="cl-ot mut" title="Ο καλών απέκρυψε τον αριθμό του">απόκρυψη αριθμού</span>'
       : x.book ? `<span class="cl-ot">${esc(x.book)}</span><span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο — δεν είναι συνδεδεμένος με πελάτη WHMCS">κατάλογος</span>`
       : `<span class="cl-ot">${esc(x.other || '—')}</span>`}</span>
-    <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+    <span class="cl-dur">${callDur(x)}</span>
     <span class="cl-sum">${x.summary ? esc(x.summary) : '<span class="mut">—</span>'}</span>
     <span class="cl-bill">${x.bill
       ? `<span class="cl-b" style="--bc:${CALL_BILL[x.bill][1]}">${CALL_BILL[x.bill][0]}</span>`
@@ -336,7 +344,7 @@ R.calls = async function () {
     <input class="inp" id="clQ" placeholder="Πελάτης, αριθμός ή περίληψη…" value="${esc(st.q)}" style="min-width:210px;flex:1">
     <div class="td-seg cl-seg">${[['', 'κάθε κατεύθυνση'], ['in', '↙ εισερχόμενες'], ['out', '↗ εξερχόμενες']]
       .map(([k, l]) => `<button data-cdir="${k}" class="${st.dir === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="td-seg cl-seg">${[['', 'όλες'], ['yes', 'απαντημένες'], ['no', 'αναπάντητες']]
+    <div class="td-seg cl-seg">${[['', 'όλες'], ['yes', 'απαντημένες'], ['ai', 'AI ρεσεψιόν'], ['no', 'αναπάντητες']]
       .map(([k, l]) => `<button data-cans="${k}" class="${st.ans === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <select class="inp" id="clBill" style="width:170px">
       <option value="">— κάθε χρέωση —</option>
@@ -357,6 +365,7 @@ R.calls = async function () {
     ${tile(callHm(t.talk), 'χρόνος στο τηλέφωνο', 'var(--brand)')}
     ${tile(t.missed, 'αναπάντητες', t.missed ? 'var(--bad)' : '')}
     ${tile(callHm(t.billable), 'χρεώσιμος χρόνος', 'var(--ok)')}
+    ${t.ai ? tile(t.ai, 'απάντησε η AI ρεσεψιόν', 'var(--brand)') : ''}
   </div>
 
   <div class="cl-cols">
@@ -558,7 +567,7 @@ async function callDrill(what, st) {
                : x.book ? `${esc(x.book)} <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>`
                : esc(x.other || '—'))
             : (x.adminName ? esc(x.adminName) : '<span class="mut">—</span>')}</span>
-          <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+          <span class="cl-dur">${callDur(x)}</span>
           <span class="cl-sum">${x.summary ? esc(x.summary) : (d.canLog ? '<span class="cl-todo">κατέγραψε</span>' : '')}</span>
         </div>`).join('')}</div>
     </div>`;
@@ -583,7 +592,7 @@ function callNote(x, d0) {
       <div class="mut" style="font-size:12px;margin-top:3px">
         ${esc((x.at || '').slice(0, 16))} · ${x.dir === 'in' ? 'εισερχόμενη από' : x.dir === 'out' ? 'εξερχόμενη προς' : 'εσωτερική'}
         <b>${esc(x.clientName || x.skipLabel || x.book || (x.anon ? 'απόκρυψη αριθμού' : x.other) || '—')}</b>${
-          x.book && !x.clientName ? ' <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>' : ''}${x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
+          x.book && !x.clientName ? ' <span class="cl-3cx" title="Από τον τηλεφωνικό κατάλογο">κατάλογος</span>' : ''}${x.handled === 'ai' ? ' · AI' : x.answered ? ' · ' + callHm(x.talk) : ' · αναπάντητη'}</div>
     </div>
     <div style="padding:8px 20px 4px">
       ${/* Η ΤΑΥΤΙΣΗ ΠΡΩΤΑ: αν δεν ξέρουμε ποιος είναι, τίποτα άλλο δεν έχει
@@ -985,7 +994,7 @@ async function bookCard(id, pre) {
       <span class="cl-d ${x.dir}">${x.dir === 'out' ? '↗' : '↙'}</span>
       <span class="cl-t">${esc(String(x.at).slice(5, 16))}</span>
       <span class="cl-who">${esc(x.admin || '—')}</span>
-      <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+      <span class="cl-dur">${callDur(x)}</span>
       <span class="cl-sum">${esc(x.summary || '')}</span>
     </div>`).join('') || '<div class="mut" style="font-size:12.5px;padding:6px 2px">Καμία κλήση.</div>'}</div>` : ''}`;
 
@@ -1358,7 +1367,7 @@ R.clientcalls = async function (arg) {
           <span class="cl-d ${x.dir}">${x.dir === 'out' ? '↗' : '↙'}</span>
           <span class="cl-t">${esc(String(x.at).slice(0, 16).replace('T', ' ').slice(5))}</span>
           <span class="cl-who">${esc(x.admin || '—')}</span>
-          <span class="cl-dur">${x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>'}</span>
+          <span class="cl-dur">${callDur(x)}</span>
           <span class="cl-sum">${x.summary ? esc(x.summary) : (d.canLog ? '<span class="cl-todo">κατέγραψε</span>' : '')}</span>
           <span class="cl-bill">${x.bill && CALL_BILL[x.bill]
             ? `<span class="cl-b" style="--bc:${CALL_BILL[x.bill][1]}">${CALL_BILL[x.bill][0]}</span>` : ''}</span>
@@ -1385,7 +1394,7 @@ R.clientcalls = async function (arg) {
     d.items.slice().reverse().forEach(x => rows.push([
       String(x.at).slice(0, 10), String(x.at).slice(11, 16),
       x.dir === 'out' ? 'Εξερχόμενη' : 'Εισερχόμενη', x.other, x.admin,
-      (x.talk / 60).toFixed(1).replace('.', ','), x.answered ? 'Ναι' : 'Όχι',
+      (x.talk / 60).toFixed(1).replace('.', ','), x.handled === 'ai' ? 'AI ρεσεψιόν' : x.answered ? 'Ναι' : 'Όχι',
       x.summary, (CALL_BILL[x.bill] || [''])[0]].map(q).join(';')));
     rows.push('');
     rows.push([q('ΣΥΝΟΛΟ'), q(t.calls + ' κλήσεις'), q((t.talk / 60).toFixed(1).replace('.', ',') + ' λεπτά')].join(';'));

@@ -60,6 +60,11 @@ class Pbx3cxBlueprint
     const OWNER_DN   = '201';
     const OWNER_ROLE = 'system_owners';
 
+    /** Το ΕΛΛΗΝΙΚΟ σετ ηχητικών του 3CX (PromptSets Id 20, Folder). ΜΕΤΡΗΘΗΚΕ: το σύστημα
+        είναι στα αγγλικά — ουρά χωρίς αυτό λέει «you are caller number one» στον πελάτη. */
+    const PROMPT_SET_EL = '43EDFDBA-1C46-42d8-A47C-27A86BEFFF76';
+    const HOLD_MUSIC = 'onhold.wav';
+
     /** Μοντέλο φωνής (realtime). Διαθέσιμα στο PBX: gpt-realtime-2.1, -2, -1.5, -2.1-mini. */
     const AI_REALTIME = 'gpt-realtime-2.1';
 
@@ -117,6 +122,55 @@ class Pbx3cxBlueprint
         return self::hours(['Monday' => $w, 'Tuesday' => $w, 'Wednesday' => $w, 'Thursday' => $w, 'Friday' => $w]);
     }
 
+    /**
+     * ΑΡΓΙΕΣ (ελληνικό εορτολόγιο). Σταθερές = κάθε χρόνο· κινητές = ανά έτος
+     * (Καθαρά Δευτέρα, Μεγάλη Παρασκευή, Δευτέρα Πάσχα, Αγίου Πνεύματος).
+     * Ισχύουν και για τα δύο τμήματα, και για τη ρεσεψιόν (agentMode → κλειστά).
+     * Πάσχα: 2026 → 12/04, 2027 → 02/05, 2028 → 16/04.
+     */
+    public static function holidays()
+    {
+        $fixed = [['Πρωτοχρονιά', 1, 1], ['Θεοφάνια', 6, 1], ['25η Μαρτίου', 25, 3], ['Πρωτομαγιά', 1, 5],
+            ['Δεκαπενταύγουστος', 15, 8], ['28η Οκτωβρίου', 28, 10], ['Χριστούγεννα', 25, 12], ['Δεύτερη μέρα Χριστουγέννων', 26, 12]];
+        $easter = [2026 => '2026-04-12', 2027 => '2027-05-02', 2028 => '2028-04-16'];
+        $out = [];
+        foreach ($fixed as [$n, $d, $m]) { $out[] = self::holiday($n, $d, $m, 0); }
+        foreach ($easter as $y => $e) {
+            $t = strtotime($e);
+            foreach ([['Καθαρά Δευτέρα', -48], ['Μεγάλη Παρασκευή', -2], ['Δευτέρα του Πάσχα', 1], ['Αγίου Πνεύματος', 50]] as [$n, $off]) {
+                $x = strtotime(($off >= 0 ? '+' : '') . $off . ' days', $t);
+                $out[] = self::holiday($n . ' ' . $y, (int) date('j', $x), (int) date('n', $x), $y);
+            }
+        }
+        return $out;
+    }
+
+    private static function holiday($name, $day, $month, $year)
+    {
+        /* ΜΕΤΡΗΘΗΚΕ: TimeOfStartDate/TimeOfEndDate είναι υποχρεωτικά (ISO διάρκειες). */
+        return ['Name' => $name, 'Day' => $day, 'Month' => $month, 'DayEnd' => $day, 'MonthEnd' => $month,
+            'IsRecurrent' => $year === 0, 'Year' => $year, 'YearEnd' => $year,
+            'TimeOfStartDate' => 'PT0S', 'TimeOfEndDate' => 'PT23H59M59S', 'HolidayPrompt' => ''];
+    }
+
+    /** Είναι αργία η ημέρα; (για τη ρεσεψιόν) */
+    public static function isHoliday($ts)
+    {
+        $d = (int) date('j', $ts); $m = (int) date('n', $ts); $y = (int) date('Y', $ts);
+        foreach (self::holidays() as $h) {
+            if ($h['Day'] === $d && $h['Month'] === $m && ($h['Year'] === 0 || $h['Year'] === $y)) { return true; }
+        }
+        return false;
+    }
+
+    private static function holidayKeys(array $list)
+    {
+        $k = [];
+        foreach ($list as $h) { $k[] = (int) ($h['Day'] ?? 0) . '/' . (int) ($h['Month'] ?? 0) . '/' . (int) ($h['Year'] ?? 0); }
+        sort($k);
+        return $k;
+    }
+
     public static function emergencyHours()
     {
         $w = ['17:01', '20:00'];
@@ -151,11 +205,12 @@ class Pbx3cxBlueprint
             $out[$num] = ['Name' => $t['name'], 'PollingStrategy' => 'Hunt', 'RingTimeout' => 20,
                 'MasterTimeout' => 120, 'Agents' => $t['agents'], 'Managers' => ['201'],
                 'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('Queue', '804'),
-                'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true];
+                'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true,
+                'PromptSet' => self::PROMPT_SET_EL, 'OnHoldFile' => self::HOLD_MUSIC];
         }
         $out['804'] = ['Name' => 'Emergency', 'Agents' => ['201', '202'], 'Managers' => ['201'],
             'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('VoiceMail', self::TICKET_DN),
-            'HolidaysRoute' => self::route('VoiceMail', self::TICKET_DN)];
+            'HolidaysRoute' => self::route('VoiceMail', self::TICKET_DN), 'PromptSet' => self::PROMPT_SET_EL];
         return $out;
     }
 
@@ -213,6 +268,7 @@ class Pbx3cxBlueprint
     public static function agentMode($ts = null)
     {
         $ts = $ts ?: time();
+        if (self::isHoliday($ts)) { return 'closed'; }
         $dow = (int) date('N', $ts);            // 1 = Δευτέρα … 7 = Κυριακή
         $hm = date('H:i', $ts);
         if ($dow <= 5 && $hm >= '09:00' && $hm < '17:00') { return 'office'; }
@@ -274,7 +330,7 @@ class Pbx3cxBlueprint
         ];
         return "# Τρέχουσα κατάσταση: " . self::modeLabel($mode) . " (ενημερώνεται αυτόματα από το σύστημα)\n"
             . ($rules[$mode] ?? $rules['closed']) . "\n"
-            . "- Αν διαθέτεις εργαλείο get_current_datetime, μπορείς να επιβεβαιώσεις την ώρα· η κατάσταση παραπάνω υπερισχύει.";
+            . "- Η κατάσταση αυτή είναι η ΜΟΝΗ αλήθεια για το αν είμαστε ανοιχτά. Μην την αμφισβητείς και μην ρωτάς την ώρα.";
     }
 
     /**
@@ -385,9 +441,10 @@ class Pbx3cxBlueprint
 - Δεν καταλαβαίνεις μετά από δύο προσπάθειες → CloudOn (μέσα στο ωράριο) ή ticket (εκτός).
 # Ticket
 - Για ticket δεν χρησιμοποιείς καμία επαφή και καμία ενέργεια αποστολής. Η θυρίδα (voicemail) ΔΕΝ προσφέρεται σε κανέναν.
+- Πότε: εκτός ωραρίου πάντα· μέσα στο ωράριο όταν ο προορισμός δεν είναι διαθέσιμος, ή όταν ο καλών ζητήσει ρητά «να ανοίξουμε ticket» ή «να με καλέσετε αργότερα».
 - TICKET (γραπτό αίτημα). Κάνε ΑΚΡΙΒΩΣ αυτές τις ερωτήσεις, μία-μία, χωρίς εισαγωγές και χωρίς σχόλια ανάμεσα:
-  1. «Το όνομά σας;»
-  2. «Η επιχείρησή σας;»
+  1. «Το όνομά σας;» — αν το όνομα είναι ήδη γνωστό από τα στοιχεία του καλούντα, ρώτα αντ' αυτού «Μιλάω με τον/την [όνομα];».
+  2. «Η επιχείρησή σας;» — αν είναι γνωστή, «Από την [επιχείρηση];».
   3. «Να σας καλέσουμε σε αυτό το νούμερο από το οποίο καλείτε;» — ΜΗΝ διαβάσεις τον αριθμό (τα ψηφία με το +30 διαβάζονται λάθος). Αν πει όχι: «Σε ποιο τηλέφωνο;» και επανέλαβε το νούμερο που θα πει, σε ζευγάρια ψηφίων.
   4. «Πείτε μου με λίγα λόγια τι ακριβώς δεν λειτουργεί.»
   5. Επιβεβαίωση — ΞΕΧΩΡΙΣΤΗ σειρά ομιλίας: ΜΙΑ ΦΟΡΑ, χωρίς εισαγωγή, πες «Λοιπόν: [όνομα], [επιχείρηση], [θέμα]. Σωστά;» και ΣΤΑΜΑΤΑ. Περίμενε την απάντησή του. ΜΗΝ καλέσεις κανένα εργαλείο σε αυτή τη σειρά — η κλήση ΔΕΝ κλείνει εδώ.
@@ -447,13 +504,13 @@ TXT;
     private static function live()
     {
         $L = [];
-        $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours',
-            '$expand' => 'Members($select=Id,Number,Type)']);
+        $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours,PromptSet',
+            '$expand' => 'Members($select=Id,Number,Type),OfficeHolidays']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
-        $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode,RecordCalls',
+        $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode,RecordCalls,PromptSet',
             '$expand' => 'Groups($select=GroupId;$expand=Rights($select=RoleName))']);
         foreach ($u['value'] ?? [] as $r) { $L['users'][(string) $r['Number']] = $r; }
-        $q = Pbx3cxClient::xapi('Queues', ['$top' => 40, '$select' => 'Id,Number,Name,PollingStrategy,RingTimeout,MasterTimeout,ForwardNoAnswer,OutOfOfficeRoute,HolidaysRoute,AnnounceQueuePosition',
+        $q = Pbx3cxClient::xapi('Queues', ['$top' => 40, '$select' => 'Id,Number,Name,PollingStrategy,RingTimeout,MasterTimeout,ForwardNoAnswer,OutOfOfficeRoute,HolidaysRoute,AnnounceQueuePosition,PromptSet,OnHoldFile',
             '$expand' => 'Agents($select=Number),Managers($select=Number),Groups($select=GroupId)']);
         foreach ($q['value'] ?? [] as $r) { $L['queues'][(string) $r['Number']] = $r; }
         $rg = Pbx3cxClient::xapi('RingGroups', ['$top' => 20, '$select' => 'Id,Number', '$expand' => 'Groups($select=GroupId)']);
@@ -562,13 +619,14 @@ TXT;
                 }
                 $miss = self::missingFromCloudon($L);
                 if ($miss) { $d[] = 'λείπουν: ' . implode(', ', $miss); }
+                if (($g['PromptSet'] ?? '') !== self::PROMPT_SET_EL) { $d[] = 'ηχητικά τμήματος → ελληνικά'; }
                 return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'ωράριο σωστό · ' . count(self::memberNumbers($g)) . ' μέλη'];
             },
             'apply' => function ($L) {
                 $g = $L['groups'][self::G_CLOUDON];
-                if (!self::sameHours($g['Hours'] ?? [], self::cloudonHours())) {
-                    Pbx3cxClient::xwrite('PATCH', 'Groups(' . self::G_CLOUDON . ')', ['Hours' => self::cloudonHours()]);
-                }
+                $body = ['PromptSet' => self::PROMPT_SET_EL];
+                if (!self::sameHours($g['Hours'] ?? [], self::cloudonHours())) { $body['Hours'] = self::cloudonHours(); }
+                Pbx3cxClient::xwrite('PATCH', 'Groups(' . self::G_CLOUDON . ')', $body);
                 foreach (self::missingFromCloudon($L) as $num) { self::addToGroup($L, $num, self::G_CLOUDON); }
             }];
 
@@ -588,11 +646,13 @@ TXT;
                 $extra = array_diff($have, self::EMERG_MEMBERS);
                 if ($miss) { $d[] = 'λείπουν: ' . implode(', ', $miss); }
                 if ($extra) { $d[] = 'περισσεύουν: ' . implode(', ', $extra); }
+                if (($g['PromptSet'] ?? '') !== self::PROMPT_SET_EL) { $d[] = 'ηχητικά τμήματος → ελληνικά'; }
                 return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'σωστό'];
             },
             'apply' => function ($L) {
                 $g = $L['groups'][self::G_EMERG];
                 $body = [];
+                if (($g['PromptSet'] ?? '') !== self::PROMPT_SET_EL) { $body['PromptSet'] = self::PROMPT_SET_EL; }
                 if ($g['Name'] !== 'Emergency') { $body['Name'] = 'Emergency'; }
                 if (!self::sameHours($g['Hours'] ?? [], self::emergencyHours())) { $body['Hours'] = self::emergencyHours(); }
                 if ($body) { Pbx3cxClient::xwrite('PATCH', 'Groups(' . self::G_EMERG . ')', $body); }
@@ -600,6 +660,23 @@ TXT;
                 foreach (array_diff(self::EMERG_MEMBERS, $have) as $num) { self::addToGroup($L, $num, self::G_EMERG); }
                 foreach (array_diff($have, self::EMERG_MEMBERS) as $num) { self::removeFromGroup($L, $num, self::G_EMERG); }
             }];
+
+        /* 2α. Αργίες και στα δύο τμήματα — χωρίς αυτές, την 28η Οκτωβρίου το κέντρο
+           (και η ρεσεψιόν) θα νόμιζαν ότι είμαστε ανοιχτά. */
+        foreach ([self::G_CLOUDON => 'CloudOn', self::G_EMERG => 'Emergency'] as $hgId => $hgName) {
+            $S[] = ['key' => 'hol_' . $hgId, 'label' => 'Αργίες στο τμήμα «' . $hgName . '» (' . count(self::holidays()) . ' ημέρες, ελληνικό εορτολόγιο)',
+                'risk' => 'low',
+                'check' => function ($L) use ($hgId) {
+                    $g = $L['groups'][$hgId] ?? null;
+                    if (!$g) { return ['error', 'Δεν βρέθηκε το τμήμα #' . $hgId]; }
+                    $have = self::holidayKeys($g['OfficeHolidays'] ?? []);
+                    $want = self::holidayKeys(self::holidays());
+                    return [$have === $want ? 'ok' : 'change', $have === $want ? count($want) . ' αργίες' : count($have) . ' → ' . count($want) . ' αργίες'];
+                },
+                'apply' => function ($L) use ($hgId) {
+                    Pbx3cxClient::xwrite('PATCH', 'Groups(' . $hgId . ')', ['OfficeHolidays' => self::holidays()]);
+                }];
+        }
 
         /* 2β. Ο 201 είναι Ιδιοκτήτης (system_owners) σε ΟΛΑ τα τμήματα — ο ρόλος
            ζει στη σχέση χρήστη-τμήματος (UserGroup.Rights.RoleName), όχι στον χρήστη. */
@@ -664,12 +741,13 @@ TXT;
                     if (($u['VMEmailOptions'] ?? '') !== 'Attachment') { $d[] = 'επιλογή email «' . $u['VMEmailOptions'] . '» → Attachment'; }
                     if (($u['TranscriptionMode'] ?? '') !== 'Voicemail') { $d[] = 'απομαγνητοφώνηση «' . $u['TranscriptionMode'] . '» → Voicemail'; }
                     if ((int) $u['PrimaryGroupId'] !== self::G_CLOUDON) { $d[] = 'κύριο τμήμα → CloudOn'; }
+                    if (($u['PromptSet'] ?? '') !== self::PROMPT_SET_EL) { $d[] = 'ηχητικά θυρίδας → ελληνικά'; }
                     return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'σωστό'];
                 },
                 'apply' => function ($L) use ($bxDn, $bxFirst, $bxMail) {
                     $body = ['FirstName' => $bxFirst, 'LastName' => 'CloudOn', 'EmailAddress' => $bxMail,
                         'VMEnabled' => true, 'VMEmailOptions' => 'Attachment', 'TranscriptionMode' => 'Voicemail',
-                        'SendEmailMissedCalls' => false, 'PrimaryGroupId' => self::G_CLOUDON];
+                        'SendEmailMissedCalls' => false, 'PrimaryGroupId' => self::G_CLOUDON, 'PromptSet' => self::PROMPT_SET_EL];
                     $u = $L['users'][$bxDn] ?? null;
                     if (!$u) {
                         /* Κουτί = εσωτερικό χωρίς συσκευή: όλα πάνε voicemail, το voicemail πάει email.
@@ -972,8 +1050,14 @@ TXT;
     {
         $d = [];
         if ($q['Name'] !== $want['Name']) { $d[] = 'όνομα «' . $q['Name'] . '» → «' . $want['Name'] . '»'; }
-        foreach (['PollingStrategy', 'RingTimeout', 'MasterTimeout', 'AnnounceQueuePosition'] as $k) {
-            if (array_key_exists($k, $want) && $q[$k] != $want[$k]) { $d[] = $k . ' ' . json_encode($q[$k]) . ' → ' . json_encode($want[$k]); }
+        foreach (['PollingStrategy', 'RingTimeout', 'MasterTimeout', 'AnnounceQueuePosition', 'PromptSet', 'OnHoldFile'] as $k) {
+            /* Μουσική αναμονής: όποια έχει ήδη επιλεγεί μένει — ορίζουμε μόνο όπου λείπει. */
+            if ($k === 'OnHoldFile' && (string) ($q[$k] ?? '') !== '') { continue; }
+            if (array_key_exists($k, $want) && $q[$k] != $want[$k]) {
+                $d[] = ($k === 'PromptSet' ? 'ηχητικά' : ($k === 'OnHoldFile' ? 'μουσική αναμονής' : $k)) . ' '
+                    . json_encode($k === 'PromptSet' ? ($q[$k] ? 'άλλο σετ' : 'αγγλικά') : $q[$k], JSON_UNESCAPED_UNICODE)
+                    . ' → ' . json_encode($k === 'PromptSet' ? 'ελληνικά' : $want[$k], JSON_UNESCAPED_UNICODE);
+            }
         }
         if (isset($want['Agents'])) {
             /* Η ΣΕΙΡΑ μετράει (Hunt) — σύγκριση λίστας, όχι συνόλου. */
@@ -998,10 +1082,11 @@ TXT;
     private static function queueBody(array $want, $q)
     {
         $b = [];
-        foreach (['Name', 'PollingStrategy', 'RingTimeout', 'MasterTimeout', 'AnnounceQueuePosition', 'ForwardNoAnswer', 'OutOfOfficeRoute', 'HolidaysRoute'] as $k) {
+        foreach (['Name', 'PollingStrategy', 'RingTimeout', 'MasterTimeout', 'AnnounceQueuePosition', 'PromptSet', 'OnHoldFile', 'ForwardNoAnswer', 'OutOfOfficeRoute', 'HolidaysRoute'] as $k) {
             if (!array_key_exists($k, $want)) { continue; }
             if (!$q) { $b[$k] = $want[$k]; continue; }
             $cur = $q[$k] ?? null;
+            if ($k === 'OnHoldFile' && (string) $cur !== '') { continue; }
             $same = in_array($k, ['ForwardNoAnswer'], true) ? self::sameDest($cur, $want[$k])
                 : (in_array($k, ['OutOfOfficeRoute', 'HolidaysRoute'], true) ? self::sameDest($cur['Route'] ?? null, $want[$k]['Route']) : $cur == $want[$k]);
             if (!$same) { $b[$k] = $want[$k]; }
