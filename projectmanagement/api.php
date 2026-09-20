@@ -3207,7 +3207,7 @@ function cnp_action_cap($action)
             'chat_group_save', 'chat_group_del']);
         $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
-        $add('comms.book', ['book_list', 'book_get', 'book_fields']);
+        $add('comms.book', ['book_list', 'book_get', 'book_fields', 'book_lookup']);
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import']);
         $add('comms.book.edit', ['book_afm']);
         $add('comms.book.delete', ['book_del']);
@@ -6146,6 +6146,12 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
         }
     }
     if ($bStatus !== '') { $q->where('b.status', $bStatus); }
+    /* Φίλτρο σχέσης: πελάτης / υποψήφιος / συνεργάτης / προμηθευτής. */
+    $bRel = (string) ($_GET['rel'] ?? '');
+    if ($bRel !== '') {
+        if (!isset(Book::rels()[$bRel])) { fail('Άγνωστη σχέση: ' . $bRel); }
+        $q->where('b.rel', $bRel);
+    }
     if ($bOnly === 'client')   { $q->whereNotNull('b.clientid'); }
     if ($bOnly === 'noclient') { $q->whereNull('b.clientid'); }
     if ($bOnly === 'nopbx')    { $q->where('b.to_pbx', 1)->whereNull('b.pbx_id'); }
@@ -6239,6 +6245,7 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
                 ->distinct()->count('book_id'),
         ],
         'statuses' => Book::statuses(),
+        'rels' => Book::rels(),
         'labels' => array_map(function ($v) { return $v[0]; }, Book::phoneLabels()),
         'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.book.edit'),
         'canDel' => cnp_has_cap($adminId, $FULL, 'comms.book.delete')]);
@@ -6289,7 +6296,7 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
     out(['card' => [
             'id' => $gId, 'kind' => $g->kind, 'name' => Book::label((array) $g),
             'company' => (string) $g->company, 'first' => (string) $g->first, 'last' => (string) $g->last,
-            'title' => (string) $g->title, 'email' => (string) $g->email, 'website' => (string) $g->website,
+            'title' => (string) $g->title, 'department' => (string) ($g->department ?? ''), 'email' => (string) $g->email, 'website' => (string) $g->website,
             'vat' => (string) $g->vat, 'taxOffice' => (string) $g->tax_office,
             'address' => (string) $g->address, 'city' => (string) $g->city,
             'postcode' => (string) $g->postcode, 'country' => (string) $g->country,
@@ -6329,6 +6336,49 @@ case 'book_get':                         // Η ΚΑΡΤΕΛΑ
         })(),
         'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.book.edit'),
         'canDel' => cnp_has_cap($adminId, $FULL, 'comms.book.delete')]);
+
+case 'book_lookup':
+    /* ΝΕΑ ΚΑΡΤΕΛΑ ΑΠΟ ΑΡΙΘΜΟ (20/09/2026): πριν γράψει κανείς τίποτα, ρωτάμε πού
+       αλλού είναι γνωστός ο αριθμός — στον κατάλογο του 3CX (επαφή που έφτιαξε
+       συνάδελφος από το app ή τη συσκευή) και στους πελάτες WHMCS — και
+       γυρίζουμε ό,τι υπάρχει, όσο πιο πλήρες γίνεται. ΔΕΝ αποθηκεύουμε: ο
+       χειριστής βλέπει, διορθώνει, πατάει Αποθήκευση. */
+    $lkQ = Pbx3cxCdr::e164((string) ($in['phone'] ?? ($_GET['phone'] ?? '')));
+    $lkD = substr(preg_replace('/\D/', '', $lkQ), -8);
+    if (strlen($lkD) < 8) { fail('Γράψε πρώτα έναν αριθμό'); }
+    $lkOut = ['ok' => true, 'pbx' => null, 'whmcs' => null, 'book' => Book::resolve($lkQ)];
+    if (Pbx3cxClient::configured()) {
+        try {
+            $lkF = [];
+            foreach (Book::phoneLabels() as $v) { $lkF[] = 'contains(' . $v[1] . ",'" . $lkD . "')"; }
+            $lkJ = Pbx3cxClient::xapi('Contacts', ['$top' => 5, '$filter' => implode(' or ', $lkF)]);
+            $lkC = $lkJ['value'][0] ?? null;
+            if ($lkC) {
+                $lkPh = [];
+                foreach (Book::pbxPhones($lkC) as $e => $i) { $lkPh[] = ['e164' => $e, 'raw' => $i['raw'], 'label' => $i['label']]; }
+                $lkOut['pbx'] = ['id' => (int) $lkC['Id'],
+                    'company' => Book::plain($lkC['CompanyName'] ?? ''), 'first' => Book::plain($lkC['FirstName'] ?? ''),
+                    'last' => Book::stripHint(Book::plain($lkC['LastName'] ?? '')),
+                    'title' => Book::plain($lkC['Title'] ?? ''), 'department' => Book::plain($lkC['Department'] ?? ''),
+                    'email' => trim((string) ($lkC['Email'] ?? '')), 'phones' => $lkPh,
+                    'bookId' => (int) Capsule::table('mod_cpm_book')->where('pbx_id', (int) $lkC['Id'])->value('id')];
+            }
+        } catch (\Throwable $e) { $lkOut['pbxError'] = $e->getMessage(); }
+    }
+    [$lkCid] = Pbx3cxCdr::matchClient($lkQ);
+    if ($lkCid) {
+        $lkCl = Capsule::table('tblclients')->where('id', $lkCid)->first();
+        if ($lkCl) {
+            $lkOut['whmcs'] = ['id' => (int) $lkCid, 'name' => clientLabel((int) $lkCid),
+                'company' => Book::plain($lkCl->companyname), 'first' => Book::plain($lkCl->firstname),
+                'last' => Book::plain($lkCl->lastname), 'email' => (string) $lkCl->email,
+                'address' => Book::plain($lkCl->address1), 'city' => Book::plain($lkCl->city),
+                'postcode' => (string) $lkCl->postcode, 'country' => (string) $lkCl->country,
+                'vat' => preg_replace('/\D/', '', (string) Capsule::table('tblcustomfieldsvalues')
+                    ->where('relid', $lkCid)->where('fieldid', 1)->value('fieldvalue'))];
+        }
+    }
+    out($lkOut);
 
 case 'book_afm':
     /* ΤΟ ΑΦΜ ΦΤΑΝΕΙ. Τα υπόλοιπα στοιχεία τα δίνει η ΑΑΔΕ, ώστε η ποιότητα του
@@ -6418,6 +6468,7 @@ case 'book_save':                        // αποθήκευση καρτέλα�
         'kind' => $sCo !== '' ? 'company' : 'person',
         'company' => $sCo ?: null, 'first' => $sFi ?: null, 'last' => $sLa ?: null,
         'title' => mb_substr(trim((string) ($in['title'] ?? '')), 0, 80) ?: null,
+        'department' => mb_substr(trim((string) ($in['department'] ?? '')), 0, 80) ?: null,
         'email' => mb_substr(trim((string) ($in['email'] ?? '')), 0, 120) ?: null,
         'website' => mb_substr(trim((string) ($in['website'] ?? '')), 0, 160) ?: null,
         'vat' => mb_substr(preg_replace('/\D/', '', (string) ($in['vat'] ?? '')), 0, 20) ?: null,

@@ -260,6 +260,49 @@ const CALL_CAT = {support: 'Υποστήριξη', technical: 'Τεχνικό', 
 const CALL_BILL = {billable: ['Χρεώσιμο', '#16a26a'], free: ['Χωρίς χρέωση', '#8595ac'],
   contract: ['Στο συμβόλαιο', '#0090dd'], internal: ['Εσωτερικό', '#7b5cd6'],
   warranty: ['Εγγύηση', '#e0a020']};
+/* ═══════════ ΓΡΑΜΜΗ ΦΙΛΤΡΩΝ — κοινός τρόπος για όλες τις οθόνες ═══════════
+   Ένα φίλτρο = ένα κουμπάκι με ετικέτα και τιμή. Όσα χρειάζονται πάντα είναι
+   μόνιμα· τα υπόλοιπα μπαίνουν προοδευτικά με το «+ φίλτρο», ΣΤΗΝ ΙΔΙΑ γραμμή,
+   και βγαίνουν με το ✕ τους. Έτσι η οθόνη δεν ξεκινά με δέκα άδεια πεδία. */
+const fSel = (key, opts, val) => `<select class="fchip-s" data-fk="${key}">${opts.map(([v, l]) =>
+  `<option value="${v}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+
+const fChip = (label, inner, on, rm) =>
+  `<label class="fchip${on ? ' on' : ''}"><span class="fchip-l">${esc(label)}</span>${inner}${
+    rm ? `<span class="fchip-x" data-fx="${rm}" title="Αφαίρεση">✕</span>` : ''}</label>`;
+
+/* Το «+ φίλτρο» δείχνει ΜΟΝΟ όσα δεν είναι ήδη στη γραμμή. Όταν δεν μένει
+   κανένα, εξαφανίζεται — κουμπί που δεν κάνει τίποτα είναι θόρυβος. */
+const fAdd = (defs, shown) => {
+  const left = Object.entries(defs).filter(([k]) => !shown.includes(k));
+  return left.length ? `<div class="fadd"><button class="fchip fchip-add" data-fadd-btn>+ φίλτρο</button>
+    <div class="fmenu" data-fmenu hidden>${left.map(([k, v]) =>
+      `<button data-fadd="${k}">${esc(v.label)}</button>`).join('')}</div></div>` : '';
+};
+
+/* Δένει τα κουμπάκια μιας γραμμής με την κατάσταση και ξαναζωγραφίζει. */
+const fWire = (st, defs, redraw) => {
+  const ad = $('[data-fadd-btn]'), mn = $('[data-fmenu]');
+  if (ad && mn) {
+    ad.onclick = e => { e.preventDefault(); e.stopPropagation(); mn.hidden = !mn.hidden; };
+    document.addEventListener('click', () => { mn.hidden = true; }, {once: true});
+    $$('[data-fadd]', mn).forEach(b => b.onclick = () => { st.shown.push(b.dataset.fadd); redraw(); });
+  }
+  $$('[data-fk]').forEach(el => el.onchange = () => {
+    const k = el.dataset.fk;
+    st[k] = el.type === 'number' ? Math.max(0, +el.value || 0) : el.value;
+    if (defs[k] && defs[k].num) { st[k] = Math.max(0, +el.value || 0); }
+    redraw();
+  });
+  $$('[data-fx]').forEach(el => el.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const k = el.dataset.fx;
+    st.shown = st.shown.filter(x => x !== k);
+    st[k] = (defs[k] && defs[k].num) ? 0 : '';
+    redraw();
+  });
+};
+
 const callHm = s2 => {
   s2 = Math.max(0, +s2 || 0);
   const h = Math.floor(s2 / 3600), m = Math.floor(s2 % 3600 / 60);
@@ -274,6 +317,19 @@ const callDur = x => x.handled === 'ai'
   ? `<span class="cl-ai" title="Απάντησε η AI ρεσεψιόν εκτός ωραρίου — ${callHm(x.aiTalk || 0)}">AI</span>`
   : (x.answered ? callHm(x.talk) : '<span class="cl-miss">αναπάντητη</span>');
 
+/* Τα πρόσθετα φίλτρα της τηλεφωνικής δραστηριότητας. */
+const CL_F = {
+  q:    {label: 'Αναζήτηση', text: 1, ph: 'πελάτης, αριθμός ή περίληψη…'},
+  dir:  {label: 'Κατεύθυνση', opts: () => [['', '— κάθε —'], ['in', '↙ εισερχόμενες'], ['out', '↗ εξερχόμενες']]},
+  ans:  {label: 'Απάντηση', opts: () => [['', '— όλες —'], ['yes', 'απαντημένες'],
+          ['ai', 'AI ρεσεψιόν'], ['no', 'αναπάντητες']]},
+  bill: {label: 'Χρέωση', opts: () => [['', '— κάθε —'], ['none', 'δεν καταγράφηκαν']]
+          .concat(Object.entries(CALL_BILL).map(([k, v]) => [k, v[0]]))},
+  cat:  {label: 'Κατηγορία', opts: d => [['', '— κάθε —']]
+          .concat((d.catsSeen || []).map(k => [k.key, (CALL_CAT[k.key] || k.key) + ' (' + k.n + ')']))},
+  min:  {label: 'Πάνω από', num: 1},
+};
+
 R.calls = async function () {
   if (!cnpCan('reports.calls')) {
     setTop('Τηλεφωνική δραστηριότητα');
@@ -286,7 +342,10 @@ R.calls = async function () {
   setTop('Τηλεφωνική δραστηριότητα', 'Ποιος μίλησε με ποιον, πόση ώρα, ποιος πελάτης απασχολεί — εκτός εσωτερικών κλήσεων');
   const c = $('#content');
   const st = R.calls._s = R.calls._s || {d: window.CNP.today(), days: 1, who: 0,
-    dir: '', ans: '', bill: '', cat: '', min: 0, q: '', open: false};
+    dir: '', ans: '', bill: '', cat: '', min: 0, q: '', shown: []};
+  /* Ένα φίλτρο με τιμή ΠΡΕΠΕΙ να φαίνεται — αλλιώς τα νούμερα είναι φιλτραρισμένα
+     και δεν το ξέρει κανείς. (Π.χ. έρχεσαι εδώ από σύνδεσμο με έτοιμο φίλτρο.) */
+  Object.keys(CL_F).forEach(k => { if (st[k] && !st.shown.includes(k)) { st.shown.push(k); } });
   cnpSkel(c, '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
   const qs = `d=${st.d}&days=${st.days}&who=${st.who}&dir=${st.dir}&ans=${st.ans}`
     + `&bill=${st.bill}&cat=${encodeURIComponent(st.cat)}&min=${st.min}&q=${encodeURIComponent(st.q)}`;
@@ -294,7 +353,6 @@ R.calls = async function () {
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   const t = d.totals;
 
-  const nActive = ['dir', 'ans', 'bill', 'cat', 'q'].filter(k => st[k]).length + (st.min > 0 ? 1 : 0);
   const tile = (n, l, col) => `<div class="su-stat"><div><div class="n" style="color:${col || ''}">${n}</div>
     <div class="l">${l}</div></div></div>`;
 
@@ -322,42 +380,21 @@ R.calls = async function () {
   </div>`;
 
   c.innerHTML = `
-  <div class="cl-bar">
-    <input type="date" class="inp" id="clD" value="${st.d}" style="width:160px">
-    <div class="td-seg cl-seg">
-      ${[[1, 'σήμερα'], [7, '7 ημέρες'], [30, '30 ημέρες']].map(([n, l]) =>
-        `<button data-cdays="${n}" class="${st.days === n ? 'on' : ''}">${l}</button>`).join('')}
-    </div>
-    <select class="inp" id="clWho" style="width:210px">
-      <option value="0">— όλη η ομάδα —</option>
-      ${d.people.map(p => `<option value="${p.id}" ${p.id === st.who ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
-    </select>
-    <button class="btn-s${nActive ? ' on' : ''}" id="clFilt">${I.filter || '⚙'} Φίλτρα${nActive ? ` (${nActive})` : ''}</button>
-    <span style="flex:1"></span>
-    <button class="btn-s" id="clSync" title="Τράβα ό,τι νέο από το τηλεφωνικό κέντρο">↻ Ανανέωση</button>
-    <span class="mut" style="font-size:11.5px">${t.logged}/${t.calls} καταγεγραμμένες</span>
-  </div>
-
-  ${/* Δεύτερη σειρά, κρυμμένη μέχρι να τη ζητήσεις: η καθημερινή χρήση είναι
-       «τι έγινε σήμερα», τα φίλτρα είναι για όταν ψάχνεις κάτι συγκεκριμένο. */''}
-  <div class="cl-filters" ${st.open || nActive ? '' : 'hidden'}>
-    <input class="inp" id="clQ" placeholder="Πελάτης, αριθμός ή περίληψη…" value="${esc(st.q)}" style="min-width:210px;flex:1">
-    <div class="td-seg cl-seg">${[['', 'κάθε κατεύθυνση'], ['in', '↙ εισερχόμενες'], ['out', '↗ εξερχόμενες']]
-      .map(([k, l]) => `<button data-cdir="${k}" class="${st.dir === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="td-seg cl-seg">${[['', 'όλες'], ['yes', 'απαντημένες'], ['ai', 'AI ρεσεψιόν'], ['no', 'αναπάντητες']]
-      .map(([k, l]) => `<button data-cans="${k}" class="${st.ans === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <select class="inp" id="clBill" style="width:170px">
-      <option value="">— κάθε χρέωση —</option>
-      <option value="none" ${st.bill === 'none' ? 'selected' : ''}>δεν καταγράφηκαν</option>
-      ${Object.entries(CALL_BILL).map(([k, v]) => `<option value="${k}" ${st.bill === k ? 'selected' : ''}>${v[0]}</option>`).join('')}
-    </select>
-    ${(d.catsSeen || []).length ? `<select class="inp" id="clCat" style="width:160px">
-      <option value="">— κάθε κατηγορία —</option>
-      ${d.catsSeen.map(k => `<option value="${esc(k.key)}" ${st.cat === k.key ? 'selected' : ''}>${esc(CALL_CAT[k.key] || k.key)} (${k.n})</option>`).join('')}
-    </select>` : ''}
-    <label class="cl-minl">πάνω από
-      <input class="inp" id="clMin" type="number" min="0" max="600" value="${st.min || ''}" style="width:62px"> λεπτά</label>
-    ${nActive ? '<button class="btn-s" id="clClr">Καθάρισε</button>' : ''}
+  ${/* ΜΙΑ ΣΕΙΡΑ. Πριν ήταν δύο — και η δεύτερη κρυμμένη πίσω από κουμπί
+       «Φίλτρα», οπότε δεν έβλεπες τι φιλτράρει χωρίς να την ανοίξεις. Τώρα ό,τι
+       ισχύει φαίνεται, και ό,τι δεν χρησιμοποιείς δεν πιάνει χώρο. */''}
+  <div class="fbar">
+    ${fChip('Ημέρα', `<input type="date" class="fchip-s" data-fk="d" value="${st.d}">`, false, '')}
+    ${fChip('Διάστημα', fSel('days', [[1, 'η ημέρα'], [7, '7 ημέρες'], [30, '30 ημέρες']], st.days), st.days !== 1, '')}
+    ${fChip('Ομάδα', fSel('who', [[0, '— όλοι —']].concat(d.people.map(p => [p.id, p.name])), st.who), !!st.who, '')}
+    ${st.shown.map(k => { const F = CL_F[k]; return fChip(F.label,
+        F.num ? `<input type="number" class="fchip-s" data-fk="${k}" min="0" max="600" value="${st[k] || ''}" style="width:52px"><span class="fchip-u">λεπτά</span>`
+        : F.text ? `<input class="fchip-s" id="clQ" data-fk="${k}" value="${esc(st[k] || '')}" placeholder="${esc(F.ph || '')}" style="width:190px">`
+        : fSel(k, F.opts(d), st[k]), !!st[k], k); }).join('')}
+    ${fAdd(CL_F, st.shown)}
+    <span class="fbar-sp"></span>
+    <button class="fchip" id="clSync" title="Τράβα ό,τι νέο από το τηλεφωνικό κέντρο">↻ Ανανέωση</button>
+    <span class="fbar-note">${t.logged}/${t.calls} καταγεγραμμένες</span>
   </div>
 
   <div class="g4 grid" style="margin-bottom:14px">
@@ -464,20 +501,11 @@ R.calls = async function () {
         : `<div class="cl-empty">Καμία κλήση σε αυτό το διάστημα.</div>`}
     </div></div>`;
 
-  $('#clD').onchange = e => { st.d = e.target.value; R.calls(); };
-  $('#clFilt').onclick = () => { st.open = !st.open; R.calls(); };
   const F = $('.cl-filters');
-  if (F) {
-    let qt = null;
-    cnpSearch('clQ', v => { st.q = v; return R.calls(); }, 350);
-    $$('[data-cdir]').forEach(b => b.onclick = () => { st.dir = b.dataset.cdir; R.calls(); });
-    $$('[data-cans]').forEach(b => b.onclick = () => { st.ans = b.dataset.cans; R.calls(); });
-    $('#clBill').onchange = e => { st.bill = e.target.value; R.calls(); };
-    const cc = $('#clCat'); if (cc) { cc.onchange = e => { st.cat = e.target.value; R.calls(); }; }
-    $('#clMin').onchange = e => { st.min = Math.max(0, +e.target.value || 0); R.calls(); };
-    const cl = $('#clClr');
-    if (cl) { cl.onclick = () => { st.dir = ''; st.ans = ''; st.bill = ''; st.cat = ''; st.min = 0; st.q = ''; R.calls(); }; }
-  }
+  fWire(st, CL_F, () => R.calls());
+  /* Η αναζήτηση θέλει τη δική της μεταχείριση: φιλτράρει καθώς γράφεις, χωρίς
+     να χάνει τον κέρσορα όταν ξαναγράφεται η οθόνη. */
+  if ($('#clQ')) { cnpSearch('clQ', v => { st.q = v; return R.calls(); }, 350); }
   /* Το pulse το κάνει μόνο του κάθε 10΄. Το κουμπί είναι για όποιον μόλις έκλεισε
      το τηλέφωνο και θέλει να δει την κλήση του τώρα, χωρίς να περιμένει. */
   $('#clSync').onclick = async e => {
@@ -490,8 +518,12 @@ R.calls = async function () {
     } catch (err) { toast(err.message || 'Δεν έγινε η ανανέωση', 'err'); }
     b.disabled = false; b.textContent = was;
   };
-  $('#clWho').onchange = e => { st.who = +e.target.value; R.calls(); };
-  $$('[data-cdays]').forEach(b => b.onclick = () => { st.days = +b.dataset.cdays; R.calls(); });
+  /* Ημέρα, διάστημα και χειριστής είναι μόνιμα — δεν βγαίνουν ποτέ από τη γραμμή. */
+  $$('[data-fk="d"], [data-fk="days"], [data-fk="who"]').forEach(el => el.onchange = e => {
+    const k = el.dataset.fk;
+    st[k] = (k === 'd') ? e.target.value : +e.target.value;
+    R.calls();
+  });
   $$('[data-cli]').forEach(b => b.onclick = () => window.CNP.go('client360', b.dataset.cli));
   if (d.canLog) {
     $$('[data-call]').forEach(r => r.onclick = () => callNote(d.items.find(x => x.id === +r.dataset.call), d));
@@ -724,6 +756,15 @@ function callNote(x, d0) {
 const BK_ST = {active: ['Ενεργός', '#2a9d63'], prospect: ['Υποψήφιος', '#1668dc'],
                supplier: ['Προμηθευτής', '#7b5cd6'], inactive: ['Ανενεργός', '#8595ac']};
 
+/* Τα πρόσθετα φίλτρα του καταλόγου. Η σχέση («τι μας είναι») μπήκε κι αυτή εδώ:
+   είναι ο πιο συχνός τρόπος να κοιτάξεις τον κατάλογο μερικώς. */
+const BK_F = {
+  rel:    {label: 'Σχέση', opts: d => [['', '— κάθε —']]
+             .concat(Object.entries(d.rels || {}).map(([k, v]) => [k, v[0]]))},
+  status: {label: 'Κατάσταση', opts: d => [['', '— κάθε —']]
+             .concat(Object.entries(d.statuses || {}))},
+};
+
 R.book = async function () {
   if (!cnpCan('comms.book')) {
     setTop('Τηλεφωνικός κατάλογος');
@@ -732,9 +773,11 @@ R.book = async function () {
   }
   setTop('Τηλεφωνικός κατάλογος', 'Ποιος είναι πίσω από κάθε αριθμό — και τι τρέχει μαζί του');
   const c = $('#content');
-  const st = R.book._s = R.book._s || {q: '', only: '', status: '', sort: 'talk'};
+  const st = R.book._s = R.book._s || {q: '', only: '', status: '', rel: '', sort: 'talk', shown: []};
+  Object.keys(BK_F).forEach(k => { if (st[k] && !st.shown.includes(k)) { st.shown.push(k); } });
   cnpSkel(c, '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
-  const d = await api(`book_list&q=${encodeURIComponent(st.q)}&only=${st.only}&status=${st.status}&sort=${st.sort}`)
+  const d = await api(`book_list&q=${encodeURIComponent(st.q)}&only=${st.only}&status=${st.status}`
+    + `&rel=${encodeURIComponent(st.rel)}&sort=${st.sort}`)
     .catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   R.book._d = d;
@@ -746,20 +789,17 @@ R.book = async function () {
                  ['due', 'θέλουν κίνηση', K.due]];
 
   c.innerHTML = `
-  <div class="cl-bar">
-    <div class="kb-sinput" style="max-width:320px"><span class="kb-sico">${I.search}</span>
-      <input class="inp" id="bkQ" placeholder="Όνομα, τηλέφωνο, ΑΦΜ, πόλη, ετικέτα…" value="${esc(st.q)}"></div>
-    <select class="inp" id="bkSt" style="width:150px">
-      <option value="">— κάθε κατάσταση —</option>
-      ${Object.entries(d.statuses).map(([k, l]) => `<option value="${k}" ${st.status === k ? 'selected' : ''}>${l}</option>`).join('')}
-    </select>
-    <select class="inp" id="bkSort" style="width:170px">
-      ${[['talk', 'κατά χρόνο'], ['recent', 'πιο πρόσφατες'], ['name', 'αλφαβητικά']].map(([k, l]) =>
-        `<option value="${k}" ${st.sort === k ? 'selected' : ''}>${l}</option>`).join('')}
-    </select>
-    <span style="flex:1"></span>
-    ${d.canEdit ? `<button class="btn-s" id="bkImp">Εισαγωγή</button>
-      <button class="btn btn-p btn-sm" id="bkNew">${I.plus} Νέα καρτέλα</button>` : ''}
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="bkQ" value="${esc(st.q)}"
+      placeholder="όνομα, τηλέφωνο, ΑΦΜ, πόλη…" style="width:230px">`, !!st.q, '')}
+    ${fChip('Ταξινόμηση', fSel('sort', [['talk', 'κατά χρόνο'], ['recent', 'πιο πρόσφατες'],
+      ['name', 'αλφαβητικά']], st.sort), false, '')}
+    ${st.shown.map(k => { const F = BK_F[k];
+      return fChip(F.label, fSel(k, F.opts(d), st[k]), !!st[k], k); }).join('')}
+    ${fAdd(BK_F, st.shown)}
+    <span class="fbar-sp"></span>
+    ${d.canEdit ? `<button class="fchip" id="bkImp">Εισαγωγή</button>
+      <button class="fchip fchip-go" id="bkNew">${I.plus} Νέα καρτέλα</button>` : ''}
   </div>
 
   <div class="bk-chips">
@@ -789,8 +829,8 @@ R.book = async function () {
 
   let tmr = null;
   cnpSearch('bkQ', v => { st.q = v; return R.book(); }, 320);
-  $('#bkSt').onchange = e => { st.status = e.target.value; R.book(); };
-  $('#bkSort').onchange = e => { st.sort = e.target.value; R.book(); };
+  fWire(st, BK_F, () => R.book());
+  { const so = $('[data-fk="sort"]'); if (so) { so.onchange = e => { st.sort = e.target.value; R.book(); }; } }
   $$('[data-bonly]').forEach(b => b.onclick = () => { st.only = b.dataset.bonly; R.book(); });
   const clr = $('#bkClr');
   if (clr) { clr.onclick = e => { e.preventDefault(); st.q = ''; st.only = ''; st.status = ''; R.book(); }; }
@@ -897,11 +937,12 @@ async function bookCard(id, pre) {
     ${inp('title', 'Θέση / ρόλος', K.title)}
     ${inp('first', 'Όνομα', K.first)}
     ${inp('last', 'Επώνυμο', K.last)}
+    ${inp('department', 'Τμήμα', K.department)}
   </div>
 
   <div class="bc-sec">${I.phone} Τηλέφωνα</div>
   <div id="bcPh"></div>
-  ${ed ? '<button class="btn btn-o btn-sm" id="bcAddPh" style="margin-top:6px">+ τηλέφωνο</button>' : ''}
+  ${ed ? '<button class="btn btn-o btn-sm" id="bcAddPh" style="margin-top:6px">+ τηλέφωνο</button> <button type="button" class="btn btn-o btn-sm" id="bcLk" style="margin-top:6px" title="Ψάχνει τον πρώτο αριθμό στον κατάλογο του 3CX και στους πελάτες WHMCS και συμπληρώνει ό,τι λείπει">Άντληση από 3CX / WHMCS</button>' : ''}
 
   <div class="bc-sec">${I.eye} Παρακολούθηση</div>
   <div class="bc-grid">
@@ -1112,6 +1153,54 @@ async function bookCard(id, pre) {
     cb.closest('.bc-prod').classList.toggle('on', cb.checked);
   });
 
+  /* ── ΑΡΙΘΜΟΣ → 3CX + WHMCS ───────────────────────────────────────────────
+     Νέα καρτέλα από κλήση: πριν γράψει κανείς τίποτα, φέρνουμε ό,τι ξέρει ήδη
+     το 3CX (επαφή από app ή συσκευή) και το WHMCS για τον αριθμό. Αυτόματα
+     γεμίζουν ΜΟΝΟ τα κενά· με το κουμπί, αν υπάρχει διαφορά, ρωτάμε. */
+  const lookupFill = async (auto) => {
+    const first = phones.map(p => p.raw.trim()).find(Boolean);
+    if (!first) { if (!auto) { toast('Γράψε πρώτα έναν αριθμό', true); } return; }
+    const lb = $('#bcLk', body); const was = lb ? lb.textContent : '';
+    if (lb) { lb.disabled = true; lb.textContent = 'ψάχνω…'; }
+    try {
+      const r = await api('book_lookup', {phone: first}).catch(e => ({err: e.message}));
+      if (!r || r.err) { if (!auto) { toast(r && r.err || 'Δεν απάντησε', true); } return; }
+      /* Ο αριθμός έχει ήδη καρτέλα: δεν φτιάχνουμε δεύτερη, ανοίγουμε εκείνη. */
+      if (!K.id && r.book && r.book.id) { toast(`Ο αριθμός υπάρχει ήδη στην καρτέλα «${r.book.name}»`); bookCard(r.book.id); return; }
+      if (!r.pbx && !r.whmcs) { if (!auto) { toast('Άγνωστος αριθμός: ούτε στο 3CX ούτε στο WHMCS'); } return; }
+      const src = {};                                  // πρώτα το 3CX, μετά το WHMCS για ό,τι λείπει
+      const take = (o, keys) => keys.forEach(k => { if (o && o[k] && !src[k]) { src[k] = o[k]; } });
+      take(r.pbx, ['company', 'first', 'last', 'title', 'department', 'email']);
+      take(r.whmcs, ['company', 'first', 'last', 'email', 'address', 'city', 'postcode', 'vat']);
+      const LBL = {company: 'Επωνυμία', first: 'Όνομα', last: 'Επώνυμο', title: 'Θέση', department: 'Τμήμα',
+                   email: 'Email', address: 'Διεύθυνση', city: 'Πόλη', postcode: 'ΤΚ', vat: 'ΑΦΜ'};
+      const cur = k => { const el = body.querySelector(`[data-k="${k}"]`); return el ? el.value.trim() : null; };
+      const clash = Object.keys(src).filter(k => cur(k) && cur(k) !== src[k]);
+      let overwrite = false;
+      if (clash.length && !auto) {
+        overwrite = await cnpConfirm('Υπάρχουν διαφορετικά στοιχεία από αυτά της καρτέλας:\n\n'
+          + clash.map(k => `${LBL[k]}: «${cur(k)}» → «${src[k]}»`).join('\n') + '\n\nΝα αντικατασταθούν;',
+          {title: 'Άντληση από 3CX / WHMCS', ok: 'Ναι, πάρε τα νέα', cancel: 'Όχι, κράτα τα δικά μου'});
+      }
+      let filled = 0;
+      Object.entries(src).forEach(([k, v]) => { const el = body.querySelector(`[data-k="${k}"]`);
+        if (el && (!el.value.trim() || overwrite)) { if (el.value.trim() !== v) { filled++; } el.value = v; } });
+      /* Τα υπόλοιπα τηλέφωνα της επαφής του 3CX — ό,τι δεν έχουμε ήδη. */
+      const digits = v => (v || '').replace(/\D/g, '').slice(-8);
+      ((r.pbx && r.pbx.phones) || []).forEach(p => {
+        if (!phones.some(q => digits(q.raw) === digits(p.e164))) { phones.push({raw: p.e164, label: p.label}); filled++; }
+      });
+      phones = phones.filter(p => p.raw.trim()); if (!phones.length) { phones = [{raw: '', label: 'main'}]; }
+      paintPh();
+      if (r.whmcs && r.whmcs.id && !client.id) { client = {id: r.whmcs.id, name: r.whmcs.name}; paintCli(); filled++; }
+      if (r.whmcs && r.whmcs.id && !rel) { rel = 'client'; paintRel(); }
+      const from = [r.pbx ? '3CX' : '', r.whmcs ? 'WHMCS' : ''].filter(Boolean).join(' και ');
+      toast(filled ? `Ήρθαν στοιχεία από ${from} — έλεγξε και πάτα Αποθήκευση` : `Βρέθηκε στο ${from}, δεν λείπει κάτι`);
+    } finally { if (lb) { lb.disabled = false; lb.textContent = was; } }
+  };
+  { const lb = $('#bcLk', body); if (lb) { lb.onclick = () => lookupFill(false); } }
+  if (!id && pre && pre.phone && ed) { lookupFill(true); }
+
   /* ── ΑΦΜ → ΑΑΔΕ ──────────────────────────────────────────────────────────
      Δεν γράφουμε πάνω σε ό,τι έχει ήδη συμπληρωθεί χωρίς να το πούμε: αν η ΑΑΔΕ
      φέρνει κάτι διαφορετικό από αυτό που υπάρχει, ρωτάμε πρώτα. Τα κενά πεδία
@@ -1155,7 +1244,7 @@ async function bookCard(id, pre) {
       fields[el.dataset.fid] = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value;
     });
     const payload = () => ({
-      id: K.id, company: g('company'), first: g('first'), last: g('last'), title: g('title'),
+      id: K.id, company: g('company'), first: g('first'), last: g('last'), title: g('title'), department: g('department'),
       email: g('email'), website: g('website'), vat: g('vat'), taxOffice: g('taxOffice'),
       address: g('address'), city: g('city'), postcode: g('postcode'), tags: g('tags'),
       notes: g('notes'), status: g('status'), rel, owner: +g('owner') || 0,
@@ -1338,14 +1427,14 @@ const CC_PRESETS = [
    τι επιλογές δίνει — η γραμμή τα χτίζει από εδώ, οπότε ένα νέο φίλτρο είναι
    μία γραμμή κώδικα και τίποτα άλλο. */
 const CC_F = {
-  who:  {label: 'Χειριστής', opts: d => [['0', '— όλοι —']]
+  who:  {label: 'Χειριστής', num: 1, opts: d => [['0', '— όλοι —']]
            .concat((d.people || []).map(p => [String(p.id), p.name]))},
   dir:  {label: 'Κατεύθυνση', opts: () => [['', '— κάθε —'], ['in', 'εισερχόμενες'], ['out', 'εξερχόμενες']]},
   ans:  {label: 'Απάντηση', opts: () => [['', '— κάθε —'], ['yes', 'απαντημένες'],
            ['ai', 'AI ρεσεψιόν'], ['no', 'αναπάντητες']]},
   bill: {label: 'Χρέωση', opts: () => [['', '— κάθε —'], ['none', 'δεν καταγράφηκαν']]
            .concat(Object.entries(CALL_BILL).map(([k, v]) => [k, v[0]]))},
-  min:  {label: 'Πάνω από', kind: 'num'},
+  min:  {label: 'Πάνω από', kind: 'num', num: 1},
 };
 
 R.clientcalls = async function (arg) {
@@ -1361,7 +1450,8 @@ R.clientcalls = async function (arg) {
     /* Ποια πρόσθετα φίλτρα έχει ανοίξει ο χρήστης και με ποια τιμή. Κρατιούνται
        χωριστά από τις τιμές, γιατί ένα φίλτρο μπορεί να είναι ανοιχτό και κενό
        («Χειριστής: όλοι») — και πρέπει να μείνει στη γραμμή για να το αλλάξει. */
-    open: [], f: {who: 0, dir: '', ans: '', bill: '', min: 0}, period: 2};
+    shown: [], who: 0, dir: '', ans: '', bill: '', min: 0, period: 2};
+  Object.keys(CC_F).forEach(k => { if (st[k] && !st.shown.includes(k)) { st.shown.push(k); } });
   /* Από σύνδεσμο: #/clientcalls/c212 ή #/clientcalls/b447 */
   if (arg) {
     const m = String(arg).match(/^([cb])(\d+)$/);
@@ -1402,8 +1492,8 @@ R.clientcalls = async function (arg) {
 
   cnpSkel(c, '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
   const who = st.client ? 'client=' + st.client : 'book=' + st.book;
-  const fq = Object.entries(st.f).filter(([, v]) => v !== '' && v !== 0)
-    .map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join('');
+  const fq = Object.keys(CC_F).filter(k => st[k] !== '' && st[k] !== 0)
+    .map(k => `&${k}=${encodeURIComponent(st[k])}`).join('');
   const d = await api(`client_calls&${who}&from=${st.from}&to=${st.to}${fq}`).catch(() => null);
   if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
   R.clientcalls._d = d;
@@ -1434,20 +1524,11 @@ R.clientcalls = async function (arg) {
     <label class="fchip"><span class="fchip-l">Έως</span>
       <input type="date" class="fchip-s" id="ccT" value="${st.to}"></label>` : ''}
 
-    ${st.open.map(k => { const F = CC_F[k]; return `
-      <label class="fchip${st.f[k] ? ' on' : ''}"><span class="fchip-l">${F.label}</span>
-        ${F.kind === 'num'
-          ? `<input type="number" class="fchip-s" data-ccf="${k}" min="0" max="600" value="${st.f[k] || ''}" style="width:58px">
-             <span class="fchip-u">λεπτά</span>`
-          : `<select class="fchip-s" data-ccf="${k}">${F.opts(d).map(([v, l]) =>
-              `<option value="${v}" ${String(st.f[k]) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`}
-        <span class="fchip-x" data-ccx="${k}" title="Αφαίρεση">✕</span></label>`; }).join('')}
-
-    ${Object.keys(CC_F).some(k => !st.open.includes(k))
-      ? `<div class="fadd"><button class="fchip fchip-add" id="ccAdd">+ φίλτρο</button>
-          <div class="fmenu" id="ccMenu" hidden>${Object.entries(CC_F)
-            .filter(([k]) => !st.open.includes(k))
-            .map(([k, F]) => `<button data-ccadd="${k}">${F.label}</button>`).join('')}</div></div>` : ''}
+    ${st.shown.map(k => { const F = CC_F[k]; return fChip(F.label,
+        F.kind === 'num'
+          ? `<input type="number" class="fchip-s" data-fk="${k}" min="0" max="600" value="${st[k] || ''}" style="width:52px"><span class="fchip-u">λεπτά</span>`
+          : fSel(k, F.opts(d), st[k]), !!st[k], k); }).join('')}
+    ${fAdd(CC_F, st.shown)}
 
     <span class="fbar-sp"></span>
     <button class="fchip" id="ccCsv">${I.download || '⭳'} CSV</button>
@@ -1529,28 +1610,7 @@ R.clientcalls = async function (arg) {
   { const f1 = $('#ccF'); if (f1) { f1.onchange = e => { st.from = e.target.value; R.clientcalls(); }; } }
   { const t1 = $('#ccT'); if (t1) { t1.onchange = e => { st.to = e.target.value; R.clientcalls(); }; } }
 
-  /* Το μενού «+ φίλτρο» κλείνει με κλικ οπουδήποτε αλλού — αλλιώς μένει
-     ανοιχτό και σκεπάζει την αναφορά. */
-  { const ad = $('#ccAdd'), mn = $('#ccMenu');
-    if (ad && mn) {
-      ad.onclick = e => { e.stopPropagation(); mn.hidden = !mn.hidden; };
-      document.addEventListener('click', () => { mn.hidden = true; }, {once: true});
-      $$('[data-ccadd]', mn).forEach(b => b.onclick = () => {
-        st.open.push(b.dataset.ccadd); R.clientcalls();
-      });
-    } }
-  $$('[data-ccf]').forEach(el => el.onchange = () => {
-    const k = el.dataset.ccf;
-    st.f[k] = el.type === 'number' ? Math.max(0, +el.value || 0) : el.value;
-    R.clientcalls();
-  });
-  $$('[data-ccx]').forEach(el => el.onclick = e => {
-    e.preventDefault(); e.stopPropagation();
-    const k = el.dataset.ccx;
-    st.open = st.open.filter(x => x !== k);
-    st.f[k] = (k === 'who' || k === 'min') ? 0 : '';
-    R.clientcalls();
-  });
+  fWire(st, CC_F, () => R.clientcalls());
   $$('[data-ccall]').forEach(r => r.onclick = () =>
     callNote(d.items.find(x => x.id === +r.dataset.ccall), d));
   $('#ccPrint').onclick = () => window.print();
