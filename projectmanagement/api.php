@@ -6084,18 +6084,39 @@ case 'book_list':                        // Ο ΚΑΤΑΛΟΓΟΣ — η λίσ�
 
     $q = Capsule::table('mod_cpm_book as b');
     if ($bq !== '') {
-        $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $bq) . '%';
-        $digits = preg_replace('/\D/', '', $bq);
-        $q->where(function ($w) use ($like, $digits) {
-            $w->where('b.company', 'like', $like)->orWhere('b.first', 'like', $like)
-              ->orWhere('b.last', 'like', $like)->orWhere('b.email', 'like', $like)
-              ->orWhere('b.vat', 'like', $like)->orWhere('b.tags', 'like', $like)
-              ->orWhere('b.city', 'like', $like);
-            if (strlen($digits) >= 3) {
-                $w->orWhereIn('b.id', Capsule::table('mod_cpm_book_phones')
-                    ->where('e164', 'like', '%' . $digits . '%')->select('book_id'));
-            }
-        });
+        /* ΚΑΘΕ ΛΕΞΗ ΞΕΧΩΡΙΣΤΑ, ΚΑΙ ΠΑΝΤΟΥ.
+           Πριν, ολόκληρη η φράση έψαχνε σαν ΕΝΑ κομμάτι μέσα σε ΕΝΑ πεδίο: το
+           «Pharmacy295 Περιστέρι» δεν έβρισκε τίποτα, επειδή το ένα ζει στην
+           επωνυμία και το άλλο στην πόλη. Χειρότερα, έπεφτε σιωπηλά πίσω στα
+           ψηφία και γύριζε όποιον είχε «295» στο ΤΗΛΕΦΩΝΟ — δηλαδή λάθος
+           αποτελέσματα χωρίς να το καταλαβαίνει κανείς.
+           Τώρα: κάθε λέξη πρέπει να βρεθεί ΚΑΠΟΥ (σε οποιοδήποτε πεδίο ή στο
+           τηλέφωνο), και όλες μαζί να ταιριάζουν στην ίδια καρτέλα. */
+        $terms = array_slice(array_filter(preg_split('/\s+/u', $bq), function ($t) {
+            return $t !== '';
+        }), 0, 6);
+        foreach ($terms as $term) {
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $term) . '%';
+            $digits = preg_replace('/\D/', '', $term);
+            $q->where(function ($w) use ($like, $digits) {
+                $w->where('b.company', 'like', $like)->orWhere('b.first', 'like', $like)
+                  ->orWhere('b.last', 'like', $like)->orWhere('b.email', 'like', $like)
+                  ->orWhere('b.vat', 'like', $like)->orWhere('b.tags', 'like', $like)
+                  ->orWhere('b.city', 'like', $like)->orWhere('b.address', 'like', $like)
+                  ->orWhere('b.postcode', 'like', $like)->orWhere('b.title', 'like', $like)
+                  ->orWhere('b.website', 'like', $like)->orWhere('b.notes', 'like', $like)
+                  /* Και στο ΠΛΗΡΕΣ όνομα, ώστε το «Ηλίας Μακρής» να βρίσκει την
+                     καρτέλα που έχει το όνομα και το επώνυμο σε δύο πεδία. */
+                  ->orWhereRaw("CONCAT_WS(' ', b.company, b.first, b.last) LIKE ?", [$like]);
+                if (strlen($digits) >= 3) {
+                    $w->orWhereIn('b.id', Capsule::table('mod_cpm_book_phones')
+                        ->where(function ($p) use ($digits, $like) {
+                            $p->where('e164', 'like', '%' . $digits . '%')
+                              ->orWhere('raw', 'like', $like);
+                        })->select('book_id'));
+                }
+            });
+        }
     }
     if ($bStatus !== '') { $q->where('b.status', $bStatus); }
     if ($bOnly === 'client')   { $q->whereNotNull('b.clientid'); }
@@ -16834,20 +16855,28 @@ case 'client_search':
         if (($_GET['all'] ?? '') !== '1') { $cq->where('status', 'Active'); }
         /* Εννιαψήφιο = ΑΦΜ (έτσι το γράφει ο κόσμος), αλλιώς id. Στη γενική αναζήτηση
            μπαίνει και το ΑΦΜ ως κείμενο, για μερική πληκτρολόγηση. */
-        $like = '%' . $q . '%';
-        if (ctype_digit($q)) {
-            /* Εννιαψήφιο = ΑΦΜ όπως το γράφει ο κόσμος· μικρότερο = πιθανό id. */
-            $cq->where(function ($w) use ($q, $like) {
-                $w->where('id', (int) $q);
-                cnp_afm_where($w, $like);
-            });
-        } else {
-            $cq->where(function ($w) use ($like) {
-                $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
-                  ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
-                cnp_afm_where($w, $like);
-            });
-        }
+        /* ΤΑ ΨΗΦΙΑ ΔΕΝ ΕΙΝΑΙ ΜΟΝΟ ΝΟΥΜΕΡΑ. Πριν, σκέτος αριθμός έψαχνε ΜΟΝΟ σε id
+           και ΑΦΜ — οπότε το «295» δεν έβρισκε ποτέ τον «PHARMACY295 ΙΚΕ», παρότι
+           ο αριθμός είναι μέσα στην επωνυμία του. Ψάχνουμε παντού, όπως ακριβώς
+           κάνει και η λίστα πελατών: ό,τι κι αν γράψεις, αν υπάρχει κάπου μέσα
+           στα στοιχεία του πελάτη, θα βρεθεί. */
+        $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
+        $cq->where(function ($w) use ($q, $like) {
+            if (ctype_digit($q)) { $w->orWhere('id', (int) $q); }
+            $w->orWhere('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+              ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like)
+              ->orWhere('phonenumber', 'like', $like)
+              ->orWhereRaw("CONCAT(firstname, ' ', lastname) LIKE ?", [$like]);
+            cnp_afm_where($w, $like);
+        });
+        /* ΣΕΙΡΑ ΠΟΥ ΒΓΑΖΕΙ ΝΟΗΜΑ: πρώτα το ακριβές id, μετά όσα ΑΡΧΙΖΟΥΝ με ό,τι
+           έγραψες, και τελευταία όσα απλώς το περιέχουν — αλλιώς, με δώδεκα
+           αποτελέσματα, το προφανές έπεφτε στο τέλος. */
+        $pre = str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
+        $cq->orderByRaw(
+            'CASE WHEN id = ? THEN 0 WHEN companyname LIKE ? OR firstname LIKE ? OR lastname LIKE ? THEN 1 ELSE 2 END, companyname, lastname',
+            [ctype_digit($q) ? (int) $q : 0, $pre, $pre, $pre]
+        );
         foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'status']) as $c) {
             // Το WHMCS κρατά τις επωνυμίες HTML-escaped («&amp;») — η οθόνη κάνει δικό της esc.
             $nm = html_entity_decode($c->companyname ?: trim($c->firstname . ' ' . $c->lastname), ENT_QUOTES, 'UTF-8');
