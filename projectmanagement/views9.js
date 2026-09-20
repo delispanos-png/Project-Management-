@@ -71,7 +71,7 @@ R.pbx = async function () {
         placeholder="${d.hasSecret ? '•••••••• — αποθηκευμένο· άφησέ το κενό για να μείνει' : 'επικόλλησε το secret'}" ${ed ? '' : 'disabled'}>
       <div class="mut" style="font-size:11.5px;margin-top:6px">
         🔒 Το secret αποθηκεύεται κρυπτογραφημένο (AES-256-GCM) και <b>δεν επιστρέφει ποτέ</b> στην οθόνη.
-        Δώσε ρόλο <b>μόνο ανάγνωσης</b> — αυτή η έκδοση δεν κάνει καμία ενέργεια στο κέντρο.
+        Ο ρόλος του API client <b>γράφει</b> στο κέντρο (τμήματα, ουρές, AI ρεσεψιόν) μέσω της κάρτας «Δομή κέντρου» — κάθε αλλαγή καταγράφεται στο τεχνικό ημερολόγιο.
       </div>
       ${ed ? `<div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
         <button class="btn btn-p" id="pxSave">${I.save || ''} Αποθήκευση</button>
