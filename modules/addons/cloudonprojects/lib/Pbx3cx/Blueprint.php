@@ -545,6 +545,20 @@ TXT;
        (CallFlowApps.ScriptCode). Το κέντρο μεταγλωττίζει και μας λέει αν πέτυχε·
        πριν αγγίξουμε το 806 δοκιμάζουμε σε προσωρινή εφαρμογή. */
     const CFA_TEST_DN = '898';
+
+    /* ── ΕΞΕΡΧΟΜΕΝΕΣ (20/09/2026) ──────────────────────────────────────────────
+       Απόφαση: όλοι καλούν Ελλάδα (σταθερά, κινητά, 800/801, ανάγκης/σύντομοι) και
+       Κύπρο· κανείς πολλαπλής χρέωσης (90…) ή πληρωμένους καταλόγους (118xx/119xx)·
+       εξωτερικό εκτός Κύπρου ΜΟΝΟ 201 & 202. Η γραμμή επιλέγεται από τον αριθμό,
+       χωρίς προθέματα «01»/«02». Οι Κύπριοι (501, 504) καλούν 8ψήφια απευθείας. */
+    const OB_TRUNK_GR  = 'Sip1.CloudOn.gr';
+    const OB_TRUNK_ALT = 'sip.cloudon.gr';
+    const OB_TRUNK_CY  = 'Cyprus';
+    const OB_INTL_DNS  = ['201', '202'];
+    const OB_CY_DNS    = ['501', '504'];
+    const OB_CID_GR    = '2107222560';
+    const OB_CID_CY    = '35722056009';
+    const OB_PRIO_BASE = 20;   // οι δικοί μας κανόνες: 20, 21, … (οι παλιοί ήταν 41-54)
     /** Το script «μετά την αναπάντητη ουρά»: εκεί στέλνουν οι ουρές ό,τι δεν απαντήθηκε. */
     const AFTER_DN = '809';   // (το 805 είναι το ring group «Door Phone»)
     const CFA_NAMES = ['806' => 'cloudonnew', '809' => 'cloudonafter'];
@@ -596,10 +610,58 @@ TXT;
         return ['ok' => false, 'msg' => 'δεν απάντησε η μεταγλώττιση σε ' . $waitSec . '΄΄ (' . json_encode(array_intersect_key($last ?? [], array_flip(['CompilationSucceeded', 'InvalidScript', 'CompilationLastSuccess']))) . ')'];
     }
 
+    /** Μία διαδρομή κανόνα εξερχομένων. TrunkId -1 = κενή θέση (ή μπλοκ, αν είναι όλες κενές). */
+    private static function obRoute($trunkId = -1, $strip = 0)
+    {
+        return ['TrunkId' => (int) $trunkId, 'StripDigits' => (int) $strip, 'Prepend' => '', 'Append' => '', 'CallerID' => ''];
+    }
+
+    /** Οι κανόνες εξερχομένων όπως πρέπει να είναι, με τη σειρά προτεραιότητας. */
+    public static function outboundRules(array $L)
+    {
+        $T = $L['trunks'] ?? [];
+        $gr = (int) ($T[self::OB_TRUNK_GR] ?? -1); $alt = (int) ($T[self::OB_TRUNK_ALT] ?? -1); $cy = (int) ($T[self::OB_TRUNK_CY] ?? -1);
+        $all = [self::G_CLOUDON];
+        $dn = function (array $nums) { return array_map(function ($x) { return ['From' => (string) $x, 'To' => (string) $x]; }, $nums); };
+        $rule = function ($name, $prefix, $len, $groups, $dns, array $routes) {
+            while (count($routes) < 5) { $routes[] = self::obRoute(); }
+            return ['Name' => $name, 'Prefix' => $prefix, 'NumberLengthRanges' => $len, 'GroupIds' => $groups, 'DNRanges' => $dns, 'Routes' => $routes];
+        };
+        return [
+            $rule('Μπλοκ: πολλαπλής χρέωσης & πληρωμένοι κατάλογοι', '90,118-119', '', $all, [], []),
+            $rule('Κύπρος από 00357', '00357', '', $all, [], [self::obRoute($cy, 5)]),
+            $rule('Κύπρος από +357', '+357', '', $all, [], [self::obRoute($cy, 4)]),
+            $rule('Ελλάδα από 0030', '0030', '', $all, [], [self::obRoute($gr, 4), self::obRoute($alt, 4)]),
+            $rule('Ελλάδα από +30', '+30', '', $all, [], [self::obRoute($gr, 3), self::obRoute($alt, 3)]),
+            $rule('Διεθνή: μόνο ' . implode(' & ', self::OB_INTL_DNS), '00,+', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 0), self::obRoute($gr, 0)]),
+            $rule('Κύπρος εθνικά (' . implode(', ', self::OB_CY_DNS) . ')', '2,9', '8', [], $dn(self::OB_CY_DNS), [self::obRoute($cy, 0)]),
+            $rule('Σταθερά Ελλάδας', '2', '10', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
+            $rule('Κινητά Ελλάδας', '6', '10', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
+            $rule('800 / 801', '80', '10', $all, [], [self::obRoute($gr, 0)]),
+            $rule('Ανάγκης & σύντομοι (1xx…)', '1', '3-6', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
+        ];
+    }
+
+    /** Ό,τι μετράει για σύγκριση κανόνα — το 3CX ξαναγράφει τα προθέματα (118,119 → 118-119). */
+    private static function obNorm(array $r)
+    {
+        $g = array_map('intval', $r['GroupIds'] ?? []); sort($g);
+        /* ΜΕΤΡΗΘΗΚΕ: το 3CX επιστρέφει {From} χωρίς To όταν είναι ένα εσωτερικό. */
+        $d = array_map(function ($x) { return $x['From'] . '-' . ($x['To'] ?? $x['From']); }, $r['DNRanges'] ?? []); sort($d);
+        $rt = [];
+        foreach (array_slice($r['Routes'] ?? [], 0, 5) as $x) { if ((int) ($x['TrunkId'] ?? -1) > 0) { $rt[] = (int) $x['TrunkId'] . ':' . (int) ($x['StripDigits'] ?? 0); } }
+        return implode('|', [str_replace(' ', '', (string) $r['Prefix']), str_replace(' ', '', (string) $r['NumberLengthRanges']), implode(',', $g), implode(',', $d), implode(',', $rt)]);
+    }
+
     private static function live()
     {
         $L = [];
         try { $L['pbset'] = Pbx3cxClient::xapi('PhonebookSettings'); } catch (\Throwable $e) { $L['pbset'] = []; }
+        try {
+            $L['trunks'] = [];
+            foreach (Pbx3cxClient::xapi('Trunks', ['$top' => 20])['value'] ?? [] as $t) { $L['trunks'][(string) ($t['Gateway']['Name'] ?? '')] = (int) $t['Id']; }
+            $L['obrules'] = Pbx3cxClient::xapi('OutboundRules', ['$top' => 100, '$orderby' => 'Priority'])['value'] ?? [];
+        } catch (\Throwable $e) { $L['trunks'] = []; $L['obrules'] = []; }
         $L['cfa'] = [];
         foreach (array_keys(self::CFA_NAMES) as $dn) {
             try {
@@ -611,7 +673,7 @@ TXT;
         $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours,PromptSet',
             '$expand' => 'Members($select=Id,Number,Type),OfficeHolidays']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
-        $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode,RecordCalls,PromptSet',
+        $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode,RecordCalls,PromptSet,OutboundCallerID',
             '$expand' => 'Groups($select=GroupId;$expand=Rights($select=RoleName))']);
         foreach ($u['value'] ?? [] as $r) { $L['users'][(string) $r['Number']] = $r; }
         $q = Pbx3cxClient::xapi('Queues', ['$top' => 40, '$select' => 'Id,Number,Name,PollingStrategy,RingTimeout,MasterTimeout,ForwardNoAnswer,OutOfOfficeRoute,HolidaysRoute,AnnounceQueuePosition,PromptSet,OnHoldFile',
@@ -1097,6 +1159,67 @@ TXT;
                     /* Μετά τη διαγραφή τα Groups κάθε DN έχουν αλλάξει — αν στείλουμε
                        τη σκαληνή λίστα, το επόμενο PATCH απαντά NOT_FOUND. Ξαναδιάβασε. */
                     $L = self::live();
+                }
+            }];
+
+        /* 6β. ΕΞΕΡΧΟΜΕΝΕΣ: κανόνες ως κώδικας. Οι δικοί μας κανόνες δημιουργούνται πρώτα
+           (προτεραιότητες 20+), μετά σβήνονται οι παλιοί — ούτε δευτερόλεπτο χωρίς κανόνες. */
+        $S[] = ['key' => 'ob_rules', 'label' => 'Εξερχόμενες: Ελλάδα & Κύπρος για όλους, εξωτερικό μόνο ' . implode(' & ', self::OB_INTL_DNS) . ', μπλοκ 90/118/119, χωρίς προθέματα 01/02',
+            'risk' => 'low',
+            'check' => function ($L) {
+                foreach ([self::OB_TRUNK_GR, self::OB_TRUNK_ALT, self::OB_TRUNK_CY] as $t) { if (empty($L['trunks'][$t])) { return ['error', 'δεν βρέθηκε η γραμμή «' . $t . '»']; } }
+                $want = self::outboundRules($L);
+                $live = []; foreach ($L['obrules'] as $r) { $live[$r['Name']] = $r; }
+                $d = []; $order = [];
+                foreach ($want as $i => $w) {
+                    $l = $live[$w['Name']] ?? null;
+                    if (!$l) { $d[] = 'νέος: ' . $w['Name']; continue; }
+                    if (self::obNorm($l) !== self::obNorm($w)) { $d[] = 'αλλάζει: ' . $w['Name']; }
+                    $order[] = (int) $l['Priority'];
+                }
+                $extra = array_diff(array_keys($live), array_column($want, 'Name'));
+                if ($extra) { $d[] = 'σβήνονται: ' . implode(', ', $extra); }
+                if (!$d && $order !== array_values(array_filter($order)) ) { $d[] = 'σειρά'; }
+                $sorted = $order; sort($sorted);
+                if (!$d && $order !== $sorted) { $d[] = 'σειρά προτεραιότητας'; }
+                return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : count($want) . ' κανόνες, σωστή σειρά'];
+            },
+            'apply' => function ($L) {
+                $want = self::outboundRules($L);
+                $live = []; foreach ($L['obrules'] as $r) { $live[$r['Name']] = $r; }
+                $ids = [];
+                foreach ($want as $i => $w) {
+                    $l = $live[$w['Name']] ?? null;
+                    if ($l) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . (int) $l['Id'] . ')', $w); $ids[] = (int) $l['Id']; }
+                    else { $r = Pbx3cxClient::xwrite('POST', 'OutboundRules', $w); $ids[] = (int) ($r['Id'] ?? 0); }
+                }
+                /* Σβήσε ό,τι δεν είναι δικό μας (παλιοί κανόνες με 01/02, 3digit κ.λπ.). */
+                foreach ($live as $name => $r) {
+                    if (!in_array($name, array_column($want, 'Name'), true)) { Pbx3cxClient::xwrite('DELETE', 'OutboundRules(' . (int) $r['Id'] . ')'); }
+                }
+                /* Προτεραιότητες: πρώτα σε προσωρινές τιμές (για να μη συγκρουστούν), μετά τελικές. */
+                foreach ($ids as $i => $id) { if ($id) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . $id . ')', ['Priority' => 200 + $i]); } }
+                foreach ($ids as $i => $id) { if ($id) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . $id . ')', ['Priority' => self::OB_PRIO_BASE + $i]); } }
+                Pbx3cxClient::log('blueprint', 'ok', 'Εξερχόμενες: ' . count($want) . ' κανόνες, ' . count(array_diff(array_keys($live), array_column($want, 'Name'))) . ' παλιοί σβήστηκαν');
+            }];
+
+        /* 6γ. Αναγνώριση εξερχομένων: μία μορφή για όλους (Ελλάδα / Κύπρος). */
+        $S[] = ['key' => 'ob_cid', 'label' => 'Αναγνώριση εξερχομένων: ' . self::OB_CID_GR . ' για όλους, ' . self::OB_CID_CY . ' για ' . implode(', ', self::OB_CY_DNS),
+            'risk' => 'low',
+            'check' => function ($L) {
+                $d = [];
+                foreach ($L['users'] as $num => $u) {
+                    if (!preg_match('/^[1-5]\d\d$/', (string) $num) || in_array((string) $num, [self::AI_DN, self::CB_DN], true)) { continue; }
+                    $want = in_array((string) $num, self::OB_CY_DNS, true) ? self::OB_CID_CY : self::OB_CID_GR;
+                    if ((string) ($u['OutboundCallerID'] ?? '') !== $want) { $d[] = $num; }
+                }
+                return [$d ? 'change' : 'ok', $d ? 'διορθώνονται: ' . implode(', ', $d) : 'όλοι σωστά'];
+            },
+            'apply' => function ($L) {
+                foreach ($L['users'] as $num => $u) {
+                    if (!preg_match('/^[1-5]\d\d$/', (string) $num) || in_array((string) $num, [self::AI_DN, self::CB_DN], true)) { continue; }
+                    $want = in_array((string) $num, self::OB_CY_DNS, true) ? self::OB_CID_CY : self::OB_CID_GR;
+                    if ((string) ($u['OutboundCallerID'] ?? '') !== $want) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['OutboundCallerID' => $want]); }
                 }
             }];
 
