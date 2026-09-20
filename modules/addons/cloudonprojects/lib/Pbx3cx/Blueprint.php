@@ -642,6 +642,29 @@ TXT;
         ];
     }
 
+    /** Οι αριθμοί έκτακτης ανάγκης της Ελλάδας — για ΟΛΑ τα εσωτερικά, με εφεδρική γραμμή. */
+    const EMERGENCY = [
+        ['Κλήση Έκτακτης Ανάγκης', '112'], ['Άμεση Δράση Αστυνομίας', '100'], ['Πυροσβεστική Υπηρεσία', '199'],
+        ['Εθνικό Κέντρο Άμεσης Βοήθειας (ΕΚΑΒ)', '166'], ['Λιμενικό Σώμα – Άμεση Επέμβαση', '108'],
+        ['Δασικές πυρκαγιές (Πυροσβεστική)', '191'], ['ΕΚΚΑ – Άμεση Κοινωνική Βοήθεια', '197'],
+        ['Ελληνική Αστυνομία – Κέντρο Πληροφοριών', '1033'], ['Χαμόγελο του Παιδιού – SOS', '1056'],
+        ['Εθνική Γραμμή Παιδικής Προστασίας', '1107'], ['Γραμμή Παρέμβασης για την Αυτοκτονία', '1016'],
+        ['SOS Γυναίκες Θύματα Βίας', '15900'], ['Βλάβες ΔΕΗ', '10503'], ['ΔΕΔΔΗΕ – Βλάβες ρεύματος', '11500'],
+        ['Κέντρο Δηλητηριάσεων', '2107793777'],
+    ];
+
+    public static function emergencyRules(array $L)
+    {
+        $T = $L['trunks'] ?? [];
+        $gr = (int) ($T[self::OB_TRUNK_GR] ?? -1); $alt = (int) ($T[self::OB_TRUNK_ALT] ?? -1);
+        $out = [];
+        foreach (self::EMERGENCY as [$name, $num]) {
+            $out[] = ['Name' => $name, 'Prefix' => $num, 'NumberLengthRanges' => (string) strlen($num), 'GroupIds' => [self::G_CLOUDON], 'DNRanges' => [],
+                'EmergencyRule' => true, 'Routes' => [self::obRoute($gr), self::obRoute($alt), self::obRoute(), self::obRoute(), self::obRoute()]];
+        }
+        return $out;
+    }
+
     /** Ό,τι μετράει για σύγκριση κανόνα — το 3CX ξαναγράφει τα προθέματα (118,119 → 118-119). */
     private static function obNorm(array $r)
     {
@@ -661,7 +684,10 @@ TXT;
             $L['trunks'] = [];
             foreach (Pbx3cxClient::xapi('Trunks', ['$top' => 20])['value'] ?? [] as $t) { $L['trunks'][(string) ($t['Gateway']['Name'] ?? '')] = (int) $t['Id']; }
             $L['obrules'] = Pbx3cxClient::xapi('OutboundRules', ['$top' => 100, '$orderby' => 'Priority'])['value'] ?? [];
-        } catch (\Throwable $e) { $L['trunks'] = []; $L['obrules'] = []; }
+            /* ΜΕΤΡΗΘΗΚΕ: οι κανόνες ανάγκης ΔΕΝ βγαίνουν στη λίστα OutboundRules — μόνο από τη συνάρτηση. */
+            $L['emrules'] = Pbx3cxClient::xapi('OutboundRules/Pbx.GetEmergencyOutboundRules()', ['$top' => 100])['value'] ?? [];
+            $L['emnotify'] = Pbx3cxClient::xapi('EmergencyNotificationsSettings');
+        } catch (\Throwable $e) { $L['trunks'] = []; $L['obrules'] = []; $L['emrules'] = []; $L['emnotify'] = []; }
         $L['cfa'] = [];
         foreach (array_keys(self::CFA_NAMES) as $dn) {
             try {
@@ -1221,6 +1247,44 @@ TXT;
                     $want = in_array((string) $num, self::OB_CY_DNS, true) ? self::OB_CID_CY : self::OB_CID_GR;
                     if ((string) ($u['OutboundCallerID'] ?? '') !== $want) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['OutboundCallerID' => $want]); }
                 }
+            }];
+
+        /* 6δ. ΑΡΙΘΜΟΙ ΑΝΑΓΚΗΣ: ήταν έξι, μόνο για το εσωτερικό 200, χωρίς εφεδρεία. Τώρα η
+           ελληνική λίστα, για όλους, Sip1 με εφεδρεία, και chat στους υπεύθυνους τμήματος. */
+        $S[] = ['key' => 'ob_emergency', 'label' => 'Αριθμοί ανάγκης: ' . count(self::EMERGENCY) . ' ελληνικοί, για όλα τα εσωτερικά, με εφεδρική γραμμή και ειδοποίηση υπευθύνων',
+            'risk' => 'low',
+            'check' => function ($L) {
+                foreach ([self::OB_TRUNK_GR, self::OB_TRUNK_ALT] as $t) { if (empty($L['trunks'][$t])) { return ['error', 'δεν βρέθηκε η γραμμή «' . $t . '»']; } }
+                $want = self::emergencyRules($L);
+                $live = []; foreach ($L['emrules'] as $r) { $live[$r['Name']] = $r; }
+                $d = [];
+                foreach ($want as $w) {
+                    $l = $live[$w['Name']] ?? null;
+                    if (!$l) { $d[] = 'νέος: ' . $w['Prefix']; } elseif (self::obNorm($l) !== self::obNorm($w)) { $d[] = 'αλλάζει: ' . $w['Prefix']; }
+                }
+                $extra = array_diff(array_keys($live), array_column($want, 'Name'));
+                if ($extra) { $d[] = 'σβήνονται: ' . implode(', ', $extra); }
+                if (($L['emnotify']['ChatRecipients'] ?? '') !== 'AllGroupsManagers') { $d[] = 'ειδοποίηση chat → υπεύθυνοι τμημάτων'; }
+                return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : count($want) . ' αριθμοί, όλα τα εσωτερικά, με εφεδρεία'];
+            },
+            'apply' => function ($L) {
+                $want = self::emergencyRules($L);
+                $live = []; foreach ($L['emrules'] as $r) { $live[$r['Name']] = $r; }
+                foreach ($want as $w) {
+                    $l = $live[$w['Name']] ?? null;
+                    if ($l) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . (int) $l['Id'] . ')', $w); }
+                    else { Pbx3cxClient::xwrite('POST', 'OutboundRules', $w); }   // ΜΕΤΡΗΘΗΚΕ: απαντά κενό σώμα, αλλά δημιουργεί
+                }
+                foreach ($live as $name => $r) {
+                    if (!in_array($name, array_column($want, 'Name'), true)) { Pbx3cxClient::xwrite('DELETE', 'OutboundRules(' . (int) $r['Id'] . ')'); }
+                }
+                /* Σειρά 1..N — πρώτα προσωρινές τιμές για να μη συγκρουστούν. */
+                $now = []; foreach (Pbx3cxClient::xapi('OutboundRules/Pbx.GetEmergencyOutboundRules()', ['$top' => 100])['value'] ?? [] as $r) { $now[$r['Name']] = (int) $r['Id']; }
+                $ids = []; foreach ($want as $w) { if (!empty($now[$w['Name']])) { $ids[] = $now[$w['Name']]; } }
+                foreach ($ids as $i => $id) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . $id . ')', ['Priority' => 300 + $i]); }
+                foreach ($ids as $i => $id) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . $id . ')', ['Priority' => 1 + $i]); }
+                if (($L['emnotify']['ChatRecipients'] ?? '') !== 'AllGroupsManagers') { Pbx3cxClient::xwrite('PATCH', 'EmergencyNotificationsSettings', ['ChatRecipients' => 'AllGroupsManagers']); }
+                Pbx3cxClient::log('blueprint', 'ok', 'Αριθμοί ανάγκης: ' . count($want) . ' κανόνες για όλα τα εσωτερικά');
             }];
 
         /* 7. Τα scripts του κέντρου ως κώδικας: 806 (εφεδρική δρομολόγηση) και 809 (μετά
