@@ -505,10 +505,71 @@ TXT;
 
     /* ─────────────────────────── ανάγνωση ζωντανής κατάστασης ─────────────────────────── */
 
+    /* ── ΕΦΕΔΡΙΚΗ ΔΡΟΜΟΛΟΓΗΣΗ 806 ΩΣ ΚΩΔΙΚΑΣ (20/09/2026) ────────────────────
+       Το 806 είναι η εναλλακτική όσο τελειοποιείται η AI ρεσεψιόν: ίδιο ωράριο
+       και αργίες με εκείνη, αλλά με ηχογραφημένο χαιρετισμό και απευθείας ουρές.
+       Το C# παράγεται από το πρότυπο cfa/806.cs.tpl και γράφεται μέσω API
+       (CallFlowApps.ScriptCode). Το κέντρο μεταγλωττίζει και μας λέει αν πέτυχε·
+       πριν αγγίξουμε το 806 δοκιμάζουμε σε προσωρινή εφαρμογή. */
+    const CFA_TEST_DN = '898';
+
+    /** Το script του 806, έτοιμο για το κέντρο. */
+    public static function cfaScript()
+    {
+        $tpl = file_get_contents(__DIR__ . '/cfa/806.cs.tpl');
+        $rec = []; $once = [];
+        foreach (self::holidays() as $h) {
+            if ($h['IsRecurrent']) { $rec[] = $h['Month'] * 100 + $h['Day']; }
+            else { $once[] = $h['Year'] * 10000 + $h['Month'] * 100 + $h['Day']; }
+        }
+        return strtr($tpl, ['{{HOLIDAYS_REC}}' => implode(', ', $rec), '{{HOLIDAYS_ONCE}}' => implode(', ', $once),
+            '{{Q_SUPPORT}}' => '810', '{{Q_CLOUDON}}' => '811', '{{Q_EMERG}}' => '804',
+            '{{VM}}' => '*4' . self::TICKET_DN]);
+    }
+
+    /** Σύγκριση χωρίς θόρυβο αλλαγής γραμμής/κενών στο τέλος. */
+    public static function cfaNorm($code)
+    {
+        return trim(preg_replace('/[ \t]+$/m', '', str_replace("\r\n", "\n", (string) $code)));
+    }
+
+    /**
+     * Γράφει κώδικα σε εφαρμογή ροής και περιμένει το αποτέλεσμα μεταγλώττισης.
+     * @return array ['ok' => bool, 'msg' => string]
+     */
+    public static function cfaCompile($appId, $code, $waitSec = 25)
+    {
+        $before = Pbx3cxClient::xapi('CallFlowApps(' . (int) $appId . ')', ['$select' => 'Id,CompilationLastSuccess']);
+        Pbx3cxClient::xwrite('PATCH', 'CallFlowApps(' . (int) $appId . ')', ['ScriptCode' => $code]);
+        $last = null;
+        for ($i = 0; $i < $waitSec; $i++) {
+            $c = Pbx3cxClient::xapi('CallFlowApps(' . (int) $appId . ')', ['$select' => 'Id,ScriptCode,CompilationSucceeded,CompilationResult,CompilationLastSuccess,InvalidScript']);
+            $last = $c;
+            $stored = self::cfaNorm($c['ScriptCode'] ?? '') === self::cfaNorm($code);
+            if ($stored && !empty($c['CompilationSucceeded']) && ($c['CompilationLastSuccess'] ?? '') !== ($before['CompilationLastSuccess'] ?? '')) {
+                return ['ok' => true, 'msg' => 'μεταγλωττίστηκε ' . $c['CompilationLastSuccess']];
+            }
+            /* ΜΕΤΡΗΘΗΚΕ: νέα εφαρμογή ξεκινά με InvalidScript=true πριν καν μεταγλωττίσει —
+               χωρίς λίγα δευτερόλεπτα ανοχής διαβάζαμε την παλιά κατάσταση ως αποτυχία. */
+            if ($stored && $i >= 4 && (!empty($c['InvalidScript']) || empty($c['CompilationSucceeded']))) {
+                /* Μόνο τα λάθη (E:), όχι τα «Hidden» για περιττά using. */
+                preg_match_all('/^[^\n]*\bE:[^\n]*\n[^\n]*/m', (string) ($c['CompilationResult'] ?? ''), $m);
+                return ['ok' => false, 'msg' => mb_substr($m[0] ? implode(' | ', $m[0]) : (string) ($c['CompilationResult'] ?? 'άγνωστο σφάλμα'), 0, 600)];
+            }
+            sleep(1);
+        }
+        return ['ok' => false, 'msg' => 'δεν απάντησε η μεταγλώττιση σε ' . $waitSec . '΄΄ (' . json_encode(array_intersect_key($last ?? [], array_flip(['CompilationSucceeded', 'InvalidScript', 'CompilationLastSuccess']))) . ')'];
+    }
+
     private static function live()
     {
         $L = [];
         try { $L['pbset'] = Pbx3cxClient::xapi('PhonebookSettings'); } catch (\Throwable $e) { $L['pbset'] = []; }
+        try {
+            $c = Pbx3cxClient::xapi('CallFlowApps', ['$top' => 1, '$filter' => "Number eq '" . self::SCRIPT_DN . "'",
+                '$select' => 'Id,Number,Name,ScriptCode,CompilationSucceeded,CompilationResult,CompilationLastSuccess']);
+            $L['cfa'] = $c['value'][0] ?? null;
+        } catch (\Throwable $e) { $L['cfa'] = null; }
         $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours,PromptSet',
             '$expand' => 'Members($select=Id,Number,Type),OfficeHolidays']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
@@ -970,6 +1031,31 @@ TXT;
                     $L = self::live();
                 }
             }];
+
+        /* 7. Η εφεδρική δρομολόγηση 806 ως κώδικας. */
+        $S[] = ['key' => 'cfa_806', 'label' => 'Εφεδρική δρομολόγηση ' . self::SCRIPT_DN . ' (script): ωράρια & αργίες της ρεσεψιόν, Support→CloudOn / Emergency, θυρίδα εκτός ωραρίου',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $c = $L['cfa'] ?? null;
+                if (!$c) { return ['change', 'δεν βρέθηκε η εφαρμογή ροής ' . self::SCRIPT_DN]; }
+                if (self::cfaNorm($c['ScriptCode'] ?? '') !== self::cfaNorm(self::cfaScript())) { return ['change', 'το script στο κέντρο διαφέρει από το σχέδιο — θα ξαναγραφτεί']; }
+                return [!empty($c['CompilationSucceeded']) ? 'ok' : 'change',
+                        !empty($c['CompilationSucceeded']) ? 'ίδιο με το σχέδιο, μεταγλωττισμένο ' . substr((string) ($c['CompilationLastSuccess'] ?? ''), 0, 16) : 'ίδιο με το σχέδιο αλλά ΔΕΝ μεταγλωττίζει'];
+            },
+            'apply' => function ($L) {
+                $c = $L['cfa'] ?? null;
+                if (!$c) { throw new \RuntimeException('Δεν υπάρχει εφαρμογή ροής ' . self::SCRIPT_DN . ' στο κέντρο'); }
+                $code = self::cfaScript();
+                /* Πρώτα σε προσωρινή εφαρμογή: αν δεν μεταγλωττίζει, το 806 μένει όπως είναι. */
+                $tmp = Pbx3cxClient::xwrite('POST', 'CallFlowApps', ['Number' => self::CFA_TEST_DN, 'Name' => 'cloudontest']);
+                try { $t = self::cfaCompile((int) $tmp['Id'], $code); }
+                finally { try { Pbx3cxClient::xwrite('DELETE', 'CallFlowApps(' . (int) $tmp['Id'] . ')'); } catch (\Throwable $e) {} }
+                if (!$t['ok']) { throw new \RuntimeException('Το script δεν μεταγλωττίζει (δοκιμή σε ' . self::CFA_TEST_DN . '): ' . $t['msg']); }
+                $r = self::cfaCompile((int) $c['Id'], $code);
+                if (!$r['ok']) { throw new \RuntimeException('Το ' . self::SCRIPT_DN . ' δεν μεταγλωττίζει: ' . $r['msg']); }
+                Pbx3cxClient::log('blueprint', 'ok', 'Εφεδρική δρομολόγηση ' . self::SCRIPT_DN . ': νέο script, ' . $r['msg']);
+            }];
+
 
         /* 7. ΔΡΟΜΟΛΟΓΗΣΗ — ξεχωριστό, ρητό βήμα. Όλες οι εισερχόμενες → AI ρεσεψιόν. */
         $S[] = ['key' => 'route_ai', 'label' => 'Δρομολόγηση εισερχομένων → AI ρεσεψιόν (902) αντί για το script 806',
