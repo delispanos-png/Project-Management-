@@ -152,8 +152,8 @@ namespace CloudOnNew
       /* ── CloudOn: ΔΡΟΜΟΛΟΓΗΣΗ ΕΦΕΔΡΕΙΑΣ (806) ─────────────────────────────
          Παράγεται από το panel (Pbx3cxBlueprint::cfaScript) — ΜΗΝ το επεξεργαστείς
          στο 3CX, θα ξαναγραφτεί. Ωράρια και αργίες ίδια με την AI ρεσεψιόν:
-           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) → CloudOn ({{Q_CLOUDON}})
-           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}})
+           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) → CloudOn ({{Q_CLOUDON}}) → «κατειλημμένοι, 1 για επανάκληση» → AI {{Q_CB}}
+           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}}) → «κατειλημμένοι, 1 για επανάκληση» → AI {{Q_CB}}
            αλλιώς    μήνυμα «δεν λειτουργούμε» → κλείσιμο (ΧΩΡΙΣ θυρίδα, απόφαση 20/09/2026)
          Οι ουρές έχουν δικό τους ωράριο/αργίες στο κέντρο. */
       private static readonly HashSet<int> HolidaysEveryYear = new HashSet<int> { {{HOLIDAYS_REC}} };
@@ -183,6 +183,29 @@ namespace CloudOnNew
          if (IsHoliday(t)) return false;
          if (IsWeekday(t)) return m >= 17 * 60 && m < 20 * 60;
          return t.DayOfWeek == DayOfWeek.Saturday && m >= 9 * 60 + 30 && m < 14 * 60;
+      }
+
+      /* «Όλοι οι εκπρόσωποί μας είναι κατειλημμένοι. Για επανάκληση πατήστε 1.» — ο ίδιος
+         βρόχος και για το γραφείο και για το απόγευμα. Το 1 πάει στον AI agent Επανάκληση
+         ({{Q_CB}}), που καταχωρεί το αίτημα με τα λόγια του πελάτη. Οτιδήποτε άλλο (άλλο
+         πλήκτρο, σιωπή): «η κλήση θα τερματιστεί, δοκιμάστε ξανά» και κλείσιμο. */
+      private void AddBusyMenu(SequenceContainerComponent seq, string tag)
+      {
+         MenuComponent busy = scope.CreateComponent<MenuComponent>("Busy" + tag);
+         busy.AllowDtmfInput = true;
+         busy.MaxRetryCount = 1;
+         busy.Timeout = 6000;
+         busy.ValidOptionList.AddRange(new char[] { '1' });
+         busy.InitialPrompts.Add(new AudioFilePrompt(() => { return "CloudOnBusy.wav"; }));
+         seq.ComponentList.Add(busy);
+         ConditionalComponent choice = scope.CreateComponent<ConditionalComponent>("BusyChoice" + tag);
+         choice.ConditionList.Add(() => { return busy.Result == MenuComponent.MenuResults.ValidOption && busy.SelectedOption == '1'; });
+         choice.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("BusyChoice" + tag + "_callback"));
+         choice.ContainerList[0].ComponentList.Add(Transfer("ToCallback" + tag, "{{Q_CB}}"));
+         choice.ConditionList.Add(() => { return true; });
+         choice.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("BusyChoice" + tag + "_bye"));
+         choice.ContainerList[1].ComponentList.Add(Play("CallbackNo" + tag, "CloudOnCallbackNo.wav"));
+         seq.ComponentList.Add(choice);
       }
 
       private TransferComponent Transfer(string name, string destination)
@@ -215,15 +238,20 @@ namespace CloudOnNew
             Mode.ContainerList[0].ComponentList.Add(Play("GreetOffice", "CloudOnNewIVR.wav"));
             Mode.ContainerList[0].ComponentList.Add(Transfer("ToSupport", "{{Q_SUPPORT}}"));
             Mode.ContainerList[0].ComponentList.Add(Transfer("ToCloudOn", "{{Q_CLOUDON}}"));
+            AddBusyMenu((SequenceContainerComponent) Mode.ContainerList[0], "Office");
 
             /* Απόγευμα / Σάββατο: για τον πελάτη είμαστε ανοιχτά — ίδιος χαιρετισμός, ουρά Emergency. */
             Mode.ConditionList.Add(() => { return Convert.ToBoolean(IsEmergency()); });
             Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_emergency"));
             Mode.ContainerList[1].ComponentList.Add(Play("GreetEmergency", "CloudOnNewIVR.wav"));
             Mode.ContainerList[1].ComponentList.Add(Transfer("ToEmergency", "{{Q_EMERG}}"));
+            AddBusyMenu((SequenceContainerComponent) Mode.ContainerList[1], "Evening");
 
-            /* Εκτός λειτουργίας (ή απέτυχαν όλες οι μεταβιβάσεις): μήνυμα → κλείσιμο. */
-            mainFlowComponentList.Add(Play("Closed", "CloudOnNewCoIVP.wav"));
+            /* Εκτός λειτουργίας: μήνυμα → κλείσιμο. Τρίτος κλάδος (αλλιώς), ώστε να ΜΗΝ
+               ακούγεται μετά το μενού «κατειλημμένοι» των άλλων δύο. */
+            Mode.ConditionList.Add(() => { return true; });
+            Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_closed"));
+            Mode.ContainerList[2].ComponentList.Add(Play("Closed", "CloudOnNewCoIVP.wav"));
          }
 
          // Add a final DisconnectCall component to the main and error handler flows, in order to complete pending prompt playbacks...

@@ -39,7 +39,7 @@ class AiTickets
         $since = gmdate('Y-m-d\TH:i:s\Z', time() - self::LOOKBACK_H * 3600);
         try {
             $j = Pbx3cxClient::xapi('Recordings', ['$top' => 50, '$orderby' => 'StartTime desc',
-                '$filter' => "ToDn eq '" . Pbx3cxBlueprint::AI_DN . "' and StartTime ge " . $since,
+                '$filter' => "(ToDn eq '" . Pbx3cxBlueprint::AI_DN . "' or ToDn eq '" . Pbx3cxBlueprint::CB_DN . "') and StartTime ge " . $since,
                 '$select' => 'Id,StartTime,EndTime,CallType,FromCallerNumber,FromDisplayName,IsTranscribed,Transcription,Summary,RecordingUrl']);
         } catch (\Throwable $e) {
             $res['errors'][] = 'Recordings: ' . $e->getMessage();

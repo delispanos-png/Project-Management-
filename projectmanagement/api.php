@@ -26,12 +26,14 @@ use WHMCS\Module\Addon\CloudonProjects\Pbx3cxReport;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint;
 use WHMCS\Module\Addon\CloudonProjects\Route;
 use WHMCS\Module\Addon\CloudonProjects\Aade;
+use WHMCS\Module\Addon\CloudonProjects\Pbx3cxPresence;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Db.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Aade.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Presence.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Time.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Cover.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
@@ -3240,7 +3242,7 @@ function cnp_action_cap($action)
         /* Η ταύτιση τηλεφώνου με πελάτη είναι δουλειά αυτού που σήκωσε το
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
         $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
-        $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
+        $add('comms.pbx.edit', ['pbx_presence', 'pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
             'pbx_sync', 'pbx_map_save', 'calls_backfill', 'pbx_apply', 'pbx_ai_voice']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
@@ -5629,7 +5631,7 @@ case 'pbx_ai_calls':                     // οι τελευταίες κλήσε
     $aiRows = [];
     try {
         $aiJ = Pbx3cxClient::xapi('Recordings', ['$top' => 30, '$orderby' => 'StartTime desc',
-            '$filter' => "ToDn eq '" . $aiDn . "' or FromDn eq '" . $aiDn . "'",
+            '$filter' => "ToDn eq '" . $aiDn . "' or FromDn eq '" . $aiDn . "' or ToDn eq '" . Pbx3cxBlueprint::CB_DN . "'",
             '$select' => 'Id,StartTime,EndTime,CallType,FromDn,FromCallerNumber,FromDisplayName,ToDn,ToCallerNumber,ToDisplayName,IsTranscribed,Transcription,Summary,RecordingUrl']);
         foreach ($aiJ['value'] ?? [] as $r) {
             $st = strtotime((string) $r['StartTime']); $en = strtotime((string) $r['EndTime']);
@@ -6392,6 +6394,15 @@ case 'book_lookup':
         }
     }
     out($lkOut);
+
+case 'pbx_presence':
+    /* Ο διακόπτης του συγχρονισμού κατάστασης. Ζει με τις υπόλοιπες ρυθμίσεις
+       του κέντρου, άρα ίδιο δικαίωμα με αυτές. */
+    if (array_key_exists('on', $in)) {
+        Pbx3cxPresence::setEnabled(!empty($in['on']));
+    }
+    out(['ok' => true, 'on' => Pbx3cxPresence::enabled(),
+        'map' => Pbx3cxPresence::MAP, 'dn' => Pbx3cxPresence::dnFor($adminId)]);
 
 case 'book_afm':
     /* ΤΟ ΑΦΜ ΦΤΑΝΕΙ. Τα υπόλοιπα στοιχεία τα δίνει η ΑΑΔΕ, ώστε η ποιότητα του
@@ -13421,7 +13432,11 @@ case 'chat_status':                     // Χειροκίνητη δήλωση �
         Db::setPref($adminId, 'chat_reason', '');
         Db::setPref($adminId, 'chat_until', '0');
         Db::setPref($adminId, 'chat_set_at', '0');
-        out(['ok' => true, 'presence' => cnp_presence($adminId)]);
+        /* ΚΑΙ ΣΤΟ ΤΗΛΕΦΩΝΟ. Σε «αυτόματο» στέλνουμε ό,τι αποφάσισε ο παλμός —
+           αλλιώς το κέντρο θα έμενε κολλημένο στην τελευταία χειροκίνητη. */
+        $prAuto = cnp_presence($adminId);
+        $syncA = Pbx3cxPresence::push($adminId, (string) $prAuto['status']);
+        out(['ok' => true, 'presence' => $prAuto, 'pbx' => $syncA]);
     }
     if (!isset($defsS[$stS])) {
         fail('Άγνωστη κατάσταση', 400);
@@ -13440,7 +13455,10 @@ case 'chat_status':                     // Χειροκίνητη δήλωση �
     Db::setPref($adminId, 'chat_reason', mb_substr($reason, 0, 80));
     Db::setPref($adminId, 'chat_until', (string) $untilS);
     Db::setPref($adminId, 'chat_set_at', (string) time());   // ποια δήλωση είναι πιο φρέσκια
-    out(['ok' => true, 'presence' => cnp_presence($adminId)]);
+    /* ΚΑΙ ΣΤΟ ΤΗΛΕΦΩΝΟ. Αν δηλώνεις «σε σύσκεψη» στο εργαλείο, δεν έχει νόημα
+       να συνεχίζει να χτυπάει το τηλέφωνο επειδή ξέχασες το δεύτερο πρόγραμμα. */
+    $syncM = Pbx3cxPresence::push($adminId, $stS);
+    out(['ok' => true, 'presence' => cnp_presence($adminId), 'pbx' => $syncM]);
 
 /* ============ 🏷 ΚΑΤΗΓΟΡΙΟΠΟΙΗΣΗ TICKETS (root-cause) ============ */
 case 'ticket_classify':                 // ο διαχειριστής/επικεφαλής ταξινομεί
