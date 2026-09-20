@@ -320,7 +320,10 @@ class Book
            ποτέ τις αγκύλες και να συνδέει απευθείας. Χωρίς κάλυψη → χωρίς αγκύλες. */
         $hint = self::routeHint($b);
         $last = trim((string) $b->last);
-        if ($last === '' && $hint !== '') { $last = trim((string) $b->company); }
+        /* Επαφή που είναι μόνο ΕΠΙΧΕΙΡΗΣΗ: η επωνυμία μπαίνει ως όνομα, αλλιώς η ρεσεψιόν
+           δεν βλέπει τίποτα ({{other_party_name}} = μόνο όνομα) και δεν την αναγνωρίζει. */
+        $isCompany = $last === '' && trim((string) $b->first) === '' && trim((string) $b->company) !== '';
+        if ($isCompany) { $last = trim((string) $b->company); $hint = trim('Εταιρεία ' . $hint); }
         /* ΜΕΤΡΗΘΗΚΕ: το 3CX δέχεται έως 50 χαρακτήρες σε CompanyName (LENGTH_NOT_MORE_50_CHARS)
            — οι μακριές επωνυμίες κόβονται εδώ, ο δικός μας κατάλογος τις κρατά ολόκληρες. */
         $body = ['FirstName' => mb_substr((string) $b->first, 0, 50),
