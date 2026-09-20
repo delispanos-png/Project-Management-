@@ -1626,6 +1626,11 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
 .tk-tab.on{color:var(--brand);border-bottom-color:var(--brand)}
 .tk-pane[hidden]{display:none}
 #tkPaneInfo{padding-bottom:10px}
+/* «Το έχουμε ξαναδεί»: κυλάει μόνο του, γιατί τα παρόμοια αιτήματα μαζί με τις
+   λύσεις τους ξεπερνούν εύκολα το ύψος της οθόνης. */
+#tkPaneSeen{padding:10px 13px 14px;overflow:auto;min-height:0}
+/* Ο ίδιος πελάτης που ξαναρωτά είναι προειδοποίηση, όχι απλή πληροφορία. */
+.tk-tab .kb-n.warn{background:var(--warn);color:#fff}
 @media (max-width:768px){ .tk-tabs{margin:6px 10px 0} .tk-tab{padding:7px 10px;font-size:12px} }
 
 /* ── Editor απάντησης: γραμμή εργαλείων Markdown ─────────────────────────

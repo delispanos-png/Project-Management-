@@ -496,7 +496,9 @@ function cnp_words($text, $max = 40)
         /* Θόρυβος από συνδέσμους και υπογραφές: υπάρχει σε κάθε μήνυμα και σε
            κάθε άρθρο, οπότε ταίριαζε άσχετα θέματα μεταξύ τους. */
         'https', 'http', 'www', 'com', 'net', 'org', 'gov', 'mailto', 'html', 'php', 'aspx', 'jpg', 'png',
-        'cloudon', 'support', 'team', 'mail', 'email'];
+        'cloudon', 'support', 'team', 'mail', 'email',
+        /* Σκελετός των tickets που γράφει η AI ρεσεψιόν — ίδιος σε όλα. */
+        'summary', 'notes', 'action', 'items'];
     $stop = array_flip(array_map(function ($w) {
         return strtr($w, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ό' => 'ο', 'ύ' => 'υ', 'ώ' => 'ω',
             'ϊ' => 'ι', 'ϋ' => 'υ', 'ΐ' => 'ι', 'ΰ' => 'υ', 'ς' => 'σ']);
@@ -1770,7 +1772,116 @@ function cnp_overlap(array $a, array $b)
  *
  * Καλύτερα τίποτα παρά λάθος άρθρο: κάτω από το κατώφλι δεν επιστρέφεται τίποτα.
  */
-function cnp_kb_suggest($text, $limit = 3, $floor = 3.0)
+/**
+ * Παρόμοια ΛΥΜΕΝΑ αιτήματα — με ζύγιση σπανιότητας (IDF), όπως η τράπεζα λύσεων.
+ *
+ * Το απλό «πόσες κοινές λέξεις» πρότεινε ό,τι να ’ναι: δύο κοινές λέξεις
+ * αρκούσαν για να περάσει ένα παλιό αίτημα, και λέξεις σαν «2026»,
+ * «ημερομηνία» ή «σχετικά» υπάρχουν σχεδόν σε κάθε ticket. Έτσι ένα αίτημα
+ * για πρόβλημα σε mail server πρότεινε «Αλλαγή συμμετοχής συνταγής».
+ *
+ * Τώρα κάθε κοινή λέξη μετράει όσο ΣΠΑΝΙΑ είναι μέσα στα ίδια τα αιτήματα:
+ * το «2026» σχεδόν καθόλου, ένα νούμερο τηλεφώνου ή το «rdns» πολύ. Κάτω από
+ * το κατώφλι δεν προτείνεται τίποτα — λάθος παραπομπή είναι χειρότερη από
+ * καμία, γιατί στέλνει τον συνάδελφο να διαβάσει άσχετη λύση.
+ *
+ * Ο ΙΔΙΟΣ πελάτης παίρνει προβάδισμα (μισή μονάδα), αλλά ΔΕΝ παρακάμπτει το
+ * κατώφλι: «το ξαναρώτησε» πρέπει να σημαίνει ότι όντως ρώτησε το ίδιο.
+ */
+function cnp_similar_tickets($tid, $tk, array $tw0, $limit = 4, $floor = 0.25)
+{
+    if (!$tw0) {
+        return [];
+    }
+    $cand = [];
+    $df = [];
+    foreach (Capsule::table('tbltickets')->where('id', '!=', $tid)
+        ->where('status', 'Closed')->orderBy('lastreply', 'desc')
+        ->limit(300)->get(['id', 'tid', 'title', 'message', 'userid', 'name', 'email', 'lastreply']) as $t9) {
+        $w = cnp_words($t9->title . ' ' . mb_substr((string) $t9->message, 0, 400), 60);
+        if (!$w) {
+            continue;
+        }
+        $cand[] = ['t' => $t9, 'w' => array_flip($w)];
+        foreach ($w as $x) {
+            $df[$x] = ($df[$x] ?? 0) + 1;
+        }
+    }
+    if (!$cand) {
+        return [];
+    }
+    /* Το ίδιο το αίτημα μετράει κι αυτό στο πλήθος: αλλιώς οι λέξεις που έχει
+       μόνο αυτό θα φαίνονταν «άγνωστες» αντί για μοναδικές. */
+    foreach ($tw0 as $w) { $df[$w] = ($df[$w] ?? 0) + 1; }
+    $n = count($cand) + 1;
+
+    /* ΛΕΞΕΙΣ ΠΟΥ ΔΕΝ ΜΠΟΡΟΥΝ ΝΑ ΤΑΙΡΙΑΞΟΥΝ ΜΕ ΤΙΠΟΤΑ ΔΕΝ ΜΕΤΡΑΝΕ.
+       Ένα αίτημα «rDNS request» είναι γεμάτο hostnames και IP που υπάρχουν
+       μόνο σε αυτό. Επειδή είναι σπανιότατα, το IDF τους έδινε τεράστιο βάρος:
+       γέμιζαν τον παρονομαστή και έπνιγαν τις πραγματικές κοινές λέξεις, οπότε
+       δύο ολόιδια αιτήματα rDNS έβγαιναν ανόμοια. Όποια λέξη εμφανίζεται σε ΕΝΑ
+       μόνο αίτημα αγνοείται — δεν μπορεί να αποδείξει ομοιότητα με κανένα. */
+    $w2 = function ($w) use ($n, $df) {
+        $d = $df[$w] ?? 0;
+        if ($d < 2) { return 0.0; }
+        $v = log(1 + $n / $d);
+        /* Τα σκέτα νούμερα (οκτάδες IP, αριθμοί τιμολογίων, χρονιές) μετράνε
+           υποδιπλάσια: σπάνια μεν, αλλά δεν λένε τίποτα για το ΘΕΜΑ. */
+        return pow(ctype_digit($w) ? $v * 0.4 : $v, 2);
+    };
+    /* ΚΑΝΟΝΙΚΟΠΟΙΗΣΗ. Με σκέτο άθροισμα, ένα ΜΕΓΑΛΟ κείμενο μάζευε βαθμούς
+       χωρίς να μοιάζει με τίποτα: τα αιτήματα που γράφει η AI ρεσεψιόν (40+
+       λέξεις) «ταίριαζαν» με τα πάντα. Τώρα μετράμε ΤΙ ΠΟΣΟΣΤΟ της ουσίας των
+       δύο κειμένων είναι κοινό (συνημίτονο) — ανεξάρτητα από το μήκος τους. */
+    $mq = 0.0;
+    foreach ($tw0 as $w) { $mq += $w2($w); }
+    $mq = sqrt(max(1e-9, $mq));
+    /* ΚΑΙ ΜΕ EMAIL, ΟΧΙ ΜΟΝΟ ΜΕ ΠΕΛΑΤΗ WHMCS. Τα περισσότερα αιτήματα έρχονται
+       με email από αποστολέα που δεν είναι εγγεγραμμένος πελάτης (userid = 0),
+       οπότε το «ο ίδιος πελάτης το έχει ξαναρωτήσει» δεν ενεργοποιούνταν ποτέ —
+       ούτε καν όταν ο ίδιος άνθρωπος ρωτούσε το ίδιο πράγμα τρίτη φορά. */
+    $myMail = mb_strtolower(trim((string) ($tk->email ?? '')));
+    $out = [];
+    foreach ($cand as $c) {
+        $same = $tk->userid
+            ? ((int) $c['t']->userid === (int) $tk->userid)
+            : ($myMail !== '' && mb_strtolower(trim((string) $c['t']->email)) === $myMail);
+        $dot = 0.0;
+        $hit = 0;
+        foreach ($tw0 as $w) {
+            if (isset($c['w'][$w]) && $w2($w) > 0) { $dot += $w2($w); $hit++; }
+        }
+        /* Μία και μόνη κοινή λέξη δεν είναι ομοιότητα, όσο σπάνια κι αν είναι —
+           εκτός αν το αίτημα είναι τόσο σύντομο που δεν έχει άλλες. */
+        if ($hit < 2 && count($tw0) > 4) {
+            continue;
+        }
+        $md = 0.0;
+        foreach (array_keys($c['w']) as $w) { $md += $w2($w); }
+        $sc = $dot / ($mq * sqrt(max(1e-9, $md)));
+        /* Ο ίδιος πελάτης κρίνεται πιο χαλαρά — εκεί η επανάληψη έχει νόημα
+           ακόμη κι αν το διατύπωσε αλλιώς. Χαλαρότερα, όχι ελεύθερα. */
+        if ($sc < ($same ? $floor * 0.75 : $floor)) {
+            continue;
+        }
+        $sol = (string) Capsule::table('tblticketreplies')->where('tid', $c['t']->id)
+            ->where('admin', '!=', '')->whereNotNull('admin')->orderBy('id', 'desc')->value('message');
+        $out[] = ['id' => (int) $c['t']->id, 'tid' => $c['t']->tid, 'title' => $c['t']->title,
+            'client' => $c['t']->userid ? clientLabel($c['t']->userid) : $c['t']->name,
+            'same' => $same, 'last' => substr($c['t']->lastreply, 0, 10),
+            'solution' => $sol ? mb_substr(trim(preg_replace('/\s+/u', ' ', strip_tags($sol))), 0, 700) : null,
+            'score' => round($sc, 3)];
+    }
+    usort($out, function ($a, $b) {
+        return ($b['same'] <=> $a['same']) ?: ($b['score'] <=> $a['score']);
+    });
+    return array_slice($out, 0, $limit);
+}
+
+/* Κατώφλι σε ΠΟΣΟΣΤΟ κάλυψης, όχι σε βαθμούς: μετρήθηκε σε 377 άρθρα ότι το
+   σωστό άρθρο βγαίνει πρώτο στο 95% ακόμη και στο 0,35 — άρα το 0,30 κόβει
+   θόρυβο χωρίς να χάνει πραγματικά ταιριάσματα. */
+function cnp_kb_suggest($text, $limit = 3, $floor = 0.30)
 {
     static $idf = null, $docs = null;
 
@@ -1802,6 +1913,19 @@ function cnp_kb_suggest($text, $limit = 3, $floor = 3.0)
         return [];
     }
 
+    /* ΚΑΝΟΝΙΚΟΠΟΙΗΣΗ ΣΤΟ ΜΗΚΟΣ ΤΟΥ ΑΙΤΗΜΑΤΟΣ. Με σκέτο άθροισμα, όσο πιο μακρύ
+       το κείμενο τόσο πιο «σχετικό» φαινόταν κάθε άρθρο: τα αιτήματα που γράφει
+       η AI ρεσεψιόν (40+ λέξεις) πιάνονταν σε κοινές λέξεις όπως «εκτός»,
+       «στοιχεία», «ημερομηνία» και πρότειναν «Tax free» σε βλάβη mail server.
+       Τώρα το σκορ λέει ΤΙ ΠΟΣΟΣΤΟ της ουσίας του αιτήματος καλύπτει το άρθρο. */
+    $mq = 0.0;
+    foreach ($tw as $w) {
+        if (!ctype_digit($w)) { $mq += $idf[$w] ?? 0; }
+    }
+    if ($mq <= 0) {
+        return [];
+    }
+
     $out = [];
     foreach ($docs as $d) {
         $sc = 0.0; $hits = []; $headHits = 0;
@@ -1815,11 +1939,12 @@ function cnp_kb_suggest($text, $limit = 3, $floor = 3.0)
             if (isset($d['head'][$w]))      { $sc += $iw * 2.0; $hits[] = $w; $headHits++; }
             elseif (isset($d['body'][$w]))  { $sc += $iw * 0.6; $hits[] = $w; }
         }
+        $sc /= $mq;
         /* Απαιτούμε τουλάχιστον μία λέξη στον ΤΙΤΛΟ ή στις λέξεις-κλειδιά: μόνο
            με λέξεις από το σώμα, το ταίριασμα είναι σύμπτωση, όχι θέμα. */
         if ($sc >= $floor && count($hits) >= 2 && $headHits >= 1) {
             $out[] = ['id' => $d['id'], 'title' => $d['title'], 'solution' => $d['solution'],
-                'score' => round($sc, 1), 'words' => array_slice(array_unique($hits), 0, 6)];
+                'score' => round($sc, 3), 'words' => array_slice(array_unique($hits), 0, 6)];
         }
     }
     usort($out, function ($a, $b) { return $b['score'] <=> $a['score']; });
@@ -10149,28 +10274,7 @@ case 'ticket':
             /* Ταιριάζουμε τίτλο ΚΑΙ σώμα του παλιού αιτήματος: ο ίδιος πελάτης
                σπάνια γράφει τον ίδιο τίτλο δύο φορές, αλλά περιγράφει το ίδιο
                πρόβλημα. Με μόνο τον τίτλο χάναμε τις επαναλήψεις. */
-            foreach (Capsule::table('tbltickets')->where('id', '!=', $tid)
-                ->where('status', 'Closed')->orderBy('lastreply', 'desc')
-                ->limit(300)->get(['id', 'tid', 'title', 'message', 'userid', 'name', 'lastreply']) as $t9) {
-                $same = ($tk->userid && (int) $t9->userid === (int) $tk->userid);
-                $sc = cnp_overlap($tw0, cnp_words($t9->title . ' ' . mb_substr((string) $t9->message, 0, 400)));
-                if ($sc <= 0) { continue; }
-                /* Η λύση είναι η τελευταία ΔΙΚΗ ΜΑΣ απάντηση: εκεί καταλήγει
-                   πάντα το «τι κάναμε». */
-                $sol = (string) Capsule::table('tblticketreplies')->where('tid', $t9->id)
-                    ->where('admin', '!=', '')->whereNotNull('admin')->orderBy('id', 'desc')->value('message');
-                $suggest['similar'][] = ['id' => (int) $t9->id, 'tid' => $t9->tid, 'title' => $t9->title,
-                    'client' => $t9->userid ? clientLabel($t9->userid) : $t9->name,
-                    'same' => $same, 'last' => substr($t9->lastreply, 0, 10),
-                    'solution' => $sol ? mb_substr(trim(preg_replace('/\s+/u', ' ', strip_tags($sol))), 0, 700) : null,
-                    'score' => $sc];
-            }
-            /* Ο ΙΔΙΟΣ πελάτης που ξαναρωτά προηγείται πάντα: εκεί έχει νόημα η
-               παραπομπή «το έχετε ξαναρωτήσει, δείτε τι κάναμε». */
-            usort($suggest['similar'], function ($a, $b) {
-                return ($b['same'] <=> $a['same']) ?: ($b['score'] <=> $a['score']);
-            });
-            $suggest['similar'] = array_slice($suggest['similar'], 0, 4);
+            $suggest['similar'] = cnp_similar_tickets($tid, $tk, $tw0);
             $suggest['repeat'] = count(array_filter($suggest['similar'], function ($x) { return $x['same']; }));
         }
     } catch (\Throwable $e) {
