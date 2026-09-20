@@ -149,13 +149,13 @@ namespace CloudOnNew
             
         }
 
-      /* ── CloudOn: ΔΡΟΜΟΛΟΓΗΣΗ ΕΦΕΔΡΕΙΑΣ (806) ─────────────────────────────
+      /* ── CloudOn: ΜΕΤΑ ΤΗΝ ΑΝΑΠΑΝΤΗΤΗ ΟΥΡΑ (809) ──────────────────────────────
          Παράγεται από το panel (Pbx3cxBlueprint::cfaScript) — ΜΗΝ το επεξεργαστείς
          στο 3CX, θα ξαναγραφτεί. Ωράρια και αργίες ίδια με την AI ρεσεψιόν:
-           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) [η ουρά: → CloudOn → 809]
-           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}}) [η ουρά: → 809]
+           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) → CloudOn ({{Q_CLOUDON}}) → «κατειλημμένοι, 1 για επανάκληση» → AI {{Q_CB}}
+           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}}) → «κατειλημμένοι, 1 για επανάκληση» → AI {{Q_CB}}
            αλλιώς    μήνυμα «δεν λειτουργούμε» → κλείσιμο (ΧΩΡΙΣ θυρίδα, απόφαση 20/09/2026)
-         Το «όλοι κατειλημμένοι, 1 για επανάκληση» είναι στο 809 (εκεί στέλνουν οι ουρές). */
+         Οι ουρές έχουν δικό τους ωράριο/αργίες στο κέντρο. */
       private static readonly HashSet<int> HolidaysEveryYear = new HashSet<int> { {{HOLIDAYS_REC}} };
       private static readonly HashSet<int> HolidaysOnce = new HashSet<int> { {{HOLIDAYS_ONCE}} };
 
@@ -229,30 +229,21 @@ namespace CloudOnNew
          scope = CfdModule.Instance.CreateScope(callflow, myCall, logHeader);
 
          {
+            /* ΤΙ ΓΙΝΕΤΑΙ ΟΤΑΝ ΚΑΝΕΙΣ ΔΕΝ ΑΠΑΝΤΗΣΕΙ (809). Εδώ στέλνουν ΟΛΕΣ οι ουρές τις
+               αναπάντητες κλήσεις τους (και το Emergency ό,τι πέσει εκτός ωραρίου του).
+               Μέσα στο ωράριο: «όλοι κατειλημμένοι, 1 για επανάκληση» → AI Επανάκληση.
+               Εκτός ωραρίου / αργία: «δεν λειτουργούμε» και κλείσιμο. Ποτέ θυρίδα. */
             ConditionalComponent Mode = scope.CreateComponent<ConditionalComponent>("Mode");
             mainFlowComponentList.Add(Mode);
 
-            /* Γραφείο: χαιρετισμός → ουρά Support. Τη συνέχεια (CloudOn → «κατειλημμένοι») την
-               ορίζουν οι ίδιες οι ουρές: η μεταβίβαση προς ουρά «πετυχαίνει» αμέσως, το script
-               δεν μαθαίνει ποτέ αν απάντησε κάποιος. */
-            Mode.ConditionList.Add(() => { return Convert.ToBoolean(IsOffice()); });
-            Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_office"));
-            Mode.ContainerList[0].ComponentList.Add(Play("GreetOffice", "CloudOnNewIVR.wav"));
-            Mode.ContainerList[0].ComponentList.Add(Transfer("ToSupport", "{{Q_SUPPORT}}"));
+            Mode.ConditionList.Add(() => { return Convert.ToBoolean(IsOffice() || IsEmergency()); });
+            Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_busy"));
+            AddBusyMenu((SequenceContainerComponent) Mode.ContainerList[0], "");
 
-            /* Απόγευμα / Σάββατο: για τον πελάτη είμαστε ανοιχτά — ίδιος χαιρετισμός, ουρά Emergency. */
-            Mode.ConditionList.Add(() => { return Convert.ToBoolean(IsEmergency()); });
-            Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_emergency"));
-            Mode.ContainerList[1].ComponentList.Add(Play("GreetEmergency", "CloudOnNewIVR.wav"));
-            Mode.ContainerList[1].ComponentList.Add(Transfer("ToEmergency", "{{Q_EMERG}}"));
-
-            /* Εκτός λειτουργίας: μήνυμα → κλείσιμο. Τρίτος κλάδος (αλλιώς), ώστε να ΜΗΝ
-               ακούγεται μετά το μενού «κατειλημμένοι» των άλλων δύο. */
             Mode.ConditionList.Add(() => { return true; });
             Mode.ContainerList.Add(scope.CreateComponent<SequenceContainerComponent>("Mode_closed"));
-            Mode.ContainerList[2].ComponentList.Add(Play("Closed", "CloudOnNewCoIVP.wav"));
+            Mode.ContainerList[1].ComponentList.Add(Play("Closed", "CloudOnNewCoIVP.wav"));
          }
-
          // Add a final DisconnectCall component to the main and error handler flows, in order to complete pending prompt playbacks...
          DisconnectCallComponent mainAutoAddedFinalDisconnectCall = scope.CreateComponent<DisconnectCallComponent>("mainAutoAddedFinalDisconnectCall");
          DisconnectCallComponent errorHandlerAutoAddedFinalDisconnectCall = scope.CreateComponent<DisconnectCallComponent>("errorHandlerAutoAddedFinalDisconnectCall");
@@ -285,7 +276,7 @@ namespace CloudOnNew
       public override void Start()
       {
          string callID = MyCall?.Caller["chid"] ?? "Unknown";
-         string logHeader = $"CloudOnNew - CallID {callID}";
+         string logHeader = $"CloudOnAfter - CallID {callID}";
          this.logFormatter = new LogFormatter(MyCall, logHeader, "Callflow");
          this.promptQueue = new PromptQueue(this, MyCall, "CloudOnNew", logHeader);
          this.tempWavFileManager = new TempWavFileManager(logFormatter);

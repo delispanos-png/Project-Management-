@@ -198,24 +198,26 @@ class Pbx3cxBlueprint
      *
      * Μία ουρά ανά ΘΕΜΑ (self::TOPICS), όλες με Hunt = η σειρά των χειριστών
      * είναι νόμος. Εκτός ωραρίου η ουρά η ίδια προωθεί στο Emergency
-     * (OutOfOfficeRoute), και το Emergency εκτός του δικού του ωραρίου στο
-     * κουτί αιτημάτων (voicemail 900). Αναπάντητη μέσα στο ωράριο → voicemail 900.
+     * (OutOfOfficeRoute), και το Emergency εκτός του δικού του ωραρίου στο script
+     * 809 (μήνυμα «δεν λειτουργούμε»). Αναπάντητη → 809 (μενού επανάκλησης). Ποτέ θυρίδα.
      * Οι ουρές 801/802/803 μένουν ως έχουν — δεν τις χρησιμοποιεί η AI.
      */
     public static function queues()
     {
-        $vmTicket = self::dest('VoiceMail', self::TICKET_DN);
+        /* ΚΑΜΙΑ ΘΥΡΙΔΑ (απόφαση 20/09/2026): αναπάντητη → script 809 («όλοι κατειλημμένοι,
+           1 για επανάκληση»). Η Support πρώτα δοκιμάζει την CloudOn, όπως ζητήθηκε. */
+        $after = self::dest('RoutePoint', self::AFTER_DN);
         $out = [];
         foreach (self::TOPICS as $num => $t) {
             $out[$num] = ['Name' => $t['name'], 'PollingStrategy' => 'Hunt', 'RingTimeout' => 20,
                 'MasterTimeout' => 120, 'Agents' => $t['agents'], 'Managers' => ['201'],
-                'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('Queue', '804'),
+                'ForwardNoAnswer' => $num === '810' ? self::dest('Queue', '811') : $after, 'OutOfOfficeRoute' => self::route('Queue', '804'),
                 'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true,
                 'PromptSet' => self::PROMPT_SET_EL, 'OnHoldFile' => self::HOLD_MUSIC];
         }
         $out['804'] = ['Name' => 'Emergency', 'Agents' => ['201', '202'], 'Managers' => ['201'],
-            'ForwardNoAnswer' => $vmTicket, 'OutOfOfficeRoute' => self::route('VoiceMail', self::TICKET_DN),
-            'HolidaysRoute' => self::route('VoiceMail', self::TICKET_DN), 'PromptSet' => self::PROMPT_SET_EL];
+            'ForwardNoAnswer' => $after, 'OutOfOfficeRoute' => self::route('RoutePoint', self::AFTER_DN),
+            'HolidaysRoute' => self::route('RoutePoint', self::AFTER_DN), 'PromptSet' => self::PROMPT_SET_EL];
         return $out;
     }
 
@@ -245,7 +247,8 @@ class Pbx3cxBlueprint
                 'HumanHandoff' => $dir('811', 'CloudOn', 'Queue', 'Άνθρωπος της CloudOn'),
                 /* ΜΕΤΡΗΘΗΚΕ (web client 3CX): Action ∈ endcall | transfer | voicemail | chat | email.
                    Το «voicemail» πάει κατευθείαν στη θυρίδα, χωρίς έλεγχο διαθεσιμότητας. */
-                'AgentFallback' => ['Number' => self::TICKET_DN, 'Action' => 'voicemail', 'Tags' => []],
+                /* Απόφαση 20/09 (βράδυ): ΚΑΜΙΑ θυρίδα — αν δεν μπορεί να μεταβιβάσει, καταχωρεί αίτημα η ίδια. */
+                'AgentFallback' => ['Number' => '', 'Action' => 'endcall', 'Tags' => []],
                 'CheckStatusBeforeTransfer' => true,
                 'EnableNameMatching' => true,
                 /* ΜΕΤΡΗΘΗΚΕ (20/09 01:57): με Notify=chat το «μήνυμα εστάλη» της ρεσεψιόν
@@ -542,11 +545,14 @@ TXT;
        (CallFlowApps.ScriptCode). Το κέντρο μεταγλωττίζει και μας λέει αν πέτυχε·
        πριν αγγίξουμε το 806 δοκιμάζουμε σε προσωρινή εφαρμογή. */
     const CFA_TEST_DN = '898';
+    /** Το script «μετά την αναπάντητη ουρά»: εκεί στέλνουν οι ουρές ό,τι δεν απαντήθηκε. */
+    const AFTER_DN = '809';   // (το 805 είναι το ring group «Door Phone»)
+    const CFA_NAMES = ['806' => 'cloudonnew', '809' => 'cloudonafter'];
 
     /** Το script του 806, έτοιμο για το κέντρο. */
-    public static function cfaScript()
+    public static function cfaScript($dn = self::SCRIPT_DN)
     {
-        $tpl = file_get_contents(__DIR__ . '/cfa/806.cs.tpl');
+        $tpl = file_get_contents(__DIR__ . '/cfa/' . $dn . '.cs.tpl');
         $rec = []; $once = [];
         foreach (self::holidays() as $h) {
             if ($h['IsRecurrent']) { $rec[] = $h['Month'] * 100 + $h['Day']; }
@@ -594,11 +600,14 @@ TXT;
     {
         $L = [];
         try { $L['pbset'] = Pbx3cxClient::xapi('PhonebookSettings'); } catch (\Throwable $e) { $L['pbset'] = []; }
-        try {
-            $c = Pbx3cxClient::xapi('CallFlowApps', ['$top' => 1, '$filter' => "Number eq '" . self::SCRIPT_DN . "'",
-                '$select' => 'Id,Number,Name,ScriptCode,CompilationSucceeded,CompilationResult,CompilationLastSuccess']);
-            $L['cfa'] = $c['value'][0] ?? null;
-        } catch (\Throwable $e) { $L['cfa'] = null; }
+        $L['cfa'] = [];
+        foreach (array_keys(self::CFA_NAMES) as $dn) {
+            try {
+                $c = Pbx3cxClient::xapi('CallFlowApps', ['$top' => 1, '$filter' => "Number eq '" . $dn . "'",
+                    '$select' => 'Id,Number,Name,ScriptCode,CompilationSucceeded,CompilationResult,CompilationLastSuccess']);
+                $L['cfa'][$dn] = $c['value'][0] ?? null;
+            } catch (\Throwable $e) { $L['cfa'][$dn] = null; }
+        }
         $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours,PromptSet',
             '$expand' => 'Members($select=Id,Number,Type),OfficeHolidays']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
@@ -1091,31 +1100,36 @@ TXT;
                 }
             }];
 
-        /* 7. Η εφεδρική δρομολόγηση 806 ως κώδικας. */
-        $S[] = ['key' => 'cfa_806', 'label' => 'Εφεδρική δρομολόγηση ' . self::SCRIPT_DN . ' (script): ωράρια & αργίες της ρεσεψιόν, Support→CloudOn / Emergency, όλοι κατειλημμένοι → «1» για επανάκληση (904), εκτός ωραρίου μόνο μήνυμα',
-            'risk' => 'low',
-            'check' => function ($L) {
-                $c = $L['cfa'] ?? null;
-                if (!$c) { return ['change', 'δεν βρέθηκε η εφαρμογή ροής ' . self::SCRIPT_DN]; }
-                if (self::cfaNorm($c['ScriptCode'] ?? '') !== self::cfaNorm(self::cfaScript())) { return ['change', 'το script στο κέντρο διαφέρει από το σχέδιο — θα ξαναγραφτεί']; }
-                return [!empty($c['CompilationSucceeded']) ? 'ok' : 'change',
-                        !empty($c['CompilationSucceeded']) ? 'ίδιο με το σχέδιο, μεταγλωττισμένο ' . substr((string) ($c['CompilationLastSuccess'] ?? ''), 0, 16) : 'ίδιο με το σχέδιο αλλά ΔΕΝ μεταγλωττίζει'];
-            },
-            'apply' => function ($L) {
-                $c = $L['cfa'] ?? null;
-                if (!$c) { throw new \RuntimeException('Δεν υπάρχει εφαρμογή ροής ' . self::SCRIPT_DN . ' στο κέντρο'); }
-                $code = self::cfaScript();
-                /* Πρώτα σε προσωρινή εφαρμογή: αν δεν μεταγλωττίζει, το 806 μένει όπως είναι. */
-                $tmp = Pbx3cxClient::xwrite('POST', 'CallFlowApps', ['Number' => self::CFA_TEST_DN, 'Name' => 'cloudontest']);
-                try { $t = self::cfaCompile((int) $tmp['Id'], $code); }
-                finally { try { Pbx3cxClient::xwrite('DELETE', 'CallFlowApps(' . (int) $tmp['Id'] . ')'); } catch (\Throwable $e) {} }
-                if (!$t['ok']) { throw new \RuntimeException('Το script δεν μεταγλωττίζει (δοκιμή σε ' . self::CFA_TEST_DN . '): ' . $t['msg']); }
-                $r = self::cfaCompile((int) $c['Id'], $code);
-                if (!$r['ok']) { throw new \RuntimeException('Το ' . self::SCRIPT_DN . ' δεν μεταγλωττίζει: ' . $r['msg']); }
-                Pbx3cxClient::log('blueprint', 'ok', 'Εφεδρική δρομολόγηση ' . self::SCRIPT_DN . ': νέο script, ' . $r['msg']);
-            }];
-
-
+        /* 7. Τα scripts του κέντρου ως κώδικας: 806 (εφεδρική δρομολόγηση) και 809 (μετά
+           την αναπάντητη ουρά). Το 809 ΠΡΩΤΟ — οι ουρές δείχνουν σε αυτό. */
+        foreach ([self::AFTER_DN => 'Μετά την αναπάντητη ουρά (script ' . self::AFTER_DN . '): «όλοι κατειλημμένοι, 1 για επανάκληση» → AI ' . self::CB_DN . ', εκτός ωραρίου μόνο μήνυμα',
+                  self::SCRIPT_DN => 'Εφεδρική δρομολόγηση (script ' . self::SCRIPT_DN . '): ωράρια & αργίες της ρεσεψιόν, γραφείο → Support, απόγευμα → Emergency, εκτός ωραρίου μόνο μήνυμα'] as $dn => $label) {
+            $S[] = ['key' => 'cfa_' . $dn, 'label' => $label,
+                'risk' => 'low',
+                'check' => function ($L) use ($dn) {
+                    $c = $L['cfa'][$dn] ?? null;
+                    if (!$c) { return ['change', 'δεν υπάρχει η εφαρμογή ροής ' . $dn . ' — θα δημιουργηθεί']; }
+                    if (self::cfaNorm($c['ScriptCode'] ?? '') !== self::cfaNorm(self::cfaScript($dn))) { return ['change', 'το script στο κέντρο διαφέρει από το σχέδιο — θα ξαναγραφτεί']; }
+                    return [!empty($c['CompilationSucceeded']) ? 'ok' : 'change',
+                            !empty($c['CompilationSucceeded']) ? 'ίδιο με το σχέδιο, μεταγλωττισμένο ' . substr((string) ($c['CompilationLastSuccess'] ?? ''), 0, 16) : 'ίδιο με το σχέδιο αλλά ΔΕΝ μεταγλωττίζει'];
+                },
+                'apply' => function ($L) use ($dn) {
+                    $code = self::cfaScript($dn);
+                    /* Πρώτα σε προσωρινή εφαρμογή: αν δεν μεταγλωττίζει, το ζωντανό δεν αγγίζεται. */
+                    $tmp = Pbx3cxClient::xwrite('POST', 'CallFlowApps', ['Number' => self::CFA_TEST_DN, 'Name' => 'cloudontest']);
+                    try { $t = self::cfaCompile((int) $tmp['Id'], $code); }
+                    finally { try { Pbx3cxClient::xwrite('DELETE', 'CallFlowApps(' . (int) $tmp['Id'] . ')'); } catch (\Throwable $e) {} }
+                    if (!$t['ok']) { throw new \RuntimeException('Το script ' . $dn . ' δεν μεταγλωττίζει (δοκιμή σε ' . self::CFA_TEST_DN . '): ' . $t['msg']); }
+                    $c = $L['cfa'][$dn] ?? null;
+                    if (!$c) {
+                        $c = Pbx3cxClient::xwrite('POST', 'CallFlowApps', ['Number' => $dn, 'Name' => self::CFA_NAMES[$dn]]);
+                        Pbx3cxClient::log('blueprint', 'ok', 'Δημιουργήθηκε η εφαρμογή ροής ' . $dn . ' «' . self::CFA_NAMES[$dn] . '»');
+                    }
+                    $r = self::cfaCompile((int) $c['Id'], $code);
+                    if (!$r['ok']) { throw new \RuntimeException('Το ' . $dn . ' δεν μεταγλωττίζει: ' . $r['msg']); }
+                    Pbx3cxClient::log('blueprint', 'ok', 'Script ' . $dn . ': νέος κώδικας, ' . $r['msg']);
+                }];
+        }
         /* 7. ΔΡΟΜΟΛΟΓΗΣΗ — ξεχωριστό, ρητό βήμα. Όλες οι εισερχόμενες → AI ρεσεψιόν. */
         $S[] = ['key' => 'route_ai', 'label' => 'Δρομολόγηση εισερχομένων → AI ρεσεψιόν (902) αντί για το script 806',
             'risk' => 'route',
