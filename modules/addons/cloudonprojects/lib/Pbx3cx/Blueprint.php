@@ -178,7 +178,7 @@ class Pbx3cxBlueprint
 
     public static function emergencyHours()
     {
-        $w = ['17:01', '20:00'];
+        $w = ['17:00', '20:00'];
         return self::hours(['Monday' => $w, 'Tuesday' => $w, 'Wednesday' => $w, 'Thursday' => $w,
             'Friday' => $w, 'Saturday' => ['09:30', '14:00']]);
     }
@@ -294,7 +294,7 @@ class Pbx3cxBlueprint
         $dow = (int) date('N', $ts);            // 1 = Δευτέρα … 7 = Κυριακή
         $hm = date('H:i', $ts);
         if ($dow <= 5 && $hm >= '09:00' && $hm < '17:00') { return 'office'; }
-        if ($dow <= 5 && $hm >= '17:01' && $hm < '20:00') { return 'emergency'; }
+        if ($dow <= 5 && $hm >= '17:00' && $hm < '20:00') { return 'emergency'; }
         if ($dow === 6 && $hm >= '09:30' && $hm < '14:00') { return 'emergency'; }
         return 'closed';
     }
