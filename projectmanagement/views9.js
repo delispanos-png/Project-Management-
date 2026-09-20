@@ -303,6 +303,10 @@ const fWire = (st, defs, redraw) => {
   });
 };
 
+/* Διαθέσιμα σε ΟΛΑ τα view modules: η γραμμή φίλτρων είναι κοινό πρότυπο, όχι
+   ιδιοκτησία αυτού του αρχείου. Βλ. docs/UI-STANDARD.md. */
+Object.assign(window.CNP, {fChip, fSel, fAdd, fWire});
+
 const callHm = s2 => {
   s2 = Math.max(0, +s2 || 0);
   const h = Math.floor(s2 / 3600), m = Math.floor(s2 % 3600 / 60);
