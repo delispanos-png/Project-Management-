@@ -72,8 +72,8 @@ class Pbx3cxBlueprint
 
     /** Μοντέλο φωνής (realtime). Διαθέσιμα στο PBX: gpt-realtime-2.1, -2, -1.5, -2.1-mini. */
     const AI_REALTIME = 'gpt-realtime-2.1';
-    /** Μοντέλο κειμένου του AI (βοηθητικές αποφάσεις, όχι φωνή). Το gpt-5.2 καταργήθηκε από το OpenAI (20/09/2026)· mini = οικονομικό. */
-    const AI_COMPLETION = 'gpt-5.4-mini';
+    /** Μοντέλο κειμένου του AI (βοηθητικές αποφάσεις, όχι φωνή). Το gpt-5.2 καταργήθηκε από το OpenAI (20/09/2026). */
+    const AI_COMPLETION = 'gpt-5.5';   // ΜΕΤΡΗΘΗΚΕ: το κέντρο δέχεται μόνο gpt-5.5 και gpt-5.6-sol/terra/luna
 
     /** Βάση γνώσης της ρεσεψιόν: τα .md στον φάκελο kb/ — ΕΔΩ αλλάζει τι ξέρει. */
     const KB_NAME  = 'CloudOn Ρεσεψιόν';
