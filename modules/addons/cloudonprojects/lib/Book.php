@@ -313,7 +313,15 @@ class Book
         /* Το 3CX έχει ΣΥΓΚΕΚΡΙΜΕΝΑ πεδία τηλεφώνου. Στέλνουμε το καθένα στο
            δικό του· τα επιπλέον της ίδιας ετικέτας δεν χωράνε και μένουν μόνο
            εδώ — γι' αυτό ο κατάλογός μας είναι ο πλήρης. */
-        $body = ['FirstName' => (string) $b->first, 'LastName' => (string) $b->last,
+        /* Η AI ρεσεψιόν βλέπει από το 3CX ΜΟΝΟ το όνομα της επαφής ({{other_party_name}}).
+           Γι' αυτό η «ουρά του πελάτη» ταξιδεύει μέσα στο επώνυμο, σε αγκύλες, π.χ.
+           «Παπαδοπούλου [Support]»: καλύπτεται από υποστήριξη και τα προϊόντα του πάνε σε
+           μία ουρά (ή έχει «πάντα σε»). Οι οδηγίες λένε στη ρεσεψιόν να μη διαβάζει
+           ποτέ τις αγκύλες και να συνδέει απευθείας. Χωρίς κάλυψη → χωρίς αγκύλες. */
+        $hint = self::routeHint($b);
+        $last = trim((string) $b->last);
+        if ($last === '' && $hint !== '') { $last = trim((string) $b->company); }
+        $body = ['FirstName' => (string) $b->first, 'LastName' => $last . ($hint !== '' ? ' [' . $hint . ']' : ''),
                  'CompanyName' => (string) $b->company, 'Email' => (string) $b->email,
                  'Title' => (string) $b->title];
         foreach ($labels as $k => $v) { $body[$v[1]] = ''; }
@@ -325,6 +333,10 @@ class Book
             $used[$field] = 1;
         }
         if (!$used) { return ['ok' => false, 'why' => 'χωρίς τηλέφωνο']; }
+        /* ΜΕΤΡΗΘΗΚΕ (20/09/2026): το 3CX απορρίπτει επαφή χωρίς PhoneNumber (το «Κύριο»)
+           με CONTACTS_SPECIFY_PHONE_NUMBER — αυτό ήταν το «σκάσιμο» στην αποθήκευση για
+           καρτέλες που είχαν μόνο κινητό. Το πρώτο τηλέφωνο μπαίνει και ως Κύριο. */
+        if (empty($body['PhoneNumber'])) { $body['PhoneNumber'] = (string) $phones[0]->e164; }
 
         try {
             if ($b->pbx_id) {
@@ -342,6 +354,21 @@ class Book
                 ->update(['pbx_error' => mb_substr($e->getMessage(), 0, 200)]);
             return ['ok' => false, 'why' => $e->getMessage()];
         }
+    }
+
+    /** Η ουρά στην οποία πάει ο πελάτης χωρίς ερωτήσεις — ή '' αν δεν είναι μονοσήμαντο. */
+    public static function routeHint($b)
+    {
+        if ((int) ($b->support_cover ?? 0) !== 1) { return ''; }
+        if (!class_exists(__NAMESPACE__ . '\Route') || !class_exists(__NAMESPACE__ . '\Pbx3cxBlueprint')) { return ''; }
+        $dn = trim((string) ($b->route_dn ?? ''));
+        if ($dn === '') {
+            $dns = [];
+            foreach (Route::parseProducts($b->products ?? '') as $p) { $dns[Route::PRODUCTS[$p][1]] = true; }
+            if (count($dns) !== 1) { return ''; }
+            $dn = (string) array_key_first($dns);
+        }
+        return isset(Pbx3cxBlueprint::TOPICS[$dn]) ? Pbx3cxBlueprint::TOPICS[$dn]['name'] : '';
     }
 
     /** Αφαίρεση από το τηλεφωνικό κέντρο (η καρτέλα μένει). */

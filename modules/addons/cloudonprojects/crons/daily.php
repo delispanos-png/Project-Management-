@@ -281,10 +281,16 @@ try {
     require_once __DIR__ . '/../lib/Pbx3cx/Sync.php';
     if (\WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient::configured()) {
         $sy = \WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync::run();
-        /* ΚΑΤΑΡΓΗΘΗΚΕ (20/09/2026) η αποστολή του καταλόγου στο 3CX — έσκαγε και
-           δεν χρειάζεται. Ο κατάλογος είναι μόνο δικός μας. */
+        /* Ο κατάλογος φτάνει στο 3CX στο παρασκήνιο (ό,τι άλλαξε ή δεν πρόλαβε):
+           από εκεί η AI ρεσεψιόν αναγνωρίζει τον καλούντα. Αθόρυβο, ποτέ δεν ρίχνει το cron. */
         require_once __DIR__ . '/../lib/Pbx3cx/Cdr.php';
         require_once __DIR__ . '/../lib/Book.php';
+        try {
+            $bk = \WHMCS\Module\Addon\CloudonProjects\Book::pushPending(300);
+            if (function_exists('logActivity') && ($bk['sent'] || $bk['failed'])) {
+                logActivity('CPM daily: κατάλογος → 3CX — στάλθηκαν ' . $bk['sent'] . ($bk['failed'] ? ', απέτυχαν ' . $bk['failed'] : ''));
+            }
+        } catch (\Throwable $e) { echo "  κατάλογος → 3CX: " . $e->getMessage() . "\n"; }
         \WHMCS\Module\Addon\CloudonProjects\Book::refreshLastCall();
         if (function_exists('logActivity')) {
             logActivity('CPM daily: 3CX δομή — νέα ' . $sy['new'] . ', ενημ. ' . $sy['updated']
