@@ -24,3 +24,16 @@ RewriteCond $0#%{REQUEST_URI} ([^#]*)#(.*)\1$
 RewriteRule ^.*$ %2index.php [QSA,L]
 </IfModule>
 ### END - WHMCS managed rules - DO NOT EDIT BETWEEN WHMCS MARKERS ###
+
+### CloudOn — ΕΚΤΟΣ ΤΩΝ ΜΑΡΚΕΡΩΝ ΤΟΥ WHMCS (μη τα πειράξεις) ###
+# Εσωτερικά έγγραφα στη ρίζα (UPGRADE.md 159 KB κ.λπ.): δεν έχουν λόγο να
+# διαβάζονται από το internet.
+<FilesMatch "\.(md|markdown|sql|sh|bak|old|orig|log|yml|yaml|lock|dist)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
