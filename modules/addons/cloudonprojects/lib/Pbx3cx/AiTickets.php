@@ -110,8 +110,10 @@ class AiTickets
             $out['decision'] = 'empty'; $out['reason'] = 'ο καλών δεν είπε ουσιαστικά τίποτα'; return $out;
         }
         $all = $caller . "\n" . preg_replace('/Αυτόματο μήνυμα[^\n]*/u', '', $sum);
-        /* Μίλησε με άνθρωπο; Τότε ο άνθρωπος καταγράφει, όχι εμείς. */
-        if ($e164 !== '' && Capsule::table('mod_cpm_calls')->where('other_e164', $e164)->where('answered', 1)
+        /* Μίλησε με άνθρωπο; Τότε ο άνθρωπος καταγράφει, όχι εμείς.
+           ΠΡΟΣΟΧΗ (μετρήθηκε 03:10): το Report μετρά πλέον και την AI ως «answered=1».
+           Άνθρωπος = σκέλος με ΣΥΝΑΔΕΛΦΟ (admin_id), όχι η σημαία answered. */
+        if ($e164 !== '' && Capsule::table('mod_cpm_calls')->where('other_e164', $e164)->whereNotNull('admin_id')->where('admin_id', '>', 0)
             ->whereBetween('started_at', [date('Y-m-d H:i:s', $start - 120), date('Y-m-d H:i:s', $start + 900)])->exists()) {
             $out['decision'] = 'human'; $out['reason'] = 'απάντησε συνάδελφος'; return $out;
         }

@@ -134,7 +134,7 @@ R.pbx = async function () {
           <span class="pbx-ait mut">${esc(x.at)}</span>
           <span class="pbx-ain">${esc(x.otherName || x.other || '—')}${x.otherName && x.other ? `<span class="mut">${esc(x.other)}</span>` : ''}</span>
           <span class="mut">${callHm(x.seconds)}</span>
-          <span class="pbx-ais">${x.net && x.net.ticket ? `<a class="pbx-aitk" href="#/inbox/${x.net.ticketId}" title="${esc(x.net.reason)}">ticket #${esc(x.net.ticket)}</a> ` : (x.net && x.net.decision === 'ticket' ? '<span class="pbx-aitk bad">ticket δεν άνοιξε</span> ' : '')}${x.summary ? esc(x.summary.slice(0, 140)) : (x.transcribed ? '<span class="mut">χωρίς περίληψη</span>' : '<span class="mut">χωρίς κείμενο</span>')}</span>
+          <span class="pbx-ais">${x.net && x.net.ticket ? `<a class="pbx-aitk" href="#/inbox/${x.net.ticketId}" title="${esc(x.net.reason)}">ticket #${esc(x.net.ticket)}</a> ` : (x.net && x.net.deleted ? '<span class="pbx-aitk mut" title="Το ticket διαγράφηκε">ticket διαγράφηκε</span> ' : (x.net && x.net.decision === 'ticket' ? '<span class="pbx-aitk bad">ticket δεν άνοιξε</span> ' : (x.net && x.net.decision === 'human' ? '<span class="pbx-aitk mut">απάντησε συνάδελφος</span> ' : '')))}${x.summary ? esc(x.summary.slice(0, 140)) : (x.transcribed ? '<span class="mut">χωρίς περίληψη</span>' : '<span class="mut">χωρίς κείμενο</span>')}</span>
         </summary>
         ${x.summary ? `<div class="pbx-aisum">${esc(x.summary)}</div>` : ''}
         <pre class="pbx-aitr">${esc(x.transcript || 'Χωρίς απομαγνητοφώνηση. Ενεργοποιείται από το βήμα «Ηχογράφηση και απομαγνητοφώνηση» στη Δομή κέντρου — ισχύει για τις επόμενες κλήσεις.')}</pre>
@@ -1441,11 +1441,10 @@ R.route = async function () {
       </select>
     </div>
     <div class="su-tiles" style="margin-top:12px">
-      <div class="su-tile"><div class="su-tv">${B.total}</div><div class="su-tl">καρτέλες στον κατάλογο</div></div>
-      <div class="su-tile ok"><div class="su-tv">${B.covered}</div><div class="su-tl">καλύπτονται από υποστήριξη</div></div>
-      <div class="su-tile warn"><div class="su-tv">${B.nocover}</div><div class="su-tl">δεν καλύπτονται</div></div>
-      <div class="su-tile"><div class="su-tv">${B.unknown}</div><div class="su-tl">δεν έχει σημειωθεί κάλυψη</div></div>
-      <div class="su-tile"><div class="su-tv">${B.withProducts}</div><div class="su-tl">με προϊόντα σημειωμένα</div></div>
+      ${[[B.total, 'καρτέλες στον κατάλογο', '#8595ac', I.users || I.list], [B.covered, 'καλύπτονται από υποστήριξη', '#16a26a', I.check || I.zap],
+         [B.nocover, 'δεν καλύπτονται', '#e0a020', I.alert || I.zap], [B.unknown, 'δεν έχει σημειωθεί κάλυψη', '#8595ac', I.help || I.eye || I.zap],
+         [B.withProducts, 'με προϊόντα σημειωμένα', '#0090dd', I.tree || I.gear]].map(([n, l, col, ic]) =>
+        `<div class="su-stat"><div class="ic" style="background:${col}1a;color:${col}">${ic || ''}</div><div><div class="n">${n}</div><div class="l">${l}</div></div></div>`).join('')}
     </div>
   </div></div>
 

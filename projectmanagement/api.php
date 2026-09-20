@@ -5497,7 +5497,9 @@ case 'pbx_ai_calls':                     // οι τελευταίες κλήσε
             $aiTk = $aiNet && $aiNet->ticket_id ? Capsule::table('tbltickets')->where('id', $aiNet->ticket_id)->first(['tid', 'status']) : null;
             $aiRows[] = ['id' => (int) $r['Id'], 'at' => $st ? date('Y-m-d H:i', $st) : '',
                 'net' => $aiNet ? ['decision' => $aiNet->decision, 'reason' => (string) $aiNet->reason,
-                    'ticket' => $aiTk ? (string) $aiTk->tid : '', 'ticketId' => (int) ($aiNet->ticket_id ?: 0), 'status' => $aiTk ? (string) $aiTk->status : ''] : null,
+                    'ticket' => $aiTk ? (string) $aiTk->tid : '', 'ticketId' => (int) ($aiNet->ticket_id ?: 0),
+                    /* ticket_id χωρίς γραμμή = το ticket διαγράφηκε από κάποιον (π.χ. δοκιμές) — όχι «δεν άνοιξε». */
+                    'deleted' => (bool) ($aiNet->ticket_id && !$aiTk), 'status' => $aiTk ? (string) $aiTk->status : ''] : null,
                 'seconds' => ($st && $en) ? max(0, $en - $st) : 0, 'type' => (string) ($r['CallType'] ?? ''),
                 'other' => $other, 'otherName' => is_array($nm) ? (string) ($nm['name'] ?? '') : (string) $nm,
                 'transcribed' => !empty($r['IsTranscribed']) && trim((string) $r['Transcription']) !== '',

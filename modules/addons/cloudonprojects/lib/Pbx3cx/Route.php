@@ -105,7 +105,7 @@ class Route
         $res['cover'] = $b->support_cover === null ? null : (int) $b->support_cover;
 
         if ($mode !== 'office') {
-            $res['reason'] = 'εκτός ωραρίου — η ρεσεψιόν παίρνει μήνυμα ή στέλνει στην έκτακτη γραμμή';
+            $res['reason'] = 'εκτός ωραρίου — η ρεσεψιόν καταχωρεί αίτημα (ή απόγευμα/Σάββατο → ουρά Emergency)';
             return $res;
         }
         if ($res['cover'] === 0) {
