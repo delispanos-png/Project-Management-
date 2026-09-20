@@ -72,6 +72,8 @@ class Pbx3cxBlueprint
 
     /** Μοντέλο φωνής (realtime). Διαθέσιμα στο PBX: gpt-realtime-2.1, -2, -1.5, -2.1-mini. */
     const AI_REALTIME = 'gpt-realtime-2.1';
+    /** Μοντέλο κειμένου του AI (βοηθητικές αποφάσεις, όχι φωνή). Το gpt-5.2 καταργήθηκε από το OpenAI (20/09/2026)· mini = οικονομικό. */
+    const AI_COMPLETION = 'gpt-5.4-mini';
 
     /** Βάση γνώσης της ρεσεψιόν: τα .md στον φάκελο kb/ — ΕΔΩ αλλάζει τι ξέρει. */
     const KB_NAME  = 'CloudOn Ρεσεψιόν';
@@ -1008,14 +1010,17 @@ TXT;
             }];
         /* 5β. Το μοντέλο φωνής ΟΛΩΝ των AI agents (ρύθμιση συστήματος). Το παλιό
            «gpt-realtime» ακούγεται μηχανικό· το 2.1 είναι το πιο φυσικό που δίνει το PBX. */
-        $S[] = ['key' => 'ai_model', 'label' => 'Μοντέλο φωνής AI → ' . self::AI_REALTIME,
+        $S[] = ['key' => 'ai_model', 'label' => 'Μοντέλα AI: φωνή ' . self::AI_REALTIME . ', κείμενο ' . self::AI_COMPLETION,
             'risk' => 'low',
             'check' => function ($L) {
-                $cur = (string) ($L['ai_settings']['RealtimeModel'] ?? '');
-                return [$cur === self::AI_REALTIME ? 'ok' : 'change', $cur === self::AI_REALTIME ? 'σωστό' : '«' . $cur . '» → ' . self::AI_REALTIME];
+                $cur = (string) ($L['ai_settings']['RealtimeModel'] ?? ''); $cc = (string) ($L['ai_settings']['CompletionModel'] ?? '');
+                $d = [];
+                if ($cur !== self::AI_REALTIME) { $d[] = 'φωνή «' . $cur . '» → ' . self::AI_REALTIME; }
+                if ($cc !== self::AI_COMPLETION) { $d[] = 'κείμενο «' . $cc . '» → ' . self::AI_COMPLETION; }
+                return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'σωστά'];
             },
             'apply' => function ($L) {
-                Pbx3cxClient::xwrite('PATCH', 'AISettings', ['RealtimeModel' => self::AI_REALTIME]);
+                Pbx3cxClient::xwrite('PATCH', 'AISettings', ['RealtimeModel' => self::AI_REALTIME, 'CompletionModel' => self::AI_COMPLETION]);
             }];
 
         /* 5γ. Ηχογράφηση + απομαγνητοφώνηση των κλήσεων της ρεσεψιόν — το υλικό
