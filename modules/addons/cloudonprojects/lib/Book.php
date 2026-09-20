@@ -321,9 +321,12 @@ class Book
         $hint = self::routeHint($b);
         $last = trim((string) $b->last);
         if ($last === '' && $hint !== '') { $last = trim((string) $b->company); }
-        $body = ['FirstName' => (string) $b->first, 'LastName' => $last . ($hint !== '' ? ' [' . $hint . ']' : ''),
-                 'CompanyName' => (string) $b->company, 'Email' => (string) $b->email,
-                 'Title' => (string) $b->title];
+        /* ΜΕΤΡΗΘΗΚΕ: το 3CX δέχεται έως 50 χαρακτήρες σε CompanyName (LENGTH_NOT_MORE_50_CHARS)
+           — οι μακριές επωνυμίες κόβονται εδώ, ο δικός μας κατάλογος τις κρατά ολόκληρες. */
+        $body = ['FirstName' => mb_substr((string) $b->first, 0, 50),
+                 'LastName' => mb_substr($last . ($hint !== '' ? ' [' . $hint . ']' : ''), 0, 50),
+                 'CompanyName' => mb_substr((string) $b->company, 0, 50), 'Email' => (string) $b->email,
+                 'Title' => mb_substr((string) $b->title, 0, 50)];
         foreach ($labels as $k => $v) { $body[$v[1]] = ''; }
         $used = [];
         foreach ($phones as $p) {
