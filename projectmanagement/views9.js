@@ -10,7 +10,7 @@ const R = window.R;
 R.pbx = async function () {
   if (!cnpCan('comms.pbx')) {
     setTop('Διασύνδεση 3CX');
-    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται το κύκλωμα «Επικοινωνίες → Διασύνδεση 3CX»'});
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Διασύνδεση 3CX»'});
     return;
   }
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
@@ -335,9 +335,9 @@ const CL_F = {
 };
 
 R.calls = async function () {
-  if (!cnpCan('reports.calls')) {
+  if (!cnpCan('comms.calls')) {
     setTop('Τηλεφωνική δραστηριότητα');
-    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Τηλεφωνική δραστηριότητα»'});
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Τηλεφωνική δραστηριότητα»'});
     return;
   }
   /* Οι εσωτερικές κλήσεις (συνάδελφος → συνάδελφο) ΔΕΝ μετριούνται: το PBX δεν
@@ -575,7 +575,7 @@ async function callDrill(what, st) {
           ${t.missed ? ` · <span style="color:var(--bad)">${t.missed} αναπάντητες</span>` : ''}
           · ${t.in} εισερχ. / ${t.out} εξερχ.</div>
       </div>
-      ${d.mode === 'client' && cnpCan('reports.calls') && (what.client || what.num)
+      ${d.mode === 'client' && cnpCan('comms.calls') && (what.client || what.num)
         ? `<a class="btn-s" id="cdFull" href="#/clientcalls/${what.client ? 'c' + what.client : ''}"
              title="Ολόκληρη η κίνησή του σε ελεύθερο διάστημα">Πλήρης κίνηση</a>` : ''}
       <button class="cd-x" title="Κλείσιμο">✕</button>
@@ -772,7 +772,7 @@ const BK_F = {
 R.book = async function () {
   if (!cnpCan('comms.book')) {
     setTop('Τηλεφωνικός κατάλογος');
-    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Σύστημα → Τηλεφωνικός κατάλογος»'});
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Τηλεφωνικός κατάλογος»'});
     return;
   }
   setTop('Τηλεφωνικός κατάλογος', 'Ποιος είναι πίσω από κάθε αριθμό — και τι τρέχει μαζί του');
@@ -1052,7 +1052,7 @@ async function bookCard(id, pre) {
 
   <div class="bc-actions">
     ${ed && d.canDel && K.id ? '<button class="btn btn-o" id="bcDel" style="color:var(--bad)">Διαγραφή</button>' : ''}
-    ${K.id && d.totals.calls && cnpCan('reports.calls')
+    ${K.id && d.totals.calls && cnpCan('comms.calls')
       ? `<a class="btn btn-o" href="#/clientcalls/${K.client ? 'c' + K.client : 'b' + K.id}">Η κίνησή του</a>` : ''}
     <span style="flex:1"></span>
     ${ed ? `<button class="btn btn-p" id="bcSave">Αποθήκευση</button>` : ''}
@@ -1442,9 +1442,9 @@ const CC_F = {
 };
 
 R.clientcalls = async function (arg) {
-  if (!cnpCan('reports.calls')) {
+  if (!cnpCan('comms.calls')) {
     setTop('Κίνηση πελάτη');
-    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Τηλεφωνική δραστηριότητα»'});
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Τηλεφωνική δραστηριότητα»'});
     return;
   }
   setTop('Κίνηση πελάτη', 'Πόσες φορές μας πήρε, πόση ώρα, ποιος τον εξυπηρέτησε');
@@ -1650,7 +1650,7 @@ const RT_DEC = {queue: ['κατευθείαν σε ουρά', '#16a26a'], ai: ['
 R.route = async function () {
   if (!cnpCan('comms.route')) {
     setTop('Δρομολόγηση κλήσεων');
-    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Επικοινωνίες → Δρομολόγηση κλήσεων»'});
+    $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Τηλεφωνικό κέντρο → Δρομολόγηση κλήσεων»'});
     return;
   }
   setTop('Δρομολόγηση κλήσεων', 'Τι θα αποφάσιζε το κέντρο για κάθε γνωστό πελάτη — και γιατί');
