@@ -179,7 +179,10 @@ class Book
             if ((int) $b->to_pbx === 1 && ($b->pbx_at === null || $b->updated_at > $b->pbx_at)) { $res['skipped']++; continue; }
 
             $phones = Capsule::table('mod_cpm_book_phones')->where('book_id', $b->id)->orderBy('sort')->get();
-            $exp = self::pbxBody($b, $phones) ?: [];
+            /* Καρτέλα χωρίς τηλέφωνο δεν στέλνεται ποτέ — ούτε συγκρίνεται, αλλιώς
+               θα «έβλεπε» τη διαφορά κάθε 10΄ για πάντα. */
+            $exp = self::pbxBody($b, $phones);
+            if (!$exp) { $res['skipped']++; continue; }
             $upd = []; $what = []; $touched = [];
 
             foreach (self::PBX_TEXT as $f => $m) {
