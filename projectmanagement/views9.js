@@ -7,9 +7,6 @@
 const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, $, $$} = window.CNP;
 const R = window.R;
 
-/* Τα ελληνικά των καταστάσεων, για τον πίνακα αντιστοίχισης. */
-const PRES_LBL = {online: 'Διαθέσιμος', busy: 'Απασχολημένος', meeting: 'Σε σύσκεψη', away: 'Λείπω'};
-
 R.pbx = async function () {
   if (!cnpCan('comms.pbx')) {
     setTop('Διασύνδεση 3CX');
@@ -100,8 +97,12 @@ R.pbx = async function () {
         Δηλώνεις μία φορά, ισχύει και στα δύο. Αν το κέντρο δεν απαντήσει, η κατάσταση
         αλλάζει κανονικά στο εργαλείο και το σφάλμα γράφεται στο τεχνικό ημερολόγιο —
         μια βλάβη του τηλεφωνικού κέντρου δεν σε εμποδίζει να δηλώσεις ότι λείπεις.</div>
+      ${/* Δείχνουμε το όνομα που βλέπει ο χειριστής στον client του 3CX, ΟΧΙ το
+           εσωτερικό όνομα του API — αλλιώς δεν μπορεί να ελέγξει αν ταιριάζει.
+           Το τεχνικό όνομα μένει στο tooltip, για όποιον το χρειαστεί. */''}
       <div class="px-map">${Object.entries((d.presence && d.presence.map) || {}).map(([k, v]) =>
-        `<span class="px-mrow"><b>${esc(PRES_LBL[k] || k)}</b> → ${esc(v)}</span>`).join('')}</div>
+        `<span class="px-mrow${v.auto ? ' auto' : ''}" title="Στο 3CX γράφεται ως «${esc(v.api)}»">
+          <b>${esc(v.pm)}</b> → ${esc(v.client)}${v.auto ? ' <i>αυτόματο</i>' : ''}</span>`).join('')}</div>
       <div class="mut" style="font-size:11.5px;margin-top:9px">
         ${d.presence && d.presence.dn
           ? `Το δικό σου εσωτερικό: <b>${esc(d.presence.dn)}</b>.`

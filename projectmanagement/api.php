@@ -1590,16 +1590,38 @@ function cnp_chat_access($ch, $adminId)
 define('CNP_PRESENCE_ONLINE', 90);     // δευτ. παλμού για «είναι στην εφαρμογή»
 define('CNP_PRESENCE_GONE', 1800);     // μισή ώρα χωρίς παλμό → έφυγε
 
-/** [κωδικός => [ετικέτα, χρώμα, σιγάζει ειδοποιήσεις;, επιλέξιμο από τον χρήστη;]] */
+/**
+ * [κωδικός => [ετικέτα, χρώμα, σιγάζει ειδοποιήσεις;, επιλέξιμο από τον χρήστη;]]
+ *
+ * ΙΔΙΑ ΓΛΩΣΣΑ ΜΕ ΤΟ ΤΗΛΕΦΩΝΟ (20/09/2026). Οι ΕΠΙΛΕΞΙΜΕΣ καταστάσεις είναι
+ * ακριβώς οι πέντε του 3CX — Available, Away, Do Not Disturb, Lunch, Business
+ * Trip — ώστε να μη λέμε «Απασχολημένος» στο ένα πρόγραμμα και «Do Not Disturb»
+ * στο άλλο και να μην ξέρει κανείς αν είναι το ίδιο πράγμα.
+ *
+ * Δύο μένουν ΑΥΤΟΜΑΤΕΣ και δεν επιλέγονται:
+ *  · «Σε σύσκεψη» — το ξέρει το ημερολόγιο, δεν χρειάζεται να το πεις. Το 3CX
+ *    δεν έχει αντίστοιχο, οπότε στο τηλέφωνο φεύγει ως «Μην ενοχλείτε».
+ *  · «Εκτός» — δεν είσαι στην εφαρμογή· δεν στέλνεται πουθενά, γιατί δεν
+ *    σημαίνει ότι δεν είσαι στο τηλέφωνό σου.
+ */
 function cnp_presence_defs()
 {
     return [
-        'online'  => ['Διαθέσιμος',    '#16a26a', false, true],
-        'busy'    => ['Απασχολημένος', '#e0552b', true,  true],
-        'meeting' => ['Σε σύσκεψη',    '#e0a020', true,  true],
-        'away'    => ['Λείπω',         '#8595ac', false, true],
-        'offline' => ['Εκτός',         '#5d6b85', true,  true],
+        'online'  => ['Διαθέσιμος',   '#16a26a', false, true],
+        'away'    => ['Λείπω',        '#e0a020', false, true],
+        'dnd'     => ['Μην ενοχλείτε', '#e2515f', true,  true],
+        'lunch'   => ['Διάλειμμα',    '#16b1a8', true,  true],
+        'trip'    => ['Εκτός έδρας',  '#3b82f6', false, true],
+        'meeting' => ['Σε σύσκεψη',   '#e0a020', true,  false],
+        'offline' => ['Εκτός',        '#5d6b85', true,  false],
     ];
+}
+
+/** Παλιοί κωδικοί → νέοι. Κρατιέται ώστε αποθηκευμένες τιμές να μη «χαθούν». */
+function cnp_presence_legacy($code)
+{
+    $map = ['busy' => 'dnd'];
+    return $map[(string) $code] ?? (string) $code;
 }
 
 /**
@@ -1692,7 +1714,7 @@ function cnp_presence($adminId, $now = null)
     $defs = cnp_presence_defs();
     $seen = (int) Db::pref($adminId, 'last_seen', '0');
     $idle = $seen ? max(0, $now - $seen) : null;
-    $man = (string) Db::pref($adminId, 'chat_status', '');
+    $man = cnp_presence_legacy((string) Db::pref($adminId, 'chat_status', ''));
     $until = (int) Db::pref($adminId, 'chat_until', '0');
     $reason = (string) Db::pref($adminId, 'chat_reason', '');
 
@@ -6401,8 +6423,17 @@ case 'pbx_presence':
     if (array_key_exists('on', $in)) {
         Pbx3cxPresence::setEnabled(!empty($in['on']));
     }
+    /* Δείχνουμε και τα δύο ονόματα: αυτό που γράφουμε (XAPI) και αυτό που
+       βλέπει ο χειριστής στον client του — αλλιώς η αντιστοίχιση δεν ελέγχεται. */
+    $prMap = [];
+    $prDefs = cnp_presence_defs();
+    foreach (Pbx3cxPresence::MAP as $k => $v) {
+        $prMap[$k] = ['pm' => $prDefs[$k][0] ?? $k, 'api' => $v,
+            'client' => Pbx3cxPresence::CLIENT_NAME[$v] ?? $v,
+            'auto' => empty($prDefs[$k][3])];
+    }
     out(['ok' => true, 'on' => Pbx3cxPresence::enabled(),
-        'map' => Pbx3cxPresence::MAP, 'dn' => Pbx3cxPresence::dnFor($adminId)]);
+        'map' => $prMap, 'dn' => Pbx3cxPresence::dnFor($adminId)]);
 
 case 'book_afm':
     /* ΤΟ ΑΦΜ ΦΤΑΝΕΙ. Τα υπόλοιπα στοιχεία τα δίνει η ΑΑΔΕ, ώστε η ποιότητα του
@@ -13438,7 +13469,11 @@ case 'chat_status':                     // Χειροκίνητη δήλωση �
         $syncA = Pbx3cxPresence::push($adminId, (string) $prAuto['status']);
         out(['ok' => true, 'presence' => $prAuto, 'pbx' => $syncA]);
     }
-    if (!isset($defsS[$stS])) {
+    $stS = cnp_presence_legacy($stS);
+    /* ΜΟΝΟ ΟΣΕΣ ΕΠΙΛΕΓΟΝΤΑΙ. Το «σε σύσκεψη» το βάζει το ημερολόγιο και το
+       «εκτός» ο παλμός — αν τα δεχόμασταν εδώ, θα μπορούσε κάποιος να δηλώσει
+       σύσκεψη που δεν υπάρχει και να μη φύγει ποτέ. */
+    if (!isset($defsS[$stS]) || empty($defsS[$stS][3])) {
         fail('Άγνωστη κατάσταση', 400);
     }
     // η σύνδεση DB είναι utf8mb3 — αφαίρεσε 4-byte chars (emoji) για να μη γίνουν «????»
