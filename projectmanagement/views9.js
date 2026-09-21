@@ -97,6 +97,15 @@ R.pbx = async function () {
         Δηλώνεις μία φορά, ισχύει και στα δύο. Αν το κέντρο δεν απαντήσει, η κατάσταση
         αλλάζει κανονικά στο εργαλείο και το σφάλμα γράφεται στο τεχνικό ημερολόγιο —
         μια βλάβη του τηλεφωνικού κέντρου δεν σε εμποδίζει να δηλώσεις ότι λείπεις.</div>
+      <div style="margin-top:12px;font-weight:700;font-size:12.5px">Τι από τα <u>αυτόματα</u> περνά στο τηλέφωνο;</div>
+      <div class="px-modes">
+        ${[['manual', 'Τίποτα αυτόματο', 'Μόνο ό,τι δηλώνει ο ίδιος ο χειριστής. Το τηλέφωνο δεν ξέρει καν ότι υπάρχει το Project Manager.'],
+           ['meeting', 'Μόνο οι συσκέψεις', 'Σύσκεψη που αποδέχθηκε στο ημερολόγιο → «Do Not Disturb» για όσο κρατά, μετά επιστροφή σε Available. Το «Λείπω» από αδράνεια της εφαρμογής ΔΕΝ αγγίζει το τηλέφωνο.'],
+           ['all', 'Όλα, και η αδράνεια', 'Και το «Λείπω» (90΄΄ χωρίς την εφαρμογή ανοιχτή) και το «Εκτός» (30΄) → Away στο κέντρο. Προσοχή: όποιος δουλεύει σε άλλο πρόγραμμα σταματά να δέχεται κλήσεις.']]
+          .map(([k, t, d2]) => `<label class="px-mode${(d.presence && d.presence.mode) === k ? ' on' : ''}">
+            <input type="radio" name="pxMode" value="${k}" ${(d.presence && d.presence.mode) === k ? 'checked' : ''} ${ed ? '' : 'disabled'}>
+            <span><b>${t}</b><small>${d2}</small></span></label>`).join('')}
+      </div>
       ${/* Δείχνουμε το όνομα που βλέπει ο χειριστής στον client του 3CX, ΟΧΙ το
            εσωτερικό όνομα του API — αλλιώς δεν μπορεί να ελέγξει αν ταιριάζει.
            Το τεχνικό όνομα μένει στο tooltip, για όποιον το χρειαστεί. */''}
@@ -187,6 +196,13 @@ R.pbx = async function () {
 
   if (ed) {
     /* Ο διακόπτης του συγχρονισμού κατάστασης. */
+    $$('input[name="pxMode"]').forEach(r => r.onchange = async () => {
+      const msg = $('#pxPresMsg'); msg.textContent = 'αποθηκεύω…';
+      const x = await api('pbx_presence', {mode: r.value}).catch(e => ({err: e.message}));
+      if (!x || x.err) { msg.textContent = (x && x.err) || 'Δεν αποθηκεύτηκε'; return; }
+      $$('.px-mode').forEach(l => l.classList.toggle('on', l.querySelector('input').value === x.mode));
+      msg.textContent = '✔ Αποθηκεύτηκε — ισχύει από την επόμενη αλλαγή κατάστασης.';
+    });
     { const pp = $('#pxPres'); if (pp) { pp.onchange = async () => {
         const msg = $('#pxPresMsg');
         msg.textContent = 'αποθηκεύω…';

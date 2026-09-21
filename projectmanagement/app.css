@@ -3949,3 +3949,8 @@ select.fchip-s{max-width:190px}
 .gc-m.lock{cursor:default;opacity:.85}
 .gc-m.lock:hover{border-color:var(--brand)}
 .gc-m input{margin:0;flex:0 0 auto}
+.px-modes{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.px-mode{display:flex;gap:9px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:9px;cursor:pointer;font-size:12.5px}
+.px-mode.on{border-color:var(--brand);background:#0090dd0e}
+.px-mode input{margin-top:3px;flex:none}
+.px-mode small{display:block;color:var(--mut);font-size:11.5px;line-height:1.4;margin-top:2px}

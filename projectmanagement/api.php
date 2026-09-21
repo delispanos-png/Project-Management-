@@ -1691,7 +1691,7 @@ function cnp_presence_sweep($now = null)
     $n = 0;
     foreach (Pbx3cxPresence::mappedAdmins() as $aid) {
         try {
-            $r = Pbx3cxPresence::sync($aid, (string) cnp_presence($aid, $now)['status']);
+            $r = Pbx3cxPresence::sync($aid, cnp_presence($aid, $now));
             if ($r && !empty($r['ok']) && empty($r['skip'])) { $n++; }
         } catch (\Throwable $e) { /* ένας χειριστής δεν χαλάει τη σάρωση */ }
     }
@@ -6437,6 +6437,9 @@ case 'pbx_presence':
     if (array_key_exists('on', $in)) {
         Pbx3cxPresence::setEnabled(!empty($in['on']));
     }
+    if (array_key_exists('mode', $in)) {
+        Pbx3cxPresence::setMode((string) $in['mode']);
+    }
     /* Δείχνουμε και τα δύο ονόματα: αυτό που γράφουμε (XAPI) και αυτό που
        βλέπει ο χειριστής στον client του — αλλιώς η αντιστοίχιση δεν ελέγχεται. */
     $prMap = [];
@@ -6446,7 +6449,7 @@ case 'pbx_presence':
             'client' => Pbx3cxPresence::CLIENT_NAME[$v] ?? $v,
             'auto' => empty($prDefs[$k][3])];
     }
-    out(['ok' => true, 'on' => Pbx3cxPresence::enabled(),
+    out(['ok' => true, 'on' => Pbx3cxPresence::enabled(), 'mode' => Pbx3cxPresence::mode(),
         'map' => $prMap, 'dn' => Pbx3cxPresence::dnFor($adminId)]);
 
 case 'book_afm':
@@ -13548,7 +13551,7 @@ case 'chat_status':                     // Χειροκίνητη δήλωση �
         /* ΚΑΙ ΣΤΟ ΤΗΛΕΦΩΝΟ. Σε «αυτόματο» στέλνουμε ό,τι αποφάσισε ο παλμός —
            αλλιώς το κέντρο θα έμενε κολλημένο στην τελευταία χειροκίνητη. */
         $prAuto = cnp_presence($adminId);
-        $syncA = Pbx3cxPresence::push($adminId, (string) $prAuto['status']);
+        $syncA = Pbx3cxPresence::sync($adminId, $prAuto) ?: ['ok' => true, 'skip' => 'mode'];
         out(['ok' => true, 'presence' => $prAuto, 'pbx' => $syncA]);
     }
     $stS = cnp_presence_legacy($stS);
@@ -16635,7 +16638,7 @@ case 'version':
     /* Η δική μου κατάσταση → 3CX, κάθε λεπτό (στέλνεται μόνο αν άλλαξε). */
     if ($seenNow - (int) Db::pref($adminId, 'pbx_sync_at', '0') > 60) {
         Db::setPref($adminId, 'pbx_sync_at', (string) $seenNow);
-        try { Pbx3cxPresence::sync($adminId, (string) cnp_presence($adminId, $seenNow)['status']); } catch (\Throwable $eP) { }
+        try { Pbx3cxPresence::sync($adminId, cnp_presence($adminId, $seenNow)); } catch (\Throwable $eP) { }
     }
     $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
     $b6 = (string) Capsule::table('mod_cpm_tasks')->count();

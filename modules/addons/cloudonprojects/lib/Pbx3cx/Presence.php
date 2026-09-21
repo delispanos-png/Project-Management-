@@ -155,11 +155,45 @@ class Pbx3cxPresence
      * σχέση με το τελευταίο που στείλαμε (pref pbx_pushed), ώστε να μη χτυπάμε το κέντρο
      * σε κάθε σφυγμό.
      */
-    public static function sync($adminId, $status)
+    /** Τι από τα ΑΥΤΟΜΑΤΑ περνά στο τηλέφωνο: manual = τίποτα (μόνο ό,τι δηλώνει ο ίδιος),
+     *  meeting = και η σύσκεψη από το ημερολόγιο (προεπιλογή), all = και Λείπω/Εκτός από αδράνεια. */
+    public static function mode()
     {
-        if (!self::enabled() || !isset(self::MAP[$status])) { return null; }
-        if ((string) Db::pref((int) $adminId, 'pbx_pushed', '') === (string) $status) { return null; }
-        return self::push($adminId, $status);
+        $m = Pbx3cxClient::cfg('presence_auto', 'meeting');
+        return in_array($m, ['manual', 'meeting', 'all'], true) ? $m : 'meeting';
+    }
+    public static function setMode($m)
+    {
+        Pbx3cxClient::setCfg('presence_auto', in_array($m, ['manual', 'meeting', 'all'], true) ? $m : 'meeting');
+    }
+
+    /**
+     * @param array $pr το αποτέλεσμα της cnp_presence(): status, manual, meeting
+     * Κανόνας (21/9/2026): το τηλέφωνο ΔΕΝ πρέπει να κλείνει επειδή κάποιος δουλεύει σε άλλο
+     * πρόγραμμα. Το «Λείπω» από αδράνεια της εφαρμογής στέλνεται ΜΟΝΟ σε mode=all. Στα άλλα
+     * modes, όταν λήξει μια σύσκεψη ή μια χρονική δήλωση, το τηλέφωνο επιστρέφει σε Available.
+     */
+    public static function sync($adminId, array $pr)
+    {
+        if (!self::enabled()) { return null; }
+        $status = (string) ($pr['status'] ?? '');
+        $isMeeting = $status === 'meeting' && !empty($pr['meeting']);
+        $isManual = !empty($pr['manual']) && !$isMeeting;
+        $mode = self::mode();
+        $want = null;
+        if ($isManual) { $want = $status; }
+        elseif ($isMeeting) { $want = $mode === 'manual' ? null : 'meeting'; }
+        elseif ($mode === 'all') { $want = $status; }
+        else {
+            /* αυτόματη κατάσταση (online/away/offline) σε mode manual/meeting: μόνο ΕΠΑΝΑΦΟΡΑ
+               σε Available, αν το τελευταίο που στείλαμε ήταν κάτι άλλο (σύσκεψη που έληξε,
+               δήλωση με λήξη, ή Λείπω από την παλιά συμπεριφορά). Ποτέ δεν κατεβάζουμε το τηλέφωνο. */
+            $last = (string) Db::pref((int) $adminId, 'pbx_pushed', '');
+            if ($last !== '' && $last !== 'online') { $want = 'online'; }
+        }
+        if ($want === null || !isset(self::MAP[$want])) { return null; }
+        if ((string) Db::pref((int) $adminId, 'pbx_pushed', '') === $want) { return null; }
+        return self::push($adminId, $want);
     }
 
     /** Ποιοι χειριστές έχουν εσωτερικό στο κέντρο — μόνο αυτοί έχουν νόημα στη σάρωση. */
