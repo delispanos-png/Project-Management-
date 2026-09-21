@@ -79,11 +79,15 @@ function fail($msg, $code = 400, array $extra = [])
 $action = $_GET['a'] ?? '';
 $adminId = pm_admin_id();
 $MEET_ROOM = null;   // guests του CloudOn Meet: έγκυρο room token αντί για login
+$CRON_OK = false;    // presence_sweep από το pulse cron: HMAC της ώρας με το pm_secret, χωρίς login
 if ($adminId <= 0) {
     if (strpos($action, 'rtc_') === 0 && ($MEET_ROOM = pm_verify_meet($_REQUEST['mt'] ?? ''))) {
         // ok — signaling ως guest, περιορισμένος στο δωμάτιο του token
     } elseif ($action === 'event_rsvp_public') {
         // ok — δημόσιο RSVP πελάτη με δικό του signed token
+    } elseif ($action === 'presence_sweep' && (hash_equals(hash_hmac('sha256', 'sweep.' . date('YmdHi'), pm_secret()), (string) ($_GET['k'] ?? ''))
+        || hash_equals(hash_hmac('sha256', 'sweep.' . date('YmdHi', time() - 60), pm_secret()), (string) ($_GET['k'] ?? '')))) {
+        $CRON_OK = true;
     } else {
         fail('auth', 401);
     }
@@ -1678,6 +1682,20 @@ function cnp_meeting_how($mode, $place, $location, $clientName = '')
         return ['📍', $p, $location];
     }
     return ['', '', $location];
+}
+
+/** Κατάσταση → 3CX για όλους όσοι έχουν εσωτερικό: στέλνει μόνο ό,τι άλλαξε. Επιστρέφει πόσοι στάλθηκαν. */
+function cnp_presence_sweep($now = null)
+{
+    if (!Pbx3cxPresence::enabled()) { return 0; }
+    $n = 0;
+    foreach (Pbx3cxPresence::mappedAdmins() as $aid) {
+        try {
+            $r = Pbx3cxPresence::sync($aid, (string) cnp_presence($aid, $now)['status']);
+            if ($r && !empty($r['ok']) && empty($r['skip'])) { $n++; }
+        } catch (\Throwable $e) { /* ένας χειριστής δεν χαλάει τη σάρωση */ }
+    }
+    return $n;
 }
 
 /** Χρονόμετρα αποσυνδεδεμένων — η λογική ζει στο Db ώστε να τη φτάνει και το cron. */
@@ -3395,7 +3413,7 @@ function cnp_open_actions()
 {
     return [
         // σύνδεση/σφυγμός
-        'boot', 'version', 'topstats', 'notifs', 'notif_read', 'push_pubkey', 'push_subscribe',
+        'boot', 'version', 'presence_sweep', 'topstats', 'notifs', 'notif_read', 'push_pubkey', 'push_subscribe',
         'push_unsubscribe', 'push_latest', 'ksearch', 'search', 'mynext',
         // Η μέρα μου / πλάνο / χρόνος μου
         'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
@@ -3448,7 +3466,7 @@ function cnp_open_actions()
    και το RSVP στο συγκεκριμένο event+πελάτη. Ο φύλακας κρίνει ΔΙΑΧΕΙΡΙΣΤΕΣ — σε
    έναν επισκέπτη δεν έχει τι να κρίνει. Μέχρι τις 14/9/2026 τους έκοβε με 403:
    ο σύνδεσμος RSVP στα email ήταν νεκρός και οι πελάτες δεν έμπαιναν στο Meet. */
-$guestOk = $adminId <= 0
+$guestOk = $CRON_OK || $adminId <= 0
     && (($MEET_ROOM && strpos($action, 'rtc_') === 0)
         || in_array($action, cnp_guest_actions(), true));
 
@@ -16592,6 +16610,12 @@ case 'my_crm_tasks':                     // ανοιχτές CRM εργασίε�
     }
     out(['tasks' => $out]);
 
+case 'presence_sweep':                  // από το pulse cron (κάθε 10΄) — όταν κανείς δεν έχει την εφαρμογή ανοιχτή
+    if (!$CRON_OK && !$FULL) { fail('forbidden', 403); }
+    $nS = cnp_presence_sweep();
+    try { cnp_close_ghost_timers(); } catch (\Throwable $eG) { }
+    out(['ok' => true, 'pushed' => $nS]);
+
 case 'version':
     /* Ο σφυγμός κάθε 12" είναι ό,τι πιο αξιόπιστο έχουμε για «είναι μπροστά στην
        οθόνη». Πριν, το `last_seen` το πείραζαν ΜΟΝΟ οι ενέργειες του chat, οπότε
@@ -16605,6 +16629,13 @@ case 'version':
     if ($seenNow - (int) Db::pref(0, 'ghost_sweep_at', '0') > 120) {
         Db::setPref(0, 'ghost_sweep_at', (string) $seenNow);
         try { cnp_close_ghost_timers($seenNow); } catch (\Throwable $eG) { /* ποτέ δεν χαλάει τον σφυγμό */ }
+        /* Κατάσταση → 3CX για ΟΛΟΥΣ: πιάνει όσους έφυγαν (away/offline) και τις συσκέψεις που άρχισαν/τελείωσαν. */
+        try { cnp_presence_sweep($seenNow); } catch (\Throwable $eP) { }
+    }
+    /* Η δική μου κατάσταση → 3CX, κάθε λεπτό (στέλνεται μόνο αν άλλαξε). */
+    if ($seenNow - (int) Db::pref($adminId, 'pbx_sync_at', '0') > 60) {
+        Db::setPref($adminId, 'pbx_sync_at', (string) $seenNow);
+        try { Pbx3cxPresence::sync($adminId, (string) cnp_presence($adminId, $seenNow)['status']); } catch (\Throwable $eP) { }
     }
     $a6 = (string) Capsule::table('mod_cpm_tasks')->max('updated_at');
     $b6 = (string) Capsule::table('mod_cpm_tasks')->count();

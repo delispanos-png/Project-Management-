@@ -115,6 +115,21 @@ try {
     echo '[' . date('H:i:s') . '] υπερβάσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
 }
 
+/* ☎ Κατάσταση → 3CX (21/9/2026): οι αυτόματες αλλαγές (σύσκεψη, Λείπω, Εκτός) περνούν στο
+   κέντρο κι όταν κανείς δεν έχει την εφαρμογή ανοιχτή. Η λογική της κατάστασης ζει στο
+   api.php, γι' αυτό καλείται μέσω HTTP με υπογραφή της ώρας (pm_secret). */
+try {
+    require_once __DIR__ . '/../../../../projectmanagement/boot.php';
+    $kS = hash_hmac('sha256', 'sweep.' . date('YmdHi'), pm_secret());
+    $ch = curl_init('https://my.cloudon.gr/projectmanagement/api.php?a=presence_sweep&k=' . $kS);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_USERAGENT => 'cpm-pulse']);
+    $rS = json_decode((string) curl_exec($ch), true); curl_close($ch);
+    if (!empty($rS['pushed'])) { echo '[' . date('H:i:s') . '] 3CX κατάσταση: ' . (int) $rS['pushed'] . " αλλαγές\n"; }
+    elseif (!is_array($rS)) { echo '[' . date('H:i:s') . "] 3CX κατάσταση: καμία απάντηση\n"; }
+} catch (\Throwable $e) {
+    echo '[' . date('H:i:s') . '] 3CX κατάσταση ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
+}
+
 /* 🔕 Tickets που περιμένουν τον πελάτη: υπενθύμιση και μετά αυτόματο κλείσιμο.
    Στέλνει μηνύματα σε πελάτες — τρέχει ΜΟΝΟ αν έχει ενεργοποιηθεί ρητά η
    ρύθμιση `ticket_autoclose` του addon. */

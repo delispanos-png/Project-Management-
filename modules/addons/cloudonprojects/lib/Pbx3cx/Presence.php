@@ -46,6 +46,8 @@ class Pbx3cxPresence
         'lunch'   => 'Custom 1',       // Lunch
         'trip'    => 'Custom 2',       // Business Trip
         'meeting' => 'Out of office',  // αυτόματο από το ημερολόγιο
+        'busy'    => 'Out of office',  // «Απασχολημένος» = μη με ενοχλείτε
+        'offline' => 'Away',           // έκλεισε την εφαρμογή → Away στο κέντρο
     ];
 
     /** Πώς λέγεται το προφίλ στον client — για να το δείχνει η οθόνη ρυθμίσεων. */
@@ -129,11 +131,13 @@ class Pbx3cxPresence
             if ((string) ($u['CurrentProfileName'] ?? '') === $out['profile']) {
                 $out['ok'] = true;
                 $out['skip'] = 'same';
+                Db::setPref((int) $adminId, 'pbx_pushed', $status);
                 return $out;
             }
             Pbx3cxClient::xwrite('PATCH', 'Users(' . $u['Id'] . ')',
                 ['CurrentProfileName' => $out['profile']], 6);
             $out['ok'] = true;
+            Db::setPref((int) $adminId, 'pbx_pushed', $status);
             Pbx3cxClient::log('presence', 'ok', 'εσωτερικό ' . $dn . ' → ' . $out['profile']
                 . ' (κατάσταση «' . $status . '» από το Project Manager)');
         } catch (\Throwable $e) {
@@ -142,5 +146,29 @@ class Pbx3cxPresence
                 . ': ' . $e->getMessage());
         }
         return $out;
+    }
+
+    /**
+     * Συγχρονισμός ΑΥΤΟΜΑΤΩΝ αλλαγών (21/9/2026): η κατάσταση που υπολογίζει το Project
+     * Manager (σύσκεψη από ημερολόγιο, αδράνεια → Λείπω, κλείσιμο εφαρμογής → Εκτός) ΔΕΝ
+     * περνούσε στο 3CX — μόνο η χειροκίνητη δήλωση. Εδώ στέλνεται μόνο όταν αλλάζει σε
+     * σχέση με το τελευταίο που στείλαμε (pref pbx_pushed), ώστε να μη χτυπάμε το κέντρο
+     * σε κάθε σφυγμό.
+     */
+    public static function sync($adminId, $status)
+    {
+        if (!self::enabled() || !isset(self::MAP[$status])) { return null; }
+        if ((string) Db::pref((int) $adminId, 'pbx_pushed', '') === (string) $status) { return null; }
+        return self::push($adminId, $status);
+    }
+
+    /** Ποιοι χειριστές έχουν εσωτερικό στο κέντρο — μόνο αυτοί έχουν νόημα στη σάρωση. */
+    public static function mappedAdmins()
+    {
+        try {
+            return array_map('intval', Capsule::table('mod_cpm_pbx_map')->where('dn_type', 'extension')
+                ->join('tbladmins', 'tbladmins.id', '=', 'mod_cpm_pbx_map.admin_id')->where('tbladmins.disabled', 0)
+                ->pluck('mod_cpm_pbx_map.admin_id')->all());
+        } catch (\Throwable $e) { return []; }
     }
 }
