@@ -2554,6 +2554,18 @@ class Db
     }
 
     /** Tasks με due_date μέσα σε έναν μήνα (calendar, 3.6). */
+    /** Εργασίες με λήξη μέσα σε ελεύθερο διάστημα (μέρα/εβδομάδα/μήνας). */
+    public static function tasksBetween($from, $to)
+    {
+        return Capsule::table('mod_cpm_tasks as t')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->select('t.id', 't.title', 't.due_date', 't.priority', 't.completed_at', 't.assignee', 't.status_id',
+                't.project_id', 'p.name as project_name', 'p.color as project_color')
+            ->whereNotNull('t.due_date')
+            ->whereBetween('t.due_date', [$from, $to])
+            ->orderBy('t.due_date')->get();
+    }
+
     public static function tasksForMonth($ym)
     {
         return Capsule::table('mod_cpm_tasks as t')

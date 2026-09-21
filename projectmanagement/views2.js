@@ -500,141 +500,221 @@ function openEvent(ev, ymRefresh) {
   requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
 }
 
-R.calendar = async function (ym) {
+R.calendar = async function (arg) {
   /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
   if (!cnpCan('team.calendar')) { setTop('Ημερολόγιο'); $('#content').innerHTML = cnpDenied({message: 'Το κοινό ημερολόγιο δίνεται από το κύκλωμα «Η ομάδα → Ημερολόγιο»'}); return; }
   setTop('Ημερολόγιο ομάδας', 'Meetings · ραντεβού · άδειες · λήξεις tasks — η διαθεσιμότητα όλων');
   const c = $('#content');
-  cnpSkel(c, skel(1, 400));
-  const d = await api('calendar' + (ym ? '&ym=' + ym : ''));
-  /* Κινητό (21/9/2026): το πλέγμα μήνα με μικροσκοπικά chips δεν πατιέται. Εκεί κάθε μέρα δείχνει
-     μόνο κουκκίδες, και η ατζέντα της επιλεγμένης μέρας από κάτω έχει μεγάλες γραμμές — ένα πάτημα
-     ανοίγει την καταχώρηση για επεξεργασία. Στο desktop: τα ολοκληρωμένα tasks κρύβονται εξ ορισμού. */
   const MOBC = matchMedia('(max-width:768px)').matches;
+
+  /* ── Προβολές μέρα / εβδομάδα / μήνας (21/9/2026) ──
+     Πριν έβλεπες πάντα ολόκληρο τον μήνα απλωμένο. Τώρα διαλέγεις ορίζοντα· η επιλογή
+     θυμάται. Το ‹ › κινείται κατά μία μέρα / εβδομάδα / μήνα αντίστοιχα. */
+  const st = R.calendar._st = R.calendar._st || {view: localStorage.cnpCalView || 'month', anchor: today()};
+  if (arg && /^\d{4}-\d{2}$/.test(String(arg))) { st.view = 'month'; st.anchor = arg + '-01'; }
+  else if (arg && /^\d{4}-\d{2}-\d{2}$/.test(String(arg))) { st.anchor = String(arg); }
+  const iso = dt => dt.toISOString().slice(0, 10);
+  const dt0 = s2 => new Date(s2 + 'T12:00:00');
+  const addD = (s2, n) => iso(new Date(dt0(s2).getTime() + n * 86400000));
+  const monday = s2 => { const x = dt0(s2); return addD(s2, -(((x.getDay() + 6) % 7))); };
+  const MN = ['Ιανουαρίου', 'Φεβρουαρίου', 'Μαρτίου', 'Απριλίου', 'Μαΐου', 'Ιουνίου', 'Ιουλίου', 'Αυγούστου', 'Σεπτεμβρίου', 'Οκτωβρίου', 'Νοεμβρίου', 'Δεκεμβρίου'];
+  const MNn = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'];
+  const dayNames = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
+  const dayShort = ['Κυ', 'Δε', 'Τρ', 'Τε', 'Πε', 'Πα', 'Σα'];
+
+  let from, to, label;
+  if (st.view === 'day') { from = to = st.anchor; label = dayNames[dt0(from).getDay()] + ' ' + dt0(from).getDate() + ' ' + MN[dt0(from).getMonth()]; }
+  else if (st.view === 'week') {
+    from = monday(st.anchor); to = addD(from, 6);
+    label = dt0(from).getDate() + ' ' + MN[dt0(from).getMonth()].slice(0, 3) + '. – ' + dt0(to).getDate() + ' ' + MN[dt0(to).getMonth()].slice(0, 3) + '. ' + dt0(to).getFullYear();
+  } else {
+    const a = dt0(st.anchor); from = iso(new Date(a.getFullYear(), a.getMonth(), 1, 12)); to = iso(new Date(a.getFullYear(), a.getMonth() + 1, 0, 12));
+    label = MNn[a.getMonth()] + ' ' + a.getFullYear();
+  }
+
+  cnpSkel(c, skel(1, 400));
+  const d = await api('calendar&from=' + from + '&to=' + to);
   const showDone = localStorage.cnpCalDone === '1';
   d.items = (d.items || []).filter(t => showDone || !t.done);
-  const [Y, M] = d.ym.split('-').map(Number);
-  const first = new Date(Y, M - 1, 1), dim = new Date(Y, M, 0).getDate();
-  const startDow = (first.getDay() + 6) % 7;
-  const mn = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'][M - 1];
-  const prev = new Date(Y, M - 2, 1), next = new Date(Y, M, 1);
-  const fmtYm = dt => dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+
   const byDay = {};
   d.items.forEach(t => { (byDay[t.due] = byDay[t.due] || []).push(t); });
-  // events ανά ημέρα (πολυήμερα απλώνονται)
   const evByDay = {};
   (d.events || []).forEach(ev => {
     let x = ev.start.slice(0, 10);
     const end = ev.end.slice(0, 10);
     let guard = 0;
-    while (x <= end && guard++ < 62) {
-      (evByDay[x] = evByDay[x] || []).push(ev);
-      const nd = new Date(x + 'T12:00:00'); nd.setDate(nd.getDate() + 1);
-      x = nd.toISOString().slice(0, 10);
-    }
+    while (x <= end && guard++ < 62) { (evByDay[x] = evByDay[x] || []).push(ev); x = addD(x, 1); }
   });
   const todayEvs = evByDay[today()] || [];
   const away = todayEvs.filter(e => e.kind === 'leave');
   const meets = todayEvs.filter(e => e.kind !== 'leave');
-  let cells = '<tr>' + '<td class="other"></td>'.repeat(startDow);
-  let col = startDow;
-  for (let day = 1; day <= dim; day++) {
-    if (col === 7) { cells += '</tr><tr>'; col = 0; }
-    const date = d.ym + '-' + String(day).padStart(2, '0');
-    if (MOBC) {
-      const dots = (evByDay[date] || []).map(ev => (EV_KINDS[ev.kind] || EV_KINDS.other)[2]).concat((byDay[date] || []).map(t => t.color));
-      cells += `<td class="cal-cell cal-mob ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>
-        <div class="cal-dots">${dots.slice(0, 4).map(c2 => `<i style="background:${c2}"></i>`).join('')}${dots.length > 4 ? `<small>+${dots.length - 4}</small>` : ''}</div></td>`;
-      col++; continue;
+
+  /* ── κοινά κομμάτια ── */
+  const evChip = ev => {
+    const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
+    const who = ev.attendees.map(a => adminIni(a)).join(',');
+    const tm = ev.allDay ? '' : ev.start.slice(11, 16) + ' ';
+    return `<a class="ev" data-event="${ev.id}" style="border-color:${col};background:${col}18"
+      title="${esc(ev.title)} — ${esc(ev.attendees.map(a => adminName(a)).join(', '))}${ev.location ? ' @ ' + esc(ev.location) : ''}">
+      ${ico} ${tm}${esc(ev.title)} <small style="opacity:.7">${esc(who)}</small></a>`;
+  };
+  const tkChip = (t, date) => `<a class="ev ${t.done ? 'done' : date < today() ? 'over' : ''}"
+      style="border-color:${t.color}" data-task="${t.id}" title="${esc(t.title + ' — ' + t.pname)}">
+      ${t.status ? stDot(t.status) : ''}${t.prio === 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`;
+
+  /* ── πλέγμα μήνα ── */
+  const monthGrid = () => {
+    const a = dt0(from);
+    const dim = new Date(a.getFullYear(), a.getMonth() + 1, 0).getDate();
+    const startDow = (new Date(a.getFullYear(), a.getMonth(), 1).getDay() + 6) % 7;
+    let cells = '<tr>' + '<td class="other"></td>'.repeat(startDow), col = startDow;
+    for (let day = 1; day <= dim; day++) {
+      if (col === 7) { cells += '</tr><tr>'; col = 0; }
+      const date = from.slice(0, 8) + String(day).padStart(2, '0');
+      if (MOBC) {
+        const dots = (evByDay[date] || []).map(ev => (EV_KINDS[ev.kind] || EV_KINDS.other)[2]).concat((byDay[date] || []).map(t => t.color));
+        cells += `<td class="cal-cell cal-mob ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>
+          <div class="cal-dots">${dots.slice(0, 4).map(c2 => `<i style="background:${c2}"></i>`).join('')}${dots.length > 4 ? `<small>+${dots.length - 4}</small>` : ''}</div></td>`;
+      } else {
+        cells += `<td class="cal-cell ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>`
+          + (evByDay[date] || []).map(evChip).join('') + (byDay[date] || []).map(t => tkChip(t, date)).join('') + '</td>';
+      }
+      col++;
     }
-    cells += `<td class="cal-cell ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>` +
-      (evByDay[date] || []).map(ev => {
-        const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
-        const who = ev.attendees.map(a => adminIni(a)).join(',');
-        const tm = ev.allDay ? '' : ev.start.slice(11, 16) + ' ';
-        return `<a class="ev" data-event="${ev.id}" style="border-color:${col};background:${col}18"
-          title="${esc(ev.title)} — ${esc(ev.attendees.map(a => adminName(a)).join(', '))}${ev.location ? ' @ ' + esc(ev.location) : ''}&#10;(διπλό κλικ για λεπτομέρειες)">
-          ${ico} ${tm}${esc(ev.title)} <small style="opacity:.7">${esc(who)}</small></a>`;
-      }).join('') +
-      (byDay[date] || []).map(t => `<a class="ev ${t.done ? 'done' : date < today() ? 'over' : ''}"
-        style="border-color:${t.color}" data-task="${t.id}" title="${esc(t.title + ' — ' + t.pname)}&#10;(διπλό κλικ για άνοιγμα)">
-        ${t.status ? stDot(t.status) : ''}${t.prio === 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`).join('') + '</td>';
-    col++;
-  }
-  while (col < 7) { cells += '<td class="other"></td>'; col++; }
+    while (col < 7) { cells += '<td class="other"></td>'; col++; }
+    return `<table class="cpm-cal cnp-cal"><thead><tr>${['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'].map(x => `<th>${x}</th>`).join('')}</tr></thead>
+      <tbody>${cells}</tr></tbody></table>`;
+  };
+
+  /* ── εβδομάδα: 7 στήλες (desktop) / 7 κάρτες (κινητό) ── */
+  const weekGrid = () => {
+    const days = []; for (let i = 0; i < 7; i++) { days.push(addD(from, i)); }
+    return `<div class="cal-week${MOBC ? ' mob' : ''}">${days.map(date => {
+      const dd2 = dt0(date), evs = (evByDay[date] || []), tks = (byDay[date] || []);
+      return `<div class="cw-day${date === today() ? ' today' : ''}${[0, 6].includes(dd2.getDay()) ? ' we' : ''}" data-date="${date}">
+        <div class="cw-h"><b>${dayShort[dd2.getDay()]} ${dd2.getDate()}</b>${evs.length + tks.length ? `<span class="kb-n">${evs.length + tks.length}</span>` : ''}
+          <button class="cw-add" data-cwnew="${date}" title="Νέο εδώ">+</button></div>
+        <div class="cw-b">${evs.map(evChip).join('')}${tks.map(t => tkChip(t, date)).join('')
+          || (evs.length ? '' : '<div class="cw-empty">—</div>')}</div></div>`;
+    }).join('')}</div>`;
+  };
+
+  /* ── μέρα: ωριαία ατζέντα ── */
+  const dayView = () => {
+    const evs = (evByDay[from] || []).slice().sort((a, b) => (a.allDay ? '0' : a.start).localeCompare(b.allDay ? '0' : b.start));
+    const tks = byDay[from] || [];
+    const allDay = evs.filter(e => e.allDay), timed = evs.filter(e => !e.allDay);
+    const rows = [];
+    for (let h = 7; h <= 21; h++) {
+      const hh = String(h).padStart(2, '0');
+      const here = timed.filter(e => e.start.slice(11, 13) === hh);
+      rows.push(`<div class="cd-row${here.length ? ' has' : ''}"><span class="cd-h">${hh}:00</span>
+        <div class="cd-b">${here.map(ev => { const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
+          return `<div class="cd-ev" data-agevent="${ev.id}" style="border-left-color:${col}">
+            <b>${ico} ${esc(ev.title)}</b>
+            <span class="mut">${ev.start.slice(11, 16)}–${ev.end.slice(11, 16)}${ev.attendees.length ? ' · ' + esc(ev.attendees.map(a => adminName(a)).join(', ')) : ''}${ev.location ? (/^https?:/i.test(ev.location) ? ' · 🎥 Βιντεοκλήση' : ' · 📍 ' + esc(ev.location)) : ''}</span></div>`; }).join('')}</div></div>`);
+    }
+    return `<div class="card cal-dayv">
+      <div class="card-h">${dayNames[dt0(from).getDay()]} ${dt0(from).getDate()} ${MN[dt0(from).getMonth()]}
+        <span style="flex:1"></span><button class="btn btn-p btn-sm" data-cwnew="${from}">${I.plus} Νέο εδώ</button></div>
+      ${allDay.length || tks.length ? `<div class="cd-top">
+        ${allDay.map(ev => { const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
+          return `<div class="cd-ev" data-agevent="${ev.id}" style="border-left-color:${col}"><b>${ico} ${esc(ev.title)}</b><span class="mut">Ολοήμερο${ev.attendees.length ? ' · ' + esc(ev.attendees.map(a => adminName(a)).join(', ')) : ''}</span></div>`; }).join('')}
+        ${tks.map(t => `<div class="cd-ev" data-agtask="${t.id}" style="border-left-color:${t.color}"><b>${t.prio === 2 ? '❗ ' : ''}${esc(t.title)}</b><span class="mut">Λήξη εργασίας · ${esc(t.pname || '—')}</span></div>`).join('')}
+      </div>` : ''}
+      <div class="cd-grid">${rows.join('')}</div></div>`;
+  };
+
   c.innerHTML = `
   ${(away.length || meets.length) ? `<div class="card" style="padding:11px 16px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
     ${away.length ? `<span style="font-size:12.5px">🌴 <b>Λείπουν σήμερα:</b> ${away.map(e => esc(e.attendees.map(a => adminName(a)).join(', '))).join(' · ')}</span>` : ''}
     ${meets.length ? `<span style="font-size:12.5px">${I.handshake} <b>Σήμερα:</b> ${meets.map(e => (e.allDay ? '' : e.start.slice(11, 16) + ' ') + esc(e.title)).join(' · ')}</span>` : ''}
   </div>` : ''}
-  <div class="cal-top" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-    <button class="btn btn-o btn-ico" id="calP" title="Προηγούμενος μήνας">←</button>
-    <b style="font-size:17px;color:var(--ink);min-width:118px;text-align:center">${mn} ${Y}</b>
-    <button class="btn btn-o btn-ico" id="calN" title="Επόμενος μήνας">→</button>
-    ${d.ym !== today().slice(0, 7) ? '<button class="btn btn-o btn-sm" id="calT">Σήμερα</button>' : ''}
-    <button class="btn btn-o btn-sm" id="calDone" title="Εμφάνιση/απόκρυψη ολοκληρωμένων tasks" style="${MOBC ? 'display:none' : ''}">${showDone ? '☑' : '☐'} Ολοκληρωμένα</button>
-    <button class="btn btn-p cal-newev" id="evNew" style="margin-left:auto">${I.plus} Νέο συμβάν</button>
+  <div class="cal-top">
+    <span class="fseg" id="calView">
+      <button class="fchip${st.view === 'day' ? ' on' : ''}" data-cv="day">Μέρα</button>
+      <button class="fchip${st.view === 'week' ? ' on' : ''}" data-cv="week">Εβδομάδα</button>
+      <button class="fchip${st.view === 'month' ? ' on' : ''}" data-cv="month">Μήνας</button></span>
+    <span class="cal-nav">
+      <button class="btn btn-o btn-ico" id="calP" title="Προηγούμενα">←</button>
+      <b class="cal-lbl">${esc(label)}</b>
+      <button class="btn btn-o btn-ico" id="calN" title="Επόμενα">→</button>
+      <button class="btn btn-o btn-sm" id="calT">Σήμερα</button></span>
+    <span style="flex:1"></span>
+    <button class="btn btn-o btn-sm" id="calDone" title="Εμφάνιση/απόκρυψη ολοκληρωμένων εργασιών">${showDone ? '☑' : '☐'} Ολοκληρωμένα</button>
+    <button class="btn btn-p cal-newev" id="evNew">${I.plus} Νέο συμβάν</button>
   </div>
-  ${MOBC ? '' : `<div class="cal-legend">
+  ${MOBC || st.view === 'day' ? '' : `<div class="cal-legend">
     ${Object.entries(EV_KINDS).map(([, [ico, l, col]]) => `<span class="cal-leg" style="border-color:${col}40;background:${col}14"><span class="dot" style="background:${col}"></span>${ico} ${l}</span>`).join('')}
   </div>`}
-    <table class="cpm-cal cnp-cal"><thead><tr>${['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'].map(x => `<th>${x}</th>`).join('')}</tr></thead>
-    <tbody>${cells}</tr></tbody></table>
-    <div id="calDay" class="cal-agenda"></div>`;
-  $('#calP').onclick = () => R.calendar(fmtYm(prev));
-  $('#calN').onclick = () => R.calendar(fmtYm(next));
-  const t = $('#calT'); if (t) t.onclick = () => R.calendar();
-  $('#evNew').onclick = () => openEvent(null, d.ym);
-  { const cd = $('#calDone'); if (cd) cd.onclick = () => { localStorage.cnpCalDone = showDone ? '0' : '1'; R.calendar(d.ym); }; }
-  /* Μονό κλικ σε στοιχείο = διαλέγει τη μέρα (και το βλέπεις αναλυτικά από κάτω).
-     ΔΙΠΛΟ κλικ = άνοιξέ το: η σύσκεψη ανοίγει την καρτέλα της, το task το δικό του.
-     Έτσι δεν χάνεται η επιλογή μέρας, αλλά ούτε χρειάζεται να κατέβεις στην ατζέντα. */
-  $$('.cal-cell .ev[data-event]').forEach(a => {
-    a.ondblclick = e => {
-      e.preventDefault(); e.stopPropagation();
-      const ev = (d.events || []).find(x => x.id === +a.dataset.event);
-      if (ev) { openEvent(ev, d.ym); }
-    };
-  });
-  $$('.cal-cell .ev[data-task]').forEach(a => {
-    a.ondblclick = e => { e.preventDefault(); e.stopPropagation(); openTask(+a.dataset.task); };
-  });
-  // ── agenda επιλεγμένης μέρας (κάτω από το ημερολόγιο) ──
-  const dayNames = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
-  const renderDay = date => {
-    $$('.cal-cell').forEach(td => td.classList.toggle('sel', td.dataset.date === date));
-    const box = $('#calDay'); if (!box) return;
-    const dt = new Date(date + 'T12:00:00');
-    const evs = (evByDay[date] || []).slice().sort((a, b) => (a.allDay ? '0' : a.start).localeCompare(b.allDay ? '0' : b.start));
-    const tasks = byDay[date] || [];
-    let body = '';
-    evs.forEach(ev => {
-      const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
-      const tm = ev.allDay ? 'Ολοήμερο' : ev.start.slice(11, 16) + (ev.end && ev.end.slice(0, 10) === date ? '–' + ev.end.slice(11, 16) : '');
-      const who = ev.attendees.map(a => adminName(a)).join(', ');
-      body += `<div class="cal-ag-row" data-agevent="${ev.id}" style="border-left-color:${col}">
-        <div class="cal-ag-ic" style="background:${col}20">${ico}</div>
-        <div style="flex:1;min-width:0"><b>${esc(ev.title)}</b>
-          <div class="cal-ag-meta"><span class="cal-ag-time">${tm}</span>${who ? ' · ' + esc(who) : ''}${ev.location ? (/^https?:/i.test(ev.location) ? ' · 🎥 Βιντεοκλήση' : ' · 📍 ' + esc(ev.location)) : ''}</div></div></div>`;
-    });
-    tasks.forEach(tk => {
-      const over = date < today() && !tk.done;
-      body += `<div class="cal-ag-row" data-agtask="${tk.id}" style="border-left-color:${tk.color}">
-        <div class="cal-ag-ic" style="background:${tk.color}20">${I.checkSquare || '✔'}</div>
-        <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio === 2 ? '❗ ' : ''}${esc(tk.title)}</b>
-          <div class="cal-ag-meta">${tk.status ? stPill(tk.status) + ' · ' : ''}Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
-    });
-    box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dt.getDay()]} ${dt.getDate()} ${mn}</b>${MOBC ? '<span class="mut" style="font-size:11px">πάτα για άνοιγμα</span>' : ''}
-        <button class="btn btn-p btn-sm" id="calDayNew">${I.plus} Νέο εδώ</button></div>
-      ${body || '<div class="empty" style="padding:24px 12px">Καμία δραστηριότητα αυτή τη μέρα.</div>'}`;
-    if (MOBC && box.dataset.first) { box.scrollIntoView({block: 'start', behavior: 'smooth'}); }
-    box.dataset.first = '1';
-    const nb = $('#calDayNew'); if (nb) nb.onclick = () => openEvent({start: date + 'T09:00', end: date + 'T10:00'}, d.ym);
-    $$('[data-agevent]', box).forEach(r => r.onclick = () => { const ev = (d.events || []).find(x => x.id === +r.dataset.agevent); if (ev) openEvent(ev, d.ym); });
-    $$('[data-agtask]', box).forEach(r => r.onclick = () => openTask(+r.dataset.agtask));
+  ${st.view === 'day' ? dayView() : st.view === 'week' ? weekGrid() : monthGrid()}
+  ${st.view === 'day' ? '' : '<div id="calDay" class="cal-agenda"></div>'}`;
+
+  /* ── πλοήγηση ── */
+  const step = n => {
+    if (st.view === 'day') { st.anchor = addD(st.anchor, n); }
+    else if (st.view === 'week') { st.anchor = addD(monday(st.anchor), n * 7); }
+    else { const a = dt0(st.anchor); st.anchor = iso(new Date(a.getFullYear(), a.getMonth() + n, 1, 12)); }
+    R.calendar();
   };
-  $$('.cal-cell').forEach(td => td.onclick = () => renderDay(td.dataset.date));
-  renderDay(today().slice(0, 7) === d.ym ? today() : d.ym + '-01');
+  $('#calP').onclick = () => step(-1);
+  $('#calN').onclick = () => step(1);
+  $('#calT').onclick = () => { st.anchor = today(); R.calendar(); };
+  $$('#calView [data-cv]').forEach(b => b.onclick = () => { st.view = b.dataset.cv; localStorage.cnpCalView = st.view; R.calendar(); });
+  $('#calDone').onclick = () => { localStorage.cnpCalDone = showDone ? '0' : '1'; R.calendar(); };
+  $('#evNew').onclick = () => openEvent(null, d.ym);
+  $$('[data-cwnew]').forEach(b => b.onclick = e => { e.stopPropagation(); openEvent({start: b.dataset.cwnew + 'T09:00', end: b.dataset.cwnew + 'T10:00'}, d.ym); });
+
+  /* Άνοιγμα στοιχείου: στη μέρα/εβδομάδα με ένα κλικ, στον μήνα με διπλό (το μονό διαλέγει μέρα). */
+  const openEv = id => { const ev = (d.events || []).find(x => x.id === +id); if (ev) { openEvent(ev, d.ym); } };
+  if (st.view === 'month') {
+    $$('.cal-cell .ev[data-event]').forEach(a => { a.ondblclick = e => { e.preventDefault(); e.stopPropagation(); openEv(a.dataset.event); }; });
+    $$('.cal-cell .ev[data-task]').forEach(a => { a.ondblclick = e => { e.preventDefault(); e.stopPropagation(); openTask(+a.dataset.task); }; });
+  } else {
+    $$('.ev[data-event]').forEach(a => { a.onclick = e => { e.preventDefault(); e.stopPropagation(); openEv(a.dataset.event); }; });
+    $$('.ev[data-task]').forEach(a => { a.onclick = e => { e.preventDefault(); e.stopPropagation(); openTask(+a.dataset.task); }; });
+  }
+  $$('[data-agevent]').forEach(r => r.onclick = () => openEv(r.dataset.agevent));
+  $$('[data-agtask]').forEach(r => r.onclick = () => openTask(+r.dataset.agtask));
+
+  /* ── ατζέντα επιλεγμένης μέρας (μήνας/εβδομάδα) ── */
+  if (st.view !== 'day') {
+    const renderDay = date => {
+      $$('.cal-cell,.cw-day').forEach(td => td.classList.toggle('sel', td.dataset.date === date));
+      const box = $('#calDay'); if (!box) { return; }
+      const dtx = dt0(date);
+      const evs = (evByDay[date] || []).slice().sort((a, b) => (a.allDay ? '0' : a.start).localeCompare(b.allDay ? '0' : b.start));
+      const tasks = byDay[date] || [];
+      let body = '';
+      evs.forEach(ev => {
+        const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
+        const tm = ev.allDay ? 'Ολοήμερο' : ev.start.slice(11, 16) + (ev.end && ev.end.slice(0, 10) === date ? '–' + ev.end.slice(11, 16) : '');
+        const who = ev.attendees.map(a => adminName(a)).join(', ');
+        body += `<div class="cal-ag-row" data-agevent="${ev.id}" style="border-left-color:${col}">
+          <div class="cal-ag-ic" style="background:${col}20">${ico}</div>
+          <div style="flex:1;min-width:0"><b>${esc(ev.title)}</b>
+            <div class="cal-ag-meta"><span class="cal-ag-time">${tm}</span>${who ? ' · ' + esc(who) : ''}${ev.location ? (/^https?:/i.test(ev.location) ? ' · 🎥 Βιντεοκλήση' : ' · 📍 ' + esc(ev.location)) : ''}</div></div></div>`;
+      });
+      tasks.forEach(tk => {
+        const over = date < today() && !tk.done;
+        body += `<div class="cal-ag-row" data-agtask="${tk.id}" style="border-left-color:${tk.color}">
+          <div class="cal-ag-ic" style="background:${tk.color}20">${I.checkSquare || '✔'}</div>
+          <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio === 2 ? '❗ ' : ''}${esc(tk.title)}</b>
+            <div class="cal-ag-meta">${tk.status ? stPill(tk.status) + ' · ' : ''}Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
+      });
+      box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dtx.getDay()]} ${dtx.getDate()} ${MN[dtx.getMonth()]}</b>${MOBC ? '<span class="mut" style="font-size:11px">πάτα για άνοιγμα</span>' : ''}
+          <button class="btn btn-p btn-sm" data-cwnew="${date}">${I.plus} Νέο εδώ</button></div>
+        ${body || '<div class="empty" style="padding:24px 12px">Καμία δραστηριότητα αυτή τη μέρα.</div>'}`;
+      $$('[data-cwnew]', box).forEach(b => b.onclick = () => openEvent({start: date + 'T09:00', end: date + 'T10:00'}, d.ym));
+      $$('[data-agevent]', box).forEach(r => r.onclick = () => openEv(r.dataset.agevent));
+      $$('[data-agtask]', box).forEach(r => r.onclick = () => openTask(+r.dataset.agtask));
+      if (MOBC && box.dataset.first) { box.scrollIntoView({block: 'start', behavior: 'smooth'}); }
+      box.dataset.first = '1';
+    };
+    $$('.cal-cell,.cw-day').forEach(td => td.onclick = e => { if (e.target.closest('a,button')) { return; } renderDay(td.dataset.date); });
+    renderDay(today() >= from && today() <= to ? today() : from);
+  }
 };
 
 /* ═════════ ΧΡΟΝΟΣ ═════════ */

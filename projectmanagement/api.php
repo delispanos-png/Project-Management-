@@ -8169,8 +8169,13 @@ case 'list':
 
 case 'calendar':
     $ym = preg_match('/^\d{4}-\d{2}$/', $_GET['ym'] ?? '') ? $_GET['ym'] : date('Y-m');
+    /* Προβολές μέρα/εβδομάδα (21/9/2026): το διάστημα μπορεί να πέφτει σε δύο μήνες, γι' αυτό
+       δέχεται from/to. Χωρίς αυτά κρατά τη συμπεριφορά «ολόκληρος ο μήνας». */
+    $dFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : ($ym . '-01');
+    $dTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-t', strtotime($ym . '-01'));
+    if ($dTo < $dFrom) { $dTo = $dFrom; }
     $items = [];
-    foreach (Db::tasksForMonth($ym) as $t) {
+    foreach (Db::tasksBetween($dFrom, $dTo) as $t) {
         if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
             continue;
         }
@@ -8179,8 +8184,8 @@ case 'calendar':
             'color' => $t->project_color ?: '#8595ac', 'pname' => cnp_pn($t->project_name)];
     }
     $evs = [];
-    $mStart = $ym . '-01 00:00:00';
-    $mEnd = date('Y-m-t 23:59:59', strtotime($ym . '-01'));
+    $mStart = $dFrom . ' 00:00:00';
+    $mEnd = $dTo . ' 23:59:59';
     foreach (Capsule::table('mod_cpm_events')
         ->where('start_dt', '<=', $mEnd)->where('end_dt', '>=', $mStart)
         ->orderBy('start_dt')->get() as $e) {
@@ -8201,7 +8206,7 @@ case 'calendar':
             'over' => strtotime($e->end_dt) < time(),
             'by' => (int) $e->created_by, 'canEdit' => $FULL || (int) $e->created_by === $adminId];
     }
-    out(['ym' => $ym, 'items' => $items, 'events' => $evs]);
+    out(['ym' => $ym, 'from' => $dFrom, 'to' => $dTo, 'items' => $items, 'events' => $evs]);
 
 case 'event_save':                      // ομαδικό ημερολόγιο: meeting/ραντεβού/άδεια
     $eid = (int) ($in['id'] ?? 0);
