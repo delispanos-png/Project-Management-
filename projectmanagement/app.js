@@ -233,6 +233,7 @@ function renderShell() {
       ['myday', I.sun, 'Η μέρα μου'],
       ['todos', I.checkSquare, 'Το πλάνο μου'],
       ['supervised', I.eye, 'Επιβλέπω'],   /* εργασίες που άνοιξα εγώ — ανοιχτές / ολοκληρωμένες */
+      ['requests', I.sos || I.chat, 'Αιτήματα'],   /* «σε ζητούν» με ιστορικό: ποιος ρώτησε, τι απαντήθηκε */
       ['time', I.clock, 'Ο χρόνος μου'],   /* ΜΟΝΟ δικός μου — η ομάδα είναι στις Αναφορές */
       ['library', I.book, 'Η βιβλιοθήκη μου'],
       ['vault', I.key, 'Κωδικοί'],
@@ -629,7 +630,7 @@ async function loadTopStats() {
     <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join('');
   $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => {
     if (b.dataset.pgo === 'billq') { billingQueue(); return; }
-    if (b.dataset.pgo === 'needs') { const old = $('.pop'); if (old) { old.remove(); } toggleBell(); return; }
+    if (b.dataset.pgo === 'needs') { const old = $('.pop'); if (old) { old.remove(); } go('requests'); return; }
     go(b.dataset.pgo);
   });
   /* Pop-up: μία φορά ανά συνεδρία, και ξανά μόλις εμφανιστεί ΚΑΙΝΟΥΡΓΙΑ έγκριση.

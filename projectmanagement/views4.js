@@ -587,6 +587,106 @@ const LF_F = {
            .concat((d.projects || []).map(n => [n, n]))},
 };
 
+/* ═════════ 📨 Αιτήματα: το «σε ζητούν» με ιστορικό και αλληλογραφία (21/9/2026) ═════════
+   Πριν, ό,τι ερχόταν ως popup (βοήθεια, «τι γίνεται;», @αναφορά, προσφορά, φωνή) χανόταν μόλις
+   το έκλεινες. Εδώ ζει όλο: εισερχόμενα / απεσταλμένα, ανοιχτά / τακτοποιημένα, με νήμα
+   απαντήσεων ανά αίτημα — σαν αλληλογραφία. */
+R.requests = async function (openId) {
+  setTop('Αιτήματα', 'Ποιος σε ζήτησε, τι απαντήθηκε, τι εκκρεμεί — τίποτα δεν χάνεται');
+  const c = $('#content');
+  const f = R.requests._f = R.requests._f || {box: 'in', state: 'open', q: ''};
+  c.innerHTML = `<div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="rqQ" value="${esc(f.q)}" placeholder="κείμενο αιτήματος…" style="width:210px">`, !!f.q, '')}
+    <span class="fseg" id="rqBox">
+      <button class="fchip${f.box === 'in' ? ' on' : ''}" data-b="in">Προς εμένα <b id="rqNi"></b></button>
+      <button class="fchip${f.box === 'out' ? ' on' : ''}" data-b="out">Από εμένα <b id="rqNo"></b></button>
+      <button class="fchip${f.box === 'all' ? ' on' : ''}" data-b="all">Όλα</button></span>
+    <span class="fseg" id="rqState">
+      <button class="fchip${f.state === 'open' ? ' on' : ''}" data-s="open">Ανοιχτά</button>
+      <button class="fchip${f.state === 'done' ? ' on' : ''}" data-s="done">Τακτοποιημένα</button>
+      <button class="fchip${f.state === 'all' ? ' on' : ''}" data-s="all">Όλα</button></span>
+    <span class="fbar-sp"></span>
+    <button class="fchip fchip-go" id="rqNew">${I.plus} Ζήτα βοήθεια</button>
+  </div>
+  <div class="rq-split"><div id="rqList"><div class="skel" style="height:200px"></div></div>
+    <div id="rqPane" class="rq-pane"><div class="empty" style="padding:50px 16px"><div class="big">${I.chat}</div>Διάλεξε αίτημα για να δεις τη συζήτηση</div></div></div>`;
+  const d = await api('requests&box=' + f.box + '&state=' + f.state + '&q=' + encodeURIComponent(f.q)).catch(() => ({items: [], counts: {}, mates: []}));
+  { const a = $('#rqNi'), b2 = $('#rqNo'); if (a) a.textContent = d.counts.in || ''; if (b2) b2.textContent = d.counts.out || ''; }
+
+  const ago = at => { if (!at) return ''; const h = Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 3600000); return h < 1 ? 'μόλις τώρα' : h < 24 ? 'πριν ' + h + 'ω' : 'πριν ' + Math.floor(h / 24) + ' ημ.'; };
+  const ctxOf = r => r.taskTitle ? '#' + r.taskId + ' ' + r.taskTitle : (r.projectName || '');
+  const row = r => `<div class="rq-row${r.status === 'open' ? ' open' : ''}${r.forMe && !r.seen ? ' unread' : ''}" data-rq="${r.id}">
+    <span class="rq-ic">${r.icon}</span>
+    <span class="rq-t">
+      <b>${esc(r.forMe ? r.from : 'προς ' + r.to)}</b>
+      <span class="rq-kind">${esc(r.kindLbl)}</span>
+      ${r.status === 'done' ? '<span class="pill pill-ok">τακτοποιήθηκε</span>' : '<span class="pill pill-warn">ανοιχτό</span>'}
+      <span class="rq-msg">${esc((r.message || '').slice(0, 150))}</span>
+      ${ctxOf(r) ? `<span class="rq-ctx">${I.checkSquare} ${esc(ctxOf(r).slice(0, 70))}</span>` : ''}
+    </span>
+    <span class="rq-meta">${r.replies ? `<span class="pill pill-mut">${I.chat} ${r.replies}</span>` : ''}<span class="mut">${esc(ago(r.lastAt || r.at))}</span></span></div>`;
+
+  const listEl = $('#rqList');
+  listEl.innerHTML = d.items.length
+    ? `<div class="card"><div class="card-b" style="padding:4px 8px">${d.items.map(row).join('')}</div></div>`
+    : `<div class="card"><div class="empty" style="padding:40px 16px"><div class="big">✅</div><b style="color:var(--ink)">Κανένα αίτημα εδώ</b>
+        <div class="mut" style="font-size:12.5px;margin-top:6px">${f.state === 'open' ? 'Δεν σε περιμένει κανείς — καθαρό τραπέζι.' : 'Δοκίμασε άλλο φίλτρο.'}</div></div></div>`;
+
+  /* ── Καρτέλα αιτήματος: το ζητούμενο, το νήμα, και το πεδίο απάντησης ── */
+  const openRq = async id => {
+    const pane = $('#rqPane'); if (!pane) { return; }
+    pane.innerHTML = '<div class="skel" style="height:220px"></div>';
+    $$('#rqList .rq-row').forEach(x => x.classList.toggle('sel', +x.dataset.rq === +id));
+    const r = await api('request_get&id=' + id).catch(() => null);
+    if (!r) { pane.innerHTML = '<div class="empty" style="padding:40px">Δεν βρέθηκε</div>'; return; }
+    const q = r.req;
+    const canReply = q.forMe || q.mine;
+    pane.innerHTML = `<div class="card rq-card">
+      <div class="card-h" style="gap:8px"><span style="font-size:17px">${q.icon}</span>
+        <b>${esc(q.kindLbl)}</b>
+        <span class="mut" style="font-weight:600;font-size:12px">${esc(q.from)} → ${esc(q.to)}</span>
+        ${q.status === 'done' ? '<span class="pill pill-ok">τακτοποιήθηκε</span>' : '<span class="pill pill-warn">ανοιχτό</span>'}
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-o" id="rqX" title="Κλείσιμο">✕</button></div>
+      <div class="card-b">
+        <div class="rq-q">${esc(q.message)}</div>
+        <div class="rq-sub">${esc(tShort(q.at))}${q.taskId ? ` · <a href="javascript:" data-rqtask="${q.taskId}">${I.checkSquare} #${q.taskId} ${esc(q.taskTitle)}</a>` : ''}${q.projectId ? ` · <a href="javascript:" data-rqproj="${q.projectId}">${I.folder} ${esc(q.projectName)}</a>` : ''}</div>
+        ${q.answer && q.answer !== 'reply' ? `<div class="rq-ans ${q.answer === 'help' ? 'bad' : 'ok'}">${q.answer === 'help' ? '🆘 Απάντησε: χρειάζομαι βοήθεια' : '✅ Απάντησε: όλα καλά'}${q.answerNote ? ' — ' + esc(q.answerNote) : ''}</div>` : ''}
+        <div class="rq-thread">${r.msgs.map(m => `<div class="rq-m${m.mine ? ' me' : ''}">
+          <div class="rq-m-h">${esc(m.byName)} · ${esc(tShort(m.at))}</div>${esc(m.body)}</div>`).join('')
+          || '<div class="mut" style="font-size:12.5px;padding:8px 0">Καμία απάντηση ακόμη.</div>'}</div>
+        ${canReply ? `<div class="rq-reply">
+          <textarea class="inp" id="rqTxt" rows="2" placeholder="Γράψε την απάντησή σου…"></textarea>
+          <div class="rq-reply-a">
+            ${q.forMe && q.status === 'open' ? '<label class="mut" style="font-size:11.5px;display:inline-flex;gap:5px;align-items:center"><input type="checkbox" id="rqKeep"> κράτα το ανοιχτό</label>' : ''}
+            <span style="flex:1"></span>
+            ${q.status === 'open' ? `<button class="btn btn-sm btn-o" id="rqDone">✓ Τακτοποιήθηκε</button>` : `<button class="btn btn-sm btn-o" id="rqReopen">↩ Ξανάνοιξέ το</button>`}
+            <button class="btn btn-sm btn-p" id="rqSend">${I.send} Απάντηση</button></div></div>` : ''}
+      </div></div>`;
+    const tx = $('#rqTxt', pane);
+    const send = async () => {
+      const body = tx.value.trim(); if (!body) { tx.focus(); return; }
+      const x = await api('help_reply', {id: q.id, body, keepOpen: $('#rqKeep', pane) && $('#rqKeep', pane).checked ? 1 : 0}).catch(e => ({err: e.message}));
+      if (x && x.err) { toast(x.err, true); return; }
+      toast('✔ Στάλθηκε'); R.requests(q.id);
+    };
+    { const b2 = $('#rqSend', pane); if (b2) b2.onclick = send; }
+    if (tx) tx.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } };
+    { const b2 = $('#rqDone', pane); if (b2) b2.onclick = async () => { await api('help_done', {id: q.id}).catch(() => {}); toast('Τακτοποιήθηκε'); R.requests(q.id); }; }
+    { const b2 = $('#rqReopen', pane); if (b2) b2.onclick = async () => { await api('request_reopen', {id: q.id}).catch(() => {}); toast('Ξανάνοιξε'); R.requests(q.id); }; }
+    { const b2 = $('#rqX', pane); if (b2) b2.onclick = () => { pane.innerHTML = `<div class="empty" style="padding:50px 16px"><div class="big">${I.chat}</div>Διάλεξε αίτημα</div>`; $$('#rqList .rq-row').forEach(x => x.classList.remove('sel')); document.body.classList.remove('rq-open'); }; }
+    $$('[data-rqtask]', pane).forEach(a => a.onclick = () => openTask(+a.dataset.rqtask));
+    $$('[data-rqproj]', pane).forEach(a => a.onclick = () => go('board', +a.dataset.rqproj));
+    document.body.classList.add('rq-open');   // κινητό: η καρτέλα παίρνει την οθόνη
+  };
+  $$('#rqList .rq-row').forEach(el => el.onclick = () => openRq(+el.dataset.rq));
+  $$('#rqBox [data-b]').forEach(b => b.onclick = () => { f.box = b.dataset.b; R.requests(); });
+  $$('#rqState [data-s]').forEach(b => b.onclick = () => { f.state = b.dataset.s; R.requests(); });
+  { let t0; const qi = $('#rqQ'); if (qi) qi.oninput = () => { clearTimeout(t0); t0 = setTimeout(() => { f.q = qi.value.trim(); R.requests(); }, 400); }; }
+  $('#rqNew').onclick = () => { if (window.CNP.quickHelp) { window.CNP.quickHelp({}); } };
+  if (openId) { openRq(+openId); }
+};
+
 /* ═════════ 👁 Επιβλέπω: οι εργασίες που άνοιξα εγώ ═════════
    Ο επιβλέπων = όποιος δημιούργησε την εργασία. Εδώ βλέπει πώς πάνε: ποιος τις έχει, πού
    είναι η μπάλα, πότε κινήθηκαν τελευταία. Φίλτρα ανοιχτές / ολοκληρωμένες / όλες. */

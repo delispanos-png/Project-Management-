@@ -1709,6 +1709,25 @@ function cnp_presence_sweep($now = null)
     return $n;
 }
 
+/** Ένα αίτημα «σε ζητούν» σε μορφή οθόνης — ίδια δομή σε λίστα και σε καρτέλα. */
+function cnp_request_dto($r, $adminId)
+{
+    $kinds = ['help' => ['🆘', 'Ζητά βοήθεια'], 'checkin' => ['❓', 'Ρωτά τι γίνεται'], 'mention' => ['💬', 'Σε ανέφερε'],
+        'offer' => ['📄', 'Ζητά προσφορά'], 'voice' => ['🔊', 'Κλήση στη φωνή']];
+    $k = $r->kind ?: 'help';
+    $t = $r->task_id ? Db::task((int) $r->task_id) : null;
+    return ['id' => (int) $r->id, 'kind' => $k, 'icon' => ($kinds[$k] ?? $kinds['help'])[0], 'kindLbl' => ($kinds[$k] ?? $kinds['help'])[1],
+        'fromId' => (int) $r->from_admin, 'from' => Db::adminName((int) $r->from_admin),
+        'toId' => (int) $r->to_admin, 'to' => Db::adminName((int) $r->to_admin),
+        'mine' => (int) $r->from_admin === $adminId, 'forMe' => (int) $r->to_admin === $adminId,
+        'message' => (string) $r->message, 'status' => (string) $r->status,
+        'answer' => $r->answer ?: '', 'answerNote' => (string) ($r->answer_note ?? ''),
+        'taskId' => $r->task_id ? (int) $r->task_id : 0, 'taskTitle' => $t ? (string) $t->title : '',
+        'projectId' => !empty($r->project_id) ? (int) $r->project_id : 0,
+        'projectName' => !empty($r->project_id) ? (string) (Capsule::table('mod_cpm_projects')->where('id', (int) $r->project_id)->value('name') ?: '') : '',
+        'at' => $r->created_at, 'seen' => !empty($r->seen_at), 'doneAt' => $r->done_at];
+}
+
 /** Χρονόμετρα αποσυνδεδεμένων — η λογική ζει στο Db ώστε να τη φτάνει και το cron. */
 function cnp_close_ghost_timers($now = null)
 {
@@ -3430,6 +3449,8 @@ function cnp_open_actions()
         'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
         'todo_toggle', 'todo_del', 'todo_clear_done', 'todo_seed', 'worknote_save', 'time',
         'mentions', 'mention_read', 'supervised',
+        // 📨 Αιτήματα («σε ζητούν») — αφορούν ΕΜΕΝΑ, προσωπική οθόνη
+        'requests', 'request_get', 'help_reply', 'request_reopen',
         // προφίλ
         'profile', 'profile_save', 'profile_pass', 'profile_pref',
         // κωδικοί & βιβλιοθήκη (προσωπικά)
@@ -7560,6 +7581,83 @@ case 'checkin_reply':                     // ο άνθρωπος απαντά: �
     if ($hC->task_id) { Db::logActivity((int) $hC->task_id, $adminId, 'checkin', $ansC === 'help' ? 'Απάντησε: χρειάζομαι βοήθεια' . ($noteC ? ' — ' . $noteC : '') : 'Απάντησε: όλα καλά' . ($noteC ? ' — ' . $noteC : '')); }
     out(['ok' => true, 'answer' => $ansC]);
 
+/* ════════ 📨 Αιτήματα: το «σε ζητούν» ως κανονικό κύκλωμα με ιστορικό (21/9/2026) ════════
+   Ό,τι περνά από τα popup (βοήθεια, «τι γίνεται;», @αναφορά, αίτημα προσφοράς, κλήση στη φωνή)
+   ζει εδώ και ΜΕΤΑ την τακτοποίηση: ποιος ρώτησε, τι απαντήθηκε, πότε. */
+case 'requests':
+    $boxR = in_array($_GET['box'] ?? 'in', ['in', 'out', 'all'], true) ? $_GET['box'] : 'in';
+    $stR = in_array($_GET['state'] ?? 'open', ['open', 'done', 'all'], true) ? $_GET['state'] : 'open';
+    $qR = trim((string) ($_GET['q'] ?? ''));
+    $qq = Capsule::table('mod_cpm_help');
+    if ($boxR === 'in') { $qq->where('to_admin', $adminId); }
+    elseif ($boxR === 'out') { $qq->where('from_admin', $adminId); }
+    else { $qq->where(function ($w) use ($adminId) { $w->where('to_admin', $adminId)->orWhere('from_admin', $adminId); }); }
+    if ($stR !== 'all') { $qq->where('status', $stR); }
+    if ($qR !== '') { $qq->where('message', 'like', '%' . $qR . '%'); }
+    $rowsR = $qq->orderByDesc('id')->limit(300)->get();
+    $idsR = array_map(function ($r) { return (int) $r->id; }, $rowsR->all());
+    $cntR = [];
+    if ($idsR) {
+        foreach (Capsule::table('mod_cpm_help_msgs')->whereIn('help_id', $idsR)->selectRaw('help_id, count(*) n, max(created_at) l')->groupBy('help_id')->get() as $c) {
+            $cntR[(int) $c->help_id] = ['n' => (int) $c->n, 'last' => $c->l];
+        }
+    }
+    $outR = [];
+    foreach ($rowsR as $r) {
+        $outR[] = cnp_request_dto($r, $adminId) + ['replies' => $cntR[(int) $r->id]['n'] ?? 0, 'lastAt' => $cntR[(int) $r->id]['last'] ?? $r->created_at];
+    }
+    $cBase = function ($box) use ($adminId) {
+        $q = Capsule::table('mod_cpm_help');
+        if ($box === 'in') { $q->where('to_admin', $adminId); } elseif ($box === 'out') { $q->where('from_admin', $adminId); }
+        else { $q->where(function ($w) use ($adminId) { $w->where('to_admin', $adminId)->orWhere('from_admin', $adminId); }); }
+        return $q;
+    };
+    out(['items' => $outR, 'box' => $boxR, 'state' => $stR,
+        'counts' => ['in' => (int) $cBase('in')->where('status', 'open')->count(),
+                     'out' => (int) $cBase('out')->where('status', 'open')->count(),
+                     'allOpen' => (int) $cBase('all')->where('status', 'open')->count(),
+                     'allDone' => (int) $cBase('all')->where('status', 'done')->count()],
+        'mates' => array_map(function ($a) { return ['id' => (int) $a->id, 'name' => Db::adminName((int) $a->id)]; },
+            array_values(array_filter(Db::admins()->all(), function ($a) use ($adminId) { return (int) $a->id !== $adminId && !cnp_is_bot(Db::adminName((int) $a->id), $a->username ?? ''); })))]);
+
+case 'request_get':                       // ένα αίτημα + όλη η αλληλογραφία του
+    $rq = Capsule::table('mod_cpm_help')->where('id', (int) ($_GET['id'] ?? 0))->first();
+    if (!$rq || ((int) $rq->to_admin !== $adminId && (int) $rq->from_admin !== $adminId && !$FULL)) { fail('request', 404); }
+    if ((int) $rq->to_admin === $adminId && empty($rq->seen_at)) {
+        Capsule::table('mod_cpm_help')->where('id', (int) $rq->id)->update(['seen_at' => date('Y-m-d H:i:s')]);
+    }
+    $msgsR = [];
+    foreach (Capsule::table('mod_cpm_help_msgs')->where('help_id', (int) $rq->id)->orderBy('id')->get() as $m) {
+        $msgsR[] = ['id' => (int) $m->id, 'by' => (int) $m->admin_id, 'byName' => Db::adminName((int) $m->admin_id),
+            'body' => (string) $m->body, 'at' => $m->created_at, 'mine' => (int) $m->admin_id === $adminId];
+    }
+    out(['req' => cnp_request_dto($rq, $adminId), 'msgs' => $msgsR]);
+
+case 'help_reply':                        // απάντηση στο νήμα ενός αιτήματος
+    $rr = Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$rr || ((int) $rr->to_admin !== $adminId && (int) $rr->from_admin !== $adminId)) { fail('request', 404); }
+    $bodyR = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 2000);
+    if ($bodyR === '') { fail('Γράψε την απάντησή σου'); }
+    $midR = Capsule::table('mod_cpm_help_msgs')->insertGetId(['help_id' => (int) $rr->id, 'admin_id' => $adminId,
+        'body' => $bodyR, 'created_at' => date('Y-m-d H:i:s')]);
+    $otherR = (int) $rr->to_admin === $adminId ? (int) $rr->from_admin : (int) $rr->to_admin;
+    if ((int) $rr->to_admin === $adminId) {
+        /* Απάντησε αυτός που ρωτήθηκε → το αίτημα τακτοποιείται (εκτός αν ζητηθεί να μείνει ανοιχτό). */
+        if (empty($in['keepOpen'])) {
+            Capsule::table('mod_cpm_help')->where('id', (int) $rr->id)->update(['status' => 'done', 'done_at' => date('Y-m-d H:i:s'),
+                'answer' => $rr->answer ?: 'reply', 'answer_note' => mb_substr($bodyR, 0, 500),
+                'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+        }
+    }
+    Db::pushNotification($otherR, 'info', '💬 ' . Db::adminName($adminId) . ' απάντησε: ' . mb_substr($bodyR, 0, 90), '/project/#/requests/' . (int) $rr->id);
+    out(['ok' => true, 'id' => $midR]);
+
+case 'request_reopen':                    // ξανάνοιγμα τακτοποιημένου αιτήματος
+    $ro = Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ro || ((int) $ro->to_admin !== $adminId && (int) $ro->from_admin !== $adminId)) { fail('request', 404); }
+    Capsule::table('mod_cpm_help')->where('id', (int) $ro->id)->update(['status' => 'open', 'done_at' => null]);
+    out(['ok' => true]);
+
 case 'help_seen':                         // ο παραλήπτης είδε το «μπαμ» → μη ξαναχτυπήσει
     Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))
         ->where('to_admin', $adminId)->whereNull('seen_at')
@@ -10412,7 +10510,10 @@ case 'tickets':
             'area' => isset($classMap[(int) $tk->id]) ? (int) $classMap[(int) $tk->id]->area_id ?: null : null,
             'cause' => isset($classMap[(int) $tk->id]) ? (int) $classMap[(int) $tk->id]->cause_id ?: null : null];
     }
-    out(['tickets' => $list, 'cats' => cnp_ticket_cats()]);
+    /* Τα χρώματα καταστάσεων τα χρειάζεται ΚΑΙ η λίστα (21/9/2026): χωρίς αυτά η οθόνη
+       έσκαγε σε κάθε προβολή με tickets. */
+    $stColL = Capsule::table('tblticketstatuses')->pluck('color', 'title')->all();
+    out(['statusColors' => $stColL, 'tickets' => $list, 'cats' => cnp_ticket_cats()]);
 
 case 'ticket':
     $tid = (int) ($_GET['id'] ?? 0);

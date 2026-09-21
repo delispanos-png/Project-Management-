@@ -794,6 +794,17 @@ class Db
         if ($s->hasTable('mod_cpm_chat') && !$s->hasColumn('mod_cpm_chat', 'reply_to')) {
             $s->table('mod_cpm_chat', function ($t) { $t->integer('reply_to')->unsigned()->nullable(); $t->dateTime('react_at')->nullable(); });
         }
+        /* Αλληλογραφία αιτημάτων (21/9/2026): κάθε αίτημα «σε ζητούν» έχει νήμα απαντήσεων,
+           ώστε τίποτα να μη χάνεται όταν κλείσει το popup. */
+        if (!$s->hasTable('mod_cpm_help_msgs')) {
+            $s->create('mod_cpm_help_msgs', function ($t) {
+                $t->increments('id');
+                $t->integer('help_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned();
+                $t->text('body');
+                $t->dateTime('created_at');
+            });
+        }
         if (!$s->hasTable('mod_cpm_chat_react')) {
             $s->create('mod_cpm_chat_react', function ($t) {
                 $t->increments('id');
