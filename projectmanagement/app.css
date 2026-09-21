@@ -3961,3 +3961,41 @@ select.fchip-s{max-width:190px}
 .rte-col{width:22px;height:22px;padding:2px;display:inline-flex;align-items:center;justify-content:center}
 .rte-col span{display:block;width:14px;height:14px;border-radius:50%}
 .sc-range{display:inline-flex;align-items:center;gap:6px}.sc-range .inp{width:auto;padding:4px 8px;font-size:12px}
+
+/* ═══════════ Καθαρό, «business» περιβάλλον (21/9/2026) ═══════════ */
+:root{--mut:#74839a;--sh:0 1px 2px rgba(15,32,56,.04),0 6px 20px -16px rgba(15,32,56,.18)}
+.card{border:1px solid var(--line)}
+html[data-theme="dark"] .card{border-color:#233043}
+.card-h{font-size:13.5px}
+.btn{border-radius:9px}
+.top-l{flex:1 1 auto;min-width:120px}
+@media(max-width:768px){.top-l{min-width:0;flex:1 1 0}}
+.top-l small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1280px){.top-l small{display:none}}
+/* γραμμές λιστών: άνετο ύψος για δάχτυλο */
+.kb-trow{padding:11px 4px}
+/* fbar κινητό: αναζήτηση + «Φίλτρα» */
+.fbar-toggle{display:none}
+@media(max-width:768px){
+  .fbar-toggle{display:inline-flex}
+  .fbar .fbar-hide{display:none}
+  .fbar.open .fbar-hide{display:inline-flex}
+  .fbar > .fchip:first-child,.fbar > .fchip:first-child .fchip-s{max-width:100%}
+  /* Η μέρα μου: KPI 2×2 */
+  .myd-hero-r{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+  /* Ημερολόγιο: συμπαγές πλέγμα με κουκκίδες + ατζέντα */
+  .cnp-cal th{padding:6px 0;font-size:10px;letter-spacing:.4px}
+  .cnp-cal td.cal-mob{height:46px;padding:4px 0 2px;text-align:center;vertical-align:top}
+  .cnp-cal td.cal-mob .d{font-size:12.5px;margin:0 0 3px;font-weight:700}
+  .cnp-cal td.cal-mob.today .d{color:var(--brand)}
+  .cnp-cal td.cal-mob.sel{background:#0090dd1a}
+  .cal-dots{display:flex;justify-content:center;gap:3px;flex-wrap:wrap;padding:0 2px;min-height:8px}
+  .cal-dots i{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .cal-dots small{font-size:9px;color:var(--mut);line-height:1}
+  .cal-agenda{margin-top:10px}
+  .cal-ag-row{padding:14px 14px;gap:12px}
+  .cal-ag-row b{font-size:14.5px;white-space:normal}
+  .cal-ag-meta{white-space:normal}
+  .cal-top b{font-size:16px!important;min-width:0!important;flex:1;text-align:left!important}
+  .cal-newev{margin-left:0!important;width:100%;justify-content:center;order:9}
+}

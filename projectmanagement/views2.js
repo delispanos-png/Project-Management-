@@ -507,6 +507,12 @@ R.calendar = async function (ym) {
   const c = $('#content');
   cnpSkel(c, skel(1, 400));
   const d = await api('calendar' + (ym ? '&ym=' + ym : ''));
+  /* Κινητό (21/9/2026): το πλέγμα μήνα με μικροσκοπικά chips δεν πατιέται. Εκεί κάθε μέρα δείχνει
+     μόνο κουκκίδες, και η ατζέντα της επιλεγμένης μέρας από κάτω έχει μεγάλες γραμμές — ένα πάτημα
+     ανοίγει την καταχώρηση για επεξεργασία. Στο desktop: τα ολοκληρωμένα tasks κρύβονται εξ ορισμού. */
+  const MOBC = matchMedia('(max-width:768px)').matches;
+  const showDone = localStorage.cnpCalDone === '1';
+  d.items = (d.items || []).filter(t => showDone || !t.done);
   const [Y, M] = d.ym.split('-').map(Number);
   const first = new Date(Y, M - 1, 1), dim = new Date(Y, M, 0).getDate();
   const startDow = (first.getDay() + 6) % 7;
@@ -535,6 +541,12 @@ R.calendar = async function (ym) {
   for (let day = 1; day <= dim; day++) {
     if (col === 7) { cells += '</tr><tr>'; col = 0; }
     const date = d.ym + '-' + String(day).padStart(2, '0');
+    if (MOBC) {
+      const dots = (evByDay[date] || []).map(ev => (EV_KINDS[ev.kind] || EV_KINDS.other)[2]).concat((byDay[date] || []).map(t => t.color));
+      cells += `<td class="cal-cell cal-mob ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>
+        <div class="cal-dots">${dots.slice(0, 4).map(c2 => `<i style="background:${c2}"></i>`).join('')}${dots.length > 4 ? `<small>+${dots.length - 4}</small>` : ''}</div></td>`;
+      col++; continue;
+    }
     cells += `<td class="cal-cell ${date === today() ? 'today' : ''}" data-date="${date}"><div class="d">${day}</div>` +
       (evByDay[date] || []).map(ev => {
         const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
@@ -560,11 +572,12 @@ R.calendar = async function (ym) {
     <b style="font-size:17px;color:var(--ink);min-width:118px;text-align:center">${mn} ${Y}</b>
     <button class="btn btn-o btn-ico" id="calN" title="Επόμενος μήνας">→</button>
     ${d.ym !== today().slice(0, 7) ? '<button class="btn btn-o btn-sm" id="calT">Σήμερα</button>' : ''}
+    <button class="btn btn-o btn-sm" id="calDone" title="Εμφάνιση/απόκρυψη ολοκληρωμένων tasks" style="${MOBC ? 'display:none' : ''}">${showDone ? '☑' : '☐'} Ολοκληρωμένα</button>
     <button class="btn btn-p cal-newev" id="evNew" style="margin-left:auto">${I.plus} Νέο συμβάν</button>
   </div>
-  <div class="cal-legend">
+  ${MOBC ? '' : `<div class="cal-legend">
     ${Object.entries(EV_KINDS).map(([, [ico, l, col]]) => `<span class="cal-leg" style="border-color:${col}40;background:${col}14"><span class="dot" style="background:${col}"></span>${ico} ${l}</span>`).join('')}
-  </div>
+  </div>`}
     <table class="cpm-cal cnp-cal"><thead><tr>${['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'].map(x => `<th>${x}</th>`).join('')}</tr></thead>
     <tbody>${cells}</tr></tbody></table>
     <div id="calDay" class="cal-agenda"></div>`;
@@ -572,6 +585,7 @@ R.calendar = async function (ym) {
   $('#calN').onclick = () => R.calendar(fmtYm(next));
   const t = $('#calT'); if (t) t.onclick = () => R.calendar();
   $('#evNew').onclick = () => openEvent(null, d.ym);
+  { const cd = $('#calDone'); if (cd) cd.onclick = () => { localStorage.cnpCalDone = showDone ? '0' : '1'; R.calendar(d.ym); }; }
   /* Μονό κλικ σε στοιχείο = διαλέγει τη μέρα (και το βλέπεις αναλυτικά από κάτω).
      ΔΙΠΛΟ κλικ = άνοιξέ το: η σύσκεψη ανοίγει την καρτέλα της, το task το δικό του.
      Έτσι δεν χάνεται η επιλογή μέρας, αλλά ούτε χρειάζεται να κατέβεις στην ατζέντα. */
@@ -601,7 +615,7 @@ R.calendar = async function (ym) {
       body += `<div class="cal-ag-row" data-agevent="${ev.id}" style="border-left-color:${col}">
         <div class="cal-ag-ic" style="background:${col}20">${ico}</div>
         <div style="flex:1;min-width:0"><b>${esc(ev.title)}</b>
-          <div class="cal-ag-meta"><span class="cal-ag-time">${tm}</span>${who ? ' · ' + esc(who) : ''}${ev.location ? ' · 📍 ' + esc(ev.location) : ''}</div></div></div>`;
+          <div class="cal-ag-meta"><span class="cal-ag-time">${tm}</span>${who ? ' · ' + esc(who) : ''}${ev.location ? (/^https?:/i.test(ev.location) ? ' · 🎥 Βιντεοκλήση' : ' · 📍 ' + esc(ev.location)) : ''}</div></div></div>`;
     });
     tasks.forEach(tk => {
       const over = date < today() && !tk.done;
@@ -610,9 +624,11 @@ R.calendar = async function (ym) {
         <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio === 2 ? '❗ ' : ''}${esc(tk.title)}</b>
           <div class="cal-ag-meta">${tk.status ? stPill(tk.status) + ' · ' : ''}Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
     });
-    box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dt.getDay()]} ${dt.getDate()} ${mn}</b>
+    box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dt.getDay()]} ${dt.getDate()} ${mn}</b>${MOBC ? '<span class="mut" style="font-size:11px">πάτα για άνοιγμα</span>' : ''}
         <button class="btn btn-p btn-sm" id="calDayNew">${I.plus} Νέο εδώ</button></div>
       ${body || '<div class="empty" style="padding:24px 12px">Καμία δραστηριότητα αυτή τη μέρα.</div>'}`;
+    if (MOBC && box.dataset.first) { box.scrollIntoView({block: 'start', behavior: 'smooth'}); }
+    box.dataset.first = '1';
     const nb = $('#calDayNew'); if (nb) nb.onclick = () => openEvent({start: date + 'T09:00', end: date + 'T10:00'}, d.ym);
     $$('[data-agevent]', box).forEach(r => r.onclick = () => { const ev = (d.events || []).find(x => x.id === +r.dataset.agevent); if (ev) openEvent(ev, d.ym); });
     $$('[data-agtask]', box).forEach(r => r.onclick = () => openTask(+r.dataset.agtask));

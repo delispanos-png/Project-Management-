@@ -1733,6 +1733,26 @@ function setTop(t, sub) {
   $('#topTitle').textContent = t;
   $('#topSub').textContent = sub || new Date().toLocaleDateString((window.CNP_LOCALE||'el-GR'), {weekday: 'long', day: 'numeric', month: 'long'});
 }
+/* Κινητό: η γραμμή φίλτρων (.fbar) έπιανε 3-4 σειρές. Μένει η αναζήτηση + κουμπί «Φίλτρα» που
+   ανοίγει τα υπόλοιπα. Δένεται αυτόματα σε κάθε οθόνη που τη σχεδιάζει (MutationObserver). */
+function cnpFbarMobile() {
+  if (!matchMedia('(max-width:768px)').matches) { return; }
+  document.querySelectorAll('#content .fbar:not([data-mob])').forEach(bar => {
+    bar.dataset.mob = '1';
+    const kids = [...bar.children].filter(el => !el.classList.contains('fbar-sp'));
+    if (kids.length < 3) { return; }
+    const first = kids[0];
+    const rest = kids.slice(1);
+    const go2 = rest.find(el => el.classList.contains('fchip-go'));
+    const active = rest.filter(el => el.classList.contains('on') || (el.querySelector && el.querySelector('.fchip.on, .on'))).length;
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'fchip fbar-toggle'; btn.innerHTML = I.funnel + ' Φίλτρα' + (active ? ' <b>' + active + '</b>' : '');
+    first.after(btn);
+    rest.forEach(el => { if (el !== go2) { el.classList.add('fbar-hide'); } });
+    btn.onclick = () => { const open = bar.classList.toggle('open'); btn.classList.toggle('on', open); };
+  });
+}
+new MutationObserver(() => cnpFbarMobile()).observe(document.body, {childList: true, subtree: true});
 function go(view, arg) {
   S.view = view;
   S.viewArg = arg ? String(arg) : '';
@@ -3727,15 +3747,15 @@ async function vMyDay() {
   c.innerHTML = `<div class="myd-wrap">${hero}
   <div class="myd-cols">
     <div class="myd-main">
-      ${sec('att', 'Θέλουν εσένα', 'απάντησε ή τακτοποίησε — από το πιο επείγον', att.length, attBody, {ic: '🔴', cls: 'att' + (att.length ? '' : ' ok')})}
+      ${sec('att', 'Θέλουν εσένα', 'απάντησε ή τακτοποίησε — από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')})}
       ${sec('plan', 'Το πρόγραμμά μου σήμερα', '▶ ξεκινά τον χρόνο · ✔ ολοκληρώνει', planN, planBody, {ic: I.sun, link: ['calendar', 'ημερολόγιο →']})}
       ${sec('queue', 'Ουρά tickets', 'η σειρά της ημέρας: πρώτα SLA, μετά όποιος περιμένει περισσότερο', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
     </div>
     <div class="myd-rail">
       ${coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''}
       ${sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))})}
-      ${sec('wait', 'Περιμένω άλλους', 'δεν μετράει ως εκκρεμότητά σου', waitN, waitBody, {ic: '⏸', collapsed: true})}
-      ${overruns.length ? sec('ov', 'Η ομάδα μου — υπερβάσεις', 'ξεπέρασαν την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%+· ρώτα τι γίνεται', overruns.length, ovBody, {ic: '⚠', collapsed: true}) : ''}
+      ${sec('wait', 'Περιμένω άλλους', 'δεν μετράει ως εκκρεμότητά σου', waitN, waitBody, {ic: I.clock, collapsed: true})}
+      ${overruns.length ? sec('ov', 'Η ομάδα μου — υπερβάσεις', 'ξεπέρασαν την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%+· ρώτα τι γίνεται', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''}
     </div>
   </div></div>`;
 
