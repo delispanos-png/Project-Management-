@@ -4078,3 +4078,17 @@ html[data-theme="dark"] .card{border-color:#233043}
   body.rq-open #rqList{display:none}
   .rq-thread{max-height:none}
 }
+/* Τίτλος οθόνης: μία γραμμή, χωρίς υπότιτλο — ο χώρος πάει στην αναζήτηση/δείκτες (21/9/2026).
+   Η μπάρα είναι ΜΙΑ ουρά: τίτλος (όσο θέλει), αναζήτηση, δείκτες (κυλούν αν δεν χωρούν), ενέργειες. */
+#topSub{display:none}
+.top{gap:12px}
+.top-l{flex:0 0 auto;min-width:0;max-width:260px}
+.top h1{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-search{flex:0 1 300px;min-width:44px}
+.top-pulse{flex:1 1 0;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding-bottom:1px;
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent)}
+@media(max-width:1600px){.top-pulse .pulse-chip .pc-l{display:none}}
+.top-pulse::-webkit-scrollbar{display:none}
+.top-pulse .pulse-chip{flex:none}
+.top-acts{margin-left:0;flex:none}
+@media(max-width:768px){.top h1{font-size:16.5px}.top-l{max-width:none}}

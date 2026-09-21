@@ -1731,8 +1731,12 @@ function cnpSetDate(inp, iso) {
 }
 
 function setTop(t, sub) {
-  $('#topTitle').textContent = t;
-  $('#topSub').textContent = sub || new Date().toLocaleDateString((window.CNP_LOCALE||'el-GR'), {weekday: 'long', day: 'numeric', month: 'long'});
+  /* Ο υπότιτλος έτρωγε τη μισή μπάρα (21/9/2026): έμεινε μόνο ως επεξήγηση στον τίτλο, ώστε η
+     αναζήτηση και οι δείκτες να πιάνουν από αριστερά όλο τον χώρο. */
+  const el = $('#topTitle');
+  el.textContent = t;
+  el.title = sub || '';
+  $('#topSub').textContent = '';
 }
 /* Κινητό: η γραμμή φίλτρων (.fbar) έπιανε 3-4 σειρές. Μένει η αναζήτηση + κουμπί «Φίλτρα» που
    ανοίγει τα υπόλοιπα. Δένεται αυτόματα σε κάθε οθόνη που τη σχεδιάζει (MutationObserver). */
