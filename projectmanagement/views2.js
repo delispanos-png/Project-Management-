@@ -3454,6 +3454,7 @@ R.projects = async function () {
             <span style="flex:1"></span>
             <div class="bar" style="width:110px"><span class="${pct === 100 ? 'ok' : ''}" style="width:${pct}%;${pct < 100 ? 'background:' + m.color : ''}"></span></div>
             <small class="mut" style="font-variant-numeric:tabular-nums">${m.done}/${m.total}</small>
+            <button class="btn btn-sm btn-o" data-modopen="${m.id}" title="Άνοιγμα / επεξεργασία του module (όνομα, προϊόν, βήματα)">${I.edit}</button>
           </div>
           ${open ? `<div class="mod-body">${m.tasks.map(line).join('') || '<div class="mut" style="font-size:12px;padding-left:22px">Χωρίς βήματα.</div>'}</div>` : ''}
         </div>`;
@@ -3462,7 +3463,8 @@ R.projects = async function () {
       box.innerHTML = `
         ${md.modules.map(mod).join('') || '<div class="mut" style="font-size:12.5px;padding:2px 0 8px">Κανένα module ακόμη — πρόσθεσε ποιο δικό μας προϊόν παραδίδει αυτό το έργο.</div>'}
         ${canEdit ? `<div style="margin-top:10px"><button class="btn btn-o btn-sm" id="pjModAssign">${I.box} Ανάθεση προϊόντων${avail.length ? '' : ' (όλα μέσα)'}</button></div>` : ''}`;
-      $$('[data-modtoggle]', box).forEach(h => h.onclick = () => { modState[+h.dataset.modtoggle] = modState[+h.dataset.modtoggle] === false; loadMods(); });
+      $$('[data-modtoggle]', box).forEach(h => h.onclick = e => { if (e.target.closest('[data-modopen]')) return; modState[+h.dataset.modtoggle] = modState[+h.dataset.modtoggle] === false; loadMods(); });
+      $$('[data-modopen]', box).forEach(b => b.onclick = e => { e.stopPropagation(); window.CNP.openModule(+b.dataset.modopen); });
       $$('[data-mtask]', box).forEach(a => a.onclick = () => { closeDrawer(); openTask(+a.dataset.mtask); });
       /* Οι ενέργειες παράδοσης τσεκάρονται επί τόπου — δεν χρειάζεται να
          ανοίξεις την εργασία για κάθε μία. */

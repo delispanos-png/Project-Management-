@@ -3418,7 +3418,7 @@ function cnp_open_actions()
         // Η μέρα μου / πλάνο / χρόνος μου
         'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
         'todo_toggle', 'todo_del', 'todo_clear_done', 'todo_seed', 'worknote_save', 'time',
-        'mentions', 'mention_read',
+        'mentions', 'mention_read', 'supervised',
         // προφίλ
         'profile', 'profile_save', 'profile_pass', 'profile_pref',
         // κωδικοί & βιβλιοθήκη (προσωπικά)
@@ -16618,6 +16618,31 @@ case 'presence_sweep':                  // από το pulse cron (κάθε 10΄
     $nS = cnp_presence_sweep();
     try { cnp_close_ghost_timers(); } catch (\Throwable $eG) { }
     out(['ok' => true, 'pushed' => $nS]);
+
+case 'supervised':                      // 👁 Επιβλέπω: οι εργασίες που ΑΝΟΙΞΑ εγώ (created_by) — ανοιχτές/ολοκληρωμένες
+    $doneSv = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+    $which = in_array($_GET['which'] ?? 'open', ['open', 'done', 'all'], true) ? $_GET['which'] : 'open';
+    $qSv = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->select('t.*', 'p.name as pname', 'p.color as pcolor', 'p.clientid as pclient')
+        ->where('t.created_by', $adminId);
+    if ($which === 'open') { $qSv->whereNotIn('t.status_id', $doneSv); }
+    elseif ($which === 'done') { $qSv->whereIn('t.status_id', $doneSv); }
+    $rowsSv = $qSv->orderByDesc('t.updated_at')->limit(500)->get();
+    $idsSv = array_map(function ($t) { return (int) $t->id; }, $rowsSv->all());
+    $lastSv = [];
+    if ($idsSv) {
+        foreach (Capsule::table('mod_cpm_activity')->whereIn('task_id', $idsSv)->selectRaw('task_id, MAX(created_at) as l')->groupBy('task_id')->get() as $la) { $lastSv[(int) $la->task_id] = $la->l; }
+    }
+    $outSv = [];
+    foreach ($rowsSv as $t) {
+        $outSv[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac',
+            'clientName' => $t->pclient ? clientLabel((int) $t->pclient) : '',
+            'isDone' => in_array((int) $t->status_id, $doneSv, true),
+            'lastAt' => $lastSv[(int) $t->id] ?? $t->updated_at, 'updatedAt' => $t->updated_at];
+    }
+    out(['tasks' => $outSv, 'which' => $which,
+        'counts' => ['open' => (int) Capsule::table('mod_cpm_tasks')->where('created_by', $adminId)->whereNotIn('status_id', $doneSv)->count(),
+                     'done' => (int) Capsule::table('mod_cpm_tasks')->where('created_by', $adminId)->whereIn('status_id', $doneSv)->count()]]);
 
 case 'version':
     /* Ο σφυγμός κάθε 12" είναι ό,τι πιο αξιόπιστο έχουμε για «είναι μπροστά στην

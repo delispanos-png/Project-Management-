@@ -1016,6 +1016,16 @@ R.templates = async function () {
 };
 
 /* Πρότυπο: ταυτότητα */
+/* Άνοιγμα/επεξεργασία module από οπουδήποτε (π.χ. από την καρτέλα έργου): φορτώνει τα δεδομένα
+   της οθόνης Modules και ανοίγει τον ίδιο διάλογο. */
+window.CNP.openModule = async function (tplId) {
+  const d = await api('templates').catch(() => null);
+  if (!d) { toast('Δεν φορτώθηκε το module', true); return; }
+  const tp = d.templates.find(x => x.id === +tplId);
+  if (!tp) { toast('Το module δεν βρέθηκε', true); return; }
+  if (!d.canManage) { R.templates._st = R.templates._st || {}; R.templates._st.open = tp.id; go('templates'); return; }
+  openTpl(tp, d);
+};
 function openTpl(tp, d) {
   closeDrawer();
   tp = tp || {name: '', descr: '', color: '#0090dd', budget: null, active: true, steps: [], productId: null, category: '', checks: []};

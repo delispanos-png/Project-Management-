@@ -3954,3 +3954,6 @@ select.fchip-s{max-width:190px}
 .px-mode.on{border-color:var(--brand);background:#0090dd0e}
 .px-mode input{margin-top:3px;flex:none}
 .px-mode small{display:block;color:var(--mut);font-size:11.5px;line-height:1.4;margin-top:2px}
+.fseg{display:inline-flex;gap:0}.fseg .fchip{border-radius:0}.fseg .fchip:first-child{border-radius:999px 0 0 999px}.fseg .fchip:last-child{border-radius:0 999px 999px 0}
+.fseg .fchip.on{background:var(--brand);color:#fff;border-color:var(--brand)}.fseg .fchip b{margin-left:4px;opacity:.85}
+.kb-trow.done{opacity:.75}

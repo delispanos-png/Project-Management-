@@ -587,6 +587,59 @@ const LF_F = {
            .concat((d.projects || []).map(n => [n, n]))},
 };
 
+/* ═════════ 👁 Επιβλέπω: οι εργασίες που άνοιξα εγώ ═════════
+   Ο επιβλέπων = όποιος δημιούργησε την εργασία. Εδώ βλέπει πώς πάνε: ποιος τις έχει, πού
+   είναι η μπάλα, πότε κινήθηκαν τελευταία. Φίλτρα ανοιχτές / ολοκληρωμένες / όλες. */
+R.supervised = async function () {
+  setTop('Επιβλέπω', 'Οι εργασίες που άνοιξες εσύ — πώς πάνε, ποιος τις έχει, πού κόλλησαν');
+  const c = $('#content');
+  const f = R.supervised._f = R.supervised._f || {which: 'open', q: '', group: 'project'};
+  c.innerHTML = `<div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="svQ" value="${esc(f.q)}" placeholder="τίτλο, έργο, χειριστή…" style="width:230px">`, !!f.q, '')}
+    <span class="fseg" id="svWhich">
+      <button class="fchip${f.which === 'open' ? ' on' : ''}" data-w="open">Ανοιχτές <b id="svNo"></b></button>
+      <button class="fchip${f.which === 'done' ? ' on' : ''}" data-w="done">Ολοκληρωμένες <b id="svNd"></b></button>
+      <button class="fchip${f.which === 'all' ? ' on' : ''}" data-w="all">Όλες</button></span>
+    ${fChip('Ομαδοποίηση', fSel('group', [['project', 'Ανά έργο'], ['assignee', 'Ανά χειριστή'], ['status', 'Ανά κατάσταση'], ['', 'Χωρίς']], f.group), false, '')}
+    <span class="fbar-sp"></span>
+    <button class="fchip fchip-go" id="svNew">${I.plus} Νέα εργασία</button>
+  </div><div id="svRes"><div class="skel" style="height:220px"></div></div>`;
+  const d = await api('supervised&which=' + f.which).catch(() => ({tasks: [], counts: {open: 0, done: 0}}));
+  const no = $('#svNo'), nd = $('#svNd'); if (no) no.textContent = d.counts.open; if (nd) nd.textContent = d.counts.done;
+  const me = S.boot.me.id;
+  const norm = x => String(x || '').toLowerCase().replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι').replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
+  const ago = at => { if (!at) return ''; const h = Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 3600000); return h < 1 ? 'μόλις τώρα' : h < 24 ? 'πριν ' + h + 'ω' : 'πριν ' + Math.floor(h / 24) + ' ημ.'; };
+  const stale = t => !t.isDone && (Date.now() - new Date(String(t.lastAt).replace(' ', 'T')).getTime()) > 5 * 86400000;
+  const row = t => { const over = t.due && t.due < today() && !t.isDone; return `<div class="kb-item kb-trow${t.isDone ? ' done' : ''}" data-task="${t.id}">
+      <span class="kb-dot" style="background:${['#8595ac', '#eba63c', '#e2515f'][t.prio] || '#8595ac'}"></span>
+      <span class="tk-idc">#${t.id}</span>
+      <b style="${t.isDone ? 'text-decoration:line-through;opacity:.7' : ''}">${esc(t.title)}</b>
+      ${stale(t) ? '<span class="tk-flag tk-flag-tk" title="Καμία κίνηση πάνω από 5 ημέρες">⏸ στάσιμη</span>' : ''}
+      <span class="kb-sum-meta">
+        ${t.ball ? `<span class="ball ${t.ball === me ? 'me' : ''}" title="Η μπάλα: ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
+        ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname || 'Χωρίς έργο')}</span>` : ''}
+        ${t.clientName ? `<span class="kb-tag kb-tag-mut">${esc(t.clientName)}</span>` : ''}
+        ${stPill(t.status)}
+        <span class="mut">${t.assignee ? esc(adminName(t.assignee)) : 'χωρίς ανάθεση'}</span>
+        ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
+        <span class="mut" title="Τελευταία κίνηση ${esc(tShort(t.lastAt))}">${esc(ago(t.lastAt))}</span>
+      </span></div>`; };
+  const render = () => {
+    const el = $('#svRes');
+    const list = d.tasks.filter(t => !f.q || norm([t.title, t.pname, t.clientName, statusOf(t.status).title, t.assignee ? adminName(t.assignee) : ''].join(' ')).includes(norm(f.q)));
+    if (!list.length) { el.innerHTML = `<div class="card"><div class="empty" style="padding:40px"><div class="big">${I.eye}</div><b style="color:var(--ink);font-size:15px">${d.tasks.length ? 'Τίποτα με αυτά τα φίλτρα' : (f.which === 'done' ? 'Καμία ολοκληρωμένη ακόμη' : 'Δεν έχεις ανοίξει εργασίες που να εκκρεμούν')}</b></div></div>`; return; }
+    const keyOf = t => f.group === 'assignee' ? (t.assignee ? adminName(t.assignee) : 'Χωρίς ανάθεση') : f.group === 'status' ? statusOf(t.status).title : (t.pname || 'Χωρίς έργο');
+    const groups = {}; list.forEach(t => { (groups[f.group ? keyOf(t) : 'Όλες'] = groups[f.group ? keyOf(t) : 'Όλες'] || []).push(t); });
+    el.innerHTML = Object.entries(groups).map(([k, ts]) => `<div class="card kb-group"><div class="card-h" style="font-size:13px">${esc(k)} <span class="kb-n">${ts.length}</span></div><div class="card-b kb-gbody">${ts.map(row).join('')}</div></div>`).join('');
+    $$('#svRes [data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
+  };
+  render();
+  $('#svQ').oninput = () => { f.q = $('#svQ').value.trim(); render(); };
+  $$('#svWhich [data-w]').forEach(b => b.onclick = () => { f.which = b.dataset.w; R.supervised(); });
+  $('#content [data-fk="group"]').onchange = e => { f.group = e.target.value; render(); };
+  $('#svNew').onclick = () => window.CNP.quickNew && window.CNP.quickNew();
+};
+
 R.list = async function () {
   setTop('Λίστα tasks', 'Όλα τα tasks ομαδοποιημένα — g+l');
   const c = $('#content');
