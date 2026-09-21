@@ -1851,6 +1851,20 @@ async function vBoard(arg) {
   const d = await api('board&project=' + S.project);
   const kb = $('#kb'); if (!kb) return;
   if (d.meta) { boardHead(d.meta); }
+  /* Κινητό (21/9/2026): οι στήλες είναι 84vw και το «Backlog» άδειο έπιανε όλη την οθόνη — οι εργασίες
+     ήταν εκτός οθόνης χωρίς ένδειξη. Τώρα: γραμμή chips με τις στήλες (και μετρητές) που πηδά στη
+     στήλη, και αυτόματο άνοιγμα στην πρώτη στήλη που έχει εργασίες. */
+  { const old = $('#kbMobNav'); if (old) old.remove(); }
+  if (matchMedia('(max-width:768px)').matches) {
+    const nav = document.createElement('div'); nav.id = 'kbMobNav'; nav.className = 'kb-mobnav';
+    nav.innerHTML = d.columns.map(col => { const st = statusOf(col.status); return `<button type="button" data-kbjump="${st.id}" style="--c:${st.color}">${esc(st.title)} <b>${col.tasks.length}</b></button>`; }).join('');
+    kb.before(nav);
+    const jump = id => { const colEl = kb.querySelector('.kb-col[data-status="' + id + '"]'); if (!colEl) return; kb.scrollTo({left: colEl.offsetLeft - 8, behavior: 'smooth'}); nav.querySelectorAll('[data-kbjump]').forEach(b => b.classList.toggle('on', +b.dataset.kbjump === +id)); };
+    nav.querySelectorAll('[data-kbjump]').forEach(b => b.onclick = () => jump(+b.dataset.kbjump));
+    const firstFull = d.columns.find(c => c.tasks.length) || d.columns[0];
+    setTimeout(() => { if (firstFull) jump(statusOf(firstFull.status).id); }, 60);
+    kb.addEventListener('scroll', () => { let best = null, bd = 1e9; kb.querySelectorAll('.kb-col').forEach(c => { const dd = Math.abs(c.offsetLeft - kb.scrollLeft); if (dd < bd) { bd = dd; best = c; } }); if (best) nav.querySelectorAll('[data-kbjump]').forEach(b => b.classList.toggle('on', b.dataset.kbjump === best.dataset.status)); }, {passive: true});
+  }
   kb.innerHTML = d.columns.map(col => {
     const st = statusOf(col.status);
     return `<div class="kb-col" data-status="${st.id}">
@@ -2544,6 +2558,29 @@ async function openTask(id, entryId, opts) {
     const toMain = el => el.classList.contains('tk-brief') || el.classList.contains('tk-step');
     [...body.children].forEach(el => (toMain(el) ? main : side).appendChild(el));
     body.append(main, side);
+    /* Κινητό (21/9/2026): η κύρια στήλη κατέρρεε σε 2px (flex μέσα σε στήλη) και το ζητούμενο +
+       η συζήτηση ήταν ΑΟΡΑΤΑ. Τώρα δύο καρτέλες: «Συζήτηση» (ζητούμενο + ενέργειες) και
+       «Στοιχεία» (χρόνος, ανάθεση, ημερομηνίες, ενέργειες). */
+    if (matchMedia('(max-width:900px)').matches) {
+      const tabs = document.createElement('div');
+      tabs.className = 'tk-mtabs';
+      tabs.innerHTML = `<button type="button" class="on" data-mt="main">${I.chat} Συζήτηση</button><button type="button" data-mt="side">${I.list} Στοιχεία</button>`;
+      body.before(tabs);
+      const setTab = k => { body.classList.toggle('tk-mob-side', k === 'side'); tabs.querySelectorAll('[data-mt]').forEach(b => b.classList.toggle('on', b.dataset.mt === k)); body.scrollTop = 0; };
+      tabs.querySelectorAll('[data-mt]').forEach(b => b.onclick = () => setTab(b.dataset.mt));
+      /* Το «Αποθήκευση» ζει στα Στοιχεία: όταν υπάρχουν αλλαγές, το tab παίρνει κουκκίδα. */
+      new MutationObserver(() => { tabs.querySelector('[data-mt="side"]').classList.toggle('dirty', dr.dataset.dirty === '1'); }).observe(dr, {attributes: true, attributeFilter: ['data-dirty']});
+      /* Μεγάλο ζητούμενο: διπλώνει στις ~9 γραμμές με «Δείξε όλο», για να φτάνεις γρήγορα στη συζήτηση. */
+      setTimeout(() => {
+        const ro = main.querySelector('.tk-brief-ro, .tk-brief .rte');
+        if (ro && ro.scrollHeight > 300) {
+          ro.classList.add('tk-brief-fold');
+          const more = document.createElement('button'); more.type = 'button'; more.className = 'btn btn-o btn-sm tk-brief-more'; more.textContent = 'Δείξε όλο το ζητούμενο';
+          ro.after(more);
+          more.onclick = () => { const on = ro.classList.toggle('tk-brief-fold'); more.textContent = on ? 'Δείξε όλο το ζητούμενο' : 'Σύμπτυξη'; };
+        }
+      }, 50);
+    }
     /* Μεγέθυνση (πρόταση Διονύση): με ένα κλικ στην κεφαλίδα των «Ενεργειών» το
        ζητούμενο και η δεξιά στήλη μαζεύονται, και οι ενέργειες παίρνουν ΟΛΗ την
        καρτέλα — για να διαβάζεται μια μεγάλη απάντηση χωρίς κύλιση. Θυμάται. */
@@ -3287,7 +3324,7 @@ async function openTask(id, entryId, opts) {
      καταστάσεις — ολοκληρωμένη εργασία, και δική σου εργασία που δεν δουλεύεις. */
   const lockCard = (why, freeExtra) => {
     dr.classList.add('tk-locked');
-    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,[data-navclose],[data-c3task]'
+    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,.tk-mtabs button,[data-navclose],[data-c3task]'
       + (freeExtra ? ',' + freeExtra : '');
     $$('input,select,textarea,button', dr).forEach(el => {
       if (el.matches(free) || el.closest(free)) { return; }

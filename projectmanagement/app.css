@@ -3999,3 +3999,39 @@ html[data-theme="dark"] .card{border-color:#233043}
   .cal-top b{font-size:16px!important;min-width:0!important;flex:1;text-align:left!important}
   .cal-newev{margin-left:0!important;width:100%;justify-content:center;order:9}
 }
+
+/* ═══ Καρτέλα εργασίας σε κινητό: δύο καρτέλες, τίποτα κρυμμένο ═══ */
+.tk-mtabs{display:none}
+@media (max-width:900px){
+  .tk-mtabs{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--card);flex:none}
+  .tk-mtabs button{flex:1;padding:10px 8px;border:none;background:none;font-weight:700;font-size:13px;color:var(--mut);border-bottom:2.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;gap:6px;position:relative}
+  .tk-mtabs button svg{width:15px;height:15px}
+  .tk-mtabs button.on{color:var(--brand);border-bottom-color:var(--brand)}
+  .tk-mtabs button.dirty::after{content:'';position:absolute;top:8px;right:14px;width:8px;height:8px;border-radius:50%;background:var(--warn)}
+  .tk-modal-b{padding:12px 12px 90px}
+  .tk-modal-b > .tk-col-main{display:block;flex:none;height:auto;min-height:0;overflow:visible}
+  .tk-modal-b > .tk-col-main > .tk-brief,.tk-modal-b > .tk-col-main > .tk-step{display:block;flex:none;height:auto;min-height:0;max-height:none;overflow:visible;margin:0 0 12px}
+  .tk-modal-b > .tk-col-main > .tk-brief > .card-b,.tk-modal-b > .tk-col-main > .tk-step > .card-b{display:block;overflow:visible;height:auto}
+  .tk-modal-b > .tk-col-side{display:block;flex:none;overflow:visible}
+  .tk-modal-b > .tk-col-side{display:none}
+  .tk-modal-b.tk-mob-side > .tk-col-side{display:block}
+  .tk-modal-b.tk-mob-side > .tk-col-main{display:none}
+  .tk-modal-b .tk-viewonly{margin-bottom:10px}
+  /* πιο συμπαγής κεφαλίδα */
+  .tk-modal .drawer-h{padding:10px 12px;gap:6px}
+  .tk-modal .drawer-h .tk-head-t h2{font-size:15px}
+  .tk-step > .card-b > .act-composer{margin:10px 0 0;position:sticky;bottom:0;z-index:2}
+}
+@media (max-width:900px){
+  .tk-brief-fold{max-height:220px;overflow:hidden;position:relative}
+  .tk-brief-fold::after{content:'';position:absolute;left:0;right:0;bottom:0;height:60px;background:linear-gradient(transparent,var(--card))}
+  .tk-brief-more{margin:8px 0 0;width:100%;justify-content:center}
+}
+.kb-mobnav{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.kb-mobnav::-webkit-scrollbar{display:none}
+.kb-mobnav button{flex:none;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px 6px 10px;font-size:12.5px;font-weight:700;color:var(--txt);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.kb-mobnav button::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
+.kb-mobnav button b{margin-left:4px;color:var(--mut);font-weight:700}
+.kb-mobnav button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.kb-mobnav button.on b{color:#fff}
+@media (min-width:769px){.kb-mobnav{display:none}}
