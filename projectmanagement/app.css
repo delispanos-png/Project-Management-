@@ -3957,3 +3957,7 @@ select.fchip-s{max-width:190px}
 .fseg{display:inline-flex;gap:0}.fseg .fchip{border-radius:0}.fseg .fchip:first-child{border-radius:999px 0 0 999px}.fseg .fchip:last-child{border-radius:0 999px 999px 0}
 .fseg .fchip.on{background:var(--brand);color:#fff;border-color:var(--brand)}.fseg .fchip b{margin-left:4px;opacity:.85}
 .kb-trow.done{opacity:.75}
+.act-tb.rte-tb{border:none;border-bottom:1px solid var(--line);padding:4px 8px;background:transparent}
+.rte-col{width:22px;height:22px;padding:2px;display:inline-flex;align-items:center;justify-content:center}
+.rte-col span{display:block;width:14px;height:14px;border-radius:50%}
+.sc-range{display:inline-flex;align-items:center;gap:6px}.sc-range .inp{width:auto;padding:4px 8px;font-size:12px}

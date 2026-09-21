@@ -1293,9 +1293,12 @@ document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('.rte-b');
   if (!b) { return; }
   e.preventDefault();
-  const ed = b.closest('.rte-wrap').querySelector('.rte');
+  /* Ο ίδιος μηχανισμός για τον πλήρη editor (.rte-wrap > .rte) και για τη σύνθεση ενέργειας (.act-composer > .act-edit). */
+  const wrap = b.closest('.rte-wrap, .act-composer');
+  const ed = wrap ? wrap.querySelector('.rte, .act-edit') : null;
   if (!ed) { return; }
   const cmd = b.dataset.cmd;
+  if (cmd === 'foreColor' || cmd === 'hiliteColor') { try { document.execCommand('styleWithCSS', false, true); } catch (e) {} }
   // αν χάθηκε η εστίαση (π.χ. tab/πρόγραμμα ανάγνωσης), επανέφερέ τη στον editor
   if (!ed.contains(document.activeElement) && document.activeElement !== ed) { ed.focus(); }
   if (cmd === '__ai') {
@@ -2307,6 +2310,14 @@ async function openTask(id, entryId, opts) {
           ${items.map(row).join('') || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
         </div>
         <div class="act-composer">
+          <div class="act-tb rte-tb"><div class="rte-tools">
+            ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
+            <span class="rte-sep"></span>
+            ${['#e2515f', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6'].map(c => `<button type="button" class="rte-b rte-col" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('')}
+            <button type="button" class="rte-b rte-col" data-cmd="hiliteColor" data-arg="#fff3a3" title="Επισήμανση"><span style="background:#fff3a3;border:1px solid #e0c040"></span></button>
+            <span class="rte-sep"></span>
+            ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
+          </div></div>
           <div class="act-edit" id="chkNew" contenteditable="true" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
           <div class="act-foot">
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>

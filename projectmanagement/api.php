@@ -600,7 +600,11 @@ function cnp_clean_html($html, $max = 12000)
     // και άφηνε τον κώδικα ως ορατό κείμενο (φαινόταν σε εισαγωγές από Confluence/WordPress).
     $html = preg_replace('#<(script|style|noscript|template)\b[^>]*>.*?</\1\s*>#is', ' ', $html);
     $html = preg_replace('#<(script|style|noscript)\b[^>]*/?>#i', ' ', $html);
-    $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre><img><figure><figcaption><table><thead><tbody><tr><th><td>');
+    $html = strip_tags($html, '<b><strong><i><em><u><s><ul><ol><li><a><br><p><div><span><h3><h4><blockquote><code><pre><img><figure><figcaption><table><thead><tbody><tr><th><td><font><mark>');
+    /* <font color> (execCommand foreColor σε Chrome) → span με style, για ενιαία αποθήκευση */
+    $html = preg_replace('/<font\b[^>]*\bcolor\s*=\s*["\']?(#[0-9a-f]{3,8}|rgb\([\d\s,]+\)|[a-z]{3,20})["\']?[^>]*>/i', '<span style="color:$1">', $html);
+    $html = preg_replace('/<\/font\s*>/i', '</span>', $html);
+    $html = preg_replace('/<font\b[^>]*>/i', '<span>', $html);
     $html = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);   // on* handlers
     // href/src: ALLOWLIST σχημάτων (blacklist «javascript:» άφηνε unquoted τιμές & data: URLs)
     $html = preg_replace_callback('/\b(href|src)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', function ($m) {
@@ -616,7 +620,14 @@ function cnp_clean_html($html, $max = 12000)
             || !preg_match('/^[a-z0-9.+-]*:/i', $u);      // σχετικό path χωρίς scheme
         return $m[1] . '="' . ($safe ? htmlspecialchars($dec, ENT_QUOTES, 'UTF-8') : '#') . '"';
     }, $html);
-    $html = preg_replace('/\sstyle\s*=\s*("[^"]*"|\'[^\']*\')/i', '', $html);           // inline styles → out
+    /* inline styles → out, ΕΚΤΟΣ από χρώμα κειμένου/φόντου (μορφοποίηση ενεργειών, 21/9/2026) */
+    $html = preg_replace_callback('/\sstyle\s*=\s*("[^"]*"|\'[^\']*\')/i', function ($m) {
+        $keep = [];
+        foreach (explode(';', trim($m[1], "\"'")) as $decl) {
+            if (preg_match('/^\s*(color|background-color)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d\s,.%]+\)|[a-z]{3,20})\s*$/i', $decl, $d)) { $keep[] = strtolower($d[1]) . ':' . $d[2]; }
+        }
+        return $keep ? ' style="' . implode(';', $keep) . '"' : '';
+    }, $html);
     // target=_blank + rel για ασφάλεια σε συνδέσμους
     $html = preg_replace('/<a\s+(?![^>]*\btarget=)/i', '<a target="_blank" rel="noopener noreferrer" ', $html);
     return cnp_balance_html(mb_substr(trim($html), 0, (int) $max));
@@ -12904,7 +12915,7 @@ case 'gantt':
 
 case 'scheduler':                        // Πρόγραμμα ανά άνθρωπο — λωρίδες στον χρόνο
     $fromS = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : date('Y-m-d', strtotime('monday this week'));
-    $daysS = min(60, max(7, (int) ($_GET['days'] ?? 21)));
+    $daysS = min(120, max(3, (int) ($_GET['days'] ?? 21)));
     $toS = date('Y-m-d', strtotime($fromS . ' +' . ($daysS - 1) . ' days'));
     $teamS = (int) ($_GET['team'] ?? 0);
     $doneS = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
@@ -12927,12 +12938,15 @@ case 'scheduler':                        // Πρόγραμμα ανά άνθρω
     $rowsS = Capsule::table('mod_cpm_tasks as t')
         ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->leftJoin('mod_cpm_statuses as st', 'st.id', '=', 't.status_id')
-        ->whereIn('t.assignee', $ids)
+        /* Η εργασία μπαίνει στη λωρίδα ΟΠΟΙΟΥ ΤΗ ΔΟΥΛΕΥΕΙ ΤΩΡΑ: τη μπάλα (action_user) — κι αν είναι
+           κενή, τον ανάδοχο (21/9/2026). Έτσι ο ανάδοχος που παρέδωσε τη σκυτάλη δεν φαίνεται
+           φορτωμένος, και αυτός που την πήρε τη βλέπει στο πιάτο του. */
+        ->where(function ($w) use ($ids) { $w->whereIn('t.action_user', $ids)->orWhere(function ($x) use ($ids) { $x->whereIn('t.assignee', $ids)->where(function ($y) { $y->whereNull('t.action_user')->orWhere('t.action_user', 0); }); }); })
         ->whereNotIn('t.status_id', $doneS)
         ->whereNotNull('t.start_date')->whereNotNull('t.due_date')
         ->where('t.start_date', '<=', $toS)->where('t.due_date', '>=', $fromS)
         ->orderBy('t.start_date')
-        ->get(['t.id', 't.title', 't.assignee', 't.start_date', 't.start_time', 't.due_date', 't.due_time',
+        ->get(['t.id', 't.title', 't.assignee', 't.action_user', 't.start_date', 't.start_time', 't.due_date', 't.due_time',
             't.schedule_date', 't.priority', 't.estimate_minutes',
             'p.name as pname', 'p.color as pcolor', 'st.title as sname']);
 
@@ -12941,7 +12955,10 @@ case 'scheduler':                        // Πρόγραμμα ανά άνθρω
     foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['task_id', 'admin_id']) as $rl) { $runS[(int) $rl->task_id] = (int) $rl->admin_id; }
     $byPerson = [];
     foreach ($rowsS as $t) {
-        $byPerson[(int) $t->assignee][] = [
+        $whoS = (int) $t->action_user ?: (int) $t->assignee;
+        if (!isset($people[$whoS])) { continue; }
+        $byPerson[$whoS][] = [
+            'assignee' => (int) $t->assignee, 'ball' => (int) $t->action_user ?: 0,
             /* Ποιος τρέχει χρονόμετρο ΤΩΡΑ στην εργασία — μπορεί να μην είναι ο ανάδοχος (π.χ. πήρε τη μπάλα). */
             'runBy' => isset($runS[(int) $t->id]) ? $runS[(int) $t->id] : 0,
             'runByName' => isset($runS[(int) $t->id]) ? Db::adminName($runS[(int) $t->id]) : '',

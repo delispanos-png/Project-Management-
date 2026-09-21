@@ -1409,11 +1409,11 @@ R.scheduler = async function () {
     const w = Math.max(1, e - s + 1);
     const now = t.start <= TODAY && t.end >= TODAY;
     return `<div class="sc-bar${t.late ? ' late' : ''}${clipL ? ' clipL' : ''}${clipR ? ' clipR' : ''}${liveHere ? ' live' : ''}${now ? ' now' : ' off'}"
-      data-sct="${t.id}" data-s="${t.start}" data-e="${t.end}"
+      data-sct="${t.id}" data-s="${t.start}" data-e="${t.end}" data-ball="${t.ball || 0}"
       style="left:${s * CELL + 2}px;width:${w * CELL - 4}px;top:${PAD + (t._row || 0) * ROW}px;background:${t.color}"
       title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}${liveHere ? '\n▶ τρέχει χρονόμετρο τώρα' : ''}${liveOther ? '\n▶ τρέχει χρόνο ο/η ' + esc(t.runByName) + ' (όχι ο ανάδοχος)' : ''}${t.status ? '\n' + esc(t.status) : ''}">
       <span class="sc-grip l" data-grip="l"></span>
-      <span class="sc-t">${liveHere ? '<span class="sc-live">▶</span> ' : ''}${liveOther ? `<span class="sc-runby" title="Τρέχει χρόνο ο/η ${esc(t.runByName)} — όχι ο ανάδοχος">▶ ${esc(t.runByName.split(' ')[0])}</span> ` : ''}${esc(t.title)}</span>
+      <span class="sc-t">${liveHere ? '<span class="sc-live">▶</span> ' : ''}${liveOther ? `<span class="sc-runby" title="Τρέχει χρόνο ο/η ${esc(t.runByName)} — όχι ο ανάδοχος">▶ ${esc(t.runByName.split(' ')[0])}</span> ` : ''}${t.ball && t.ball === laneId && t.assignee !== laneId ? `<span class="sc-runby" title="Έχεις τη μπάλα — ανάδοχος: ${esc(adminName(t.assignee))}">⚡</span> ` : ''}${esc(t.title)}</span>
       <span class="sc-grip r" data-grip="r"></span></div>`;
   };
 
@@ -1439,13 +1439,13 @@ R.scheduler = async function () {
     <button class="btn btn-sm btn-o" id="scPrev">‹</button>
     <button class="btn btn-sm btn-o" id="scToday">Σήμερα</button>
     <button class="btn btn-sm btn-o" id="scNext">›</button>
-    <span class="mut" style="font-size:12.5px">${dShort(d.from)} → ${dShort(d.to)}</span>
+    <span class="sc-range"><input type="date" class="inp" id="scFrom" value="${d.from}" title="Από"> <span class="mut">→</span> <input type="date" class="inp" id="scTo" value="${d.to}" title="Έως"></span>
     <span style="flex:1"></span>
     <select class="inp" id="scTeam" style="width:auto;min-width:150px">
       <option value="0">— όλη η ομάδα —</option>
       ${d.teams.map(t => `<option value="${t.id}" ${t.id === d.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
     <select class="inp" id="scDays" style="width:auto">
-      ${[7, 14, 21, 35].map(n => `<option value="${n}" ${n === d.days ? 'selected' : ''}>${n} ημέρες</option>`).join('')}</select>
+      ${[7, 14, 21, 35, 60, 90].concat([7, 14, 21, 35, 60, 90].includes(d.days) ? [] : [d.days]).sort((a, b) => a - b).map(n => `<option value="${n}" ${n === d.days ? 'selected' : ''}>${n} ημέρες</option>`).join('')}</select>
   </div></div>
 
   <div class="card"><div class="sc-wrap" id="scWrap">${head}
@@ -1466,7 +1466,16 @@ R.scheduler = async function () {
   const shift = n => { st.from = new Date(day0.getTime() + n * 86400000).toISOString().slice(0, 10); R.scheduler(); };
   $('#scPrev').onclick = () => shift(-7);
   $('#scNext').onclick = () => shift(7);
-  $('#scToday').onclick = () => { st.from = null; R.scheduler(); };
+  $('#scToday').onclick = () => { st.from = null; st.days = 21; R.scheduler(); };
+  /* Από → έως: ελεύθερο διάστημα (3–120 ημέρες), όχι μόνο βήματα εβδομάδας. */
+  const applyRange = () => {
+    const f0 = $('#scFrom').value, t0 = $('#scTo').value; if (!f0 || !t0) return;
+    const n = Math.round((new Date(t0 + 'T12:00:00') - new Date(f0 + 'T12:00:00')) / 86400000) + 1;
+    if (n < 3) { toast('Το διάστημα πρέπει να είναι τουλάχιστον 3 ημέρες', true); return; }
+    if (n > 120) { toast('Έως 120 ημέρες τη φορά', true); return; }
+    st.from = f0; st.days = n; R.scheduler();
+  };
+  $('#scFrom').onchange = applyRange; $('#scTo').onchange = applyRange;
   $$('[data-scun]').forEach(a => a.onclick = () => openTask(+a.dataset.scun));
 
   scDrag(CELL, LEFT, days, () => R.scheduler());
@@ -1532,7 +1541,13 @@ function scDrag(CELL, LEFT, days, reload) {
     const newWho = lane && lane !== D.lane0 ? +lane.dataset.lane : 0;
 
     let r;
-    if (newWho) {
+    /* Η λωρίδα είναι «ποιος τη δουλεύει τώρα»: αν η εργασία έχει μπάλα, η μεταφορά αλλάζει τη μπάλα·
+       αλλιώς αλλάζει την ανάθεση (όπως πριν). */
+    const hasBall = D.bar.dataset.ball && +D.bar.dataset.ball;
+    if (newWho && hasBall) {
+      r = await api('save_task', {task: D.id, ball: newWho, start: ns, due: ne})
+        .then(() => ({ok: true})).catch(er => ({ok: false, error: er && er.message}));
+    } else if (newWho) {
       r = await api('save_task', {task: D.id, assignee: newWho, start: ns, due: ne})
         .then(() => ({ok: true})).catch(er => ({ok: false, error: er && er.message, data: er && er.data}));
       if (!r.ok && r.data && r.data.need === 'conflict') {
