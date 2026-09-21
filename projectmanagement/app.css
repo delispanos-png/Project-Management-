@@ -3252,7 +3252,7 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 .tk-cust-tag.tk-noclient{background:var(--canvas);color:var(--mut);border-style:dashed}
 
 /* ═══════════ Η μέρα μου v2 ═══════════ */
-.myd-wrap{max-width:1380px}
+.myd-wrap{max-width:none}
 .myd-hero{display:flex;gap:18px;align-items:stretch;justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-bottom:14px;box-shadow:0 2px 8px rgba(20,50,90,.04)}
 .myd-hero-l{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;justify-content:center}
 .myd-date{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
