@@ -159,12 +159,14 @@ class Pbx3cxPresence
      *  meeting = και η σύσκεψη από το ημερολόγιο (προεπιλογή), all = και Λείπω/Εκτός από αδράνεια. */
     public static function mode()
     {
-        $m = Pbx3cxClient::cfg('presence_auto', 'meeting');
-        return in_array($m, ['manual', 'meeting', 'all'], true) ? $m : 'meeting';
+        /* Προεπιλογή manual (απόφαση 21/9/2026): το τηλέφωνο παίρνει ΜΟΝΟ ό,τι δηλώνει ο χειριστής.
+           Ο σφυγμός/αυτόματο είναι για να ξέρουμε ποιος είναι ενεργός στο Project Manager, όχι ενέργεια. */
+        $m = Pbx3cxClient::cfg('presence_auto', 'manual');
+        return in_array($m, ['manual', 'meeting', 'all'], true) ? $m : 'manual';
     }
     public static function setMode($m)
     {
-        Pbx3cxClient::setCfg('presence_auto', in_array($m, ['manual', 'meeting', 'all'], true) ? $m : 'meeting');
+        Pbx3cxClient::setCfg('presence_auto', in_array($m, ['manual', 'meeting', 'all'], true) ? $m : 'manual');
     }
 
     /**
