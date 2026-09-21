@@ -594,9 +594,9 @@ TXT;
     }
 
     /** Μία διαδρομή κανόνα εξερχομένων. TrunkId -1 = κενή θέση (ή μπλοκ, αν είναι όλες κενές). */
-    private static function obRoute($trunkId = -1, $strip = 0)
+    private static function obRoute($trunkId = -1, $strip = 0, $prepend = '')
     {
-        return ['TrunkId' => (int) $trunkId, 'StripDigits' => (int) $strip, 'Prepend' => '', 'Append' => '', 'CallerID' => ''];
+        return ['TrunkId' => (int) $trunkId, 'StripDigits' => (int) $strip, 'Prepend' => (string) $prepend, 'Append' => '', 'CallerID' => ''];
     }
 
     /** Οι κανόνες εξερχομένων όπως πρέπει να είναι, με τη σειρά προτεραιότητας. */
@@ -610,14 +610,21 @@ TXT;
             while (count($routes) < 5) { $routes[] = self::obRoute(); }
             return ['Name' => $name, 'Prefix' => $prefix, 'NumberLengthRanges' => $len, 'GroupIds' => $groups, 'DNRanges' => $dns, 'Routes' => $routes];
         };
+        /* ΜΕΤΡΗΘΗΚΕ 21/09/2026: η γραμμή Cyprus (και η sip.cloudon.gr) θέλουν τον κυπριακό
+           αριθμό ΠΛΗΡΗ διεθνή με 00 (0035799527138) — σκέτο 8ψήφιο απαντά 480. Και οι
+           χρήστες καλούν ακόμη με τα παλιά προθέματα 02 (Κύπρος) / 01 (Sip1): μένουν ως
+           συμβατότητα, χωρίς να είναι υποχρεωτικά. */
         return [
             $rule('Μπλοκ: πολλαπλής χρέωσης & πληρωμένοι κατάλογοι', '90,118-119', '', $all, [], []),
-            $rule('Κύπρος από 00357', '00357', '', $all, [], [self::obRoute($cy, 5)]),
-            $rule('Κύπρος από +357', '+357', '', $all, [], [self::obRoute($cy, 4)]),
+            $rule('Κύπρος από 00357', '00357', '', $all, [], [self::obRoute($cy, 0), self::obRoute($alt, 0)]),
+            $rule('Κύπρος από +357', '+357', '', $all, [], [self::obRoute($cy, 1, '00'), self::obRoute($alt, 1, '00')]),
+            $rule('Παλιό πρόθεμα 02 → Κύπρος', '02', '', $all, [], [self::obRoute($cy, 2), self::obRoute($alt, 2)]),
             $rule('Ελλάδα από 0030', '0030', '', $all, [], [self::obRoute($gr, 4), self::obRoute($alt, 4)]),
             $rule('Ελλάδα από +30', '+30', '', $all, [], [self::obRoute($gr, 3), self::obRoute($alt, 3)]),
-            $rule('Διεθνή: μόνο ' . implode(' & ', self::OB_INTL_DNS), '00,+', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 0), self::obRoute($gr, 0)]),
-            $rule('Κύπρος εθνικά (' . implode(', ', self::OB_CY_DNS) . ')', '2,9', '8', [], $dn(self::OB_CY_DNS), [self::obRoute($cy, 0)]),
+            $rule('Παλιό πρόθεμα 01 → Sip1', '01', '', $all, [], [self::obRoute($gr, 2), self::obRoute($alt, 2)]),
+            $rule('Διεθνή 00: μόνο ' . implode(' & ', self::OB_INTL_DNS), '00', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 0), self::obRoute($gr, 0)]),
+            $rule('Διεθνή +: μόνο ' . implode(' & ', self::OB_INTL_DNS), '+', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 1, '00'), self::obRoute($gr, 1, '00')]),
+            $rule('Κύπρος εθνικά (' . implode(', ', self::OB_CY_DNS) . ')', '2,9', '8', [], $dn(self::OB_CY_DNS), [self::obRoute($cy, 0, '00357'), self::obRoute($alt, 0, '00357')]),
             $rule('Σταθερά Ελλάδας', '2', '10', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
             $rule('Κινητά Ελλάδας', '6', '10', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
             $rule('800 / 801', '80', '10', $all, [], [self::obRoute($gr, 0)]),
@@ -655,7 +662,7 @@ TXT;
         /* ΜΕΤΡΗΘΗΚΕ: το 3CX επιστρέφει {From} χωρίς To όταν είναι ένα εσωτερικό. */
         $d = array_map(function ($x) { return $x['From'] . '-' . ($x['To'] ?? $x['From']); }, $r['DNRanges'] ?? []); sort($d);
         $rt = [];
-        foreach (array_slice($r['Routes'] ?? [], 0, 5) as $x) { if ((int) ($x['TrunkId'] ?? -1) > 0) { $rt[] = (int) $x['TrunkId'] . ':' . (int) ($x['StripDigits'] ?? 0); } }
+        foreach (array_slice($r['Routes'] ?? [], 0, 5) as $x) { if ((int) ($x['TrunkId'] ?? -1) > 0) { $rt[] = (int) $x['TrunkId'] . ':' . (int) ($x['StripDigits'] ?? 0) . ':' . (string) ($x['Prepend'] ?? ''); } }
         return implode('|', [str_replace(' ', '', (string) $r['Prefix']), str_replace(' ', '', (string) $r['NumberLengthRanges']), implode(',', $g), implode(',', $d), implode(',', $rt)]);
     }
 
@@ -686,7 +693,7 @@ TXT;
         $g = Pbx3cxClient::xapi('Groups', ['$top' => 40, '$select' => 'Id,Name,IsDefault,Hours,PromptSet',
             '$expand' => 'Members($select=Id,Number,Type),OfficeHolidays']);
         foreach ($g['value'] ?? [] as $r) { $L['groups'][(int) $r['Id']] = $r; }
-        $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode,RecordCalls,PromptSet,OutboundCallerID',
+        $u = Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number,DisplayName,PrimaryGroupId,EmailAddress,VMEnabled,VMEmailOptions,TranscriptionMode,RecordCalls,PromptSet,OutboundCallerID,PbxDeliversAudio',
             '$expand' => 'Groups($select=GroupId;$expand=Rights($select=RoleName))']);
         foreach ($u['value'] ?? [] as $r) { $L['users'][(string) $r['Number']] = $r; }
         $q = Pbx3cxClient::xapi('Queues', ['$top' => 40, '$select' => 'Id,Number,Name,PollingStrategy,RingTimeout,MasterTimeout,ForwardNoAnswer,OutOfOfficeRoute,HolidaysRoute,AnnounceQueuePosition,PromptSet,OnHoldFile',
@@ -1275,6 +1282,22 @@ TXT;
                 foreach ($ids as $i => $id) { Pbx3cxClient::xwrite('PATCH', 'OutboundRules(' . $id . ')', ['Priority' => 1 + $i]); }
                 if (($L['emnotify']['ChatRecipients'] ?? '') !== 'AllGroupsManagers') { Pbx3cxClient::xwrite('PATCH', 'EmergencyNotificationsSettings', ['ChatRecipients' => 'AllGroupsManagers']); }
                 Pbx3cxClient::log('blueprint', 'ok', 'Αριθμοί ανάγκης: ' . count($want) . ' κανόνες για όλα τα εσωτερικά');
+            }];
+
+        /* 6ζ. ΗΧΟΣ ΜΕΣΩ ΚΕΝΤΡΟΥ. Χωρίς SBC, οι συσκευές είναι σε σπίτια/VPN/γραφείο: αν
+           στέλνουν τον ήχο απευθείας η μία στην άλλη (direct media), εσωτερικές κλήσεις
+           μένουν χωρίς ήχο. «PBX delivers audio» για κάθε άνθρωπο (21/09/2026). */
+        $S[] = ['key' => 'pbx_audio', 'label' => 'Ήχος μέσω κέντρου (PBX delivers audio) σε όλα τα εσωτερικά — χωρίς SBC είναι υποχρεωτικό',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $d = [];
+                foreach ($L['users'] as $num => $u) { if (preg_match('/^[1-5]\d\d$/', (string) $num) && empty($u['PbxDeliversAudio'])) { $d[] = $num; } }
+                return [$d ? 'change' : 'ok', $d ? 'χωρίς: ' . implode(', ', $d) : 'όλοι σωστά'];
+            },
+            'apply' => function ($L) {
+                foreach ($L['users'] as $num => $u) {
+                    if (preg_match('/^[1-5]\d\d$/', (string) $num) && empty($u['PbxDeliversAudio'])) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['PbxDeliversAudio' => true]); }
+                }
             }];
 
         /* 6ε. ΚΩΔΙΚΟΠΟΙΗΤΕΣ: χωρίς G729 στο σύστημα και στις συσκευές. */
