@@ -4438,7 +4438,13 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
        ειδοποίηση ή μήνυμα δεν άνοιγε τίποτα μέχρι να κάνεις refresh. */
     if (h[1] === 'task' && h[2]) { const em1 = location.hash.match(/\/e\/(\d+)/); openTask(+h[2], em1 ? +em1[1] : 0); return; }
     /* Και ίδια οθόνη με άλλο id είναι νέα πλοήγηση (πελάτης → έργο → τμήμα). */
-    if (h[1] !== S.view || (h[2] || '') !== (S.viewArg || '')) { go(h[1], h[2]); }
+    if (h[1] !== S.view || (h[2] || '') !== (S.viewArg || '')) {
+      /* Πλοήγηση σε άλλη οθόνη (π.χ. tab bar στο κινητό) ενώ είναι ανοιχτή καρτέλα χωρίς αλλαγές:
+         η καρτέλα κλείνει — αλλιώς έμενε πάνω από τη νέα οθόνη. Με αλλαγές μένει, να μη χαθούν. */
+      const od = document.querySelector('.drawer.show');
+      if (od && od.dataset.dirty !== '1' && od.dataset.fresh !== '1') { closeDrawer(); }
+      go(h[1], h[2]);
+    }
   });
   document.getElementById('remoteChip').onclick = stopRemote;
   remoteRefresh();
