@@ -3142,9 +3142,7 @@ R.projects = async function () {
     </div>
     <div class="pj-prog"><div class="bar"><span class="ok" style="width:${p.pct}%"></span></div>
       <small class="mut">${p.done}/${p.total} (${p.pct}%)</small></div>
-    ${p.canEdit ? `<div class="pj-acts">
-      <button class="btn btn-sm btn-o" data-edit="${p.id}">${I.edit} Επεξεργασία</button>
-      <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩ Επαναφορά' : I.box + ' Αρχειοθέτηση'}</button></div>` : ''}
+    ${p.canEdit ? `<button class="btn btn-sm btn-o pj-more" data-pjmore="${p.id}" title="Ενέργειες έργου">⋯</button>` : ''}
   </div>`;
 
   const group = (key, icon, title, sub, cards, emptyTxt) => `
@@ -3777,6 +3775,14 @@ R.projects = async function () {
       client: pre.client, clientName: pre.clientName});
   }
   $$('[data-edit]').forEach(b => b.onclick = () => openProj(d.projects.find(p => p.id === +b.dataset.edit)));
+  /* Κινητό: ⋯ → μενού με Επεξεργασία / Αρχειοθέτηση (τα ίδια handlers με τα κουμπιά του desktop). */
+  $$('[data-pjmore]').forEach(b => b.onclick = e => {
+    e.stopPropagation(); const pid = +b.dataset.pjmore; const p = d.projects.find(x => x.id === pid); if (!p) return;
+    window.CNP.miniMenu(b, [
+      {icon: I.edit, label: 'Επεξεργασία', on: () => openProj(p)},
+      {icon: I.box, label: p.archived ? 'Επαναφορά' : 'Αρχειοθέτηση', on: async () => { await api('archive_project', {id: pid}); R.projects(); }},
+    ]);
+  });
   $$('[data-arch]').forEach(b => b.onclick = async () => {
     await api('archive_project', {id: +b.dataset.arch}); R.projects();
   });

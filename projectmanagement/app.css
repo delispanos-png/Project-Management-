@@ -4035,3 +4035,11 @@ html[data-theme="dark"] .card{border-color:#233043}
 .kb-mobnav button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .kb-mobnav button.on b{color:#fff}
 @media (min-width:769px){.kb-mobnav{display:none}}
+.pj-more{margin-top:8px;padding:3px 12px;font-size:16px;line-height:1}
+@media (min-width:769px){.pj-more{display:none}}
+@media (max-width:768px){
+  .tk-modal .drawer-h .tk-sub{font-size:11px;gap:6px}
+  .tk-modal .drawer-h .tk-sub .tk-crumb{display:none}
+  .tk-modal .drawer-h .tk-hdr{gap:5px}
+  .tk-modal .drawer-h #dWatch{display:none}
+}
