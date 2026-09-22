@@ -1239,7 +1239,7 @@ R.knowledge = async function () {
     <button class="fchip" id="kImp" title="Εισαγωγή από online τεκμηρίωση/εγχειρίδιο">${I.download} Εισαγωγή από URL</button>
     <button class="fchip fchip-go" id="kNew">${I.plus} Προσθήκη γνώσης</button>
   </div>
-  <div class="kb-filters">
+  <div class="fchips">
     <button class="kb-chip${st.prod === '' ? ' on' : ''}" data-kprod="">Όλα <b id="kcAll"></b></button>
     <span class="chipwrap" id="kProdChips"></span>
   </div>

@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, cnpSearch, cnpSkel, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, cnpSearch, fChip, fSel, fAdd, fWire, cnpSkel, $, $$} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -314,7 +314,20 @@ R.balances = async function () {
       ? `<span class="pill pill-warn" title="Ειδοποίηση αναστολής ${esc(dFull(r.notified.at))} από ${esc(r.notified.by)}">⚠ ειδοποίηση αναστολής</span>` : '';
     const filt = [['all', 'Όλοι'], ['risk', 'Κινδυνεύουν'], ['overdue', 'Ληξιπρόθεσμα'], ['notdue', 'Δεν έληξαν']];
 
+    /* ΣΕΙΡΑ: φίλτρα ΠΡΙΝ τα πλακίδια. Το φίλτρο ορίζει τι μετράνε τα πλακίδια,
+       άρα διαβάζεται πρώτο — εδώ ήταν ανάποδα και ο χειριστής διάβαζε σύνολα
+       πριν μάθει σε τι αναφέρονται. */
     c.innerHTML = `
+      <div class="fbar">
+        ${fChip('Αναζήτηση', `<input class="fchip-s" id="blQ" value="${esc(st.q)}"
+          placeholder="πελάτης, email ή αριθμός παραστατικού…" style="width:270px">`, !!st.q, '')}
+        <span class="fbar-sp"></span>
+        <span class="fbar-note">όριο αναστολής WHMCS: <b>${d.grace} ημέρες</b> μετά τη λήξη</span>
+        <button class="fchip" data-bexp>${Object.values(st.open).some(Boolean) ? '⊟ Κλείσιμο όλων' : '⊞ Άνοιγμα όλων'}</button>
+      </div>
+      <div class="fchips">
+        ${filt.map(([k, l]) => `<button class="kb-chip${st.f === k ? ' on' : ''}" data-bf="${k}">${l} <b>${all.filter(r => k === 'all' || (k === 'risk' ? r.risk : (k === 'overdue' ? r.overdue > 0.5 : r.overdue <= 0.5))).length}</b></button>`).join('')}
+      </div>
       <div class="grid g4" style="--n:5;margin-bottom:14px">
         ${suStat(I.users, d.sum.clients, 'πελάτες με υπόλοιπο', d.sum.clients ? 'var(--bad)' : 'var(--ok)')}
         ${suStat(I.coin, fmtEur(d.sum.open), 'ανοιχτά συνολικά', 'var(--ink)')}
@@ -322,17 +335,8 @@ R.balances = async function () {
         ${suStat(I.fire || I.alert, d.sum.risk, 'κινδυνεύουν με αναστολή', d.sum.risk ? '#e0a020' : 'var(--ok)')}
         ${suStat(I.clock, d.sum.notDue, 'μόνο μη ληξιπρόθεσμα', 'var(--brand)')}
       </div>
-      <div class="card kb-search" style="margin-bottom:12px">
-        <div class="kb-srow">
-          <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-            <input class="inp" id="blQ" placeholder="Πελάτης, email ή αριθμός παραστατικού…" value="${esc(st.q)}"></div>
-          <button class="btn btn-sm btn-o" data-bexp>${Object.values(st.open).some(Boolean) ? '⊟ Κλείσιμο όλων' : '⊞ Άνοιγμα όλων'}</button>
-        </div>
-        <div class="kb-filters">
-          ${filt.map(([k, l]) => `<button class="kb-chip${st.f === k ? ' on' : ''}" data-bf="${k}">${l} <b>${all.filter(r => k === 'all' || (k === 'risk' ? r.risk : (k === 'overdue' ? r.overdue > 0.5 : r.overdue <= 0.5))).length}</b></button>`).join('')}
-          <span class="mut" style="font-size:11.5px;align-self:center;margin-left:auto">Ποσά = πραγματικά ανοιχτά ανά παραστατικό (αξία − πληρωμές − πίστωση). Όριο αναστολής WHMCS: <b>${d.grace} ημέρες</b> μετά τη λήξη.</span>
-        </div>
-      </div>
+      <div class="mut" style="font-size:11.5px;margin:-6px 0 12px">Τα ποσά είναι τα
+        <b>πραγματικά ανοιχτά ανά παραστατικό</b>: αξία − πληρωμές − πίστωση.</div>
       ${rows.map(r => `
         <div class="card" style="margin-bottom:12px;border-left:4px solid ${r.risk ? 'var(--bad)' : (r.overdue > 0.5 ? '#e0a020' : 'var(--ok)')}">
           <div class="card-h susp-h" data-bg="${r.client}">

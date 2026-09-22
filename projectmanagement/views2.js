@@ -888,7 +888,7 @@ R.time = async function () {
 R.timeteam = function () { return R.time(); };
 
 R.offers = async function () {
-  setTop('Προσφορές', 'Pipeline προσφορών — δεμένο με WHMCS Quotes');
+  setTop('Προσφορές', 'Τι έχουμε προτείνει, σε ποιο στάδιο, πόσα παίζονται');
   const c = $('#content');
   cnpSkel(c, skel(5, 280));
   const d = await api('offers');
@@ -1005,29 +1005,25 @@ R.offers = async function () {
   </div>`;
 
   c.innerHTML = `
-  <div class="card kb-search">
-    <div class="kb-srow">
-      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-        <input class="inp" id="ofQ" placeholder="Ψάξε προσφορά — τίτλο, πελάτη, αριθμό quote…" value="${esc(st.q)}"></div>
-      <button class="btn btn-p btn-sm" id="newOffer">${I.plus} Νέα προσφορά</button>
-      <button class="btn btn-o btn-sm" id="newPharm" title="Κοστολόγηση PharmacyOne — γεννά κανονική προσφορά στο κύκλωμα">${I.doc} PharmacyOne</button>
-      <button class="btn btn-o btn-sm" id="newPbx" title="Κοστολόγηση τηλεφωνικού κέντρου 3CX / Yeastar — γεννά κανονική προσφορά στο κύκλωμα">${I.phone} Τηλ. κέντρο</button>
-    </div>
-    <div class="kb-filters">
-      <span class="crm-goal">${I.doc} <b>${fmtEur(openV)}</b><span class="mut"> ανοιχτές</span></span>
-      <span class="crm-goal" style="flex:0 1 auto">${I.trophy} <b>${won.length}</b><span class="mut"> κερδισμένες · ${fmtEur(won.reduce((s, o) => s + o.value, 0))}</span></span>
-    </div>
-    ${MOB ? `<div class="kb-filters" style="border-top:0;padding-top:0;margin-top:7px">
-      <button class="kb-chip${st.stage === '' ? ' on' : ''}" data-ofstage="">Όλες <b>${shown.length}</b></button>
-      ${d.stages.map(sg => { const n = shown.filter(o => o.stage === sg.key).length;
-        return `<button class="kb-chip${st.stage === sg.key ? ' on' : ''}" data-ofstage="${sg.key}" style="--kc:${sg.color}">
-          <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
-    </div>` : ''}
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="ofQ" value="${esc(st.q)}"
+      placeholder="τίτλο, πελάτη, αριθμό quote…" style="width:250px">`, !!st.q, '')}
+    <span class="fbar-sp"></span>
+    <span class="fbar-note">${I.doc} <b>${fmtEur(openV)}</b> ανοιχτές · ${I.trophy} <b>${won.length}</b> κερδισμένες (${fmtEur(won.reduce((s, o) => s + o.value, 0))})</span>
+    <button class="fchip" id="newPharm" title="Κοστολόγηση PharmacyOne — γεννά κανονική προσφορά στο κύκλωμα">${I.doc} PharmacyOne</button>
+    <button class="fchip" id="newPbx" title="Κοστολόγηση τηλεφωνικού κέντρου 3CX / Yeastar — γεννά κανονική προσφορά στο κύκλωμα">${I.phone} Τηλ. κέντρο</button>
+    <button class="fchip fchip-go" id="newOffer">${I.plus} Νέα προσφορά</button>
   </div>
-  <div style="display:flex;gap:7px;margin:0 0 12px">
-    <button class="btn btn-sm ${st.tab === 'pipe' ? 'btn-p' : 'btn-o'}" data-otab="pipe">${I.board} Pipeline</button>
-    <button class="btn btn-sm ${st.tab === 'track' ? 'btn-p' : 'btn-o'}" data-otab="track">${I.clock} Παρακολούθηση</button>
+  <div class="fchips">
+    <button class="kb-chip${st.tab === 'pipe' ? ' on' : ''}" data-otab="pipe">${I.board} Pipeline</button>
+    <button class="kb-chip${st.tab === 'track' ? ' on' : ''}" data-otab="track">${I.clock} Παρακολούθηση</button>
   </div>
+  ${MOB && st.tab === 'pipe' ? `<div class="fchips">
+    <button class="kb-chip${st.stage === '' ? ' on' : ''}" data-ofstage="">Όλες <b>${shown.length}</b></button>
+    ${d.stages.map(sg => { const n = shown.filter(o => o.stage === sg.key).length;
+      return `<button class="kb-chip${st.stage === sg.key ? ' on' : ''}" data-ofstage="${sg.key}" style="--kc:${sg.color}">
+        <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
+  </div>` : ''}
   ${st.tab === 'track' ? trackList() : (MOB ? listMob() : listDesk())}`;
 
   $$('[data-otab]').forEach(b => b.onclick = () => { st.tab = b.dataset.otab; R.offers(); });
@@ -3142,7 +3138,7 @@ function openTeam(t, d) {
 
 /* ═════════ PROJECTS (PORTFOLIO) ═════════ */
 R.projects = async function () {
-  setTop('Έργα', 'Έργα πελατών, εσωτερική ανάπτυξη (R&D) και λειτουργικά — κατάσταση, υγεία, πρόοδος');
+  setTop('Έργα', 'Τι τρέχει για ποιον, πού κολλάει, πόσο έχει φάει');
   const c = $('#content');
   cnpSkel(c, skel(1, 340));
   const d = await api('portfolio');
@@ -3263,15 +3259,19 @@ R.projects = async function () {
   roots.filter(hit).forEach(p => { opsList.push(pjCard(p, 0)); kids(p.id).filter(hit).forEach(k => opsList.push(pjCard(k, 1))); });
 
   c.innerHTML = `
-  <div class="card kb-search">
-    <div class="kb-srow">
-      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-        <input class="inp" id="prQ" placeholder="Ψάξε έργο — όνομα, πελάτη, κατάσταση…" value="${esc(st.q)}"></div>
-      ${clientPjs.some(noProd) ? `<button class="btn btn-sm ${st.noprod ? 'btn-p' : 'btn-o'}" id="prNoProd" title="Έργα πελατών που δεν έχουν δεθεί με προϊόν">⚠ Χωρίς προϊόν <b>${clientPjs.filter(noProd).length}</b></button>` : ''}
-      ${d.projects.some(noDept) ? `<button class="btn btn-sm ${st.nodept ? 'btn-p' : 'btn-o'}" id="prNoDept" title="Έργα χωρίς τμήμα (παλιά) — τα βλέπουν μόνο οι Full· όρισε τμήμα">⚠ Χωρίς τμήμα <b>${d.projects.filter(noDept).length}</b></button>` : ''}
-      ${d.canRecur ? `<button class="btn btn-o btn-sm" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
-      ${d.canCreate ? `<button class="btn btn-p btn-sm" id="prNew">${I.plus} Νέο project</button>` : ''}
-    </div>
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="prQ" value="${esc(st.q)}"
+      placeholder="όνομα έργου, πελάτη, κατάσταση…" style="width:250px">`, !!st.q, '')}
+    ${clientPjs.some(noProd) ? `<button type="button" class="fchip fchip-b${st.noprod ? ' on' : ''}" id="prNoProd"
+      title="Έργα πελατών που δεν έχουν δεθεί με προϊόν">${st.noprod ? '✓ ' : ''}Χωρίς προϊόν
+      <b>${clientPjs.filter(noProd).length}</b></button>` : ''}
+    ${d.projects.some(noDept) ? `<button type="button" class="fchip fchip-b${st.nodept ? ' on' : ''}" id="prNoDept"
+      title="Έργα χωρίς τμήμα (παλιά) — τα βλέπουν μόνο οι Full· όρισε τμήμα">${st.nodept ? '✓ ' : ''}Χωρίς τμήμα
+      <b>${d.projects.filter(noDept).length}</b></button>` : ''}
+    <span class="fbar-sp"></span>
+    <span class="fbar-note">${d.projects.length} έργα</span>
+    ${d.canRecur ? `<button class="fchip" id="prRec">${I.repeat} Επαναλαμβανόμενα</button>` : ''}
+    ${d.canCreate ? `<button class="fchip fchip-go" id="prNew">${I.plus} Νέο project</button>` : ''}
   </div>
   ${MOB
     ? group('client', I.rocket, 'Έργα πελατών', 'με budget, εκτίμηση & deadline', cliList.map(p => pjCard(p, 0)),
@@ -3848,7 +3848,9 @@ R.projects = async function () {
   };
   { const np = $('#prNoProd'); if (np) { np.onclick = () => { st.noprod = !st.noprod; R.projects(); }; } }
   { const nd = $('#prNoDept'); if (nd) { nd.onclick = () => { st.nodept = !st.nodept; R.projects(); }; } }
-  $('#prNew').onclick = () => openProj(null);
+  /* Το κουμπί υπάρχει ΜΟΝΟ με δικαίωμα δημιουργίας — χωρίς τον έλεγχο, όποιος
+     δεν το έχει έτρωγε TypeError και η οθόνη έμενε μισοστημένη. */
+  { const pn = $('#prNew'); if (pn) { pn.onclick = () => openProj(null); } }
   /* Έρχεσαι από την καρτέλα πελάτη με «Νέο έργο» — ο πελάτης είναι ήδη γνωστός. */
   if (R.projects._pre) {
     const pre = R.projects._pre; R.projects._pre = null;
