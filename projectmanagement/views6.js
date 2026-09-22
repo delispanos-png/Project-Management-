@@ -4,7 +4,7 @@
    η επόμενη προσφορά. Το μητρώο είναι του supportcontracts — εδώ γίνεται
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
-const {S, api, esc, fChip, fSel, fAdd, fWire, fmtEur, dShort, dFull, today, toast, setTop, cnpConfirm, cnpDialog,
+const {S, api, esc, cnpSearch, fChip, fSel, fAdd, fWire, fmtEur, dShort, dFull, today, toast, setTop, cnpConfirm, cnpDialog,
   cnpDenied, cnpCan, cnpPrompt, closeDrawer, openTask, adminName, adminIni, I, go, stPill, CNP_ST, $, $$} = window.CNP;
 const R = window.R;
 
@@ -383,11 +383,23 @@ R.uncovered = async function () {
   let dErr = null;
   const d = await api('prepaid').catch(e => { dErr = e; return null; });
   if (!d) { c.innerHTML = cnpDenied(dErr); return; }
-  const rows = d.rows.filter(r => r.uncovered > 0).sort((a, b) => b.uncovered - a.uncovered);
+  const st = R.uncovered._s = R.uncovered._s || {q: ''};
+  const all = d.rows.filter(r => r.uncovered > 0).sort((a, b) => b.uncovered - a.uncovered);
+  /* Το φίλτρο δουλεύει πάνω στα ΗΔΗ φορτωμένα: η αναφορά δεν ξαναζητιέται για
+     κάθε γράμμα, και το πλακίδιο μετράει ό,τι δείχνει η λίστα — όχι άλλο. */
+  const rows = st.q
+    ? all.filter(r => (r.name || '').toLowerCase().includes(st.q.toLowerCase()))
+    : all;
   c.innerHTML = `
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="ucQ" value="${esc(st.q)}"
+      placeholder="όνομα πελάτη…" style="width:240px">`, !!st.q, '')}
+    <span class="fbar-sp"></span>
+    <span class="fbar-note">${rows.length} από ${all.length} πελάτες</span>
+  </div>
   <div style="display:flex;gap:11px;flex-wrap:wrap;margin-bottom:16px">
-    ${stat(I.alert, hm(d.totals.open), `σε ${rows.length} πελάτ${rows.length === 1 ? 'η' : 'ες'}`,
-      d.totals.open ? 'var(--bad)' : 'var(--ok)')}
+    ${stat(I.alert, hm(rows.reduce((a, r) => a + r.uncovered, 0)), `σε ${rows.length} πελάτ${rows.length === 1 ? 'η' : 'ες'}`,
+      rows.length ? 'var(--bad)' : 'var(--ok)')}
   </div>
   ${rows.length ? rows.map(r => `
     <div class="card pp-row" data-c="${r.client}" style="padding:12px 15px;margin-bottom:8px;cursor:pointer;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -399,6 +411,7 @@ R.uncovered = async function () {
     </div>`).join('')
     : `<div class="empty" style="padding:44px">${I.sparkle}Τίποτα ακάλυπτο — όλη η χρεώσιμη δουλειά καλύπτεται.</div>`}`;
   $$('.pp-row').forEach(el => el.onclick = () => openPrepaid(+el.dataset.c));
+  cnpSearch('ucQ', v => { st.q = v; return R.uncovered(); }, 220);
 };
 
 /* ─────────────────────── Προεπισκόπηση αναφοράς ─────────────────────── */
@@ -1139,10 +1152,14 @@ R.reschedules = async function () {
 
   c.innerHTML = `
   ${d.truncated ? `<div class="card" style="margin-bottom:12px;border-color:var(--warn)"><div class="card-b" style="padding:10px 14px;font-size:12.5px;color:var(--warn)">${I.alert} Η αναφορά έφτασε στο όριο εγγραφών — δείχνονται τα πιο πρόσφατα. Τα σύνολα δεν είναι πλήρη.</div></div>` : ''}
-  <div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    <span class="mut" style="font-size:12.5px">Περίοδος:</span>
-    ${[30, 90, 180, 365].map(n => `<button class="btn btn-sm ${st.d === n ? 'btn-p' : 'btn-o'}" data-rd="${n}">${n} ημ.</button>`).join('')}
-  </div></div>
+  <div class="fbar">
+    <span class="fbar-sp"></span>
+    <span class="fbar-note"><b>${d.items.length}</b> μεταθέσεις · <b>${totalDays}</b> ημέρες συνολικά${
+      back ? ` · <b>${back}</b> προς τα πίσω` : ''}</span>
+  </div>
+  <div class="fchips">
+    ${[30, 90, 180, 365].map(n => `<button class="kb-chip${st.d === n ? ' on' : ''}" data-rd="${n}">${n === 365 ? '1 έτος' : n + ' ημέρες'}</button>`).join('')}
+  </div>
   <div class="g4 grid" style="margin-bottom:14px">
     <div class="su-stat"><span class="pc-ic" style="color:#e0552b">${I.cal}</span>
       <div><div class="n">${d.items.length}</div><div class="mut" style="font-size:11.5px">μεταθέσεις</div></div></div>

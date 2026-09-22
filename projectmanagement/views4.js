@@ -2425,14 +2425,16 @@ R.library = async function () {
   const c = $('#content');
   const st = R.library._s = R.library._s || {q: '', cat: '', scope: 'mine'};
   c.innerHTML = `
-  <div id="lbScope" style="display:flex;gap:7px;margin-bottom:12px"></div>
-  <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:13px">
-    <input class="inp" id="lbQ" placeholder="Αναζήτηση σε τίτλους, κείμενο, ετικέτες, αρχεία…" style="flex:1;min-width:200px" value="${esc(st.q)}">
-    <button class="btn btn-o btn-sm" id="lbNote">${I.edit} Σημείωση</button>
-    <button class="btn btn-o btn-sm" id="lbLink">${I.link} Link</button>
-    <label class="btn btn-p btn-sm" style="cursor:pointer;margin:0">${I.download} Αρχείο<input type="file" id="lbFile" style="display:none"></label>
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="lbQ" value="${esc(st.q)}"
+      placeholder="τίτλους, κείμενο, ετικέτες, αρχεία…" style="width:280px">`, !!st.q, '')}
+    <span class="fbar-sp"></span>
+    <button class="fchip" id="lbNote">${I.edit} Σημείωση</button>
+    <button class="fchip" id="lbLink">${I.link} Link</button>
+    <label class="fchip fchip-go" style="cursor:pointer">${I.download} Αρχείο<input type="file" id="lbFile" style="display:none"></label>
   </div>
-  <div id="lbCats" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px"></div>
+  <div id="lbScope" class="fchips"></div>
+  <div id="lbCats" class="fchips"></div>
   <div id="lbBox">${'<div class="skel" style="height:70px;margin-bottom:10px"></div>'.repeat(3)}</div>`;
   const kindIco = {note: I.edit, link: I.link, file: I.download};
   /* Η προεπισκόπηση ήταν το ίδιο το HTML κομμένο στα 66px: τίτλοι και λίστες
@@ -3029,20 +3031,23 @@ R.recruit = async function () {
   window._cvModels = jd.models || {}; window._cvDefaultModel = jd.defaultModel || '';
   const activeJobs = jd.jobs.filter(j => j.active).length;
   c.innerHTML = `
-  <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:0">
-    <button class="rtab" data-rview="cvs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.users || ''} Υποψήφιοι</button>
-    ${cnpCan('hr.jobs') ? `<button class="rtab" data-rview="jobs" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;margin-right:14px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.briefcase || I.folder} Θέσεις / Αγγελίες <span class="kb-n" style="margin-left:2px">${activeJobs}</span></button>` : ''}
-    <button class="rtab" data-rview="traffic" style="background:none;border:0;border-bottom:2.5px solid transparent;padding:9px 4px;font-size:14.5px;font-weight:700;color:var(--mut);cursor:pointer">${I.chart || I.pie || '📈'} Επισκεψιμότητα</button>
+  <div class="ib-tabs set-subtabs" style="margin-bottom:14px;flex-wrap:wrap;border:0;background:0">
+    <button class="ib-tab rtab" data-rview="cvs">${I.users || ''} Υποψήφιοι</button>
+    ${cnpCan('hr.jobs') ? `<button class="ib-tab rtab" data-rview="jobs">${I.briefcase || I.folder} Θέσεις / Αγγελίες <span class="kb-n" style="margin-left:2px">${activeJobs}</span></button>` : ''}
+    <button class="ib-tab rtab" data-rview="traffic">${I.chart || I.pie || '📈'} Επισκεψιμότητα</button>
   </div>
   <div id="cvPane">
-    <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <select class="inp" id="cvJob" style="width:auto;max-width:280px"><option value="">Όλες οι θέσεις</option>
-        ${jd.jobs.filter(j => j.count).map(j => `<option value="${j.id}" ${st.job == j.id ? 'selected' : ''}>${esc(j.title)} (${j.count})</option>`).join('')}</select>
-      <input class="inp" id="cvQ" placeholder="Αναζήτηση ονόματος / email / τηλεφώνου…" style="flex:1;min-width:180px" value="${esc(st.q)}">
-      <button class="btn btn-sm ${st.dups ? 'btn-p' : 'btn-o'}" id="cvDups" title="Δείξε μόνο όσους υπέβαλαν πολλές φορές (ίδιο email)">⧉ Διπλότυπα</button>
-      <button class="btn btn-p btn-sm" id="cvAdd">${I.plus} Νέος υποψήφιος</button>
+    <div class="fbar">
+      ${fChip('Αναζήτηση', `<input class="fchip-s" id="cvQ" value="${esc(st.q)}"
+        placeholder="όνομα, email, τηλέφωνο…" style="width:230px">`, !!st.q, '')}
+      ${fChip('Θέση', `<select class="fchip-s" id="cvJob" style="max-width:240px"><option value="">— κάθε —</option>
+        ${jd.jobs.filter(j => j.count).map(j => `<option value="${j.id}" ${st.job == j.id ? 'selected' : ''}>${esc(j.title)} (${j.count})</option>`).join('')}</select>`, !!st.job, '')}
+      <button type="button" class="fchip fchip-b${st.dups ? ' on' : ''}" id="cvDups"
+        title="Δείξε μόνο όσους υπέβαλαν πολλές φορές (ίδιο email)">${st.dups ? '✓ ' : ''}Διπλότυπα</button>
+      <span class="fbar-sp"></span>
+      <button class="fchip fchip-go" id="cvAdd">${I.plus} Νέος υποψήφιος</button>
     </div>
-    <div id="cvTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div id="cvTabs" class="fchips"></div>
     <div id="cvList">${'<div class="skel" style="height:56px;margin-bottom:8px"></div>'.repeat(5)}</div>
     <div id="cvPager" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px"></div>
   </div>
@@ -3053,7 +3058,9 @@ R.recruit = async function () {
     $('#cvPane').style.display = v === 'cvs' ? '' : 'none';
     $('#jobsPane').style.display = v === 'jobs' ? '' : 'none';
     $('#trafficPane').style.display = v === 'traffic' ? '' : 'none';
-    $$('.rtab').forEach(b => { const on = b.dataset.rview === v; b.style.color = on ? 'var(--brand)' : 'var(--mut)'; b.style.borderBottomColor = on ? 'var(--brand)' : 'transparent'; });
+    /* Η ενεργή καρτέλα δηλώνεται με κλάση, όχι με inline χρώματα — έτσι την
+       αναλαμβάνει το ίδιο CSS με όλες τις άλλες υπο-καρτέλες του εργαλείου. */
+    $$('.rtab').forEach(b => b.classList.toggle('on', b.dataset.rview === v));
     if (v === 'jobs') { renderJobsPanel($('#jobsPane'), () => { R.recruit(); }); }
     if (v === 'traffic') { renderTrafficPanel($('#trafficPane')); }
   };
