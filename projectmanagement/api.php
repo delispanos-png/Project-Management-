@@ -665,19 +665,31 @@ function cnp_code_reject($html)
 function cnp_looks_like_code($html)
 {
     $plain = html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
-    if (preg_match('#<(pre|code)\b#i', (string) $html)) { return true; }
+    /* ΤΟ <pre> ΕΙΝΑΙ ΕΝΔΕΙΞΗ, ΟΧΙ ΑΠΟΔΕΙΞΗ. Έφραζε κάθε κείμενο που έτυχε να
+       βρεθεί σε μπλοκ κώδικα — και μέχρι σήμερα το κουμπί «κώδικας» της μπάρας
+       δεν έβγαινε, οπότε ένα κείμενο οδηγιών κολλούσε εκεί μέσα και ΔΕΝ
+       αποθηκευόταν ΠΟΤΕ, χωρίς ο χρήστης να ξέρει γιατί. Τώρα απλώς κατεβάζει
+       το κατώφλι: αν το περιεχόμενο είναι όντως κώδικας, φαίνεται κι αλλιώς. */
+    $inPre = (bool) preg_match('#<(pre|code)\b#i', (string) $html);
     $lines = array_values(array_filter(array_map('trim', preg_split('/\R/u', $plain)), 'strlen'));
     if (count($lines) < 3) { return false; }
     $codey = 0;
     foreach ($lines as $ln) {
-        if (preg_match('#^</?[a-zA-Z][\w:.-]*(\s[^>]*)?/?>#', $ln)                      // <tag …> / </tag>
+        /* Ετικέτα με ΟΠΟΙΟΔΗΠΟΤΕ γράμμα, όχι μόνο λατινικό: το XML της ΗΔΙΚΑ —
+           η αφορμή για ολόκληρο τον έλεγχο — έχει ελληνικές ετικέτες και
+           περνούσε ανενόχλητο. */
+        if (preg_match('#^</?[^\W\d_][\w:.-]*(\s[^>]*)?/?>#u', $ln)                    // <ετικέτα …> / </tag>
             || preg_match('#^[\[\]{}();]+,?$#', $ln)                                    // } ]; ) {
-            || preg_match('#^(\$\w+|var |let |const |function\b|def |class |import |from .* import|#include|using |namespace |<\?php|SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE|curl |wget |sudo |apt |npm |composer |git )#i', $ln)
+            /* ΟΡΙΟΘΕΤΗΣ ~, ΟΧΙ #: το μοτίβο περιέχει «#include» και με οριοθέτη #
+               τερμάτιζε εκεί. Αποτέλεσμα: preg_match() επέστρεφε ΠΑΝΤΑ false με
+               warning, και ολόκληρος αυτός ο κανόνας δεν δούλεψε ποτέ. */
+            || preg_match('~^(\$\w+|var |let |const |function\b|def |class |import |from .* import|\#include|using |namespace |<\?php|SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE|curl |wget |sudo |apt |npm |composer |git )~i', $ln)
             || preg_match('#^"[\w.-]+"\s*:\s*#', $ln)                                    // "key": value (JSON)
             || preg_match('#[;{}]$#', $ln) && preg_match('#[=()\[\]]#', $ln)) {              // γραμμή κώδικα
             $codey++;
         }
     }
+    if ($inPre) { return $codey >= 2; }   // μέσα σε μπλοκ κώδικα, δύο ενδείξεις αρκούν
     return $codey >= 4 || ($codey >= 3 && $codey * 3 > count($lines));
 }
 
