@@ -2249,11 +2249,12 @@ R.rootcause = async function (days) {
   const cById = {}; d.causes.forEach(c2 => cById[c2.id] = c2);
   const MOB = matchMedia('(max-width:768px)').matches;
   c.innerHTML = `
-  <div class="card kb-search">
-    <div class="kb-filters" style="border-top:0;padding-top:0;margin-top:0">
-      ${[30, 90, 180, 365].map(dd => `<button class="kb-chip${dd === st ? ' on' : ''}" data-days="${dd}">${dd === 365 ? '1 έτος' : dd + ' ημέρες'}</button>`).join('')}
-      <span class="crm-goal" style="margin-left:auto">${I.tag} <b>${d.totalClassified}</b><span class="mut"> / ${d.allTickets} ταξινομημένα (${pct}%)</span></span>
-    </div>
+  <div class="fbar">
+    <span class="fbar-sp"></span>
+    <span class="fbar-note">${I.tag} <b>${d.totalClassified}</b> / ${d.allTickets} ταξινομημένα (${pct}%)</span>
+  </div>
+  <div class="fchips">
+    ${[30, 90, 180, 365].map(dd => `<button class="kb-chip${dd === st ? ' on' : ''}" data-days="${dd}">${dd === 365 ? '1 έτος' : dd + ' ημέρες'}</button>`).join('')}
   </div>
   ${pct < 40 ? `<div class="card" style="border-left:4px solid var(--warn);margin-bottom:14px"><div class="card-b" style="font-size:12.5px">
     ${I.bulb} Μόνο το ${pct}% των tickets είναι ταξινομημένα. Όσο περισσότερα ταξινομείτε (${I.tag} στο ticket), τόσο πιο ακριβής η ανάλυση.</div></div>` : ''}

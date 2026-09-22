@@ -3706,7 +3706,10 @@ async function vMyDay() {
   const ring = (n, tot) => { const p = tot ? Math.min(100, Math.round(n / tot * 100)) : 0; return `<div class="myd-ring" style="--p:${p}"><b>${n}</b><small>/${tot}</small></div>`; };
 
   /* ── γραμμές ── */
-  const attRow = (a, i) => `<div class="myd-row att ${a.lvl}" data-atti="${i}">
+  /* Το κλειδί ΔΕΝ είναι η θέση: μετά από κάθε ενέργεια η λίστα ξαναχτίζεται και το «a0»
+     θα σήμαινε άλλο πράγμα — το «Επόμενο» θα ξαναπρότεινε ό,τι μόλις πέρασες. */
+  const attKey = a => (a.task ? 't' + a.task : 'w' + String(a.title || '').slice(0, 40));
+  const attRow = (a, i) => `<div class="myd-row att ${a.lvl}" data-atti="${i}" data-attk="${esc(attKey(a))}">
     <span class="myd-ic" style="color:${colL[a.lvl]}">${a.ic}</span>
     <span class="myd-why" style="color:${colL[a.lvl]};background:${colL[a.lvl]}18">${esc(a.why)}</span>
     <span class="myd-t"><b>${esc(a.title)}</b>${a.sub ? `<span class="mut"> · ${esc(a.sub)}</span>` : ''}</span>
@@ -3859,7 +3862,7 @@ async function vMyDay() {
     }
     return null;
   };
-  const nextKey = el => (el.dataset.atti !== undefined ? 'a' + el.dataset.atti
+  const nextKey = el => (el.dataset.attk ? 'a' + el.dataset.attk
     : el.dataset.qtk ? 'q' + el.dataset.qtk
     : el.dataset.mdtask ? 't' + el.dataset.mdtask
     : el.dataset.cal ? 'ev' + el.dataset.cal : 'x' + Math.random());
