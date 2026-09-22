@@ -4245,6 +4245,15 @@ html[data-theme="dark"] .dday-e.rs-ask{background:#eba63c33}
 .tmb-p:not(.in) .tmb-n{color:var(--mut)}
 @media(max-width:768px){.tmb{padding:8px 10px 2px}.tmb-p{width:58px}.tmb-av{width:36px;height:36px;font-size:12px}}
 
+/* ── Δρομέας πληκτρολογίου ── */
+.kb-cur{position:relative;background:#0090dd0f!important;box-shadow:inset 3px 0 0 var(--brand)}
+html[data-theme="dark"] .kb-cur{background:#0090dd22!important}
+.kbh{display:flex;flex-direction:column;gap:2px;margin-top:12px}
+.kbh-r{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12.5px;color:var(--txt);border-bottom:1px solid var(--line)}
+.kbh-r:last-child{border-bottom:none}
+.kbh-r kbd{flex:none;min-width:62px;text-align:center;font:inherit;font-size:11px;font-weight:700;
+  background:var(--bg2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:2px 6px;color:var(--ink)}
+
 /* ── Γρήγορη απάντηση (ticket / αίτημα) πάνω στην οθόνη που ήσουν ── */
 .qr-box{width:min(680px,94vw);margin:6vh auto 0;max-height:86vh;display:flex;flex-direction:column;padding:0}
 .qr-h{display:flex;gap:11px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);flex:none}

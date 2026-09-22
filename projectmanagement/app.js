@@ -3832,6 +3832,23 @@ async function vMyDay() {
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
   cnpWireDash($('#content'));
+
+  /* ⌨ Ο δρομέας πάνω στις γραμμές που ΚΑΝΟΥΝ κάτι. Η θέση επιβιώνει του redraw:
+     κάθε ενέργεια ξαναζωγραφίζει την οθόνη και χωρίς αυτό θα ξεκινούσες από την αρχή. */
+  const kbKeep = vMyDay._kb;
+  cnpKeyNav({
+    sel: '#content .myd-row.att, #content .myd-row.ev, #content .myd-row.task, #content .myd-row.q',
+    start: typeof kbKeep === 'number' ? kbKeep : -1,
+    onMove: n => { vMyDay._kb = n; },
+    help: [['t', 'ξεκίνα / σταμάτα χρόνο'], ['e', 'ολοκλήρωσε ή τακτοποίησε'],
+      ['r', 'απάντησε (ticket / αίτημα)'], ['n', 'το επόμενο που σε περιμένει']],
+    keys: {
+      Enter: el => { const b = el.querySelector('[data-attgo]'); (b || el).click(); },
+      r: el => { const b = el.querySelector('[data-attgo]'); (b || el).click(); },
+      t: el => { const b = el.querySelector('[data-mdplay]'); if (b) { b.click(); } else { toast('Χρονόμετρο μόνο σε εργασία', true); } },
+      e: el => { const b = el.querySelector('[data-mddone], [data-attdone]'); if (b) { b.click(); } else { toast('Δεν ολοκληρώνεται από εδώ', true); } },
+    },
+  });
   $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
   $$('#content [data-mdplay]').forEach(b => b.onclick = async e => {
     e.stopPropagation(); const id = +b.dataset.mdplay;
@@ -3871,10 +3888,22 @@ async function vMyDay() {
 }
 
 /* ═════════ CRM ═════════ */
+/* Τα δύο προαιρετικά φίλτρα του funnel. Ήταν δύο μόνιμα select δίπλα στον
+   στόχο πωλήσεων — δηλαδή δύο άδεια κουτιά που έπιαναν χώρο σε κάθε φόρτωση
+   ακόμη κι όταν κανείς δεν φιλτράρει. */
+const CRM_F = {
+  fa:  {label: 'Χειριστής', opts: () => [['', '— κάθε —']]
+          .concat(S.boot.admins.map(a => [String(a.id), a.name]))},
+  src: {label: 'Πηγή', opts: d => [['', '— κάθε —']]
+          .concat((d.__sources || []).map(x => [x, x]))},
+};
+
 async function vCrm() {
-  setTop('CRM', 'Pipeline πωλήσεων — στόχοι → επαφή → πελάτες');
+  setTop('CRM', 'Ποιες ευκαιρίες τρέχουν, σε ποιο στάδιο, ποιος τις κρατά');
   const c = $('#content');
-  const f = vCrm._f = vCrm._f || {fa: '', src: '', q: '', stage: '', closed: {}};
+  const f = vCrm._f = vCrm._f || {fa: '', src: '', q: '', stage: '', closed: {}, shown: []};
+  if (!f.shown) { f.shown = []; }
+  ['fa', 'src'].forEach(k => { if (f[k] && !f.shown.includes(k)) { f.shown.push(k); } });
   cnpSkel(c, crmTabs('crm') + '<div class="kb">' + '<div class="skel" style="flex:1;min-height:280px"></div>'.repeat(5) + '</div>');
   const d = await api('crm');
   const pct = d.target > 0 ? Math.min(100, Math.round(d.won / d.target * 100)) : 0;
@@ -3883,6 +3912,7 @@ async function vCrm() {
     && (!f.q || ((l.company || '') + ' ' + (l.contact || '') + ' ' + (l.email || '') + ' ' + (l.phone || '')).toLowerCase().includes(f.q.toLowerCase()));
   const leads = d.leads.filter(flt);
   const sources = [...new Set(d.leads.map(l => l.source).filter(Boolean))];
+  d.__sources = sources;
   const MOB = matchMedia('(max-width:768px)').matches;
   const leadChips = (l, sg) => `
     ${l.contact && l.company ? `<span>${I.user} ${esc(l.contact)}</span>` : ''}
@@ -3939,31 +3969,24 @@ async function vCrm() {
   </div>`;
 
   c.innerHTML = crmTabs('crm') + `
-  <div class="card kb-search">
-    <div class="kb-srow">
-      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-        <input class="inp" id="cfQ" placeholder="Ψάξε lead — εταιρεία, επαφή, email, τηλέφωνο…" value="${esc(f.q)}"></div>
-      <button class="btn btn-p btn-sm" id="newLead">${I.plus} Νέο lead</button>
-    </div>
-    <div class="kb-filters">
-      <span class="crm-goal">${I.target} <b>${fmtEur(d.won)}</b>${d.target > 0 ? `<span class="mut"> / ${fmtEur(d.target)} μήνα</span>` : '<span class="mut"> πωλήσεις μήνα</span>'}
-        ${d.target > 0 ? `<span class="crm-bar"><span class="${pct >= 100 ? 'ok' : ''}" style="width:${pct}%"></span></span>` : ''}</span>
-      <select class="inp kb-sort" id="cfA"><option value="">— χειριστής —</option>
-        ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
-      <select class="inp kb-sort" id="cfS" style="margin-left:0"><option value="">— πηγή —</option>
-        ${sources.map(x => `<option ${f.src === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-    </div>
-    ${MOB ? `<div class="kb-filters" style="border-top:0;padding-top:0;margin-top:7px">
-      <button class="kb-chip${f.stage === '' ? ' on' : ''}" data-cfstage="">Όλα <b>${leads.length}</b></button>
-      ${d.stages.map(sg => { const n = leads.filter(l => l.stage === sg.key).length;
-        return `<button class="kb-chip${f.stage === sg.key ? ' on' : ''}" data-cfstage="${sg.key}" style="--kc:${sg.color}">
-          <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
-    </div>` : ''}
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="cfQ" value="${esc(f.q)}"
+      placeholder="εταιρεία, επαφή, email, τηλέφωνο…" style="width:250px">`, !!f.q, '')}
+    ${f.shown.map(k => fChip(CRM_F[k].label, fSel(k, CRM_F[k].opts(d), f[k]), !!f[k], k)).join('')}
+    ${fAdd(CRM_F, f.shown)}
+    <span class="fbar-sp"></span>
+    <span class="crm-goal">${I.target} <b>${fmtEur(d.won)}</b>${d.target > 0 ? `<span class="mut"> / ${fmtEur(d.target)} μήνα</span>` : '<span class="mut"> πωλήσεις μήνα</span>'}
+      ${d.target > 0 ? `<span class="crm-bar"><span class="${pct >= 100 ? 'ok' : ''}" style="width:${pct}%"></span></span>` : ''}</span>
+    <button class="fchip fchip-go" id="newLead">${I.plus} Νέο lead</button>
   </div>
+  ${MOB ? `<div class="fchips">
+    <button class="kb-chip${f.stage === '' ? ' on' : ''}" data-cfstage="">Όλα <b>${leads.length}</b></button>
+    ${d.stages.map(sg => { const n = leads.filter(l => l.stage === sg.key).length;
+      return `<button class="kb-chip${f.stage === sg.key ? ' on' : ''}" data-cfstage="${sg.key}" style="--kc:${sg.color}">
+        <span class="kb-dot" style="background:${sg.color}"></span>${esc(sg.title)} <b>${n}</b></button>`; }).join('')}
+  </div>` : ''}
   ${MOB ? funnelMob() : funnelDesk()}`;
-  $('#cfA').onchange = () => { f.fa = $('#cfA').value; vCrm(); };
-  $('#cfS').onchange = () => { f.src = $('#cfS').value; vCrm(); };
-  let cqt;
+  fWire(f, CRM_F, () => vCrm());
   cnpSearch('cfQ', v => { f.q = v; vCrm(); }, 320);
   $('#newLead').onclick = () => openLead(null, d);
   const nl2 = $('#newLead2'); if (nl2) { nl2.onclick = () => openLead(null, d); }
@@ -4575,6 +4598,79 @@ function cnpWireDash(root) {
   r.querySelectorAll('[data-ddev]').forEach(b => b.onclick = () => go('calendar'));
 }
 
+/* ═════════ ⌨ Πλοήγηση με πληκτρολόγιο σε λίστες (22/9/2026) ═════════
+   Χώρος εργασίας χωρίς πληκτρολόγιο είναι πίνακας ανακοινώσεων. Ένας δρομέας πάνω
+   στις γραμμές: j/k κινείται, Enter ανοίγει, και κάθε οθόνη δηλώνει τα δικά της
+   γράμματα. Σιωπά όταν γράφεις κάπου ή όταν υπάρχει ανοιχτό παράθυρο — αλλιώς το
+   «t» μέσα σε μια απάντηση θα ξεκινούσε χρονόμετρο. */
+let CNP_KB = null;
+
+function cnpKeyNav(opts) {
+  if (CNP_KB) { CNP_KB.destroy(); }
+  const sel = opts.sel;
+  const keys = opts.keys || {};
+  let i = typeof opts.start === 'number' ? opts.start : -1;
+
+  const rows = () => Array.from(document.querySelectorAll(sel)).filter(el => el.offsetParent !== null);
+  const paint = () => {
+    const rs = rows();
+    rs.forEach((el, n) => el.classList.toggle('kb-cur', n === i));
+    if (i >= 0 && rs[i]) { rs[i].scrollIntoView({block: 'nearest', behavior: 'smooth'}); }
+    if (opts.onMove) { opts.onMove(i, rs[i]); }
+  };
+  const move = d => { const rs = rows(); if (!rs.length) { return; }
+    i = i < 0 ? (d > 0 ? 0 : rs.length - 1) : Math.max(0, Math.min(rs.length - 1, i + d)); paint(); };
+  const cur = () => rows()[i] || null;
+
+  /* Ένα παράθυρο, ένας διάλογος ή ένα πεδίο κειμένου έχουν ΠΑΝΤΑ προτεραιότητα. */
+  const blocked = () => {
+    if (document.querySelector('.ovl, .drawer, #miniMenu')) { return true; }
+    const a = document.activeElement;
+    return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable));
+  };
+  const onKey = e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || blocked()) { return; }
+    const k = e.key;
+    if (k === 'j' || k === 'ArrowDown') { e.preventDefault(); move(1); return; }
+    if (k === 'k' || k === 'ArrowUp') { e.preventDefault(); move(-1); return; }
+    if (k === 'Escape' && i >= 0) { e.preventDefault(); i = -1; paint(); return; }
+    if (k === '?') { e.preventDefault(); cnpKeyHelp(opts.help || []); return; }
+    const el = cur();
+    if (!el) { return; }
+    if (k === 'Enter') { e.preventDefault(); (keys.Enter || (x => x.click()))(el); return; }
+    const fn = keys[k] || keys[k.toLowerCase()];
+    if (fn) { e.preventDefault(); fn(el); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  paint();
+  CNP_KB = {destroy() { document.removeEventListener('keydown', onKey, true);
+    document.querySelectorAll('.kb-cur').forEach(el => el.classList.remove('kb-cur'));
+    if (CNP_KB === this) { CNP_KB = null; } },
+    get index() { return i; }};
+  return CNP_KB;
+}
+
+/** Το «?» — ο μόνος τρόπος να μάθει κανείς ότι υπάρχουν συντομεύσεις. */
+function cnpKeyHelp(list) {
+  if (document.getElementById('kbHelp')) { return; }
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.id = 'kbHelp'; ovl.style.zIndex = cnpTopZ() + 10;
+  const base = [['j / ↓', 'επόμενη γραμμή'], ['k / ↑', 'προηγούμενη'], ['Enter', 'άνοιξε']];
+  ovl.innerHTML = `<div class="pal-box" style="width:min(420px,92vw);margin:16vh auto 0;padding:20px 22px">
+    <b style="font-size:15px;color:var(--ink)">Συντομεύσεις πληκτρολογίου</b>
+    <div class="kbh">${base.concat(list).map(([k, v]) =>
+      `<div class="kbh-r"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join('')}
+      <div class="kbh-r"><kbd>Esc</kbd><span>καθάρισε τον δρομέα</span></div>
+      <div class="kbh-r"><kbd>Ctrl K</kbd><span>αναζήτηση & ενέργειες</span></div></div>
+    <div style="text-align:right;margin-top:14px"><button class="btn btn-sm btn-p" id="kbhX">Εντάξει</button></div></div>`;
+  document.body.appendChild(ovl);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onK, true); };
+  const onK = e => { if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onK, true);
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+  ovl.querySelector('#kbhX').onclick = close;
+}
+
 /* ═════════ ✉ Γρήγορη απάντηση χωρίς να φύγεις από τη «Μέρα μου» (22/9/2026) ═════════
    Η «Μέρα μου» γίνεται ο χώρος εργασίας: ό,τι πιάνεις ανοίγει ΠΑΝΩ της, δεν σε πετάει
    αλλού. Εδώ ζει το 80% της καθημερινής δουλειάς σε ticket ή αίτημα — διάβασε το νήμα,
@@ -4801,7 +4897,7 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
-  openTicketQuick, openRequestQuick,
+  openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 
