@@ -587,6 +587,140 @@ const LF_F = {
            .concat((d.projects || []).map(n => [n, n]))},
 };
 
+/* ═════════ 🗂 Κάρτες διαχείρισης — η ουρά αποφάσεων (22/9/2026) ═════════
+   Δεν είναι dashboard. Κάθε κάρτα είναι ΜΙΑ ερώτηση με κουμπιά που εκτελούν επί τόπου:
+   νέα ημερομηνία, ανάθεση, «ρώτα τον Χ» (γίνεται αίτημα), κλείσιμο, αναβολή, «δεν ισχύει».
+   Καμία κάρτα δεν φεύγει σιωπηλά — ή απαντιέται ή αναβάλλεται ρητά. */
+R.cards = async function () {
+  setTop('Κάρτες διαχείρισης', 'Τι θέλει απόφαση σήμερα — και τι γίνεται με ένα κλικ');
+  const c = $('#content');
+  const f = R.cards._f = R.cards._f || {state: 'open', scope: 'mine'};
+  c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:320px"></div>';
+  const d = await api('cards&state=' + f.state + '&scope=' + f.scope).catch(e => ({err: e.message}));
+  if (!d || d.err) { c.innerHTML = `<div class="card"><div class="card-b mut">${esc((d && d.err) || 'Δεν φορτώθηκε.')}</div></div>`; return; }
+
+  const SEV = [['#74839a', 'πληροφορία'], ['#eba63c', 'προσοχή'], ['#e2515f', 'κρίσιμο']];
+  const KIND = {
+    unassigned: ['Αζήτητη', I.alert], overdue: ['Εκπρόθεσμη', I.clock], project_late: ['Παράδοση έργου', I.folder],
+    idle: ['Ακίνητη', I.clock], age: ['Ξεχασμένη', I.clock], flow: ['Ροή ουράς', I.chart || I.list],
+    no_estimate: ['Χωρίς εκτίμηση', I.list], no_deadline: ['Χωρίς παράδοση', I.cal],
+  };
+  const ACT = {
+    schedule: ['Νέα ημερομηνία', 'date'], schedule_project: ['Νέα παράδοση', 'date'],
+    assign: ['Ανάθεσε σε…', 'who'], ask: ['Ρώτα', 'ask'], close: ['Έκλεισε ήδη', 'plain'],
+    open_list: ['Δες τη λίστα', 'go:list'], open_projects: ['Δες τα έργα', 'go:projects'],
+  };
+  const ago = at => { if (!at) { return ''; } const h = Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 3600000);
+    return h < 1 ? 'μόλις τώρα' : h < 24 ? 'πριν ' + h + 'ω' : 'πριν ' + Math.floor(h / 24) + ' ημ.'; };
+
+  const card = k => {
+    const [col] = SEV[k.sev] || SEV[0];
+    const kd = KIND[k.kind] || [k.kind, I.alert];
+    const mine = !k.owner;
+    return `<div class="dc dc-s${k.sev}${k.state === 'snoozed' ? ' dc-snz' : ''}${['done', 'dismissed'].includes(k.state) ? ' dc-off' : ''}" data-dc="${k.id}">
+      <div class="dc-h">
+        <span class="dc-kind" style="--c:${col}">${kd[1]} ${esc(kd[0])}</span>
+        ${mine ? '<span class="pill pill-warn" title="Δεν έχει ιδιοκτήτη — όποιος το πιάσει">αζήτητη</span>'
+          : `<span class="pill pill-mut">${esc(k.ownerName)}</span>`}
+        ${k.escalated ? '<span class="pill pill-bad" title="Δεν απαντήθηκε στην ώρα της — το είδαν οι Manager">κλιμακώθηκε</span>' : ''}
+        ${k.state === 'snoozed' ? `<span class="pill pill-info">${k.helpId ? 'περιμένει απάντηση' : 'αναβλήθηκε'}</span>` : ''}
+        <span style="flex:1"></span>
+        <span class="mut" style="font-size:11px">${esc(ago(k.at))}</span></div>
+      <div class="dc-t">${esc(k.title)}</div>
+      <div class="dc-b">${esc(k.body)}</div>
+      ${k.note ? `<div class="dc-note">${esc(k.note)}${k.resolvedBy ? ' · ' + esc(k.resolvedBy) : ''}</div>` : ''}
+      ${['done', 'dismissed'].includes(k.state) ? '' : `<div class="dc-a">
+        ${(k.acts || []).filter(a => a !== 'dismiss').map(a => {
+          const def = ACT[a]; if (!def) { return ''; }
+          return `<button class="btn btn-sm ${a === 'ask' ? 'btn-p' : 'btn-o'}" data-dcact="${a}" data-dcid="${k.id}">${esc(def[0])}</button>`;
+        }).join('')}
+        ${k.refType === 'task' && k.refId ? `<button class="btn btn-sm btn-o" data-dcopen="${k.refId}">Άνοιξέ την</button>` : ''}
+        ${k.refType === 'project' && k.refId ? `<button class="btn btn-sm btn-o" data-dcproj="${k.refId}">Board</button>` : ''}
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-o" data-dcact="snooze" data-dcid="${k.id}" title="Ξανά αύριο το πρωί">Όχι τώρα</button>
+        <button class="btn btn-sm btn-o dc-x" data-dcact="dismiss" data-dcid="${k.id}" title="Δεν ισχύει — θα ζητηθεί λόγος">Δεν ισχύει</button>
+        <button class="btn btn-sm btn-ok" data-dcact="done" data-dcid="${k.id}">Τακτοποιήθηκε</button></div>`}
+    </div>`;
+  };
+
+  const crit = d.cards.filter(x => x.sev >= 2).length;
+  c.innerHTML = `
+  <div class="dc-hero">
+    <div><div class="dc-hero-n" style="color:${crit ? 'var(--bad)' : 'var(--ok)'}">${d.cards.length}</div>
+      <div class="dc-hero-l">${f.state === 'open' ? 'θέλουν απόφαση' : 'κάρτες'}</div></div>
+    <div><div class="dc-hero-n">${crit}</div><div class="dc-hero-l">κρίσιμες</div></div>
+    <div><div class="dc-hero-n">${d.counts.pool}</div><div class="dc-hero-l">αζήτητες</div></div>
+    <div><div class="dc-hero-n" style="color:var(--ok)">${d.counts.todayDone}</div><div class="dc-hero-l">τακτοποιήθηκαν<br>σήμερα</div></div>
+    <span style="flex:1"></span>
+    <div class="dc-hero-x mut">${d.isPm ? 'Οι κάρτες σου και η κοινή δεξαμενή. Ό,τι δεν απαντηθεί ως το τέλος της ημέρας ανεβαίνει στους Manager.'
+      : 'Εποπτεία: βλέπεις τι δόθηκε στην ομάδα project management και τι απαντήθηκε.'}</div>
+  </div>
+  <div class="fbar">
+    <span class="fseg" id="dcState">
+      <button class="fchip${f.state === 'open' ? ' on' : ''}" data-s="open">Ανοιχτές</button>
+      <button class="fchip${f.state === 'done' ? ' on' : ''}" data-s="done">Τακτοποιημένες</button>
+      <button class="fchip${f.state === 'all' ? ' on' : ''}" data-s="all">Όλες</button></span>
+    ${d.isEsc ? `<span class="fseg" id="dcScope">
+      <button class="fchip${f.scope === 'mine' ? ' on' : ''}" data-sc="mine">Δικές μου</button>
+      <button class="fchip${f.scope === 'all' ? ' on' : ''}" data-sc="all">Όλης της ομάδας</button></span>` : ''}
+    <span class="fbar-sp"></span>
+    ${S.boot.me.full ? `<button class="fchip" id="dcBuild" title="Ξαναϋπολογισμός τώρα (γίνεται αυτόματα κάθε πρωί)">${I.repeat} Ανανέωση ουράς</button>` : ''}
+  </div>
+  <div id="dcList">${d.cards.length ? d.cards.map(card).join('')
+    : `<div class="card"><div class="empty" style="padding:44px 16px"><div class="big">✅</div>
+        <b style="color:var(--ink);font-size:15px">${f.state === 'open' ? 'Καμία εκκρεμής απόφαση' : 'Τίποτα εδώ'}</b>
+        <div class="mut" style="font-size:12.5px;margin-top:6px">${f.state === 'open' ? 'Καθαρή ουρά. Η επόμενη παρτίδα βγαίνει αύριο το πρωί.' : ''}</div></div></div>`}</div>`;
+
+  $$('#dcState [data-s]').forEach(b => b.onclick = () => { f.state = b.dataset.s; R.cards(); });
+  $$('#dcScope [data-sc]').forEach(b => b.onclick = () => { f.scope = b.dataset.sc; R.cards(); });
+  $$('#dcList [data-dcopen]').forEach(b => b.onclick = () => openTask(+b.dataset.dcopen));
+  $$('#dcList [data-dcproj]').forEach(b => b.onclick = () => go('board', +b.dataset.dcproj));
+  { const bb = $('#dcBuild'); if (bb) { bb.onclick = async () => { bb.disabled = true;
+      const r = await api('cards_build').catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); bb.disabled = false; return; }
+      toast('Η ουρά ανανεώθηκε — ' + (r.created || 0) + ' νέες'); R.cards(); }; } }
+
+  const run = async (id, act, extra) => {
+    const r = await api('card_act', Object.assign({id, act}, extra || {})).catch(e => ({err: e.message}));
+    if (r && r.err) { toast(r.err, true); return false; }
+    toast(r.state === 'snoozed' ? 'Θα ξαναεμφανιστεί' : '✔ Τακτοποιήθηκε');
+    R.cards();
+    return true;
+  };
+  $$('#dcList [data-dcact]').forEach(b => b.onclick = async () => {
+    const id = +b.dataset.dcid, act = b.dataset.dcact;
+    const k = d.cards.find(x => x.id === id) || {};
+    if (act === 'open_list') { go('list'); return; }
+    if (act === 'open_projects') { go('projects'); return; }
+    if (act === 'snooze' || act === 'done') { run(id, act); return; }
+    if (act === 'dismiss') {
+      const why = await window.CNP.cnpDialog({title: 'Γιατί δεν ισχύει;', body: 'Ο λόγος καταγράφεται. Αν ο ίδιος κανόνας απορριφθεί τρεις φορές, σταματά να σου εμφανίζεται.',
+        input: '', rows: 2, max: 255, ok: 'Απόρριψη', cancel: 'Άκυρο'});
+      if (why === null || why === false || !String(why).trim()) { return; }
+      run(id, 'dismiss', {note: String(why).trim()}); return;
+    }
+    if (act === 'schedule' || act === 'schedule_project') {
+      const dflt = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+      const v = await window.CNP.cnpDialog({title: act === 'schedule' ? 'Νέα ημερομηνία λήξης' : 'Νέα ημερομηνία παράδοσης',
+        body: k.title || '', input: dflt, inputType: 'date', ok: 'Αποθήκευση', cancel: 'Άκυρο'});
+      if (!v) { return; }
+      run(id, act, {date: String(v).slice(0, 10)}); return;
+    }
+    if (act === 'close') { run(id, 'close'); return; }
+    if (act === 'assign') {
+      const items = (d.admins || []).map(a => ({icon: I.user, label: a.name, on: () => run(id, 'assign', {to: a.id})}));
+      window.CNP.miniMenu(b, items); return;
+    }
+    if (act === 'ask') {
+      const msg = await window.CNP.cnpDialog({title: '💬 Ρώτα τι γίνεται',
+        body: 'Θα σταλεί ως αίτημα και θα το δει στο «σε ζητούν». Μόλις απαντήσει, η κάρτα κλείνει μόνη της.',
+        input: 'Τι γίνεται με «' + String(k.title || '').slice(0, 80) + '»;', rows: 3, max: 255, ok: 'Στείλε', cancel: 'Άκυρο'});
+      if (msg === null || msg === false) { return; }
+      run(id, 'ask', {note: String(msg).trim()}); return;
+    }
+  });
+};
+
 /* ═════════ 📨 Αιτήματα: το «σε ζητούν» με ιστορικό και αλληλογραφία (21/9/2026) ═════════
    Πριν, ό,τι ερχόταν ως popup (βοήθεια, «τι γίνεται;», @αναφορά, προσφορά, φωνή) χανόταν μόλις
    το έκλεινες. Εδώ ζει όλο: εισερχόμενα / απεσταλμένα, ανοιχτά / τακτοποιημένα, με νήμα

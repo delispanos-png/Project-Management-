@@ -27,6 +27,7 @@ use WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint;
 use WHMCS\Module\Addon\CloudonProjects\Route;
 use WHMCS\Module\Addon\CloudonProjects\Aade;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxPresence;
+use WHMCS\Module\Addon\CloudonProjects\DayPlan;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
@@ -55,6 +56,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Report.php
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Blueprint.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx3cx/Route.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Book.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/DayPlan.php';
 if (is_file(__DIR__ . '/../modules/addons/supportcontracts/lib/Db.php')) {
     require_once __DIR__ . '/../modules/addons/supportcontracts/lib/Db.php';
 }
@@ -85,7 +87,8 @@ if ($adminId <= 0) {
         // ok — signaling ως guest, περιορισμένος στο δωμάτιο του token
     } elseif ($action === 'event_rsvp_public') {
         // ok — δημόσιο RSVP πελάτη με δικό του signed token
-    } elseif ($action === 'presence_sweep' && (hash_equals(hash_hmac('sha256', 'sweep.' . date('YmdHi'), pm_secret()), (string) ($_GET['k'] ?? ''))
+    } elseif (in_array($action, ['presence_sweep', 'cards_build'], true)
+        && (hash_equals(hash_hmac('sha256', 'sweep.' . date('YmdHi'), pm_secret()), (string) ($_GET['k'] ?? ''))
         || hash_equals(hash_hmac('sha256', 'sweep.' . date('YmdHi', time() - 60), pm_secret()), (string) ($_GET['k'] ?? '')))) {
         $CRON_OK = true;
     } else {
@@ -3337,6 +3340,7 @@ function cnp_action_cap($action)
         $add('clients.offers', ['pbx_defs', 'pbx_calc', 'pbx_doc']);
         $add('clients.offers.edit', ['pbx_save', 'pbx_email']);
         $add('admin.settings.edit', ['pbx_catalog_save', 'pbx_catalog_reset']);
+        $add('admin.settings.edit', ['cards_settings']);
         $add('clients.offers.delete', ['delete_offer']);
         $add('clients.offers|projects.portfolio.edit', ['project_from_offer']);
 
@@ -3451,6 +3455,8 @@ function cnp_open_actions()
         'mentions', 'mention_read', 'supervised',
         // 📨 Αιτήματα («σε ζητούν») — αφορούν ΕΜΕΝΑ, προσωπική οθόνη
         'requests', 'request_get', 'help_reply', 'request_reopen',
+        // 🗂 Κάρτες διαχείρισης — ο server ελέγχει ΜΕΣΑ στην ενέργεια ότι είσαι ομάδα PM ή Manager
+        'cards', 'card_act', 'cards_build',
         // προφίλ
         'profile', 'profile_save', 'profile_pass', 'profile_pref',
         // κωδικοί & βιβλιοθήκη (προσωπικά)
@@ -3565,6 +3571,9 @@ case 'boot':
             'explicitCaps' => cnp_explicit_caps(),
             /* Ποιων ομάδων είναι επικεφαλής — ξεκλειδώνει την «Η ομάδα μου». */
             'leads' => cnp_led_teams($adminId),
+            /* Κάρτες διαχείρισης: το μενού τις δείχνει μόνο σε ομάδα PM (παραλήπτες) ή Manager (εποπτεία). */
+            'cardsPm' => in_array($adminId, DayPlan::owners(), true),
+            'cardsEsc' => in_array($adminId, DayPlan::escalateTo(), true) || $FULL,
             'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
@@ -7581,6 +7590,162 @@ case 'checkin_reply':                     // ο άνθρωπος απαντά: �
     if ($hC->task_id) { Db::logActivity((int) $hC->task_id, $adminId, 'checkin', $ansC === 'help' ? 'Απάντησε: χρειάζομαι βοήθεια' . ($noteC ? ' — ' . $noteC : '') : 'Απάντησε: όλα καλά' . ($noteC ? ' — ' . $noteC : '')); }
     out(['ok' => true, 'answer' => $ansC]);
 
+/* ════════ 🗂 Κάρτες διαχείρισης — η ουρά αποφάσεων των PM (22/9/2026) ════════
+   Δεν περιμένουμε από τους ανθρώπους του project management να οργανώσουν τη μέρα τους:
+   τους τη βγάζουμε εμείς, ως κάρτες με κουμπιά που εκτελούν. Η σκοπιά είναι ΟΛΟ το
+   σύστημα· ό,τι δεν βρίσκει ιδιοκτήτη πάει σε κοινή δεξαμενή. */
+case 'cards':
+    $isPm = in_array($adminId, DayPlan::owners(), true);
+    $isEsc = in_array($adminId, DayPlan::escalateTo(), true) || $FULL;
+    if (!$isPm && !$isEsc) { fail('Οι κάρτες διαχείρισης δίνονται στην ομάδα project management', 403); }
+    $stC = in_array($_GET['state'] ?? 'open', ['open', 'done', 'all'], true) ? $_GET['state'] : 'open';
+    $qC = Capsule::table('mod_cpm_cards');
+    if ($stC === 'open') { $qC->whereIn('state', ['open', 'snoozed']); }
+    elseif ($stC === 'done') { $qC->whereIn('state', ['done', 'dismissed']); }
+    /* Ο PM βλέπει τις δικές του + τη δεξαμενή. Ο Manager μπορεί να δει τα πάντα (εποπτεία). */
+    $scopeC = (($_GET['scope'] ?? '') === 'all' && $isEsc) ? 'all' : 'mine';
+    if ($scopeC === 'mine' && $isPm) {
+        $qC->where(function ($w) use ($adminId) { $w->where('owner_id', $adminId)->orWhere('owner_id', 0); });
+    }
+    $outC = [];
+    foreach ($qC->orderByDesc('sev')->orderByDesc('weight')->orderBy('id')->limit(200)->get() as $c) {
+        $outC[] = ['id' => (int) $c->id, 'kind' => $c->kind, 'sev' => (int) $c->sev, 'state' => $c->state,
+            'owner' => (int) $c->owner_id, 'ownerName' => $c->owner_id ? Db::adminName((int) $c->owner_id) : '',
+            'refType' => $c->ref_type, 'refId' => (int) $c->ref_id,
+            'title' => (string) $c->title, 'body' => (string) $c->body,
+            'acts' => array_values(array_filter(explode(',', (string) $c->acts))),
+            'at' => $c->created_at, 'dueAt' => $c->due_at, 'snoozeUntil' => $c->snooze_until,
+            'resolvedBy' => $c->resolved_by ? Db::adminName((int) $c->resolved_by) : '', 'resolvedAt' => $c->resolved_at,
+            'note' => (string) ($c->resolve_note ?? ''), 'escalated' => !empty($c->escalated_at),
+            'helpId' => $c->help_id ? (int) $c->help_id : 0];
+    }
+    $dayC = date('Y-m-d');
+    out(['cards' => $outC, 'isPm' => $isPm, 'isEsc' => $isEsc, 'scope' => $scopeC, 'state' => $stC,
+        'counts' => ['mine' => (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])
+                ->where(function ($w) use ($adminId) { $w->where('owner_id', $adminId)->orWhere('owner_id', 0); })->count(),
+            'pool' => (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])->where('owner_id', 0)->count(),
+            'allOpen' => (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])->count(),
+            'todayDone' => (int) Capsule::table('mod_cpm_cards')->where('day', $dayC)->whereIn('state', ['done', 'dismissed'])->count()],
+        'admins' => array_map(function ($a) { return ['id' => (int) $a->id, 'name' => Db::adminName((int) $a->id)]; },
+            array_values(array_filter(Db::admins()->all(), function ($a) { return !cnp_is_bot(Db::adminName((int) $a->id), $a->username ?? ''); })))]);
+
+case 'card_act':                          // η απόφαση πάνω στην κάρτα — εκτελείται επί τόπου
+    $cd = Capsule::table('mod_cpm_cards')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$cd) { fail('card', 404); }
+    $isEscA = in_array($adminId, DayPlan::escalateTo(), true) || $FULL;
+    if (!in_array($adminId, DayPlan::owners(), true) && !$isEscA) { fail('forbidden', 403); }
+    if ((int) $cd->owner_id && (int) $cd->owner_id !== $adminId && !$isEscA) {
+        fail('Η κάρτα ανήκει στον/στη ' . Db::adminName((int) $cd->owner_id), 403);
+    }
+    if (in_array($cd->state, ['done', 'dismissed'], true)) { fail('Η κάρτα έχει ήδη τακτοποιηθεί'); }
+    $actC = (string) ($in['act'] ?? '');
+    $noteC = mb_substr(trim((string) ($in['note'] ?? '')), 0, 255);
+    $closeCard = function ($state, $note) use ($cd, $adminId) {
+        Capsule::table('mod_cpm_cards')->where('id', (int) $cd->id)->update(['state' => $state,
+            'resolved_by' => $adminId, 'resolved_at' => date('Y-m-d H:i:s'), 'resolve_note' => $note ?: null]);
+    };
+    $dNew = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['date'] ?? '')) ? (string) $in['date'] : '';
+
+    if ($actC === 'snooze') {
+        Capsule::table('mod_cpm_cards')->where('id', (int) $cd->id)->update(['state' => 'snoozed',
+            'snooze_until' => date('Y-m-d H:i:s', strtotime('tomorrow 08:00'))]);
+        out(['ok' => true, 'state' => 'snoozed']);
+    }
+    if ($actC === 'dismiss') {
+        /* Χωρίς λόγο δεν μαθαίνει τίποτα ο μηχανισμός — και μετά από 3 απορρίψεις ο κανόνας σιωπά. */
+        if ($noteC === '') { fail('Γράψε γιατί δεν ισχύει'); }
+        $closeCard('dismissed', $noteC);
+        out(['ok' => true, 'state' => 'dismissed']);
+    }
+    if ($actC === 'done') {
+        $closeCard('done', $noteC ?: 'τακτοποιήθηκε');
+        out(['ok' => true, 'state' => 'done']);
+    }
+    if ($actC === 'schedule') {
+        if (!$dNew) { fail('Διάλεξε ημερομηνία'); }
+        if ($cd->ref_type !== 'task' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε εργασία'); }
+        $tC = Db::task((int) $cd->ref_id);
+        if (!$tC) { fail('Η εργασία δεν υπάρχει πια'); }
+        $upC = ['due_date' => $dNew];
+        if (!$tC->start_date || $tC->start_date > $dNew) { $upC['start_date'] = date('Y-m-d'); }
+        if ($tC->schedule_date && $tC->schedule_date < $dNew) { $upC['schedule_date'] = $dNew; }
+        Db::saveTask((int) $cd->ref_id, $upC, $adminId);
+        Db::logActivity((int) $cd->ref_id, $adminId, 'edit', 'Νέα λήξη ' . cnp_d($dNew) . ' (κάρτα διαχείρισης)');
+        $closeCard('done', 'νέα λήξη ' . cnp_d($dNew));
+        out(['ok' => true, 'state' => 'done']);
+    }
+    if ($actC === 'schedule_project') {
+        if (!$dNew) { fail('Διάλεξε ημερομηνία'); }
+        if ($cd->ref_type !== 'project' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε έργο'); }
+        Capsule::table('mod_cpm_projects')->where('id', (int) $cd->ref_id)
+            ->update(['due_date' => $dNew, 'updated_at' => date('Y-m-d H:i:s')]);
+        $closeCard('done', 'νέα παράδοση ' . cnp_d($dNew));
+        out(['ok' => true, 'state' => 'done']);
+    }
+    if ($actC === 'assign') {
+        $toA = (int) ($in['to'] ?? 0);
+        if (!$toA || !Capsule::table('tbladmins')->where('id', $toA)->where('disabled', 0)->exists()) { fail('Διάλεξε χειριστή'); }
+        if ($cd->ref_type !== 'task' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε εργασία'); }
+        Db::saveTask((int) $cd->ref_id, ['assignee' => $toA], $adminId);
+        Db::logActivity((int) $cd->ref_id, $adminId, 'assign', 'Ανάθεση σε ' . Db::adminName($toA) . ' (κάρτα διαχείρισης)');
+        $ttA = Db::task((int) $cd->ref_id);
+        Db::pushNotification($toA, 'action', 'Σου ανατέθηκε: ' . mb_substr((string) ($ttA->title ?? ''), 0, 70), '/project/#/task/' . (int) $cd->ref_id);
+        $closeCard('done', 'ανάθεση σε ' . Db::adminName($toA));
+        out(['ok' => true, 'state' => 'done']);
+    }
+    if ($actC === 'close') {
+        if ($cd->ref_type !== 'task' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε εργασία'); }
+        $finC = (int) Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id');
+        if (!$finC) { fail('Δεν υπάρχει κατάσταση ολοκλήρωσης'); }
+        Db::saveTask((int) $cd->ref_id, ['status_id' => $finC, 'completed_at' => date('Y-m-d H:i:s'), 'completed_by' => $adminId], $adminId);
+        Db::logActivity((int) $cd->ref_id, $adminId, 'status', 'Ολοκληρώθηκε (κάρτα διαχείρισης)' . ($noteC ? ' — ' . $noteC : ''));
+        $closeCard('done', 'έκλεισε');
+        out(['ok' => true, 'state' => 'done']);
+    }
+    if ($actC === 'ask') {
+        /* Ο κύκλος κλείνει μέσα στο εργαλείο: γίνεται ΑΙΤΗΜΑ και η απάντηση κλείνει την κάρτα. */
+        $toK = (int) ($in['to'] ?? 0);
+        if (!$toK && $cd->ref_type === 'task' && $cd->ref_id) {
+            $tK = Db::task((int) $cd->ref_id);
+            $toK = $tK ? ((int) $tK->action_user ?: (int) $tK->assignee) : 0;
+        }
+        if (!$toK && $cd->ref_type === 'project' && $cd->ref_id) {
+            $toK = (int) Capsule::table('mod_cpm_projects')->where('id', (int) $cd->ref_id)->value('manager_id');
+        }
+        if (!$toK) { fail('Δεν βρέθηκε σε ποιον να σταλεί — διάλεξε χειριστή'); }
+        if ($toK === $adminId) { fail('Δεν στέλνεις ερώτηση στον εαυτό σου'); }
+        $msgK = $noteC !== '' ? $noteC : ('Τι γίνεται με «' . mb_substr((string) $cd->title, 0, 90) . '»;');
+        $hidK = Capsule::table('mod_cpm_help')->insertGetId([
+            'from_admin' => $adminId, 'to_admin' => $toK,
+            'task_id' => $cd->ref_type === 'task' ? (int) $cd->ref_id : null,
+            'project_id' => $cd->ref_type === 'project' ? (int) $cd->ref_id : null,
+            'kind' => 'checkin', 'message' => $msgK, 'status' => 'open', 'created_at' => date('Y-m-d H:i:s')]);
+        Db::pushNotification($toK, 'checkin', Db::adminName($adminId) . ' ρωτά: ' . mb_substr($msgK, 0, 80), '/project/#/requests/' . $hidK);
+        Capsule::table('mod_cpm_cards')->where('id', (int) $cd->id)->update(['help_id' => $hidK,
+            'state' => 'snoozed', 'snooze_until' => date('Y-m-d H:i:s', strtotime('+2 days')),
+            'resolve_note' => 'ρωτήθηκε: ' . Db::adminName($toK)]);
+        out(['ok' => true, 'state' => 'snoozed', 'help' => $hidK]);
+    }
+    fail('Άγνωστη ενέργεια');
+    // no break
+
+case 'cards_build':                       // παραγωγή ουράς (pulse cron 08:30 ή χειροκίνητα από Full)
+    if (!$CRON_OK && !$FULL) { fail('forbidden', 403); }
+    $dryB = !empty($_GET['dry']);
+    $rB = DayPlan::build($dryB);
+    out(['ok' => true] + $rB + ['escalated' => DayPlan::escalate($dryB)]);
+
+case 'cards_settings':                    // ποιοι παίρνουν κάρτες, κατώφλια, διακόπτης
+    if (!$FULL) { fail('forbidden', 403); }
+    foreach (['cards_on', 'cards_team', 'cards_esc_team', 'cards_age_days', 'cards_idle_days', 'cards_unassigned_days'] as $kS) {
+        if (array_key_exists($kS, $in)) { DayPlan::setSetting($kS, (string) $in[$kS]); }
+    }
+    out(['ok' => true, 'on' => DayPlan::enabled(), 'team' => DayPlan::teamId(), 'escTeam' => DayPlan::escTeamId(),
+        'thresholds' => DayPlan::thresholds(),
+        'owners' => array_map(function ($i) { return ['id' => $i, 'name' => Db::adminName($i)]; }, DayPlan::owners()),
+        'teams' => array_map(function ($t) { return ['id' => (int) $t->id, 'name' => $t->name]; },
+            Capsule::table('mod_cpm_teams')->orderBy('name')->get()->all())]);
+
 /* ════════ 📨 Αιτήματα: το «σε ζητούν» ως κανονικό κύκλωμα με ιστορικό (21/9/2026) ════════
    Ό,τι περνά από τα popup (βοήθεια, «τι γίνεται;», @αναφορά, αίτημα προσφοράς, κλήση στη φωνή)
    ζει εδώ και ΜΕΤΑ την τακτοποίηση: ποιος ρώτησε, τι απαντήθηκε, πότε. */
@@ -7650,6 +7815,12 @@ case 'help_reply':                        // απάντηση στο νήμα ε
         }
     }
     Db::pushNotification($otherR, 'info', '💬 ' . Db::adminName($adminId) . ' απάντησε: ' . mb_substr($bodyR, 0, 90), '/project/#/requests/' . (int) $rr->id);
+    /* Αν η ερώτηση γεννήθηκε από κάρτα διαχείρισης, η απάντηση την κλείνει — ο κύκλος ολοκληρώνεται μόνος του. */
+    if ((int) $rr->to_admin === $adminId) {
+        Capsule::table('mod_cpm_cards')->where('help_id', (int) $rr->id)->whereIn('state', ['open', 'snoozed'])
+            ->update(['state' => 'done', 'resolved_by' => $adminId, 'resolved_at' => date('Y-m-d H:i:s'),
+                'resolve_note' => 'απάντησε: ' . Db::adminName($adminId) . ' — ' . mb_substr($bodyR, 0, 140)]);
+    }
     out(['ok' => true, 'id' => $midR]);
 
 case 'request_reopen':                    // ξανάνοιγμα τακτοποιημένου αιτήματος

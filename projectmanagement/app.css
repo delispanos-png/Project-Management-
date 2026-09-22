@@ -4135,3 +4135,28 @@ html[data-theme="dark"] .card{border-color:#233043}
   .cd-grid{max-height:none}
   .cd-h{width:44px}
 }
+
+/* ═══ 🗂 Κάρτες διαχείρισης ═══ */
+.dc-hero{display:flex;gap:26px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 20px;margin-bottom:14px;box-shadow:var(--sh);flex-wrap:wrap}
+.dc-hero-n{font-size:24px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+.dc-hero-l{font-size:10.5px;color:var(--mut);font-weight:700;line-height:1.25;margin-top:3px;text-transform:uppercase;letter-spacing:.04em}
+.dc-hero-x{font-size:12px;max-width:420px;line-height:1.45;text-align:right}
+.dc{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:12px;padding:13px 16px;margin-bottom:10px;box-shadow:var(--sh)}
+.dc-s1{border-left-color:var(--warn)}
+.dc-s2{border-left-color:var(--bad)}
+.dc-snz{opacity:.72}
+.dc-off{opacity:.6}
+.dc-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.dc-kind{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:var(--c);text-transform:uppercase;letter-spacing:.04em}
+.dc-kind svg{width:14px;height:14px}
+.dc-t{font-size:14.5px;font-weight:700;color:var(--ink);line-height:1.4}
+.dc-b{font-size:12.5px;color:var(--txt);line-height:1.5;margin-top:4px}
+.dc-note{margin-top:7px;font-size:11.5px;color:var(--mut);background:var(--bg2);border-radius:8px;padding:5px 9px}
+.dc-a{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+.dc-x:hover{color:var(--bad);border-color:var(--bad)}
+@media(max-width:768px){
+  .dc-hero{gap:16px;padding:12px 14px}
+  .dc-hero-x{display:none}
+  .dc-a{gap:5px}
+  .dc-a .btn{flex:1 1 auto;justify-content:center}
+}
