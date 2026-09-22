@@ -279,6 +279,38 @@ class Db
             }
         }
 
+        /* ── Τα «Παράπονα» πήγαν από τους Πελάτες στην Υποστήριξη (22/09/2026) ──
+           Ο κανόνας είναι «ενότητα μενού = περιοχή δικαιωμάτων με το ίδιο όνομα».
+           Μετονομάζουμε τα ΑΠΟΘΗΚΕΥΜΕΝΑ κλειδιά, αλλιώς όποιος είχε το δικαίωμα θα το
+           έχανε σιωπηλά — η οθόνη θα εξαφανιζόταν χωρίς να το καταλάβει κανείς. */
+        $cxFix = function ($v) {
+            $a = array_filter(array_map('trim', explode(',', (string) $v)));
+            $out = [];
+            foreach ($a as $k) {
+                if ($k === 'clients.complaints') { $k = 'support.complaints'; }
+                elseif ($k === 'clients.complaints.edit') { $k = 'support.complaints.edit'; }
+                elseif ($k === 'clients.complaints.delete') { $k = 'support.complaints.delete'; }
+                if (!in_array($k, $out, true)) { $out[] = $k; }
+            }
+            return implode(',', $out);
+        };
+        if ($s->hasColumn('mod_cpm_teams', 'areas')) {
+            foreach (Capsule::table('mod_cpm_teams')->get(['id', 'areas']) as $tm) {
+                $nw = $cxFix($tm->areas);
+                if ($nw !== (string) $tm->areas) {
+                    Capsule::table('mod_cpm_teams')->where('id', $tm->id)->update(['areas' => $nw]);
+                }
+            }
+        }
+        if ($s->hasTable('mod_cpm_prefs')) {
+            foreach (Capsule::table('mod_cpm_prefs')->where('pref', 'areas')->get() as $pr) {
+                $nw = $cxFix($pr->value);
+                if ($nw !== (string) $pr->value) {
+                    Capsule::table('mod_cpm_prefs')->where('id', $pr->id)->update(['value' => $nw]);
+                }
+            }
+        }
+
         /* ── Σπάσιμο του κυκλώματος «Διοίκηση» σε τρία ───────────────────────
            Ήταν όλα-ή-τίποτα: για να δώσεις KPI σε έναν project manager, έδινες
            και οικονομικά και ρυθμίσεις. Έγινε reports / finance / admin.

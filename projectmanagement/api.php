@@ -548,7 +548,7 @@ function cnp_cx_watchers($exceptId = 0)
         ->get(['id', 'firstname', 'lastname', 'username']) as $a) {
         if ((int) $a->id === (int) $exceptId) { continue; }
         if (cnp_is_bot(trim($a->firstname . ' ' . $a->lastname), $a->username)) { continue; }
-        if (Db::isFullAccess($a->id) || cnp_has_cap($a->id, false, 'clients.complaints.edit')) {
+        if (Db::isFullAccess($a->id) || cnp_has_cap($a->id, false, 'support.complaints.edit')) {
             $ids[] = (int) $a->id;
         }
     }
@@ -3273,8 +3273,6 @@ function cnp_caps()
         'clients.offers'        => ['view',   'Προσφορές', 'Παρακολούθηση προσφορών (pipeline)'],
         'clients.offers.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή/αποστολή προσφορών & quotes', 'clients.offers'],
         'clients.offers.delete' => ['delete', 'Διαγραφή', 'Διαγραφή προσφοράς από το pipeline (το WHMCS quote μένει)', 'clients.offers'],
-        'clients.complaints'    => ['view',   'Παράπονα πελατών', 'Προβολή δυσαρέσκειας πελατών'],
-        'clients.complaints.edit'   => ['edit',   'Επεξεργασία', 'Καταχώρηση, χειρισμός & κλείσιμο παραπόνου', 'clients.complaints'],
         'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket', 'clients.card'],
         'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
         'clients.import'  => ['power',  'Εισαγωγή / εξαγωγή leads', 'Μαζική εισαγωγή από CSV και εξαγωγή', 'clients.crm'],
@@ -3283,6 +3281,8 @@ function cnp_caps()
         'support.tickets'        => ['view',   'Tickets', 'Προβολή αιτημάτων υποστήριξης'],
         'support.tickets.edit'   => ['edit',   'Επεξεργασία', 'Απάντηση, εσωτερική σημείωση, ανάθεση, κατηγοριοποίηση, αλλαγή status', 'support.tickets'],
         'support.tickets.delete' => ['delete', 'Διαγραφή', 'Οριστική διαγραφή αιτήματος με όλη τη συνομιλία, τις σημειώσεις και τα συνημμένα του', 'support.tickets'],
+        'support.complaints' => ['view',   'Παράπονα πελατών', 'Τι πήγε στραβά, ποιος το χειρίζεται, πόσο αργήσαμε να το λύσουμε'],
+        'support.complaints.edit' => ['edit', 'Παράπονα: επεξεργασία', 'Καταχώρηση, χειρισμός & κλείσιμο παραπόνου', 'support.complaints'],
         'support.calllog'    => ['view',   'Καταγραφές κλήσεων', 'Τι μας ζήτησαν στο τηλέφωνο, τι απαντήσαμε, τι έμεινε ανοιχτό'],
         'support.calllog.edit' => ['edit', 'Καταγραφές κλήσεων: επεξεργασία', 'Διόρθωση περίληψης, χρόνου και follow-up σε καταγραφή άλλου'],
         'support.kb'         => ['view',   'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων'],
@@ -3746,8 +3746,8 @@ function cnp_action_cap($action)
         $add('clients.card.edit|finance.packages', ['client_package_set']);
         $add('clients.new', ['client_quick_add']);
         $add('clients.calls', ['call_log', 'call_who', 'call_recent']);
-        $add('clients.complaints', ['complaints', 'complaint']);
-        $add('clients.complaints.edit', ['complaint_save', 'complaint_status', 'complaint_note', 'complaint_resolve']);
+        $add('support.complaints', ['complaints', 'complaint']);
+        $add('support.complaints.edit', ['complaint_save', 'complaint_status', 'complaint_note', 'complaint_resolve']);
         $add('clients.crm', ['crm_overview', 'crm_reports', 'leads_dupes', 'lead_score', 'lead_timeline',
             'lead_tasks', 'lead_products', 'hot_leads', 'my_crm_tasks', 'comms', 'campaigns',
             'campaign_detail', 'targets']);
@@ -8840,10 +8840,13 @@ case 'complaints':
             return ['id' => $k, 'name' => $v[0], 'color' => $v[1]];
         }, array_keys(cnp_cx_cats()), cnp_cx_cats()),
         'sources' => cnp_cx_sources(),
-        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaints.edit'),
+        'canClose' => cnp_has_cap($adminId, $FULL, 'support.complaints.edit'),
         'admins' => array_map(function ($a) { return ['id' => (int) $a->id,
             'name' => trim($a->firstname . ' ' . $a->lastname)]; }, Db::admins()->all()),
         'summary' => ['open' => $openN, 'critical' => $critN, 'month' => $newN,
+            'resolved' => (int) (clone $all9)->where('status', 'resolved')->count(),
+            'rejected' => (int) (clone $all9)->where('status', 'rejected')->count(),
+            'total' => (int) (clone $all9)->count(),
             'avgDays' => $days ? round(array_sum($days) / count($days), 1) : null,
             'byCat' => $byCat, 'repeat' => $worst]]);
 
@@ -8860,7 +8863,7 @@ case 'complaint':
     out(['cx' => cnp_cx_row($cx9) + ['detail' => $cx9->detail, 'resolution' => $cx9->resolution,
             'cause' => $cx9->cause, 'lead' => (int) $cx9->lead_id, 'project' => (int) $cx9->project_id],
         'notes' => $notes9,
-        'canClose' => cnp_has_cap($adminId, $FULL, 'clients.complaints.edit')]);
+        'canClose' => cnp_has_cap($adminId, $FULL, 'support.complaints.edit')]);
 
 case 'complaint_save':
     $cxid = (int) ($in['id'] ?? 0);

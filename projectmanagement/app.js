@@ -246,11 +246,11 @@ function renderShell() {
       ['client360', I.user, 'Πελάτης 360°', 'clients.card'],
       ['crm', I.target, 'CRM & leads', 'clients.crm'],
       ['offers', I.doc, 'Προσφορές', 'clients.offers'],
-      ['complaints', I.alert, 'Παράπονα', 'clients.complaints'],
     ]],
     ['Υποστήριξη', 'τα αιτήματα που περιμένουν απάντηση', [
       ['inbox', I.ticket, 'Tickets', 'support.tickets'],
       ['calllog', I.phone, 'Καταγραφές κλήσεων', 'support.calllog'],
+      ['complaints', I.alert, 'Παράπονα', 'support.complaints'],
       ['knowledge', I.book, 'Βάση γνώσης', 'support.kb'],
     ]],
     /* ΟΛΟ ΤΟ ΚΕΝΤΡΟ ΣΕ ΕΝΑ ΣΗΜΕΙΟ (20/09/2026).
