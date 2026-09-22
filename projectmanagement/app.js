@@ -3653,7 +3653,10 @@ async function vMyDay() {
     else if (tk.slaDue && (new Date(tk.slaDue.replace(' ', 'T')) - Date.now()) < 24 * 3600e3) { att.push({sev: 2, lvl: 'warn', ic: I.ticket, why: 'SLA ' + tShort(tk.slaDue), title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
     else if (tk.waitDays >= 2) { att.push({sev: 5, lvl: 'tip', ic: I.ticket, why: 'περιμένει ' + tk.waitDays + ' ημ.', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
   });
-  (d.deadlines || []).forEach(x => {
+  /* «Θέλουν εσένα» = ό,τι αφορά ΕΜΕΝΑ. Ο server σημαδεύει κάθε προθεσμία με `mine`· χωρίς αυτό
+     ο Full έβλεπε εδώ κάθε εκπρόθεσμο έργο/προσφορά της εταιρείας και η λίστα έχανε την αξία της
+     (22/9/2026). Ό,τι δεν είναι δικό μου μένει στις «Προθεσμίες μπροστά» δεξιά. */
+  (d.deadlines || []).filter(x => x.mine !== false).forEach(x => {
     if (x.kind === 'task' && x.days !== null && x.days < 0 && !seenTask.has(x.id)) {
       seenTask.add(x.id);
       att.push({sev: 2, lvl: 'bad', ic: I.checkSquare, why: 'εκπρόθεσμη ' + Math.abs(x.days) + ' ημ.', title: x.title, sub: x.sub, act: 'Άνοιξε', on: () => openTask(x.id), task: x.id});
@@ -3771,7 +3774,7 @@ async function vMyDay() {
   const dlIco = {project: I.folder, task: I.checkSquare, sla: I.clock, offer: I.doc};
   const dlBody = dlAhead.length ? dlAhead.slice(0, 8).map(x => `<div class="dlrow" ${x.kind === 'sla' ? `data-qtk="${x.id}"` : x.kind === 'task' ? `data-dltask="${x.id}"` : x.kind === 'offer' ? 'data-dloffer="1"' : `data-dlproj="${x.id}"`}>
       <span class="dlic" style="color:${dlCol(x)}">${dlIco[x.kind] || ''}</span>
-      <span class="dlt">${esc(x.title)}<span class="mut"> · ${esc(x.sub)}</span></span>
+      <span class="dlt">${esc(x.title)}<span class="mut"> · ${esc(x.sub)}${x.mine === false ? ' · <i title="Δεν είναι δικό σου — το βλέπεις ως εποπτεία">εποπτεία</i>' : ''}</span></span>
       <span class="dld" style="color:${dlCol(x)}">${esc(dlLbl(x))}</span></div>`).join('') : '<div class="myd-empty">Καμία προθεσμία μπροστά σου.</div>';
   const coach = d.coach || [];
   const coachBody = coach.map(x => `<div class="myd-coach" style="border-left-color:${colL[x.lvl]};background:${colL[x.lvl]}10">
