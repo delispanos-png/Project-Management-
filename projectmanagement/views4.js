@@ -2700,17 +2700,20 @@ R.todos = async function () {
       <button class="btn btn-p btn-sm" id="tdAdd">${I.plus} Προσθήκη</button>
     </div>`;
 
+  /* Η γραμμή της οθόνης: πόσα ανοιχτά, οι δύο ομαδοποιήσεις και οι ενέργειες
+     καθαρίσματος. Το πεδίο προσθήκης ΔΕΝ μπαίνει εδώ — δεν είναι φίλτρο, είναι
+     σύνθεση, και ζει ακριβώς πάνω από τη λίστα που γεμίζει. */
   const viewToggle = (open, done) => `
-    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px">
-      <b style="font-size:13px">${open} ${open === 1 ? 'ανοιχτό' : 'ανοιχτά'}</b>
-      ${done ? `<span class="mut" style="font-size:12px">· ${done} ολοκληρωμέν${done === 1 ? 'ο' : 'α'}</span>` : ''}
-      <div style="flex:1"></div>
-      ${d.tasks.length ? `<button class="btn btn-o btn-sm" id="tdSeed" title="Πρόσθεσε στη λίστα τα ανοιχτά tasks που σου έχουν ανατεθεί">${I.zap || I.plus} ${d.tasks.length === 1 ? 'Φέρε το ανοιχτό task μου' : 'Φέρε τα ' + d.tasks.length + ' ανοιχτά tasks μου'}</button>` : ''}
-      ${done ? `<button class="btn btn-o btn-sm" id="tdClear">Καθάρισε ολοκληρωμένα</button>` : ''}
-      <div class="td-seg">
-        <button data-v="date" class="${st.view === 'date' ? 'on' : ''}">Κατά ημερομηνία</button>
-        <button data-v="proj" class="${st.view === 'proj' ? 'on' : ''}">Κατά έργο</button>
-      </div>
+    <div class="fbar">
+      <span class="fbar-note"><b>${open}</b> ${open === 1 ? 'ανοιχτό' : 'ανοιχτά'}${
+        done ? ` · ${done} ολοκληρωμέν${done === 1 ? 'ο' : 'α'}` : ''}</span>
+      <span class="fbar-sp"></span>
+      ${d.tasks.length ? `<button class="fchip" id="tdSeed" title="Πρόσθεσε στη λίστα τα ανοιχτά tasks που σου έχουν ανατεθεί">${I.zap || I.plus} ${d.tasks.length === 1 ? 'Φέρε το ανοιχτό task μου' : 'Φέρε τα ' + d.tasks.length + ' ανοιχτά tasks μου'}</button>` : ''}
+      ${done ? `<button class="fchip" id="tdClear">Καθάρισε ολοκληρωμένα</button>` : ''}
+    </div>
+    <div class="fchips">
+      <button class="kb-chip${st.view === 'date' ? ' on' : ''}" data-v="date">Κατά ημερομηνία</button>
+      <button class="kb-chip${st.view === 'proj' ? ' on' : ''}" data-v="proj">Κατά έργο</button>
     </div>`;
 
   /* Οι σημειώσεις «πού έμεινα» — μαζεμένες πάνω, όχι μία φόρμα ανά έργο. */
@@ -2763,7 +2766,7 @@ R.todos = async function () {
     Object.values(by).forEach(a => a.sort((x, y) =>
       (x.remind && y.remind ? x.remind.localeCompare(y.remind) : 0) || x.sort - y.sort || x.id - y.id));
 
-    c.innerHTML = addBar() + viewToggle(open.length, done.length) + notesCard()
+    c.innerHTML = viewToggle(open.length, done.length) + addBar() + notesCard()
       + (open.length ? TD_BUCKETS.filter(b => (by[b[0]] || []).length).map(([k, lbl, col]) => `
         <div class="td-grp">
           <div class="td-grp-h" style="color:${col}">${lbl}
@@ -2797,7 +2800,7 @@ R.todos = async function () {
     const open = d.items.filter(t => !t.done).length;
     const done = d.items.filter(t => t.done).length;
 
-    c.innerHTML = addBar() + viewToggle(open, done) + notesCard()
+    c.innerHTML = viewToggle(open, done) + addBar() + notesCard()
       + list.map(g => {
         const o = g.items.filter(t => !t.done);
         const dn = g.items.filter(t => t.done);
@@ -2842,7 +2845,7 @@ R.todos = async function () {
     if ($('#tdAdd')) { $('#tdAdd').onclick = add; }
     if ($('#tdNew')) { $('#tdNew').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }; }
 
-    $$('.td-seg button').forEach(b => b.onclick = () => {
+    $$('.fchips [data-v]').forEach(b => b.onclick = () => {
       st.view = b.dataset.v; localStorage.cnpTodoView = st.view;
       st.view === 'proj' ? paintByProject() : paintByDate();
     });

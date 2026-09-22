@@ -4470,3 +4470,10 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   .lv-flow td.lv-eq{background:0}
   .lv-flow td.lv-op::before,.lv-flow td.lv-eq::before{font-weight:700}
 }
+
+/* Επανάκληση στην κάρτα AI ρεσεψιόν (22/09/2026) */
+.pbx-cbt{margin-bottom:12px}
+.pbx-aitk.cb{background:#7b5cd622;color:#7b5cd6}
+.pbx-aitk.ok{background:#1f9d5722;color:#1f9d57}
+.pbx-aitk.warn{background:#e0a02022;color:#a8720e}
+.pbx-aitk.bad{background:#e2515f22;color:#e2515f}

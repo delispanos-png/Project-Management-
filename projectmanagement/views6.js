@@ -4,7 +4,7 @@
    η επόμενη προσφορά. Το μητρώο είναι του supportcontracts — εδώ γίνεται
    δουλεύσιμο από εκεί που ζει ο χρόνος που το αναλώνει. */
 'use strict';
-const {S, api, esc, fmtEur, dShort, dFull, today, toast, setTop, cnpConfirm, cnpDialog,
+const {S, api, esc, fChip, fSel, fAdd, fWire, fmtEur, dShort, dFull, today, toast, setTop, cnpConfirm, cnpDialog,
   cnpDenied, cnpCan, cnpPrompt, closeDrawer, openTask, adminName, adminIni, I, go, stPill, CNP_ST, $, $$} = window.CNP;
 const R = window.R;
 
@@ -518,6 +518,18 @@ R.activity = async function () {
     };
 
     c.innerHTML = `
+    <div class="fbar">
+      ${fChip('Διάστημα', fSel('h', [['8', '8 ώρες'], ['24', '24 ώρες'], ['72', '3 μέρες']],
+        String(st.h)), false, '')}
+      ${st.who ? fChip('Χειριστής', `<b style="padding:0 6px">${esc((d.people.find(p => p.id === st.who) || {}).name || '')}</b>
+        <span class="fchip-x" id="acAll" title="Όλοι">✕</span>`, true, '') : ''}
+      ${old.length ? `<button type="button" class="fchip fchip-b${st.stale ? ' on' : ''}" id="acOld"
+        title="Άτομα χωρίς καμία κίνηση εδώ και μέρες">${st.stale ? '✓ ' : ''}Και όσοι λείπουν
+        <b>${old.length}</b></button>` : ''}
+      <span class="fbar-sp"></span>
+      <span class="fbar-note">ανανεώνεται μόνο του κάθε 30΄΄</span>
+      <button class="fchip" id="acRef" title="Ανανέωση τώρα">↻ Ανανέωση</button>
+    </div>
     <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
       ${actStat(I.users, s.online + '/' + s.team, 'στην εφαρμογή τώρα', s.online ? 'var(--ok)' : 'var(--mut)')}
       ${actStat(I.play, s.working, s.working === 1 ? 'δουλεύει αυτή τη στιγμή' : 'δουλεύουν αυτή τη στιγμή', s.working ? 'var(--brand)' : 'var(--mut)')}
@@ -530,24 +542,11 @@ R.activity = async function () {
     <div class="act-h">
       <b>Η ομάδα τώρα</b>
       ${busy.length ? `<span class="pill pill-ok">${busy.length} σε εξέλιξη</span>` : '<span class="mut" style="font-size:12px">κανένα χρονόμετρο σε εξέλιξη</span>'}
-      <div style="flex:1"></div>
-      <button class="btn btn-o btn-sm" id="acRef" title="Ανανέωση τώρα">↻</button>
     </div>
     ${live.map(card).join('') || '<div class="mut" style="padding:10px 2px">Κανείς ενεργός.</div>'}
-    ${old.length ? `<button class="btn btn-o btn-sm" id="acOld" style="margin:4px 0 14px">
-      ${st.stale ? 'Κρύψε' : 'Δείξε'} ${old.length} που δεν φάνηκαν εδώ και μέρες</button>
-      ${st.stale ? old.map(card).join('') : ''}` : ''}
+    ${st.stale && old.length ? old.map(card).join('') : ''}
 
-    <div class="act-h" style="margin-top:18px">
-      <b>Ροή</b>
-      ${st.who ? `<span class="pill pill-info">μόνο ${esc((d.people.find(p => p.id === st.who) || {}).name || '')}
-        <button id="acAll" style="border:0;background:none;color:inherit;cursor:pointer;font-weight:800;padding:0 0 0 4px">✕</button></span>` : ''}
-      <div style="flex:1"></div>
-      <div class="td-seg">
-        ${[[8, '8 ώρες'], [24, '24 ώρες'], [72, '3 μέρες']].map(([h, l]) =>
-          `<button data-h="${h}" class="${st.h === h ? 'on' : ''}">${l}</button>`).join('')}
-      </div>
-    </div>
+    <div class="act-h" style="margin-top:18px"><b>Ροή</b></div>
     ${Object.keys(byDay).length ? Object.entries(byDay).map(([k, list]) => `
       <div class="act-day">${dayLbl(k)}</div>
       ${list.map(e => `<div class="act-row"${e.task ? ` data-task="${e.task}"` : (e.ticket ? ` data-tk="${e.ticket}"` : '')}>
@@ -560,14 +559,16 @@ R.activity = async function () {
           ${e.note && e.note !== e.what ? `<span class="mut">— ${esc(e.note)}</span>` : ''}</span>
       </div>`).join('')}`).join('')
       : `<div class="empty" style="padding:36px">${I.sparkle}Καμία κίνηση ${st.who ? 'από αυτό το άτομο ' : ''}στο διάστημα που διάλεξες</div>`}
-    <div class="mut" style="text-align:center;font-size:11px;margin-top:14px">ανανεώνεται μόνο του κάθε 30΄΄</div>`;
+`;
 
     $$('.act-p').forEach(el => el.onclick = () => {
       const id = +el.dataset.who;
       st.who = st.who === id ? 0 : id;
       paint(d);
     });
-    $$('[data-h]').forEach(b => b.onclick = () => { st.h = +b.dataset.h; load(); });
+    /* Το διάστημα ξαναφορτώνει μόνο τα δεδομένα (load), δεν ξαναστήνει την
+       οθόνη — το φίλτρο χειριστή και η κύλιση μένουν όπου ήταν. */
+    { const hs = $('[data-fk="h"]'); if (hs) { hs.onchange = e => { st.h = +e.target.value; load(); }; } }
     const ao = $('#acOld'); if (ao) { ao.onclick = () => { st.stale = !st.stale; paint(d); }; }
     const aa = $('#acAll'); if (aa) { aa.onclick = e => { e.stopPropagation(); st.who = 0; paint(d); }; }
     $('#acRef').onclick = () => load();
@@ -679,6 +680,18 @@ R.complaints = async function () {
   };
 
   c.innerHTML = `
+  <div class="fbar">
+    ${fChip('Κατηγορία', fSel('cat', [['', '— κάθε —']]
+      .concat(d.cats.map(x => [String(x.id), x.name])), st.cat ? String(st.cat) : ''), !!st.cat, '')}
+    <button type="button" class="fchip fchip-b${st.mine ? ' on' : ''}" id="cxMine">${
+      st.mine ? '✓ ' : ''}Δικά μου</button>
+    <span class="fbar-sp"></span>
+    <button class="fchip fchip-go" id="cxNew">${I.plus} Νέο παράπονο</button>
+  </div>
+  <div class="fchips">
+    ${[['live', 'Ενεργά'], ['resolved', 'Λυμένα'], ['rejected', 'Αβάσιμα'], ['', 'Όλα']].map(([k, l]) =>
+      `<button class="kb-chip${st.status === k ? ' on' : ''}" data-st="${k}">${l}</button>`).join('')}
+  </div>
   <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
     ${cxStat(I.alert, s.open, s.open === 1 ? 'ανοιχτό παράπονο' : 'ανοιχτά παράπονα', s.open ? 'var(--bad)' : 'var(--ok)')}
     ${cxStat(I.flag, s.critical, 'κρίσιμα σε εκκρεμότητα', s.critical ? 'var(--bad)' : 'var(--mut)')}
@@ -697,28 +710,16 @@ R.complaints = async function () {
       ${s.repeat.map(x => `<a class="pill pill-bad" href="#/client360/${x.client}">${esc(x.name)} · ${x.n}</a>`).join(' ')}</div>` : ''}
   </div></div>` : ''}
 
-  <div class="card" style="padding:11px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-    <div class="td-seg">
-      ${[['live', 'Ενεργά'], ['resolved', 'Λυμένα'], ['rejected', 'Αβάσιμα'], ['', 'Όλα']].map(([k, l]) =>
-        `<button data-st="${k}" class="${st.status === k ? 'on' : ''}">${l}</button>`).join('')}
-    </div>
-    <select class="inp" id="cxCat" style="width:auto;max-width:200px;padding:6px 9px;font-size:12px">
-      <option value="">— κάθε κατηγορία —</option>
-      ${d.cats.map(x => `<option value="${x.id}" ${st.cat === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
-    </select>
-    <label class="mut" style="display:flex;align-items:center;gap:5px;font-size:12px">
-      <input type="checkbox" id="cxMine" ${st.mine ? 'checked' : ''}> δικά μου</label>
-    <div style="flex:1"></div>
-    <button class="btn btn-p btn-sm" id="cxNew">${I.plus} Νέο παράπονο</button>
-  </div>
+
 
   <div id="cxRows">${d.rows.length ? d.rows.map(row).join('')
     : `<div class="empty" style="padding:44px">${I.sparkle}Κανένα παράπονο με αυτά τα κριτήρια.
        <div class="mut" style="font-size:12.5px;margin-top:6px">Όταν ένας πελάτης εκφράσει δυσαρέσκεια, γράψ' την εδώ — αλλιώς χάνεται.</div></div>`}</div>`;
 
   $$('[data-st]').forEach(b => b.onclick = () => { st.status = b.dataset.st; R.complaints(); });
-  $('#cxCat').onchange = e => { st.cat = e.target.value; R.complaints(); };
-  $('#cxMine').onchange = e => { st.mine = e.target.checked; R.complaints(); };
+  { const cc = $('[data-fk="cat"]'); if (cc) { cc.onchange = e => { st.cat = e.target.value; R.complaints(); }; } }
+  /* Κουμπί που ανάβει αντί για κουτάκι — δες docs/UI-STANDARD.md §3. */
+  $('#cxMine').onclick = () => { st.mine = !st.mine; R.complaints(); };
   $('#cxNew').onclick = () => quickCx();
   $$('.cx-row').forEach(el => el.onclick = () => openCx(+el.dataset.cx));
   $$('.cx-bar').forEach(el => el.onclick = () => { st.cat = el.dataset.cat; R.complaints(); });
