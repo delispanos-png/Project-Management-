@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — Gantt (GoodDay-style δομή) ═══════════ */
 'use strict';
-const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, cnpSearch, fChip, fSel, fAdd, fWire, cnpSkel, $, $$} = window.CNP;
+const {S, api, esc, fmtMin, fmtEur, suStat, cnpDenied, dShort, dFull, today, toast, setTop, openTask, adminIni, adminName, cnpPrompt, cnpConfirm, cnpDialog, cnpCan, closeDrawer, I, go, cnpSearch, fChip, fSel, fAdd, fWire, cnpSkel, $, $$, cnpHolder} = window.CNP;
 const R = window.R;
 
 const DAY = 86400000;
@@ -100,7 +100,8 @@ R.gantt = async function () {
             data-start="${t.start}" data-end="${t.end}"
             style="left:${l}px;width:${w}px;background:${t.color}"><span class="g-handle"></span></div>
           <div class="g-after" style="left:${l + w + 8}px">
-            ${t.assignee ? `<span class="ava" style="width:19px;height:19px;font-size:8.5px">${esc(adminIni(t.assignee))}</span>` : ''}
+            ${cnpHolder(t) ? `<span class="ava" style="width:19px;height:19px;font-size:8.5px"
+              title="${esc(adminName(cnpHolder(t)))}">${esc(adminIni(cnpHolder(t)))}</span>` : ''}
             ${t.blocked ? "⛓ " : ""}${esc(t.title)}${t.est ? ` <span class="mut">~${fmtMin(t.est)}</span>` : ""}</div>
         </div></div>`;
     };

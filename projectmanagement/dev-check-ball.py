@@ -12,7 +12,7 @@
 
 Τρέξε το πριν από κάθε commit που αγγίζει λίστες εργασιών.
 """
-import io, re, os, sys
+import io, re, os, sys, glob
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 FILES = [os.path.join(ROOT, 'api.php')]
@@ -67,10 +67,31 @@ for path in FILES:
             continue
         bad.append((os.path.basename(path), i, case or func, line.strip()[:72]))
 
+# ── ΚΑΙ Η ΟΘΟΝΗ ──────────────────────────────────────────────────────────────
+# Ο server μπορεί να φιλτράρει σωστά και η οθόνη να δείχνει λάθος όνομα. Έτσι
+# ξέφυγε η «Λίστα tasks»: το API έστελνε και μπάλα και ανάθεση, και η οθόνη
+# ομαδοποιούσε με την ανάθεση.
+JS = re.compile(r"""(?:adminName|adminIni)\(\s*t\.assignee""")
+JS_SAFE = 'ball-rule: ok'
+
+for path in sorted(glob.glob(os.path.join(ROOT, 'views*.js')) + [os.path.join(ROOT, 'app.js')]):
+    src = io.open(path, encoding='utf-8', errors='surrogateescape').read().split('\n')
+    for i, line in enumerate(src, 1):
+        if not JS.search(line):
+            continue
+        near = ' '.join(src[max(0, i - 4):i + 3])
+        if 'cnpHolder' in near or JS_SAFE in near:
+            continue
+        # το χειριστήριο ΑΝΑΘΕΣΗΣ δείχνει σωστά την ανάθεση — αυτό επεξεργάζεται
+        if 'ανάθεση' in near and ('data-pasg' in near or 'κλικ για' in near):
+            continue
+        bad.append((os.path.basename(path), i, 'οθόνη', line.strip()[:72]))
+
 if bad:
     print('Κανόνας της μπάλας: %d σημεία φιλτράρουν με ΑΝΑΘΕΣΗ αντί για μπάλα\n' % len(bad))
     for f, i, ctx, line in bad:
         print('  ✘ %-12s %-6s %-20s %s' % (f, i, ctx, line))
-    print('\n  Πέρασέ τα από cnp_scope_mine($q, $id[, "t."]) ή cnp_scope_team($q, $ids[, "t."]).')
+    print('\n  PHP: cnp_scope_mine($q, $id[, "t."]) ή cnp_scope_team($q, $ids[, "t."]).')
+    print('  JS:  cnpHolder(t) αντί για t.assignee — ή σχόλιο «ball-rule: ok» αν είναι σκόπιμο.')
     sys.exit(1)
 print('Κανόνας της μπάλας: ΟΛΑ ΚΑΛΑ')
