@@ -666,6 +666,16 @@ R.cards = async function () {
     <span class="fbar-sp"></span>
     ${S.boot.me.full ? `<button class="fchip" id="dcBuild" title="Ξαναϋπολογισμός τώρα (γίνεται αυτόματα κάθε πρωί)">${I.repeat} Ανανέωση ουράς</button>` : ''}
   </div>
+  ${(d.perf || []).length && f.scope === 'all' ? `<div class="card" style="margin-bottom:12px"><div class="card-h">${I.chart || I.list} Πώς απαντά η διοίκηση <span class="mut" style="font-weight:600;font-size:11.5px">— τελευταίες 14 ημέρες</span></div>
+    <div class="card-b" style="padding:4px 10px"><table class="tbl dc-perf"><thead><tr>
+      <th>Ποιος</th><th>Πήρε</th><th>Απάντησε</th><th>Απέρριψε</th><th>Εκκρεμούν</th><th>Κλιμακώθηκαν</th><th>Μέσος χρόνος</th></tr></thead><tbody>
+      ${d.perf.map(x => `<tr><td><b>${esc(x.name)}</b></td><td>${x.got}</td>
+        <td style="color:var(--ok);font-weight:700">${x.done}</td>
+        <td>${x.dismissed || '—'}</td>
+        <td${x.open ? ' style="color:var(--warn);font-weight:700"' : ''}>${x.open || '—'}</td>
+        <td${x.escalated ? ' style="color:var(--bad);font-weight:700"' : ''}>${x.escalated || '—'}</td>
+        <td>${x.avgH === null ? '—' : (x.avgH < 1 ? Math.round(x.avgH * 60) + '΄' : x.avgH + 'ω')}</td></tr>`).join('')}
+    </tbody></table></div></div>` : ''}
   <div id="dcList">${d.cards.length ? d.cards.map(card).join('')
     : `<div class="card"><div class="empty" style="padding:44px 16px"><div class="big">✅</div>
         <b style="color:var(--ink);font-size:15px">${f.state === 'open' ? 'Καμία εκκρεμής απόφαση' : 'Τίποτα εδώ'}</b>

@@ -288,6 +288,45 @@ class DayPlan
                 'acts' => ['schedule_project', 'ask', 'dismiss']];
         }
 
+        /* ── (7) ΧΩΡΗΤΙΚΟΤΗΤΑ: «αυτά δεν σε παίρνει να τα κάνεις» ──
+           Ο PM πρέπει να το δει ΠΡΙΝ χαθεί η μέρα, όχι μετά. Δουλεύει και χωρίς εκτιμήσεις:
+           αν λείπουν, μετράμε ΑΡΙΘΜΟ εργασιών που λήγουν σήμερα· αν υπάρχουν, ώρες έναντι
+           της πραγματικής διαθεσιμότητας (8ω μείον συσκέψεις). */
+        $wlDay = (int) (self::setting('cards_workload_tasks') ?: 4);      // πάνω από τόσες «δεν βγαίνει»
+        $hoursDay = (float) (self::setting('cards_hours_day') ?: 8);
+        $people = [];
+        foreach (Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done)
+            ->whereNotNull('due_date')->where('due_date', '<=', $today)->get(['id', 'assignee', 'action_user', 'estimate_minutes']) as $t) {
+            $w = (int) $t->action_user ?: (int) $t->assignee;
+            if (!$w) { continue; }
+            $people[$w]['n'] = ($people[$w]['n'] ?? 0) + 1;
+            $people[$w]['m'] = ($people[$w]['m'] ?? 0) + (int) $t->estimate_minutes;
+            $people[$w]['est'] = ($people[$w]['est'] ?? 0) + ((int) $t->estimate_minutes > 0 ? 1 : 0);
+        }
+        foreach ($people as $pid => $x) {
+            /* Συσκέψεις σήμερα: τρώνε πραγματικό χρόνο και σπάνια μετριούνται. */
+            $mtgMin = 0;
+            foreach (Capsule::table('mod_cpm_events')->where('kind', '!=', 'leave')->where('all_day', 0)
+                ->where('start_dt', '<=', $today . ' 23:59:59')->where('end_dt', '>=', $today . ' 00:00:00')
+                ->where('attendees', 'like', '%,' . $pid . ',%')->get(['start_dt', 'end_dt']) as $ev) {
+                $mtgMin += max(0, (int) round((strtotime($ev->end_dt) - strtotime($ev->start_dt)) / 60));
+            }
+            $availMin = max(0, (int) round($hoursDay * 60) - $mtgMin);
+            $hasEst = ($x['est'] ?? 0) >= max(2, (int) round(($x['n'] ?? 0) * 0.6));
+            $over = $hasEst ? ((int) $x['m'] > $availMin) : ((int) $x['n'] > $wlDay);
+            if (!$over) { continue; }
+            $nm = Db::adminName($pid);
+            $body = $hasEst
+                ? 'Άθροισμα εκτιμήσεων ' . round($x['m'] / 60, 1) . 'ω έναντι ' . round($availMin / 60, 1) . 'ω διαθέσιμων'
+                    . ($mtgMin ? ' (αφαιρέθηκαν ' . round($mtgMin / 60, 1) . 'ω συσκέψεις)' : '') . '. Κάτι πρέπει να μετακινηθεί.'
+                : $x['n'] . ' εργασίες με λήξη σήμερα ή νωρίτερα, στον ίδιο άνθρωπο'
+                    . ($mtgMin ? ' — και ' . round($mtgMin / 60, 1) . 'ω συσκέψεις' : '')
+                    . '. Δεν έχουν εκτιμήσεις, αλλά ο αριθμός από μόνος του δεν βγαίνει.';
+            $cards[] = ['kind' => 'workload', 'sev' => 1, 'w' => (int) ($x['n'] ?? 0), 'owner' => 0, 'ref' => ['admin', (int) $pid],
+                'title' => $nm . ': η μέρα δεν βγαίνει — ' . ($hasEst ? round($x['m'] / 60, 1) . 'ω δουλειά' : $x['n'] . ' εργασίες'),
+                'body' => $body, 'acts' => ['ask', 'open_list', 'dismiss']];
+        }
+
         /* ── (5) Ροή ουράς: ανοίγουν περισσότερα από όσα κλείνουν; Μία κάρτα, στη δεξαμενή. ── */
         $w0 = date('Y-m-d H:i:s', $now - 7 * 86400);
         $opened = (int) Capsule::table('mod_cpm_tasks')->where('created_at', '>=', $w0)->count();
@@ -342,8 +381,8 @@ class DayPlan
         $cards = self::collect($owners);
 
         /* Ταξινόμηση: πρώτα η σοβαρότητα, μετά η σειρά των κανόνων. */
-        $order = ['unassigned' => 0, 'project_late' => 1, 'overdue' => 2, 'idle' => 3, 'age' => 4,
-            'flow' => 5, 'no_estimate' => 6, 'no_deadline' => 7];
+        $order = ['unassigned' => 0, 'project_late' => 1, 'overdue' => 2, 'workload' => 3, 'idle' => 4,
+            'age' => 5, 'flow' => 6, 'no_estimate' => 7, 'no_deadline' => 8];
         /* Σοβαρότητα, μετά «πόσο καίει» (ημέρες), μετά η σειρά των κανόνων. Χωρίς το δεύτερο κριτήριο
            μια παράδοση 11 ημερών θα έμπαινε κάτω από μία 1 ημέρας. */
         usort($cards, function ($a, $b) use ($order) {
@@ -379,7 +418,10 @@ class DayPlan
             if (isset($live[$key])) { continue; }
             $own = (int) $c['owner'];
             if ($own && in_array($c['kind'], $muted[$own] ?? [], true)) { $own = 0; }   // σίγαση → δεξαμενή, όχι σβήσιμο
-            if (($perOwner[$own] ?? 0) >= self::MAX_PER_OWNER) { continue; }
+            /* Η κοινή δεξαμενή τη μοιράζονται όλοι οι PM — δεν μπορεί να έχει το όριο ενός ατόμου,
+               γιατί γεμίζει αμέσως και μπλοκάρει σοβαρότερες κάρτες (22/9/2026). */
+            $cap = $own ? self::MAX_PER_OWNER : self::MAX_PER_OWNER * max(1, count($owners));
+            if (($perOwner[$own] ?? 0) >= $cap) { continue; }
             if (!$dry) {
                 Capsule::table('mod_cpm_cards')->insert([
                     'day' => $day, 'owner_id' => $own, 'kind' => $c['kind'], 'sev' => (int) $c['sev'],

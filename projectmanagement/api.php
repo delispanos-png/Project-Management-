@@ -7635,7 +7635,31 @@ case 'cards':
             'helpId' => $c->help_id ? (int) $c->help_id : 0];
     }
     $dayC = date('Y-m-d');
-    out(['cards' => $outC, 'isPm' => $isPm, 'isEsc' => $isEsc, 'scope' => $scopeC, 'state' => $stC,
+    /* 📊 Εικόνα διοίκησης (μόνο για την ομάδα κλιμάκωσης): μετράμε ΤΗ ΔΙΟΙΚΗΣΗ, όχι μόνο την
+       εκτέλεση — πόσες κάρτες πήρε ο καθένας, πόσες απάντησε, σε πόση ώρα, πόσες αγνόησε. */
+    $perfC = [];
+    if ($isEsc) {
+        $sinceC = date('Y-m-d', strtotime('-14 days'));
+        foreach (array_merge(DayPlan::owners(), [0]) as $oid) {
+            $base = Capsule::table('mod_cpm_cards')->where('day', '>=', $sinceC);
+            $got = (int) (clone $base)->where('owner_id', $oid)->count();
+            if (!$got && $oid) { continue; }
+            $rs = Capsule::table('mod_cpm_cards')->where('day', '>=', $sinceC)->where('resolved_by', $oid)
+                ->whereNotNull('resolved_at')->get(['created_at', 'resolved_at', 'state']);
+            $don = 0; $dis = 0; $sum = 0; $n = 0;
+            foreach ($rs as $r) {
+                if ($r->state === 'dismissed') { $dis++; } else { $don++; }
+                $d1 = strtotime($r->created_at); $d2 = strtotime($r->resolved_at);
+                if ($d2 > $d1) { $sum += ($d2 - $d1); $n++; }
+            }
+            $openN = (int) (clone $base)->where('owner_id', $oid)->whereIn('state', ['open', 'snoozed'])->count();
+            $escN = (int) (clone $base)->where('owner_id', $oid)->whereNotNull('escalated_at')->count();
+            $perfC[] = ['id' => $oid, 'name' => $oid ? Db::adminName($oid) : 'Κοινή δεξαμενή',
+                'got' => $got, 'done' => $don, 'dismissed' => $dis, 'open' => $openN, 'escalated' => $escN,
+                'avgH' => $n ? round($sum / $n / 3600, 1) : null];
+        }
+    }
+    out(['cards' => $outC, 'isPm' => $isPm, 'isEsc' => $isEsc, 'scope' => $scopeC, 'state' => $stC, 'perf' => $perfC,
         'counts' => ['mine' => (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])
                 ->where(function ($w) use ($adminId) { $w->where('owner_id', $adminId)->orWhere('owner_id', 0); })->count(),
             'pool' => (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])->where('owner_id', 0)->count(),
