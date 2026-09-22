@@ -2010,7 +2010,21 @@ function cnp_call_row($r)
         $who = (string) (Capsule::table('mod_cpm_leads')->where('id', (int) $r->lead_id)->value('name') ?: '');
         $whoKind = 'lead';
     }
-    if ($who === '') { $who = (string) ($r->caller ?: ''); $whoKind = $whoKind ?: 'free'; }
+    /* Το «free» σημαίνει ΕΛΕΥΘΕΡΟ ΟΝΟΜΑ. Δινόταν όμως και όταν το caller ήταν
+       κενό, οπότε μια κλήση με σκέτο αριθμό εμφανιζόταν ως «γραμμένο όνομα» —
+       και η φόρμα διόρθωσης πρόσφερε τον αριθμό ως όνομα. */
+    /* Το caller συχνά κρατά ΤΟΝ ΙΔΙΟ ΤΟΝ ΑΡΙΘΜΟ — έτσι αποθηκεύεται μια κλήση
+       από άγνωστο. Δεν είναι όνομα: αν το λέγαμε «γραμμένο όνομα», η φόρμα
+       διόρθωσης θα πρότεινε τον αριθμό ως επωνυμία πελάτη. */
+    if ($who === '' && trim((string) $r->caller) !== ''
+        && !preg_match('/^[\d+\s()\-\.]+$/', trim((string) $r->caller))) {
+        $who = trim((string) $r->caller);
+        $whoKind = 'free';
+    }
+    if ($who === '' && trim((string) $r->caller) !== '') {
+        $who = trim((string) $r->caller);      // αριθμός στο caller → είναι τηλέφωνο
+        $whoKind = 'phone';
+    }
     if ($who === '') { $who = (string) ($r->phone ?: 'Άγνωστος'); $whoKind = $whoKind ?: 'phone'; }
     $fup = $r->followup_date ?: null;
     return ['id' => (int) $r->id, 'at' => $r->happened_at,
@@ -9130,6 +9144,25 @@ case 'calllog_save':                     /* Διόρθωση καταγραφή�
         if ($fd === '') { $updC['followup_done'] = 0; }
     }
     if (isset($in['followup_done'])) { $updC['followup_done'] = !empty($in['followup_done']) ? 1 : 0; }
+
+    /* ΠΟΙΟΣ ΗΤΑΝ. Οι καταγραφές που γίνονται πάνω στην ώρα κρατούν μόνο τον
+       αριθμό — κανείς δεν σταματά να ψάξει πελάτη ενώ μιλάει. Χωρίς τρόπο να
+       συμπληρωθεί μετά, η κλήση μένει για πάντα «+30694…» και δεν προσμετράται
+       στο ιστορικό του πελάτη. */
+    if (array_key_exists('clientid', $in)) {
+        $cidC = (int) $in['clientid'];
+        if ($cidC && !Capsule::table('tblclients')->where('id', $cidC)->exists()) { fail('Άγνωστος πελάτης'); }
+        $updC['clientid'] = $cidC ?: null;
+        if ($cidC) { $updC['caller'] = null; }   // ο πελάτης υπερισχύει του ελεύθερου ονόματος
+    }
+    if (array_key_exists('caller', $in)) {
+        $updC['caller'] = mb_substr(trim((string) $in['caller']), 0, 120) ?: null;
+    }
+    if (array_key_exists('phone', $in)) {
+        $phC = preg_replace('/[^0-9+]/', '', (string) $in['phone']);
+        $updC['phone'] = mb_substr($phC, 0, 32) ?: null;
+    }
+
     if (!$updC) { fail('Τίποτα να αλλάξει'); }
     Capsule::table('mod_cpm_interactions')->where('id', $idC)->update($updC);
     out(['ok' => true, 'row' => cnp_call_row(Capsule::table('mod_cpm_interactions')->where('id', $idC)->first())]);
@@ -18692,9 +18725,37 @@ case 'leave_ergani':
 case 'products_tree':
     /* Ο ΚΑΤΑΛΟΓΟΣ — μία λίστα που τροφοδοτεί ρόλους, τηλεφωνικό κατάλογο και
        ταξινόμηση tickets. Δέντρο ενός επιπέδου: προϊόν → υποκατηγορία. */
-    out(['ok' => true, 'rows' => Catalog::tree(false),
-         'queues' => Route::queues(),
-         'used' => cnp_product_usage()]);
+    /* ΠΟΙΟΙ ΤΟ ΚΑΛΥΠΤΟΥΝ. Η ουρά του 3CX ΔΕΝ είναι ιδιότητα του προϊόντος —
+       είναι το πώς δουλεύει σήμερα το τηλεφωνικό κέντρο, και ζει στη
+       «Δρομολόγηση κλήσεων». Εδώ το προϊόν δηλώνει ΑΝΘΡΩΠΟΥΣ: «αυτή τη δουλειά
+       την καλύπτουν ο Χ, ο Ψ και ο Ζ». Είναι ο ΙΔΙΟΣ χάρτης με τους Ρόλους,
+       από την ανάποδη πλευρά — εκεί ξεκινάς από τον άνθρωπο, εδώ από τη δουλειά. */
+    $pCov = [];
+    foreach (Capsule::table('mod_cpm_agent_skills')->get(['admin_id', 'product_id', 'level']) as $r) {
+        $pCov[(int) $r->product_id][] = ['admin_id' => (int) $r->admin_id,
+            'name' => Db::adminName($r->admin_id), 'level' => (string) $r->level];
+    }
+    $pOrder = ['main' => 0, 'can' => 1, 'learn' => 2];
+    foreach ($pCov as &$pC) {
+        usort($pC, function ($x, $y) use ($pOrder) {
+            return $pOrder[$x['level']] <=> $pOrder[$y['level']] ?: strcoll($x['name'], $y['name']);
+        });
+    }
+    unset($pC);
+    $pPeople = [];
+    foreach (Db::admins() as $a) { $pPeople[] = ['id' => (int) $a->id, 'name' => Db::adminName($a->id)]; }
+
+    $pRows = Catalog::tree(false);
+    $pAttach = function (&$list) use (&$pAttach, $pCov) {
+        foreach ($list as &$r) {
+            $r['covers'] = $pCov[(int) $r['id']] ?? [];
+            if (!empty($r['kids'])) { $pAttach($r['kids']); }
+        }
+    };
+    $pAttach($pRows);
+
+    out(['ok' => true, 'rows' => $pRows, 'people' => $pPeople,
+         'levels' => Pool::LEVELS, 'used' => cnp_product_usage()]);
 
 case 'product_save':
     $pName = mb_substr(trim((string) ($in['name'] ?? '')), 0, 80);
