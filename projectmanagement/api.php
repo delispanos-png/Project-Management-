@@ -4944,6 +4944,52 @@ case 'myday':
     }
     $doneToday = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $adminId)->where('completed_at', '>=', $today . ' 00:00:00')->count();
 
+    /* 👁 Επιβλέπω: ό,τι ΑΝΟΙΞΑ εγώ και το κάνει ΑΛΛΟΣ (22/9/2026).
+       Δεν είναι δική μου εκκρεμότητα — είναι η ευθύνη μου να δω ότι προχώρησε. Η σειρά
+       δεν είναι χρονολογική αλλά «πόσο κόλλησε»: πρώτα όσα δεν κινήθηκαν καθόλου, μετά
+       τα εκπρόθεσμα. Όσα τρέχουν κανονικά δεν χρειάζονται το μάτι σου. */
+    $supOut = [];
+    $supStuck = 0; $supLate = 0; $supTot = 0;
+    $closedSup = Db::closedStatusIds();
+    $rowsSup = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->where('t.created_by', $adminId)->whereNotIn('t.status_id', $closedSup)
+        ->where(function ($q) use ($adminId) {
+            $q->where(function ($x) use ($adminId) { $x->whereNotNull('t.assignee')->where('t.assignee', '!=', 0)->where('t.assignee', '!=', $adminId); })
+              ->orWhere(function ($x) use ($adminId) { $x->whereNotNull('t.action_user')->where('t.action_user', '!=', 0)->where('t.action_user', '!=', $adminId); });
+        })
+        ->orderByDesc('t.updated_at')->limit(200)
+        ->get(['t.id', 't.title', 't.assignee', 't.action_user', 't.status_id', 't.due_date', 't.updated_at', 'p.name as pname', 'p.color as pcolor']);
+    $idsSup = array_map(function ($t) { return (int) $t->id; }, $rowsSup->all());
+    $lastSup = [];
+    if ($idsSup) {
+        foreach (Capsule::table('mod_cpm_activity')->whereIn('task_id', $idsSup)
+            ->selectRaw('task_id, MAX(created_at) as l')->groupBy('task_id')->get() as $la) {
+            $lastSup[(int) $la->task_id] = $la->l;
+        }
+    }
+    foreach ($rowsSup as $t) {
+        $supTot++;
+        $who = (int) $t->action_user ?: (int) $t->assignee;
+        $last = $lastSup[(int) $t->id] ?? $t->updated_at;
+        $days = $last ? (int) floor((time() - strtotime($last)) / 86400) : 0;
+        $late = $t->due_date && $t->due_date < $today;
+        $stuck = $days >= 5;
+        if ($stuck) { $supStuck++; }
+        if ($late) { $supLate++; }
+        $supOut[] = ['id' => (int) $t->id, 'title' => (string) $t->title,
+            'who' => $who, 'whoName' => $who ? Db::adminName($who) : '',
+            'pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac',
+            'status' => (int) $t->status_id, 'due' => $t->due_date,
+            'late' => $late, 'idle' => $days, 'stuck' => $stuck];
+    }
+    /* Πρώτα τα κολλημένα, μετά τα εκπρόθεσμα, μετά όσα δεν κινήθηκαν περισσότερο. */
+    usort($supOut, function ($a, $b) {
+        if ($a['stuck'] !== $b['stuck']) { return $b['stuck'] <=> $a['stuck']; }
+        if ($a['late'] !== $b['late']) { return $b['late'] <=> $a['late']; }
+        return $b['idle'] <=> $a['idle'];
+    });
+    $supervising = ['items' => array_slice($supOut, 0, 8), 'total' => $supTot, 'stuck' => $supStuck, 'late' => $supLate];
+
     /* 👥 Παρουσία ομάδας (22/9/2026): ποιος είναι ενεργός ΤΩΡΑ και πότε μπήκε τελευταία φορά.
        Δίνεται μόνο σε όσους οργανώνουν (ομάδα PM / Manager / Full) — δεν είναι για όλους.
        Δύο διαφορετικά πράγματα, και τα δύο χρήσιμα:
@@ -5011,6 +5057,7 @@ case 'myday':
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
         'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
         'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'team' => $teamNow, 'teamScope' => $teamScope,
+        'supervising' => $supervising,
         'pending' => cnp_pending_for($adminId, $FULL),
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
@@ -11749,7 +11796,7 @@ case 'profile_pref':                   // προσωπικές προτιμήσ�
     if ($key8 === 'myday_layout') {
         /* Μόνο γνωστά κλειδιά μπλοκ, με προαιρετικό «-» για κρυμμένο. Δεν αποθηκεύουμε
            ό,τι στείλει ο browser: η τιμή γυρίζει στο boot και μπαίνει σε HTML. */
-        $okB = ['day', 'team', 'att', 'plan', 'queue', 'coach', 'dl', 'wait', 'ov'];
+        $okB = ['day', 'team', 'att', 'plan', 'queue', 'coach', 'dl', 'sup', 'wait', 'ov'];
         $keep = [];
         foreach (explode(',', (string) ($in['value'] ?? '')) as $kk) {
             $kk = trim($kk);
