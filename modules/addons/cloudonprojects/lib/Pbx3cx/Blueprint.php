@@ -212,12 +212,13 @@ class Pbx3cxBlueprint
         $out = [];
         foreach (self::TOPICS as $num => $t) {
             $out[$num] = ['Name' => $t['name'], 'PollingStrategy' => 'Hunt', 'RingTimeout' => 20,
-                'MasterTimeout' => 120, 'Agents' => $t['agents'], 'Managers' => ['201'],
+                'MasterTimeout' => 60,   // 22/09/2026: 1 λεπτό αντί για 2 — μετά «κατειλημμένοι, πατήστε 1» → ticket, όχι χαμένη κλήση 'Agents' => $t['agents'], 'Managers' => ['201'],
                 'ForwardNoAnswer' => $after, 'OutOfOfficeRoute' => self::route('Queue', '804'),
                 'HolidaysRoute' => self::route('Queue', '804'), 'AnnounceQueuePosition' => true,
                 'PromptSet' => self::PROMPT_SET_EL, 'OnHoldFile' => self::HOLD_MUSIC];
         }
         $out['804'] = ['Name' => 'Emergency', 'Agents' => ['201', '202'], 'Managers' => ['201'],
+            'PollingStrategy' => 'Hunt', 'RingTimeout' => 20, 'MasterTimeout' => 60,
             'ForwardNoAnswer' => $after, 'OutOfOfficeRoute' => self::route('RoutePoint', self::AFTER_DN),
             'HolidaysRoute' => self::route('RoutePoint', self::AFTER_DN), 'PromptSet' => self::PROMPT_SET_EL];
         return $out;
