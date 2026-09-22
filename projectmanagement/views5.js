@@ -802,12 +802,14 @@ R.perf = async function () {
     }).join('')}</div>`;
 
     c.innerHTML = `
-      <div class="card" style="margin-bottom:13px"><div class="card-b" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${per.map(([k, l]) => `<button class="btn btn-sm ${st.p === k ? 'btn-p' : 'btn-o'}" data-pp="${k}">${l}</button>`).join('')}
-        <span class="mut" style="font-size:12px">${esc(dFull(d.from))} – ${esc(dFull(d.to))}</span>
-        <span style="flex:1"></span>
-        <span class="mut" style="font-size:12px">${d.totals.replies} απαντήσεις · ${d.totals.tasksDone} εργασίες</span>
-      </div></div>
+      <div class="fbar">
+        <span class="fbar-note">${esc(dFull(d.from))} – ${esc(dFull(d.to))}</span>
+        <span class="fbar-sp"></span>
+        <span class="fbar-note">${d.totals.replies} απαντήσεις · ${d.totals.tasksDone} εργασίες</span>
+      </div>
+      <div class="fchips">
+        ${per.map(([k, l]) => `<button class="kb-chip${st.p === k ? ' on' : ''}" data-pp="${k}">${l}</button>`).join('')}
+      </div>
 
       ${d.rows.map(r => `<div class="card pf-card">
         <div class="card-b">

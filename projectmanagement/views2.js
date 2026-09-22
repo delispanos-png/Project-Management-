@@ -741,21 +741,24 @@ R.time = async function () {
   const curFrom = f.from || new Date().toISOString().slice(0, 8) + '01';
   const curTo = f.to || today();
   c.innerHTML = `
-  <div class="card" style="padding:13px 16px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    ${RANGES.map(([lab, a, b]) => `<button class="btn btn-sm ${curFrom === a && curTo === b ? 'btn-p' : 'btn-o'}"
+  <div class="fbar">
+    ${fChip('Από', `<input type="date" class="fchip-s" id="tF" value="${curFrom}">`, false, '')}
+    ${fChip('Έως', `<input type="date" class="fchip-s" id="tT" value="${curTo}">`, false, '')}
+    ${fChip('Έργο', `<select class="fchip-s" id="tP" style="max-width:180px"><option value="">— όλα —</option>
+      ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`, !!f.fp, '')}
+    ${fChip('Τμήμα', `<select class="fchip-s" id="tD" style="max-width:160px"><option value="">— όλα —</option>
+      ${(S.boot.depts || []).map(u => `<option value="${u.id}" ${f.fd == u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`, !!f.fd, '')}
+    ${TEAM ? fChip('Χειριστής', `<select class="fchip-s" id="tA" style="max-width:170px"><option value="">— όλοι —</option>
+      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>`, !!f.fa, '') : ''}
+    <button class="fchip fchip-go" id="tGo">Προβολή</button>
+    <span class="fbar-sp"></span>
+    <button class="fchip" id="tCsv">⬇ CSV</button>
+  </div>
+  <div class="fchips">
+    ${RANGES.map(([lab, a, b]) => `<button class="kb-chip${curFrom === a && curTo === b ? ' on' : ''}"
       data-range="${a}|${b}">${lab}</button>`).join('')}
-    <span style="width:1px;height:22px;background:var(--line)"></span>
-    <span class="tw-dates"><input type="date" class="inp" id="tF" value="${curFrom}">
-      <span class="mut">→</span>
-      <input type="date" class="inp" id="tT" value="${curTo}"></span>
-    <select class="inp" id="tP" style="width:auto"><option value="">— όλα τα projects —</option>
-      ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-    <select class="inp" id="tD" style="width:auto"><option value="">— όλα τα τμήματα —</option>
-      ${(S.boot.depts || []).map(u => `<option value="${u.id}" ${f.fd == u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
-    ${TEAM ? `<select class="inp" id="tA" style="width:auto"><option value="">— όλοι οι χειριστές —</option>
-      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}
-    <button class="btn btn-p btn-sm" id="tGo">Προβολή</button>
-    <button class="btn btn-o btn-sm" id="tCsv">⬇ CSV</button></div><div id="tRes">${skel(4)}</div>`;
+  </div>
+  <div id="tRes">${skel(4)}</div>`;
   const apply = () => {
     R.time[store] = {from: $('#tF').value, to: $('#tT').value, fp: $('#tP').value,
       fd: $('#tD') ? $('#tD').value : '', fa: $('#tA') ? $('#tA').value : ''};
