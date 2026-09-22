@@ -3784,6 +3784,27 @@ async function vMyDay() {
     + (d.waiting || []).map(w => `<div class="myd-row wait" data-dltask="${w.id}"><span class="dot" style="background:${w.pcolor};flex:none"></span><span class="myd-t"><b>${esc(w.title)}</b><span class="mut"> · ${esc(w.pname || '—')} · περιμένει <b>${esc(w.ballName || '—')}</b></span></span><span class="pill pill-mut" style="flex:none">${esc(w.statusName || '')}</span></div>`).join('')
     + (d.tickets || []).filter(t => t.waitOn === 'client').map(tk => `<div class="myd-row wait" data-qtk="${tk.id}"><span class="myd-ic">${I.ticket}</span><span class="myd-t"><b>#${esc(tk.tid)} ${esc(tk.title)}</b><span class="mut"> · περιμένει πελάτη${tk.waitDays ? ' ' + tk.waitDays + ' ημ.' : ''}</span></span></div>`).join('')
     || '<div class="myd-empty">Δεν περιμένεις κανέναν.</div>';
+  /* 👥 Η ομάδα τώρα — μόνο για όσους οργανώνουν (ο server στέλνει `team` μόνο σε αυτούς).
+     Δύο χρόνοι, γιατί λένε διαφορετικά πράγματα: «σφυγμός» = είναι μπροστά στην οθόνη,
+     «μπήκε» = πότε έκανε login, ακόμη κι αν έκλεισε το εργαλείο. */
+  const team = d.team || [];
+  const liveN = team.filter(x => x.status === 'online').length;
+  const workN = team.filter(x => x.workingOn).length;
+  const hm2 = at => { if (!at) { return '—'; } const dt = new Date(String(at).replace(' ', 'T'));
+    const sameDay = dt.toDateString() === new Date().toDateString();
+    return sameDay ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
+      : dt.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'}) + ' ' + dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}); };
+  const teamBody = team.map(x => `<div class="tm-row${x.workingOn ? ' live' : ''}" data-tmid="${x.id}">
+    <span class="act-ava tm-av" style="--sc:${esc(x.color)}">${esc(x.ini || '?')}</span>
+    <span class="tm-t"><b>${esc(x.name)}</b>
+      <span class="mut">${esc(x.label)}${x.hint ? ' · ' + esc(x.hint) : ''}</span>
+      ${x.workingOn ? `<span class="tm-work">▶ ${esc(x.workingOn.title)}</span>` : ''}</span>
+    <span class="tm-m">
+      <span title="Τελευταίος σφυγμός της εφαρμογής — «είναι μπροστά στην οθόνη»">${I.eye} ${esc(hm2(x.seenAt))}</span>
+      <span title="Τελευταία είσοδος στο σύστημα">${I.key || I.user} ${esc(hm2(x.login))}</span>
+      <span title="Ανοιχτές εργασίες · χρόνος σήμερα">${x.openTasks || 0} εργ. · ${fmtMin(x.minsToday || 0)}</span>
+    </span></div>`).join('');
+
   const ovBody = overruns.length ? overruns.map(o => `<div class="myd-row ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
       <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
       <span class="myd-t qt"><b>${o.what === 'project' ? '📁 ' : ''}${esc(o.title)}</b><span class="mut"> · ${esc(o.agentName)}${o.hoursText ? ' · ⏱ ' + esc(o.hoursText) : ''}${o.daysText ? ' · 📅 ' + esc(o.daysText) : ''}</span></span>
@@ -3798,6 +3819,7 @@ async function vMyDay() {
       ${sec('queue', 'Ουρά tickets', 'η σειρά της ημέρας: πρώτα SLA, μετά όποιος περιμένει περισσότερο', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
     </div>
     <div class="myd-rail">
+      ${team.length ? sec('team', 'Η ομάδα τώρα', liveN + ' ενεργοί τώρα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : ''), team.length, teamBody, {ic: I.users}) : ''}
       ${coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''}
       ${sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))})}
       ${sec('wait', 'Περιμένω άλλους', 'δεν μετράει ως εκκρεμότητά σου', waitN, waitBody, {ic: I.clock, collapsed: true})}
@@ -3831,6 +3853,7 @@ async function vMyDay() {
   });
   { const sb = $('#mdStop'); if (sb) { sb.onclick = async () => { const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null); if (r) { toast('Καταχωρήθηκε ' + fmtMin(r.mins)); } vMyDay(); }; } }
   if (timer) { const el = $('#mdElapsed'); const iv = setInterval(() => { if (!document.body.contains(el)) { clearInterval(iv); return; } el.textContent = elapsed(timer.since); }, 30000); }
+  $$('#content [data-tmid]').forEach(r => r.onclick = () => go('activity'));
   $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
   $$('#content .ov-row').forEach(r => {
     const what = r.dataset.ovwhat, oid = +r.dataset.ovid;

@@ -4164,3 +4164,17 @@ html[data-theme="dark"] .card{border-color:#233043}
 .dc-perf th{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;text-align:left;padding:6px 8px}
 .dc-perf td{padding:7px 8px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
 .dc-perf td:first-child{font-variant-numeric:normal}
+
+/* ═══ Η ομάδα τώρα (Μέρα μου, μόνο για όσους οργανώνουν) ═══ */
+.tm-row{display:flex;gap:9px;align-items:center;padding:7px 6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:8px}
+.tm-row:last-child{border-bottom:none}
+.tm-row:hover{background:var(--bg2)}
+.tm-row.live{background:#16a26a0d}
+.tm-av{width:30px;height:30px;font-size:11px;border-radius:9px;flex:none}
+.tm-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.tm-t b{font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-t .mut{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-work{font-size:10.5px;color:var(--ok);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-m{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:1px;font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
+.tm-m svg{width:11px;height:11px;vertical-align:-1px;opacity:.7}
+@media(max-width:768px){.tm-m span:nth-child(3){display:none}}
