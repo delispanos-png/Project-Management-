@@ -2383,24 +2383,20 @@ R.paytrace = async function () {
   const money = v => (v || 0).toFixed(2).replace('.', ',') + ' €';
 
   const form = `
-    <div class="card" style="padding:13px 15px;margin-bottom:12px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input class="inp" id="ptQ" style="flex:1;min-width:260px"
-          placeholder="email πληρωτή, transaction ID, ποσό ή όνομα…" value="${esc(st.q)}">
-        <button class="btn btn-p" id="ptGo">${I.search || ''} Αναζήτηση</button>
-        <span style="width:1px;height:22px;background:var(--line)"></span>
-        <span class="mut" style="font-size:12px">Από</span>
-        <input class="inp" id="ptFrom" type="date" style="width:auto" value="${esc(st.from || '')}">
-        <span class="mut" style="font-size:12px">έως</span>
-        <input class="inp" id="ptTo" type="date" style="width:auto" value="${esc(st.to || '')}">
-        <button class="btn btn-o" id="ptCsv" title="Κατέβασμα για το λογιστήριο">${I.download || '⤓'} CSV</button>
-        <button class="btn btn-o" id="ptCsvAll" title="Όλες οι εισπράξεις, ανεξάρτητα από αναζήτηση">⤓ Όλα</button>
-      </div>
-      <div class="mut" style="font-size:12px;margin-top:7px">
-        Ψάχνει σε όλους τους πελάτες μαζί — και μέσα στα IPN των gateway, εκεί όπου ζει το email του πληρωτή.
-        Το «Ποσό παραστατικού» είναι η <b>πραγματική αξία</b> — το WHMCS αποθηκεύει στη θέση του το υπόλοιπο
-        μετά την πίστωση, γι' αυτό αλλού φαίνεται 0. Η <b>«Υπερπληρωμή πήγε σε»</b> δείχνει πού πήγε το πλεόνασμα.
-      </div>
+    <div class="fbar">
+      ${fChip('Αναζήτηση', `<input class="fchip-s" id="ptQ" value="${esc(st.q)}"
+        placeholder="email πληρωτή, transaction ID, ποσό ή όνομα…" style="width:280px">`, !!st.q, '')}
+      ${fChip('Από', `<input type="date" class="fchip-s" id="ptFrom" value="${esc(st.from || '')}">`, !!st.from, '')}
+      ${fChip('Έως', `<input type="date" class="fchip-s" id="ptTo" value="${esc(st.to || '')}">`, !!st.to, '')}
+      <button class="fchip fchip-go" id="ptGo">${I.search || ''} Αναζήτηση</button>
+      <span class="fbar-sp"></span>
+      <button class="fchip" id="ptCsv" title="Κατέβασμα για το λογιστήριο">${I.download || '⤓'} CSV</button>
+      <button class="fchip" id="ptCsvAll" title="Όλες οι εισπράξεις, ανεξάρτητα από αναζήτηση">⤓ Όλα</button>
+    </div>
+    <div class="mut" style="font-size:11.5px;line-height:1.5;margin-bottom:12px">
+      Ψάχνει σε όλους τους πελάτες μαζί — και μέσα στα IPN των gateway, εκεί όπου ζει το email του πληρωτή.
+      Το «Ποσό παραστατικού» είναι η <b>πραγματική αξία</b>: το WHMCS αποθηκεύει στη θέση του το υπόλοιπο
+      μετά την πίστωση, γι' αυτό αλλού φαίνεται 0. Η <b>«Υπερπληρωμή πήγε σε»</b> δείχνει πού πήγε το πλεόνασμα.
     </div>`;
 
   const auditBox = '<div id="ptAudit"><div class="skel" style="height:120px;margin-bottom:12px"></div></div>';
@@ -2725,11 +2721,13 @@ R.profit = async function () {
   const tot = d.clients.reduce((a, x) => ({rev: a.rev + x.rev, labor: a.labor + x.labor, exp: a.exp + x.exp}), {rev: 0, labor: 0, exp: 0});
   const net = tot.rev - tot.labor - tot.exp;
   c.innerHTML = `
-  <div class="card" style="padding:13px 16px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    <input type="date" class="inp" id="pF" style="width:auto" value="${d.from}">
-    <input type="date" class="inp" id="pT" style="width:auto" value="${d.to}">
-    <button class="btn btn-p btn-sm" id="pGo">Προβολή</button>
-    <span class="mut" style="margin-left:auto">Κόστος ώρας: <b>${fmtEur(d.costH)}</b>${d.costH <= 0 ? ' — όρισέ το στις ρυθμίσεις του module' : ''}</span></div>
+  <div class="fbar">
+    ${fChip('Από', `<input type="date" class="fchip-s" id="pF" value="${d.from}">`, false, '')}
+    ${fChip('Έως', `<input type="date" class="fchip-s" id="pT" value="${d.to}">`, false, '')}
+    <button class="fchip fchip-go" id="pGo">Προβολή</button>
+    <span class="fbar-sp"></span>
+    <span class="fbar-note">κόστος ώρας: <b>${fmtEur(d.costH)}</b>${d.costH <= 0 ? ' — όρισέ το στις ρυθμίσεις του module' : ''}</span>
+  </div>
   <div class="grid g4">
     <div class="stat ok"><b>${fmtEur(tot.rev)}</b><small>Έσοδα (πελάτες με έργο)</small></div>
     <div class="stat warn"><b>${fmtEur(tot.labor)}</b><small>Κόστος εργασίας</small></div>

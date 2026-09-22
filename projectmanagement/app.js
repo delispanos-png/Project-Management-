@@ -3890,8 +3890,8 @@ async function vMyDay() {
       r: el => { const b = el.querySelector('[data-attgo]'); (b || el).click(); },
       t: el => { const b = el.querySelector('[data-mdplay]'); if (b) { b.click(); } else { toast('Χρονόμετρο μόνο σε εργασία', true); } },
       e: el => { const b = el.querySelector('[data-mddone], [data-attdone]'); if (b) { b.click(); } else { toast('Δεν ολοκληρώνεται από εδώ', true); } },
-      n: () => goNext(),
     },
+    globalKeys: {n: () => goNext()},
   });
   $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
   $$('#content [data-mdplay]').forEach(b => b.onclick = async e => {
@@ -4746,6 +4746,10 @@ function cnpKeyNav(opts) {
     if (k === 'Escape' && i >= 0) { e.preventDefault(); i = -1; paint(); return; }
     /* Το «?» έρχεται αλλιώς ανά διάταξη πληκτρολογίου — δεχόμαστε και το Shift+/ . */
     if (k === '?' || (e.shiftKey && (k === '/' || e.code === 'Slash'))) { e.preventDefault(); cnpKeyHelp(opts.help || []); return; }
+    /* Πλήκτρα που ΔΕΝ χρειάζονται γραμμή (π.χ. «n» = πήγαινε στο επόμενο) πρέπει να
+       δουλεύουν και πριν κουνηθεί ο δρομέας — αλλιώς ο χρήστης πρέπει πρώτα να πατήσει j. */
+    const gk = (opts.globalKeys || {})[k];
+    if (gk) { e.preventDefault(); gk(); return; }
     const el = cur();
     if (!el) { return; }
     if (k === 'Enter') { e.preventDefault(); (keys.Enter || (x => x.click()))(el); return; }
