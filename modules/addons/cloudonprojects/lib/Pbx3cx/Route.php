@@ -107,7 +107,17 @@ class Route
         $q = self::queues();
         $out = [];
         foreach (self::products() as $k => [$label, $dn]) {
-            $out[] = ['key' => $k, 'label' => $label, 'dn' => $dn, 'queue' => $q[$dn] ?? $dn];
+            /* Η υποκατηγορία έρχεται ως «Γονέας › Παιδί». Η οθόνη τη θέλει και
+               ολόκληρη (για tooltip) και σκέτη (για την εσοχή κάτω από τον γονέα). */
+            $sub = mb_strpos($label, ' › ') !== false;
+            $out[] = [
+                'key'   => $k,
+                'label' => $label,
+                'short' => $sub ? trim(mb_substr($label, mb_strpos($label, ' › ') + 3)) : $label,
+                'sub'   => $sub,
+                'dn'    => $dn,
+                'queue' => $q[$dn] ?? $dn,
+            ];
         }
         return $out;
     }

@@ -3803,10 +3803,18 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .bc-rhead .bc-dec{margin:0 0 0 auto}
 /* `align-items:start`: κάθε ομάδα ψηλή όσο το περιεχόμενό της. Χωρίς αυτό όλες
    τεντώνονταν στο ύψος της μεγαλύτερης και άφηναν κενά από κάτω. */
-.bc-qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:9px;align-items:start}
-.bc-qg{border:1px solid var(--line);border-radius:11px;background:var(--canvas);padding:9px 10px 10px}
-.bc-qgh{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
-  color:var(--mut);margin-bottom:7px}
+/* ΤΑ ΠΡΟΪΟΝΤΑ ΤΟΥ ΠΕΛΑΤΗ — ενιαίο πλέγμα σε σειρά καταλόγου. Η παλιά
+   ομαδοποίηση κατά ουρά έσπασε όταν τα προϊόντα έγιναν 18: τα μισά δεν έχουν
+   ουρά και μαζεύονταν σε ένα ανώνυμο κουτί δίπλα σε κουτιά του ενός. */
+.bc-pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(186px,1fr));gap:7px;align-items:stretch}
+.bc-pgrid .bc-prod{margin:0;height:100%}
+.bc-pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bc-pq{flex:0 0 auto;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
+  color:var(--mut,#94a3b8);opacity:.85}
+.bc-prod.on .bc-pq{color:var(--brand);opacity:.7}
+/* Η υποκατηγορία με εσοχή, κάτω από τον γονέα της στη ροή του πλέγματος. */
+.bc-psub{grid-column:span 1;position:relative;padding-left:26px}
+.bc-psub::before{content:'↳';position:absolute;left:9px;color:var(--mut,#94a3b8);font-size:12px}
 .bc-prod{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;
   padding:5px 8px;border-radius:8px;border:1px solid transparent;background:var(--card);
   margin-bottom:5px;transition:border-color .12s,color .12s}
