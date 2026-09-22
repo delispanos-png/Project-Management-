@@ -997,23 +997,20 @@ async function bookCard(id, pre) {
     Τι έχει από εμάς. Με αυτά το κέντρο στέλνει την κλήση του <b>κατευθείαν στη σωστή ουρά</b>,
     χωρίς ρεσεψιόν.${d.routing && d.routing.decision ? ` <span class="mut">${esc(d.routing.decision.reason)}.</span>` : ''}</div>
 
-  <div class="bc-qgrid">${(() => {
-    const prods = (d.routing && d.routing.products) || [];
-    const groups = new Map();
-    prods.forEach(p => {
-      const q = String(p.queue).replace(/ \(.*\)$/, '');      // «Support (212→220…)» → «Support»
-      if (!groups.has(q)) { groups.set(q, []); }
-      groups.get(q).push(p);
-    });
-    /* Οι μεγάλες ομάδες πρώτες — διαβάζονται σαν στήλες, όχι σαν λίστα. */
-    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([q, list]) => `
-      <div class="bc-qg">
-        <div class="bc-qgh">${esc(q)}</div>
-        ${list.map(p => `<label class="bc-prod${(K.products || []).includes(p.key) ? ' on' : ''}">
-          <input type="checkbox" data-prod="${esc(p.key)}" ${(K.products || []).includes(p.key) ? 'checked' : ''} ${ed ? '' : 'disabled'}>
-          ${esc(p.label)}</label>`).join('')}
-      </div>`).join('');
-  })()}</div>
+  <div class="bc-pgrid">${((d.routing && d.routing.products) || []).map(p => {
+    /* ΣΕΙΡΑ ΚΑΤΑΛΟΓΟΥ, ΟΧΙ ΟΜΑΔΕΣ ΟΥΡΑΣ. Η ομαδοποίηση κατά ουρά δούλευε όσο
+       κάθε προϊόν είχε ουρά· με 18 προϊόντα τα μισά δεν έχουν, και μαζεύονταν
+       όλα σε ένα ανώνυμο κουτί δίπλα σε κουτιά του ενός. Η ουρά είναι ΣΥΝΕΠΕΙΑ
+       της επιλογής, όχι ο τρόπος να τη βρεις — μπαίνει ως υποσημείωση, και το
+       πού καταλήγει τελικά η κλήση το λέει ήδη η ένδειξη πάνω δεξιά. */
+    const on = (K.products || []).includes(p.key);
+    const q = String(p.queue || '').replace(/ \(.*\)$/, '');
+    return `<label class="bc-prod${on ? ' on' : ''}${p.sub ? ' bc-psub' : ''}"
+      title="${esc(p.label)}${q ? ' → ' + esc(q) : ''}">
+      <input type="checkbox" data-prod="${esc(p.key)}" ${on ? 'checked' : ''} ${ed ? '' : 'disabled'}>
+      <span class="bc-pn">${esc(p.short || p.label)}</span>
+      ${q ? `<span class="bc-pq">${esc(q)}</span>` : ''}</label>`;
+  }).join('')}</div>
 
   <div class="bc-grid" style="margin-top:10px">
     <div class="bc-f"><label class="lbl">Τεχνική υποστήριξη</label>
