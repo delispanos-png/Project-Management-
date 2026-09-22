@@ -3791,35 +3791,13 @@ async function vMyDay() {
     + (d.waiting || []).map(w => `<div class="myd-row wait" data-dltask="${w.id}"><span class="dot" style="background:${w.pcolor};flex:none"></span><span class="myd-t"><b>${esc(w.title)}</b><span class="mut"> · ${esc(w.pname || '—')} · περιμένει <b>${esc(w.ballName || '—')}</b></span></span><span class="pill pill-mut" style="flex:none">${esc(w.statusName || '')}</span></div>`).join('')
     + (d.tickets || []).filter(t => t.waitOn === 'client').map(tk => `<div class="myd-row wait" data-qtk="${tk.id}"><span class="myd-ic">${I.ticket}</span><span class="myd-t"><b>#${esc(tk.tid)} ${esc(tk.title)}</b><span class="mut"> · περιμένει πελάτη${tk.waitDays ? ' ' + tk.waitDays + ' ημ.' : ''}</span></span></div>`).join('')
     || '<div class="myd-empty">Δεν περιμένεις κανέναν.</div>';
-  /* 👥 Οριζόντια μπάρα παρουσίας (22/9/2026) — ένας κύκλος ανά άνθρωπο.
-     Πράσινος = μέσα, γκρίζος = εκτός. Πάνω από τον κύκλο η ώρα που είναι
-     συνδεδεμένος και αλληλεπιδρά με το πρόγραμμα σήμερα. Κλικ → η μέρα του με μια ματιά. */
+  /* 👥 Η μπάρα παρουσίας είναι κοινό κομμάτι (cnpPeopleBar) — ίδια παντού. */
   const team = d.team || [];
   const teamOn = team.filter(x => x.status !== 'offline');
   const workN = team.filter(x => x.workingOn).length;
-  const hm2 = at => { if (!at) { return '\u2014'; } const dt = new Date(String(at).replace(' ', 'T'));
-    const sameDay = dt.toDateString() === new Date().toDateString();
-    return sameDay ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
-      : dt.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'}) + ' ' + dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}); };
-  const lastLbl = at => { if (!at) { return '\u2014'; }
-    const dt = new Date(String(at).replace(' ', 'T')), n = new Date();
-    const dd = Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(dt.getFullYear(), dt.getMonth(), dt.getDate())) / 86400000);
-    return dd <= 0 ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
-      : dd === 1 ? '\u03c7\u03b8\u03b5\u03c2' : dd < 7 ? dd + ' \u03b7\u03bc.'
-      : String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0'); };
-  const tmbBar = !team.length ? '' : `<div class="tmb">
-    <div class="tmb-h">${I.users}<b>Η ομάδα τώρα</b>
-      <span class="mut">${teamOn.length} μέσα${workN ? ' · ' + workN + ' με χρονόμετρο' : ''}${d.teamScope ? ' · ' + esc(d.teamScope) : ''}</span>
-      <span style="flex:1"></span><a class="myd-link" data-go="activity">δραστηριότητα →</a></div>
-    <div class="tmb-strip">${team.map(x => {
-      const inNow = x.status !== 'offline';
-      const badge = inNow ? (x.connMins ? fmtMin(x.connMins) : 'μόλις') : lastLbl(x.seenAt || x.login);
-      return `<button class="tmb-p${inNow ? ' in' : ''}${x.workingOn ? ' work' : ''}" data-tmp="${x.id}"
-        title="${esc(x.name)}${x.team ? ' · ' + esc(x.team) : ''} — ${esc(x.label)}${x.hint ? ' (' + esc(x.hint) + ')' : ''}">
-        <span class="tmb-badge">${esc(badge)}</span>
-        <span class="tmb-av" style="--sc:${esc(x.color)}">${esc(x.ini || '?')}${x.workingOn ? '<i class="tmb-run">▶</i>' : ''}</span>
-        <span class="tmb-n">${esc(String(x.name).split(' ')[0])}</span></button>`;
-    }).join('')}</div></div>`;
+  const tmbBar = cnpPeopleBar(team, {
+    hint: teamOn.length + ' μέσα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '') + (d.teamScope ? ' · ' + d.teamScope : ''),
+    link: ['activity', 'δραστηριότητα →']});
 
   const ovBody = overruns.length ? overruns.map(o => `<div class="myd-row ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
       <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
@@ -3853,7 +3831,7 @@ async function vMyDay() {
   { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
-  $$('#content [data-tmp]').forEach(b => b.onclick = () => openTeamPulse(+b.dataset.tmp));
+  cnpWireDash($('#content'));
   $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
   $$('#content [data-mdplay]').forEach(b => b.onclick = async e => {
     e.stopPropagation(); const id = +b.dataset.mdplay;
@@ -4448,6 +4426,81 @@ document.addEventListener('keydown', e => {
   }
 }, true);
 
+/* ═════════ 📊 Dashboard kit (22/9/2026) ═════════
+   Τα τρία κομμάτια που ξαναγράφονταν σε κάθε οθόνη με νούμερα ζουν ΕΔΩ,
+   ώστε ο επόμενος πίνακας να μοιάζει με τον προηγούμενο χωρίς να το ξανασχεδιάσει κανείς.
+   Κανόνες: χρώμα ΜΟΝΟ όταν σημαίνει κάτι, τίτλος που λέει τι μετράει, και tooltip
+   που εξηγεί ΠΩΣ βγήκε ο αριθμός — ένας ανεξήγητος αριθμός δεν λύνει απόφαση. */
+
+/** Σειρά αριθμών. items: [{n, label, color, tip, go}] — το `label` δέχεται <br>. */
+function cnpKpis(items, opts) {
+  opts = opts || {};
+  const it = (items || []).filter(Boolean);
+  if (!it.length) { return ''; }
+  return `<div class="dkpi${opts.cls ? ' ' + opts.cls : ''}" style="--n:${it.length}">${it.map(k =>
+    `<div class="dkpi-i${k.go ? ' go' : ''}"${k.go ? ` data-dkgo="${esc(k.go)}"` : ''}${k.tip ? ` title="${esc(k.tip)}"` : ''}>
+      <b${k.color ? ` style="color:${k.color}"` : ''}>${k.n}</b><small>${k.label}</small></div>`).join('')}</div>`;
+}
+
+/** Στήλες ρυθμού. days: [{d, date, mins, today}] — μία μέρα δεν λέει τίποτα, επτά λένε. */
+function cnpSpark(days, opts) {
+  opts = opts || {};
+  const ds = days || [];
+  if (!ds.length) { return ''; }
+  const fmt = opts.fmt || fmtMin;
+  const mx = Math.max(1, ...ds.map(x => x.mins || 0));
+  return `<div class="dspark">${ds.map(x => `<span class="dspark-b${x.today ? ' on' : ''}"
+    style="--h:${Math.round((x.mins || 0) / mx * 100)}%"
+    title="${esc(x.d || '')}${x.date ? ' ' + esc(x.date.slice(8, 10) + '/' + x.date.slice(5, 7)) : ''} — ${esc(fmt(x.mins || 0))}"><i></i><small>${esc(x.d || '')}</small></span>`).join('')}</div>`;
+}
+
+/** Πόση ώρα πέρασε — σύντομα, για σήμα πάνω από κύκλο. */
+function cnpLastLbl(at) {
+  if (!at) { return '—'; }
+  const dt = new Date(String(at).replace(' ', 'T')), n = new Date();
+  const dd = Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(dt.getFullYear(), dt.getMonth(), dt.getDate())) / 86400000);
+  return dd <= 0 ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
+    : dd === 1 ? 'χθες' : dd < 7 ? dd + ' ημ.'
+    : String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0');
+}
+
+/**
+ * Οριζόντια μπάρα ανθρώπων: ένας κύκλος ο καθένας, πράσινος όταν είναι μέσα.
+ * Πάνω από τον κύκλο πόση ώρα είναι μέσα σήμερα (εκτός → πότε ήταν η τελευταία
+ * του κίνηση), και ▶ όταν τρέχει χρονόμετρο. Κλικ → η μέρα του (openTeamPulse).
+ * people: [{id, name, ini, color, status, label, hint, team, connMins, connSince, seenAt, login, workingOn}]
+ */
+function cnpPeopleBar(people, opts) {
+  opts = opts || {};
+  const ps = people || [];
+  if (!ps.length) { return ''; }
+  const inN = ps.filter(x => x.status !== 'offline').length;
+  const workN = ps.filter(x => x.workingOn).length;
+  return `<div class="tmb${opts.cls ? ' ' + opts.cls : ''}">
+    <div class="tmb-h">${I.users}<b>${esc(opts.title || 'Η ομάδα τώρα')}</b>
+      <span class="mut">${esc(opts.hint || (inN + ' μέσα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '')))}</span>
+      <span style="flex:1"></span>
+      ${opts.link ? `<a class="myd-link" data-go="${esc(opts.link[0])}">${esc(opts.link[1])}</a>` : ''}
+      ${opts.right || ''}</div>
+    <div class="tmb-strip">${ps.map(x => {
+      const inNow = x.status !== 'offline';
+      const badge = inNow ? (x.connMins ? fmtMin(x.connMins) : 'μόλις') : cnpLastLbl(x.seenAt || x.login);
+      return `<button class="tmb-p${inNow ? ' in' : ''}${x.workingOn ? ' work' : ''}" data-tmp="${x.id}"
+        title="${esc(x.name)}${x.team ? ' · ' + esc(x.team) : ''} — ${esc(x.label || '')}${x.hint ? ' (' + esc(x.hint) + ')' : ''}${x.workingOn ? ' — ▶ ' + esc(x.workingOn.title) : ''}">
+        <span class="tmb-badge">${esc(badge)}</span>
+        <span class="tmb-av" style="--sc:${esc(x.color || '#9aa7b8')}">${esc(x.ini || '?')}${x.workingOn ? '<i class="tmb-run">▶</i>' : ''}</span>
+        <span class="tmb-n">${esc(String(x.name || '').split(' ')[0])}</span></button>`;
+    }).join('')}</div></div>`;
+}
+
+/** Δένει ό,τι έχει φτιάξει το kit μέσα σε ένα root (κύκλοι ανθρώπων, κλικαριστά πλακίδια). */
+function cnpWireDash(root) {
+  const r = root || document.querySelector('#content');
+  if (!r) { return; }
+  r.querySelectorAll('[data-tmp]').forEach(b => b.onclick = () => openTeamPulse(+b.dataset.tmp));
+  r.querySelectorAll('[data-dkgo]').forEach(b => b.onclick = () => go(b.dataset.dkgo));
+}
+
 /* ═════════ 👤 Η μέρα ενός ανθρώπου — pop-up απόφασης (22/9/2026) ═════════
    Ανοίγει από τον κύκλο της μπάρας παρουσίας. Μία οθόνη, χωρίς πλοήγηση:
    τι κάνει τώρα, πώς πάει η μέρα του, τι κρατάει ανοιχτό και τι μπορείς να κάνεις
@@ -4474,11 +4527,7 @@ async function openTeamPulse(id) {
      μετράει ΤΗΝ ΚΑΤΑΓΡΑΦΗ, όχι την αξία της δουλειάς. Κάτω από 30' παρουσία δεν λέει τίποτα. */
   const cap = t.conn >= 30 ? Math.min(100, Math.round(t.logged / t.conn * 100)) : null;
   const capC = cap === null ? 'var(--mut)' : cap >= 70 ? 'var(--ok)' : cap >= 40 ? 'var(--warn)' : 'var(--bad)';
-  const mx = Math.max(1, ...wk.days.map(x => x.mins));
-  const spark = wk.days.map(x => `<span class="tp-bar${x.today ? ' on' : ''}" style="--h:${Math.round(x.mins / mx * 100)}%"
-    title="${esc(x.d)} ${esc(x.date.slice(8, 10) + '/' + x.date.slice(5, 7))} — ${esc(fmtMin(x.mins))}"><i></i><small>${esc(x.d)}</small></span>`).join('');
-
-  const kpi = (n, lbl, col, tip) => `<div class="tp-k" title="${esc(tip || '')}"><b style="color:${col || 'var(--ink)'}">${n}</b><small>${lbl}</small></div>`;
+  const kpi = (n, lbl, col, tip) => ({n, label: lbl, color: col, tip});
   const taskLine = x => `<div class="tp-row" data-tptask="${x.id}">
     <span class="dot" style="background:${esc(x.pcolor)}"></span>
     <span class="tp-t"><b>${esc(x.title)}</b><span class="mut"> · ${esc(x.pname || 'Χωρίς έργο')}</span></span>
@@ -4496,15 +4545,14 @@ async function openTeamPulse(id) {
     ${d.now ? `<span class="tp-now-k">▶ Τώρα</span><b data-tptask="${d.now.id}">${esc(d.now.title)}</b><span class="tp-now-e">${esc(fmtMin(d.now.mins))}</span>`
       : `<span class="tp-now-k">Δεν τρέχει χρονόμετρο</span><span class="mut">${t.logged ? 'έχει καταγράψει ' + esc(fmtMin(t.logged)) + ' σήμερα' : 'καμία καταγραφή χρόνου σήμερα'}</span>`}</div>
 
-  <div class="tp-k4">
-    ${kpi(esc(fmtMin(t.logged)), 'καταγεγραμμένος<br>χρόνος', null, 'Όσο χρόνο έχει χρεώσει σε εργασίες σήμερα')}
-    ${kpi(esc(fmtMin(t.conn)), 'μέσα στο<br>εργαλείο', null, 'Από την πρώτη ως την τελευταία κίνηση σήμερα')}
-    ${kpi(cap === null ? '—' : cap + '%', 'καταγραφή<br>χρόνου', capC, 'Πόσο από τον χρόνο που ήταν μέσα έχει χρονόμετρο από πίσω. Μετράει την καταγραφή, όχι την αξία της δουλειάς.')}
-    ${kpi(t.done, 'ολοκληρώθηκαν<br>σήμερα', t.done ? 'var(--ok)' : null, 'Εργασίες που έκλεισε σήμερα')}
-  </div>
+  <div class="tp-kwrap">${cnpKpis([
+    kpi(esc(fmtMin(t.logged)), 'καταγεγραμμένος<br>χρόνος', null, 'Όσο χρόνο έχει χρεώσει σε εργασίες σήμερα'),
+    kpi(esc(fmtMin(t.conn)), 'μέσα στο<br>εργαλείο', null, 'Από την πρώτη ως την τελευταία κίνηση σήμερα'),
+    kpi(cap === null ? '—' : cap + '%', 'καταγραφή<br>χρόνου', capC, 'Πόσο από τον χρόνο που ήταν μέσα έχει χρονόμετρο από πίσω. Μετράει την καταγραφή, όχι την αξία της δουλειάς.'),
+    kpi(t.done, 'ολοκληρώθηκαν<br>σήμερα', t.done ? 'var(--ok)' : null, 'Εργασίες που έκλεισε σήμερα')])}</div>
 
   <div class="tp-sec"><div class="tp-lbl">Η εβδομάδα — ${esc(fmtMin(wk.logged))} · ${wk.done} ${wk.done === 1 ? 'ολοκλήρωση' : 'ολοκληρώσεις'}</div>
-    <div class="tp-spark">${spark}</div></div>
+    ${cnpSpark(wk.days)}</div>
 
   <div class="tp-sec"><div class="tp-lbl">Τι κρατάει ανοιχτό</div>
     <div class="tp-chips">
@@ -4555,6 +4603,7 @@ async function openTeamPulse(id) {
 window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
+  cnpKpis, cnpSpark, cnpPeopleBar, cnpWireDash, cnpLastLbl,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 
