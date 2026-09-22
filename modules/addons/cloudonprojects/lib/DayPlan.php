@@ -413,6 +413,51 @@ class DayPlan
     }
 
     /**
+     * 🌙 Κλείσιμο ημέρας (17:30): το άλλο μισό της συνήθειας. Χωρίς αυτό ο PM ανοίγει την ουρά
+     * το πρωί και δεν κλείνει ποτέ τη μέρα του. Μία ειδοποίηση ανά άτομο, με τον απολογισμό:
+     * τι έκλεισε, τι μένει, τι μεταφέρεται αύριο, πόσος χρόνος λείπει.
+     *
+     * @return array ['sent'=>int]
+     */
+    public static function dayEnd($dry = false)
+    {
+        if (!self::enabled()) { return ['sent' => 0, 'skip' => 'off']; }
+        $day = date('Y-m-d');
+        $sent = 0;
+        $doneIds = self::doneIds();
+        foreach (self::owners() as $o) {
+            if (Db::pref($o, 'cards_dayend', '') === $day) { continue; }   // μία φορά την ημέρα
+            $closed = (int) Capsule::table('mod_cpm_cards')->where('day', $day)
+                ->whereIn('state', ['done', 'dismissed'])->where('resolved_by', $o)->count();
+            $left = (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])
+                ->where(function ($q) use ($o) { $q->where('owner_id', $o)->orWhere('owner_id', 0); })->count();
+            $tasksDone = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $o)
+                ->where('completed_at', '>=', $day . ' 00:00:00')->count();
+            $mins = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $o)->where('running', 0)
+                ->where('created_at', '>=', $day . ' 00:00:00')->sum('minutes');
+            /* Εργασίες που έληξαν σήμερα και δεν έκλεισαν → μεταφέρονται, και πρέπει να το ξέρει. */
+            $slip = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds)
+                ->where('due_date', $day)
+                ->where(function ($q) use ($o) { $q->where('action_user', $o)->orWhere(function ($x) use ($o) {
+                    $x->where('assignee', $o)->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); }); }); })->count();
+            if (!$closed && !$left && !$tasksDone && !$slip) { continue; }   // ήσυχη μέρα, μην ενοχλείς
+            $parts = [];
+            if ($closed) { $parts[] = $closed . ' κάρτες'; }
+            if ($tasksDone) { $parts[] = $tasksDone . ' εργασίες'; }
+            $msg = '🌙 Κλείσιμο ημέρας: ' . ($parts ? 'έκλεισες ' . implode(' και ', $parts) : 'δεν έκλεισε κάτι')
+                . ($mins ? ' · ' . round($mins / 60, 1) . 'ω χρόνος' : ' · ΚΑΝΕΝΑΣ χρόνος καταγεγραμμένος')
+                . ($slip ? ' · ' . $slip . ' μεταφέρονται αύριο' : '')
+                . ($left ? ' · ' . $left . ' κάρτες εκκρεμούν' : '');
+            if (!$dry) {
+                Db::setPref($o, 'cards_dayend', $day);
+                Db::pushNotification($o, 'info', $msg, '/project/#/cards');
+            }
+            $sent++;
+        }
+        return ['sent' => $sent];
+    }
+
+    /**
      * Κλιμάκωση: ό,τι έμεινε αναπάντητο μετά την προθεσμία ανεβαίνει στους Manager —
      * ΜΙΑ σύνοψη ανά παραλήπτη, όχι μία ειδοποίηση ανά κάρτα.
      */

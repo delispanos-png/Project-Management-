@@ -124,9 +124,9 @@ try {
     $chC = curl_init('https://my.cloudon.gr/projectmanagement/api.php?a=cards_build&k=' . $kC);
     curl_setopt_array($chC, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90, CURLOPT_USERAGENT => 'cpm-pulse']);
     $rC = json_decode((string) curl_exec($chC), true); curl_close($chC);
-    if (!empty($rC['created']) || !empty($rC['escalated'])) {
+    if (!empty($rC['created']) || !empty($rC['escalated']) || !empty($rC['dayEnd'])) {
         echo '[' . date('H:i:s') . '] κάρτες διαχείρισης: ' . (int) ($rC['created'] ?? 0) . ' νέες, '
-            . (int) ($rC['escalated'] ?? 0) . " κλιμακώθηκαν\n";
+            . (int) ($rC['escalated'] ?? 0) . ' κλιμακώθηκαν, ' . (int) ($rC['dayEnd'] ?? 0) . " κλείσιμο ημέρας\n";
     }
 } catch (\Throwable $e) {
     echo '[' . date('H:i:s') . '] κάρτες διαχείρισης ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
