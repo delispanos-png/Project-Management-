@@ -3989,6 +3989,10 @@ async function vMyDay() {
       {ic: I.eye, collapsed: !sup.stuck && !sup.late, link: ['supervised', 'όλα →']}) : ''),
     wait: () => (waitN ? sec('wait', 'Περιμένω άλλους', 'όχι δική σου εκκρεμότητα', waitN, waitBody, {ic: I.clock, collapsed: true}) : ''),
     ov: () => (overruns.length ? sec('ov', 'Υπερβάσεις ομάδας', 'πάνω από την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''),
+    /* ΑΚΥΡΩΣΕΙΣ. Το περιεχόμενο έρχεται μετά (δες mydCancels): δεν κρατάμε τη
+       μέρα πίσω για ένα ερώτημα που αφορά λίγους. */
+    cancels: () => sec('cancels', 'Ακυρώσεις υπηρεσιών', 'τι ζητήθηκε και αν έκλεισε', null,
+      '<div id="mydCn" class="mut" style="font-size:12.5px">φόρτωση…</div>', {ic: I.alert}),
   };
   const put = col => mydCol(col).map(k => (BLK[k] ? BLK[k]() : '')).join('');
 
@@ -4010,6 +4014,7 @@ async function vMyDay() {
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
   cnpWireDash($('#content'));
+  mydCancels();
 
   /* ⌨ Ο δρομέας πάνω στις γραμμές που ΚΑΝΟΥΝ κάτι. Η θέση επιβιώνει του redraw:
      κάθε ενέργεια ξαναζωγραφίζει την οθόνη και χωρίς αυτό θα ξεκινούσες από την αρχή. */
@@ -4882,6 +4887,46 @@ function cnpWireDash(root) {
    Ίδια οθόνη, ο καθένας κρύβει ό,τι δεν του λέει και βάζει πρώτο ό,τι κοιτάζει πρώτο.
    Η διάταξη ζει στον server (pref myday_layout), ώστε να ακολουθεί το άτομο και όχι
    τον browser. Νέο μπλοκ που θα προστεθεί αύριο εμφανίζεται μόνο του στο τέλος. */
+/**
+ * ΑΚΥΡΩΣΕΙΣ ΥΠΗΡΕΣΙΩΝ στην κάρτα της ημέρας.
+ *
+ * Τρία πράγματα, με αυτή τη σειρά σημασίας:
+ *   1. ΔΕΝ ΕΚΛΕΙΣΕ Ο ΚΥΚΛΟΣ — η υπηρεσία λέει ακυρωμένη και κρατάμε ακόμη
+ *      server πάνω της. Χρήμα που τρέχει χωρίς να χρεώνεται.
+ *   2. ΑΝΟΙΧΤΑ — το ζήτησε ο πελάτης, δεν έγινε ακόμη.
+ *   3. Πόσα έκλεισαν κανονικά, για να φαίνεται ότι δουλεύει.
+ *
+ * Η ΕΝΕΡΓΕΙΑ δεν γίνεται από εδώ: οι υπηρεσίες ζουν στο cloudonadminpanel.
+ * Εδώ είναι μόνο η ειδοποίηση ότι κάτι θέλει χέρι.
+ */
+async function mydCancels() {
+  const box = $('#mydCn');
+  if (!box) { return; }
+  const d = await api('cancels').catch(() => null);
+  if (!d) { box.innerHTML = '<span class="mut">Δεν φορτώθηκε.</span>'; return; }
+  const row = (r, bad) => `<div class="myd-row${bad ? ' wait' : ''}">
+    <span class="dot" style="background:${bad ? 'var(--bad,#b91c1c)' : 'var(--warn,#b45309)'};flex:none"></span>
+    <span class="myd-t"><b>${esc(r.client)}</b><span class="mut"> · ${esc(r.product || 'υπηρεσία')}
+      · #${r.service}${r.vm ? ' · VM ' + r.vm : ''}</span>
+      ${bad ? `<div class="mut" style="font-size:11.5px">${esc(r.status)} στο WHMCS, αλλά ο server υπάρχει ακόμη${
+        r.asked === false ? ' · ακύρωση από εμάς' : ''}</div>` : ''}</span>
+    ${!bad && r.type ? `<span class="pill pill-mut" style="flex:none">${esc(r.type)}</span>` : ''}</div>`;
+
+  const stuck = d.stuck || [];
+  const open = d.open || [];
+  box.innerHTML = (stuck.length
+      ? `<div class="myd-lbl bad">Δεν έκλεισε ο κύκλος — ${stuck.length}</div>${stuck.map(r => row(r, true)).join('')}`
+      : '')
+    + (open.length
+      ? `<div class="myd-lbl">Ζητήθηκαν, εκκρεμούν — ${open.length}</div>${open.map(r => row(r, false)).join('')}`
+      : '')
+    + (!stuck.length && !open.length
+      ? '<span class="mut">Καμία εκκρεμότητα — όλες οι ακυρώσεις έκλεισαν.</span>' : '')
+    + (d.doneRecent
+      ? `<div class="mut" style="font-size:11.5px;margin-top:8px">Έκλεισαν κανονικά ${d.doneRecent} τις τελευταίες ${d.days} ημέρες.</div>`
+      : '');
+}
+
 const MYD_BLOCKS = [
   {k: 'day', col: 'bar', label: 'Το ημερολόγιό μου σήμερα'},
   {k: 'team', col: 'bar', label: 'Η ομάδα τώρα'},
@@ -4893,6 +4938,9 @@ const MYD_BLOCKS = [
   {k: 'sup', col: 'rail', label: 'Επιβλέπω — τα ανέθεσα εγώ'},
   {k: 'wait', col: 'rail', label: 'Περιμένω άλλους'},
   {k: 'ov', col: 'rail', label: 'Υπερβάσεις ομάδας'},
+  /* Φαίνεται μόνο σε όποιον έχει το δικαίωμα — ξεκινά με τους διαχειριστές και
+     δίνεται σε όποιον ορίσουμε, χωρίς αλλαγή κώδικα. */
+  {k: 'cancels', col: 'rail', label: 'Ακυρώσεις υπηρεσιών', cap: 'reports.cancels'},
 ];
 
 /** Η αποθηκευμένη σειρά, συμπληρωμένη με ό,τι δεν ξέρει ακόμη. */
@@ -4907,11 +4955,15 @@ function mydLayout() {
 const mydOn = k => { const f = mydLayout().find(x => x.k === k); return !f || f.on; };
 /** Τα κλειδιά μιας στήλης, με τη σειρά του χρήστη και μόνο τα ανοιχτά. */
 const mydCol = col => mydLayout().filter(x => x.on)
-  .map(x => MYD_BLOCKS.find(b => b.k === x.k)).filter(b => b && b.col === col).map(b => b.k);
+  .map(x => MYD_BLOCKS.find(b => b.k === x.k))
+  .filter(b => b && b.col === col && (!b.cap || cnpCan(b.cap))).map(b => b.k);
 
 /** ⚙ Ο ρυθμιστής: τι βλέπω και με ποια σειρά. */
 function mydLayoutDialog(after) {
-  let st = mydLayout();
+  let st = mydLayout().filter(x => {
+    const b = MYD_BLOCKS.find(y => y.k === x.k);
+    return b && (!b.cap || cnpCan(b.cap));
+  });
   const ovl = document.createElement('div');
   ovl.className = 'ovl ovl-keep show'; ovl.style.zIndex = cnpTopZ() + 10;
   document.body.appendChild(ovl);
