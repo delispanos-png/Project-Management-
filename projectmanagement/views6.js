@@ -51,19 +51,19 @@ R.prepaid = async function () {
   const t = d.totals;
 
   c.innerHTML = `
-  <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="ppQ" placeholder="όνομα πελάτη…"
+      autocomplete="off" style="width:240px">`, false, '')}
+    <button type="button" class="fchip fchip-b" id="ppOpen">Μόνο με ακάλυπτο χρόνο</button>
+    <span class="fbar-sp"></span>
+    ${cnpCan('prepaid.contract') ? `<button class="fchip fchip-go" id="ppNew">${I.plus} Νέο συμβόλαιο</button>` : ''}
+  </div>
+
+  <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
     ${stat(I.clock, hm(t.balance), 'διαθέσιμη προαγορά', 'var(--ok)')}
     ${stat(I.doc, hm(t.offer), 'καλυμμένα από προσφορές', 'var(--info)')}
     ${stat(I.alert, hm(t.open), t.open ? 'ακάλυπτα — θέλουν προσφορά' : 'ακάλυπτος χρόνος', t.open ? 'var(--bad)' : 'var(--ok)')}
     ${stat(I.users, t.clients, t.low ? t.low + ' με χαμηλό υπόλοιπο' : 'πελάτες', t.low ? 'var(--warn)' : 'var(--brand)')}
-  </div>
-
-  <div class="card" style="padding:12px 15px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-    <input class="inp" id="ppQ" placeholder="Φίλτρο πελάτη…" style="max-width:270px" autocomplete="off">
-    <label class="mut" style="display:flex;align-items:center;gap:5px;font-size:12px">
-      <input type="checkbox" id="ppOpen"> μόνο με ακάλυπτο χρόνο</label>
-    <div style="flex:1"></div>
-    ${cnpCan('prepaid.contract') ? `<button class="btn btn-o btn-sm" id="ppNew">${I.plus} Νέο συμβόλαιο</button>` : ''}
   </div>
 
   <div class="mut" style="font-size:11.5px;margin-bottom:12px">${d.products.length
@@ -100,14 +100,15 @@ R.prepaid = async function () {
 
   const paint = () => {
     const q = ($('#ppQ').value || '').toLowerCase().trim();
-    const only = $('#ppOpen').checked;
+    const only = $('#ppOpen').classList.contains('on');
     const rows = d.rows.filter(r => (!q || r.name.toLowerCase().includes(q)) && (!only || r.uncovered > 0));
     $('#ppRows').innerHTML = rows.length ? rows.map(rowHtml).join('')
       : `<div class="empty" style="padding:38px">${I.sparkle}Κανένας πελάτης με αυτά τα κριτήρια</div>`;
     $$('.pp-row').forEach(el => el.onclick = () => openPrepaid(+el.dataset.c));
   };
   $('#ppQ').oninput = paint;
-  $('#ppOpen').onchange = paint;
+  /* Κουμπί που ανάβει αντί για κουτάκι — κρατά τη δική του κατάσταση στην κλάση. */
+  $('#ppOpen').onclick = e => { e.currentTarget.classList.toggle('on'); paint(); };
   const bN = $('#ppNew'); if (bN) { bN.onclick = pickClient; }
   paint();
 };
@@ -1337,14 +1338,17 @@ R.myteam = async function () {
 
   c.innerHTML = `
   ${d.truncated ? `<div class="card" style="margin-bottom:12px;border-color:var(--warn)"><div class="card-b" style="padding:10px 14px;font-size:12.5px;color:var(--warn)">${I.alert} Η αναφορά έφτασε στο όριο εγγραφών — δείχνονται τα πιο πρόσφατα. Τα σύνολα δεν είναι πλήρη.</div></div>` : ''}
-  <div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    ${d.teams.length > 1 ? `<span class="mut" style="font-size:12.5px">Ομάδα:</span>
-      <select class="inp" id="mtTeam" style="width:auto;min-width:180px">${d.teams.map(t =>
-        `<option value="${t.id}" ${t.id === d.team.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>`
-      : `<b style="font-size:14px;color:var(--ink)"><span class="kb-dot" style="background:${d.team.color}"></span> ${esc(d.team.name)}</b>`}
-    <span style="flex:1"></span>
-    ${TABS.map(([k, ic, lb, n]) => `<button class="btn btn-sm ${st.tab === k ? 'btn-p' : 'btn-o'}" data-mttab="${k}">${ic} ${lb}${n ? ` <b>${n}</b>` : ''}</button>`).join('')}
-  </div></div>
+  <div class="fbar">
+    ${d.teams.length > 1
+      ? fChip('Ομάδα', `<select class="fchip-s" id="mtTeam" style="min-width:170px">${d.teams.map(t =>
+          `<option value="${t.id}" ${t.id === d.team.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>`, false, '')
+      /* Μία ομάδα: δεν είναι φίλτρο, είναι ΤΟ ΥΠΟΚΕΙΜΕΝΟ της οθόνης — ολόκληρο
+         το όνομα, γεμάτο φόντο, χωρίς αποσιωπητικά (docs/UI-STANDARD.md §3). */
+      : `<span class="fchip fchip-who"><span class="kb-dot" style="background:${d.team.color}"></span> ${esc(d.team.name)}</span>`}
+  </div>
+  <div class="fchips">
+    ${TABS.map(([k, ic, lb, n]) => `<button class="kb-chip${st.tab === k ? ' on' : ''}" data-mttab="${k}">${ic} ${lb}${n ? ` <b>${n}</b>` : ''}</button>`).join('')}
+  </div>
   ${body}`;
 
   const sel = $('#mtTeam');
