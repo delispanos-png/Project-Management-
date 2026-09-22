@@ -8416,11 +8416,59 @@ case 'requests':
         else { $q->where(function ($w) use ($adminId) { $w->where('to_admin', $adminId)->orWhere('from_admin', $adminId); }); }
         return $q;
     };
-    out(['items' => $outR, 'box' => $boxR, 'state' => $stR,
+    /* ── Νούμερα απόφασης, όχι απλώς μετρητές φίλτρων ──
+       «Πόσο σε περιμένουν» και «πόσο αργείς να απαντήσεις» είναι τα δύο που αλλάζουν
+       συμπεριφορά. Ο μέσος χρόνος βγαίνει από τα ΤΑΚΤΟΠΟΙΗΜΕΝΑ των 14 ημερών: τα
+       ανοιχτά δεν έχουν χρόνο απάντησης ακόμη και θα τον νόθευαν προς τα κάτω. */
+    $nowR = time();
+    $d14 = date('Y-m-d H:i:s', strtotime('-14 days'));
+    $sumH = 0; $nH = 0;
+    foreach (Capsule::table('mod_cpm_help')->where('to_admin', $adminId)->where('status', 'done')
+        ->where('created_at', '>=', $d14)->whereNotNull('done_at')->get(['created_at', 'done_at']) as $dh) {
+        $dt = strtotime($dh->done_at) - strtotime($dh->created_at);
+        if ($dt >= 0) { $sumH += $dt; $nH++; }
+    }
+    $oldestR = 0;
+    $om = Capsule::table('mod_cpm_help')->where('to_admin', $adminId)->where('status', 'open')->min('created_at');
+    if ($om) { $oldestR = (int) floor(($nowR - strtotime($om)) / 86400); }
+    $answeredToday = (int) Capsule::table('mod_cpm_help')->where('to_admin', $adminId)->where('status', 'done')
+        ->where('done_at', '>=', date('Y-m-d') . ' 00:00:00')->count();
+
+    /* ── Ποιος σε περιμένει, από πότε, και αν είναι ΤΩΡΑ μέσα ──
+       Το «είναι μέσα» είναι που κάνει τη διαφορά: μια ερώτηση 3 ημερών σε κάποιον που
+       κάθεται δίπλα σου λύνεται με ένα μήνυμα, όχι με άλλη μια αναμονή. */
+    $peepR = [];
+    $sideR = $boxR === 'out' ? 'from_admin' : 'to_admin';
+    $otherR = $sideR === 'to_admin' ? 'from_admin' : 'to_admin';
+    foreach (Capsule::table('mod_cpm_help')->where($sideR, $adminId)->where('status', 'open')
+        ->get([$otherR . ' as who', 'created_at']) as $pr) {
+        $wid = (int) $pr->who;
+        if (!$wid) { continue; }
+        if (!isset($peepR[$wid])) { $peepR[$wid] = ['n' => 0, 'oldest' => $pr->created_at]; }
+        $peepR[$wid]['n']++;
+        if (strtotime($pr->created_at) < strtotime($peepR[$wid]['oldest'])) { $peepR[$wid]['oldest'] = $pr->created_at; }
+    }
+    $peopleR = [];
+    foreach ($peepR as $wid => $pv) {
+        $nmW = Db::adminName($wid);
+        $prW = cnp_presence($wid);
+        $days = (int) floor(($nowR - strtotime($pv['oldest'])) / 86400);
+        $peopleR[] = ['id' => $wid, 'name' => $nmW, 'ini' => initials($nmW),
+            'status' => $prW['status'], 'label' => $prW['label'], 'color' => $prW['color'],
+            'hint' => (string) ($prW['hint'] ?? ''), 'n' => $pv['n'], 'oldest' => $pv['oldest'], 'days' => $days];
+    }
+    usort($peopleR, function ($a, $b) {
+        if ($a['days'] !== $b['days']) { return $b['days'] <=> $a['days']; }
+        return strcmp($a['name'], $b['name']);
+    });
+
+    out(['items' => $outR, 'box' => $boxR, 'state' => $stR, 'people' => $peopleR,
         'counts' => ['in' => (int) $cBase('in')->where('status', 'open')->count(),
                      'out' => (int) $cBase('out')->where('status', 'open')->count(),
                      'allOpen' => (int) $cBase('all')->where('status', 'open')->count(),
-                     'allDone' => (int) $cBase('all')->where('status', 'done')->count()],
+                     'allDone' => (int) $cBase('all')->where('status', 'done')->count(),
+                     'answeredToday' => $answeredToday, 'oldestDays' => $oldestR,
+                     'avgH' => $nH ? round($sumH / $nH / 3600, 1) : null, 'avgN' => $nH],
         'mates' => array_map(function ($a) { return ['id' => (int) $a->id, 'name' => Db::adminName((int) $a->id)]; },
             array_values(array_filter(Db::admins()->all(), function ($a) use ($adminId) { return (int) $a->id !== $adminId && !cnp_is_bot(Db::adminName((int) $a->id), $a->username ?? ''); })))]);
 

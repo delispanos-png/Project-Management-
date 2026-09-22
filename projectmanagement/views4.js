@@ -738,7 +738,8 @@ R.cards = async function () {
 R.requests = async function (openId) {
   setTop('Αιτήματα', 'Ποιος σε ζήτησε, τι απαντήθηκε, τι εκκρεμεί — τίποτα δεν χάνεται');
   const c = $('#content');
-  const f = R.requests._f = R.requests._f || {box: 'in', state: 'open', q: ''};
+  const f = R.requests._f = R.requests._f || {box: 'in', state: 'open', q: '', who: 0};
+  const {cnpKpis, cnpPeopleBar} = window.CNP;
   c.innerHTML = `<div class="fbar">
     ${fChip('Αναζήτηση', `<input class="fchip-s" id="rqQ" value="${esc(f.q)}" placeholder="κείμενο αιτήματος…" style="width:210px">`, !!f.q, '')}
     <span class="fseg" id="rqBox">
@@ -752,29 +753,79 @@ R.requests = async function (openId) {
     <span class="fbar-sp"></span>
     <button class="fchip fchip-go" id="rqNew">${I.plus} Ζήτα βοήθεια</button>
   </div>
+  <div id="rqDash"></div>
   <div class="rq-split"><div id="rqList"><div class="skel" style="height:200px"></div></div>
     <div id="rqPane" class="rq-pane"><div class="empty" style="padding:50px 16px"><div class="big">${I.chat}</div>Διάλεξε αίτημα για να δεις τη συζήτηση</div></div></div>`;
-  const d = await api('requests&box=' + f.box + '&state=' + f.state + '&q=' + encodeURIComponent(f.q)).catch(() => ({items: [], counts: {}, mates: []}));
+  const d = await api('requests&box=' + f.box + '&state=' + f.state + '&q=' + encodeURIComponent(f.q)).catch(() => ({items: [], counts: {}, people: [], mates: []}));
   { const a = $('#rqNi'), b2 = $('#rqNo'); if (a) a.textContent = d.counts.in || ''; if (b2) b2.textContent = d.counts.out || ''; }
 
   const ago = at => { if (!at) return ''; const h = Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 3600000); return h < 1 ? 'μόλις τώρα' : h < 24 ? 'πριν ' + h + 'ω' : 'πριν ' + Math.floor(h / 24) + ' ημ.'; };
+  const days = at => Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 86400000);
+  const dLbl = n => n === 0 ? 'σήμερα' : n === 1 ? '1 ημέρα' : n + ' ημέρες';
+
+  /* ── Τα νούμερα που αλλάζουν συμπεριφορά ──
+     «Πόσοι σε περιμένουν» και «πόσο αργείς» — και τα δύο κλικαρίσιμα, γιατί ένας
+     αριθμός που δεν σε πάει κάπου είναι διακόσμηση. Ο μέσος χρόνος βγαίνει από τα
+     τακτοποιημένα των 14 ημερών· με λιγότερα από 3 δείγματα δεν λέγεται καθόλου. */
+  const cn = d.counts || {};
+  const hAbs = h => h === null || h === undefined ? '—'
+    : h < 1 ? Math.round(h * 60) + '΄' : h < 24 ? (Math.round(h * 10) / 10) + 'ω' : Math.round(h / 24) + ' ημ.';
+  const avgOk = (cn.avgN || 0) >= 3;
+  const dash = `<div class="dbar">${cnpKpis([
+    {n: cn.in || 0, label: 'σε περιμένουν', color: cn.in ? 'var(--bad)' : 'var(--ok)',
+      tip: 'Ανοιχτά αιτήματα προς εσένα — αυτά χρωστάς', act: 'in', on: f.box === 'in' && f.state === 'open'},
+    {n: cn.out || 0, label: 'περιμένεις<br>άλλους', tip: 'Ό,τι ζήτησες εσύ και δεν έχει απαντηθεί',
+      act: 'out', on: f.box === 'out' && f.state === 'open'},
+    {n: cn.oldestDays || 0, label: 'ημέρες το<br>παλαιότερο',
+      color: (cn.oldestDays || 0) >= 3 ? 'var(--bad)' : (cn.oldestDays || 0) >= 1 ? 'var(--warn)' : null,
+      tip: 'Πόσο περιμένει το πιο παλιό ανοιχτό αίτημα προς εσένα'},
+    {n: cn.answeredToday || 0, label: 'απάντησες<br>σήμερα', color: cn.answeredToday ? 'var(--ok)' : null,
+      tip: 'Αιτήματα που τακτοποίησες σήμερα', act: 'done', on: f.state === 'done'},
+    {n: avgOk ? hAbs(cn.avgH) : '—', label: 'μέσος χρόνος<br>απάντησης',
+      tip: avgOk ? 'Μέσος όρος στα ' + cn.avgN + ' αιτήματα που τακτοποίησες τις τελευταίες 14 ημέρες'
+        : 'Χρειάζονται τουλάχιστον 3 τακτοποιημένα αιτήματα σε 14 ημέρες για να βγει μέσος όρος'},
+  ])}</div>`;
+
+  /* ── Ποιος περιμένει, από πότε, και αν είναι ΤΩΡΑ μέσα ──
+     Το πράσινο δαχτυλίδι είναι η χρήσιμη πληροφορία: μια ερώτηση τριών ημερών σε κάποιον
+     που είναι αυτή τη στιγμή μέσα λύνεται με ένα μήνυμα, όχι με άλλη μια αναμονή. */
+  const peep = (d.people || []).map(x => Object.assign({}, x, {sel: f.who === x.id, hot: x.days >= 2}));
+  const pbar = cnpPeopleBar(peep, {attr: 'rqwho',
+    title: f.box === 'out' ? 'Ποιους περιμένεις' : 'Ποιος σε περιμένει',
+    hint: peep.length ? peep.length + (peep.length === 1 ? ' άτομο' : ' άτομα') + ' · το παλαιότερο ' + dLbl(peep[0].days)
+      + (f.who ? ' · φίλτρο ενεργό' : '') : '',
+    badge: x => dLbl(x.days),
+    tip: x => x.name + ' — ' + x.n + (x.n === 1 ? ' ανοιχτό' : ' ανοιχτά') + ', το παλαιότερο ' + dLbl(x.days) + ' · ' + x.label,
+    right: f.who ? '<button class="btn btn-sm btn-o" id="rqWhoX">✕ όλοι</button>' : ''});
+  $('#rqDash').innerHTML = dash + pbar;
+
   const ctxOf = r => r.taskTitle ? '#' + r.taskId + ' ' + r.taskTitle : (r.projectName || '');
+  const agePill = r => { if (r.status !== 'open') { return ''; } const n = days(r.at);
+    return `<span class="pill ${n >= 3 ? 'pill-bad' : n >= 1 ? 'pill-warn' : 'pill-mut'}" title="Ανοιχτό από ${esc(tShort(r.at))}">${dLbl(n)}</span>`; };
   const row = r => `<div class="rq-row${r.status === 'open' ? ' open' : ''}${r.forMe && !r.seen ? ' unread' : ''}" data-rq="${r.id}">
     <span class="rq-ic">${r.icon}</span>
     <span class="rq-t">
       <b>${esc(r.forMe ? r.from : 'προς ' + r.to)}</b>
       <span class="rq-kind">${esc(r.kindLbl)}</span>
-      ${r.status === 'done' ? '<span class="pill pill-ok">τακτοποιήθηκε</span>' : '<span class="pill pill-warn">ανοιχτό</span>'}
+      ${r.status === 'done' ? '<span class="pill pill-ok">τακτοποιήθηκε</span>' : agePill(r)}
       <span class="rq-msg">${esc((r.message || '').slice(0, 150))}</span>
       ${ctxOf(r) ? `<span class="rq-ctx">${I.checkSquare} ${esc(ctxOf(r).slice(0, 70))}</span>` : ''}
     </span>
     <span class="rq-meta">${r.replies ? `<span class="pill pill-mut">${I.chat} ${r.replies}</span>` : ''}<span class="mut">${esc(ago(r.lastAt || r.at))}</span></span></div>`;
 
+  /* Τα ανοιχτά μπαίνουν ΠΑΛΑΙΟΤΕΡΟ ΠΡΩΤΟ: αυτό που ξεχάστηκε είναι το πρόβλημα,
+     όχι αυτό που μόλις ήρθε. Τα τακτοποιημένα μένουν νεότερα πρώτα, ως ιστορικό. */
+  let items = (d.items || []).slice();
+  if (f.who) { items = items.filter(r => (r.forMe ? r.fromId : r.toId) === f.who); }
+  items.sort((a, b) => (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1)
+    || (a.status === 'open' ? String(a.at).localeCompare(String(b.at)) : String(b.at).localeCompare(String(a.at))));
+
   const listEl = $('#rqList');
-  listEl.innerHTML = d.items.length
-    ? `<div class="card"><div class="card-b" style="padding:4px 8px">${d.items.map(row).join('')}</div></div>`
+  listEl.innerHTML = items.length
+    ? `<div class="card"><div class="card-b" style="padding:4px 8px">${items.map(row).join('')}</div></div>`
     : `<div class="card"><div class="empty" style="padding:40px 16px"><div class="big">✅</div><b style="color:var(--ink)">Κανένα αίτημα εδώ</b>
-        <div class="mut" style="font-size:12.5px;margin-top:6px">${f.state === 'open' ? 'Δεν σε περιμένει κανείς — καθαρό τραπέζι.' : 'Δοκίμασε άλλο φίλτρο.'}</div></div></div>`;
+        <div class="mut" style="font-size:12.5px;margin-top:6px">${f.who ? 'Κανένα από αυτό το άτομο — πάτα «✕ όλοι» για να τα δεις όλα.'
+          : f.state === 'open' ? 'Δεν σε περιμένει κανείς — καθαρό τραπέζι.' : 'Δοκίμασε άλλο φίλτρο.'}</div></div></div>`;
 
   /* ── Καρτέλα αιτήματος: το ζητούμενο, το νήμα, και το πεδίο απάντησης ── */
   const openRq = async id => {
@@ -824,7 +875,14 @@ R.requests = async function (openId) {
     document.body.classList.add('rq-open');   // κινητό: η καρτέλα παίρνει την οθόνη
   };
   $$('#rqList .rq-row').forEach(el => el.onclick = () => openRq(+el.dataset.rq));
-  $$('#rqBox [data-b]').forEach(b => b.onclick = () => { f.box = b.dataset.b; R.requests(); });
+  $$('#rqDash [data-dkact]').forEach(b => b.onclick = () => {
+    const a = b.dataset.dkact;
+    if (a === 'in') { f.box = 'in'; f.state = 'open'; } else if (a === 'out') { f.box = 'out'; f.state = 'open'; } else { f.state = 'done'; }
+    f.who = 0; R.requests();
+  });
+  $$('#rqDash [data-rqwho]').forEach(b => b.onclick = () => { const id = +b.dataset.rqwho; f.who = f.who === id ? 0 : id; R.requests(); });
+  { const wx = $('#rqWhoX'); if (wx) { wx.onclick = e => { e.stopPropagation(); f.who = 0; R.requests(); }; } }
+  $$('#rqBox [data-b]').forEach(b => b.onclick = () => { f.box = b.dataset.b; f.who = 0; R.requests(); });
   $$('#rqState [data-s]').forEach(b => b.onclick = () => { f.state = b.dataset.s; R.requests(); });
   { let t0; const qi = $('#rqQ'); if (qi) qi.oninput = () => { clearTimeout(t0); t0 = setTimeout(() => { f.q = qi.value.trim(); R.requests(); }, 400); }; }
   $('#rqNew').onclick = () => { if (window.CNP.quickHelp) { window.CNP.quickHelp({}); } };
