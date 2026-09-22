@@ -152,8 +152,8 @@ namespace CloudOnNew
       /* ── CloudOn: ΔΡΟΜΟΛΟΓΗΣΗ ΕΦΕΔΡΕΙΑΣ (806) ─────────────────────────────
          Παράγεται από το panel (Pbx3cxBlueprint::cfaScript) — ΜΗΝ το επεξεργαστείς
          στο 3CX, θα ξαναγραφτεί. Ωράρια και αργίες ίδια με την AI ρεσεψιόν:
-           γραφείο   Δευ–Παρ 09:00–16:59  → Support ({{Q_SUPPORT}}) [η ουρά: αναπάντητη → 809]
-           απόγευμα  Δευ–Παρ 17:00–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}}) [η ουρά: → 809]
+           γραφείο   Δευ–Παρ 09:00–17:29  → Support ({{Q_SUPPORT}}) [η ουρά: αναπάντητη → 809]
+           απόγευμα  Δευ–Παρ 17:30–19:59, Σάβ 09:30–13:59 → Emergency ({{Q_EMERG}}) [η ουρά: → 809]
            αλλιώς    μήνυμα «δεν λειτουργούμε» → κλείσιμο (ΧΩΡΙΣ θυρίδα, απόφαση 20/09/2026)
          Το «όλοι κατειλημμένοι, 1 για επανάκληση» είναι στο 809 (εκεί στέλνουν οι ουρές). */
       private static readonly HashSet<int> HolidaysEveryYear = new HashSet<int> { {{HOLIDAYS_REC}} };
@@ -164,6 +164,24 @@ namespace CloudOnNew
          return HolidaysEveryYear.Contains(t.Month * 100 + t.Day) || HolidaysOnce.Contains(t.Year * 10000 + t.Month * 100 + t.Day);
       }
 
+      /* ΜΕΤΡΗΘΗΚΕ 21/09/2026: το DateTime.Now του κέντρου είναι UTC (Debian) — οι κλήσεις
+         των 19:28 έμπαιναν στην ουρά Support ως «γραφείο». Ώρα Αθήνας: EU DST
+         (τελευταία Κυριακή Μαρτίου 01:00 UTC → τελευταία Κυριακή Οκτωβρίου 01:00 UTC). */
+      private static DateTime AthensNow()
+      {
+         DateTime u = DateTime.UtcNow;
+         DateTime mar = LastSunday(u.Year, 3).AddHours(1);
+         DateTime oct = LastSunday(u.Year, 10).AddHours(1);
+         return u.AddHours(u >= mar && u < oct ? 3 : 2);
+      }
+
+      private static DateTime LastSunday(int year, int month)
+      {
+         DateTime d = new DateTime(year, month, DateTime.DaysInMonth(year, month), 0, 0, 0, DateTimeKind.Utc);
+         while (d.DayOfWeek != DayOfWeek.Sunday) d = d.AddDays(-1);
+         return d;
+      }
+
       private static bool IsWeekday(DateTime t)
       {
          return t.DayOfWeek >= DayOfWeek.Monday && t.DayOfWeek <= DayOfWeek.Friday;
@@ -171,17 +189,17 @@ namespace CloudOnNew
 
       private static bool IsOffice()
       {
-         DateTime t = DateTime.Now;
+         DateTime t = AthensNow();
          int m = t.Hour * 60 + t.Minute;
-         return !IsHoliday(t) && IsWeekday(t) && m >= 9 * 60 && m < 17 * 60;
+         return !IsHoliday(t) && IsWeekday(t) && m >= 9 * 60 && m < 17 * 60 + 30;
       }
 
       private static bool IsEmergency()
       {
-         DateTime t = DateTime.Now;
+         DateTime t = AthensNow();
          int m = t.Hour * 60 + t.Minute;
          if (IsHoliday(t)) return false;
-         if (IsWeekday(t)) return m >= 17 * 60 && m < 20 * 60;
+         if (IsWeekday(t)) return m >= 17 * 60 + 30 && m < 20 * 60;
          return t.DayOfWeek == DayOfWeek.Saturday && m >= 9 * 60 + 30 && m < 14 * 60;
       }
 

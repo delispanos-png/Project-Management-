@@ -108,7 +108,7 @@ class Pbx3cxBlueprint
             'descr' => 'CarOn: εφαρμογή ενοικιάσεων αυτοκινήτων, car rental'],
         '800' => ['name' => 'Accounting', 'agents' => ['204', '202'],
             'descr' => 'Λογιστήριο: τιμολόγια, πληρωμές, υπόλοιπα, εξοφλήσεις, λογιστικά θέματα'],
-        '814' => ['name' => 'Vision',     'agents' => ['220', '212'],
+        '814' => ['name' => 'RxVision',   'agents' => ['220', '212'],
             'descr' => 'RxVision ή BoxVisio (εφαρμογές vision, οπτική αναγνώριση)'],
     ];
 
@@ -125,7 +125,7 @@ class Pbx3cxBlueprint
 
     public static function cloudonHours()
     {
-        $w = ['09:00', '17:00'];
+        $w = ['09:00', '17:30'];   // 21/09/2026: ο Παναγιώτης το πήγε 17:30 μέσα από το 3CX — υιοθετήθηκε
         return self::hours(['Monday' => $w, 'Tuesday' => $w, 'Wednesday' => $w, 'Thursday' => $w, 'Friday' => $w]);
     }
 
@@ -180,7 +180,7 @@ class Pbx3cxBlueprint
 
     public static function emergencyHours()
     {
-        $w = ['17:00', '20:00'];
+        $w = ['17:30', '20:00'];
         return self::hours(['Monday' => $w, 'Tuesday' => $w, 'Wednesday' => $w, 'Thursday' => $w,
             'Friday' => $w, 'Saturday' => ['09:30', '14:00']]);
     }
@@ -295,8 +295,8 @@ class Pbx3cxBlueprint
         if (self::isHoliday($ts)) { return 'closed'; }
         $dow = (int) date('N', $ts);            // 1 = Δευτέρα … 7 = Κυριακή
         $hm = date('H:i', $ts);
-        if ($dow <= 5 && $hm >= '09:00' && $hm < '17:00') { return 'office'; }
-        if ($dow <= 5 && $hm >= '17:00' && $hm < '20:00') { return 'emergency'; }
+        if ($dow <= 5 && $hm >= '09:00' && $hm < '17:30') { return 'office'; }
+        if ($dow <= 5 && $hm >= '17:30' && $hm < '20:00') { return 'emergency'; }
         if ($dow === 6 && $hm >= '09:30' && $hm < '14:00') { return 'emergency'; }
         return 'closed';
     }
@@ -537,7 +537,7 @@ TXT;
        και της AI ρεσεψιόν, γινόταν σε συμπιεσμένο ήχο 8 kbps. PCMA πρώτο (ο πάροχος το
        προτιμά), G722/opus για ευρυζωνικό όπου υποστηρίζεται. */
     const CODECS_SYSTEM = ['OPUS', 'G722', 'PCMA', 'PCMU'];   // opus πρώτο: οι εφαρμογές (κινητό/Windows/Mac) το προτιμούν, τα Fanvil πέφτουν σε G722
-    const CODECS_PHONE  = ['PCMA', 'G722', 'PCMU', 'G729'];   // ΜΕΤΡΗΘΗΚΕ 21/09: με 3 τιμές το αρχείο βγάζει «G711U,G711U» (διπλό) και οι κλήσεις πέφτουν στο σήκωμα· το G729 δεν χρησιμοποιείται ποτέ (δεν το δίνει το κέντρο)
+    const CODECS_PHONE  = ['PCMU', 'PCMA', 'G722', 'G729'];   // = η προεπιλογή του 3CX για Fanvil· το G729 δεν προσφέρεται ποτέ από το κέντρο   // ΜΕΤΡΗΘΗΚΕ 21/09: με 3 τιμές το αρχείο βγάζει «G711U,G711U» (διπλό) και οι κλήσεις πέφτουν στο σήκωμα· το G729 δεν χρησιμοποιείται ποτέ (δεν το δίνει το κέντρο)
     /** Δικό μας πρότυπο Fanvil: το επίσημο ΧΩΡΙΣ τα STUN_* και το VPN_CONFIG_MODULE — οι απομακρυσμένες
         συσκευές (203/204/220) έχουν VPN/STUN με το χέρι και η επαναπρομήθεια τα έσβηνε (20/09/2026). */
     const FANVIL_TPL = 'fanvil.cloudon.ph.xml';
@@ -678,7 +678,6 @@ TXT;
             $L['emrules'] = Pbx3cxClient::xapi('OutboundRules/Pbx.GetEmergencyOutboundRules()', ['$top' => 100])['value'] ?? [];
             $L['emnotify'] = Pbx3cxClient::xapi('EmergencyNotificationsSettings');
             $L['codecs'] = Pbx3cxClient::xapi('CodecsSettings');
-            try { $tp = Pbx3cxClient::xapi('PhoneTemplates(\'' . self::FANVIL_TPL . '\')'); $L['fanvil_tpl'] = ['ok' => substr_count((string) $tp['Content'], '<STUN_Server>') === 0 && substr_count((string) $tp['Content'], 'VPN_CONFIG_MODULE') === 0]; } catch (\Throwable $e) { $L['fanvil_tpl'] = null; }
             $L['phones'] = [];
             foreach (Pbx3cxClient::xapi('Users', ['$top' => 100, '$select' => 'Id,Number', '$expand' => 'Phones'])['value'] ?? [] as $pu) { if (!empty($pu['Phones'])) { $L['phones'][(int) $pu['Id']] = $pu; } }
         } catch (\Throwable $e) { $L['trunks'] = []; $L['obrules'] = []; $L['emrules'] = []; $L['emnotify'] = []; $L['codecs'] = []; $L['phones'] = []; }
@@ -1312,7 +1311,52 @@ TXT;
                 Pbx3cxClient::xwrite('PATCH', 'CodecsSettings', ['LocalCodecList' => self::CODECS_SYSTEM, 'ExternalCodecList' => self::CODECS_SYSTEM]);
                 Pbx3cxClient::log('blueprint', 'ok', 'Κωδικοποιητές συστήματος: ' . implode(', ', self::CODECS_SYSTEM));
             }];
-        $S[] = ['key' => 'phone_codecs', 'label' => 'Ήχος: κωδικοποιητές συσκευών ' . implode(', ', self::CODECS_PHONE) . ' — χωρίς G729',
+        $S[] = ['key' => 'phone_codecs', 'label' => 'Ήχος: κωδικοποιητές συσκευών ' . implode(', ', self::CODECS_PHONE) . ' (προεπιλογή 3CX)',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $d = [];
+                foreach ($L['phones'] as $u) { foreach ($u['Phones'] as $p) { if (($p['Settings']['Codecs'] ?? null) !== self::CODECS_PHONE) { $d[] = $u['Number'] . ' (' . ($p['Model'] ?? '?') . ')'; } } }
+                return [$d ? 'change' : 'ok', $d ? 'αλλάζουν: ' . implode(', ', $d) : count($L['phones']) . ' συσκευές σωστά'];
+            },
+            'apply' => function ($L) {
+                foreach ($L['phones'] as $u) {
+                    $phones = $u['Phones']; $chg = false;
+                    foreach ($phones as &$p) { if (($p['Settings']['Codecs'] ?? null) !== self::CODECS_PHONE) { $p['Settings']['Codecs'] = self::CODECS_PHONE; $chg = true; } }
+                    unset($p);
+                    if ($chg) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['Phones' => $phones]); }
+                }
+                Pbx3cxClient::log('blueprint', 'ok', 'Κωδικοποιητές συσκευών: ' . implode(', ', self::CODECS_PHONE) . ' (οι συσκευές ξαναπαίρνουν ρυθμίσεις μόνες τους)');
+            }];
+
+        /* 6ζ. ΗΧΟΣ ΜΕΣΩ ΚΕΝΤΡΟΥ. Χωρίς SBC, οι συσκευές είναι σε σπίτια/VPN/γραφείο: αν
+           στέλνουν τον ήχο απευθείας η μία στην άλλη (direct media), εσωτερικές κλήσεις
+           μένουν χωρίς ήχο. «PBX delivers audio» για κάθε άνθρωπο (21/09/2026). */
+        $S[] = ['key' => 'pbx_audio', 'label' => 'Ήχος μέσω κέντρου (PBX delivers audio) σε όλα τα εσωτερικά — χωρίς SBC είναι υποχρεωτικό',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $d = [];
+                foreach ($L['users'] as $num => $u) { if (preg_match('/^[1-5]\d\d$/', (string) $num) && empty($u['PbxDeliversAudio'])) { $d[] = $num; } }
+                return [$d ? 'change' : 'ok', $d ? 'χωρίς: ' . implode(', ', $d) : 'όλοι σωστά'];
+            },
+            'apply' => function ($L) {
+                foreach ($L['users'] as $num => $u) {
+                    if (preg_match('/^[1-5]\d\d$/', (string) $num) && empty($u['PbxDeliversAudio'])) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['PbxDeliversAudio' => true]); }
+                }
+            }];
+
+        /* 6ε. ΚΩΔΙΚΟΠΟΙΗΤΕΣ: χωρίς G729 στο σύστημα και στις συσκευές. */
+        $S[] = ['key' => 'codecs', 'label' => 'Ήχος: κωδικοποιητές συστήματος ' . implode(', ', self::CODECS_SYSTEM) . ' — χωρίς G729',
+            'risk' => 'low',
+            'check' => function ($L) {
+                $c = $L['codecs'] ?? [];
+                $ok = ($c['LocalCodecList'] ?? null) === self::CODECS_SYSTEM && ($c['ExternalCodecList'] ?? null) === self::CODECS_SYSTEM;
+                return [$ok ? 'ok' : 'change', $ok ? 'σωστά' : 'τοπικά: ' . implode(',', $c['LocalCodecList'] ?? []) . ' · εξωτερικά: ' . implode(',', $c['ExternalCodecList'] ?? [])];
+            },
+            'apply' => function ($L) {
+                Pbx3cxClient::xwrite('PATCH', 'CodecsSettings', ['LocalCodecList' => self::CODECS_SYSTEM, 'ExternalCodecList' => self::CODECS_SYSTEM]);
+                Pbx3cxClient::log('blueprint', 'ok', 'Κωδικοποιητές συστήματος: ' . implode(', ', self::CODECS_SYSTEM));
+            }];
+        $S[] = ['key' => 'phone_codecs', 'label' => 'Ήχος: κωδικοποιητές συσκευών ' . implode(', ', self::CODECS_PHONE) . ' (προεπιλογή 3CX)',
             'risk' => 'low',
             'check' => function ($L) {
                 $d = [];

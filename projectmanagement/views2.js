@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, $, $$} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
