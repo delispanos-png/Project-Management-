@@ -34,6 +34,17 @@ class Watch
     const UNANSWERED_HOURS = 24;
     /** Πόσα αντικείμενα κουβαλά το πολύ κάθε γραμμή. */
     const MAX_REFS = 6;
+    /* Πόσο πίσω κοιτάμε για κλήσεις χωρίς χαρακτηρισμό. Πιο πίσω από βδομάδα, ο
+       άνθρωπος δεν θυμάται τι είπε — και μια ερώτηση που δεν απαντιέται σωστά
+       είναι χειρότερη από καμία. */
+    const CALL_DAYS = 7;
+
+    /** Λεπτά όπως τα λέει άνθρωπος: 95 → «1ω 35΄». */
+    private static function hm($m)
+    {
+        $m = max(0, (int) $m);
+        return $m < 60 ? $m . '΄' : intdiv($m, 60) . 'ω ' . ($m % 60 ? ($m % 60) . '΄' : '');
+    }
 
     private static function doneIds()
     {
@@ -122,6 +133,34 @@ class Watch
         $today = date('Y-m-d');
         $done = self::doneIds();
         $out = [];
+
+        /* ΚΛΗΣΕΙΣ ΧΩΡΙΣ ΧΑΡΑΚΤΗΡΙΣΜΟ. Ο χρόνος ομιλίας μετριέται μόνος του και
+           μετράει στη μέρα σου έτσι κι αλλιώς — αυτό που λείπει είναι ΤΙ ΗΤΑΝ.
+           Χωρίς υπενθύμιση δεν το συμπληρώνει κανείς: στη μέτρηση της 22/09/2026
+           ήταν χαρακτηρισμένη 1 κλήση στις 232.
+
+           Μετράμε ΧΘΕΣ ΚΑΙ ΠΙΣΩ: οι σημερινές είναι ακόμη φρέσκες και η ερώτηση
+           θα ήταν γκρίνια πάνω στη δουλειά. */
+        /* ΟΧΙ ΑΝΑΔΡΟΜΙΚΑ. Όταν άνοιξε το κύκλωμα υπήρχαν 15.986 παλιές κλήσεις·
+           το να τις ζητούσαμε θα ήταν βουνό που κανείς δεν ανεβαίνει. Μετράει
+           ό,τι έγινε από την έναρξη και μετά. */
+        $callStart = (string) Db::pref(0, 'calls_label_from', date('Y-m-d'));
+        $callFrom = max(date('Y-m-d 00:00:00', strtotime('-' . self::CALL_DAYS . ' days')),
+                        $callStart . ' 00:00:00');
+        $callQ = function () use ($adminId, $callFrom) {
+            return Capsule::table('mod_cpm_calls')->where('admin_id', $adminId)
+                ->where('talk_seconds', '>', 0)->whereNull('logged_at')
+                ->where('started_at', '>=', $callFrom)
+                ->where('started_at', '<', date('Y-m-d 00:00:00'));
+        };
+        $callN = (int) $callQ()->count();
+        if ($callN) {
+            $callMin = (int) round(((int) $callQ()->sum('talk_seconds')) / 60);
+            $out[] = ['lvl' => 'warn', 'icon' => '📞', 'go' => 'calllog',
+                'text' => $callN . ($callN > 1 ? ' κλήσεις σου δεν έχουν' : ' κλήση σου δεν έχει')
+                    . ' χαρακτηριστεί — ' . self::hm($callMin)
+                    . ' που δεν ξέρουμε πού πήγαν.'];
+        }
 
         $overdue = self::mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done), $adminId)
             ->whereNotNull('due_date')->where('due_date', '<', $today)

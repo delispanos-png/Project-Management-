@@ -1754,7 +1754,10 @@ R.calllog = async function () {
     <button class="fchip fchip-go" id="clNew">${I.plus} \u039a\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ae \u03ba\u03bb\u03ae\u03c3\u03b7\u03c2</button>
   </div>
   <div id="clDash"></div>
+  <div id="clPend"></div>
   <div id="clRes"><div class="skel" style="height:260px"></div></div>`;
+
+  clPending();
 
   const d = await api(`calllog&from=${f.from}&to=${f.to}&view=${f.view}&admin=${f.admin}&q=${encodeURIComponent(f.q)}`)
     .catch(e => ({err: e.message}));
@@ -1928,4 +1931,79 @@ async function clOpen(r, canEdit) {
     const x = await api('calllog_save', {id: r.id, summary: String(sum).trim(), minutes: +mins || 0}).catch(e => ({err: e.message}));
     if (x && x.err) { toast(x.err, true); return; }
     toast('\u0391\u03c0\u03bf\u03b8\u03b7\u03ba\u03b5\u03cd\u03c4\u03b7\u03ba\u03b5'); close(); R.calllog(); }; }
+}
+
+/* ═══════════ ΧΑΡΑΚΤΗΡΙΣΜΟΣ ΚΛΗΣΕΩΝ ═══════════
+   Ο χρόνος ομιλίας μετριέται μόνος του από το κέντρο και μετράει στη μέρα σου
+   έτσι κι αλλιώς. Ο χαρακτηρισμός δεν τον προσθέτει — τον ΕΞΗΓΕΙ: χωρίς αυτόν
+   ξέρουμε ότι μίλησες δεκαπέντε ώρες, δεν ξέρουμε σε τι.
+
+   ΜΑΖΙΚΑ, ΟΧΙ ΜΙΑ-ΜΙΑ. Με διακόσιες κλήσεις την εβδομάδα, μια φόρμα ανά κλήση
+   δεν συμπληρώνεται ποτέ — και μια υποχρέωση που δεν τηρείται είναι χειρότερη
+   από καμία. Διαλέγεις πολλές, λες τι ήταν, τέλος. */
+async function clPending() {
+  /* Το tShort ζει στο window.CNP και το έπαιρνε η R.calllog μέσα στο σώμα της —
+     εδώ είμαστε εκτός, οπότε πρέπει να το πάρουμε ξανά. Το ίδιο λάθος με το
+     «fChip is not a function»: helper που φαίνεται διαθέσιμος και δεν είναι. */
+  const {tShort} = window.CNP;
+  const box = $('#clPend');
+  if (!box) { return; }
+  const d = await api('calls_pending&days=7').catch(() => null);
+  if (!d || !d.total) { box.innerHTML = ''; return; }
+
+  const st = clPending._s = {sel: new Set(), kinds: d.kinds};
+  const hm = m => m < 60 ? m + '΄' : Math.floor(m / 60) + 'ω ' + (m % 60 ? (m % 60) + '΄' : '');
+
+  const draw = () => {
+    box.innerHTML = `<div class="card cl-pend">
+      <div class="card-h"><b>${d.total} ${d.total === 1 ? 'κλήση σου δεν έχει' : 'κλήσεις σου δεν έχουν'} χαρακτηριστεί</b>
+        <span class="mut"> — ${hm(d.mins)} που δεν ξέρουμε πού πήγαν</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-o" id="clpAll">Όλες</button>
+        ${d.rows.some(r => r.internal) ? '<button class="btn btn-sm btn-o" id="clpInt">Μόνο εσωτερικές</button>' : ''}
+        <button class="btn btn-sm btn-o" id="clpNone">Καμία</button></div>
+      <div class="card-b">
+        <div class="cl-plist">${d.rows.map(r => `
+          <label class="cl-p${st.sel.has(r.id) ? ' on' : ''}">
+            <input type="checkbox" data-cp="${r.id}"${st.sel.has(r.id) ? ' checked' : ''}>
+            <span class="cl-p-t">${esc(tShort(r.at))}</span>
+            <span class="cl-p-w">${esc(r.who || r.other)}${
+              r.internal ? ' <span class="pill pill-mut">εσωτερική</span>' : ''}</span>
+            <span class="cl-p-m">${r.mins < 1 ? '<1΄' : r.mins + '΄'}</span>
+          </label>`).join('')}</div>
+        ${d.total > d.rows.length ? `<div class="mut" style="font-size:12px;margin-top:8px">
+          Δείχνονται οι ${d.rows.length} πιο πρόσφατες από ${d.total}.</div>` : ''}
+      </div>
+      <div class="cl-pbar${st.sel.size ? ' on' : ''}">
+        <b>${st.sel.size}</b> επιλεγμένες
+        <select class="inp" id="clpKind" style="max-width:210px">
+          <option value="">τι ήταν;…</option>
+          ${Object.keys(d.kinds).map(k => `<option value="${k}">${esc(d.kinds[k][0])}</option>`).join('')}
+        </select>
+        <input class="inp" id="clpSum" placeholder="με δυο λόγια, τι (προαιρετικό)" maxlength="255" style="flex:1;min-width:160px">
+        <button class="btn btn-sm btn-p" id="clpSave">Χαρακτηρισμός</button>
+      </div></div>`;
+
+    box.querySelectorAll('[data-cp]').forEach(cb => cb.onchange = () => {
+      const id = +cb.dataset.cp;
+      if (cb.checked) { st.sel.add(id); } else { st.sel.delete(id); }
+      draw();
+    });
+    const pick = fn2 => { st.sel = new Set(d.rows.filter(fn2).map(r => r.id)); draw(); };
+    $('#clpAll', box).onclick = () => pick(() => true);
+    $('#clpNone', box).onclick = () => pick(() => false);
+    if ($('#clpInt', box)) { $('#clpInt', box).onclick = () => pick(r => r.internal); }
+
+    $('#clpSave', box).onclick = async () => {
+      if (!st.sel.size) { toast('Διάλεξε κλήσεις', true); return; }
+      const kind = $('#clpKind', box).value;
+      if (!kind) { toast('Πες τι ήταν', true); $('#clpKind', box).focus(); return; }
+      const x = await api('calls_label', {ids: [...st.sel], kind,
+        summary: $('#clpSum', box).value.trim()}).catch(e => ({err: e.message}));
+      if (x && (x.err || x.error)) { toast(x.err || x.error, true); return; }
+      toast(`Χαρακτηρίστηκαν ${x.n}`);
+      R.calllog();
+    };
+  };
+  draw();
 }

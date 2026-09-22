@@ -663,7 +663,10 @@ function toggleAttn() {
   const refRow = r => `<a class="attn-ref" data-rk="${r.kind}" data-ri="${r.id}">${esc(r.label)}</a>`;
   const body = (d && d.groups && d.groups.length)
     ? d.groups.map(g => `<div class="pop-sec">${esc(g.title)}</div>`
-        + g.items.map(it => `<div class="attn-row ${it.lvl}">
+        /* Μια γραμμή που λέει «κάνε κάτι» πρέπει να ΠΑΕΙ κάπου. Με `go` όλη η
+           γραμμή γίνεται σύνδεσμος προς την οθόνη που το λύνει. */
+        + g.items.map(it => `<div class="attn-row ${it.lvl}${it.go ? ' link' : ''}"${
+            it.go ? ` data-attgo="${esc(it.go)}"` : ''}>
             <span class="attn-ic">${it.icon}</span>
             <div class="attn-b"><div>${esc(it.text)}</div>
               ${(it.refs || []).length ? `<div class="attn-refs">${it.refs.map(refRow).join('')}</div>` : ''}
@@ -677,6 +680,11 @@ function toggleAttn() {
     e.preventDefault(); e.stopPropagation();
     pop.remove(); await loadAttention(); toggleAttn();
   };
+  pop.querySelectorAll('[data-attgo]').forEach(r => r.onclick = () => {
+    const v = r.dataset.attgo;
+    pop.remove();
+    go(v);
+  });
   pop.querySelectorAll('.attn-ref').forEach(a => a.onclick = e => {
     e.preventDefault(); e.stopPropagation();
     const k = a.dataset.rk, id = +a.dataset.ri;
