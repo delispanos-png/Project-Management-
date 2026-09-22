@@ -796,6 +796,34 @@ class Db
         }
         /* Αλληλογραφία αιτημάτων (21/9/2026): κάθε αίτημα «σε ζητούν» έχει νήμα απαντήσεων,
            ώστε τίποτα να μη χάνεται όταν κλείσει το popup. */
+        /* Κάρτες διαχείρισης «Daily Driver» (22/9/2026): η ουρά αποφάσεων των PM. */
+        if (!$s->hasTable('mod_cpm_cards')) {
+            $s->create('mod_cpm_cards', function ($t) {
+                $t->increments('id');
+                $t->date('day')->index();
+                $t->integer('owner_id')->unsigned()->default(0)->index();   // 0 = κοινή δεξαμενή «αζήτητα»
+                $t->string('kind', 30)->index();
+                $t->tinyInteger('sev')->default(0);                          // 0 πληροφορία, 1 προσοχή, 2 κρίσιμο
+                $t->integer('weight')->default(0);                           // μέσα στην ίδια σοβαρότητα: πόσο «καίει» (π.χ. ημέρες καθυστέρησης)
+                $t->string('ref_type', 20)->default('none');
+                $t->integer('ref_id')->unsigned()->default(0);
+                $t->string('title', 255);
+                $t->text('body')->nullable();
+                $t->string('acts', 190)->nullable();
+                $t->string('state', 12)->default('open')->index();           // open|done|snoozed|dismissed
+                $t->dateTime('due_at')->nullable();
+                $t->dateTime('snooze_until')->nullable();
+                $t->integer('resolved_by')->unsigned()->nullable();
+                $t->dateTime('resolved_at')->nullable();
+                $t->string('resolve_note', 255)->nullable();
+                $t->dateTime('escalated_at')->nullable();
+                $t->integer('help_id')->unsigned()->nullable();   // «ρώτα τον Χ» → αίτημα· η απάντηση κλείνει την κάρτα
+                $t->dateTime('created_at');
+            });
+        }
+        if ($s->hasTable('mod_cpm_cards') && !$s->hasColumn('mod_cpm_cards', 'weight')) {
+            $s->table('mod_cpm_cards', function ($t) { $t->integer('weight')->default(0); });
+        }
         if (!$s->hasTable('mod_cpm_help_msgs')) {
             $s->create('mod_cpm_help_msgs', function ($t) {
                 $t->increments('id');
@@ -1898,6 +1926,9 @@ class Db
 
         /* Η ραχοκοκαλιά πελάτης → προϊόν → τμήμα → έργο. Δες lib/Catalog.php. */
         Catalog::install();
+
+        /* Μητρώο αδειών προσωπικού. Δες lib/Leave.php. */
+        Leave::install();
     }
 
     /* ------------------------------------------------------------------ */

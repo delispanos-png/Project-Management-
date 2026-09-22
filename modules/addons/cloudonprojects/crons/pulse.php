@@ -115,6 +115,24 @@ try {
     echo '[' . date('H:i:s') . '] υπερβάσεις ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
 }
 
+/* 🗂 Κάρτες διαχείρισης (22/9/2026): η ουρά αποφάσεων των PM χτίζεται ΜΙΑ φορά το πρωί
+   (08:00–09:00) και η κλιμάκωση τρέχει σε κάθε πέρασμα, ώστε ό,τι έμεινε αναπάντητο μετά
+   την προθεσμία να ανεβαίνει στους Manager. Η λογική ζει στο api.php (ίδια με την οθόνη). */
+try {
+    require_once __DIR__ . '/../../../../projectmanagement/boot.php';
+    $hourC = (int) date('G');
+    $kC = hash_hmac('sha256', 'sweep.' . date('YmdHi'), pm_secret());
+    $chC = curl_init('https://my.cloudon.gr/projectmanagement/api.php?a=cards_build&k=' . $kC);
+    curl_setopt_array($chC, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90, CURLOPT_USERAGENT => 'cpm-pulse']);
+    $rC = json_decode((string) curl_exec($chC), true); curl_close($chC);
+    if (!empty($rC['created']) || !empty($rC['escalated'])) {
+        echo '[' . date('H:i:s') . '] κάρτες διαχείρισης: ' . (int) ($rC['created'] ?? 0) . ' νέες, '
+            . (int) ($rC['escalated'] ?? 0) . " κλιμακώθηκαν\n";
+    }
+} catch (\Throwable $e) {
+    echo '[' . date('H:i:s') . '] κάρτες διαχείρισης ΣΦΑΛΜΑ: ' . $e->getMessage() . "\n";
+}
+
 /* ☎ Κατάσταση → 3CX (21/9/2026): οι αυτόματες αλλαγές (σύσκεψη, Λείπω, Εκτός) περνούν στο
    κέντρο κι όταν κανείς δεν έχει την εφαρμογή ανοιχτή. Η λογική της κατάστασης ζει στο
    api.php, γι' αυτό καλείται μέσω HTTP με υπογραφή της ώρας (pm_secret). */

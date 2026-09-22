@@ -234,6 +234,7 @@ function renderShell() {
       ['todos', I.checkSquare, 'Το πλάνο μου'],
       ['supervised', I.eye, 'Επιβλέπω'],   /* εργασίες που άνοιξα εγώ — ανοιχτές / ολοκληρωμένες */
       ['requests', I.sos || I.chat, 'Αιτήματα'],   /* «σε ζητούν» με ιστορικό: ποιος ρώτησε, τι απαντήθηκε */
+      ...((S.boot.me.cardsPm || S.boot.me.cardsEsc) ? [['cards', I.clipboard, 'Κάρτες διαχείρισης']] : []),
       ['time', I.clock, 'Ο χρόνος μου'],   /* ΜΟΝΟ δικός μου — η ομάδα είναι στις Αναφορές */
       ['library', I.book, 'Η βιβλιοθήκη μου'],
       ['vault', I.key, 'Κωδικοί'],
