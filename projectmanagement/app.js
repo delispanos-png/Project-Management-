@@ -3812,6 +3812,22 @@ async function vMyDay() {
     hint: teamOn.length + ' μέσα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '') + (d.teamScope ? ' · ' + d.teamScope : ''),
     link: ['activity', 'δραστηριότητα →']});
 
+  /* 👁 Επιβλέπω: ό,τι άνοιξα εγώ και το κάνει άλλος. Δεν είναι εκκρεμότητά μου —
+     είναι η ευθύνη μου να δω ότι προχώρησε. Η σειρά έρχεται από τον server: πρώτα
+     όσα κόλλησαν, μετά τα εκπρόθεσμα· όσα τρέχουν κανονικά δεν θέλουν το μάτι σου. */
+  const sup = d.supervising || {items: [], total: 0, stuck: 0, late: 0};
+  const supBody = (sup.items || []).map(t => `<div class="myd-row sup-row" data-dltask="${t.id}">
+      <span class="dot" style="background:${esc(t.pcolor)};flex:none"></span>
+      <span class="myd-t"><b>${esc(t.title)}</b><span class="mut"> · ${esc(t.pname || 'Χωρίς έργο')}</span></span>
+      <span class="sup-w" title="Το έχει ο/η ${esc(t.whoName)}">${esc(adminIni(t.who))}</span>
+      ${t.stuck ? `<span class="pill pill-bad" style="flex:none" title="Καμία κίνηση εδώ και ${t.idle} ημέρες">⏸ ${t.idle} ημ.</span>`
+        : t.late ? '<span class="pill pill-warn" style="flex:none">εκπρόθεσμη</span>'
+        : `<span class="pill pill-mut" style="flex:none" title="Τελευταία κίνηση">${t.idle === 0 ? 'σήμερα' : t.idle + ' ημ.'}</span>`}
+    </div>`).join('')
+    + (sup.total > (sup.items || []).length ? `<a class="myd-morelink" data-go="supervised">+ ${sup.total - sup.items.length} ακόμη — δες τα όλα →</a>` : '')
+    || '<div class="myd-empty">Δεν έχεις αναθέσει τίποτα ανοιχτό σε άλλον.</div>';
+  const supHint = sup.total ? (sup.stuck ? sup.stuck + ' κόλλησαν' : 'όλα κινούνται') + (sup.late ? ' · ' + sup.late + ' εκπρόθεσμα' : '') : '';
+
   const ovBody = overruns.length ? overruns.map(o => `<div class="myd-row ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
       <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
       <span class="myd-t qt"><b>${o.what === 'project' ? '📁 ' : ''}${esc(o.title)}</b><span class="mut"> · ${esc(o.agentName)}${o.hoursText ? ' · ⏱ ' + esc(o.hoursText) : ''}${o.daysText ? ' · 📅 ' + esc(o.daysText) : ''}</span></span>
@@ -3828,6 +3844,8 @@ async function vMyDay() {
     queue: () => sec('queue', 'Ουρά tickets', 'πρώτα SLA, μετά ο παλαιότερος', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']}),
     coach: () => (coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''),
     dl: () => (dlAhead.length ? sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))}) : ''),
+    sup: () => (sup.total ? sec('sup', 'Επιβλέπω', supHint, sup.total, supBody,
+      {ic: I.eye, collapsed: !sup.stuck && !sup.late, link: ['supervised', 'όλα →']}) : ''),
     wait: () => (waitN ? sec('wait', 'Περιμένω άλλους', 'όχι δική σου εκκρεμότητα', waitN, waitBody, {ic: I.clock, collapsed: true}) : ''),
     ov: () => (overruns.length ? sec('ov', 'Υπερβάσεις ομάδας', 'πάνω από την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''),
   };
@@ -4731,6 +4749,7 @@ const MYD_BLOCKS = [
   {k: 'queue', col: 'main', label: 'Ουρά tickets'},
   {k: 'coach', col: 'rail', label: 'Καθοδήγηση'},
   {k: 'dl', col: 'rail', label: 'Προθεσμίες μπροστά'},
+  {k: 'sup', col: 'rail', label: 'Επιβλέπω — τα ανέθεσα εγώ'},
   {k: 'wait', col: 'rail', label: 'Περιμένω άλλους'},
   {k: 'ov', col: 'rail', label: 'Υπερβάσεις ομάδας'},
 ];
