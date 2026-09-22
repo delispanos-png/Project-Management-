@@ -139,6 +139,17 @@ class Leave
             });
         }
 
+        /* ΤΑΚΤΟΠΟΙΗΜΕΝΟ ΕΤΟΣ. Το Excel είχε έτη σημειωμένα «ΟΚ» χωρίς καμία
+           αναλυτική εγγραφή — η άδεια δόθηκε, απλώς δεν καταγράφηκε αναλυτικά.
+           Χωρίς αυτή τη σημαία το εργαλείο τα διάβαζε ως «δεν πήρε τίποτα» και
+           έβγαζε ότι χρωστάμε 82 ημέρες σε έναν άνθρωπο. Κλειστό έτος ΔΕΝ
+           μετράει στο συνολικό υπόλοιπο ούτε στις προθεσμίες. */
+        if (!$s->hasColumn('mod_cpm_leave_years', 'settled')) {
+            $s->table('mod_cpm_leave_years', function ($t) {
+                $t->tinyInteger('settled')->default(0);
+            });
+        }
+
         /* Η κάθε άδεια. */
         if (!$s->hasTable('mod_cpm_leaves')) {
             $s->create('mod_cpm_leaves', function ($t) {
@@ -208,6 +219,7 @@ class Leave
                 ->where('type', $type)->orderBy('year')->get() as $y) {
             $carry = (float) ($y->carried_in ?? 0);
             $out[(int) $y->year] = [
+                'settled'   => (bool) ($y->settled ?? 0),
                 'entitled'  => (float) $y->entitled_days,
                 'carried'   => $carry,
                 /* Διαθέσιμο = δικαίωμα + μεταφορά. Αυτό είναι το νούμερο πάνω
@@ -220,6 +232,16 @@ class Leave
                 'note'      => (string) $y->note,
             ];
         }
+        /* Χωριστά το τι ήρθε από το Excel: μόνο ΑΥΤΟ συγκρίνεται με το
+           `legacy_taken`. Αλλιώς η πρώτη νέα άδεια που καταχωρείς σε ένα
+           παλιό έτος ανάβει ψεύτικη «ασυμφωνία» — το παλιό φύλλο δεν ήξερε
+           για αυτήν, και δεν είναι λάθος να μην την ξέρει. */
+        $imported = Capsule::table('mod_cpm_leaves')->where('staff_id', (int) $staffId)
+            ->where('type', $type)->whereIn('status', self::COUNTS)
+            ->whereNotNull('source_id')
+            ->select('year', Capsule::raw('SUM(days) AS d'))->groupBy('year')
+            ->pluck('d', 'year')->all();
+
         $rows = Capsule::table('mod_cpm_leaves')->where('staff_id', (int) $staffId)
             ->where('type', $type)->whereIn('status', self::COUNTS)
             ->select('year', Capsule::raw('SUM(days) AS d'))->groupBy('year')->get();
@@ -227,7 +249,7 @@ class Leave
             $y = (int) $r->year;
             if (!isset($out[$y])) {
                 /* Άδεια σε έτος χωρίς δηλωμένο δικαίωμα: δεν την κρύβουμε. */
-                $out[$y] = ['entitled' => 0.0, 'carried' => 0.0, 'available' => 0.0,
+                $out[$y] = ['settled' => false, 'entitled' => 0.0, 'carried' => 0.0, 'available' => 0.0,
                     'taken' => 0.0, 'remaining' => 0.0,
                     'legacy' => null, 'mismatch' => false, 'note' => ''];
             }
@@ -235,9 +257,12 @@ class Leave
             $out[$y]['remaining'] = round($out[$y]['available'] - (float) $r->d, 2);
         }
         foreach ($out as $y => &$b) {
-            /* Ασυμφωνία είναι μόνο ό,τι ΔΕΝ εξηγείται από τη μεταφορά. */
-            if ($b['legacy'] !== null && abs($b['legacy'] - $b['taken']) > 0.01
-                && abs($b['remaining']) > 0.01) {
+            /* Ασυμφωνία = το φύλλο διαφωνεί με τις ΕΙΣΑΓΜΕΝΕΣ εγγραφές και δεν
+               εξηγείται από μεταφορά. Ό,τι καταχωρήθηκε από το εργαλείο μετά
+               τη μεταφορά δεν συμμετέχει στη σύγκριση. */
+            $imp = (float) ($imported[$y] ?? 0);
+            if ($b['legacy'] !== null && abs($b['legacy'] - $imp) > 0.01
+                && abs(round($b['available'] - $imp, 2)) > 0.01) {
                 $b['mismatch'] = true;
             }
         }
@@ -323,7 +348,7 @@ class Leave
         $today = $today ?: date('Y-m-d');
         $out = [];
         foreach (self::balance($staffId) as $y => $b) {
-            if ($b['remaining'] <= 0.01) { continue; }
+            if (!empty($b['settled']) || $b['remaining'] <= 0.01) { continue; }
             $dl = self::carryDeadline($y);
             if ($dl < $today) {
                 $out[] = ['year' => $y, 'days' => $b['remaining'], 'deadline' => $dl, 'left' => -1];
@@ -342,6 +367,7 @@ class Leave
     {
         $sum = 0.0;
         foreach (self::balance($staffId) as $b) {
+            if (!empty($b['settled'])) { continue; }
             $sum += $b['remaining'];
         }
         return round($sum, 2);

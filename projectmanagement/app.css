@@ -4166,15 +4166,68 @@ html[data-theme="dark"] .card{border-color:#233043}
 .dc-perf td:first-child{font-variant-numeric:normal}
 
 /* ═══ Η ομάδα τώρα (Μέρα μου, μόνο για όσους οργανώνουν) ═══ */
-.tm-row{display:flex;gap:9px;align-items:center;padding:7px 6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:8px}
+.tm-row{display:flex;gap:10px;align-items:center;padding:6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:9px}
 .tm-row:last-child{border-bottom:none}
 .tm-row:hover{background:var(--bg2)}
 .tm-row.live{background:#16a26a0d}
-.tm-av{width:30px;height:30px;font-size:11px;border-radius:9px;flex:none}
-.tm-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
-.tm-t b{font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-t .mut{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-work{font-size:10.5px;color:var(--ok);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-m{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:1px;font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
-.tm-m svg{width:11px;height:11px;vertical-align:-1px;opacity:.7}
-@media(max-width:768px){.tm-m span:nth-child(3){display:none}}
+.tm-av{width:29px;height:29px;font-size:10.5px;border-radius:9px;flex:none}
+.tm-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.32}
+.tm-t b{font-size:12.5px;color:var(--ink);display:flex;gap:4px;align-items:center;overflow:hidden;white-space:nowrap}
+.tm-lead{font-style:normal;color:#eba63c;font-size:9.5px;flex:none}
+.tm-s{font-size:10.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-work{font-style:normal;color:var(--ok);font-weight:700}
+.tm-m{flex:none;text-align:right;line-height:1.28;font-variant-numeric:tabular-nums}
+.tm-m b{display:block;font-size:12px;color:var(--ink)}
+.tm-m small{font-size:9.5px;color:var(--mut);white-space:nowrap}
+.tm-offt{display:flex;align-items:center;gap:9px;padding:8px 6px;margin-top:2px;border-top:1px solid var(--line);cursor:pointer;font-size:11.5px;font-weight:600}
+.tm-offt:hover .mut{color:var(--brand)}
+.tm-offav{display:flex;flex:none}
+.tm-mini{width:21px;height:21px;font-size:8.5px;border-radius:7px;margin-right:-6px;border:2px solid var(--card);font-style:normal;opacity:.75}
+.tm-mini:last-child{margin-right:0}
+.tm-mini::after{display:none}
+.tm-offt .myd-chev{margin-left:auto;transform:rotate(-90deg)}
+.tm-offlist{display:none}
+.tm-show .tm-offlist{display:block}
+.tm-show .tm-offt .myd-chev{transform:none}
+@media(max-width:768px){.tm-m small{display:none}}
+
+/* ═══════════ ΑΔΕΙΕΣ ΠΡΟΣΩΠΙΚΟΥ ═══════════
+   Πίνακες αριθμών: οι ημέρες στοιχίζονται ΔΕΞΙΑ ώστε να συγκρίνονται με το
+   μάτι — δέκα γραμμές με αριστερή στοίχιση δεν διαβάζονται ως στήλη. */
+.lv-t{width:100%;border-collapse:collapse;font-size:13px}
+.lv-t th{text-align:left;font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.3px;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.lv-t td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--txt);vertical-align:middle}
+.lv-t tbody tr:last-child td{border-bottom:0}
+.lv-t th.r,.lv-t td.r{text-align:right}
+.lv-t tr.pick{cursor:pointer}
+.lv-t tr.pick:hover{background:var(--hover,rgba(20,80,160,.04))}
+.lv-t-sm td,.lv-t-sm th{padding:6px 10px;font-size:12.5px}
+
+.lv-pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;
+  border:1px solid;white-space:nowrap}
+.lv-flag{display:inline-block;margin-left:5px;padding:1px 7px;border-radius:999px;font-size:10.5px;
+  background:var(--line);color:var(--mut)}
+.lv-miss{color:var(--bad,#b91c1c);font-size:11.5px;font-weight:600}
+.lv-sub{font-size:11.5px;font-weight:700;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.3px;margin:14px 0 4px}
+
+/* Η προειδοποίηση προθεσμίας δεν είναι διακοσμητική: μετά τις 31/3 η άδεια
+   γίνεται χρηματική αξίωση με προσαύξηση 100%. Ξεχωρίζει από την υπόλοιπη κάρτα. */
+.lv-warn{border-color:var(--warn,#b45309)!important;background:rgba(180,83,9,.05)}
+.lv-inline-warn{background:rgba(180,83,9,.08);border:1px solid rgba(180,83,9,.25);border-radius:9px;
+  padding:8px 11px;font-size:12.5px;color:var(--ink);margin-bottom:12px}
+.lv-warn-dot{display:inline-block;width:16px;height:16px;line-height:15px;text-align:center;
+  border-radius:50%;background:var(--bad,#b91c1c);color:#fff;font-size:11px;font-weight:800;cursor:help}
+
+.lv-form{display:flex;flex-direction:column;gap:9px;text-align:left}
+.lv-form label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut);font-weight:600}
+.lv-form .inp{margin:0}
+.lv-2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.lv-mini{width:74px;padding:3px 6px!important;font-size:12.5px;text-align:right}
+
+@media (max-width:768px){
+  /* Στο κινητό οι πίνακες κυλούν οριζόντια ΜΕΣΑ στην κάρτα — ποτέ όλη η σελίδα. */
+  .card-b>.lv-t{display:block;overflow-x:auto;white-space:nowrap}
+  .lv-2{grid-template-columns:1fr}
+}
