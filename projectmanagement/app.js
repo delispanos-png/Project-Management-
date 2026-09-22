@@ -1463,7 +1463,12 @@ document.addEventListener('click', e => {
     return;
   }
   if (cmd === '__code') {
-    document.execCommand('formatBlock', false, '<pre>');
+    /* ΕΝΑΛΛΑΓΗ, όπως η επικεφαλίδα και η παράθεση. Πριν έμπαινε μόνο: πατούσες
+       το κουμπί και ΟΛΟ το υπόλοιπο μήνυμα γραφόταν μέσα στο <pre>, χωρίς
+       τρόπο να βγεις. Ένα κείμενο οδηγιών κατέληγε να φαίνεται ως κώδικας και
+       ο χρήστης δεν καταλάβαινε γιατί. */
+    const cur = (document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '');
+    document.execCommand('formatBlock', false, cur === 'pre' ? '<p>' : '<pre>');
     return;
   }
   if (cmd === 'formatBlock') {
@@ -3312,7 +3317,7 @@ async function openTask(id, entryId, opts) {
   const wireEditor = el => {
     el.addEventListener('paste', async e => {
       const f = cnpClipImage(e);
-      if (!f) { return; }                         // απλό κείμενο → προεπιλογή
+      if (!f) { return; }                         // κείμενο: το χειρίζεται ο καθολικός handler
       e.preventDefault();
       const hint = $('#chkHint', dr); if (hint) { hint.textContent = 'Ανέβασμα εικόνας…'; }
       await cnpPasteImage(el, f);
