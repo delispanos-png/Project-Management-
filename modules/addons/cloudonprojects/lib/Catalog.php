@@ -232,6 +232,65 @@ class Catalog
     }
 
     /**
+     * Δίνει ΕΙΔΙΚΟΤΗΤΑ στις εργασίες — το τρίτο σκέλος που λείπει για να μπορεί η
+     * δεξαμενή να δρομολογήσει. Χωρίς προϊόν, μια εργασία δεν πάει σε κανέναν.
+     *
+     * Τρεις πηγές, με αυτή τη σειρά εμπιστοσύνης:
+     *
+     *   1. ΤΟ TICKET — ο πελάτης το είπε ο ίδιος όταν το άνοιξε. Η πιο αξιόπιστη.
+     *   2. ΤΟ ΕΡΓΟ   — αν το έργο έχει προϊόν, το έχουν και οι εργασίες του.
+     *   3. Ο ΠΕΛΑΤΗΣ — μόνο αν έχει ΕΝΑ ενεργό προϊόν. Με δύο δεν μαντεύουμε:
+     *                  λάθος ετικέτα στέλνει τη δουλειά σε λάθος άνθρωπο, που
+     *                  είναι χειρότερο από το να μείνει στη Διαλογή.
+     *
+     * @param  bool $dry δοκιμή χωρίς εγγραφή
+     * @return array{n:int,ticket:int,project:int,client:int}
+     */
+    public static function labelTasks($dry = true)
+    {
+        $out = ['n' => 0, 'ticket' => 0, 'project' => 0, 'client' => 0];
+
+        /* Τι λέει το ticket. */
+        $byTicket = [];
+        foreach (Capsule::table('mod_cpm_ticket_class')->whereNotNull('product_id')
+                    ->get(['ticketid', 'product_id']) as $r) {
+            $byTicket[(int) $r->ticketid] = (int) $r->product_id;
+        }
+        /* Τι λέει το έργο, και ποιος είναι ο πελάτης του. */
+        $byProject = $projClient = [];
+        foreach (Capsule::table('mod_cpm_projects')->get(['id', 'product_id', 'clientid']) as $r) {
+            if ($r->product_id) { $byProject[(int) $r->id] = (int) $r->product_id; }
+            if ($r->clientid)   { $projClient[(int) $r->id] = (int) $r->clientid; }
+        }
+        /* Πελάτες με ΕΝΑ και μόνο ενεργό προϊόν — οι μόνοι όπου δεν μαντεύουμε. */
+        $one = [];
+        foreach (Capsule::table('mod_cpm_client_products')->where('status', 'active')
+                    ->get(['clientid', 'product_id']) as $r) {
+            $c = (int) $r->clientid;
+            $one[$c] = isset($one[$c]) ? 0 : (int) $r->product_id;   // δεύτερο προϊόν → 0
+        }
+
+        foreach (Capsule::table('mod_cpm_tasks')
+                    ->where(function ($q) { $q->whereNull('product_id')->orWhere('product_id', 0); })
+                    ->get(['id', 'ticketid', 'project_id']) as $t) {
+            $pid = null; $src = '';
+            if ($t->ticketid && isset($byTicket[(int) $t->ticketid])) {
+                $pid = $byTicket[(int) $t->ticketid]; $src = 'ticket';
+            } elseif ($t->project_id && isset($byProject[(int) $t->project_id])) {
+                $pid = $byProject[(int) $t->project_id]; $src = 'project';
+            } elseif ($t->project_id && isset($projClient[(int) $t->project_id])) {
+                $c = $projClient[(int) $t->project_id];
+                if (!empty($one[$c])) { $pid = $one[$c]; $src = 'client'; }
+            }
+            if (!$pid) { continue; }
+            $out['n']++; $out[$src]++;
+            if ($dry) { continue; }
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['product_id' => $pid]);
+        }
+        return $out;
+    }
+
+    /**
      * Τα υπάρχοντα έργα κρατούν το όνομά τους· απλώς δένουν με το προϊόν όταν αυτό
      * προκύπτει καθαρά από το όνομα. Ό,τι δεν είναι σαφές μένει για το χέρι.
      *
