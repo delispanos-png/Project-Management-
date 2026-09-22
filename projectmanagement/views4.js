@@ -809,7 +809,15 @@ R.requests = async function (openId) {
       <span class="rq-msg">${esc((r.message || '').slice(0, 150))}</span>
       ${ctxOf(r) ? `<span class="rq-ctx">${I.checkSquare} ${esc(ctxOf(r).slice(0, 70))}</span>` : ''}
     </span>
-    <span class="rq-meta">${r.replies ? `<span class="pill pill-mut">${I.chat} ${r.replies}</span>` : ''}<span class="mut">${esc(ago(r.lastAt || r.at))}</span></span></div>`;
+    <span class="rq-meta">${r.replies ? `<span class="pill pill-mut">${I.chat} ${r.replies}</span>` : ''}<span class="mut">${esc(ago(r.lastAt || r.at))}</span></span>
+    ${/* ΟΙ ΕΝΕΡΓΕΙΕΣ ΠΑΝΩ ΣΤΗ ΓΡΑΜΜΗ. Ό,τι έστειλες εσύ πρέπει να μπορείς να το
+         σκουντήσεις, να το κλείσεις ή να το σβήσεις χωρίς να ανοίξεις το καθένα
+         ξεχωριστά — οκτώ ξεχασμένα αιτήματα θέλουν οκτώ κλικ, όχι είκοσι τέσσερα. */''}
+    ${r.mine ? `<span class="rq-act">
+      ${r.status === 'open' ? `<button class="btn btn-sm btn-o" data-rqresend="${r.id}" title="Ξαναστείλ' το">↻</button>
+      <button class="btn btn-sm btn-o" data-rqclose="${r.id}" title="Κλείσ' το — δεν είναι πια εκκρεμότητα">✓</button>` : ''}
+      <button class="btn btn-sm btn-o" data-rqdel="${r.id}" title="Διαγραφή" style="color:var(--bad)">${I.trash}</button>
+    </span>` : ''}</div>`;
 
   /* Τα ανοιχτά μπαίνουν ΠΑΛΑΙΟΤΕΡΟ ΠΡΩΤΟ: αυτό που ξεχάστηκε είναι το πρόβλημα,
      όχι αυτό που μόλις ήρθε. Τα τακτοποιημένα μένουν νεότερα πρώτα, ως ιστορικό. */
@@ -876,6 +884,31 @@ R.requests = async function (openId) {
     document.body.classList.add('rq-open');   // κινητό: η καρτέλα παίρνει την οθόνη
   };
   $$('#rqList .rq-row').forEach(el => el.onclick = () => openRq(+el.dataset.rq));
+
+  /* Τα κουμπιά της γραμμής δεν ανοίγουν το αίτημα — σταματούν εκεί. */
+  const rqAct = (attr, fn) => $$('#rqList [data-' + attr + ']').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    await fn(+b.dataset[attr]);
+  });
+  rqAct('rqresend', async id => {
+    const x = await api('help_resend', {id}).catch(e => ({err: e.message}));
+    if (x && (x.err || x.error)) { toast(x.err || x.error, true); return; }
+    toast('Ξαναστάλθηκε');
+    R.requests();
+  });
+  rqAct('rqclose', async id => {
+    await api('help_done', {id}).catch(() => {});
+    toast('Κλείστηκε');
+    R.requests();
+  });
+  rqAct('rqdel', async id => {
+    if (!(await cnpConfirm('Να διαγραφεί το αίτημα και όλο το νήμα του; Δεν αναιρείται.',
+      {danger: true, ok: I.trash + ' Διαγραφή'}))) { return; }
+    const x = await api('help_del', {id}).catch(e => ({err: e.message}));
+    if (x && (x.err || x.error)) { toast(x.err || x.error, true); return; }
+    toast('Διαγράφηκε');
+    R.requests();
+  });
   $$('#rqDash [data-dkact]').forEach(b => b.onclick = () => {
     const a = b.dataset.dkact;
     if (a === 'in') { f.box = 'in'; f.state = 'open'; }
