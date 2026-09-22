@@ -804,16 +804,53 @@ function miniMenu(anchor, items) {
    που σε φτάνουν όταν κοιτάς αλλού. */
 let chatTitleTimer = null;
 const CHAT_TITLE0 = document.title;
+/**
+ * ΕΝΑΣ AudioContext, όχι ένας ανά μήνυμα.
+ *
+ * Έφτιαχνε καινούργιο σε κάθε ήχο και δεν τον έκλεινε ποτέ. Οι browsers
+ * επιτρέπουν λίγους ταυτόχρονα (Chrome ~6): μετά το έκτο μήνυμα η δημιουργία
+ * πετούσε σφάλμα, το `catch` το κατάπινε σιωπηλά, και ο ήχος έσβηνε για τα
+ * καλά μέχρι να ξαναφορτώσεις τη σελίδα. Γι' αυτό «δεν ακουγόταν».
+ *
+ * Και δεύτερο: ο browser κρατά το AudioContext σε αναστολή μέχρι ο χρήστης
+ * αγγίξει τη σελίδα. Το ξυπνάμε στην πρώτη αλληλεπίδραση, μία φορά.
+ */
+let cnpAudio = null;
+function cnpAudioCtx() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) { return null; }
+  if (!cnpAudio) { try { cnpAudio = new AC(); } catch (e) { return null; } }
+  if (cnpAudio.state === 'suspended') { cnpAudio.resume().catch(() => {}); }
+  return cnpAudio;
+}
+['pointerdown', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, () => cnpAudioCtx(), {once: true, passive: true}));
+
+/**
+ * Ο ήχος παραλαβής: δύο νότες που ανεβαίνουν, με σώμα μια οκτάβα κάτω.
+ *
+ * Το ημιτονοειδές μόνο του ακουγόταν λεπτό και χανόταν σε ανοιχτό γραφείο. Το
+ * τρίγωνο έχει αρμονικές, άρα «κόβει» χωρίς να τσιρίζει, και η χαμηλή νότα του
+ * δίνει βάρος. Η ένταση ανέβηκε από 0,13 σε 0,34 — δυνατά, αλλά όχι συναγερμός:
+ * δέκα μηνύματα την ώρα δεν πρέπει να γίνουν λόγος να κλείσει κανείς τον ήχο.
+ */
 function chatBeep() {
   try {
-    const a = new (window.AudioContext || window.webkitAudioContext)();
-    const o = a.createOscillator(), g = a.createGain();
-    o.connect(g); g.connect(a.destination);
-    o.type = 'sine'; o.frequency.value = 880;
-    g.gain.setValueAtTime(0.0001, a.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.14, a.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.34);
-    o.start(); o.stop(a.currentTime + 0.36);
+    const a = cnpAudioCtx();
+    if (!a) { return; }
+    //   συχνότητα, πότε, ένταση, κυματομορφή
+    [[880.0,   0,    0.34, 'triangle'],
+     [1174.7,  0.10, 0.34, 'triangle'],
+     [440.0,   0,    0.14, 'sine']].forEach(([hz, at, vol, type]) => {
+      const o = a.createOscillator(), g = a.createGain();
+      o.connect(g); g.connect(a.destination);
+      o.type = type; o.frequency.value = hz;
+      const t = a.currentTime + at;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+      o.start(t); o.stop(t + 0.34);
+    });
   } catch (e) { /* χωρίς ήχο — η κάρτα φτάνει */ }
 }
 function chatPop(m) {
@@ -5368,7 +5405,7 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
   openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp, mydLayoutDialog,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
-  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, cnpHolder, $, $$};
+  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, cnpHolder, chatBeep, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {
@@ -5465,8 +5502,24 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
          της καρτέλας — ώστε να το δεις ακόμη κι αν κοιτάς άλλο παράθυρο.
          Όταν ΕΙΣΑΙ στο chat δεν χρειάζεται: το βλέπεις ήδη. */
       if (Array.isArray(d.chatNew) && d.chatNew.length) {
+        /* ΜΟΝΟ ΤΑ ΟΝΤΩΣ ΚΑΙΝΟΥΡΓΙΑ. Ο server στέλνει ό,τι δεν έχεις διαβάσει,
+           άρα το ίδιο αδιάβαστο μήνυμα ξαναέρχεται σε κάθε σφυγμό. Χωρίς αυτό,
+           αν έμενες στο chat σε άλλο κανάλι, θα χτυπούσε κάθε λίγα δευτερόλεπτα
+           για το ίδιο πράγμα — και θα έκλεινες τον ήχο. */
+        const seen = window._cnpChatSeen || 0;
+        const fresh = d.chatNew.filter(m => m.id > seen);
         d.chatNew.forEach(m => { if (m.id > (window._cnpChatSeen || 0)) { window._cnpChatSeen = m.id; } });
-        if (S.view !== 'chat') { d.chatNew.forEach(chatPop); }
+        if (fresh.length) {
+          if (S.view !== 'chat') {
+            fresh.forEach(chatPop);            // κάρτα + ήχος + τίτλος που αναβοσβήνει
+          } else {
+            /* ΚΑΙ ΜΕΣΑ ΣΤΟ CHAT. Το ότι η οθόνη είναι ανοιχτή δεν σημαίνει ότι
+               την κοιτάς — μπορεί να είσαι σε άλλο κανάλι ή σε άλλο παράθυρο.
+               Κάθε κοινό chat χτυπά. Μόνο ήχος: το μήνυμα φαίνεται ήδη στη
+               συζήτηση, η κάρτα θα ήταν διπλή. */
+            chatBeep();
+          }
+        }
       }
       // Νεότερη έκδοση deployed → ανανέωση (ήπια, όταν δεν ενοχλεί).
       if (d.build && window.CNP_BUILD && d.build !== window.CNP_BUILD) { cnpNewBuild = true; }
