@@ -4622,6 +4622,15 @@ case 'myday':
         ->where('t.assignee', $adminId)
         ->whereNotNull('t.action_user')->where('t.action_user', '<>', 0)
         ->whereColumn('t.action_user', '<>', 't.assignee')
+        /* ΜΙΑ ΘΕΣΗ ΑΝΑ ΕΡΓΑΣΙΑ, ΚΑΙ ΓΙΑ ΤΟΝ ΕΠΙΒΛΕΠΟΝΤΑ. Ό,τι δημιούργησα εγώ
+           ζει ήδη στο «Επιβλέπω», που δείχνει ΠΟΡΕΙΑ (κόλλησε / εκπρόθεσμο).
+           Χωρίς αυτό, όποιος άνοιξε μια εργασία, την κράτησε και μετά πέρασε τη
+           μπάλα, την έβλεπε ΔΥΟ φορές στην ίδια οθόνη — μετρήθηκαν 4 τέτοιες
+           (22/09/2026). Εδώ μένουν μόνο όσες ΜΟΥ ΑΝΕΘΕΣΑΝ άλλοι και έχω
+           προωθήσει: εκεί όντως περιμένω, χωρίς να είμαι ο επιβλέπων. */
+        ->where(function ($w) use ($adminId) {
+            $w->whereNull('t.created_by')->orWhere('t.created_by', '<>', $adminId);
+        })
         ->orderByDesc('t.updated_at')->get() as $t) {
         /* ΟΧΙ 'status': το taskDto δίνει ήδη το id και η ένωση πινάκων κρατά το αριστερό. */
         $waiting[] = taskDto($t) + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac',
