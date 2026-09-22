@@ -3492,7 +3492,10 @@ function cnpTimerStoppedToast(taskId, mins) {
 function closeDrawer() {
   clearInterval(timerInt);
   /* Το κλείσιμο ΔΕΝ σταματά χρόνο — ο χειριστής συνεχίζει να δουλεύει αλλού. */
-  $$('.ovl,.drawer').forEach(el => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); });
+  /* ΟΧΙ `.ovl` σκέτο: αυτό έσβηνε ΚΑΘΕ overlay της σελίδας, και μαζί παράθυρα που δεν
+     έχουν καμία σχέση με την κάρτα εργασίας — η γρήγορη απάντηση, η μέρα ενός ανθρώπου,
+     οι συντομεύσεις. Όποιο παράθυρο ζει μόνο του σημαδεύεται `ovl-keep`. */
+  $$('.ovl:not(.ovl-keep),.drawer').forEach(el => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); });
 }
 
 /* ═══ Popups: ΔΕΝ κλείνουν με κλικ έξω — μόνο από ✕/Άκυρο/ESC, και ρωτούν αν
@@ -3748,6 +3751,7 @@ async function vMyDay() {
         : nowEv ? `<div class="myd-now"><span class="myd-now-k">📅 Τώρα</span><b class="myd-now-t" data-cal="${nowEv.id}">${esc(nowEv.title)}</b><span class="myd-now-e">έως ${hm(nowEv.end)}</span></div>`
         : `<div class="myd-now idle"><span class="myd-now-k">Δεν τρέχει χρόνος</span><span class="mut">διάλεξε από το πρόγραμμα και πάτα ▶ — ο χρόνος που δεν ξεκινά, δεν καταγράφεται</span></div>`}
     </div>
+    <button class="myd-kbd" id="mydKbd" title="Συντομεύσεις πληκτρολογίου (?)">⌨</button>
     <div class="myd-hero-r">
       <div class="myd-kpi">${ring(doneN, doneN + planTasks.length)}<div class="myd-kpi-l">έγιναν<br>σήμερα</div></div>
       <div class="myd-kpi"><div class="myd-kpi-n">${fmtMin(st.minsToday || 0)}</div><div class="myd-kpi-l">χρόνος<br>σήμερα</div></div>
@@ -3835,6 +3839,8 @@ async function vMyDay() {
 
   /* ⌨ Ο δρομέας πάνω στις γραμμές που ΚΑΝΟΥΝ κάτι. Η θέση επιβιώνει του redraw:
      κάθε ενέργεια ξαναζωγραφίζει την οθόνη και χωρίς αυτό θα ξεκινούσες από την αρχή. */
+  { const kb = $('#mydKbd'); if (kb) { kb.onclick = () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'],
+      ['e', 'ολοκλήρωσε ή τακτοποίησε'], ['r', 'απάντησε (ticket / αίτημα)']]); } }
   const kbKeep = vMyDay._kb;
   cnpKeyNav({
     sel: '#content .myd-row.att, #content .myd-row.ev, #content .myd-row.task, #content .myd-row.q',
@@ -4624,7 +4630,8 @@ function cnpKeyNav(opts) {
 
   /* Ένα παράθυρο, ένας διάλογος ή ένα πεδίο κειμένου έχουν ΠΑΝΤΑ προτεραιότητα. */
   const blocked = () => {
-    if (document.querySelector('.ovl, .drawer, #miniMenu')) { return true; }
+    const vis = el => el && el.offsetParent !== null;
+    if (Array.from(document.querySelectorAll('.ovl, .drawer, #miniMenu')).some(vis)) { return true; }
     const a = document.activeElement;
     return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable));
   };
@@ -4634,7 +4641,8 @@ function cnpKeyNav(opts) {
     if (k === 'j' || k === 'ArrowDown') { e.preventDefault(); move(1); return; }
     if (k === 'k' || k === 'ArrowUp') { e.preventDefault(); move(-1); return; }
     if (k === 'Escape' && i >= 0) { e.preventDefault(); i = -1; paint(); return; }
-    if (k === '?') { e.preventDefault(); cnpKeyHelp(opts.help || []); return; }
+    /* Το «?» έρχεται αλλιώς ανά διάταξη πληκτρολογίου — δεχόμαστε και το Shift+/ . */
+    if (k === '?' || (e.shiftKey && (k === '/' || e.code === 'Slash'))) { e.preventDefault(); cnpKeyHelp(opts.help || []); return; }
     const el = cur();
     if (!el) { return; }
     if (k === 'Enter') { e.preventDefault(); (keys.Enter || (x => x.click()))(el); return; }
@@ -4654,7 +4662,7 @@ function cnpKeyNav(opts) {
 function cnpKeyHelp(list) {
   if (document.getElementById('kbHelp')) { return; }
   const ovl = document.createElement('div');
-  ovl.className = 'ovl show'; ovl.id = 'kbHelp'; ovl.style.zIndex = cnpTopZ() + 10;
+  ovl.className = 'ovl ovl-keep show'; ovl.id = 'kbHelp'; ovl.style.zIndex = cnpTopZ() + 10;
   const base = [['j / ↓', 'επόμενη γραμμή'], ['k / ↑', 'προηγούμενη'], ['Enter', 'άνοιξε']];
   ovl.innerHTML = `<div class="pal-box" style="width:min(420px,92vw);margin:16vh auto 0;padding:20px 22px">
     <b style="font-size:15px;color:var(--ink)">Συντομεύσεις πληκτρολογίου</b>
@@ -4665,8 +4673,10 @@ function cnpKeyHelp(list) {
     <div style="text-align:right;margin-top:14px"><button class="btn btn-sm btn-p" id="kbhX">Εντάξει</button></div></div>`;
   document.body.appendChild(ovl);
   const close = () => { ovl.remove(); document.removeEventListener('keydown', onK, true); };
-  const onK = e => { if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); e.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onK, true);
+  /* Κλείνει ΜΟΝΟ με Esc, κουμπί ή κλικ έξω. Με «?» θα έκλεινε από το ίδιο πάτημα που
+     το άνοιξε, σε διατάξεις όπου το πλήκτρο στέλνει δεύτερο συμβάν. */
+  const onK = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+  setTimeout(() => document.addEventListener('keydown', onK, true), 0);
   ovl.onclick = e => { if (e.target === ovl) { close(); } };
   ovl.querySelector('#kbhX').onclick = close;
 }
@@ -4679,7 +4689,7 @@ function cnpKeyHelp(list) {
    Inbox εδώ, θα ήταν δύο υλοποιήσεις της ίδιας οθόνης που θα ξεσυγχρονίζονταν. */
 function qrShell(title) {
   const ovl = document.createElement('div');
-  ovl.className = 'ovl show';
+  ovl.className = 'ovl ovl-keep show';
   ovl.style.zIndex = cnpTopZ() + 10;
   ovl.innerHTML = `<div class="pal-box qr-box"><div style="padding:22px"><div class="skel" style="height:180px"></div></div></div>`;
   document.body.appendChild(ovl);
@@ -4801,7 +4811,7 @@ async function openRequestQuick(id, after) {
    μόνος του δεν ξεχωρίζει «δεν δούλεψε» από «δούλεψε χωρίς να πατήσει χρονόμετρο». */
 async function openTeamPulse(id) {
   const ovl = document.createElement('div');
-  ovl.className = 'ovl show';
+  ovl.className = 'ovl ovl-keep show';
   ovl.style.zIndex = cnpTopZ() + 10;
   ovl.innerHTML = '<div class="pal-box tp-box"><div class="tp-load"><div class="skel" style="height:180px"></div></div></div>';
   document.body.appendChild(ovl);

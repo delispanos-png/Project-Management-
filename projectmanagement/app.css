@@ -4248,6 +4248,10 @@ html[data-theme="dark"] .dday-e.rs-ask{background:#eba63c33}
 /* ── Δρομέας πληκτρολογίου ── */
 .kb-cur{position:relative;background:#0090dd0f!important;box-shadow:inset 3px 0 0 var(--brand)}
 html[data-theme="dark"] .kb-cur{background:#0090dd22!important}
+.myd-kbd{flex:none;align-self:flex-start;width:30px;height:30px;border:1px solid var(--line);background:var(--card);
+  border-radius:9px;cursor:pointer;color:var(--mut);font-size:14px;line-height:1;margin:0 10px}
+.myd-kbd:hover{color:var(--brand);border-color:var(--brand)}
+@media(max-width:768px){.myd-kbd{display:none}}
 .kbh{display:flex;flex-direction:column;gap:2px;margin-top:12px}
 .kbh-r{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12.5px;color:var(--txt);border-bottom:1px solid var(--line)}
 .kbh-r:last-child{border-bottom:none}
