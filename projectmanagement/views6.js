@@ -1442,6 +1442,8 @@ R.scheduler = async function () {
       style="left:${s * CELL + 2}px;width:${w * CELL - 4}px;top:${PAD + (t._row || 0) * ROW}px;background:${t.color}"
       title="#${t.id} ${esc(t.title)}${t.project ? ' · ' + esc(t.project) : ''}\n${dShort(t.start)} → ${dShort(t.end)}${t.deadline ? '\ndeadline ' + dShort(t.deadline) : ''}${liveHere ? '\n▶ τρέχει χρονόμετρο τώρα' : ''}${liveOther ? '\n▶ τρέχει χρόνο ο/η ' + esc(t.runByName) + ' (όχι ο ανάδοχος)' : ''}${t.status ? '\n' + esc(t.status) : ''}">
       <span class="sc-grip l" data-grip="l"></span>
+      ${/* ball-rule: ok — ο προγραμματιστής χειρίζεται ρητά τη διάκριση: η λωρίδα
+           είναι αυτού που ΚΡΑΤΑΕΙ, και το ⚡ λέει όταν ο ανάδοχος είναι άλλος. */''}
       <span class="sc-t">${liveHere ? '<span class="sc-live">▶</span> ' : ''}${liveOther ? `<span class="sc-runby" title="Τρέχει χρόνο ο/η ${esc(t.runByName)} — όχι ο ανάδοχος">▶ ${esc(t.runByName.split(' ')[0])}</span> ` : ''}${t.ball && t.ball === laneId && t.assignee !== laneId ? `<span class="sc-runby" title="Έχεις τη μπάλα — ανάδοχος: ${esc(adminName(t.assignee))}">⚡</span> ` : ''}${esc(t.title)}</span>
       <span class="sc-grip r" data-grip="r"></span></div>`;
   };

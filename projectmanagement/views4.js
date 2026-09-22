@@ -1164,8 +1164,12 @@ R.list = async function () {
   };
   $('#lfCsv').onclick = () => {
     const esc2 = v => '"' + String(v == null ? '' : v).replaceAll('"', '""') + '"';
-    const rows = [['Task', 'Project', 'Status', 'Χειριστής', 'Λήξη', 'Λεπτά'].map(esc2).join(';')];
+    /* ΚΑΙ ΤΑ ΔΥΟ, σε χωριστές στήλες: «Χειριστής» είναι ποιος το κρατάει τώρα,
+       «Ανάθεση» ποιανού είναι στα χαρτιά. Σε εξαγωγή δεν διαλέγουμε — όποιος
+       ανοίξει το αρχείο μπορεί να θέλει το ένα ή το άλλο. */
+    const rows = [['Task', 'Project', 'Status', 'Χειριστής', 'Ανάθεση', 'Λήξη', 'Λεπτά'].map(esc2).join(';')];
     D.tasks.filter(match).forEach(t => rows.push([t.title, t.pname, statusOf(t.status).title,
+      cnpHolder(t) ? adminName(cnpHolder(t)) : '',
       t.assignee ? adminName(t.assignee) : '', t.due || '', t.mins || 0].map(esc2).join(';')));
     const blob = new Blob(['﻿' + rows.join('\n')], {type: 'text/csv;charset=utf-8'});
     const a = document.createElement('a');

@@ -1,7 +1,7 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
 const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
-  adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, $, $$} = window.CNP;
+  adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, $, $$, cnpHolder} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
@@ -54,7 +54,9 @@ R.list = async function () {
         <td><span class="dot" style="background:${t.pcolor};margin-right:5px"></span>${esc(t.pname)}</td>
         <td><span class="pill" style="background:${st.color}22;color:${st.color}">${esc(st.title)}</span></td>
         <td>${t.creator ? esc(adminName(t.creator)) : '—'}</td>
-        <td>${t.assignee ? esc(adminName(t.assignee)) : '—'}</td>
+        <td${cnpHolder(t) !== +(t.assignee || 0) && t.assignee
+          ? ` title="ανάθεση: ${esc(adminName(t.assignee))}"` : ''}>${
+          cnpHolder(t) ? esc(adminName(cnpHolder(t))) : '—'}</td>
         <td class="${over ? 'pill pill-bad' : ''}">${t.due ? dShort(t.due) : '—'}</td>
         <td>${t.mins ? fmtMin(t.mins) : '—'}</td></tr>`;
     }).join('') : '<tr><td colspan="8" class="empty">Κανένα task με αυτά τα φίλτρα</td></tr>'}</tbody></table>
