@@ -1763,6 +1763,16 @@ function cnpDialog(opts) {
  * φαινόταν ταυτόχρονα σε δύο ανθρώπους, και κανείς δεν ήξερε ποιος την κρατά.
  * Μία εργασία, ΕΝΑΣ άνθρωπος κάθε φορά.
  */
+/**
+ * ΠΟΙΟΣ ΚΡΑΤΑΕΙ ΤΗΝ ΕΡΓΑΣΙΑ — ο ίδιος κανόνας με το cnpIsMine, σε μορφή «ποιος».
+ *
+ * Κάθε οθόνη που δείχνει ή ομαδοποιεί «ανά χειριστή» περνά από εδώ. Η Λίστα
+ * tasks ομαδοποιούσε με την ΑΝΑΘΕΣΗ, οπότε ο Βάκρινος έβλεπε κάτω από το όνομά
+ * του εργασίες που τις τρέχει άλλος — ενώ το «Πλάνο μου» τις είχε ήδη πάψει να
+ * δείχνει. Δύο οθόνες, δύο απαντήσεις για το ίδιο πράγμα.
+ */
+function cnpHolder(t) { return +(t.ball || 0) || +(t.assignee || 0) || 0; }
+
 function cnpIsMine(t, meId) {
   const me = meId || (S.boot && S.boot.me && S.boot.me.id);
   const ball = +(t.ball || 0);
@@ -5353,7 +5363,7 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
   openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp, mydLayoutDialog,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
-  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, $, $$};
+  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, cnpHolder, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {

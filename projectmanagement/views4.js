@@ -2,7 +2,7 @@
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
-  cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
+  cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpHolder, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -960,15 +960,19 @@ R.supervised = async function () {
         ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname || 'Χωρίς έργο')}</span>` : ''}
         ${t.clientName ? `<span class="kb-tag kb-tag-mut">${esc(t.clientName)}</span>` : ''}
         ${stPill(t.status)}
-        <span class="mut">${t.assignee ? esc(adminName(t.assignee)) : 'χωρίς ανάθεση'}</span>
+        <span class="mut"${cnpHolder(t) !== +(t.assignee || 0) && t.assignee
+          ? ` title="ανάθεση: ${esc(adminName(t.assignee))}"` : ''}>${
+          cnpHolder(t) ? esc(adminName(cnpHolder(t))) : 'χωρίς χειριστή'}</span>
         ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
         <span class="mut" title="Τελευταία κίνηση ${esc(tShort(t.lastAt))}">${esc(ago(t.lastAt))}</span>
       </span></div>`; };
   const render = () => {
     const el = $('#svRes');
-    const list = d.tasks.filter(t => !f.q || norm([t.title, t.pname, t.clientName, statusOf(t.status).title, t.assignee ? adminName(t.assignee) : ''].join(' ')).includes(norm(f.q)));
+    const list = d.tasks.filter(t => !f.q || norm([t.title, t.pname, t.clientName, statusOf(t.status).title,
+      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : ''].join(' ')).includes(norm(f.q)));
     if (!list.length) { el.innerHTML = `<div class="card"><div class="empty" style="padding:40px"><div class="big">${I.eye}</div><b style="color:var(--ink);font-size:15px">${d.tasks.length ? 'Τίποτα με αυτά τα φίλτρα' : (f.which === 'done' ? 'Καμία ολοκληρωμένη ακόμη' : 'Δεν έχεις ανοίξει εργασίες που να εκκρεμούν')}</b></div></div>`; return; }
-    const keyOf = t => f.group === 'assignee' ? (t.assignee ? adminName(t.assignee) : 'Χωρίς ανάθεση') : f.group === 'status' ? statusOf(t.status).title : (t.pname || 'Χωρίς έργο');
+    /* ΑΝΑ ΧΕΙΡΙΣΤΗ = ανά αυτόν που ΚΡΑΤΑΕΙ την εργασία, όχι ανά ανάθεση. */
+    const keyOf = t => f.group === 'assignee' ? (cnpHolder(t) ? adminName(cnpHolder(t)) : 'Χωρίς χειριστή') : f.group === 'status' ? statusOf(t.status).title : (t.pname || 'Χωρίς έργο');
     const groups = {}; list.forEach(t => { (groups[f.group ? keyOf(t) : 'Όλες'] = groups[f.group ? keyOf(t) : 'Όλες'] || []).push(t); });
     el.innerHTML = Object.entries(groups).map(([k, ts]) => `<div class="card kb-group"><div class="card-h" style="font-size:13px">${esc(k)} <span class="kb-n">${ts.length}</span></div><div class="card-b kb-gbody">${ts.map(row).join('')}</div></div>`).join('');
     $$('#svRes [data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
@@ -1028,7 +1032,9 @@ R.list = async function () {
         ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname)}</span>` : ''}
         ${t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : ''}
         ${stPill(t.status)}
-        ${t.assignee ? `<span class="mut">${esc(adminName(t.assignee))}</span>` : '<span class="mut">χωρίς ανάθεση</span>'}
+        ${cnpHolder(t) ? `<span class="mut"${cnpHolder(t) !== +(t.assignee || 0) && t.assignee
+          ? ` title="ανάθεση: ${esc(adminName(t.assignee))}"` : ''}>${esc(adminName(cnpHolder(t)))}</span>`
+          : '<span class="mut">χωρίς χειριστή</span>'}
         ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
         ${t.mins ? `<span class="mut">${fmtMin(t.mins)}</span>` : ''}
       </span></div>`;
@@ -1038,7 +1044,8 @@ R.list = async function () {
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
   const match = t => !f.q || norm([t.title, t.pname, statusOf(t.status).title,
-    t.assignee ? adminName(t.assignee) : '', prioName(t.prio)].join(' ')).includes(norm(f.q));
+    cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '',
+    prioName(t.prio)].join(' ')).includes(norm(f.q));
 
   const render = () => {
     /* ΠΡΩΤΑ η γραμμή. Ήταν στο τέλος, αλλά το render γυρίζει νωρίς όταν η λίστα
@@ -1072,7 +1079,7 @@ R.list = async function () {
       return;
     }
     const keyOf = t => f.group === 'status' ? statusOf(t.status).title
-      : f.group === 'assignee' ? (t.assignee ? adminName(t.assignee) : 'Χωρίς ανάθεση')
+      : f.group === 'assignee' ? (cnpHolder(t) ? adminName(cnpHolder(t)) : 'Χωρίς χειριστή')
         : f.group === 'project' ? t.pname : prioName(t.prio);
     const colOf = t => f.group === 'status' ? statusOf(t.status).color
       : f.group === 'project' ? t.pcolor : f.group === 'prio' ? prioDot(t.prio) : '#8595ac';
