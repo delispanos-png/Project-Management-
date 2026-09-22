@@ -1488,6 +1488,20 @@ function cnp_leave_mirror($leaveId)
     }
 }
 
+/** Πόσα «κρέμονται» από κάθε προϊόν — ώστε να μη σβήνεται ό,τι κουβαλά ιστορικό. */
+function cnp_product_usage()
+{
+    $out = [];
+    foreach ([['mod_cpm_tasks', 'product_id'], ['mod_cpm_client_products', 'product_id'],
+              ['mod_cpm_agent_skills', 'product_id'], ['mod_cpm_projects', 'product_id']] as [$t, $c]) {
+        foreach (Capsule::table($t)->whereNotNull($c)->where($c, '>', 0)
+                    ->select($c, Capsule::raw('COUNT(*) n'))->groupBy($c)->get() as $r) {
+            $out[(int) $r->$c] = ($out[(int) $r->$c] ?? 0) + (int) $r->n;
+        }
+    }
+    return $out;
+}
+
 function cnp_area_defs()
 {
     /* Ένα δικαίωμα = μία ενότητα του μενού, με το ίδιο όνομα. Η σειρά εδώ είναι
@@ -3837,6 +3851,11 @@ function cnp_action_cap($action)
         $add('hr.roles', ['roles', 'roles_coverage']);
         $add('hr.roles.edit', ['role_save', 'skill_save']);
         $add('reports.pool', ['pool_today']);
+        /* Ο κατάλογος προϊόντων είναι ΡΥΘΜΙΣΗ — ίδιο δικαίωμα με τις περιοχές
+           tickets, που είναι πλέον το ίδιο πράγμα. */
+        $add('admin.settings', ['products_tree']);
+        $add('admin.settings.edit', ['product_save', 'products_reorder']);
+        $add('admin.settings.delete', ['product_del']);
         /* Γράφει ΣΤΙΣ ΕΡΓΑΣΙΕΣ, όχι στους ρόλους — άρα θέλει το δικαίωμα των
            εργασιών, όχι αυτό της οθόνης από την οποία πατιέται. */
         $add('projects.board.edit', ['tasks_label']);
@@ -14940,6 +14959,20 @@ case 'tcat_save':
         $cid7 = Capsule::table('mod_cpm_ticket_cats')->insertGetId(['kind' => $kind7, 'name' => $nm7,
             'color' => $col7, 'sort' => (int) Capsule::table('mod_cpm_ticket_cats')->where('kind', $kind7)->max('sort') + 1]);
     }
+    /* Η περιοχή και το προϊόν είναι ΤΟ ΙΔΙΟ πράγμα (ενοποίηση 22/09/2026).
+       Ό,τι αλλάξει εδώ ακολουθεί και ο κατάλογος — αλλιώς οι δύο λίστες
+       ξαναρχίζουν να αποκλίνουν, που ήταν ακριβώς το πρόβλημα. */
+    if ($kind7 === 'area') {
+        $pRow = Capsule::table('mod_cpm_products')->where('area_id', $cid7)->first();
+        if ($pRow) {
+            Capsule::table('mod_cpm_products')->where('id', $pRow->id)
+                ->update(['name' => $nm7, 'color' => $col7]);
+        } else {
+            Capsule::table('mod_cpm_products')->insert(['name' => $nm7, 'color' => $col7,
+                'area_id' => $cid7, 'active' => 1, 'sort' => 900,
+                'created_at' => date('Y-m-d H:i:s')]);
+        }
+    }
     out(['ok' => true, 'id' => $cid7]);
 
 case 'tcat_reorder':                     // νέα σειρά περιοχών/ριζών (drag ή ↑↓)
@@ -18656,15 +18689,81 @@ case 'leave_ergani':
         'deadline' => ($lvY + 1) . '-01-31']);
 
 
+case 'products_tree':
+    /* Ο ΚΑΤΑΛΟΓΟΣ — μία λίστα που τροφοδοτεί ρόλους, τηλεφωνικό κατάλογο και
+       ταξινόμηση tickets. Δέντρο ενός επιπέδου: προϊόν → υποκατηγορία. */
+    out(['ok' => true, 'rows' => Catalog::tree(false),
+         'queues' => Route::queues(),
+         'used' => cnp_product_usage()]);
+
+case 'product_save':
+    $pName = mb_substr(trim((string) ($in['name'] ?? '')), 0, 80);
+    if ($pName === '') { fail('Δώσε όνομα'); }
+    $pId   = (int) ($in['id'] ?? 0);
+    $pPar  = (int) ($in['parent_id'] ?? 0);
+    /* Δέντρο ΕΝΟΣ επιπέδου: υποκατηγορία δεν αποκτά δικά της παιδιά, και
+       κανένα προϊόν δεν γίνεται γονέας του εαυτού του. */
+    if ($pPar) {
+        $par = Capsule::table('mod_cpm_products')->where('id', $pPar)->first();
+        if (!$par) { fail('Άγνωστο προϊόν-γονέας'); }
+        if ($par->parent_id) { fail('Η υποκατηγορία δεν μπορεί να έχει δικές της υποκατηγορίες'); }
+        if ($pId && $pId === $pPar) { fail('Δεν γίνεται γονέας του εαυτού του'); }
+        if ($pId && Capsule::table('mod_cpm_products')->where('parent_id', $pId)->exists()) {
+            fail('Έχει ήδη υποκατηγορίες — δεν μπορεί να γίνει υποκατηγορία');
+        }
+    }
+    $pRow = [
+        'name'      => $pName,
+        'color'     => preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($in['color'] ?? '')) ? $in['color'] : '#0090dd',
+        'parent_id' => $pPar ?: null,
+        'route_dn'  => preg_match('/^\d{2,6}$/', (string) ($in['route_dn'] ?? '')) ? $in['route_dn'] : null,
+        'active'    => empty($in['active']) ? 0 : 1,
+    ];
+    if ($pId) {
+        Capsule::table('mod_cpm_products')->where('id', $pId)->update($pRow);
+    } else {
+        $pRow['sort'] = (int) Capsule::table('mod_cpm_products')->max('sort') + 10;
+        $pRow['created_at'] = date('Y-m-d H:i:s');
+        $pId = (int) Capsule::table('mod_cpm_products')->insertGetId($pRow);
+    }
+    Catalog::mirrorToArea($pId);
+    out(['ok' => true, 'id' => $pId]);
+
+case 'product_del':
+    $pId = (int) ($in['id'] ?? 0);
+    if (!$pId) { fail('Λείπει το προϊόν'); }
+    if (Capsule::table('mod_cpm_products')->where('parent_id', $pId)->exists()) {
+        fail('Έχει υποκατηγορίες — σβήσε πρώτα αυτές');
+    }
+    /* Δεν σβήνουμε ό,τι κουβαλά ιστορικό: γίνεται ΑΝΕΝΕΡΓΟ. Η διαγραφή θα
+       άφηνε εργασίες και δεξιότητες να δείχνουν στο πουθενά. */
+    $pUse = cnp_product_usage()[$pId] ?? 0;
+    if ($pUse) {
+        Capsule::table('mod_cpm_products')->where('id', $pId)->update(['active' => 0]);
+        out(['ok' => true, 'deactivated' => true, 'used' => $pUse]);
+    }
+    $pAid = (int) Capsule::table('mod_cpm_products')->where('id', $pId)->value('area_id');
+    Capsule::table('mod_cpm_products')->where('id', $pId)->delete();
+    if ($pAid) {
+        Capsule::table('mod_cpm_ticket_cats')->where('id', $pAid)->delete();
+        Capsule::table('mod_cpm_ticket_class')->where('area_id', $pAid)->update(['area_id' => null]);
+    }
+    out(['ok' => true, 'deleted' => true]);
+
+case 'products_reorder':
+    foreach ((array) ($in['ids'] ?? []) as $i => $pid) {
+        Capsule::table('mod_cpm_products')->where('id', (int) $pid)->update(['sort' => ($i + 1) * 10]);
+    }
+    out(['ok' => true]);
+
 case 'roles':
     /* ΡΟΛΟΙ & ΕΙΔΙΚΟΤΗΤΕΣ — η κάρτα κάθε χειριστή και ο χάρτης «ποιος ξέρει τι».
        Επιστρέφει ΟΛΟΥΣ τους ενεργούς χειριστές, όχι μόνο όσους έχουν ρυθμιστεί:
        αλλιώς ο καινούργιος δεν φαίνεται πουθενά και δεν μπαίνει ποτέ. */
-    $plProds = [];
-    foreach (Capsule::table('mod_cpm_products')->where('active', 1)->orderBy('sort')
-                ->get(['id', 'name', 'color']) as $r) {
-        $plProds[] = ['id' => (int) $r->id, 'name' => (string) $r->name, 'color' => (string) $r->color];
-    }
+    /* ΔΕΝΤΡΟ, όχι επίπεδη λίστα: τα προϊόντα έχουν υποκατηγορίες και ο χάρτης
+       πρέπει να μπορεί να πει «ξέρει PharmacyOne» ή «ξέρει μόνο τη
+       συνταγογράφηση του». */
+    $plProds = Catalog::tree(true);
     $plTeam = [];
     foreach (Capsule::table('mod_cpm_team_members as m')
                 ->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')

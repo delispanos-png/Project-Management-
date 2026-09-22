@@ -205,10 +205,17 @@ class Pool
         foreach (Capsule::table('mod_cpm_agent_skills')->get(['admin_id', 'product_id', 'level']) as $r) {
             $by[(int) $r->product_id][(string) $r->level][] = (int) $r->admin_id;
         }
+        /* Το δέντρο, ισοπεδωμένο: η ΥΠΟΚΑΤΗΓΟΡΙΑ είναι κι αυτή ειδικότητα και
+           έχει τη δική της κάλυψη — μπορεί το PharmacyOne να καλύπτεται και η
+           συνταγογράφησή του να κρέμεται από έναν άνθρωπο. */
+        $flat = [];
+        foreach (Catalog::tree(true) as $t) {
+            $flat[] = $t;
+            foreach ($t['kids'] as $k) { $flat[] = $k; }
+        }
         $out = [];
-        foreach (Capsule::table('mod_cpm_products')->where('active', 1)->orderBy('sort')
-                    ->get(['id', 'name', 'color']) as $p) {
-            $pid = (int) $p->id;
+        foreach ($flat as $p) {
+            $pid = (int) $p['id'];
             $g = ['main' => [], 'can' => [], 'learn' => []];
             foreach ($g as $lv => $_) {
                 foreach (isset($by[$pid][$lv]) ? $by[$pid][$lv] : [] as $aid) {
@@ -222,8 +229,9 @@ class Pool
             elseif ($auto === 1)  { $risk = 'single'; }   // ένας — αν λείψει, στοπ
             elseif ($auto === 2)  { $risk = 'thin';   }   // οριακά
             else                  { $risk = 'ok';     }
-            $out[] = ['product_id' => $pid, 'name' => (string) $p->name,
-                      'color' => (string) $p->color, 'risk' => $risk] + $g;
+            $out[] = ['product_id' => $pid, 'name' => (string) $p['full'],
+                      'color' => (string) $p['color'], 'parent_id' => (int) $p['parent_id'],
+                      'risk' => $risk] + $g;
         }
         return $out;
     }

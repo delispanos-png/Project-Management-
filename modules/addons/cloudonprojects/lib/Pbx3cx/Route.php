@@ -52,11 +52,61 @@ class Route
         return $out;
     }
 
+    /**
+     * ΠΑΛΙΑ slug που δεν έχουν πια δικό τους προϊόν. Δεν τα πετάμε: υπάρχουν
+     * καρτέλες που τα κρατούν, και ένα άγνωστο slug θα σβηνόταν σιωπηλά.
+     */
+    const ALIASES = ['pharmacyone_cy' => 'pharmacyone_gr'];
+
+    /**
+     * Ο κατάλογος προϊόντων ΑΠΟ ΤΗ ΒΑΣΗ — μία λίστα για όλο το σύστημα.
+     *
+     * Πριν (20/09/2026) ήταν σκληρή λίστα εδώ, οπότε κάθε νέο προϊόν απαιτούσε
+     * αλλαγή κώδικα για να φανεί στον τηλεφωνικό κατάλογο, και οι τρεις λίστες
+     * του συστήματος απέκλιναν μεταξύ τους. Τώρα συντηρείται από τις Ρυθμίσεις.
+     *
+     * @return array<string,array{0:string,1:string}> slug => [ετικέτα, ουρά]
+     */
+    public static function products()
+    {
+        static $cache = null;
+        if ($cache !== null) { return $cache; }
+
+        $rows = Capsule::table('mod_cpm_products')->where('active', 1)
+            ->orderBy('sort')->orderBy('id')->get(['id', 'name', 'parent_id', 'route_dn', 'book_key']);
+        if (!count($rows)) { return $cache = self::PRODUCTS; }   // άδεια βάση: η παλιά λίστα
+
+        $names = $dns = [];
+        foreach ($rows as $r) { $names[(int) $r->id] = (string) $r->name; $dns[(int) $r->id] = (string) $r->route_dn; }
+
+        $out = [];
+        foreach ($rows as $r) {
+            $key = trim((string) $r->book_key) ?: self::slug((string) $r->name, (int) $r->id);
+            $label = $r->parent_id && isset($names[(int) $r->parent_id])
+                ? $names[(int) $r->parent_id] . ' › ' . $r->name
+                : (string) $r->name;
+            /* Η υποκατηγορία κληρονομεί την ουρά του γονέα αν δεν έχει δική της. */
+            $dn = (string) $r->route_dn ?: ($r->parent_id ? ($dns[(int) $r->parent_id] ?? '') : '');
+            $out[$key] = [$label, $dn];
+        }
+        return $cache = $out;
+    }
+
+    /** Σταθερό slug από όνομα· σε σύγκρουση ή κενό, πέφτει στο id. */
+    private static function slug($name, $id)
+    {
+        $n = mb_strtolower(trim($name));
+        $n = strtr($n, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ό' => 'ο', 'ύ' => 'υ', 'ώ' => 'ω']);
+        $n = preg_replace('/[^a-z0-9]+/u', '_', $n);
+        $n = trim((string) $n, '_');
+        return $n !== '' && preg_match('/^[a-z0-9_]+$/', $n) ? $n : ('p' . $id);
+    }
+
     public static function productList()
     {
         $q = self::queues();
         $out = [];
-        foreach (self::PRODUCTS as $k => [$label, $dn]) {
+        foreach (self::products() as $k => [$label, $dn]) {
             $out[] = ['key' => $k, 'label' => $label, 'dn' => $dn, 'queue' => $q[$dn] ?? $dn];
         }
         return $out;
@@ -67,7 +117,9 @@ class Route
         $out = [];
         foreach (explode(',', (string) $v) as $p) {
             $p = trim($p);
-            if ($p !== '' && isset(self::PRODUCTS[$p])) { $out[] = $p; }
+            if ($p === '') { continue; }
+            if (isset(self::ALIASES[$p])) { $p = self::ALIASES[$p]; }   // παλιό slug → σημερινό
+            if (isset(self::products()[$p])) { $out[] = $p; }
         }
         return array_values(array_unique($out));
     }

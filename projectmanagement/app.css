@@ -4566,23 +4566,29 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .pl-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle}
 
 /* ── ο χάρτης ── */
-.pl-map{min-width:900px}
+.pl-map{min-width:760px}
 .pl-map th,.pl-map td{vertical-align:middle}
 .pl-map .pl-nm{position:sticky;left:0;background:var(--card,#fff);z-index:1;min-width:150px}
 /* Κάθετες οι κεφαλίδες των ειδικοτήτων: 13 οριζόντια ονόματα θα έκαναν τον
    πίνακα τρεις οθόνες φαρδύ. */
-.pl-pv{width:34px;padding:0;text-align:center;vertical-align:bottom;height:158px}
-.pl-pv span{display:inline-block;writing-mode:vertical-rl;transform:rotate(180deg);
-  font-size:11px;font-weight:600;white-space:nowrap;padding:6px 0}
-.pl-cell{text-align:center;padding:2px}
-/* Το κελί δείχνει ΓΡΑΜΜΑ και λέει ολόκληρη τη λέξη στο tooltip: 13 στήλες με
-   «Κύριος/Μπορεί/Μαθαίνει» γραμμένα ολόκληρα δεν χωρούν σε καμία οθόνη. */
-.pl-lv{width:28px;height:28px;border:1px solid var(--bd,#e2e8f0);border-radius:6px;
-  background:transparent;font-size:12px;font-weight:700;color:var(--mut,#94a3b8);cursor:pointer;
-  padding:0;line-height:1}
-.pl-lv:hover:not(:disabled){border-color:var(--brand)}
-.pl-lv:disabled{cursor:default}
-.pl-lv.has{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c)}
+/* ΕΙΔΙΚΟΤΗΤΕΣ ΩΣ ΕΤΙΚΕΤΕΣ. Ο πίνακας «όλοι επί όλα» έσπασε στα 18 προϊόντα με
+   υποκατηγορίες — δεκάδες στήλες, σχεδόν όλες κενές. Δείχνουμε μόνο ό,τι ισχύει. */
+.pl-sk{min-width:320px}
+.pl-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pl-chip{display:inline-flex;align-items:center;gap:0;border:1px solid var(--c);
+  border-radius:999px;background:color-mix(in srgb,var(--c) 10%,transparent);overflow:hidden;
+  font-size:12px;line-height:1}
+.pl-chip-l{border:0;background:var(--c);color:#fff;font-weight:700;width:20px;height:22px;
+  cursor:pointer;padding:0;font-size:11px}
+.pl-chip-l:disabled{cursor:default}
+.pl-chip-n{padding:0 6px;color:var(--c);font-weight:600;white-space:nowrap}
+.pl-chip-x{border:0;background:0;color:var(--c);cursor:pointer;padding:0 6px 0 0;
+  font-size:12px;opacity:.6}
+.pl-chip-x:hover{opacity:1}
+.pl-add{margin-top:6px;border:1px dashed var(--bd,#e2e8f0);border-radius:8px;
+  padding:4px 6px;font-size:12px;background:transparent;color:var(--mut,#64748b);
+  max-width:100%;cursor:pointer}
+.pl-add:hover{border-color:var(--brand);color:var(--brand)}
 .pl-in{border:1px solid var(--bd,#e2e8f0);border-radius:6px;padding:4px 6px;font-size:12px;
   background:var(--card,#fff);color:inherit}
 .pl-num{width:62px}
@@ -4616,8 +4622,10 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
     flex:0 0 auto;max-width:55%}
   .pl-map .pl-nm{position:static;display:block}
   .pl-map .pl-nm::before{content:none}
-  .pl-lv{width:34px;height:34px}
-  .pl-pv{height:auto}
+  .pl-sk{min-width:0}
+  .pl-map tbody td.pl-sk{display:block}
+  .pl-map tbody td.pl-sk::before{display:block;margin-bottom:6px}
+  .pl-add{width:100%}
   .pl-day thead{display:none}
   .pl-day tbody tr{display:block;border:1px solid var(--bd,#e2e8f0);border-radius:10px;
     padding:10px 12px;margin-bottom:10px;background:var(--card,#fff)}
@@ -4632,3 +4640,18 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 }
 .pl-qh{margin-bottom:4px}
 .pl-q.next{opacity:.62}
+.pl-cov .pl-kid{padding-left:22px;font-size:12px}
+@media (max-width:768px){ .pl-cov .pl-kid{padding-left:0} }
+
+/* ── Ρυθμίσεις → Προϊόντα & υποκατηγορίες ── */
+.pr-row{gap:6px}
+.pr-kid{padding-left:26px;position:relative}
+.pr-kid::before{content:'↳';position:absolute;left:8px;color:var(--mut,#94a3b8);font-size:13px}
+.pr-q{max-width:150px;font-size:12px}
+.pr-on{display:inline-flex;align-items:center}
+.pr-on input{width:15px;height:15px;cursor:pointer}
+@media (max-width:768px){
+  .pr-row{flex-wrap:wrap}
+  .pr-q{max-width:none;flex:1 1 100%}
+  .pr-kid{padding-left:18px}
+}
