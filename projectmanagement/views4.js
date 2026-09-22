@@ -1005,7 +1005,7 @@ R.list = async function () {
        γιατί ΔΕΝ είναι φίλτρα — είναι συντομεύσεις σε σύνολα φίλτρων. */''}
   <div class="fbar">
     ${fChip('Αναζήτηση', `<input class="fchip-s" id="lfQ" data-fk="q" value="${esc(f.q || '')}"
-      placeholder="τίτλο, project, χειριστή…" style="width:230px">`, !!f.q, '')}
+      placeholder="τίτλο, project, χειριστή, #αριθμό…" style="width:250px">`, !!f.q, '')}
     ${fChip('Ομαδοποίηση', fSel('group', Object.entries(GROUPS), f.group), false, '')}
     <span id="lfMore"></span>
     <span class="fbar-sp"></span>
@@ -1043,9 +1043,22 @@ R.list = async function () {
   const norm = s => String(s || '').toLowerCase()
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
-  const match = t => !f.q || norm([t.title, t.pname, statusOf(t.status).title,
-    cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '',
-    prioName(t.prio)].join(' ')).includes(norm(f.q));
+  /* ΑΝΑΖΗΤΗΣΗ ΜΕ ΑΡΙΘΜΟ. Ο αριθμός είναι ο τρόπος που αναφερόμαστε σε μια
+     εργασία μεταξύ μας («δες το #105») — και ήταν ο μόνος που δεν έβρισκε.
+
+     «#105» θεωρείται ΡΗΤΑ αριθμός και ψάχνει ΜΟΝΟ ταυτότητα: αλλιώς ένα ticket
+     με τίτλο «[#105…]» θα γέμιζε το αποτέλεσμα. Σκέτο «105» ψάχνει και τα δύο,
+     γιατί δεν ξέρουμε αν εννοείς εργασία ή κείμενο. */
+  const match = t => {
+    if (!f.q) { return true; }
+    const q = f.q.trim();
+    const hash = /^#\s*(\d+)$/.exec(q);
+    if (hash) { return String(t.id) === hash[1]; }
+    const text = norm([t.title, t.pname, statusOf(t.status).title,
+      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '',
+      prioName(t.prio)].join(' ')).includes(norm(q));
+    return /^\d+$/.test(q) ? (String(t.id) === q || text) : text;
+  };
 
   const render = () => {
     /* ΠΡΩΤΑ η γραμμή. Ήταν στο τέλος, αλλά το render γυρίζει νωρίς όταν η λίστα

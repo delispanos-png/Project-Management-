@@ -260,6 +260,13 @@ class Watch
         $mine = array_map('intval', Capsule::table('mod_cpm_team_members')
             ->where('admin_id', $adminId)->where('is_leader', 1)->pluck('team_id')->all());
 
+        /* ΠΟΤΕ ΠΑΝΩ. Ομάδα όπου είμαι ΑΠΛΟ ΜΕΛΟΣ είναι η ομάδα του δικού μου
+           προϊσταμένου — δεν τον επιβλέπω. Χωρίς αυτό, η Emmanuela (πλήρης
+           διαχειρίστρια, αλλά μέλος της ομάδας του Παναγιώτη) έβλεπε γραμμή
+           «Ρώτα τι χρειάζεται» για τον προϊστάμενό της. */
+        $above = array_map('intval', Capsule::table('mod_cpm_team_members')
+            ->where('admin_id', $adminId)->where('is_leader', 0)->pluck('team_id')->all());
+
         /* Εκπρόθεσμες ανά άνθρωπο, μία φορά για όλους — όχι ένα ερώτημα ανά ομάδα. */
         $lateBy = [];
         $lateRows = [];
@@ -308,7 +315,7 @@ class Watch
                 $inTeam[(int) $m->admin_id] = true;
                 if ((int) $m->is_leader === 1) { $lead = (int) $m->admin_id; }
             }
-            if (!$members || in_array($tid, $mine, true)) { continue; }
+            if (!$members || in_array($tid, $mine, true) || in_array($tid, $above, true)) { continue; }
             if ($lead === $adminId) { continue; }
 
             $title = $lead
