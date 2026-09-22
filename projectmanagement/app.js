@@ -250,6 +250,7 @@ function renderShell() {
     ]],
     ['Υποστήριξη', 'τα αιτήματα που περιμένουν απάντηση', [
       ['inbox', I.ticket, 'Tickets', 'support.tickets'],
+      ['calllog', I.phone, 'Καταγραφές κλήσεων', 'support.calllog'],
       ['knowledge', I.book, 'Βάση γνώσης', 'support.kb'],
     ]],
     /* ΟΛΟ ΤΟ ΚΕΝΤΡΟ ΣΕ ΕΝΑ ΣΗΜΕΙΟ (20/09/2026).

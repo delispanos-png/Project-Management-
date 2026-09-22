@@ -1736,3 +1736,136 @@ R.route = async function () {
   $$('[data-ronly]').forEach(b => b.onclick = () => { st.only = b.dataset.ronly; R.route(); });
   $$('[data-rbook]').forEach(a => a.onclick = e => { e.preventDefault(); bookCard(+a.dataset.rbook); });
 };
+
+/* ═════════ ☎ Καταγραφές κλήσεων (22/9/2026) ═════════
+   Άλλο πράγμα «χτύπησε το τηλέφωνο» (Τηλεφωνική δραστηριότητα, CDR του 3CX),
+   άλλο «να τι είπαμε». Εδώ ζουν ΜΟΝΟ όσα έγραψε άνθρωπος — και η οθόνη ρωτά
+   ένα πράγμα: ποια κλήση ΔΕΝ έχει συνέχεια πουθενά; */
+R.calllog = async function () {
+  setTop('\u039a\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ad\u03c2 \u03ba\u03bb\u03ae\u03c3\u03b5\u03c9\u03bd', '\u03a4\u03b9 \u03bc\u03b1\u03c2 \u03b6\u03ae\u03c4\u03b7\u03c3\u03b1\u03bd \u03c3\u03c4\u03bf \u03c4\u03b7\u03bb\u03ad\u03c6\u03c9\u03bd\u03bf, \u03c4\u03b9 \u03b1\u03c0\u03b1\u03bd\u03c4\u03ae\u03c3\u03b1\u03bc\u03b5, \u03c4\u03b9 \u03ad\u03bc\u03b5\u03b9\u03bd\u03b5 \u03b1\u03bd\u03bf\u03b9\u03c7\u03c4\u03cc');
+  if (!cnpCan('support.calllog')) { cnpDenied('\u03a5\u03c0\u03bf\u03c3\u03c4\u03ae\u03c1\u03b9\u03be\u03b7 \u2192 \u039a\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ad\u03c2 \u03ba\u03bb\u03ae\u03c3\u03b5\u03c9\u03bd'); return; }
+  const c = $('#content');
+  const f = R.calllog._f = R.calllog._f || {view: 'all', q: '', admin: 0,
+    from: new Date(Date.now() - 29 * 864e5).toISOString().slice(0, 10), to: new Date().toISOString().slice(0, 10)};
+  const {cnpKpis, cnpPeopleBar, adminIni, tShort, fmtMin, openTask, go, cnpDialog} = window.CNP;
+
+  c.innerHTML = `<div class="fbar">
+    ${fChip('\u0391\u03bd\u03b1\u03b6\u03ae\u03c4\u03b7\u03c3\u03b7', `<input class="fchip-s" id="clQ" value="${esc(f.q)}" placeholder="\u03c0\u03b5\u03c1\u03af\u03bb\u03b7\u03c8\u03b7, \u03cc\u03bd\u03bf\u03bc\u03b1, \u03c4\u03b7\u03bb\u03ad\u03c6\u03c9\u03bd\u03bf\u2026" style="width:230px">`, !!f.q, '')}
+    ${fChip('\u0391\u03c0\u03cc', `<input class="fchip-s" id="clFrom" type="date" value="${esc(f.from)}">`, false, '')}
+    ${fChip('\u0388\u03c9\u03c2', `<input class="fchip-s" id="clTo" type="date" value="${esc(f.to)}">`, false, '')}
+    <span class="fbar-sp"></span>
+    <button class="fchip fchip-go" id="clNew">${I.plus} \u039a\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ae \u03ba\u03bb\u03ae\u03c3\u03b7\u03c2</button>
+  </div>
+  <div id="clDash"></div>
+  <div id="clRes"><div class="skel" style="height:260px"></div></div>`;
+
+  const d = await api(`calllog&from=${f.from}&to=${f.to}&view=${f.view}&admin=${f.admin}&q=${encodeURIComponent(f.q)}`)
+    .catch(e => ({err: e.message}));
+  if (!d || d.err) { $('#clRes').innerHTML = `<div class="card"><div class="card-b mut">${esc((d && d.err) || '\u0394\u03b5\u03bd \u03c6\u03cc\u03c1\u03c4\u03c9\u03c3\u03b5.')}</div></div>`; return; }
+  const cn = d.counts || {};
+
+  /* Τα νούμερα ΕΙΝΑΙ τα φίλτρα (κανόνας §8β του UI-STANDARD). */
+  const dash = `<div class="dbar">${cnpKpis([
+    {n: cn.total || 0, label: '\u03ba\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ad\u03c2', tip: '\u038c\u03c3\u03b5\u03c2 \u03ba\u03bb\u03ae\u03c3\u03b5\u03b9\u03c2 \u03ba\u03b1\u03c4\u03b1\u03b3\u03c1\u03ac\u03c6\u03b7\u03ba\u03b1\u03bd \u03c3\u03c4\u03bf \u03b4\u03b9\u03ac\u03c3\u03c4\u03b7\u03bc\u03b1', act: 'all', on: f.view === 'all' && !f.admin},
+    {n: fmtMin(cn.mins || 0), label: '\u03c7\u03c1\u03cc\u03bd\u03bf\u03c2<br>\u03c3\u03c4\u03bf \u03c4\u03b7\u03bb\u03ad\u03c6\u03c9\u03bd\u03bf', tip: '\u03a3\u03cd\u03bd\u03bf\u03bb\u03bf \u03bb\u03b5\u03c0\u03c4\u03ce\u03bd \u03cc\u03c0\u03c9\u03c2 \u03c4\u03b1 \u03b4\u03ae\u03bb\u03c9\u03c3\u03b1\u03bd \u03bf\u03b9 \u03c7\u03b5\u03b9\u03c1\u03b9\u03c3\u03c4\u03ad\u03c2'},
+    {n: cn.followup || 0, label: 'follow-up<br>\u03b5\u03ba\u03ba\u03c1\u03b5\u03bc\u03bf\u03cd\u03bd', color: cn.followup ? 'var(--warn)' : null,
+      tip: '\u039a\u03bb\u03ae\u03c3\u03b5\u03b9\u03c2 \u03bc\u03b5 \u03c5\u03c0\u03cc\u03c3\u03c7\u03b5\u03c3\u03b7 \u03b5\u03c0\u03b1\u03bd\u03b5\u03c0\u03b9\u03ba\u03bf\u03b9\u03bd\u03c9\u03bd\u03af\u03b1\u03c2 \u03c0\u03bf\u03c5 \u03b4\u03b5\u03bd \u03ad\u03ba\u03bb\u03b5\u03b9\u03c3\u03b5', act: 'followup', on: f.view === 'followup'},
+    {n: cn.loose || 0, label: '\u03c7\u03c9\u03c1\u03af\u03c2<br>\u03c3\u03c5\u03bd\u03ad\u03c7\u03b5\u03b9\u03b1', color: cn.loose ? 'var(--bad)' : 'var(--ok)',
+      tip: '\u039a\u03b1\u03bc\u03af\u03b1 \u03b5\u03c1\u03b3\u03b1\u03c3\u03af\u03b1, \u03ba\u03b1\u03bd\u03ad\u03bd\u03b1 ticket, \u03ba\u03b1\u03bd\u03ad\u03bd\u03b1 follow-up \u2014 \u03b1\u03c5\u03c4\u03ad\u03c2 \u03c7\u03ac\u03bd\u03bf\u03bd\u03c4\u03b1\u03b9', act: 'loose', on: f.view === 'loose'},
+    {n: cn.mine || 0, label: '\u03b4\u03b9\u03ba\u03ad\u03c2<br>\u03bc\u03bf\u03c5', tip: '\u038c\u03c3\u03b5\u03c2 \u03ba\u03b1\u03c4\u03ad\u03b3\u03c1\u03b1\u03c8\u03b5\u03c2 \u03b5\u03c3\u03cd', act: 'mine', on: f.view === 'mine'},
+  ])}</div>`;
+
+  /* Ποιος κατέγραψε πόσες — κλικ φιλτράρει. */
+  const peep = (d.byWho || []).map(w => ({id: w.id, name: w.name, ini: adminIni(w.id), color: '#0090dd',
+    status: 'log', label: w.n + ' \u03ba\u03bb\u03ae\u03c3\u03b5\u03b9\u03c2', sel: f.admin === w.id, n: w.n, mins: w.mins}));
+  const pbar = cnpPeopleBar(peep, {attr: 'cladm', title: '\u03a0\u03bf\u03b9\u03bf\u03c2 \u03ba\u03b1\u03c4\u03ad\u03b3\u03c1\u03b1\u03c8\u03b5',
+    hint: (d.byWho || []).length + ' \u03c7\u03b5\u03b9\u03c1\u03b9\u03c3\u03c4\u03ad\u03c2' + (f.admin ? ' \u00b7 \u03c6\u03af\u03bb\u03c4\u03c1\u03bf \u03b5\u03bd\u03b5\u03c1\u03b3\u03cc' : ''),
+    badge: x => String(x.n), tip: x => x.name + ' \u2014 ' + x.n + ' \u03ba\u03bb\u03ae\u03c3\u03b5\u03b9\u03c2 \u00b7 ' + fmtMin(x.mins),
+    right: f.admin ? '<button class="btn btn-sm btn-o" id="clAdmX">\u2715 \u03cc\u03bb\u03bf\u03b9</button>' : ''});
+  $('#clDash').innerHTML = dash + pbar;
+
+  const dirIco = x => x === 'out' ? '\u2197' : '\u2199';
+  const row = r => `<div class="cl-row" data-cl="${r.id}">
+    <span class="cl-t">${esc(tShort(r.at))}</span>
+    <span class="cl-d" title="${r.dir === 'out' ? '\u0395\u03be\u03b5\u03c1\u03c7\u03cc\u03bc\u03b5\u03bd\u03b7' : '\u0395\u03b9\u03c3\u03b5\u03c1\u03c7\u03cc\u03bc\u03b5\u03bd\u03b7'}">${dirIco(r.dir)}</span>
+    <span class="cl-w"><b>${esc(r.who)}</b>${r.phone ? `<span class="mut"> \u00b7 ${esc(r.phone)}</span>` : ''}</span>
+    <span class="cl-s">${esc(r.summary)}</span>
+    <span class="cl-m">${esc(fmtMin(r.minutes))}</span>
+    <span class="cl-by" title="${esc(r.byName)}">${esc(adminIni(r.by))}</span>
+    <span class="cl-lnk">
+      ${r.task ? `<span class="pill pill-mut" title="\u0386\u03bd\u03bf\u03b9\u03be\u03b5 \u03b5\u03c1\u03b3\u03b1\u03c3\u03af\u03b1">#${r.task}</span>` : ''}
+      ${r.ticket ? `<span class="pill pill-info" title="\u0386\u03bd\u03bf\u03b9\u03be\u03b5 ticket">ticket</span>` : ''}
+      ${r.followup && !r.followupDone ? `<span class="pill ${r.followupLate ? 'pill-bad' : 'pill-warn'}" title="\u0395\u03c0\u03b1\u03bd\u03b5\u03c0\u03b9\u03ba\u03bf\u03b9\u03bd\u03c9\u03bd\u03af\u03b1">\u21bb ${esc(dShort(r.followup))}</span>` : ''}
+      ${!r.task && !r.ticket && (!r.followup || r.followupDone) ? '<span class="pill pill-warn" title="\u039a\u03b1\u03bc\u03af\u03b1 \u03c3\u03c5\u03bd\u03ad\u03c7\u03b5\u03b9\u03b1">\u03be\u03b5\u03ba\u03c1\u03ad\u03bc\u03b1\u03c3\u03c4\u03b7</span>' : ''}
+    </span></div>`;
+
+  $('#clRes').innerHTML = d.rows.length
+    ? `<div class="card"><div class="card-b" style="padding:4px 8px">${d.rows.map(row).join('')}</div></div>`
+    : `<div class="card"><div class="empty" style="padding:44px 16px"><div class="big">\u260e</div>
+        <b style="color:var(--ink)">\u039a\u03b1\u03bc\u03af\u03b1 \u03ba\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ae \u03b5\u03b4\u03ce</b>
+        <div class="mut" style="font-size:12.5px;margin-top:6px">\u0391\u03bb\u03bb\u03ac\u03be\u03b5\u03b9\u03c2 \u03b4\u03b9\u03ac\u03c3\u03c4\u03b7\u03bc\u03b1 \u03ae \u03c0\u03ac\u03c4\u03b1 \u00ab\u039a\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03ae \u03ba\u03bb\u03ae\u03c3\u03b7\u03c2\u00bb.</div></div></div>`;
+
+  $$('#clDash [data-dkact]').forEach(b => b.onclick = () => { f.view = b.dataset.dkact; f.admin = 0; R.calllog(); });
+  $$('#clDash [data-cladm]').forEach(b => b.onclick = () => { const id = +b.dataset.cladm; f.admin = f.admin === id ? 0 : id; R.calllog(); });
+  { const x = $('#clAdmX'); if (x) { x.onclick = e => { e.stopPropagation(); f.admin = 0; R.calllog(); }; } }
+  $$('#clRes [data-cl]').forEach(r => r.onclick = () => clOpen(d.rows.find(x => x.id === +r.dataset.cl), d.canEdit));
+  cnpSearch('clQ', v => { f.q = v; return R.calllog(); }, 350);
+  { const a = $('#clFrom'), b = $('#clTo');
+    if (a) { a.onchange = () => { f.from = a.value; R.calllog(); }; }
+    if (b) { b.onchange = () => { f.to = b.value; R.calllog(); }; } }
+  $('#clNew').onclick = () => window.CNP.quickCall && window.CNP.quickCall();
+};
+
+/** Η καρτέλα μιας κλήσης: όλο το κείμενο, οι συνδέσεις, και διόρθωση. */
+async function clOpen(r, canEdit) {
+  if (!r) { return; }
+  const {cnpDialog, tShort, dShort, fmtMin, openTask, go, toast} = window.CNP;
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl ovl-keep show';
+  ovl.style.zIndex = 300;
+  const mine = r.by === S.boot.me.id;
+  const editable = canEdit || mine;
+  ovl.innerHTML = `<div class="pal-box qr-box">
+    <div class="qr-h"><span class="qr-ic">\u260e</span>
+      <div class="qr-hn"><b>${esc(r.who)}</b>
+        <span class="mut">${esc(tShort(r.at))} \u00b7 ${esc(fmtMin(r.minutes))} \u00b7 ${r.dir === 'out' ? '\u03b5\u03be\u03b5\u03c1\u03c7\u03cc\u03bc\u03b5\u03bd\u03b7' : '\u03b5\u03b9\u03c3\u03b5\u03c1\u03c7\u03cc\u03bc\u03b5\u03bd\u03b7'} \u00b7 ${esc(r.byName)}${r.phone ? ' \u00b7 ' + esc(r.phone) : ''}</span></div>
+      <button class="btn btn-sm btn-o qr-x">\u2715</button></div>
+    <div class="qr-body">
+      <div class="qr-q">${esc(r.summary)}</div>
+      ${r.detail ? `<div class="cl-detail">${esc(r.detail)}</div>` : ''}
+      ${r.followup ? `<div class="cl-fup ${r.followupDone ? 'ok' : r.followupLate ? 'bad' : 'warn'}">
+        \u21bb \u0395\u03c0\u03b1\u03bd\u03b5\u03c0\u03b9\u03ba\u03bf\u03b9\u03bd\u03c9\u03bd\u03af\u03b1 ${esc(dShort(r.followup))}${r.followupDone ? ' \u2014 \u03ad\u03b3\u03b9\u03bd\u03b5' : r.followupLate ? ' \u2014 \u03ad\u03c7\u03b5\u03b9 \u03c0\u03b5\u03c1\u03ac\u03c3\u03b5\u03b9' : ''}${r.followupNote ? ' \u00b7 ' + esc(r.followupNote) : ''}</div>` : ''}
+    </div>
+    <div class="qr-a"><div class="qr-btns">
+      ${r.clientId ? `<button class="btn btn-sm btn-o" id="clCli">\u03a0\u03b5\u03bb\u03ac\u03c4\u03b7\u03c2</button>` : ''}
+      ${r.task ? `<button class="btn btn-sm btn-o" id="clTask">\u0395\u03c1\u03b3\u03b1\u03c3\u03af\u03b1 #${r.task}</button>` : ''}
+      ${r.ticket ? `<button class="btn btn-sm btn-o" id="clTk">Ticket</button>` : ''}
+      <span style="flex:1"></span>
+      ${r.followup && !r.followupDone ? '<button class="btn btn-sm btn-ok" id="clFupOk">\u2714 \u0388\u03b3\u03b9\u03bd\u03b5</button>' : ''}
+      ${editable ? '<button class="btn btn-sm btn-p" id="clEdit">\u0394\u03b9\u03cc\u03c1\u03b8\u03c9\u03c3\u03b7</button>' : ''}
+    </div></div></div>`;
+  document.body.appendChild(ovl);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onK, true); };
+  const onK = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+  setTimeout(() => document.addEventListener('keydown', onK, true), 0);
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+  ovl.querySelector('.qr-x').onclick = close;
+  const b = id => ovl.querySelector(id);
+  if (b('#clCli')) { b('#clCli').onclick = () => { close(); go('client360', r.clientId); }; }
+  if (b('#clTask')) { b('#clTask').onclick = () => { close(); openTask(r.task); }; }
+  if (b('#clTk')) { b('#clTk').onclick = () => { close(); window.CNP.openTicketQuick(r.ticket); }; }
+  if (b('#clFupOk')) { b('#clFupOk').onclick = async () => {
+    const x = await api('calllog_save', {id: r.id, followup_done: 1}).catch(e => ({err: e.message}));
+    if (x && x.err) { toast(x.err, true); return; }
+    toast('\u0397 \u03b5\u03c0\u03b1\u03bd\u03b5\u03c0\u03b9\u03ba\u03bf\u03b9\u03bd\u03c9\u03bd\u03af\u03b1 \u03ba\u03bb\u03b5\u03af\u03c3\u03c4\u03b7\u03ba\u03b5'); close(); R.calllog(); }; }
+  if (b('#clEdit')) { b('#clEdit').onclick = async () => {
+    const sum = await cnpDialog({title: '\u0394\u03b9\u03cc\u03c1\u03b8\u03c9\u03c3\u03b7 \u03c0\u03b5\u03c1\u03af\u03bb\u03b7\u03c8\u03b7\u03c2', body: '\u03a4\u03b9 \u03b6\u03ae\u03c4\u03b7\u03c3\u03b5 \u03bf \u03c0\u03b5\u03bb\u03ac\u03c4\u03b7\u03c2;',
+      input: r.summary, max: 255, ok: '\u03a3\u03c5\u03bd\u03ad\u03c7\u03b5\u03b9\u03b1', cancel: '\u0386\u03ba\u03c5\u03c1\u03bf'});
+    if (sum === null || sum === false || !String(sum).trim()) { return; }
+    const mins = await cnpDialog({title: '\u03a7\u03c1\u03cc\u03bd\u03bf\u03c2 \u03c3\u03b5 \u03bb\u03b5\u03c0\u03c4\u03ac', input: String(r.minutes), inputType: 'number',
+      ok: '\u0391\u03c0\u03bf\u03b8\u03ae\u03ba\u03b5\u03c5\u03c3\u03b7', cancel: '\u0386\u03ba\u03c5\u03c1\u03bf'});
+    if (mins === null || mins === false) { return; }
+    const x = await api('calllog_save', {id: r.id, summary: String(sum).trim(), minutes: +mins || 0}).catch(e => ({err: e.message}));
+    if (x && x.err) { toast(x.err, true); return; }
+    toast('\u0391\u03c0\u03bf\u03b8\u03b7\u03ba\u03b5\u03cd\u03c4\u03b7\u03ba\u03b5'); close(); R.calllog(); }; }
+}
