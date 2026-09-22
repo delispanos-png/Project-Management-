@@ -1539,7 +1539,7 @@ window.CNP.clientAadeSync = clientAadeSync;
    ανά κατάσταση, μετρήσεις, και ⋯ ενέργειες ανά πελάτη (έργο/task/προσφορά/
    κλήση/παράπονο/επεξεργασία/ΑΑΔΕ). ── */
 R.clientlist = async function () {
-  setTop('Λίστα πελατών', 'Όλοι οι πελάτες — ενεργοί & ανενεργοί, με γρήγορες ενέργειες');
+  setTop('Λίστα πελατών', 'Ποιον ψάχνω, σε τι κατάσταση είναι, τι μπορώ να κάνω γι' + "'" + 'αυτόν');
   const c = $('#content');
   /* Προεπιλογή: μόνο ΕΝΕΡΓΟΙ πελάτες. Ο χρήστης αλλάζει tab (Όλοι/Ανενεργοί/
      Κλειστοί) για να δει/ψάξει και τους υπόλοιπους. */
@@ -1569,16 +1569,17 @@ R.clientlist = async function () {
   const actBtn = id => `<button class="btn btn-o btn-ico cl-act" data-clact="${id}" title="Ενέργειες">⋯</button>`;
 
   const head = `
-    <div class="card kb-search">
-      <div class="kb-srow">
-        <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-          <input class="inp" id="clQ" placeholder="Αναζήτηση: όνομα, επωνυμία, ΑΦΜ, email, τηλέφωνο, #ID…" value="${esc(st.q)}" autocomplete="off">
-          <button type="button" class="kb-sclr" id="clQx" title="Καθάρισε" ${st.q ? '' : 'hidden'}>✕</button></div>
-        ${d.canNew ? `<button class="btn btn-p btn-sm" id="clNew">${I.plus} Νέος πελάτης</button>` : ''}
-      </div>
-      <div class="kb-filters">
-        ${stTabs.map(([k, lbl, n]) => `<button class="kb-chip ${st.status === k ? 'on' : ''}" data-clst="${k}">${lbl} <span class="kb-n">${n}</span></button>`).join('')}
-      </div>
+    <div class="fbar">
+      ${fChip('Αναζήτηση', `<input class="fchip-s" id="clQ" autocomplete="off" value="${esc(st.q)}"
+        placeholder="όνομα, επωνυμία, ΑΦΜ, email, τηλέφωνο, #ID…" style="width:300px">
+        <button type="button" class="fchip-x" id="clQx" title="Καθάρισε" ${st.q ? '' : 'hidden'}>✕</button>`,
+        !!st.q, '')}
+      <span class="fbar-sp"></span>
+      <span class="fbar-note">${d.counts.all} πελάτες</span>
+      ${d.canNew ? `<button class="fchip fchip-go" id="clNew">${I.plus} Νέος πελάτης</button>` : ''}
+    </div>
+    <div class="fchips">
+      ${stTabs.map(([k, lbl, n]) => `<button class="kb-chip ${st.status === k ? 'on' : ''}" data-clst="${k}">${lbl} <span class="kb-n">${n}</span></button>`).join('')}
     </div>`;
 
   let body;

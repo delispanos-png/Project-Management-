@@ -3643,7 +3643,7 @@ async function vMyDay() {
     const k = hkLbl[h.kind] || hkLbl.help;
     att.push({sev: h.kind === 'help' || h.kind === 'voice' ? 1 : 3, lvl: h.kind === 'help' ? 'bad' : 'warn', ic: k[0], why: k[1],
       title: h.from, sub: (h.message || '').slice(0, 110) + (h.taskTitle ? ' · ' + h.taskTitle : ''), when: h.at,
-      act: 'Άνοιξε', on: () => window.CNP.showHelpAlert && window.CNP.showHelpAlert(h, true),
+      act: 'Άνοιξε', on: () => openRequestQuick(h.id, vMyDay),
       done: h.kind !== 'checkin' ? async () => { await api('help_done', {id: h.id}).catch(() => {}); } : null});
     if (h.taskId) { seenTask.add(h.taskId); }
   });
@@ -3654,9 +3654,9 @@ async function vMyDay() {
   });
   (d.tickets || []).forEach(tk => {
     if (tk.waitOn !== 'us') { return; }
-    if (tk.over) { att.push({sev: 0, lvl: 'bad', ic: I.ticket, why: 'SLA πέρασε', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status + (tk.waitDays ? ' · περιμένει ' + tk.waitDays + ' ημ.' : ''), act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
-    else if (tk.slaDue && (new Date(tk.slaDue.replace(' ', 'T')) - Date.now()) < 24 * 3600e3) { att.push({sev: 2, lvl: 'warn', ic: I.ticket, why: 'SLA ' + tShort(tk.slaDue), title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
-    else if (tk.waitDays >= 2) { att.push({sev: 5, lvl: 'tip', ic: I.ticket, why: 'περιμένει ' + tk.waitDays + ' ημ.', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => go('inbox', tk.id)}); }
+    if (tk.over) { att.push({sev: 0, lvl: 'bad', ic: I.ticket, why: 'SLA πέρασε', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status + (tk.waitDays ? ' · περιμένει ' + tk.waitDays + ' ημ.' : ''), act: 'Απάντησε', on: () => openTicketQuick(tk.id, vMyDay)}); }
+    else if (tk.slaDue && (new Date(tk.slaDue.replace(' ', 'T')) - Date.now()) < 24 * 3600e3) { att.push({sev: 2, lvl: 'warn', ic: I.ticket, why: 'SLA ' + tShort(tk.slaDue), title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => openTicketQuick(tk.id, vMyDay)}); }
+    else if (tk.waitDays >= 2) { att.push({sev: 5, lvl: 'tip', ic: I.ticket, why: 'περιμένει ' + tk.waitDays + ' ημ.', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => openTicketQuick(tk.id, vMyDay)}); }
   });
   /* «Θέλουν εσένα» = ό,τι αφορά ΕΜΕΝΑ. Ο server σημαδεύει κάθε προθεσμία με `mine`· χωρίς αυτό
      ο Full έβλεπε εδώ κάθε εκπρόθεσμο έργο/προσφορά της εταιρείας και η λίστα έχανε την αξία της
@@ -3864,7 +3864,7 @@ async function vMyDay() {
       toast('💬 Ρωτήθηκε ο ' + (x.to || o.agentName)); vMyDay();
     };
   });
-  $$('#content [data-qtk]').forEach(r => r.onclick = e => { e.stopPropagation(); go('inbox', r.dataset.qtk); });
+  $$('#content [data-qtk]').forEach(r => r.onclick = e => { e.stopPropagation(); openTicketQuick(+r.dataset.qtk, vMyDay); });
   $$('#content [data-dltask]').forEach(r => r.onclick = e => { e.stopPropagation(); openTask(+r.dataset.dltask); });
   $$('#content [data-dlproj]').forEach(r => r.onclick = () => go('board', +r.dataset.dlproj));
   $$('#content [data-dloffer]').forEach(r => r.onclick = () => go('offers'));
@@ -4575,6 +4575,129 @@ function cnpWireDash(root) {
   r.querySelectorAll('[data-ddev]').forEach(b => b.onclick = () => go('calendar'));
 }
 
+/* ═════════ ✉ Γρήγορη απάντηση χωρίς να φύγεις από τη «Μέρα μου» (22/9/2026) ═════════
+   Η «Μέρα μου» γίνεται ο χώρος εργασίας: ό,τι πιάνεις ανοίγει ΠΑΝΩ της, δεν σε πετάει
+   αλλού. Εδώ ζει το 80% της καθημερινής δουλειάς σε ticket ή αίτημα — διάβασε το νήμα,
+   απάντησε, κλείσ' το. Ό,τι θέλει περισσότερα (κατηγορία, remote, προτάσεις, συνημμένα)
+   ζει στην πλήρη οθόνη, με το «Άνοιξε ολόκληρο» ένα κλικ μακριά: δεν αντιγράφουμε το
+   Inbox εδώ, θα ήταν δύο υλοποιήσεις της ίδιας οθόνης που θα ξεσυγχρονίζονταν. */
+function qrShell(title) {
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.style.zIndex = cnpTopZ() + 10;
+  ovl.innerHTML = `<div class="pal-box qr-box"><div style="padding:22px"><div class="skel" style="height:180px"></div></div></div>`;
+  document.body.appendChild(ovl);
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey); };
+  document.addEventListener('keydown', onKey);
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+  return {ovl, box: ovl.querySelector('.qr-box'), close};
+}
+
+/** 🎫 Ticket: το νήμα και το πεδίο απάντησης, πάνω στην οθόνη που ήσουν. */
+async function openTicketQuick(id, after) {
+  const {box, close} = qrShell();
+  const d = await api('ticket&id=' + id).catch(e => ({err: e.message}));
+  if (!d || d.err) { box.innerHTML = `<div style="padding:24px" class="mut">${esc((d && d.err) || 'Δεν έχεις πρόσβαση σε αυτό το ticket.')}</div>`; return; }
+  const t = d.ticket;
+  const md = window.CNP.mdToHtml || (x => esc(x || ''));
+  const msgs = (d.conv || []).slice(-6);
+  const canReply = S.boot.me.canReply;
+  const open = t.status !== 'Closed';
+  box.innerHTML = `
+  <div class="qr-h">
+    <span class="qr-ic">${I.ticket}</span>
+    <div class="qr-hn"><b>#${esc(t.tid)} — ${esc(t.title)}</b>
+      <span class="mut">${esc(t.client || '')}${t.status ? ' · ' + esc(t.status) : ''}${t.slaDue ? ' · SLA ' + esc(tShort(t.slaDue)) : ''}</span></div>
+    <button class="btn btn-sm btn-o" id="qrFull" title="Όλα τα εργαλεία: κατηγορία, remote, συνημμένα, προτάσεις">Άνοιξε ολόκληρο →</button>
+    <button class="btn btn-sm btn-o qr-x" title="Κλείσιμο">✕</button></div>
+  <div class="qr-body" id="qrBody">
+    ${(d.conv || []).length > msgs.length ? `<div class="qr-more">δείχνονται τα τελευταία ${msgs.length} από ${d.conv.length} μηνύματα</div>` : ''}
+    ${msgs.map(m => `<div class="qr-m${m.admin ? ' me' : ''}">
+      <div class="qr-m-h">${esc(m.by || '—')}${m.admin ? ' <span class="pill pill-info" style="font-size:9px">team</span>' : ''}
+        <span class="mut">${esc(tShort(m.at))}</span></div>
+      <div class="qr-m-b md">${md(m.body)}</div></div>`).join('') || '<div class="mut" style="padding:10px">Καμία συνομιλία ακόμη.</div>'}
+  </div>
+  ${canReply ? `<div class="qr-a">
+    <textarea class="inp" id="qrTxt" rows="3" placeholder="Γράψε την απάντηση στον πελάτη…  (Ctrl+Enter στέλνει)"></textarea>
+    <div class="qr-btns">
+      <label class="mut qr-lbl" title="Η απάντηση φεύγει ως «Support Team» — εσωτερικά καταγράφεται ποιος έγραψε"><input type="checkbox" id="qrAlias"> ως Support Team</label>
+      <span style="flex:1"></span>
+      ${open ? '<button class="btn btn-sm btn-o" id="qrSendClose">Απάντηση & κλείσιμο</button>' : ''}
+      <button class="btn btn-sm btn-p" id="qrSend">${I.send} Απάντηση</button></div></div>`
+    : '<div class="qr-a mut" style="font-size:12.5px">Δεν έχεις δικαίωμα απάντησης σε πελάτη — χρησιμοποίησε εσωτερική σημείωση από την πλήρη οθόνη.</div>'}`;
+
+  const bd = box.querySelector('#qrBody'); if (bd) { bd.scrollTop = bd.scrollHeight; }
+  box.querySelector('.qr-x').onclick = close;
+  box.querySelector('#qrFull').onclick = () => { close(); go('inbox', id); };
+  const tx = box.querySelector('#qrTxt');
+  const send = async closeIt => {
+    const body = (tx.value || '').trim();
+    if (!body) { tx.focus(); return; }
+    const pl = {ticket: id, body, alias: box.querySelector('#qrAlias') && box.querySelector('#qrAlias').checked ? 1 : 0};
+    if (closeIt) { pl.status = 'Closed'; }
+    const r = await api('ticket_reply', pl).catch(e => ({err: e.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast(closeIt ? '✔ Απαντήθηκε και έκλεισε' : '✔ Στάλθηκε');
+    close();
+    if (after) { after(); }
+  };
+  if (tx) {
+    tx.focus();
+    tx.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(false); } };
+  }
+  { const b = box.querySelector('#qrSend'); if (b) { b.onclick = () => send(false); } }
+  { const b = box.querySelector('#qrSendClose'); if (b) { b.onclick = () => send(true); } }
+}
+
+/** ❓ Αίτημα («σε ζητούν»): το ζητούμενο, το νήμα, η απάντηση — επί τόπου. */
+async function openRequestQuick(id, after) {
+  const {box, close} = qrShell();
+  const d = await api('request_get&id=' + id).catch(e => ({err: e.message}));
+  if (!d || d.err) { box.innerHTML = `<div style="padding:24px" class="mut">${esc((d && d.err) || 'Δεν βρέθηκε το αίτημα.')}</div>`; return; }
+  const q = d.req;
+  const canReply = q.forMe || q.mine;
+  box.innerHTML = `
+  <div class="qr-h">
+    <span class="qr-ic">${esc(q.icon)}</span>
+    <div class="qr-hn"><b>${esc(q.kindLbl)} — ${esc(q.forMe ? q.from : 'προς ' + q.to)}</b>
+      <span class="mut">${esc(tShort(q.at))}${q.taskTitle ? ' · #' + q.taskId + ' ' + esc(q.taskTitle) : ''}${q.projectName ? ' · ' + esc(q.projectName) : ''}</span></div>
+    ${q.status === 'done' ? '<span class="pill pill-ok">τακτοποιήθηκε</span>' : '<span class="pill pill-warn">ανοιχτό</span>'}
+    <button class="btn btn-sm btn-o qr-x" title="Κλείσιμο">✕</button></div>
+  <div class="qr-body" id="qrBody">
+    <div class="qr-q">${esc(q.message)}</div>
+    ${(d.msgs || []).map(m => `<div class="qr-m${m.mine ? ' me' : ''}">
+      <div class="qr-m-h">${esc(m.byName)}<span class="mut">${esc(tShort(m.at))}</span></div>
+      <div class="qr-m-b">${esc(m.body)}</div></div>`).join('')}
+  </div>
+  ${canReply ? `<div class="qr-a">
+    <textarea class="inp" id="qrTxt" rows="3" placeholder="Γράψε την απάντησή σου…  (Ctrl+Enter στέλνει)"></textarea>
+    <div class="qr-btns">
+      ${q.forMe && q.status === 'open' ? '<label class="mut qr-lbl"><input type="checkbox" id="qrKeep"> κράτα το ανοιχτό</label>' : ''}
+      <span style="flex:1"></span>
+      ${q.taskId ? `<button class="btn btn-sm btn-o" id="qrTask">Άνοιξε την εργασία</button>` : ''}
+      ${q.status === 'open' ? '<button class="btn btn-sm btn-o" id="qrDone">✓ Τακτοποιήθηκε</button>' : ''}
+      <button class="btn btn-sm btn-p" id="qrSend">${I.send} Απάντηση</button></div></div>` : ''}`;
+
+  const bd = box.querySelector('#qrBody'); if (bd) { bd.scrollTop = bd.scrollHeight; }
+  box.querySelector('.qr-x').onclick = close;
+  const tx = box.querySelector('#qrTxt');
+  const send = async () => {
+    const body = (tx.value || '').trim();
+    if (!body) { tx.focus(); return; }
+    const keep = box.querySelector('#qrKeep');
+    const r = await api('help_reply', {id: q.id, body, keepOpen: keep && keep.checked ? 1 : 0}).catch(e => ({err: e.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('✔ Στάλθηκε'); close(); if (after) { after(); }
+  };
+  if (tx) { tx.focus(); tx.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } }; }
+  { const b = box.querySelector('#qrSend'); if (b) { b.onclick = send; } }
+  { const b = box.querySelector('#qrTask'); if (b) { b.onclick = () => { close(); openTask(q.taskId); }; } }
+  { const b = box.querySelector('#qrDone'); if (b) { b.onclick = async () => {
+      await api('help_done', {id: q.id}).catch(() => {});
+      toast('Τακτοποιήθηκε'); close(); if (after) { after(); } }; } }
+}
+
 /* ═════════ 👤 Η μέρα ενός ανθρώπου — pop-up απόφασης (22/9/2026) ═════════
    Ανοίγει από τον κύκλο της μπάρας παρουσίας. Μία οθόνη, χωρίς πλοήγηση:
    τι κάνει τώρα, πώς πάει η μέρα του, τι κρατάει ανοιχτό και τι μπορείς να κάνεις
@@ -4660,7 +4783,7 @@ async function openTeamPulse(id) {
 
   box.querySelector('.tp-x').onclick = close;
   box.querySelectorAll('[data-tptask]').forEach(r => r.onclick = () => { close(); openTask(+r.dataset.tptask); });
-  box.querySelectorAll('[data-tptk]').forEach(r => r.onclick = () => { close(); go('inbox', +r.dataset.tptk); });
+  box.querySelectorAll('[data-tptk]').forEach(r => r.onclick = () => { close(); openTicketQuick(+r.dataset.tptk); });
   { const b = box.querySelector('#tpChat'); if (b) { b.onclick = () => { close(); go('chat'); }; } }
   { const b = box.querySelector('#tpAct'); if (b) { b.onclick = () => { close(); go('activity'); }; } }
   { const b = box.querySelector('#tpAsk'); if (b) { b.onclick = async () => {
@@ -4678,6 +4801,7 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
+  openTicketQuick, openRequestQuick,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 
