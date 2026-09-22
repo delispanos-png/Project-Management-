@@ -124,6 +124,29 @@ class Catalog
             });
         }
 
+        /* ΤΟ ΠΡΟΪΟΝ ΞΕΡΕΙ ΠΟΥ ΔΡΟΜΟΛΟΓΕΙΤΑΙ. Πριν, η αντιστοίχιση προϊόν→ουρά 3CX
+           ήταν σκληρή λίστα στον κώδικα (Pbx3cx\Route::PRODUCTS) — οπότε κάθε νέο
+           προϊόν απαιτούσε αλλαγή κώδικα για να φανεί στον τηλεφωνικό κατάλογο.
+           Τώρα ζει δίπλα στο προϊόν και ορίζεται από την οθόνη. */
+        foreach (['route_dn' => 20, 'book_key' => 40] as $col => $len) {
+            if ($s->hasTable('mod_cpm_products') && !$s->hasColumn('mod_cpm_products', $col)) {
+                $s->table('mod_cpm_products', function ($t) use ($col, $len) {
+                    $t->string($col, $len)->nullable();
+                });
+            }
+        }
+
+        /* ΥΠΟΚΑΤΗΓΟΡΙΕΣ. Ένα προϊόν δεν είναι μονοκόμματο: το PharmacyOne έχει
+           συνταγογράφηση, αποθήκη, παραγγελίες — και δεν τα ξέρει ο ίδιος
+           άνθρωπος. Δέντρο ΕΝΟΣ επιπέδου: προϊόν → υποκατηγορία, και τέλος.
+           Δύο επίπεδα αρκούν και μένουν διαβάσιμα· τρία γίνονται λαβύρινθος.
+           Η υποκατηγορία κληρονομεί τη δρομολόγηση του γονέα αν δεν την ορίσει. */
+        if ($s->hasTable('mod_cpm_products') && !$s->hasColumn('mod_cpm_products', 'parent_id')) {
+            $s->table('mod_cpm_products', function ($t) {
+                $t->integer('parent_id')->unsigned()->nullable()->index();
+            });
+        }
+
         /* Τα τρία προϊόντα του e-commerce προστέθηκαν αργότερα από τα υπόλοιπα.
            Το seed() τρέχει ΜΟΝΟ σε άδειο κατάλογο, οπότε χωρίς αυτό δεν θα
            έμπαιναν ποτέ σε εγκατάσταση που ήδη δούλευε. Μπαίνουν ΟΝΟΜΑΣΤΙΚΑ και
@@ -275,6 +298,186 @@ class Catalog
             }
         }
         return $n;
+    }
+
+    /* ══════════════ μία λίστα, παντού ══════════════ */
+
+    /**
+     * ΕΝΟΠΟΙΗΣΗ (22/09/2026). Υπήρχαν ΤΡΕΙΣ λίστες προϊόντων που απέκλιναν:
+     *
+     *   1. `mod_cpm_ticket_cats` kind=area — αυτή που βλέπει ο χρήστης στις
+     *      Ρυθμίσεις· τη χρησιμοποιούν tickets και βάση γνώσης.
+     *   2. `mod_cpm_products` — ο κατάλογος χρέωσης.
+     *   3. `Pbx3cx\Route::PRODUCTS` — σκληρή λίστα στον κώδικα για τις ουρές.
+     *
+     * Αποτέλεσμα: «E-commerce» και «E-Commerce», «Marketplaces» και
+     * «Marketplace» — ίδιο πράγμα, τρία ονόματα, καμία κοινή ταυτότητα.
+     *
+     * Κύρια λίστα γίνεται το `mod_cpm_products`: μόνο αυτό σηκώνει
+     * υποκατηγορίες, δρομολόγηση και αντιστοίχιση με WHMCS. Οι «περιοχές»
+     * μένουν και συντηρούνται ΑΠΟ ΕΔΩ, ώστε tickets και βάση γνώσης να μη
+     * χάσουν τα id τους.
+     *
+     * Ταιριάζει με ΧΑΛΑΡΟ όνομα (πεζά, χωρίς κενά/παύλες/τόνους), ώστε
+     * «Courier modul» και «Courier module» να θεωρηθούν το ίδιο.
+     *
+     * @return array{linked:int,products:int,areas:int,merged:int}
+     */
+    public static function unify($dry = true)
+    {
+        $out = ['linked' => 0, 'products' => 0, 'areas' => 0, 'merged' => 0];
+        $key = function ($n) {
+            $n = mb_strtolower(trim((string) $n));
+            $n = strtr($n, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ό' => 'ο',
+                            'ύ' => 'υ', 'ώ' => 'ω', 'ϊ' => 'ι', 'ϋ' => 'υ']);
+            $n = preg_replace('/(module?s?|modul)$/u', '', $n);   // modul/module/modules
+            $n = preg_replace('/s$/u', '', $n);                    // ενικός/πληθυντικός
+            return preg_replace('/[^a-zα-ω0-9]/u', '', $n);
+        };
+
+        $areas = Capsule::table('mod_cpm_ticket_cats')->where('kind', 'area')
+            ->orderBy('sort')->get(['id', 'name', 'color', 'sort']);
+        $prods = Capsule::table('mod_cpm_products')->orderBy('sort')
+            ->get(['id', 'name', 'color', 'sort', 'area_id']);
+
+        $pByKey = [];
+        foreach ($prods as $p) {
+            $k = $key($p->name);
+            /* Διπλότυπο προϊόν: κρατάμε το ΠΑΛΑΙΟΤΕΡΟ (μικρότερο id) — έχει τα
+               δεδομένα επάνω του — και το νεότερο σβήνεται αν είναι αχρησιμοποίητο. */
+            if (isset($pByKey[$k])) {
+                $keep = $pByKey[$k]; $drop = $p;
+                if ((int) $drop->id < (int) $keep->id) { [$keep, $drop] = [$drop, $keep]; }
+                $used = Capsule::table('mod_cpm_tasks')->where('product_id', $drop->id)->count()
+                    + Capsule::table('mod_cpm_client_products')->where('product_id', $drop->id)->count()
+                    + Capsule::table('mod_cpm_agent_skills')->where('product_id', $drop->id)->count();
+                $out['merged']++;
+                if (!$dry && !$used) { Capsule::table('mod_cpm_products')->where('id', $drop->id)->delete(); }
+                $pByKey[$k] = $keep;
+                continue;
+            }
+            $pByKey[$k] = $p;
+        }
+
+        /* Κάθε περιοχή αποκτά προϊόν, και το προϊόν δείχνει πίσω στην περιοχή. */
+        foreach ($areas as $a) {
+            $k = $key($a->name);
+            if (isset($pByKey[$k])) {
+                $p = $pByKey[$k];
+                if ((int) $p->area_id !== (int) $a->id || $p->name !== $a->name) {
+                    $out['linked']++;
+                    if (!$dry) {
+                        Capsule::table('mod_cpm_products')->where('id', $p->id)
+                            ->update(['area_id' => (int) $a->id, 'name' => $a->name,
+                                      'sort' => (int) $a->sort * 10]);
+                    }
+                }
+                continue;
+            }
+            $out['products']++;
+            if ($dry) { continue; }
+            $pid = Capsule::table('mod_cpm_products')->insertGetId([
+                'name' => $a->name, 'color' => $a->color ?: '#0090dd', 'sort' => (int) $a->sort * 10,
+                'active' => 1, 'area_id' => (int) $a->id, 'created_at' => date('Y-m-d H:i:s')]);
+            $pByKey[$k] = (object) ['id' => $pid, 'name' => $a->name, 'area_id' => (int) $a->id];
+        }
+
+        /* ΤΑ SLUG ΤΟΥ ΚΑΤΑΛΟΓΟΥ. Οι καρτέλες κρατούν slug («pharmacyone_gr»),
+           όχι id. Αν το προϊόν δεν δηλώσει το δικό του, ο τηλεφωνικός κατάλογος
+           θα παρήγαγε καινούργιο από το όνομα και οι υπάρχοντες χαρακτηρισμοί
+           θα γίνονταν άγνωστοι — δηλαδή θα σβήνονταν σιωπηλά. */
+        foreach (self::BOOK_MAP as $slug => $pname) {
+            if ($slug === 'pharmacyone_cy' || $slug === 'yeastar') { continue; }   // alias / δικό του πια
+            $row = Capsule::table('mod_cpm_products')->where('name', $pname)->first(['id', 'book_key']);
+            if (!$row || trim((string) $row->book_key) !== '') { continue; }
+            $out['linked']++;
+            if (!$dry) { Capsule::table('mod_cpm_products')->where('id', $row->id)->update(['book_key' => $slug]); }
+        }
+        foreach (['Yeastar / Τηλεφωνία' => 'yeastar', 'E-commerce' => 'ecommerce',
+                  'Marketplaces' => 'marketplace', 'Courier modul' => 'courier'] as $pname => $slug) {
+            $row = Capsule::table('mod_cpm_products')->where('name', $pname)->first(['id', 'book_key']);
+            if (!$row || trim((string) $row->book_key) !== '') { continue; }
+            if (!$dry) { Capsule::table('mod_cpm_products')->where('id', $row->id)->update(['book_key' => $slug]); }
+        }
+
+        /* ΟΙ ΟΥΡΕΣ. Ήταν κι αυτές στη σκληρή λίστα του Route· χωρίς μεταφορά, η
+           δρομολόγηση των κλήσεων θα έμενε ξαφνικά κενή. Μπαίνουν μία φορά και
+           από εκεί και πέρα αλλάζουν από την οθόνη. */
+        foreach (Route::PRODUCTS as $slug => [$lbl, $dn]) {
+            $q = Capsule::table('mod_cpm_products')->where('book_key', $slug);
+            $row = $q->first(['id', 'route_dn']);
+            if (!$row && isset(self::BOOK_MAP[$slug])) {
+                $row = Capsule::table('mod_cpm_products')->where('name', self::BOOK_MAP[$slug])
+                    ->first(['id', 'route_dn']);
+            }
+            if (!$row || trim((string) $row->route_dn) !== '') { continue; }
+            if (!$dry) { Capsule::table('mod_cpm_products')->where('id', $row->id)->update(['route_dn' => $dn]); }
+        }
+
+        /* Και αντίστροφα: προϊόν χωρίς περιοχή αποκτά μία, ώστε η λίστα των
+           Ρυθμίσεων να είναι ΟΛΟΚΛΗΡΗ — αυτή βλέπει ο χρήστης. */
+        $aByKey = [];
+        foreach ($areas as $a) { $aByKey[$key($a->name)] = $a; }
+        foreach ($pByKey as $k => $p) {
+            if (isset($aByKey[$k])) { continue; }
+            $out['areas']++;
+            if ($dry) { continue; }
+            $aid = Capsule::table('mod_cpm_ticket_cats')->insertGetId([
+                'kind' => 'area', 'name' => $p->name, 'color' => $p->color ?? '#0090dd',
+                'sort' => (int) Capsule::table('mod_cpm_ticket_cats')->where('kind', 'area')->max('sort') + 1]);
+            Capsule::table('mod_cpm_products')->where('id', $p->id)->update(['area_id' => $aid]);
+        }
+        return $out;
+    }
+
+    /**
+     * Κρατά την «περιοχή» του ticket ίδια με το προϊόν. Τρέχει όταν σώζεται
+     * προϊόν από την οθόνη — οι δύο λίστες δεν επιτρέπεται να αποκλίνουν ξανά.
+     * Οι ΥΠΟΚΑΤΗΓΟΡΙΕΣ δεν γίνονται περιοχές: τα tickets ταξινομούνται στο προϊόν.
+     */
+    public static function mirrorToArea($productId)
+    {
+        $p = Capsule::table('mod_cpm_products')->where('id', (int) $productId)->first();
+        if (!$p || $p->parent_id) { return 0; }
+        if ($p->area_id && Capsule::table('mod_cpm_ticket_cats')->where('id', $p->area_id)->exists()) {
+            Capsule::table('mod_cpm_ticket_cats')->where('id', $p->area_id)
+                ->update(['name' => $p->name, 'color' => $p->color]);
+            return (int) $p->area_id;
+        }
+        $aid = Capsule::table('mod_cpm_ticket_cats')->insertGetId([
+            'kind' => 'area', 'name' => $p->name, 'color' => $p->color,
+            'sort' => (int) Capsule::table('mod_cpm_ticket_cats')->where('kind', 'area')->max('sort') + 1]);
+        Capsule::table('mod_cpm_products')->where('id', $p->id)->update(['area_id' => $aid]);
+        return $aid;
+    }
+
+    /**
+     * Ο κατάλογος όπως τον χρειάζεται κάθε οθόνη: δέντρο ενός επιπέδου, με τα
+     * παιδιά κάτω από τον γονέα τους και το πλήρες όνομα έτοιμο («Γονέας › Παιδί»).
+     */
+    public static function tree($onlyActive = true)
+    {
+        $q = Capsule::table('mod_cpm_products')->orderBy('sort')->orderBy('id');
+        if ($onlyActive) { $q->where('active', 1); }
+        $all = $q->get(['id', 'name', 'color', 'sort', 'active', 'parent_id', 'route_dn', 'area_id']);
+
+        $kids = [];
+        foreach ($all as $r) { if ($r->parent_id) { $kids[(int) $r->parent_id][] = $r; } }
+        $out = [];
+        foreach ($all as $r) {
+            if ($r->parent_id) { continue; }
+            $row = ['id' => (int) $r->id, 'name' => (string) $r->name, 'color' => (string) $r->color,
+                'full' => (string) $r->name, 'parent_id' => 0, 'active' => (int) $r->active,
+                'route_dn' => (string) $r->route_dn, 'kids' => []];
+            foreach ($kids[(int) $r->id] ?? [] as $c) {
+                $row['kids'][] = ['id' => (int) $c->id, 'name' => (string) $c->name,
+                    'color' => (string) ($c->color ?: $r->color), 'full' => $r->name . ' › ' . $c->name,
+                    'parent_id' => (int) $r->id, 'active' => (int) $c->active,
+                    'route_dn' => (string) ($c->route_dn ?: $r->route_dn), 'kids' => []];
+            }
+            $out[] = $row;
+        }
+        return $out;
     }
 
     /**

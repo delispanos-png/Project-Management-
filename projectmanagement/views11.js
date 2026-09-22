@@ -30,9 +30,7 @@ const PL_LV = {
   can:   ['Μπορεί',   'var(--brand)',         'Μ'],
   learn: ['Μαθαίνει', 'var(--warn, #b45309)', 'Α'],
 };
-/* Ο κύκλος του κελιού: κενό → Κύριος → Μπορεί → Μαθαίνει → κενό. Ο χάρτης
-   είναι 12×13 = 156 κελιά· με select το γέμισμα θέλει τρία κλικ το καθένα. */
-const PL_CYCLE = ['', 'main', 'can', 'learn'];
+
 
 /* Πόσο επικίνδυνο είναι ένα προϊόν. Μετράει μόνο όποιος ΟΝΤΩΣ παίζει. */
 const PL_RISK = {
@@ -42,11 +40,24 @@ const PL_RISK = {
   ok:     ['Καλυμμένο',   'var(--ok, #15803d)',  ''],
 };
 
-/* Ένα κελί του χάρτη. Δείχνει γράμμα, λέει ολόκληρη τη λέξη στο tooltip. */
-const plCell = (pid, lv, canEdit) => `<button type="button" class="pl-lv${lv ? ' has' : ''}"
-  data-sk="${pid}" data-lv="${lv}"${canEdit ? '' : ' disabled'}
-  style="--c:${lv ? PL_LV[lv][1] : 'transparent'}"
-  title="${lv ? esc(PL_LV[lv][0]) : 'δεν του δίνεται'}">${lv ? PL_LV[lv][2] : '·'}</button>`;
+/* Το δέντρο σε επίπεδη λίστα, με τα παιδιά αμέσως μετά τον γονέα τους. */
+const plFlat = tree => {
+  const out = [];
+  (tree || []).forEach(p => { out.push(p); (p.kids || []).forEach(k => out.push(k)); });
+  return out;
+};
+
+/* ΜΙΑ ΕΙΔΙΚΟΤΗΤΑ ΤΟΥ ΑΝΘΡΩΠΟΥ, ως ετικέτα.
+   Ο πίνακας «όλοι επί όλα» δεν αντέχει: 18 προϊόντα με υποκατηγορίες κάνουν
+   σαράντα στήλες, και οι 36 στις 40 είναι κενές. Δείχνουμε ΜΟΝΟ ό,τι ισχύει —
+   οι περισσότεροι ξέρουν δύο-τρία πράγματα, οπότε η γραμμή μένει κοντή. */
+const plChip = (pid, lv, full, canEdit) => `<span class="pl-chip" data-sk="${pid}"
+  style="--c:${PL_LV[lv][1]}">
+  <button type="button" class="pl-chip-l" data-cyc="${pid}" data-lv="${lv}"${canEdit ? '' : ' disabled'}
+    title="${esc(PL_LV[lv][0])} — κλικ για αλλαγή">${PL_LV[lv][2]}</button>
+  <span class="pl-chip-n">${esc(full)}</span>
+  ${canEdit ? `<button type="button" class="pl-chip-x" data-rm="${pid}" title="Αφαίρεση">✕</button>` : ''}
+</span>`;
 
 const plPill = (txt, color, title) =>
   `<span class="pl-pill" style="--c:${color}"${title ? ` title="${esc(title)}"` : ''}>${esc(txt)}</span>`;
@@ -81,6 +92,7 @@ R.roles = async function () {
 
   const canEdit = cnpCan('hr.roles.edit');
   const prods = d.products || [];
+  const flat  = plFlat(prods);
   let rows = d.rows || [];
   if (st.pool) { rows = rows.filter(r => r.in_pool); }
   if (st.mode) { rows = rows.filter(r => r.day_mode === st.mode); }
@@ -112,7 +124,7 @@ R.roles = async function () {
   <div class="pl-tiles">
     <div class="pl-tile"><b>${inPool.length}</b><span>παίζουν στη δεξαμενή</span></div>
     <div class="pl-tile${gaps.length ? ' bad' : ''}"><b>${gaps.length}</b><span>ειδικότητες σε κίνδυνο</span></div>
-    <div class="pl-tile"><b>${prods.length}</b><span>ειδικότητες συνολικά</span></div>
+    <div class="pl-tile"><b>${(cov.rows || []).length}</b><span>ειδικότητες συνολικά</span></div>
   </div>
 
   <div class="card">
@@ -126,7 +138,8 @@ R.roles = async function () {
           const [lbl, col, why] = PL_RISK[r.risk] || PL_RISK.ok;
           const nm = a => a.length ? a.map(x => esc(x.name)).join(', ') : '<span class="mut">—</span>';
           return `<tr>
-            <td data-l="Ειδικότητα"><span class="pl-dot" style="background:${esc(r.color)}"></span>${esc(r.name)}</td>
+            <td data-l="Ειδικότητα" class="${r.parent_id ? 'pl-kid' : ''}"><span class="pl-dot"
+              style="background:${esc(r.color)}"></span>${esc(r.name)}</td>
             <td data-l="Κάλυψη">${plPill(lbl, col, why)}</td>
             <td data-l="Κύριοι">${nm(r.main)}</td>
             <td data-l="Μπορούν">${nm(r.can)}</td>
@@ -149,7 +162,7 @@ R.roles = async function () {
         <thead><tr>
           <th class="pl-nm">Χειριστής</th>
           <th>Παίζει</th><th>Χαρακτήρας</th><th>Ώρες</th><th>Μικρό ως</th>
-          ${prods.map(p => `<th class="pl-pv" title="${esc(p.name)}"><span>${esc(p.name)}</span></th>`).join('')}
+          <th class="pl-sk">Ειδικότητες</th>
         </tr></thead>
         <tbody>${rows.map(r => `<tr data-a="${r.admin_id}">
           <td class="pl-nm" data-l="Χειριστής"><b>${esc(r.name)}</b>${
@@ -169,16 +182,33 @@ R.roles = async function () {
             step="0.5" value="${r.hours_day}"${canEdit ? '' : ' disabled'} title="ωφέλιμες ώρες την ημέρα"></td>
           <td data-l="Μικρό ως"><input type="number" data-k="small_min" class="pl-in pl-num" min="5" max="480"
             step="5" value="${r.small_min}"${canEdit ? '' : ' disabled'} title="λεπτά — τι θεωρείται μικρό"></td>
-          ${prods.map(p => {
-            const lv = (r.skills || {})[p.id] || '';
-            return `<td class="pl-cell" data-l="${esc(p.name)}">${plCell(p.id, lv, canEdit)}</td>`;
-          }).join('')}
+          <td class="pl-sk" data-l="Ειδικότητες">
+            <div class="pl-chips">${
+              flat.filter(p => (r.skills || {})[p.id])
+                  .map(p => plChip(p.id, r.skills[p.id], p.full, canEdit)).join('')
+              || '<span class="mut sm">καμία — δεν θα του δοθεί τίποτα</span>'}
+            </div>
+            ${canEdit ? `<select class="pl-add" data-add="${r.admin_id}">
+              <option value="">＋ προσθήκη ειδικότητας…</option>
+              ${(prods || []).map(p => {
+                const kids = (p.kids || []).filter(k => !(r.skills || {})[k.id]);
+                const self = !(r.skills || {})[p.id];
+                if (!self && !kids.length) { return ''; }
+                /* Ο γονέας και τα παιδιά του μαζί: «ξέρει PharmacyOne» είναι
+                   άλλο από «ξέρει μόνο τη συνταγογράφηση». */
+                return `<optgroup label="${esc(p.name)}">
+                  ${self ? `<option value="${p.id}">${esc(p.name)} — όλο</option>` : ''}
+                  ${kids.map(k => `<option value="${k.id}">${esc(k.name)}</option>`).join('')}
+                </optgroup>`;
+              }).join('')}
+            </select>` : ''}
+          </td>
         </tr>`).join('')}</tbody>
       </table>`}
     </div>
   </div>
   <div class="pl-legend">
-    <span class="mut">Κλικ στο κελί: κενό → Κύριος → Μπορεί → Μαθαίνει → κενό.</span>
+    <span class="mut">Κλικ στο γράμμα αλλάζει βαθμό, το ✕ αφαιρεί.</span>
     ${Object.keys(PL_LV).map(k => plPill(PL_LV[k][2] + ' · ' + PL_LV[k][0], PL_LV[k][1])).join(' ')}
     <span class="mut">Το «Μαθαίνει» δεν σερβίρεται αυτόματα — το δίνει ο επικεφαλής με το χέρι.</span>
   </div>`;
@@ -212,28 +242,46 @@ R.roles = async function () {
 
   $$('#content .pl-map tbody tr').forEach(tr => {
     tr.querySelectorAll('[data-k]').forEach(el => { el.onchange = () => saveCard(tr); });
-    tr.querySelectorAll('[data-sk]').forEach(btn => {
+    const aid = +tr.dataset.a;
+    /* Γράφει, και μόνο αν πετύχει αλλάζει η οθόνη: ο χάρτης δεν επιτρέπεται να
+       δείχνει κάτι που δεν αποθηκεύτηκε — πάνω του θα στηθεί η μοιρασιά. */
+    const put = async (pid, lv) => {
+      const r = await api('skill_save', {admin_id: aid, product_id: pid, level: lv}).catch(() => null);
+      if (!r || r.error) { toast(r && r.error ? r.error : 'Δεν αποθηκεύτηκε', 'bad'); return false; }
+      return true;
+    };
+
+    /* Κλικ στο γράμμα: Κύριος → Μπορεί → Μαθαίνει → Κύριος. Η αφαίρεση έχει
+       δικό της κουμπί — δεν κρύβεται μέσα στον κύκλο. */
+    tr.querySelectorAll('[data-cyc]').forEach(btn => {
       btn.onclick = async () => {
-        const was = btn.dataset.lv || '';
-        const lv = PL_CYCLE[(PL_CYCLE.indexOf(was) + 1) % PL_CYCLE.length];
+        const order = ['main', 'can', 'learn'];
+        const was = btn.dataset.lv;
+        const lv = order[(order.indexOf(was) + 1) % order.length];
+        if (!await put(+btn.dataset.cyc, lv)) { return; }
         btn.dataset.lv = lv;
-        btn.textContent = lv ? PL_LV[lv][2] : '·';
-        btn.title = lv ? PL_LV[lv][0] : 'δεν του δίνεται';
-        btn.style.setProperty('--c', lv ? PL_LV[lv][1] : 'transparent');
-        btn.classList.toggle('has', !!lv);
-        const r = await api('skill_save', {admin_id: +tr.dataset.a,
-          product_id: +btn.dataset.sk, level: lv}).catch(() => null);
-        if (!r || r.error) {
-          /* Γύρνα το κελί πίσω: ο χάρτης δεν επιτρέπεται να δείχνει κάτι που
-             δεν γράφτηκε — σε αυτόν θα βασιστεί η μοιρασιά της δουλειάς. */
-          btn.dataset.lv = was;
-          btn.textContent = was ? PL_LV[was][2] : '·';
-          btn.style.setProperty('--c', was ? PL_LV[was][1] : 'transparent');
-          btn.classList.toggle('has', !!was);
-          toast(r && r.error ? r.error : 'Δεν αποθηκεύτηκε', 'bad');
-        }
+        btn.textContent = PL_LV[lv][2];
+        btn.title = PL_LV[lv][0] + ' — κλικ για αλλαγή';
+        btn.closest('.pl-chip').style.setProperty('--c', PL_LV[lv][1]);
       };
     });
+
+    tr.querySelectorAll('[data-rm]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!await put(+btn.dataset.rm, '')) { return; }
+        R.roles();
+      };
+    });
+
+    const add = tr.querySelector('[data-add]');
+    if (add) {
+      add.onchange = async () => {
+        const pid = +add.value;
+        if (!pid) { return; }
+        if (!await put(pid, 'main')) { add.value = ''; return; }
+        R.roles();
+      };
+    }
   });
 };
 
