@@ -531,7 +531,11 @@ table.tbl{width:100%;border-collapse:collapse}
 .cnp-cal a.ev.over{background:#e2515f22}
 
 /* ── ticket inbox ── */
-.inbox{display:flex;gap:0;height:calc(100vh - 130px);margin:-20px -24px -30px;border-top:1px solid var(--line)}
+/* Η λίστα tickets κρατά το ύψος της οθόνης. Το -240 αντί για -130: από πάνω
+   της κάθονται πλέον η γραμμή φίλτρων και η σειρά προβολών, όπως σε κάθε άλλη
+   οθόνη του εργαλείου. */
+.inbox{display:flex;gap:0;height:calc(100vh - 240px);min-height:360px;margin:0 -24px -30px;border-top:1px solid var(--line)}
+.ib-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
 .ib-left{width:340px;flex:0 0 340px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--card)}
 .ib-tabs{display:flex;gap:2px;padding:10px 10px 0;flex-wrap:wrap}
 .ib-tab{border:none;background:none;padding:7px 11px;border-radius:9px;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
