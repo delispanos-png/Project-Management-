@@ -294,6 +294,7 @@ function renderShell() {
       ['kpi', I.chart, 'KPI Dashboard', 'reports.kpi'],
       ['rootcause', I.chart, 'Ανάλυση ριζών', 'reports.rootcause'],
       ['perf', I.chart, 'Απόδοση χειριστών', 'reports.perf'],
+      ['pool', I.users || I.tree, 'Οι χειριστές σήμερα', 'reports.pool'],
       ['timeteam', I.clock, 'Χρόνος ομάδας', 'reports.time'],
     ]],
     ['Οικονομικά', 'τι μπαίνει, τι βγαίνει, τι δεν πληρώθηκε', [
@@ -307,6 +308,7 @@ function renderShell() {
        ενότητας πρέπει να ταυτίζεται με την περιοχή δικαιωμάτων (`hr`). */
     ['Προσωπικό', 'άδειες, υπόλοιπα και υποψήφιοι', [
       ['leave', I.sun, 'Άδειες', 'hr.leave'],
+      ['roles', I.tree || I.users, 'Ρόλοι & ειδικότητες', 'hr.roles'],
       ['recruit', I.contact || I.users, 'Βιογραφικά', 'hr.cv'],
     ]],
     ['Σύστημα', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [

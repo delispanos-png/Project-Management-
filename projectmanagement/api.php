@@ -29,6 +29,8 @@ use WHMCS\Module\Addon\CloudonProjects\Aade;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxPresence;
 use WHMCS\Module\Addon\CloudonProjects\Leave;
 use WHMCS\Module\Addon\CloudonProjects\Watch;
+use WHMCS\Module\Addon\CloudonProjects\Pool;
+use WHMCS\Module\Addon\CloudonProjects\Catalog;
 use WHMCS\Module\Addon\CloudonProjects\DayPlan;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
@@ -3304,6 +3306,9 @@ function cnp_caps()
         'reports.kpi'       => ['view', 'KPI Dashboard', 'Οι αριθμοί της εξυπηρέτησης'],
         'reports.rootcause' => ['view', 'Ανάλυση ριζών', 'Γιατί ξαναέρχονται τα ίδια αιτήματα'],
         'reports.perf'      => ['view', 'Απόδοση χειριστών', 'Ποιος παραδίδει, πόσο και πόσο γρήγορα'],
+        /* Η καθημερινή εικόνα των χειριστών: ποιος παίζει, τι κρατάει, τι θα του
+           σερβίραμε. Δείχνει, ΔΕΝ αναθέτει — γι' αυτό είναι απλό `view`. */
+        'reports.pool'      => ['view', 'Οι χειριστές σήμερα', 'Ποιος παίζει, τι κρατάει ο καθένας και τι θα του σερβίραμε'],
         'reports.time'      => ['view', 'Χρόνος ομάδας', 'Τι έκανε ΟΠΟΙΟΣΔΗΠΟΤΕ σε μια ημέρα ή περίοδο'],
 
         // ═══ ΟΙΚΟΝΟΜΙΚΑ ═══
@@ -3330,6 +3335,13 @@ function cnp_caps()
         'hr.leave.edit'    => ['edit',   'Καταχώριση & δικαιώματα', 'Εγγραφή αδειών, δικαιούμενες ημέρες ανά έτος, μεταφορά, ΕΡΓΑΝΗ', 'hr.leave'],
         'hr.leave.approve' => ['power',  'Έγκριση αδειών', 'Έγκριση ή απόρριψη αιτημάτων άδειας της ομάδας', 'hr.leave'],
         'hr.leave.delete'  => ['delete', 'Διαγραφή άδειας', 'Οριστική διαγραφή εγγραφής άδειας από το μητρώο', 'hr.leave'],
+        /* ΡΟΛΟΙ & ΕΙΔΙΚΟΤΗΤΕΣ. Ποιος μπαίνει στη δεξαμενή, τι χαρακτήρα έχει η
+           μέρα του και ποιο προϊόν ξέρει. Τον χάρτη τον γεμίζει ο ΕΠΙΚΕΦΑΛΗΣ:
+           αν τον γεμίζει ο καθένας για τον εαυτό του, γράφουν όλοι «Κύριος»
+           παντού και ο χάρτης γίνεται άχρηστος. Γι' αυτό η επεξεργασία είναι
+           ξεχωριστό δικαίωμα από την προβολή. */
+        'hr.roles'         => ['view',   'Ρόλοι & ειδικότητες', 'Κάρτα χειριστή και χάρτης «ποιος ξέρει τι»'],
+        'hr.roles.edit'    => ['edit',   'Επεξεργασία ρόλων', 'Συμμετοχή στη δεξαμενή, χαρακτήρας ημέρας, ώρες, βαθμοί ειδικότητας', 'hr.roles'],
 
         // ═══ ΣΥΣΤΗΜΑ ═══
         'admin.teams'        => ['view',   'Ομάδες & δικαιώματα', 'Προβολή ομάδων, μελών, δικαιωμάτων'],
@@ -3787,6 +3799,12 @@ function cnp_action_cap($action)
         $add('hr.leave.edit', ['leave_save', 'leave_year_save', 'leave_staff_save']);
         $add('hr.leave.approve', ['leave_decide']);
         $add('hr.leave.delete', ['leave_delete']);
+        $add('hr.roles', ['roles', 'roles_coverage']);
+        $add('hr.roles.edit', ['role_save', 'skill_save']);
+        $add('reports.pool', ['pool_today']);
+        /* Γράφει ΣΤΙΣ ΕΡΓΑΣΙΕΣ, όχι στους ρόλους — άρα θέλει το δικαίωμα των
+           εργασιών, όχι αυτό της οθόνης από την οποία πατιέται. */
+        $add('projects.board.edit', ['tasks_label']);
 
         /* ── ΣΥΣΤΗΜΑ ── */
         $add('admin.teams', ['teams']);
@@ -18508,6 +18526,72 @@ case 'leave_ergani':
     out(['ok' => true, 'year' => $lvY, 'rows' => $lvRows, 'missing' => $lvMiss,
         'deadline' => ($lvY + 1) . '-01-31']);
 
+
+case 'roles':
+    /* ΡΟΛΟΙ & ΕΙΔΙΚΟΤΗΤΕΣ — η κάρτα κάθε χειριστή και ο χάρτης «ποιος ξέρει τι».
+       Επιστρέφει ΟΛΟΥΣ τους ενεργούς χειριστές, όχι μόνο όσους έχουν ρυθμιστεί:
+       αλλιώς ο καινούργιος δεν φαίνεται πουθενά και δεν μπαίνει ποτέ. */
+    $plProds = [];
+    foreach (Capsule::table('mod_cpm_products')->where('active', 1)->orderBy('sort')
+                ->get(['id', 'name', 'color']) as $r) {
+        $plProds[] = ['id' => (int) $r->id, 'name' => (string) $r->name, 'color' => (string) $r->color];
+    }
+    $plTeam = [];
+    foreach (Capsule::table('mod_cpm_team_members as m')
+                ->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
+                ->get(['m.admin_id', 'm.is_leader', 'm.role_title', 't.name']) as $r) {
+        $plTeam[(int) $r->admin_id][] = ['team' => (string) $r->name,
+            'leader' => (int) $r->is_leader, 'role' => (string) $r->role_title];
+    }
+    $plRows = [];
+    foreach (Db::admins() as $a) {
+        $aid = (int) $a->id;
+        $plRows[] = Pool::card($aid) + [
+            'name'   => Db::adminName($aid),
+            'teams'  => $plTeam[$aid] ?? [],
+            'skills' => Pool::skills($aid),
+        ];
+    }
+    out(['ok' => true, 'rows' => $plRows, 'products' => $plProds,
+         'modes' => Pool::MODES, 'levels' => Pool::LEVELS]);
+
+case 'roles_coverage':
+    /* Τα ΚΕΝΑ του χάρτη. Δεν είναι για τον μηχανισμό — είναι για τον ιδιοκτήτη:
+       «αυτό το προϊόν το ξέρει ΕΝΑΣ· αν λείψει, δεν το παίρνει κανείς». */
+    $plCov = Pool::coverage();
+    foreach ($plCov as &$plC) {
+        foreach (['main', 'can', 'learn'] as $plK) {
+            $plC[$plK] = array_map(function ($id) { return ['id' => $id, 'name' => Db::adminName($id)]; },
+                $plC[$plK]);
+        }
+    }
+    unset($plC);
+    out(['ok' => true, 'rows' => $plCov]);
+
+case 'role_save':
+    $plAid = (int) ($in['admin_id'] ?? 0);
+    if (!$plAid) { out(['error' => 'Λείπει ο χειριστής']); }
+    out(['ok' => true, 'card' => Pool::saveCard($plAid, $in, $adminId)]);
+
+case 'skill_save':
+    $plAid = (int) ($in['admin_id'] ?? 0);
+    $plPid = (int) ($in['product_id'] ?? 0);
+    if (!$plAid || !$plPid) { out(['error' => 'Λείπει χειριστής ή προϊόν']); }
+    out(['ok' => true, 'level' => Pool::setSkill($plAid, $plPid, (string) ($in['level'] ?? ''), $adminId)]);
+
+case 'tasks_label':
+    /* Συμπληρώνει την ΕΙΔΙΚΟΤΗΤΑ όπου προκύπτει χωρίς αμφιβολία (ticket → έργο →
+       πελάτης με ένα μόνο προϊόν). Πρώτα δοκιμή, μετά εγγραφή: λάθος ετικέτα
+       στέλνει τη δουλειά σε λάθος άνθρωπο, που είναι χειρότερο από το κενό. */
+    out(['ok' => true] + Catalog::labelTasks(empty($in['apply'])));
+
+case 'pool_today':
+    /* Η ΚΑΘΗΜΕΡΙΝΗ ΕΙΚΟΝΑ. Καθρέφτης: τρέχει όλο το μυαλό της δεξαμενής και
+       δείχνει τι ΘΑ έδινε σε ποιον — χωρίς να αναθέτει τίποτα. Έτσι φαίνεται
+       αν ο χάρτης λέει αλήθεια, πριν αφεθεί ο μηχανισμός να μοιράζει μόνος. */
+    out(['ok' => true] + Pool::today(
+        $in['date'] ?? $_GET['date'] ?? null,
+        $in['at'] ?? $_GET['at'] ?? null));
 
 case 'attention':
     /* «Τι να προσέξω» — επόπτης και coach μαζί, ανά ρόλο.

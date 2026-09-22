@@ -4517,3 +4517,91 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
      παρατηρήσεις σπάνε σε τέσσερις λέξεις ανά γραμμή. */
   #attnBtn + .pop,.bell-wrap .pop{max-width:calc(100vw - 24px)}
 }
+
+/* ═══════════ ΡΟΛΟΙ, ΕΙΔΙΚΟΤΗΤΕΣ & Η ΕΙΚΟΝΑ ΤΗΣ ΗΜΕΡΑΣ (.pl-*) ═══════════
+   Ο χάρτης «ποιος ξέρει τι» είναι εγγενώς φαρδύς: 13 ειδικότητες επί στήλη.
+   Στην οθόνη κυλά πλάγια με καρφωμένη την πρώτη στήλη· στο κινητό γίνεται
+   κάρτα ανά άνθρωπο, γιατί πίνακας 13 στηλών σε 390px δεν διαβάζεται. */
+
+.pl-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.pl-tile{background:var(--card,#fff);border:1px solid var(--bd,#e2e8f0);border-radius:10px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.pl-tile b{font-size:24px;line-height:1.1}
+.pl-tile span{font-size:12px;color:var(--mut,#64748b)}
+.pl-tile.bad{border-color:var(--bad,#b91c1c)}
+.pl-tile.bad b{color:var(--bad,#b91c1c)}
+.pl-tile.warn{border-color:var(--warn,#b45309)}
+.pl-tile.warn b{color:var(--warn,#b45309)}
+
+.pl-pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;
+  color:var(--c);border:1px solid var(--c);background:color-mix(in srgb,var(--c) 10%,transparent);
+  white-space:nowrap}
+.pl-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle}
+
+/* ── ο χάρτης ── */
+.pl-map{min-width:900px}
+.pl-map th,.pl-map td{vertical-align:middle}
+.pl-map .pl-nm{position:sticky;left:0;background:var(--card,#fff);z-index:1;min-width:150px}
+/* Κάθετες οι κεφαλίδες των ειδικοτήτων: 13 οριζόντια ονόματα θα έκαναν τον
+   πίνακα τρεις οθόνες φαρδύ. */
+.pl-pv{width:34px;padding:0;text-align:center;vertical-align:bottom;height:158px}
+.pl-pv span{display:inline-block;writing-mode:vertical-rl;transform:rotate(180deg);
+  font-size:11px;font-weight:600;white-space:nowrap;padding:6px 0}
+.pl-cell{text-align:center;padding:2px}
+/* Το κελί δείχνει ΓΡΑΜΜΑ και λέει ολόκληρη τη λέξη στο tooltip: 13 στήλες με
+   «Κύριος/Μπορεί/Μαθαίνει» γραμμένα ολόκληρα δεν χωρούν σε καμία οθόνη. */
+.pl-lv{width:28px;height:28px;border:1px solid var(--bd,#e2e8f0);border-radius:6px;
+  background:transparent;font-size:12px;font-weight:700;color:var(--mut,#94a3b8);cursor:pointer;
+  padding:0;line-height:1}
+.pl-lv:hover:not(:disabled){border-color:var(--brand)}
+.pl-lv:disabled{cursor:default}
+.pl-lv.has{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c)}
+.pl-in{border:1px solid var(--bd,#e2e8f0);border-radius:6px;padding:4px 6px;font-size:12px;
+  background:var(--card,#fff);color:inherit}
+.pl-num{width:62px}
+.pl-df{margin-top:4px;display:block}
+.pl-sw input{width:16px;height:16px;cursor:pointer}
+.pl-ok{animation:plOk .7s ease}
+@keyframes plOk{from{background:color-mix(in srgb,var(--ok,#15803d) 22%,transparent)}to{background:transparent}}
+.pl-legend{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;font-size:12px}
+
+/* ── η εικόνα της ημέρας ── */
+.pl-day .pl-away{opacity:.55}
+.pl-bar{height:7px;border-radius:4px;background:var(--bd,#e2e8f0);overflow:hidden;max-width:150px}
+.pl-bar i{display:block;height:100%;background:var(--brand);border-radius:4px}
+.pl-bar.full i{background:var(--warn,#b45309)}
+.pl-q{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.pl-q li{font-size:13px}
+.pl-note{border-left:3px solid var(--warn,#b45309)}
+
+/* ── κινητό: ο πίνακας γίνεται κάρτα ανά άνθρωπο ── */
+@media (max-width:768px){
+  /* Οι πίνακες γίνονται κάρτες· χωρίς αυτό κρατούν το πλάτος του περιεχομένου
+     τους και αφήνουν κενό δεξιά αντί να πιάσουν την οθόνη. */
+  .pl-map,.pl-day,.pl-cov{min-width:0;width:100%;display:block}
+  .pl-map tbody,.pl-day tbody,.pl-cov tbody{display:block;width:100%}
+  .pl-map thead{display:none}
+  .pl-map tbody tr{display:block;border:1px solid var(--bd,#e2e8f0);border-radius:10px;
+    padding:10px 12px;margin-bottom:10px;background:var(--card,#fff)}
+  .pl-map tbody td{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    border:0;padding:5px 0}
+  .pl-map tbody td::before{content:attr(data-l);color:var(--mut,#64748b);font-size:12px;
+    flex:0 0 auto;max-width:55%}
+  .pl-map .pl-nm{position:static;display:block}
+  .pl-map .pl-nm::before{content:none}
+  .pl-lv{width:34px;height:34px}
+  .pl-pv{height:auto}
+  .pl-day thead{display:none}
+  .pl-day tbody tr{display:block;border:1px solid var(--bd,#e2e8f0);border-radius:10px;
+    padding:10px 12px;margin-bottom:10px;background:var(--card,#fff)}
+  .pl-day tbody td{display:block;border:0;padding:4px 0}
+  .pl-day tbody td::before{content:attr(data-l);display:block;color:var(--mut,#64748b);font-size:12px}
+  .pl-cov thead{display:none}
+  .pl-cov tbody tr{display:block;border:1px solid var(--bd,#e2e8f0);border-radius:10px;
+    padding:10px 12px;margin-bottom:10px;background:var(--card,#fff)}
+  .pl-cov tbody td{display:flex;justify-content:space-between;gap:12px;border:0;padding:4px 0}
+  .pl-cov tbody td::before{content:attr(data-l);color:var(--mut,#64748b);font-size:12px;flex:0 0 auto}
+  .pl-bar{max-width:none}
+}
+.pl-qh{margin-bottom:4px}
+.pl-q.next{opacity:.62}
