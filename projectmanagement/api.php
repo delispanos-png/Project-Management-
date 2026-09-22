@@ -7748,7 +7748,9 @@ case 'cards_build':                       // παραγωγή ουράς (pulse 
     if (!$CRON_OK && !$FULL) { fail('forbidden', 403); }
     $dryB = !empty($_GET['dry']);
     $rB = DayPlan::build($dryB);
-    out(['ok' => true] + $rB + ['escalated' => DayPlan::escalate($dryB)]);
+    /* Το κλείσιμο ημέρας φεύγει από τις 17:30 και μετά — μία φορά ανά άτομο. */
+    $deB = ((int) date('Hi') >= 1730 || !empty($_GET['dayend'])) ? DayPlan::dayEnd($dryB) : ['sent' => 0];
+    out(['ok' => true] + $rB + ['escalated' => DayPlan::escalate($dryB), 'dayEnd' => $deB['sent']]);
 
 case 'cards_settings':                    // ποιοι παίρνουν κάρτες, κατώφλια, διακόπτης
     if (!$FULL) { fail('forbidden', 403); }
@@ -12586,11 +12588,16 @@ case 'settings_get':
         $types[] = ['id' => (int) $ty->id, 'name' => $ty->name, 'icon' => $ty->icon, 'color' => $ty->color,
             'reqA' => (bool) $ty->req_assignee, 'reqD' => (bool) $ty->req_due, 'reqE' => (bool) $ty->req_estimate];
     }
-    out(['phases' => $phases, 'settings' => $vals, 'statuses' => $sts, 'types' => $types]);
+    /* Οι ομάδες χρειάζονται στις ρυθμίσεις των καρτών διαχείρισης (ποιος παίρνει, ποιος κλιμακώνει). */
+    out(['phases' => $phases, 'settings' => $vals, 'statuses' => $sts, 'types' => $types,
+        'teams' => array_map(function ($t) { return ['id' => (int) $t->id, 'name' => (string) $t->name]; },
+            Capsule::table('mod_cpm_teams')->orderBy('name')->get(['id', 'name'])->all()),
+        'cardsDefaults' => ['team' => DayPlan::teamId(), 'escTeam' => DayPlan::escTeamId()] + DayPlan::thresholds()]);
 
 case 'settings_save':
     $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
         'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas', 'overrun_on', 'overrun_pct',
+        'cards_on', 'cards_team', 'cards_esc_team', 'cards_age_days', 'cards_idle_days', 'cards_unassigned_days',
         'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {
