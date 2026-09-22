@@ -7421,6 +7421,15 @@ case 'book_save':                        // αποθήκευση καρτέλα�
     $pbx = null;
     try { if (Pbx3cxClient::configured()) { $pbx = Book::push($sId); } } catch (\Throwable $e) { $pbx = null; }
 
+    /* Ο ΚΑΤΑΛΟΓΟΣ ΕΙΝΑΙ Η ΠΗΓΗ ΑΛΗΘΕΙΑΣ ΓΙΑ ΤΑ ΠΡΟΪΟΝΤΑ (22/09/2026). Μόλις
+       χαρακτηριστεί μια επαφή, το περνάμε αμέσως στον πίνακα πελάτη→προϊόντων:
+       αλλιώς η αλήθεια θα περίμενε ένα cron και η δεξαμενή θα δρομολογούσε με
+       παλιά στοιχεία. Δεν χαλάει ποτέ την αποθήκευση της καρτέλας. */
+    $sCid = (int) ($row['clientid'] ?? 0);
+    if ($sCid) {
+        try { Catalog::syncFromBook(false, $sCid); } catch (\Throwable $e) { /* σιωπηλά */ }
+    }
+
     out(['ok' => true, 'id' => $sId, 'pbx' => $pbx,
         'moved' => $sClash ? count($sClash) : 0,
         'orphans' => $sOrphan]);
