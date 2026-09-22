@@ -9452,7 +9452,14 @@ case 'cancels':
             'product' => (string) $r->proion,
             'clientId' => (int) $r->userid, 'client' => clientLabel((int) $r->userid),
             'asked' => (bool) $r->crid, 'askedAt' => $r->crdate,
+            /* ΤΙ ΖΗΤΗΣΕ Ο ΠΕΛΑΤΗΣ. Το WHMCS κρατά δύο είδη και η διαφορά
+               μετράει: «άμεση» σημαίνει ότι έπρεπε να κοπεί τότε, «στη λήξη»
+               ότι δικαιούται να τη χρησιμοποιεί ως το τέλος της περιόδου. */
             'type' => (string) $r->type,
+            'typeLbl' => $r->type === 'Immediate' ? 'άμεση ακύρωση'
+                : ($r->type === 'End of Billing Period' ? 'στη λήξη της συνδρομής'
+                : (string) $r->type),
+            'reason' => mb_substr(trim((string) $r->reason), 0, 120),
             'vm' => $srvId, 'vmState' => $vm,
             'ok' => $ok,
             /* Το «none» σημαίνει «δεν εκκρεμεί μηχάνημα» — ΟΧΙ «δεν υπήρξε ποτέ».

@@ -4963,12 +4963,21 @@ async function mydCancels() {
     : r.vmState === 'unknown' ? 'var(--warn,#b45309)' : 'var(--ok,#15803d)';
   const mark = r => r.ok ? '✔' : (r.vmState === 'unknown' ? '?' : '✘');
 
+  const d10 = v => (v ? String(v).slice(8, 10) + '/' + String(v).slice(5, 7) : '');
+
+  /* ΤΙ ΖΗΤΗΣΕ Ο ΠΕΛΑΤΗΣ ΚΑΙ ΠΟΤΕ. Έλεγε μόνο «το ζήτησε ο πελάτης» — δεν
+     ξεχώριζε μια ακύρωση που έπρεπε να γίνει ΑΜΕΣΩΣ από μία που δικαιούνταν να
+     τρέχει ως τη λήξη της περιόδου. Η αιτιολογία του πελάτη στο tooltip. */
+  const asked = r => r.asked
+    ? `<b class="cn-ask" title="${esc(r.reason || 'χωρίς αιτιολογία')}">${esc(r.typeLbl || 'ακύρωση')}</b>${
+        r.askedAt ? ' · ζητήθηκε ' + d10(r.askedAt) : ''}`
+    : 'ακύρωση από εμάς';
+
   const row = (r, showNote) => `<div class="myd-row${r.ok ? '' : ' wait'}">
     <span class="dot" style="background:${dot(r)};flex:none"></span>
     <span class="myd-t"><b>${esc(r.client)}</b><span class="mut"> · ${esc(r.product || 'υπηρεσία')}
       · #${r.service}${r.vm ? ' · VM ' + r.vm : ''}</span>
-      ${showNote ? `<div class="mut" style="font-size:11.5px">${esc(r.note)}${
-        r.asked ? ' · το ζήτησε ο πελάτης' : ' · ακύρωση από εμάς'}</div>` : ''}</span>
+      ${showNote ? `<div class="cn-sub">${asked(r)} · ${esc(r.note)}</div>` : ''}</span>
     <span class="cn-mk" style="color:${dot(r)};flex:none" title="${esc(r.note)}">${mark(r)}</span></div>`;
 
   const bad = d.bad || [], open = d.open || [], today = d.today || [], recent = d.recent || [];

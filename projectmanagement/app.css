@@ -4718,3 +4718,5 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .myd-lbl:first-child{margin-top:0}
 .myd-lbl.bad{color:var(--bad,#b91c1c)}
 .cn-mk{font-weight:800;font-size:14px;min-width:16px;text-align:center}
+.cn-sub{font-size:11.5px;color:var(--mut,#64748b);margin-top:1px}
+.cn-ask{font-weight:700;color:var(--ink,#0f172a)}
