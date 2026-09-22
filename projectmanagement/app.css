@@ -4179,6 +4179,8 @@ html[data-theme="dark"] .card{border-color:#233043}
 .tmb-badge{font-size:9.5px;font-weight:800;color:var(--mut);font-variant-numeric:tabular-nums;line-height:1;
   padding:2px 5px;border-radius:999px;background:var(--bg2);border:1px solid var(--line);white-space:nowrap}
 .tmb-p.in .tmb-badge{color:var(--ok);border-color:#16a26a44;background:#16a26a12}
+.tmb-badge.hot{color:var(--bad);border-color:#e2515f55;background:#e2515f14}
+.tmb-p.sel .tmb-av{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--brand)}
 .tmb-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;
   font-weight:800;font-size:13px;color:#fff;background:#9aa7b8;box-shadow:0 0 0 2px var(--card),0 0 0 4px transparent;transition:box-shadow .15s}
 .tmb-p.in .tmb-av{background:var(--sc);box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--sc)}
@@ -4210,6 +4212,9 @@ html[data-theme="dark"] .card{border-color:#233043}
 .dkpi-i{text-align:center;padding:0 4px}
 .dkpi-i.go{cursor:pointer;border-radius:10px}
 .dkpi-i.go:hover{background:var(--bg2)}
+.dkpi-i.on{background:var(--bg2);box-shadow:inset 0 -2px 0 var(--brand)}
+/* κάρτα-δοχείο για τα νούμερα μιας οθόνης */
+.dbar{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 10px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,50,90,.04)}
 .dkpi-i b{display:block;font-size:19px;font-weight:800;line-height:1.1;color:var(--ink);font-variant-numeric:tabular-nums}
 .dkpi-i small{display:block;font-size:10px;color:var(--mut);line-height:1.25;margin-top:4px;font-weight:600}
 .dspark{display:flex;align-items:flex-end;gap:6px;height:56px}

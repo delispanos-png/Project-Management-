@@ -4438,7 +4438,7 @@ function cnpKpis(items, opts) {
   const it = (items || []).filter(Boolean);
   if (!it.length) { return ''; }
   return `<div class="dkpi${opts.cls ? ' ' + opts.cls : ''}" style="--n:${it.length}">${it.map(k =>
-    `<div class="dkpi-i${k.go ? ' go' : ''}"${k.go ? ` data-dkgo="${esc(k.go)}"` : ''}${k.tip ? ` title="${esc(k.tip)}"` : ''}>
+    `<div class="dkpi-i${k.go || k.act ? ' go' : ''}${k.on ? ' on' : ''}"${k.go ? ` data-dkgo="${esc(k.go)}"` : ''}${k.act ? ` data-dkact="${esc(k.act)}"` : ''}${k.tip ? ` title="${esc(k.tip)}"` : ''}>
       <b${k.color ? ` style="color:${k.color}"` : ''}>${k.n}</b><small>${k.label}</small></div>`).join('')}</div>`;
 }
 
@@ -4474,6 +4474,9 @@ function cnpPeopleBar(people, opts) {
   opts = opts || {};
   const ps = people || [];
   if (!ps.length) { return ''; }
+  /* Κάθε οθόνη μπορεί να βάλει ΔΙΚΟ της σήμα και δικό της κλικ: στα αιτήματα το σήμα
+     είναι «πόσο καιρό σε περιμένει», όχι «πόση ώρα είναι μέσα». */
+  const attr = opts.attr || 'tmp';
   const inN = ps.filter(x => x.status !== 'offline').length;
   const workN = ps.filter(x => x.workingOn).length;
   return `<div class="tmb${opts.cls ? ' ' + opts.cls : ''}">
@@ -4484,10 +4487,11 @@ function cnpPeopleBar(people, opts) {
       ${opts.right || ''}</div>
     <div class="tmb-strip">${ps.map(x => {
       const inNow = x.status !== 'offline';
-      const badge = inNow ? (x.connMins ? fmtMin(x.connMins) : 'μόλις') : cnpLastLbl(x.seenAt || x.login);
-      return `<button class="tmb-p${inNow ? ' in' : ''}${x.workingOn ? ' work' : ''}" data-tmp="${x.id}"
-        title="${esc(x.name)}${x.team ? ' · ' + esc(x.team) : ''} — ${esc(x.label || '')}${x.hint ? ' (' + esc(x.hint) + ')' : ''}${x.workingOn ? ' — ▶ ' + esc(x.workingOn.title) : ''}">
-        <span class="tmb-badge">${esc(badge)}</span>
+      const badge = opts.badge ? opts.badge(x)
+        : inNow ? (x.connMins ? fmtMin(x.connMins) : 'μόλις') : cnpLastLbl(x.seenAt || x.login);
+      return `<button class="tmb-p${inNow ? ' in' : ''}${x.workingOn ? ' work' : ''}${x.sel ? ' sel' : ''}" data-${attr}="${x.id}"
+        title="${esc(opts.tip ? opts.tip(x) : (x.name + (x.team ? ' · ' + x.team : '') + ' — ' + (x.label || '') + (x.hint ? ' (' + x.hint + ')' : '') + (x.workingOn ? ' — ▶ ' + x.workingOn.title : '')))}">
+        <span class="tmb-badge${x.hot ? ' hot' : ''}">${esc(badge)}</span>
         <span class="tmb-av" style="--sc:${esc(x.color || '#9aa7b8')}">${esc(x.ini || '?')}${x.workingOn ? '<i class="tmb-run">▶</i>' : ''}</span>
         <span class="tmb-n">${esc(String(x.name || '').split(' ')[0])}</span></button>`;
     }).join('')}</div></div>`;
