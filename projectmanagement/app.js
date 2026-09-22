@@ -2901,7 +2901,7 @@ async function openTask(id, entryId, opts) {
         if (ra && ra.err) { if (!(await cnpCodeRefused(ra.er))) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); } return; }
         ed.innerHTML = '';
       } }
-    let r = await api('save_task', payload()).then(() => ({ok: true}))
+    let r = await api('save_task', payload()).then(d => ({ok: true, res: d}))
       .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
 
     /* Ανάθεση σε agent χωρίς χρόνο υλοποίησης: δεν αρκεί να το απαγορεύσουμε —
@@ -2932,7 +2932,16 @@ async function openTask(id, entryId, opts) {
     if (r.ok && extra.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
     if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
     dr.dataset.fresh = ''; dr.dataset.dirty = '';
-    toast('Αποθηκεύτηκε'); closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
+    /* ΤΟ ΣΤΑΜΑΤΗΜΑ ΤΟΥ ΧΡΟΝΟΥ ΔΕΝ ΓΙΝΕΤΑΙ ΣΙΩΠΗΛΑ. Ο server κόβει το χρονόμετρο
+       όταν παραδίδεις την μπάλα — αν δεν το πει, ο χειριστής νομίζει ότι μετράει
+       ακόμη και δεν ξέρει πόσα γράφτηκαν. */
+    const bs = r.res && r.res.ballStopped;
+    if (bs) {
+      toast('Ο χρόνος σου σταμάτησε — ' + fmtMin(bs.mins) + ' · η μπάλα πήγε στον/στην ' + bs.to);
+    } else {
+      toast('Αποθηκεύτηκε');
+    }
+    closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
   };
   /* Ανοίγει «καθαρό»: μέχρι να αλλάξει κάτι, το κουμπί είναι γκρίζο. */
   _cnpPaintSave(dr);
