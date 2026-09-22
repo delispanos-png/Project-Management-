@@ -1514,6 +1514,60 @@ function cnp_calls_label_from()
     return $v;
 }
 
+/**
+ * ΥΠΑΡΧΕΙ ΟΝΤΩΣ ΤΟ VM; — ρωτάει τη Hetzner, δεν υποθέτει.
+ *
+ * Η πρώτη εκδοχή αυτού του ελέγχου κοιτούσε μόνο τον ΔΙΚΟ ΜΑΣ πίνακα
+ * (mod_hetzner_instances) και φώναζε «δεν έκλεισε ο κύκλος» για τρεις
+ * υπηρεσίες. Και οι τρεις ήταν κανονικά διαγραμμένες στη Hetzner — απλώς η
+ * εγγραφή σύνδεσης δεν είχε καθαριστεί. Δηλαδή ψευδής συναγερμός, που είναι
+ * χειρότερος από καμία ένδειξη: την επόμενη φορά κανείς δεν την κοιτάζει.
+ *
+ * Επιστρέφει 'live' | 'gone' | 'unknown'. Το 'unknown' ΔΕΝ γίνεται ποτέ
+ * συναγερμός: αν δεν μπορέσαμε να ρωτήσουμε, δεν ξέρουμε.
+ *
+ * Η απάντηση κρατιέται 12 ώρες — τα μηχανήματα δεν εξαφανίζονται κάθε λεπτό,
+ * και η κάρτα της ημέρας δεν πρέπει να περιμένει εξωτερικό API σε κάθε άνοιγμα.
+ */
+function cnp_vm_alive($serverId, $projectId)
+{
+    $serverId = (int) $serverId;
+    if (!$serverId) { return 'unknown'; }
+
+    $key = 'hzchk:' . $serverId;
+    $hit = (string) Db::pref(0, $key, '');
+    if ($hit !== '' && strpos($hit, ':') !== false) {
+        [$state, $ts] = explode(':', $hit, 2);
+        if (time() - (int) $ts < 12 * 3600 && in_array($state, ['live', 'gone'], true)) { return $state; }
+    }
+
+    $apiFile = __DIR__ . '/../modules/servers/hetznercloud/lib/Api.php';
+    if (!is_file($apiFile)) { return 'unknown'; }
+    require_once $apiFile;
+    $cls = 'WHMCS\Module\Server\HetznerCloud\Api';
+    if (!class_exists($cls)) { return 'unknown'; }
+
+    $tok = (string) Capsule::table('mod_hetzner_projects')->where('id', (int) $projectId)->value('api_token');
+    if ($tok === '') { return 'unknown'; }
+    try { $plain = (string) (localAPI('DecryptPassword', ['password2' => $tok])['password'] ?? ''); }
+    catch (\Throwable $e) { $plain = ''; }
+    if (!preg_match('/^[A-Za-z0-9]{40,80}$/', $plain)) { $plain = $tok; }
+
+    $state = 'unknown';
+    try {
+        $api = new $cls($plain, 15);
+        $api->getServer($serverId);
+        $state = 'live';
+    } catch (\Throwable $e) {
+        $m = $e->getMessage();
+        /* ΜΟΝΟ το ρητό «δεν βρέθηκε» σημαίνει διαγραμμένο. Ένα δίκτυο που
+           έπεσε δεν είναι απόδειξη ότι το μηχάνημα έφυγε. */
+        $state = (stripos($m, 'not_found') !== false || strpos($m, '404') !== false) ? 'gone' : 'unknown';
+    }
+    if ($state !== 'unknown') { Db::setPref(0, $key, $state . ':' . time()); }
+    return $state;
+}
+
 function cnp_call_kinds()
 {
     return [
@@ -9392,11 +9446,17 @@ case 'cancels':
 
     /* 2. ΔΕΝ ΕΚΛΕΙΣΕ Ο ΚΥΚΛΟΣ: η υπηρεσία λέει ακυρωμένη, αλλά κρατάμε ακόμη
           server πάνω της. Αυτό είναι χρήμα που τρέχει χωρίς να χρεώνεται. */
-    $cnStuck = [];
+    $cnStuck = [];      // το VM τρέχει ακόμη — ΕΠΙΒΕΒΑΙΩΜΕΝΟ από τη Hetzner
+    $cnUnknown = [];    // δεν μπορέσαμε να ρωτήσουμε — δεν το λέμε πρόβλημα
+    $cnStale = 0;       // διαγραμμένο, αλλά η εγγραφή σύνδεσης έμεινε
     if ($cnHasVm) {
         /* Ξεκινάμε από την ΥΠΗΡΕΣΙΑ, όχι από το αίτημα: ένα VM που τρέχει σε
            ακυρωμένη υπηρεσία είναι το ίδιο πρόβλημα είτε το ζήτησε ο πελάτης
-           είτε το ακύρωσε διαχειριστής. Το πρώτο φίλτρο έχανε τη μισή αλήθεια. */
+           είτε το ακύρωσε διαχειριστής. Το πρώτο φίλτρο έχανε τη μισή αλήθεια.
+
+           ΚΑΙ ΜΕΤΑ ΡΩΤΑΜΕ. Η ύπαρξη εγγραφής στον δικό μας πίνακα ΔΕΝ σημαίνει
+           ότι υπάρχει μηχάνημα: η πρώτη εκδοχή φώναξε για τρία που ήταν όλα
+           κανονικά διαγραμμένα. Συναγερμός μόνο για ό,τι επιβεβαιώνει η Hetzner. */
         foreach (Capsule::table('tblhosting as h')
             ->join('mod_hetzner_instances as hi', 'hi.service_id', '=', 'h.id')
             ->leftJoin('tblproducts as p', 'p.id', '=', 'h.packageid')
@@ -9404,8 +9464,13 @@ case 'cancels':
             ->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
             ->orderBy('h.id', 'desc')
             ->get(['cr.id', 'cr.date', 'cr.type', 'cr.reason', 'h.id as srv',
-                   'h.domainstatus', 'h.userid', 'p.name as proion', 'hi.server_id']) as $r) {
-            $cnStuck[] = $cnRow($r) + ['asked' => (bool) $r->id];
+                   'h.domainstatus', 'h.userid', 'p.name as proion',
+                   'hi.server_id', 'hi.project_id']) as $r) {
+            $state = cnp_vm_alive($r->server_id, $r->project_id);
+            $row = $cnRow($r) + ['asked' => (bool) $r->id, 'vmState' => $state];
+            if ($state === 'live')        { $cnStuck[] = $row; }
+            elseif ($state === 'unknown') { $cnUnknown[] = $row; }
+            else                          { $cnStale++; }
         }
     }
 
@@ -9418,6 +9483,7 @@ case 'cancels':
     }
 
     out(['ok' => true, 'days' => $cnDays, 'open' => $cnOpen, 'stuck' => $cnStuck,
+         'unknown' => $cnUnknown, 'stale' => $cnStale,
          'doneRecent' => $cnDone, 'vmAware' => $cnHasVm]);
 
 case 'calls_pending':
