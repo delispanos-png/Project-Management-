@@ -4250,6 +4250,16 @@ case 'myday':
         return (int) floor(($dueTs - strtotime('today')) / 86400);
     };
 
+    /* «Αφορά ΕΜΕΝΑ» ≠ «μπορώ να το δω» (22/9/2026). Ο Full βλέπει όλα τα έργα, οπότε με το παλιό
+       κριτήριο (canSeeProject) το «Θέλουν εσένα» γέμιζε με έργα που ούτε άνοιξε ούτε συμμετέχει.
+       Δικό μου έργο = είμαι υπεύθυνος Ή μέλος Ή έχω δική μου ανοιχτή εργασία μέσα του. */
+    /* ΟΧΙ «μέλος του έργου»: το mod_cpm_project_members δίνει ΟΡΑΤΟΤΗΤΑ, όχι ευθύνη — κάποια έργα
+       έχουν 8 μέλη και θα γέμιζαν τη λίστα όλων. Ευθύνη = υπεύθυνος ή έχω δική μου ανοιχτή εργασία. */
+    $myProjIds = [];
+    foreach (Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds)->whereNotNull('project_id')
+        ->where(function ($w) use ($adminId) { $w->where('assignee', $adminId)->orWhere('action_user', $adminId); })
+        ->distinct()->pluck('project_id') as $ptId) { $myProjIds[(int) $ptId] = true; }
+
     foreach (Capsule::table('mod_cpm_projects')->whereNotNull('due_date')
                  ->where('due_date', '!=', '0000-00-00')->get() as $pr) {
         if (!Db::canSeeProject($adminId, (int) $pr->id)) { continue; }
@@ -4259,6 +4269,7 @@ case 'myday':
             ? strtotime((string) $pr->start_date) : strtotime((string) $pr->created_at);
         $dl[] = ['kind' => 'project', 'id' => (int) $pr->id, 'title' => (string) $pr->name,
             'sub' => 'Έργο', 'color' => (string) $pr->color,
+            'mine' => ((int) $pr->manager_id === $adminId) || isset($myProjIds[(int) $pr->id]),
             'due' => (string) $pr->due_date, 'days' => $daysLeft($dueTs),
             'pct' => $pctFn($startTs, $dueTs), 'hours' => null];
     }
@@ -4277,7 +4288,7 @@ case 'myday':
             ? strtotime((string) $tsk->start_date) : strtotime((string) $tsk->created_at);
         $pname = Capsule::table('mod_cpm_projects')->where('id', $tsk->project_id)->value('name');
         $dl[] = ['kind' => 'task', 'id' => (int) $tsk->id, 'title' => (string) $tsk->title,
-            'sub' => $pname ?: 'Εργασία', 'color' => '',
+            'sub' => $pname ?: 'Εργασία', 'color' => '', 'mine' => true,   // το ερώτημα ήδη φιλτράρει σε εμένα
             'due' => (string) $tsk->due_date, 'days' => $daysLeft($dueTs),
             'pct' => $pctFn($startTs, $dueTs), 'hours' => null];
     }
@@ -4288,9 +4299,11 @@ case 'myday':
                  ->where('followup_date', '!=', '0000-00-00')->get() as $of) {
         if (!$FULL && (int) $of->assignee !== $adminId && (int) $of->created_by !== $adminId) { continue; }
         if (in_array((string) $of->stage, ['accepted', 'lost'], true)) { continue; }
+        /* Ο Full βλέπει όλες τις προσφορές — «δική μου» είναι μόνο όποια έφτιαξα ή ανέλαβα. */
+        $ofMine = ((int) $of->assignee === $adminId) || ((int) $of->created_by === $adminId);
         $dueTs = strtotime((string) $of->followup_date . ' 23:59:59');
         $startTs = $of->sent_at ? strtotime((string) $of->sent_at) : strtotime((string) $of->created_at);
-        $dl[] = ['kind' => 'offer', 'id' => (int) $of->id, 'title' => (string) $of->title,
+        $dl[] = ['kind' => 'offer', 'id' => (int) $of->id, 'title' => (string) $of->title, 'mine' => $ofMine,
             'sub' => 'Προσφορά' . ($of->clientid ? ' · ' . clientLabel((int) $of->clientid) : '')
                 . ($of->followup_note ? ' — ' . mb_substr((string) $of->followup_note, 0, 60) : ''),
             'color' => '',
@@ -4312,6 +4325,8 @@ case 'myday':
                 $dueTs = strtotime((string) $sl->sla_due);
                 $dl[] = ['kind' => 'sla', 'id' => (int) $tkS->id, 'title' => (string) $tkS->title,
                     'sub' => 'SLA · #' . $tkS->tid . ($tkS->name ? ' · ' . $tkS->name : ''), 'color' => '',
+                    /* Δικό μου = ανατεθειμένο σε εμένα ή αζήτητο (οπότε το πιάνει όποιος το δει). */
+                    'mine' => ((int) $tkS->flag === $adminId) || !(int) $tkS->flag,
                     'due' => (string) $sl->sla_due, 'days' => $daysLeft($dueTs),
                     'pct' => $pctFn(strtotime((string) $tkS->date), $dueTs),
                     'hours' => (int) round(($dueTs - time()) / 3600)];
