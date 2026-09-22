@@ -693,25 +693,31 @@ R.complaints = async function () {
       </div></div>`;
   };
 
+  /* Τα νούμερα ΕΙΝΑΙ τα φίλτρα (docs/UI-STANDARD.md §8β): η σειρά κουμπιών
+     «Ενεργά / Λυμένα / Αβάσιμα / Όλα» έλεγε ό,τι λένε τα πλακίδια από πάνω. */
+  const {cnpKpis} = window.CNP;
   c.innerHTML = `
   <div class="fbar">
     ${fChip('Κατηγορία', fSel('cat', [['', '— κάθε —']]
       .concat(d.cats.map(x => [String(x.id), x.name])), st.cat ? String(st.cat) : ''), !!st.cat, '')}
     <button type="button" class="fchip fchip-b${st.mine ? ' on' : ''}" id="cxMine">${
       st.mine ? '✓ ' : ''}Δικά μου</button>
+    <button type="button" class="fchip${st.status === '' ? ' on' : ''}" id="cxAll" title="Όλα τα παράπονα, σε κάθε κατάσταση">${I.clock} Ιστορικό</button>
     <span class="fbar-sp"></span>
     <button class="fchip fchip-go" id="cxNew">${I.plus} Νέο παράπονο</button>
   </div>
-  <div class="fchips">
-    ${[['live', 'Ενεργά'], ['resolved', 'Λυμένα'], ['rejected', 'Αβάσιμα'], ['', 'Όλα']].map(([k, l]) =>
-      `<button class="kb-chip${st.status === k ? ' on' : ''}" data-st="${k}">${l}</button>`).join('')}
-  </div>
-  <div style="display:flex;gap:11px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-    ${cxStat(I.alert, s.open, s.open === 1 ? 'ανοιχτό παράπονο' : 'ανοιχτά παράπονα', s.open ? 'var(--bad)' : 'var(--ok)')}
-    ${cxStat(I.flag, s.critical, 'κρίσιμα σε εκκρεμότητα', s.critical ? 'var(--bad)' : 'var(--mut)')}
-    ${cxStat(I.cal, s.month, 'φέτος τον μήνα', 'var(--brand)')}
-    ${cxStat(I.clock, s.avgDays === null ? '—' : s.avgDays + ' μέρες', 'μέση επίλυση (90 ημερών)', 'var(--violet)')}
-  </div>
+  <div class="dbar">${cnpKpis([
+    {n: s.open, label: s.open === 1 ? 'ανοιχτό<br>παράπονο' : 'ανοιχτά<br>παράπονα', color: s.open ? 'var(--bad)' : 'var(--ok)',
+      tip: 'Παράπονα που δεν έχουν κλείσει — κλικ για να τα δεις', act: 'live', on: st.status === 'live'},
+    {n: s.critical, label: 'κρίσιμα σε<br>εκκρεμότητα', color: s.critical ? 'var(--bad)' : null,
+      tip: 'Ανοιχτά με υψηλή σοβαρότητα'},
+    {n: s.resolved, label: 'λύθηκαν', color: s.resolved ? 'var(--ok)' : null,
+      tip: 'Παράπονα που έκλεισαν λυμένα', act: 'resolved', on: st.status === 'resolved'},
+    {n: s.rejected, label: 'αβάσιμα', tip: 'Κρίθηκαν αβάσιμα', act: 'rejected', on: st.status === 'rejected'},
+    {n: s.avgDays === null ? '—' : s.avgDays, label: 'μέρες μέση<br>επίλυση',
+      tip: s.avgDays === null ? 'Δεν έχει κλείσει κανένα παράπονο τις τελευταίες 90 ημέρες' : 'Μέσος όρος στα λυμένα των 90 ημερών'},
+    {n: s.month, label: 'νέα αυτόν<br>τον μήνα', tip: 'Πόσα μπήκαν από την 1η του μήνα'},
+  ])}</div>
 
   ${s.byCat.length ? `<div class="card cx-pat"><div class="card-b">
     <label class="lbl" style="margin:0 0 9px">${I.chart} Τι επαναλαμβάνεται — τελευταίο εξάμηνο</label>
@@ -730,7 +736,8 @@ R.complaints = async function () {
     : `<div class="empty" style="padding:44px">${I.sparkle}Κανένα παράπονο με αυτά τα κριτήρια.
        <div class="mut" style="font-size:12.5px;margin-top:6px">Όταν ένας πελάτης εκφράσει δυσαρέσκεια, γράψ' την εδώ — αλλιώς χάνεται.</div></div>`}</div>`;
 
-  $$('[data-st]').forEach(b => b.onclick = () => { st.status = b.dataset.st; R.complaints(); });
+  $$('[data-dkact]').forEach(b => b.onclick = () => { st.status = b.dataset.dkact; R.complaints(); });
+  $('#cxAll').onclick = () => { st.status = st.status === '' ? 'live' : ''; R.complaints(); };
   { const cc = $('[data-fk="cat"]'); if (cc) { cc.onchange = e => { st.cat = e.target.value; R.complaints(); }; } }
   /* Κουμπί που ανάβει αντί για κουτάκι — δες docs/UI-STANDARD.md §3. */
   $('#cxMine').onclick = () => { st.mine = !st.mine; R.complaints(); };
@@ -743,7 +750,7 @@ const cxStat = (ic, n, l, col) => `<div class="su-stat"><div class="ic" style="b
 
 /* ───────── Γρήγορη καταχώρηση ───────── */
 function quickCx(pre) {
-  if (!cnpCan('clients.complaints')) { toast('Δεν έχεις δικαίωμα καταχώρησης παραπόνου', true); return; }
+  if (!cnpCan('support.complaints')) { toast('Δεν έχεις δικαίωμα καταχώρησης παραπόνου', true); return; }
   closeDrawer();
   const who = {id: 0, name: '', type: null};
   const ovl = document.createElement('div');

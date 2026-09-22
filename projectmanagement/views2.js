@@ -1689,7 +1689,7 @@ R.clientlist = async function () {
       if (window.openPbx) { items.push({icon: I.phone, label: 'Νέα προσφορά τηλεφωνικού κέντρου', on: () => window.openPbx(0, {client: cl.id, name: cl.name})}); }
     }
     if (cnpCan('clients.calls')) { items.push({icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall({client: cl.id, name: cl.name, phone: cl.phone})}); }
-    if (cnpCan('clients.complaints.edit')) { items.push({icon: I.alert, label: 'Νέο παράπονο', on: () => window.CNP.quickCx && window.CNP.quickCx({client: cl.id, name: cl.name})}); }
+    if (cnpCan('support.complaints.edit')) { items.push({icon: I.alert, label: 'Νέο παράπονο', on: () => window.CNP.quickCx && window.CNP.quickCx({client: cl.id, name: cl.name})}); }
     items.push({icon: I.monitor, label: 'Απομακρυσμένη σύνδεση', on: () => window.CNP.startRemote && window.CNP.startRemote(cl.id, cl.name, 0, {email: cl.email || ''})});
     window.CNP.miniMenu(b, items);
   });
