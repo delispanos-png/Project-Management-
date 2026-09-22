@@ -4170,6 +4170,49 @@ html[data-theme="dark"] .card{border-color:#233043}
 .dc-perf td:first-child{font-variant-numeric:normal}
 
 /* ═══ Η ομάδα τώρα (Μέρα μου, μόνο για όσους οργανώνουν) ═══ */
+/* ── Dashboard kit: η μέρα σε μία γραμμή (.dday) ── */
+.dday{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px 16px 14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,50,90,.04)}
+.dday-h{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);margin-bottom:12px;flex-wrap:wrap}
+.dday-h b{color:var(--ink);font-size:13px}
+.dday-h svg{width:15px;height:15px}
+.dday-h .mut{font-size:11.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dday-tr{position:relative;height:42px;border-radius:9px;background:var(--bg2);border:1px solid var(--line)}
+.dday-tk{position:absolute;top:0;bottom:0;width:0}
+.dday-tk i{position:absolute;top:0;bottom:13px;width:1px;background:var(--line)}
+.dday-tk small{position:absolute;bottom:0;left:2px;font-size:9px;color:var(--mut);font-weight:700;font-variant-numeric:tabular-nums}
+.dday-now{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--bad);border-radius:2px;z-index:3;box-shadow:0 0 0 3px #e2515f22}
+.dday-e{position:absolute;top:4px;height:24px;border:0;border-left:3px solid var(--brand);background:#0090dd1f;color:var(--ink);
+  border-radius:6px;font:inherit;font-size:11px;font-weight:700;padding:0 6px;display:flex;align-items:center;gap:4px;
+  cursor:pointer;overflow:hidden;white-space:nowrap;z-index:2}
+.dday-e span{overflow:hidden;text-overflow:ellipsis}
+.dday-e:hover{filter:brightness(.96);box-shadow:0 2px 6px rgba(20,50,90,.16)}
+.dday-e.past{opacity:.5}
+.dday-e.live{background:#16a26a2b;border-left-color:var(--ok);box-shadow:0 0 0 2px #16a26a44}
+.dday-e.rs-ask{background:#eba63c24;border-left-color:var(--warn)}
+.dday-e.rs-no{background:var(--bg2);border-left-color:var(--mut);text-decoration:line-through;opacity:.55}
+.dday-e.rs-yes{border-left-color:var(--ok)}
+.dday-q{font-style:normal;flex:none;width:13px;height:13px;border-radius:50%;background:var(--warn);color:#fff;
+  font-size:9px;display:flex;align-items:center;justify-content:center}
+html[data-theme="dark"] .dday-e{background:#0090dd33}
+html[data-theme="dark"] .dday-e.rs-ask{background:#eba63c33}
+/* Οι τίτλοι στα μπλοκ γίνονται δυσανάγνωστοι σε στενή οθόνη — εκεί μπαίνουν από κάτω
+   ως ονομαστικά κουμπάκια, και η γραμμή κρατά μόνο το «πού πέφτει μέσα στη μέρα». */
+.dday-list{display:none;gap:6px;flex-wrap:wrap;margin-top:9px}
+.dday-c{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 9px;font:inherit;font-size:11.5px;
+  color:var(--txt);cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.dday-c b{color:var(--ink);font-variant-numeric:tabular-nums}
+.dday-c.past{opacity:.55}
+@media(max-width:768px){
+  .dday{padding:10px 12px 12px}
+  .dday-h .mut{white-space:normal}
+  .dday-tr{height:30px}
+  .dday-e{min-width:16px;padding:0;height:20px;border-left-width:4px}
+  .dday-e span,.dday-e .dday-q{display:none}
+  .dday-tk small{font-size:8px}
+  .dday-list{display:flex}
+  .dday-list .dday-q{display:inline-flex}
+}
+
 /* ── Οριζόντια μπάρα παρουσίας («Η ομάδα τώρα») ── */
 .tmb{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px 4px;margin-bottom:14px;box-shadow:0 2px 8px rgba(20,50,90,.04)}
 .tmb-h{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);margin-bottom:2px}
