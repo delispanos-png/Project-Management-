@@ -4551,9 +4551,60 @@ case 'myday':
         $timerNow = ['task' => (int) $run->task_id, 'title' => $tr ? (string) $tr->title : '#' . (int) $run->task_id, 'since' => $run->started_at];
     }
     $doneToday = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $adminId)->where('completed_at', '>=', $today . ' 00:00:00')->count();
+
+    /* 👥 Παρουσία ομάδας (22/9/2026): ποιος είναι ενεργός ΤΩΡΑ και πότε μπήκε τελευταία φορά.
+       Δίνεται μόνο σε όσους οργανώνουν (ομάδα PM / Manager / Full) — δεν είναι για όλους.
+       Δύο διαφορετικά πράγματα, και τα δύο χρήσιμα:
+         · σφυγμός εφαρμογής (last_seen) = «είναι μπροστά στην οθόνη τώρα»
+         · tbladminlog = «πότε μπήκε τελευταία φορά στο WHMCS» (κι όταν δεν έχει ανοιχτό το PM) */
+    $teamNow = [];
+    if (in_array($adminId, DayPlan::owners(), true) || in_array($adminId, DayPlan::escalateTo(), true) || $FULL) {
+        $lastLogin = [];
+        try {
+            foreach (Capsule::select('SELECT adminusername, MAX(logintime) lt FROM tbladminlog GROUP BY adminusername') as $lg) {
+                $lastLogin[strtolower((string) $lg->adminusername)] = $lg->lt;
+            }
+        } catch (\Throwable $eL) { }
+        $runNow = [];
+        foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['admin_id', 'task_id', 'started_at']) as $rl) {
+            $runNow[(int) $rl->admin_id] = ['task' => (int) $rl->task_id, 'since' => $rl->started_at];
+        }
+        $doneIdsT = $doneIds;
+        foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'username', 'firstname', 'lastname']) as $ad) {
+            $aid = (int) $ad->id;
+            $nmA = Db::adminName($aid);
+            if (cnp_is_bot($nmA, (string) $ad->username)) { continue; }
+            $pr = cnp_presence($aid);
+            $seen = (int) Db::pref($aid, 'last_seen', '0');
+            $rn = $runNow[$aid] ?? null;
+            $tt = $rn ? Db::task($rn['task']) : null;
+            $teamNow[] = [
+                'id' => $aid, 'name' => $nmA, 'ini' => initials($nmA),
+                'status' => $pr['status'], 'label' => $pr['label'], 'color' => $pr['color'],
+                'hint' => (string) ($pr['hint'] ?? ''),
+                'seenAt' => $seen ? date('Y-m-d H:i:s', $seen) : null,
+                'login' => $lastLogin[strtolower((string) $ad->username)] ?? null,
+                'workingOn' => $tt ? ['id' => (int) $tt->id, 'title' => (string) $tt->title, 'since' => $rn['since']] : null,
+                'openTasks' => (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIdsT)
+                    ->where(function ($q) use ($aid) { $q->where('action_user', $aid)->orWhere(function ($x) use ($aid) {
+                        $x->where('assignee', $aid)->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); }); }); })->count(),
+                'minsToday' => (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $aid)->where('running', 0)
+                    ->where('created_at', '>=', $today . ' 00:00:00')->sum('minutes'),
+            ];
+        }
+        /* Πρώτα όσοι δουλεύουν τώρα, μετά οι διαθέσιμοι, τελευταίοι οι εκτός. */
+        $ordS = ['online' => 0, 'busy' => 1, 'meeting' => 2, 'away' => 3, 'lunch' => 4, 'trip' => 5, 'dnd' => 6, 'offline' => 9];
+        usort($teamNow, function ($a, $b) use ($ordS) {
+            if (!empty($a['workingOn']) !== !empty($b['workingOn'])) { return !empty($b['workingOn']) <=> !empty($a['workingOn']); }
+            $oa = $ordS[$a['status']] ?? 8; $ob = $ordS[$b['status']] ?? 8;
+            if ($oa !== $ob) { return $oa <=> $ob; }
+            return strcmp($a['name'], $b['name']);
+        });
+    }
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
         'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
-        'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'pending' => cnp_pending_for($adminId, $FULL),
+        'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'team' => $teamNow,
+        'pending' => cnp_pending_for($adminId, $FULL),
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday]]);

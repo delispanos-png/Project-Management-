@@ -101,6 +101,16 @@ class Leave
             });
         }
 
+        /* Προϋπηρεσία ΠΡΙΝ από εμάς, σε μήνες. Χωρίς αυτή δεν βγαίνει το
+           δικαίωμα: ο Βάκρινος και η Αλεφαντή προσλήφθηκαν την ΙΔΙΑ ημέρα και
+           δικαιούνται 26 και 25 αντίστοιχα, ακριβώς επειδή διαφέρει αυτό. */
+        if (!$s->hasColumn('mod_cpm_leave_staff', 'prior_months')) {
+            $s->table('mod_cpm_leave_staff', function ($t) {
+                $t->integer('prior_months')->default(0);
+                $t->tinyInteger('week_days')->default(5);   // πενθήμερο / εξαήμερο
+            });
+        }
+
         /* Το ΔΙΚΑΙΩΜΑ ανά έτος και τύπο. Δεν είναι σταθερό: εξαρτάται από
            προϋπηρεσία (25 → 26) και από αναλογία στο έτος πρόσληψης. */
         if (!$s->hasTable('mod_cpm_leave_years')) {
@@ -116,6 +126,16 @@ class Leave
                 $t->decimal('legacy_taken', 5, 2)->nullable();
                 $t->text('note')->nullable();
                 $t->unique(['staff_id', 'year', 'type']);
+            });
+        }
+
+        /* ΜΕΤΑΦΟΡΑ. Δεν είναι λογιστική λεπτομέρεια — είναι ο λόγος που δύο έτη
+           του αρχείου δεν έβγαιναν. Ημέρες περασμένου έτους που λήφθηκαν μέσα
+           σε τούτο προσθέτουν στο διαθέσιμο, αλλιώς το άθροισμα ξεπερνά το
+           δικαίωμα και μοιάζει με λάθος ενώ είναι νόμιμο. */
+        if (!$s->hasColumn('mod_cpm_leave_years', 'carried_in')) {
+            $s->table('mod_cpm_leave_years', function ($t) {
+                $t->decimal('carried_in', 5, 2)->default(0);
             });
         }
 
@@ -186,10 +206,15 @@ class Leave
         $out = [];
         foreach (Capsule::table('mod_cpm_leave_years')->where('staff_id', (int) $staffId)
                 ->where('type', $type)->orderBy('year')->get() as $y) {
+            $carry = (float) ($y->carried_in ?? 0);
             $out[(int) $y->year] = [
                 'entitled'  => (float) $y->entitled_days,
+                'carried'   => $carry,
+                /* Διαθέσιμο = δικαίωμα + μεταφορά. Αυτό είναι το νούμερο πάνω
+                   στο οποίο κρίνεται αν κάποιος «ξέφυγε», όχι το δικαίωμα. */
+                'available' => (float) $y->entitled_days + $carry,
                 'taken'     => 0.0,
-                'remaining' => (float) $y->entitled_days,
+                'remaining' => (float) $y->entitled_days + $carry,
                 'legacy'    => $y->legacy_taken === null ? null : (float) $y->legacy_taken,
                 'mismatch'  => false,
                 'note'      => (string) $y->note,
@@ -202,19 +227,113 @@ class Leave
             $y = (int) $r->year;
             if (!isset($out[$y])) {
                 /* Άδεια σε έτος χωρίς δηλωμένο δικαίωμα: δεν την κρύβουμε. */
-                $out[$y] = ['entitled' => 0.0, 'taken' => 0.0, 'remaining' => 0.0,
+                $out[$y] = ['entitled' => 0.0, 'carried' => 0.0, 'available' => 0.0,
+                    'taken' => 0.0, 'remaining' => 0.0,
                     'legacy' => null, 'mismatch' => false, 'note' => ''];
             }
             $out[$y]['taken'] = (float) $r->d;
-            $out[$y]['remaining'] = round($out[$y]['entitled'] - (float) $r->d, 2);
+            $out[$y]['remaining'] = round($out[$y]['available'] - (float) $r->d, 2);
         }
         foreach ($out as $y => &$b) {
-            if ($b['legacy'] !== null && abs($b['legacy'] - $b['taken']) > 0.01) {
+            /* Ασυμφωνία είναι μόνο ό,τι ΔΕΝ εξηγείται από τη μεταφορά. */
+            if ($b['legacy'] !== null && abs($b['legacy'] - $b['taken']) > 0.01
+                && abs($b['remaining']) > 0.01) {
                 $b['mismatch'] = true;
             }
         }
         unset($b);
         ksort($out);
+        return $out;
+    }
+
+    /**
+     * Πόσες ημέρες ΠΡΟΒΛΕΠΕΙ Ο ΝΟΜΟΣ για αυτόν τον εργαζόμενο, αυτό το έτος.
+     *
+     * Κλίμακα πενθημέρου: 1ο ημερολογιακό έτος 20 (αναλογικά), 2ο 21 (αναλογικά),
+     * 3ο και μετά 22. Με 10 έτη στον ίδιο εργοδότη Ή 12 συνολικής προϋπηρεσίας
+     * γίνονται 25, και με 25 έτη συνολικής προϋπηρεσίας 26.
+     *
+     * ΠΡΟΤΑΣΗ, ΟΧΙ ΚΑΝΟΝΑΣ. Η μισθοδοσία έχει τον τελευταίο λόγο και το
+     * `entitled_days` του έτους υπερισχύει πάντα — εδώ απλώς σταματάμε να
+     * ξαναβγάζουμε το ίδιο νούμερο με το χέρι κάθε Ιανουάριο.
+     *
+     * @return array ['days' => float, 'why' => string]
+     */
+    public static function suggestEntitlement($staff, $year)
+    {
+        $hire = $staff->hire_date ?? null;
+        if (!$hire) {
+            return ['days' => 0.0, 'why' => 'χωρίς ημερομηνία πρόσληψης δεν υπολογίζεται'];
+        }
+        $h = new \DateTime($hire);
+        $hy = (int) $h->format('Y');
+        $ordinal = $year - $hy + 1;                       // 1ο, 2ο, 3ο… ημερολογιακό έτος
+        if ($ordinal < 1) {
+            return ['days' => 0.0, 'why' => 'πριν από την πρόσληψη'];
+        }
+
+        /* Συνολική προϋπηρεσία στο ΤΕΛΟΣ του έτους: ό,τι είχε φέρει μαζί του,
+           συν όσο έχει δουλέψει εδώ. */
+        $hereMonths  = max(0, ((int) $year - $hy) * 12 + (12 - (int) $h->format('n') + 1));
+        $totalMonths = (int) ($staff->prior_months ?? 0) + $hereMonths;
+        $hereYears   = intdiv($hereMonths, 12);
+        $totalYears  = intdiv($totalMonths, 12);
+
+        /* Η βάση: πρώτα η προϋπηρεσία, μετά η κλίμακα των πρώτων ετών. */
+        if ($totalYears >= 25) {
+            $base = 26.0; $why = 'πάνω από 25 έτη συνολικής προϋπηρεσίας';
+        } elseif ($hereYears >= 10 || $totalYears >= 12) {
+            $base = 25.0;
+            $why = $hereYears >= 10 ? '10 έτη στην εταιρεία' : '12 έτη συνολικής προϋπηρεσίας';
+        } elseif ($ordinal >= 3) {
+            $base = 22.0; $why = 'από το 3ο ημερολογιακό έτος';
+        } elseif ($ordinal === 2) {
+            $base = 21.0; $why = '2ο ημερολογιακό έτος';
+        } else {
+            $base = 20.0; $why = '1ο ημερολογιακό έτος';
+        }
+
+        /* ΤΟ ΕΤΟΣ ΠΡΟΣΛΗΨΗΣ ΕΙΝΑΙ ΠΑΝΤΑ ΑΝΑΛΟΓΙΚΟ — ακόμη κι όταν ο εργαζόμενος
+           δικαιούται 25 ή 26 λόγω προϋπηρεσίας. Δεν παίρνει ολόκληρη ετήσια
+           άδεια για τρεις μήνες δουλειάς. */
+        if ($ordinal === 1) {
+            $months = 12 - (int) $h->format('n') + 1;
+            return ['days' => (float) round($base * $months / 12),
+                'why' => $why . ', αναλογικά για ' . $months . ' μήνες'];
+        }
+        return ['days' => $base, 'why' => $why];
+    }
+
+    /**
+     * Ως πότε πρέπει να χορηγηθεί η άδεια ενός έτους δικαιώματος.
+     *
+     * Μέχρι 31 Μαρτίου του επόμενου έτους. Μετά, η αξίωση γίνεται ΧΡΗΜΑΤΙΚΗ με
+     * προσαύξηση 100% συν επίδομα αδείας — δηλαδή μια ξεχασμένη ημέρα κοστίζει
+     * διπλά. Γι' αυτό το εργαλείο προειδοποιεί αντί να περιμένει να το θυμηθεί
+     * κάποιος.
+     */
+    public static function carryDeadline($year)
+    {
+        return ($year + 1) . '-03-31';
+    }
+
+    /** Υπόλοιπα που χάνονται αν δεν ληφθούν — με πόσες μέρες περιθώριο. */
+    public static function expiring($staffId, $today = null)
+    {
+        $today = $today ?: date('Y-m-d');
+        $out = [];
+        foreach (self::balance($staffId) as $y => $b) {
+            if ($b['remaining'] <= 0.01) { continue; }
+            $dl = self::carryDeadline($y);
+            if ($dl < $today) {
+                $out[] = ['year' => $y, 'days' => $b['remaining'], 'deadline' => $dl, 'left' => -1];
+            } else {
+                $left = (int) ((strtotime($dl) - strtotime($today)) / 86400);
+                if ($left <= 120) {
+                    $out[] = ['year' => $y, 'days' => $b['remaining'], 'deadline' => $dl, 'left' => $left];
+                }
+            }
+        }
         return $out;
     }
 
