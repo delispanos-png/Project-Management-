@@ -1490,6 +1490,44 @@ function cnp_leave_mirror($leaveId)
 
 /** Πόσα «κρέμονται» από κάθε προϊόν — ώστε να μη σβήνεται ό,τι κουβαλά ιστορικό. */
 /**
+ * ΤΙ ΗΤΑΝ Η ΚΛΗΣΗ. Λεξιλόγιο, όχι ελεύθερο κείμενο: αν ο καθένας γράφει δικά
+ * του, δεν βγαίνει ποτέ «πού πήγε ο χρόνος». Το «τι ακριβώς» το λέει η
+ * περίληψη· αυτό εδώ είναι το είδος, για να αθροίζεται.
+ */
+/**
+ * ΑΠΟ ΠΟΤΕ ΖΗΤΑΜΕ ΧΑΡΑΚΤΗΡΙΣΜΟ ΚΛΗΣΕΩΝ.
+ *
+ * Απόφαση 22/09/2026: ΟΧΙ αναδρομικά. Τη στιγμή που άνοιξε το κύκλωμα υπήρχαν
+ * 15.986 κλήσεις και μόνο μία χαρακτηρισμένη — το να ζητούσαμε να συμπληρωθούν
+ * όλες θα ήταν ένα βουνό που κανείς δεν ανεβαίνει, και θα έκαιγε το κύκλωμα από
+ * την πρώτη μέρα. Μετράει ό,τι έγινε ΑΠΟ ΤΗΝ ΕΝΑΡΞΗ ΚΑΙ ΜΕΤΑ.
+ *
+ * Η αφετηρία γράφεται μία φορά, την πρώτη που ρωτηθεί, και μένει.
+ */
+function cnp_calls_label_from()
+{
+    $v = (string) Db::pref(0, 'calls_label_from', '');
+    if ($v === '') {
+        $v = date('Y-m-d');
+        Db::setPref(0, 'calls_label_from', $v);
+    }
+    return $v;
+}
+
+function cnp_call_kinds()
+{
+    return [
+        'support'  => ['Τεχνικό πρόβλημα', '#e2515f'],
+        'spec'     => ['Προδιαγραφές έργου', '#7b5cd6'],
+        'howto'    => ['Καθοδήγηση χρήσης', '#0090dd'],
+        'sales'    => ['Πώληση / προσφορά', '#16a26a'],
+        'internal' => ['Εσωτερική συνεννόηση', '#8595ac'],
+        'admin'    => ['Λογιστικά / διαδικαστικά', '#e2a33c'],
+        'other'    => ['Άλλο', '#6b7a90'],
+    ];
+}
+
+/**
  * ΛΕΠΤΑ ΟΜΙΛΙΑΣ στο τηλέφωνο, από τα CDR του 3CX.
  *
  * Είναι πραγματική δουλειά που ΚΑΝΕΝΑ χρονόμετρο δεν πιάνει: ο χειριστής δεν
@@ -3995,6 +4033,9 @@ function cnp_open_actions()
         'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'quick_task',   // προσωπική εργασία για όλους· έργο/ανάθεση ελέγχονται μέσα στην ενέργεια
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
+        /* Οι ΔΙΚΕΣ ΣΟΥ κλήσεις και ο χαρακτηρισμός τους — προσωπική οθόνη.
+           Ο server περιορίζει σε admin_id = εσύ. */
+        'calls_pending', 'calls_label',
         'request_update', 'help_ask', 'help_seen',
         /* Σύσκεψη που ξεπέρασε την ώρα της: απαντά ΜΟΝΟ συμμετέχων — ο server
            το ελέγχει μέσα στην ενέργεια. */
@@ -9261,6 +9302,79 @@ case 'call_recent':                      // οι τελευταίες μου κ�
             'followup' => $r9->followup_date];
     }
     out(['rows' => $rows9]);
+
+case 'calls_pending':
+    /* ΟΙ ΔΙΚΕΣ ΣΟΥ ΚΛΗΣΕΙΣ ΠΟΥ ΔΕΝ ΕΧΟΥΝ ΧΑΡΑΚΤΗΡΙΣΤΕΙ.
+       Ο χρόνος ομιλίας μετριέται μόνος του και μετράει στη μέρα σου έτσι κι
+       αλλιώς. Ο χαρακτηρισμός δεν τον προσθέτει — τον ΕΞΗΓΕΙ: χωρίς αυτόν
+       ξέρουμε ότι μίλησες δύο ώρες, δεν ξέρουμε σε τι. */
+    $cpDays = max(1, min(30, (int) ($_GET['days'] ?? $in['days'] ?? 7)));
+    $cpFrom = date('Y-m-d 00:00:00', strtotime('-' . $cpDays . ' days'));
+    /* Ποτέ πριν από την έναρξη του κυκλώματος — δες cnp_calls_label_from(). */
+    $cpStart = cnp_calls_label_from() . ' 00:00:00';
+    if ($cpFrom < $cpStart) { $cpFrom = $cpStart; }
+    $cpQ = Capsule::table('mod_cpm_calls')->where('admin_id', $adminId)
+        ->where('talk_seconds', '>', 0)
+        ->whereNull('logged_at')
+        ->where('started_at', '>=', $cpFrom);
+    $cpTot = (clone $cpQ)->count();
+    $cpMin = (int) round(((int) (clone $cpQ)->sum('talk_seconds')) / 60);
+    $cpRows = $cpQ->orderBy('started_at', 'desc')->limit(60)->get();
+    $cpBook = cnp_book_names(array_column($cpRows->all(), 'other_e164'));
+    $cpOut = [];
+    foreach ($cpRows as $c) {
+        $cpOut[] = [
+            'id' => (int) $c->id, 'at' => $c->started_at, 'dir' => $c->direction,
+            'mins' => (int) round(((int) $c->talk_seconds) / 60),
+            'secs' => (int) $c->talk_seconds,
+            'other' => $c->other_e164 ?: ($c->direction === 'out' ? (string) $c->to_no : (string) $c->from_no),
+            'client' => $c->clientid ? (int) $c->clientid : 0,
+            'who' => $c->clientid ? clientLabel((int) $c->clientid)
+                : ($cpBook[$c->other_e164] ?? ''),
+            /* Εσωτερική: και οι δύο πλευρές είναι εσωτερικά (2–4 ψηφία). Τις
+               ξεχωρίζουμε γιατί χαρακτηρίζονται μαζικά με ένα κλικ. */
+            'internal' => (bool) (preg_match('/^\d{2,4}$/', (string) $c->from_dn)
+                && preg_match('/^\d{2,4}$/', (string) $c->to_dn)),
+        ];
+    }
+    out(['ok' => true, 'rows' => $cpOut, 'total' => $cpTot, 'mins' => $cpMin,
+         'days' => $cpDays, 'kinds' => cnp_call_kinds()]);
+
+case 'calls_label':
+    /* ΧΑΡΑΚΤΗΡΙΣΜΟΣ, με δυνατότητα ΠΟΛΛΩΝ ΜΑΖΙ. Με διακόσιες κλήσεις την
+       εβδομάδα, μία φόρμα ανά κλήση δεν συμπληρώνεται ποτέ — και μια
+       υποχρέωση που δεν τηρείται είναι χειρότερη από καμία. */
+    $clIds = array_slice(array_values(array_unique(array_map('intval',
+        (array) ($in['ids'] ?? [])))), 0, 50);
+    $clIds = array_values(array_filter($clIds));
+    if (!$clIds) { fail('Δεν διάλεξες κλήση'); }
+    $clKind = isset(cnp_call_kinds()[$in['kind'] ?? '']) ? (string) $in['kind'] : '';
+    if (!$clKind) { fail('Πες τι ήταν'); }
+    $clSum = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '',
+        (string) ($in['summary'] ?? ''))), 0, 255);
+
+    $clUpd = ['category' => $clKind, 'logged_by' => $adminId, 'logged_at' => date('Y-m-d H:i:s')];
+    if ($clSum !== '') { $clUpd['summary'] = $clSum; }
+    if (array_key_exists('task', $in)) {
+        $clT = (int) $in['task'];
+        $clUpd['task_id'] = $clT ?: null;
+        /* Το έργο προκύπτει από την εργασία — δεν το ζητάμε δεύτερη φορά. */
+        if ($clT) {
+            $clTk = Db::task($clT);
+            if ($clTk) { $clUpd['project_id'] = $clTk->project_id ? (int) $clTk->project_id : null; }
+        }
+    }
+    if (array_key_exists('project', $in) && !isset($clUpd['project_id'])) {
+        $clUpd['project_id'] = (int) $in['project'] ?: null;
+    }
+    if (array_key_exists('client', $in)) {
+        $clC = (int) $in['client'];
+        if ($clC && Capsule::table('tblclients')->where('id', $clC)->exists()) { $clUpd['clientid'] = $clC; }
+    }
+    /* ΜΟΝΟ δικές σου κλήσεις: ο χαρακτηρισμός είναι δήλωση για τη δική σου ώρα. */
+    $clN = Capsule::table('mod_cpm_calls')->whereIn('id', $clIds)
+        ->where('admin_id', $adminId)->update($clUpd);
+    out(['ok' => true, 'n' => (int) $clN]);
 
 case 'my_calls_open':                    // ΟΙ ΔΙΚΕΣ ΣΟΥ κλήσεις που δεν έχουν καταγραφεί
     /* Χωρίς αυτό, η «Καταγραφή κλήσης» ζητούσε να ξαναγράψεις ό,τι ήδη ξέρει το
