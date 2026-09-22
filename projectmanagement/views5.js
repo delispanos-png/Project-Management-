@@ -517,28 +517,27 @@ R.suspend = async function () {
       ? `<span class="pill pill-info" title="${esc(x.note || '')}">${x.action === 'paid' ? 'πληρώθηκε' : 'εξαίρεση'} · ${esc(x.by)}</span>` : '';
 
     c.innerHTML = `
-      <div class="grid g4" style="--n:5" style="margin-bottom:14px">
+      <div class="fbar">
+        <button type="button" class="fchip fchip-b${st.machines ? ' on' : ''}" data-sfm
+          title="Domains, DID, άδειες και συμβόλαια δεν εμφανίζονται">${st.machines ? '✓ ' : ''}Μόνο μηχανήματα</button>
+        <button type="button" class="fchip fchip-b${st.ripe ? ' on' : ''}" data-sfr
+          title="Μόνο όσοι έχουν περάσει το όριο των ${d.grace} ημερών">${st.ripe ? '✓ ' : ''}Πέρασαν το όριο</button>
+        <span class="fbar-sp"></span>
+        <span class="fbar-note">όριο WHMCS: <b>${d.grace} ημέρες</b> μετά τη λήξη</span>
+        <button class="fchip" data-sexp>${Object.values(st.open).some(Boolean) ? '⊟ Κλείσιμο όλων' : '⊞ Άνοιγμα όλων'}</button>
+      </div>
+      <div class="grid g4" style="--n:5;margin-bottom:10px">
         ${suStat(I.users, d.sum.clients, 'πελάτες', d.sum.clients ? 'var(--bad)' : 'var(--ok)')}
         ${suStat(I.coin, fmtEur(d.sum.debt), 'ληξιπρόθεσμα', 'var(--bad)')}
         ${suStat(I.alert, d.sum.pending, 'εκκρεμούν', d.sum.pending ? '#e0a020' : 'var(--ok)')}
         ${suStat(I.check || I.checkSquare, d.sum.done, 'σε αναστολή', 'var(--ok)')}
         ${suStat(I.lock || I.eye, d.sum.exempt, 'εξαιρούνται (WHMCS)', 'var(--brand)')}
       </div>
-      <div class="card" style="margin-bottom:12px"><div class="card-b">
-        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px">
-          <button class="btn btn-sm ${st.machines ? 'btn-p' : 'btn-o'}" data-sfm>🖥 ${st.machines ? 'Μόνο μηχανήματα' : 'Όλες οι υπηρεσίες'}</button>
-          <button class="btn btn-sm ${st.ripe ? 'btn-p' : 'btn-o'}" data-sfr>${st.ripe ? '⚠ Πέρασαν το όριο' : '⚠ Όλες οι καθυστερήσεις'}</button>
-          <button class="btn btn-sm btn-o" data-sexp>${Object.values(st.open).some(Boolean) ? '⊟ Κλείσιμο όλων' : '⊞ Άνοιγμα όλων'}</button>
-          <span class="mut" style="font-size:11.5px;align-self:center">
-            ${st.machines ? 'Domains, DID, άδειες και συμβόλαια δεν εμφανίζονται.' : 'Όλα όσα πρέπει να πέσουν. Άλλαξε την κατάσταση στο WHMCS και ενημερώνεται μόνο του.'}
-          </span>
-        </div>
-        <div class="mut" style="font-size:12px;line-height:1.5">
-          Όριο WHMCS: <b>${d.grace} ημέρες</b> μετά τη λήξη. Τα ποσά είναι τα <b>πραγματικά ανοιχτά ανά παραστατικό</b> —
-          όχι το «Unpaid» του WHMCS, που δεν μειώνεται στις μερικές πληρωμές.
-          ${st.ripe && d.sum.allDebt > d.sum.debt ? `<br>Κρύβονται ${fmtEur(d.sum.allDebt - d.sum.debt)} από πελάτες που δεν έχουν φτάσει ακόμη το όριο.` : ''}
-        </div>
-      </div></div>
+      <div class="mut" style="font-size:11.5px;line-height:1.5;margin-bottom:12px">
+        Τα ποσά είναι τα <b>πραγματικά ανοιχτά ανά παραστατικό</b> — όχι το «Unpaid» του WHMCS,
+        που δεν μειώνεται στις μερικές πληρωμές.${
+        st.ripe && d.sum.allDebt > d.sum.debt ? ` Κρύβονται ${fmtEur(d.sum.allDebt - d.sum.debt)} από πελάτες που δεν έχουν φτάσει ακόμη το όριο.` : ''}
+      </div>
       ${groups.map(([cid, g]) => `
         <div class="card" style="margin-bottom:12px;border-left:4px solid ${g.ripe ? 'var(--bad)' : '#e0a020'}">
           <div class="card-h susp-h" data-sg="${cid}">

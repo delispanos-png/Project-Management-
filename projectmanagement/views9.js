@@ -1681,16 +1681,19 @@ R.route = async function () {
   const chip = (k, l, n) => `<button class="kb-chip${st.only === k ? ' on' : ''}" data-ronly="${k}">${l} <b>${n}</b></button>`;
 
   c.innerHTML = `
+  <div class="fbar">
+    ${fChip('Διάστημα', fSel('days', [7, 14, 30, 60].map(n => [String(n), n + ' ημέρες']),
+      String(st.days)), false, '')}
+    <span class="fbar-sp"></span>
+    <span class="pbx-mode ${esc(d.mode)}" style="margin:0">${esc(d.modeLabel)}</span>
+    <span class="fbar-note">${d.live ? 'ΖΩΝΤΑΝΗ δρομολόγηση'
+      : 'ΣΚΙΩΔΕΣ στάδιο — μόνο καταγραφή, οι κλήσεις πάνε όπως και πριν'}</span>
+  </div>
+  <div class="fchips">
+    ${chip('', 'όλες', tot)}${Object.entries(RT_DEC).map(([k, v]) => A[k] ? chip(k, v[0], A[k]) : '').join('')}
+  </div>
   <div class="card"><div class="card-b">
-    <div class="rt-head">
-      <span class="pbx-mode ${esc(d.mode)}" style="margin:0">${esc(d.modeLabel)}</span>
-      <span class="rt-stage">${d.live ? 'ΖΩΝΤΑΝΗ δρομολόγηση' : 'ΣΚΙΩΔΕΣ στάδιο — μόνο καταγραφή, οι κλήσεις πάνε όπως και πριν'}</span>
-      <span style="flex:1"></span>
-      <select class="inp" id="rtDays" style="width:150px">
-        ${[7, 14, 30, 60].map(n => `<option value="${n}" ${st.days === n ? 'selected' : ''}>${n} ημέρες</option>`).join('')}
-      </select>
-    </div>
-    <div class="su-tiles" style="margin-top:12px">
+    <div class="su-tiles">
       ${[[B.total, 'καρτέλες στον κατάλογο', '#8595ac', I.users || I.list], [B.covered, 'καλύπτονται από υποστήριξη', '#16a26a', I.check || I.zap],
          [B.nocover, 'δεν καλύπτονται', '#e0a020', I.alert || I.zap], [B.unknown, 'δεν έχει σημειωθεί κάλυψη', '#8595ac', I.help || I.eye || I.zap],
          [B.withProducts, 'με προϊόντα σημειωμένα', '#0090dd', I.tree || I.gear]].map(([n, l, col, ic]) =>
@@ -1701,9 +1704,6 @@ R.route = async function () {
   <div class="card"><div class="card-h">${I.list || I.doc} Τι θα αποφάσιζε — τελευταίες ${d.days} ημέρες
     <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">${tot} εισερχόμενες</span></div>
     <div class="card-b">
-      <div class="bk-chips" style="margin-bottom:10px">
-        ${chip('', 'όλες', tot)}${Object.entries(RT_DEC).map(([k, v]) => A[k] ? chip(k, v[0], A[k]) : '').join('')}
-      </div>
       ${items.length ? `<div class="rt-list">${items.map(x => { const dc = RT_DEC[x.decision] || RT_DEC.ai; return `
         <div class="rt-row">
           <span class="rt-at mut">${esc(String(x.at).slice(5, 16))}</span>
@@ -1732,7 +1732,7 @@ R.route = async function () {
       <div class="mut" style="font-size:11.5px;margin-top:8px">Η σειρά των συνεργατών ορίζεται στη Δομή κέντρου (Διασύνδεση 3CX).</div>
     </div></div>`;
 
-  $('#rtDays').onchange = e => { st.days = +e.target.value; R.route(); };
+  { const rd = $('[data-fk="days"]'); if (rd) { rd.onchange = e => { st.days = +e.target.value; R.route(); }; } }
   $$('[data-ronly]').forEach(b => b.onclick = () => { st.only = b.dataset.ronly; R.route(); });
   $$('[data-rbook]').forEach(a => a.onclick = e => { e.preventDefault(); bookCard(+a.dataset.rbook); });
 };
