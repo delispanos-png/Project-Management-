@@ -3689,7 +3689,11 @@ new MutationObserver(ms => {
     if (!ovl) { return; }
     ovl.addEventListener('click', ev => { if (ev.target === ovl) { ev.stopPropagation(); } }, true);
     const box = ovl.querySelector('.pal-box');
-    if (!box || box.querySelector('.pal-x') || box.querySelector('.drawer-x')) { return; }
+    /* ΑΝ ΕΧΕΙ ΗΔΗ ✕, ΜΗΝ ΒΑΛΕΙΣ ΔΕΥΤΕΡΟ. Ο έλεγχος κοίταζε μόνο `.pal-x` και
+       `.drawer-x`, οπότε τα popup που φτιάχνουν το δικό τους μέσα στην κεφαλίδα
+       (`.qr-x`: καρτέλα κλήσης, γρήγορο ticket, γρήγορο αίτημα) έπαιρναν ΔΕΥΤΕΡΟ
+       ✕ από πάνω τους — δύο Χ, το ένα πάνω στο άλλο. */
+    if (!box || box.querySelector('.pal-x, .drawer-x, .qr-x, [data-close]')) { return; }
     /* Ερώτηση χωρίς έξοδο διαφυγής: ΚΑΝΕΝΑ ✕. Ο χειριστής πρέπει να διαλέξει. */
     if (box.dataset.noclose === '1') { return; }
     const x = document.createElement('button');
