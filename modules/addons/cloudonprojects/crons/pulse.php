@@ -120,7 +120,6 @@ try {
    την προθεσμία να ανεβαίνει στους Manager. Η λογική ζει στο api.php (ίδια με την οθόνη). */
 try {
     require_once __DIR__ . '/../../../../projectmanagement/boot.php';
-    $hourC = (int) date('G');
     $kC = hash_hmac('sha256', 'sweep.' . date('YmdHi'), pm_secret());
     $chC = curl_init('https://my.cloudon.gr/projectmanagement/api.php?a=cards_build&k=' . $kC);
     curl_setopt_array($chC, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90, CURLOPT_USERAGENT => 'cpm-pulse']);
