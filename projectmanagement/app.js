@@ -5175,7 +5175,12 @@ async function openTeamPulse(id) {
   const hmm = at => at ? new Date(String(at).replace(' ', 'T')).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}) : '—';
   /* Καταγραφή = πόσο από τον χρόνο που ήταν μέσα έχει χρονόμετρο από πίσω —
      μετράει ΤΗΝ ΚΑΤΑΓΡΑΦΗ, όχι την αξία της δουλειάς. Κάτω από 30' παρουσία δεν λέει τίποτα. */
-  const cap = t.conn >= 30 ? Math.min(100, Math.round(t.logged / t.conn * 100)) : null;
+  /* ΚΑΛΥΨΗ = καταγραφή + ΤΗΛΕΦΩΝΟ, πάνω στον χρόνο μέσα στο εργαλείο.
+     Ο χρόνος ομιλίας είναι δουλειά που κανένα χρονόμετρο δεν πιάνει — κανείς
+     δεν σταματά να πατήσει «έναρξη» επειδή χτύπησε το τηλέφωνο. Χωρίς αυτόν,
+     όποιος σηκώνει τα τηλέφωνα φαινόταν να μην καταγράφει τίποτα. */
+  const acc = (t.logged || 0) + (t.phone || 0);
+  const cap = t.conn >= 30 ? Math.min(100, Math.round(acc / t.conn * 100)) : null;
   const capC = cap === null ? 'var(--mut)' : cap >= 70 ? 'var(--ok)' : cap >= 40 ? 'var(--warn)' : 'var(--bad)';
   const kpi = (n, lbl, col, tip) => ({n, label: lbl, color: col, tip});
   const taskLine = x => `<div class="tp-row" data-tptask="${x.id}">
@@ -5193,16 +5198,24 @@ async function openTeamPulse(id) {
 
   <div class="tp-now ${d.now ? 'live' : 'idle'}">
     ${d.now ? `<span class="tp-now-k">▶ Τώρα</span><b data-tptask="${d.now.id}">${esc(d.now.title)}</b><span class="tp-now-e">${esc(fmtMin(d.now.mins))}</span>`
-      : `<span class="tp-now-k">Δεν τρέχει χρονόμετρο</span><span class="mut">${t.logged ? 'έχει καταγράψει ' + esc(fmtMin(t.logged)) + ' σήμερα' : 'καμία καταγραφή χρόνου σήμερα'}</span>`}</div>
+      : `<span class="tp-now-k">Δεν τρέχει χρονόμετρο</span><span class="mut">${
+        t.logged ? 'έχει καταγράψει ' + esc(fmtMin(t.logged)) + ' σήμερα' : 'καμία καταγραφή χρόνου σήμερα'
+        }${t.phone ? ' · ' + esc(fmtMin(t.phone)) + ' στο τηλέφωνο' : ''}</span>`}</div>
 
   <div class="tp-kwrap">${cnpKpis([
     kpi(esc(fmtMin(t.logged)), 'καταγεγραμμένος<br>χρόνος', null, 'Όσο χρόνο έχει χρεώσει σε εργασίες σήμερα'),
+    kpi(esc(fmtMin(t.phone || 0)), 'στο<br>τηλέφωνο', (t.phone ? 'var(--brand)' : null),
+      'Χρόνος ΟΜΙΛΙΑΣ από το τηλεφωνικό κέντρο — χωρίς κουδούνισμα και αναμονή. Μετριέται μόνος του.'),
     kpi(esc(fmtMin(t.conn)), 'μέσα στο<br>εργαλείο', null, 'Από την πρώτη ως την τελευταία κίνηση σήμερα'),
-    kpi(cap === null ? '—' : cap + '%', 'καταγραφή<br>χρόνου', capC, 'Πόσο από τον χρόνο που ήταν μέσα έχει χρονόμετρο από πίσω. Μετράει την καταγραφή, όχι την αξία της δουλειάς.'),
+    kpi(cap === null ? '—' : cap + '%', 'καλυμμένος<br>χρόνος', capC,
+      'Καταγεγραμμένος χρόνος ΚΑΙ ομιλία στο τηλέφωνο, πάνω στον χρόνο που ήταν μέσα. Μετράει τι είναι εξηγημένο, όχι την αξία της δουλειάς.'),
     kpi(t.done, 'ολοκληρώθηκαν<br>σήμερα', t.done ? 'var(--ok)' : null, 'Εργασίες που έκλεισε σήμερα')])}</div>
 
-  <div class="tp-sec"><div class="tp-lbl">Η εβδομάδα — ${esc(fmtMin(wk.logged))} · ${wk.done} ${wk.done === 1 ? 'ολοκλήρωση' : 'ολοκληρώσεις'}</div>
-    ${cnpSpark(wk.days)}</div>
+  <div class="tp-sec"><div class="tp-lbl">Η εβδομάδα — ${esc(fmtMin(wk.logged))} καταγραφή${
+      wk.phone ? ' · <span class="tp-ph">' + esc(fmtMin(wk.phone)) + ' στο τηλέφωνο</span>' : ''
+    } · ${wk.done} ${wk.done === 1 ? 'ολοκλήρωση' : 'ολοκληρώσεις'}</div>
+    ${cnpSpark(wk.days.map(x => ({...x, mins: (x.mins || 0) + (x.phone || 0)})))}
+    ${wk.phone ? '<div class="mut" style="font-size:11px;margin-top:4px">Οι στήλες δείχνουν καταγραφή <b>και</b> ομιλία μαζί.</div>' : ''}</div>
 
   <div class="tp-sec"><div class="tp-lbl">Τι κρατάει ανοιχτό</div>
     <div class="tp-chips">
