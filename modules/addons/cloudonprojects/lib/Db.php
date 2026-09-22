@@ -2109,11 +2109,20 @@ class Db
             $aid = (int) $f['restrict_admin'];
             $vis = self::visibleProjectIds($aid);
             if ($vis !== null) {
+                /* Η ΜΠΑΛΑ ΔΙΝΕΙ ΟΡΑΤΟΤΗΤΑ. Το `canSeeTask` το έλεγε ήδη: όποιος
+                   κρατά τη μπάλα βλέπει την εργασία. Το ερώτημα της λίστας όμως
+                   κοίταζε μόνο «ορατό έργο Ή ανάδοχος» — οπότε όταν περνούσες τη
+                   μπάλα σε κάποιον εκτός του έργου (π.χ. στο λογιστήριο για
+                   τιμολόγηση), η εργασία ΕΞΑΦΑΝΙΖΟΤΑΝ: ο ανάδοχος δεν την είχε
+                   πια ως δική του, ο νέος κάτοχος δεν την έβλεπε καθόλου, και
+                   κανείς δεν την κρατούσε. Μετρήθηκαν 16 τέτοιες (22/09/2026). */
                 $q->where(function ($w) use ($vis, $aid) {
                     if ($vis) {
-                        $w->whereIn('t.project_id', $vis)->orWhere('t.assignee', $aid);
+                        $w->whereIn('t.project_id', $vis)
+                          ->orWhere('t.assignee', $aid)
+                          ->orWhere('t.action_user', $aid);
                     } else {
-                        $w->where('t.assignee', $aid);
+                        $w->where('t.assignee', $aid)->orWhere('t.action_user', $aid);
                     }
                 });
             }

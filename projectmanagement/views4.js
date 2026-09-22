@@ -2,7 +2,7 @@
 'use strict';
 const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
-  cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
+  cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -1014,7 +1014,9 @@ R.list = async function () {
     paintBar();
     let list = D.tasks.filter(match);
     if (f.proj !== '') { list = list.filter(t => (t.pname || 'Χωρίς έργο') === f.proj); }
-    if (f.mine) list = list.filter(t => t.assignee === S.boot.me.id);
+    /* Ο κανόνας της μπάλας, όχι σκέτος ανάδοχος: όταν η εργασία περιμένει άλλον,
+       δεν είναι δική μου — είναι δική ΤΟΥ. Δες cnpIsMine στο app.js. */
+    if (f.mine) list = list.filter(t => cnpIsMine(t));
 
     /* Τα έργα ομαδοποιούνται ανά ΟΝΟΜΑ, όχι ανά id: η ίδια γραμμή δουλειάς
        («e-Commerce», «Marketplaces») υπάρχει ως ξεχωριστό έργο σε κάθε πελάτη,

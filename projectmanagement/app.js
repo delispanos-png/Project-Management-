@@ -1652,6 +1652,26 @@ function cnpDialog(opts) {
     setTimeout(() => (inp || ovl.querySelector('#cnpDlgOk')).focus(), 30);
   });
 }
+/**
+ * Ο ΚΑΝΟΝΑΣ ΤΗΣ ΜΠΑΛΑΣ — δίδυμο του `cnp_scope_mine` του server.
+ *
+ * Μια εργασία είναι ΔΙΚΗ ΜΟΥ όταν έχω τη μπάλα, ή όταν είναι δική μου ΚΑΙ η
+ * μπάλα δεν έχει δοθεί σε κανέναν. Ανάθεση σε εμένα ΔΕΝ σημαίνει ότι περιμένει
+ * εμένα: όταν η εργασία πήγε «Προς τιμολόγηση» και περιμένει το λογιστήριο, η
+ * δική μου δουλειά τελείωσε.
+ *
+ * ΓΙΑΤΙ ΕΔΩ: ο server είχε τον κανόνα, η οθόνη όχι — και το φίλτρο «μόνο δικά
+ * μου» στα «Όλα τα tasks» κοίταζε σκέτο τον ανάδοχο. Αποτέλεσμα: η ίδια εργασία
+ * φαινόταν ταυτόχρονα σε δύο ανθρώπους, και κανείς δεν ήξερε ποιος την κρατά.
+ * Μία εργασία, ΕΝΑΣ άνθρωπος κάθε φορά.
+ */
+function cnpIsMine(t, meId) {
+  const me = meId || (S.boot && S.boot.me && S.boot.me.id);
+  const ball = +(t.ball || 0);
+  if (ball) { return ball === me; }
+  return +(t.assignee || 0) === me;
+}
+
 const cnpConfirm = (body, opts) => cnpDialog(Object.assign({title: 'Επιβεβαίωση', body, ok: 'Ναι', cancel: 'Όχι'}, opts));
 const cnpPrompt = (body, opts) => cnpDialog(Object.assign({title: '', body, input: '', ok: 'OK'}, opts));
 
@@ -3365,7 +3385,7 @@ async function openTask(id, entryId, opts) {
   /* Ρωτά ΜΙΑ φορά την ημέρα ανά εργασία (localStorage): αν είπες «μόνο θα δω», δεν σε
      ξαναρωτά σε κάθε άνοιγμα — υπάρχει το «▶ Ξεκίνα τον χρόνο» μέσα στην καρτέλα. */
   const askedKey = 'cnpTimerAsked:' + id, askedToday = (() => { try { return localStorage.getItem(askedKey) === today(); } catch (e) { return false; } })();
-  if (!opts.fresh && !t.done && t.assignee === me.id && !d.timerHere && !window._cnpTimerAsked_[id] && !askedToday) {
+  if (!opts.fresh && !t.done && cnpIsMine(t, me.id) && !d.timerHere && !window._cnpTimerAsked_[id] && !askedToday) {
     window._cnpTimerAsked_[id] = 1;
     try { localStorage.setItem(askedKey, today()); } catch (e) {}
     const go2 = await cnpDialog({
@@ -3380,7 +3400,7 @@ async function openTask(id, entryId, opts) {
     }
     delete window._cnpTimerAsked_[id];   // αύριο ξαναρωτάμε (localStorage ανά ημέρα)
     t._viewOnly = true;
-  } else if (!opts.fresh && !t.done && t.assignee === me.id && !d.timerHere && askedToday) {
+  } else if (!opts.fresh && !t.done && cnpIsMine(t, me.id) && !d.timerHere && askedToday) {
     t._viewOnly = true;   // απάντησε σήμερα «μόνο θα δω» — ίδιο αποτέλεσμα, χωρίς ερώτηση
   }
   if (t._viewOnly) {
@@ -5123,7 +5143,7 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
   openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp, mydLayoutDialog,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
-  fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
+  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {
