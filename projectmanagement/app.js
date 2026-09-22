@@ -4891,40 +4891,46 @@ function cnpWireDash(root) {
  * ΑΚΥΡΩΣΕΙΣ ΥΠΗΡΕΣΙΩΝ στην κάρτα της ημέρας.
  *
  * Τρία πράγματα, με αυτή τη σειρά σημασίας:
- *   1. ΔΕΝ ΕΚΛΕΙΣΕ Ο ΚΥΚΛΟΣ — η υπηρεσία λέει ακυρωμένη και κρατάμε ακόμη
- *      server πάνω της. Χρήμα που τρέχει χωρίς να χρεώνεται.
+ *   1. ΤΡΕΧΕΙ ΑΚΟΜΗ — η υπηρεσία ακυρώθηκε και η Hetzner ΕΠΙΒΕΒΑΙΩΝΕΙ ότι το
+ *      μηχάνημα υπάρχει. Χρήμα που τρέχει χωρίς να χρεώνεται.
  *   2. ΑΝΟΙΧΤΑ — το ζήτησε ο πελάτης, δεν έγινε ακόμη.
- *   3. Πόσα έκλεισαν κανονικά, για να φαίνεται ότι δουλεύει.
+ *   3. Ξεχασμένες εγγραφές — διαγράφηκε κανονικά, έμεινε μόνο η σύνδεση στα
+ *      δικά μας αρχεία. Σιωπηλή σημείωση, ΟΧΙ συναγερμός.
+ *
+ * Η διάκριση 1/3 είναι το όλο νόημα. Η πρώτη εκδοχή δεν τη διέθετε και φώναξε
+ * για τρία μηχανήματα που ήταν όλα κανονικά σβησμένα — ψευδής συναγερμός, που
+ * είναι χειρότερος από καμία ένδειξη: την επόμενη φορά κανείς δεν την κοιτάζει.
  *
  * Η ΕΝΕΡΓΕΙΑ δεν γίνεται από εδώ: οι υπηρεσίες ζουν στο cloudonadminpanel.
- * Εδώ είναι μόνο η ειδοποίηση ότι κάτι θέλει χέρι.
  */
 async function mydCancels() {
   const box = $('#mydCn');
   if (!box) { return; }
   const d = await api('cancels').catch(() => null);
   if (!d) { box.innerHTML = '<span class="mut">Δεν φορτώθηκε.</span>'; return; }
-  const row = (r, bad) => `<div class="myd-row${bad ? ' wait' : ''}">
-    <span class="dot" style="background:${bad ? 'var(--bad,#b91c1c)' : 'var(--warn,#b45309)'};flex:none"></span>
+
+  const row = (r, kind) => `<div class="myd-row${kind === 'live' ? ' wait' : ''}">
+    <span class="dot" style="background:${
+      kind === 'live' ? 'var(--bad,#b91c1c)' : 'var(--warn,#b45309)'};flex:none"></span>
     <span class="myd-t"><b>${esc(r.client)}</b><span class="mut"> · ${esc(r.product || 'υπηρεσία')}
       · #${r.service}${r.vm ? ' · VM ' + r.vm : ''}</span>
-      ${bad ? `<div class="mut" style="font-size:11.5px">${esc(r.status)} στο WHMCS, αλλά ο server υπάρχει ακόμη${
-        r.asked === false ? ' · ακύρωση από εμάς' : ''}</div>` : ''}</span>
-    ${!bad && r.type ? `<span class="pill pill-mut" style="flex:none">${esc(r.type)}</span>` : ''}</div>`;
+      ${kind === 'live' ? `<div class="mut" style="font-size:11.5px">${esc(r.status)} στο WHMCS,
+        αλλά το μηχάνημα <b>τρέχει ακόμη</b>${r.asked === false ? ' · ακύρωση από εμάς' : ''}</div>` : ''}
+      ${kind === 'unknown' ? '<div class="mut" style="font-size:11.5px">δεν απάντησε η Hetzner — δεν ξέρουμε</div>' : ''}
+    </span>
+    ${kind === 'open' && r.type ? `<span class="pill pill-mut" style="flex:none">${esc(r.type)}</span>` : ''}</div>`;
 
-  const stuck = d.stuck || [];
-  const open = d.open || [];
-  box.innerHTML = (stuck.length
-      ? `<div class="myd-lbl bad">Δεν έκλεισε ο κύκλος — ${stuck.length}</div>${stuck.map(r => row(r, true)).join('')}`
-      : '')
-    + (open.length
-      ? `<div class="myd-lbl">Ζητήθηκαν, εκκρεμούν — ${open.length}</div>${open.map(r => row(r, false)).join('')}`
-      : '')
-    + (!stuck.length && !open.length
-      ? '<span class="mut">Καμία εκκρεμότητα — όλες οι ακυρώσεις έκλεισαν.</span>' : '')
-    + (d.doneRecent
-      ? `<div class="mut" style="font-size:11.5px;margin-top:8px">Έκλεισαν κανονικά ${d.doneRecent} τις τελευταίες ${d.days} ημέρες.</div>`
-      : '');
+  const live = d.stuck || [], unk = d.unknown || [], open = d.open || [];
+  box.innerHTML =
+      (live.length ? `<div class="myd-lbl bad">Τρέχουν ακόμη — ${live.length}</div>${live.map(r => row(r, 'live')).join('')}` : '')
+    + (open.length ? `<div class="myd-lbl">Ζητήθηκαν, εκκρεμούν — ${open.length}</div>${open.map(r => row(r, 'open')).join('')}` : '')
+    + (unk.length ? `<div class="myd-lbl">Δεν μπόρεσε να ελεγχθεί — ${unk.length}</div>${unk.map(r => row(r, 'unknown')).join('')}` : '')
+    + (!live.length && !open.length && !unk.length
+        ? '<span class="mut">Καμία εκκρεμότητα — κάθε ακύρωση έκλεισε και το μηχάνημα σβήστηκε.</span>' : '')
+    + `<div class="mut" style="font-size:11.5px;margin-top:8px">${
+        d.doneRecent ? `Έκλεισαν κανονικά ${d.doneRecent} τις τελευταίες ${d.days} ημέρες. ` : ''}${
+        /* Νοικοκυριό, όχι πρόβλημα: το μηχάνημα έφυγε, η εγγραφή έμεινε. */
+        d.stale ? `${d.stale} παλιές εγγραφές σύνδεσης δεν καθαρίστηκαν — τα μηχανήματα είναι σβηστά.` : ''}</div>`;
 }
 
 const MYD_BLOCKS = [
