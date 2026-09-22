@@ -4708,8 +4708,16 @@ function cnpPalette() {
     });
     res.innerHTML = h;
     res.querySelectorAll('[data-i]').forEach(a => {
-      a.onmouseenter = () => { cur = +a.dataset.i; paint(); };
-      a.onclick = () => { const it = items[+a.dataset.i]; close(); it.go(); };
+      /* ΤΟ ΠΟΝΤΙΚΙ ΔΕΝ ΞΑΝΑΖΩΓΡΑΦΙΖΕΙ. Πριν, το mouseenter καλούσε paint() και
+         ξανάγραφε ΟΛΗ τη λίστα — το στοιχείο κάτω από τον κέρσορα καταστρεφόταν
+         την ίδια στιγμή, και το κλικ έπεφτε σε αποσυνδεδεμένο κόμβο. Το
+         αποτέλεσμα βρισκόταν αλλά δεν άνοιγε ΠΟΤΕ με το ποντίκι — μόνο με
+         Enter, που δεν περνά από mouseenter. Εδώ αλλάζουμε μόνο την κλάση. */
+      a.onmouseenter = () => {
+        cur = +a.dataset.i;
+        res.querySelectorAll('.pal-row').forEach(r => r.classList.toggle('on', r === a));
+      };
+      a.onclick = e => { e.preventDefault(); const it = items[+a.dataset.i]; close(); it.go(); };
     });
     const on = res.querySelector('.pal-row.on'); if (on && on.scrollIntoView) { on.scrollIntoView({block: 'nearest'}); }
   };
@@ -4737,8 +4745,11 @@ function cnpPalette() {
     out.forEach(x => { best[x.group] = Math.min(best[x.group] === undefined ? 9 : best[x.group], x._s); });
     out.sort((a, b) => (best[a.group] - best[b.group])
       || (a.group < b.group ? -1 : a.group > b.group ? 1 : 0) || a._s - b._s);
-    /* «30 #123» ή «30 123» → χρέωση χρόνου. Η πιο συχνή εντολή που δεν αξίζει οθόνη. */
-    const m = v.match(/^(\d{1,4})\s*(?:λ|min|΄|')?\s*#?(\d{1,7})$/);
+    /* «30 #123» → χρέωση χρόνου. Η πιο συχνή εντολή που δεν αξίζει οθόνη.
+       ΤΟ # ΕΙΝΑΙ ΥΠΟΧΡΕΩΤΙΚΟ. Ήταν προαιρετικό, οπότε το «105» — ένας άνθρωπος
+       που ψάχνει την εργασία #105 — διαβαζόταν ως «10΄ στην εργασία #5» και
+       έμπαινε ΠΡΩΤΟ στη λίστα. Ένα κλικ και χρεωνόταν χρόνος σε λάθος εργασία. */
+    const m = v.match(/^(\d{1,4})\s*(?:λ|min|΄|')?\s*#\s*(\d{1,7})$/);
     if (m) {
       const mins = +m[1], tid = +m[2];
       out.unshift({group: 'Ενέργειες', icon: I.clock, title: 'Χρέωσε ' + fmtMin(mins) + ' στην εργασία #' + tid,
