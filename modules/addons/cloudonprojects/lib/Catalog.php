@@ -402,8 +402,16 @@ class Catalog
 
         /* ΟΙ ΟΥΡΕΣ. Ήταν κι αυτές στη σκληρή λίστα του Route· χωρίς μεταφορά, η
            δρομολόγηση των κλήσεων θα έμενε ξαφνικά κενή. Μπαίνουν μία φορά και
-           από εκεί και πέρα αλλάζουν από την οθόνη. */
-        foreach (Route::PRODUCTS as $slug => [$lbl, $dn]) {
+           από εκεί και πέρα αλλάζουν από την οθόνη.
+
+           ΠΡΟΣΟΧΗ: η Route λέγεται `Route` αλλά ζει στο lib/Pbx3cx/Route.php —
+           ο autoloader ΔΕΝ τη βρίσκει από το όνομα. Χωρίς αυτό το require, το
+           Db::install() έσκαγε με «Class Route not found». */
+        if (!class_exists(__NAMESPACE__ . '\\Route')) {
+            $rf = __DIR__ . '/Pbx3cx/Route.php';
+            if (is_file($rf)) { require_once $rf; }
+        }
+        foreach (class_exists(__NAMESPACE__ . '\\Route') ? Route::PRODUCTS : [] as $slug => [$lbl, $dn]) {
             $q = Capsule::table('mod_cpm_products')->where('book_key', $slug);
             $row = $q->first(['id', 'route_dn']);
             if (!$row && isset(self::BOOK_MAP[$slug])) {

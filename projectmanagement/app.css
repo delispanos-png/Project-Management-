@@ -4684,3 +4684,9 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .rq-act .btn{padding:2px 7px;font-size:12px;line-height:1.5}
 @media (hover:none){ .rq-act{opacity:1} }
 @media (max-width:768px){ .rq-act{opacity:1} }
+
+/* Σύσκεψη που ξεπέρασε την ώρα της — ερώτηση, όχι υπενθύμιση. */
+.meet-pop.over{border-color:var(--warn,#b45309)}
+.meet-pop.over .mp-ic{filter:none}
+.mp-over{margin-top:6px;font-size:12px;font-weight:700;color:var(--warn,#b45309)}
+.meet-pop.over .cp-f{flex-wrap:wrap;gap:5px}

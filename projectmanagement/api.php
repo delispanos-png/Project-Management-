@@ -1888,6 +1888,9 @@ function cnp_chat_access($ch, $adminId)
    «Διαθέσιμος» από κλειστό υπολογιστή.
    Χρησιμοποιείται παντού: chat, Δραστηριότητα, πάνω μπάρα, ειδοποιήσεις. */
 define('CNP_PRESENCE_ONLINE', 90);     // δευτ. παλμού για «είναι στην εφαρμογή»
+/* Χάρη πριν ρωτήσουμε «τελείωσε;»: μια σύσκεψη σπάνια κόβεται στο δευτερόλεπτο,
+   και ερώτηση στο λεπτό μηδέν θα ήταν ενοχλητική χωρίς να προσθέτει τίποτα. */
+define('CNP_MEET_GRACE', 300);         // 5΄ μετά τη λήξη
 define('CNP_PRESENCE_GONE', 1800);     // μισή ώρα χωρίς παλμό → έφυγε
 
 /**
@@ -2082,9 +2085,15 @@ function cnp_meeting_now($adminId, $now = null)
         ->where('e.all_day', 0)
         ->where('r.status', 'accepted')
         ->where('e.attendees', 'like', '%,' . $adminId . ',%')
-        ->where('e.start_dt', '<=', $nowS)->where('e.end_dt', '>=', $nowS)
+        ->where('e.start_dt', '<=', $nowS)
+        /* Η ΔΙΚΗ ΤΟΥ ώρα λήξης: η παράταση που πήρε ο ίδιος, αλλιώς το πλάνο.
+           Και αν έχει ΔΗΛΩΣΕΙ ότι βγήκε, δεν είναι πια σε σύσκεψη — άσχετα με
+           το τι κάνουν οι υπόλοιποι στην ίδια αίθουσα. */
+        ->whereNull('r.left_at')
+        ->whereRaw('COALESCE(r.until_dt, e.end_dt) >= ?', [$nowS])
         ->orderBy('e.start_dt')
-        ->first(['e.id', 'e.title', 'e.start_dt', 'e.end_dt', 'e.mode', 'e.scope', 'e.clientid']);
+        ->first(['e.id', 'e.title', 'e.start_dt', 'e.mode', 'e.scope', 'e.clientid',
+                 Capsule::raw('COALESCE(r.until_dt, e.end_dt) as end_dt')]);
     return $m ?: null;
 }
 
@@ -3170,6 +3179,9 @@ function cnp_meet_row($evM, $kindM, $nowM)
         'start' => $evM->start_dt, 'end' => $evM->end_dt,
         'whenTxt' => date('d/m H:i', $startM) . '–' . date('H:i', strtotime($evM->end_dt)),
         'inMin' => max(0, (int) round(($startM - $nowM) / 60)),
+        /* Πόσα λεπτά πάνω από την ώρα της — αυτό είναι η ερώτηση, όχι η ώρα. */
+        'overMin' => max(0, (int) round(($nowM - strtotime($evM->end_dt)) / 60)),
+        'extended' => (int) ($evM->extended_min ?? 0),
         'how' => trim($hIcoM . ' ' . $hTxtM), 'mode' => $evM->mode,
         'join' => ($evM->mode === 'video' || $evM->mode === 'phone') ? $evM->location : '',
         'client' => $evM->clientid ? clientLabel((int) $evM->clientid) : ''];
@@ -3957,6 +3969,9 @@ function cnp_open_actions()
         'quick_task',   // προσωπική εργασία για όλους· έργο/ανάθεση ελέγχονται μέσα στην ενέργεια
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
+        /* Σύσκεψη που ξεπέρασε την ώρα της: απαντά ΜΟΝΟ συμμετέχων — ο server
+           το ελέγχει μέσα στην ενέργεια. */
+        'event_outcome',
         /* Το ξαναστείλσιμο και η διαγραφή είναι ΔΙΚΑ ΣΟΥ αιτήματα — ο server
            ελέγχει μέσα στην ενέργεια ότι είσαι ο αποστολέας. */
         'help_done', 'help_resend', 'help_del',
@@ -18125,6 +18140,42 @@ case 'version':
             break;
         }
     }
+
+    /* ⏳ ΞΕΠΕΡΑΣΕ ΤΗΝ ΩΡΑ ΤΗΣ. Στο end_dt ο χειριστής γινόταν αυτόματα
+       «διαθέσιμος» — ακόμη κι αν η σύσκεψη συνεχιζόταν. Όποιος τον έψαχνε
+       νόμιζε ότι είναι ελεύθερος, και όποιος ήταν μέσα δεν είχε τρόπο να το πει.
+       Ρωτάμε: τελείωσε, ή θέλει παράταση;
+
+       Το παράθυρο των 12 ωρών είναι σκόπιμο: μια σύσκεψη του περασμένου μήνα
+       δεν έχει νόημα να ρωτηθεί, και η ερώτηση θα ήταν θόρυβος. */
+    if ($canCal) {
+        /* ΑΝΑ ΣΥΜΜΕΤΕΧΟΝΤΑ, με τη ΔΙΚΗ ΤΟΥ ώρα. Σε σύσκεψη με πέντε άτομα, δύο
+           μπορεί να έχουν φύγει και τρεις να συνεχίζουν — ο καθένας ρωτιέται
+           για τον εαυτό του, και όποιος δήλωσε ότι βγήκε δεν ξαναρωτιέται. */
+        foreach (Capsule::table('mod_cpm_events as e')
+            ->join('mod_cpm_event_rsvp as r', function ($j) use ($adminId) {
+                $j->on('r.event_id', '=', 'e.id')
+                  ->where('r.kind', '=', 'admin')->where('r.ref', '=', $adminId);
+            })
+            ->whereIn('e.kind', ['meeting', 'appointment'])
+            ->where('e.all_day', 0)
+            ->where('r.status', 'accepted')
+            ->whereNull('r.left_at')
+            ->whereRaw('COALESCE(r.until_dt, e.end_dt) <= ?', [date('Y-m-d H:i:s', $nowM - CNP_MEET_GRACE)])
+            ->whereRaw('COALESCE(r.until_dt, e.end_dt) >= ?', [date('Y-m-d H:i:s', $nowM - 12 * 3600)])
+            ->orderByRaw('COALESCE(r.until_dt, e.end_dt) desc')->limit(5)
+            ->get(['e.id', 'e.title', 'e.start_dt', 'e.mode', 'e.place', 'e.location',
+                   'e.clientid', 'e.created_by',
+                   Capsule::raw('COALESCE(r.until_dt, e.end_dt) as end_dt'),
+                   Capsule::raw('r.extended_min as extended_min')]) as $evO) {
+            $eidO = (int) $evO->id;
+            /* Το «είδα» σβήνεται σε κάθε παράταση, ώστε να ξαναρωτήσει όταν
+               περάσει και η νέα ώρα. Δες event_outcome. */
+            if (!empty($shown[$eidO . ':over'])) { continue; }
+            $meetAlerts[] = cnp_meet_row($evO, 'over', $nowM);
+            if (count($meetAlerts) >= 4) { break; }
+        }
+    }
     /* ⏱ Χρονόμετρο που τρέχει πολλές ώρες: ΔΕΝ το κόβουμε — μπορεί όντως να
        δουλεύει έξω από την εφαρμογή. Απλώς ρωτάμε, μία φορά κάθε δύο ώρες.
        Η ερώτηση εμφανίζεται μόλις ξαναφανεί στην εφαρμογή, που είναι και η
@@ -18226,6 +18277,82 @@ case 'event_noshow':                     // «δεν σε είδαμε» — ξ�
         $sSent++;
     }
     out(['ok' => true, 'sent' => $sSent]);
+
+case 'event_outcome':
+    /* ΤΙ ΕΓΙΝΕ ΜΕ ΤΗ ΣΥΣΚΕΨΗ ΠΟΥ ΞΕΠΕΡΑΣΕ ΤΗΝ ΩΡΑ ΤΗΣ — ΓΙΑ ΕΣΕΝΑ.
+       Η απάντηση είναι ΑΤΟΜΙΚΗ: σε σύσκεψη με πέντε άτομα δύο μπορεί να έχουν
+       φύγει και τρεις να συνεχίζουν. Γράφεται στη γραμμή συμμετοχής σου, όχι
+       πάνω στη σύσκεψη — αλλιώς ο πρώτος που απαντά θα την έκλεινε για όλους.
+       Η προγραμματισμένη ώρα της σύσκεψης ΔΕΝ πειράζεται ποτέ: είναι το πλάνο.
+
+         done   → βγήκες· ελευθερώνεσαι αμέσως, οι υπόλοιποι συνεχίζουν.
+         extend → +N λεπτά ΓΙΑ ΕΣΕΝΑ· η κατάστασή σου «Σε σύσκεψη» συνεχίζεται
+                  μόνη της ως τη νέα ώρα (δες cnp_meeting_now).
+         open   → συνεχίζεται χωρίς γνωστό τέλος· ένα μπλοκ, και ξαναρωτάμε.
+
+       Δεν στέλνουμε χωριστή ανακοίνωση «είναι ακόμη απασχολημένος»: η παρουσία
+       ΕΙΝΑΙ η ανακοίνωση, τη βλέπουν όλοι, και δείχνει «έως ΗΗ:ΜΜ». */
+    $eoId = (int) ($in['id'] ?? 0);
+    $eoEv = Capsule::table('mod_cpm_events')->where('id', $eoId)->first();
+    if (!$eoEv) { fail('Δεν βρέθηκε η σύσκεψη', 404); }
+    $eoR = Capsule::table('mod_cpm_event_rsvp')->where('event_id', $eoId)
+        ->where('kind', 'admin')->where('ref', $adminId)->first();
+    if (!$eoR) { fail('Δεν συμμετέχεις σε αυτή τη σύσκεψη', 403); }
+
+    $eoWhat = in_array($in['what'] ?? '', ['done', 'extend', 'open'], true) ? $in['what'] : '';
+    if (!$eoWhat) { fail('Πες τι έγινε'); }
+
+    $eoMine = strtotime($eoR->until_dt ?: $eoEv->end_dt);
+    $eoUpd = ['outcome_at' => date('Y-m-d H:i:s')];
+    if ($eoWhat === 'done') {
+        $eoUpd['outcome'] = 'done';
+        $eoUpd['left_at'] = date('Y-m-d H:i:s');
+        /* Βγήκες νωρίτερα: κλείνει ΤΩΡΑ για εσένα, αλλιώς έμενες «σε σύσκεψη»
+           άδικα μέχρι την προγραμματισμένη ώρα. */
+        $eoUpd['until_dt'] = date('Y-m-d H:i:s');
+        $eoMsg = 'Καταγράφηκε ότι βγήκες';
+    } else {
+        $eoMin = $eoWhat === 'open' ? 30 : (int) ($in['minutes'] ?? 0);
+        $eoMin = max(5, min(240, $eoMin ?: 15));
+        /* Η παράταση μετριέται από ΤΩΡΑ, όχι από την παλιά λήξη: αν απαντήσεις
+           είκοσι λεπτά αργότερα, «άλλο ένα τέταρτο» σημαίνει από τώρα. */
+        $eoUpd['until_dt'] = date('Y-m-d H:i:s', max(time(), $eoMine) + $eoMin * 60);
+        $eoUpd['extended_min'] = (int) ($eoR->extended_min ?? 0) + $eoMin;
+        /* Το outcome ΜΕΝΕΙ κενό επίτηδες: δεν έχεις βγει, θα ξαναρωτηθείς. */
+        $eoMsg = 'Παράταση ' . $eoMin . '΄ — έως ' . date('H:i', strtotime($eoUpd['until_dt']));
+    }
+    Capsule::table('mod_cpm_event_rsvp')->where('id', $eoR->id)->update($eoUpd);
+
+    /* Η ειδοποίηση «over» σβήνεται ΓΙΑ ΕΣΕΝΑ, ώστε να ξαναρωτήσει στη νέα ώρα.
+       Χωρίς αυτό, η παράταση θα ήταν σιωπηλή για πάντα. */
+    Capsule::table('mod_cpm_event_alerts')->where('event_id', $eoId)
+        ->where('kind', 'over')->where('admin_id', $adminId)->delete();
+
+    /* Όταν έχουν βγει ΟΛΟΙ όσοι είχαν δεχτεί, η σύσκεψη έκλεισε πραγματικά. */
+    $eoLeft = Capsule::table('mod_cpm_event_rsvp')->where('event_id', $eoId)
+        ->where('status', 'accepted')->whereNull('left_at')->count();
+    if (!$eoLeft) {
+        Capsule::table('mod_cpm_events')->where('id', $eoId)->update([
+            'outcome' => 'done', 'outcome_at' => date('Y-m-d H:i:s'), 'outcome_by' => $adminId,
+            'extended_min' => (int) Capsule::table('mod_cpm_event_rsvp')->where('event_id', $eoId)
+                ->max('extended_min')]);
+    }
+
+    /* Οι ΥΠΟΛΟΙΠΟΙ που είναι ακόμη μέσα μαθαίνουν ότι τραβάει: μπορεί να
+       περιμένουν έξω ή να έχουν κλείσει κάτι αμέσως μετά. Όποιος έχει βγει δεν
+       ενοχλείται — τον αφορά πια. */
+    if ($eoWhat !== 'done') {
+        foreach (Capsule::table('mod_cpm_event_rsvp')->where('event_id', $eoId)
+                    ->where('status', 'accepted')->whereNull('left_at')
+                    ->where('ref', '<>', $adminId)->pluck('ref') as $eoA) {
+            try {
+                Db::pushNotification((int) $eoA, 'meeting',
+                    Db::adminName($adminId) . ': «' . mb_substr((string) $eoEv->title, 0, 50)
+                    . '» συνεχίζεται έως ' . date('H:i', strtotime($eoUpd['until_dt'])), '#/calendar');
+            } catch (\Throwable $e) { /* η ειδοποίηση δεν χαλάει την απάντηση */ }
+        }
+    }
+    out(['ok' => true, 'msg' => $eoMsg, 'end' => $eoUpd['until_dt']]);
 
 case 'event_alert_seen':                 // «το είδα» — να μη σκάσει ξανά η ίδια κάρτα
     $saE = (int) ($in['id'] ?? 0);
