@@ -3447,6 +3447,9 @@ function cnp_caps()
         /* Η καθημερινή εικόνα των χειριστών: ποιος παίζει, τι κρατάει, τι θα του
            σερβίραμε. Δείχνει, ΔΕΝ αναθέτει — γι' αυτό είναι απλό `view`. */
         'reports.pool'      => ['view', 'Οι χειριστές σήμερα', 'Ποιος παίζει, τι κρατάει ο καθένας και τι θα του σερβίραμε'],
+        /* ΑΚΥΡΩΣΕΙΣ. Ξεκινά μόνο για πλήρεις διαχειριστές — αλλά είναι κανονικό
+           δικαίωμα, ώστε να δοθεί σε όποιον ορίσουμε χωρίς αλλαγή κώδικα. */
+        'reports.cancels'   => ['view', 'Ακυρώσεις υπηρεσιών', 'Τι ζήτησαν οι πελάτες να ακυρωθεί και αν έκλεισε ο κύκλος'],
         'reports.time'      => ['view', 'Χρόνος ομάδας', 'Τι έκανε ΟΠΟΙΟΣΔΗΠΟΤΕ σε μια ημέρα ή περίοδο'],
 
         // ═══ ΟΙΚΟΝΟΜΙΚΑ ═══
@@ -3978,6 +3981,7 @@ function cnp_action_cap($action)
         $add('hr.roles', ['roles', 'roles_coverage']);
         $add('hr.roles.edit', ['role_save', 'skill_save']);
         $add('reports.pool', ['pool_today']);
+        $add('reports.cancels', ['cancels']);
         /* Ο κατάλογος προϊόντων είναι ΡΥΘΜΙΣΗ — ίδιο δικαίωμα με τις περιοχές
            tickets, που είναι πλέον το ίδιο πράγμα. */
         $add('admin.settings', ['products_tree']);
@@ -9345,6 +9349,76 @@ case 'call_recent':                      // οι τελευταίες μου κ�
             'followup' => $r9->followup_date];
     }
     out(['rows' => $rows9]);
+
+case 'cancels':
+    /* ΑΚΥΡΩΣΕΙΣ ΥΠΗΡΕΣΙΩΝ — τι ζήτησε ο πελάτης και αν έκλεισε ο κύκλος.
+       ΔΕΝ διαχειριζόμαστε υπηρεσίες από εδώ (αυτό ζει στο cloudonadminpanel):
+       εδώ είναι μόνο η ΕΙΔΟΠΟΙΗΣΗ ότι κάτι θέλει ενέργεια ή δεν ολοκληρώθηκε.
+
+       Το «ολοκληρώθηκε με επιτυχία» δεν είναι το status του WHMCS. Μια υπηρεσία
+       μπορεί να γράφει «Cancelled» και το VM να τρέχει ακόμη στη Hetzner — και
+       να το πληρώνουμε. Γι' αυτό κοιτάμε αν ΕΜΕΙΣ κρατάμε ακόμη σύνδεση με
+       server: αν ναι, ο κύκλος δεν έκλεισε. */
+    $cnDays = max(7, min(365, (int) ($_GET['days'] ?? $in['days'] ?? 90)));
+    $cnHasVm = Capsule::schema()->hasTable('mod_hetzner_instances');
+
+    $cnRow = function ($r) use ($cnHasVm) {
+        return [
+            'id' => (int) $r->id, 'at' => $r->date, 'type' => (string) $r->type,
+            'reason' => mb_substr((string) $r->reason, 0, 200),
+            'service' => (int) $r->srv, 'status' => (string) $r->domainstatus,
+            'product' => (string) $r->proion,
+            'clientId' => (int) $r->userid, 'client' => clientLabel((int) $r->userid),
+            'vm' => $cnHasVm ? (int) ($r->server_id ?: 0) : 0,
+        ];
+    };
+
+    $cnBase = function () use ($cnHasVm) {
+        $q = Capsule::table('tblcancelrequests as cr')
+            ->join('tblhosting as h', 'h.id', '=', 'cr.relid')
+            ->leftJoin('tblproducts as p', 'p.id', '=', 'h.packageid');
+        if ($cnHasVm) {
+            $q->leftJoin('mod_hetzner_instances as hi', 'hi.service_id', '=', 'h.id')
+              ->addSelect('hi.server_id');
+        }
+        return $q->addSelect('cr.id', 'cr.date', 'cr.type', 'cr.reason',
+            'h.id as srv', 'h.domainstatus', 'h.userid', 'p.name as proion');
+    };
+
+    /* 1. ΑΝΟΙΧΤΑ: το ζήτησε ο πελάτης, η υπηρεσία τρέχει ακόμη. */
+    $cnOpen = [];
+    foreach ($cnBase()->whereIn('h.domainstatus', ['Active', 'Suspended'])
+        ->orderBy('cr.date', 'desc')->get() as $r) { $cnOpen[] = $cnRow($r); }
+
+    /* 2. ΔΕΝ ΕΚΛΕΙΣΕ Ο ΚΥΚΛΟΣ: η υπηρεσία λέει ακυρωμένη, αλλά κρατάμε ακόμη
+          server πάνω της. Αυτό είναι χρήμα που τρέχει χωρίς να χρεώνεται. */
+    $cnStuck = [];
+    if ($cnHasVm) {
+        /* Ξεκινάμε από την ΥΠΗΡΕΣΙΑ, όχι από το αίτημα: ένα VM που τρέχει σε
+           ακυρωμένη υπηρεσία είναι το ίδιο πρόβλημα είτε το ζήτησε ο πελάτης
+           είτε το ακύρωσε διαχειριστής. Το πρώτο φίλτρο έχανε τη μισή αλήθεια. */
+        foreach (Capsule::table('tblhosting as h')
+            ->join('mod_hetzner_instances as hi', 'hi.service_id', '=', 'h.id')
+            ->leftJoin('tblproducts as p', 'p.id', '=', 'h.packageid')
+            ->leftJoin('tblcancelrequests as cr', 'cr.relid', '=', 'h.id')
+            ->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
+            ->orderBy('h.id', 'desc')
+            ->get(['cr.id', 'cr.date', 'cr.type', 'cr.reason', 'h.id as srv',
+                   'h.domainstatus', 'h.userid', 'p.name as proion', 'hi.server_id']) as $r) {
+            $cnStuck[] = $cnRow($r) + ['asked' => (bool) $r->id];
+        }
+    }
+
+    /* 3. ΕΚΛΕΙΣΑΝ ΚΑΝΟΝΙΚΑ, στην περίοδο — για να φαίνεται ότι δουλεύει. */
+    $cnDone = 0;
+    foreach ($cnBase()->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
+        ->where('cr.date', '>=', date('Y-m-d 00:00:00', strtotime('-' . $cnDays . ' days')))
+        ->get() as $r) {
+        if (!$cnHasVm || !$r->server_id) { $cnDone++; }
+    }
+
+    out(['ok' => true, 'days' => $cnDays, 'open' => $cnOpen, 'stuck' => $cnStuck,
+         'doneRecent' => $cnDone, 'vmAware' => $cnHasVm]);
 
 case 'calls_pending':
     /* ΟΙ ΔΙΚΕΣ ΣΟΥ ΚΛΗΣΕΙΣ ΠΟΥ ΔΕΝ ΕΧΟΥΝ ΧΑΡΑΚΤΗΡΙΣΤΕΙ.

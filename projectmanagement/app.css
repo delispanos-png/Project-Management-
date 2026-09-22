@@ -4713,3 +4713,7 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   .cl-p-t{min-width:0;font-size:11px}
   .cl-pbar .inp{flex:1 1 100%}
 }
+.myd-lbl{font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+  color:var(--mut,#94a3b8);margin:8px 0 3px}
+.myd-lbl:first-child{margin-top:0}
+.myd-lbl.bad{color:var(--bad,#b91c1c)}
