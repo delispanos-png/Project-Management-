@@ -4166,34 +4166,126 @@ html[data-theme="dark"] .card{border-color:#233043}
 .dc-perf td:first-child{font-variant-numeric:normal}
 
 /* ═══ Η ομάδα τώρα (Μέρα μου, μόνο για όσους οργανώνουν) ═══ */
-.tm-row{display:flex;gap:10px;align-items:center;padding:6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:9px}
-.tm-row:last-child{border-bottom:none}
-.tm-row:hover{background:var(--bg2)}
-.tm-row.live{background:#16a26a0d}
-.tm-av{width:29px;height:29px;font-size:10.5px;border-radius:9px;flex:none}
-.tm-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.32}
-.tm-t b{font-size:12.5px;color:var(--ink);display:flex;gap:4px;align-items:center;overflow:hidden;white-space:nowrap}
-.tm-lead{font-style:normal;color:#eba63c;font-size:9.5px;flex:none}
-.tm-s{font-size:10.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-work{font-style:normal;color:var(--ok);font-weight:700}
-.tm-m{flex:none;text-align:right;line-height:1.28;font-variant-numeric:tabular-nums}
-.tm-m b{display:block;font-size:12px;color:var(--ink)}
-.tm-m small{font-size:9.5px;color:var(--mut);white-space:nowrap}
-.tm-offt{display:flex;align-items:center;gap:9px;padding:8px 6px;margin-top:2px;border-top:1px solid var(--line);cursor:pointer;font-size:11.5px;font-weight:600}
-.tm-offt:hover .mut{color:var(--brand)}
-.tm-offav{display:flex;flex:none}
-.tm-mini{width:21px;height:21px;font-size:8.5px;border-radius:7px;margin-right:-6px;border:2px solid var(--card);font-style:normal;opacity:.75}
-.tm-mini:last-child{margin-right:0}
-.tm-mini::after{display:none}
-.tm-offt .myd-chev{margin-left:auto;transform:rotate(-90deg)}
-.tm-offlist{display:none}
-.tm-show .tm-offlist{display:block}
-.tm-show .tm-offt .myd-chev{transform:none}
-@media(max-width:768px){.tm-m small{display:none}}
+/* ── Οριζόντια μπάρα παρουσίας («Η ομάδα τώρα») ── */
+.tmb{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px 4px;margin-bottom:14px;box-shadow:0 2px 8px rgba(20,50,90,.04)}
+.tmb-h{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);margin-bottom:2px}
+.tmb-h b{color:var(--ink);font-size:13px}
+.tmb-h svg{width:15px;height:15px}
+.tmb-h .mut{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tmb-strip{display:flex;gap:4px;overflow-x:auto;padding:6px 0 8px;scrollbar-width:thin}
+.tmb-p{flex:none;width:68px;background:none;border:0;padding:4px 2px 2px;cursor:pointer;display:flex;flex-direction:column;
+  align-items:center;gap:3px;border-radius:11px;font:inherit}
+.tmb-p:hover{background:var(--bg2)}
+.tmb-badge{font-size:9.5px;font-weight:800;color:var(--mut);font-variant-numeric:tabular-nums;line-height:1;
+  padding:2px 5px;border-radius:999px;background:var(--bg2);border:1px solid var(--line);white-space:nowrap}
+.tmb-p.in .tmb-badge{color:var(--ok);border-color:#16a26a44;background:#16a26a12}
+.tmb-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;
+  font-weight:800;font-size:13px;color:#fff;background:#9aa7b8;box-shadow:0 0 0 2px var(--card),0 0 0 4px transparent;transition:box-shadow .15s}
+.tmb-p.in .tmb-av{background:var(--sc);box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--sc)}
+.tmb-p:hover .tmb-av{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--brand)}
+.tmb-run{position:absolute;right:-3px;bottom:-3px;width:16px;height:16px;border-radius:50%;background:var(--ok);color:#fff;
+  font-size:7px;font-style:normal;display:flex;align-items:center;justify-content:center;border:2px solid var(--card)}
+.tmb-n{font-size:10.5px;color:var(--txt);font-weight:600;max-width:66px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmb-p:not(.in) .tmb-n{color:var(--mut)}
+@media(max-width:768px){.tmb{padding:8px 10px 2px}.tmb-p{width:58px}.tmb-av{width:36px;height:36px;font-size:12px}}
+
+/* ── Pop-up: η μέρα ενός ανθρώπου ── */
+.tp-box{width:min(560px,94vw);margin:6vh auto 0;max-height:86vh;overflow:auto;padding:0}
+.tp-h{display:flex;gap:12px;align-items:flex-start;padding:18px 18px 14px;border-bottom:1px solid var(--line)}
+.tp-av{width:46px;height:46px;border-radius:14px;font-size:15px}
+.tp-hn{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;line-height:1.35}
+.tp-hn b{font-size:16px;color:var(--ink)}
+.tp-hn .mut{font-size:11.5px}
+.tp-st{font-size:12px;font-weight:700}
+.tp-x{flex:none}
+.tp-now{display:flex;align-items:center;gap:10px;padding:11px 18px;font-size:13.5px;border-bottom:1px solid var(--line)}
+.tp-now.live{background:#16a26a0f}
+.tp-now b{color:var(--ink);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.tp-now b:hover{color:var(--brand)}
+.tp-now-k{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);flex:none}
+.tp-now.live .tp-now-k{color:var(--ok)}
+.tp-now-e{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ok);flex:none}
+.tp-k4{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:14px 12px;border-bottom:1px solid var(--line)}
+.tp-k{text-align:center;padding:0 4px}
+.tp-k b{display:block;font-size:19px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.tp-k small{display:block;font-size:10px;color:var(--mut);line-height:1.25;margin-top:4px;font-weight:600}
+.tp-sec{padding:12px 18px;border-bottom:1px solid var(--line)}
+.tp-sec:last-of-type{border-bottom:none}
+.tp-lbl{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);margin-bottom:8px}
+.tp-spark{display:flex;align-items:flex-end;gap:6px;height:56px}
+.tp-bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+.tp-bar i{display:block;width:100%;max-width:34px;height:var(--h);min-height:3px;border-radius:5px 5px 2px 2px;background:var(--brand);opacity:.45}
+.tp-bar.on i{opacity:1;background:var(--ok)}
+.tp-bar small{font-size:9.5px;color:var(--mut);font-weight:700}
+.tp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.tp-list{display:flex;flex-direction:column}
+.tp-row{display:flex;align-items:center;gap:8px;padding:6px 4px;border-radius:8px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line)}
+.tp-row:last-child{border-bottom:none}
+.tp-row:hover{background:var(--bg2)}
+.tp-row.now{background:#16a26a12}
+.tp-row.done{cursor:pointer;color:var(--mut)}
+.tp-row .tp-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tp-row .tp-t b{color:var(--ink);font-weight:600}
+.tp-row .mut{font-size:11.5px}
+.tp-row .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.tp-time{flex:none;width:86px;font-size:11.5px;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
+.tp-row .pill{flex:none}
+.tp-a{display:flex;gap:8px;align-items:center;padding:13px 18px;background:var(--bg2);border-top:1px solid var(--line);
+  position:sticky;bottom:0;border-radius:0 0 14px 14px;flex-wrap:wrap}
+.tp-load{padding:18px}
+.tm-lead{font-style:normal;color:#eba63c;font-size:10px;flex:none}
+@media(max-width:768px){
+  .tp-box{width:100%;margin:0;max-height:100vh;height:100vh;border-radius:0}
+  .tp-k4{grid-template-columns:repeat(2,1fr);gap:12px 2px}
+  .tp-time{width:auto}
+}
 
 /* ═══════════ ΑΔΕΙΕΣ ΠΡΟΣΩΠΙΚΟΥ ═══════════
-   Πίνακες αριθμών: οι ημέρες στοιχίζονται ΔΕΞΙΑ ώστε να συγκρίνονται με το
-   μάτι — δέκα γραμμές με αριστερή στοίχιση δεν διαβάζονται ως στήλη. */
+
+   ΔΟΜΗ, ΟΧΙ ΣΤΟΙΒΑ ΠΕΔΙΩΝ. Η φόρμα άδειας απαντά τέσσερις ξεχωριστές ερωτήσεις
+   — ποιος, πότε, πόσο, τι δηλώθηκε. Όταν ήταν μία στήλη με οκτώ πεδία, κανείς
+   δεν έβλεπε πού τελειώνει η μία και αρχίζει η άλλη, και το βοηθητικό κείμενο
+   κοβόταν στη μέση μέσα σε εσωτερικό scroll.
+
+   ΤΟ ΚΙΝΗΤΟ ΔΕΝ ΕΙΝΑΙ ΣΤΕΝΟ DESKTOP. Οι πίνακες με 8 στήλες γίνονται κάρτες:
+   κάθε γραμμή ένα μπλοκ, κάθε κελί με την ετικέτα του δίπλα. Το πλάγιο scroll
+   σε πίνακα μισθοδοσίας σημαίνει ότι διαβάζεις νούμερα χωρίς να βλέπεις σε
+   ποιον ανήκουν. */
+
+/* ── Παράθυρο φόρμας ── */
+.lv-ovl{position:fixed;inset:0;background:rgba(12,24,44,.5);z-index:400;
+  display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
+.lv-modal{background:var(--card);border-radius:16px;width:100%;max-width:640px;
+  max-height:min(88vh,860px);display:flex;flex-direction:column;
+  box-shadow:0 24px 64px rgba(12,30,60,.28);overflow:hidden}
+.lv-modal-h{display:flex;align-items:center;gap:12px;padding:16px 20px;
+  border-bottom:1px solid var(--line);flex:0 0 auto}
+.lv-modal-h b{font-size:16px;color:var(--ink);flex:1;min-width:0}
+.lv-modal-h .lv-x{background:0;border:0;font-size:20px;line-height:1;color:var(--mut);
+  cursor:pointer;padding:2px 6px;border-radius:7px}
+.lv-modal-h .lv-x:hover{background:var(--line);color:var(--ink)}
+/* Το σώμα κυλά, ΟΧΙ η σελίδα από κάτω — και τα κουμπιά μένουν πάντα ορατά. */
+.lv-modal-b{padding:16px 20px;overflow:auto;flex:1 1 auto;-webkit-overflow-scrolling:touch}
+.lv-modal-f{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap;
+  padding:13px 20px;border-top:1px solid var(--line);background:var(--bg,transparent);flex:0 0 auto}
+.lv-modal-f .lv-sp{flex:1}
+
+/* ── Ενότητες φόρμας ── */
+.lv-sec{margin-bottom:18px}
+.lv-sec:last-child{margin-bottom:0}
+.lv-sec-h{font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.lv-sec-h::after{content:"";flex:1;height:1px;background:var(--line)}
+/* auto-fit: τα πεδία αναδιπλώνονται μόνα τους — καμία media query για τη φόρμα. */
+.lv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px}
+.lv-grid.one{grid-template-columns:1fr}
+.lv-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lv-f>span{font-size:12px;font-weight:600;color:var(--mut)}
+.lv-f .inp{margin:0;width:100%}
+.lv-hint{font-size:11.5px;color:var(--mut);line-height:1.5;margin-top:7px}
+.lv-hint b{color:var(--txt)}
+
+/* ── Πίνακες ── */
 .lv-t{width:100%;border-collapse:collapse;font-size:13px}
 .lv-t th{text-align:left;font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;
   letter-spacing:.3px;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -4210,24 +4302,66 @@ html[data-theme="dark"] .card{border-color:#233043}
   background:var(--line);color:var(--mut)}
 .lv-miss{color:var(--bad,#b91c1c);font-size:11.5px;font-weight:600}
 .lv-sub{font-size:11.5px;font-weight:700;color:var(--mut);text-transform:uppercase;
-  letter-spacing:.3px;margin:14px 0 4px}
+  letter-spacing:.3px;margin:16px 0 5px}
 
 /* Η προειδοποίηση προθεσμίας δεν είναι διακοσμητική: μετά τις 31/3 η άδεια
-   γίνεται χρηματική αξίωση με προσαύξηση 100%. Ξεχωρίζει από την υπόλοιπη κάρτα. */
+   γίνεται χρηματική αξίωση με προσαύξηση 100%. */
 .lv-warn{border-color:var(--warn,#b45309)!important;background:rgba(180,83,9,.05)}
 .lv-inline-warn{background:rgba(180,83,9,.08);border:1px solid rgba(180,83,9,.25);border-radius:9px;
-  padding:8px 11px;font-size:12.5px;color:var(--ink);margin-bottom:12px}
+  padding:9px 12px;font-size:12.5px;color:var(--ink);margin-bottom:13px;line-height:1.5}
 .lv-warn-dot{display:inline-block;width:16px;height:16px;line-height:15px;text-align:center;
   border-radius:50%;background:var(--bad,#b91c1c);color:#fff;font-size:11px;font-weight:800;cursor:help}
+.lv-mini{width:78px;padding:4px 7px!important;font-size:12.5px;text-align:right}
 
-.lv-form{display:flex;flex-direction:column;gap:9px;text-align:left}
-.lv-form label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut);font-weight:600}
-.lv-form .inp{margin:0}
-.lv-2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.lv-mini{width:74px;padding:3px 6px!important;font-size:12.5px;text-align:right}
+@media (max-width:820px){
+  .lv-ovl{padding:0;align-items:stretch}
+  /* Φύλλο πλήρους οθόνης: σε 390px ένα «παραθυράκι» με περιθώρια χαραμίζει
+     τον μισό χώρο και τα πεδία βγαίνουν 120px. */
+  .lv-modal{max-width:none;max-height:none;height:100dvh;border-radius:0}
+  .lv-modal-f .btn{flex:1;min-width:120px}
+}
 
 @media (max-width:768px){
-  /* Στο κινητό οι πίνακες κυλούν οριζόντια ΜΕΣΑ στην κάρτα — ποτέ όλη η σελίδα. */
-  .card-b>.lv-t{display:block;overflow-x:auto;white-space:nowrap}
-  .lv-2{grid-template-columns:1fr}
+  /* ΠΙΝΑΚΑΣ → ΚΑΡΤΕΣ. Κάθε γραμμή ένα μπλοκ, κάθε κελί με την ετικέτα του. */
+  .lv-t thead{display:none}
+  .lv-t,.lv-t tbody,.lv-t tr,.lv-t td{display:block;width:100%}
+  .lv-t tr{border-bottom:1px solid var(--line);padding:9px 12px}
+  .lv-t tr:last-child{border-bottom:0}
+  .lv-t td{border:0;padding:3px 0;display:flex;justify-content:space-between;
+    align-items:center;gap:12px;text-align:right}
+  .lv-t td::before{content:attr(data-l);font-size:11px;font-weight:700;color:var(--mut);
+    text-transform:uppercase;letter-spacing:.3px;text-align:left;flex:0 0 auto}
+  /* Το πρώτο κελί είναι ο τίτλος της κάρτας — χωρίς ετικέτα, σε δική του γραμμή. */
+  .lv-t td.lv-hd{display:block;text-align:left;font-size:14px;margin-bottom:5px}
+  .lv-t td.lv-hd::before{content:none}
+  .lv-t td:empty{display:none}
+  .lv-t td.r{text-align:right}
+}
+
+/* Το ιστορικό είναι πτυσσόμενο: υπάρχει όταν το θέλεις, δεν κάθεται μπροστά. */
+.lv-fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+.lv-fold>summary::-webkit-details-marker{display:none}
+.lv-fold>summary::after{content:"▾";margin-left:auto;color:var(--mut);font-size:12px;transition:transform .15s}
+.lv-fold[open]>summary::after{transform:rotate(180deg)}
+.lv-fold>summary:hover{background:var(--hover,rgba(20,80,160,.04))}
+
+/* Πέντε πλακίδια σε μία στήλη σπρώχνουν τα δεδομένα εκτός οθόνης. Δύο ανά
+   σειρά κρατούν και τα νούμερα ευανάγνωστα και τον πίνακα κοντά. Δική μας
+   κλάση, ώστε να μην αλλάξει η συμπεριφορά σε άλλα κυκλώματα. */
+@media (max-width:768px){
+  .lv-tiles{display:grid!important;grid-template-columns:1fr 1fr;gap:9px}
+  .lv-tiles .su-stat{padding:9px 12px}
+  .lv-tiles .su-stat .n{font-size:18px}
+  .lv-tiles .su-stat .l{font-size:10.5px;line-height:1.3}
+}
+
+/* Η ΧΡΟΝΙΑ ΩΣ ΠΡΟΤΑΣΗ: δικαιούται + από πέρσι = διαθέσιμες − πήρε = έμειναν
+   → στο επόμενο. Οι τελεστές είναι σβησμένοι και τα αποτελέσματα έντονα, ώστε
+   το μάτι να πιάνει τα δύο νούμερα που μετράνε χωρίς να διαβάζει τα υπόλοιπα. */
+.lv-flow th.lv-op,.lv-flow td.lv-op{color:var(--mut);font-weight:400}
+.lv-flow th.lv-eq{color:var(--ink)}
+.lv-flow td.lv-eq{background:var(--hover,rgba(20,80,160,.035))}
+@media (max-width:768px){
+  .lv-flow td.lv-eq{background:0}
+  .lv-flow td.lv-op::before,.lv-flow td.lv-eq::before{font-weight:700}
 }

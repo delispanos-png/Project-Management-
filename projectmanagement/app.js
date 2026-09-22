@@ -3791,29 +3791,35 @@ async function vMyDay() {
     + (d.waiting || []).map(w => `<div class="myd-row wait" data-dltask="${w.id}"><span class="dot" style="background:${w.pcolor};flex:none"></span><span class="myd-t"><b>${esc(w.title)}</b><span class="mut"> · ${esc(w.pname || '—')} · περιμένει <b>${esc(w.ballName || '—')}</b></span></span><span class="pill pill-mut" style="flex:none">${esc(w.statusName || '')}</span></div>`).join('')
     + (d.tickets || []).filter(t => t.waitOn === 'client').map(tk => `<div class="myd-row wait" data-qtk="${tk.id}"><span class="myd-ic">${I.ticket}</span><span class="myd-t"><b>#${esc(tk.tid)} ${esc(tk.title)}</b><span class="mut"> · περιμένει πελάτη${tk.waitDays ? ' ' + tk.waitDays + ' ημ.' : ''}</span></span></div>`).join('')
     || '<div class="myd-empty">Δεν περιμένεις κανέναν.</div>';
-  /* 👥 Η ομάδα τώρα — για όσους οργανώνουν: Full & Manager βλέπουν όλους,
-     ο ΕΠΙΚΕΦΑΛΗΣ μιας ομάδας βλέπει τη δική του ομάδα (ο server κόβει τη λίστα, όχι το UI).
-     Τακτοποιημένα: πάνω όσοι είναι μέσα, οι εκτός μαζεμένοι σε μία γραμμή που ανοίγει. */
+  /* 👥 Οριζόντια μπάρα παρουσίας (22/9/2026) — ένας κύκλος ανά άνθρωπο.
+     Πράσινος = μέσα, γκρίζος = εκτός. Πάνω από τον κύκλο η ώρα που είναι
+     συνδεδεμένος και αλληλεπιδρά με το πρόγραμμα σήμερα. Κλικ → η μέρα του με μια ματιά. */
   const team = d.team || [];
   const teamOn = team.filter(x => x.status !== 'offline');
-  const teamOff = team.filter(x => x.status === 'offline');
   const workN = team.filter(x => x.workingOn).length;
-  const hm2 = at => { if (!at) { return '—'; } const dt = new Date(String(at).replace(' ', 'T'));
+  const hm2 = at => { if (!at) { return '\u2014'; } const dt = new Date(String(at).replace(' ', 'T'));
     const sameDay = dt.toDateString() === new Date().toDateString();
     return sameDay ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
       : dt.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'}) + ' ' + dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}); };
-  const tmRow = x => `<div class="tm-row${x.workingOn ? ' live' : ''}" data-tmid="${x.id}" title="${esc(x.name)}${x.team ? ' · ' + esc(x.team) : ''}">
-    <span class="act-ava tm-av" style="--sc:${esc(x.color)}">${esc(x.ini || '?')}</span>
-    <span class="tm-t"><b>${esc(x.name)}${x.lead ? '<i class="tm-lead" title="Επικεφαλής ομάδας">★</i>' : ''}</b>
-      <span class="tm-s">${x.workingOn ? `<em class="tm-work">▶ ${esc(x.workingOn.title)}</em>`
-        : `${esc(x.label)}${x.hint ? ' · ' + esc(x.hint) : ''}`}</span></span>
-    <span class="tm-m"><b>${esc(fmtMin(x.minsToday || 0))}</b>
-      <small>${x.openTasks || 0} εργ. · ${x.status === 'offline' ? esc(hm2(x.seenAt)) : 'μπήκε ' + esc(hm2(x.login))}</small></span></div>`;
-  const teamBody = (teamOn.length ? teamOn.map(tmRow).join('')
-      : '<div class="myd-empty">Κανείς μέσα αυτή τη στιγμή.</div>')
-    + (teamOff.length ? `<div class="tm-offt" data-tmoff><span class="tm-offav">${teamOff.slice(0, 7).map(x => `<i class="act-ava tm-av tm-mini" style="--sc:${esc(x.color)}" title="${esc(x.name)}">${esc(x.ini || '?')}</i>`).join('')}</span>
-        <span class="mut">${teamOff.length} εκτός</span><span class="myd-chev">${I.chev}</span></div>
-      <div class="tm-offlist">${teamOff.map(tmRow).join('')}</div>` : '');
+  const lastLbl = at => { if (!at) { return '\u2014'; }
+    const dt = new Date(String(at).replace(' ', 'T')), n = new Date();
+    const dd = Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(dt.getFullYear(), dt.getMonth(), dt.getDate())) / 86400000);
+    return dd <= 0 ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
+      : dd === 1 ? '\u03c7\u03b8\u03b5\u03c2' : dd < 7 ? dd + ' \u03b7\u03bc.'
+      : String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0'); };
+  const tmbBar = !team.length ? '' : `<div class="tmb">
+    <div class="tmb-h">${I.users}<b>Η ομάδα τώρα</b>
+      <span class="mut">${teamOn.length} μέσα${workN ? ' · ' + workN + ' με χρονόμετρο' : ''}${d.teamScope ? ' · ' + esc(d.teamScope) : ''}</span>
+      <span style="flex:1"></span><a class="myd-link" data-go="activity">δραστηριότητα →</a></div>
+    <div class="tmb-strip">${team.map(x => {
+      const inNow = x.status !== 'offline';
+      const badge = inNow ? (x.connMins ? fmtMin(x.connMins) : 'μόλις') : lastLbl(x.seenAt || x.login);
+      return `<button class="tmb-p${inNow ? ' in' : ''}${x.workingOn ? ' work' : ''}" data-tmp="${x.id}"
+        title="${esc(x.name)}${x.team ? ' · ' + esc(x.team) : ''} — ${esc(x.label)}${x.hint ? ' (' + esc(x.hint) + ')' : ''}">
+        <span class="tmb-badge">${esc(badge)}</span>
+        <span class="tmb-av" style="--sc:${esc(x.color)}">${esc(x.ini || '?')}${x.workingOn ? '<i class="tmb-run">▶</i>' : ''}</span>
+        <span class="tmb-n">${esc(String(x.name).split(' ')[0])}</span></button>`;
+    }).join('')}</div></div>`;
 
   const ovBody = overruns.length ? overruns.map(o => `<div class="myd-row ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
       <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
@@ -3821,7 +3827,7 @@ async function vMyDay() {
       ${o.checkin ? (o.checkin.status === 'done' ? `<span class="pill ${o.checkin.answer === 'help' ? 'pill-bad' : 'pill-ok'}" style="flex:none" title="${esc(o.checkin.answerNote || '')}">${o.checkin.answer === 'help' ? '🆘 θέλει βοήθεια' : '✅ όλα καλά'}</span>` : '<span class="pill pill-info" style="flex:none">💬 ρωτήθηκε</span>') : `<button class="btn btn-sm btn-o" data-ovask style="flex:none">💬 Ρώτα</button>`}
     </div>`).join('') : '';
 
-  c.innerHTML = `<div class="myd-wrap">${hero}
+  c.innerHTML = `<div class="myd-wrap">${hero}${tmbBar}
   <div class="myd-cols">
     <div class="myd-main">
       ${sec('att', 'Θέλουν εσένα', 'από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')})}
@@ -3829,9 +3835,6 @@ async function vMyDay() {
       ${sec('queue', 'Ουρά tickets', 'πρώτα SLA, μετά ο παλαιότερος', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
     </div>
     <div class="myd-rail">
-      ${team.length ? sec('team', d.teamScope ? 'Η ομάδα μου' : 'Η ομάδα τώρα',
-        teamOn.length + ' μέσα · ' + teamOff.length + ' εκτός' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '') + (d.teamScope ? ' · ' + esc(d.teamScope) : ''),
-        team.length, teamBody, {ic: I.users}) : ''}
       ${coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''}
       ${dlAhead.length ? sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))}) : ''}
       ${waitN ? sec('wait', 'Περιμένω άλλους', 'όχι δική σου εκκρεμότητα', waitN, waitBody, {ic: I.clock, collapsed: true}) : ''}
@@ -3850,7 +3853,7 @@ async function vMyDay() {
   { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
-  { const ot = $('#content [data-tmoff]'); if (ot) { ot.onclick = () => ot.parentNode.classList.toggle('tm-show'); } }
+  $$('#content [data-tmp]').forEach(b => b.onclick = () => openTeamPulse(+b.dataset.tmp));
   $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
   $$('#content [data-mdplay]').forEach(b => b.onclick = async e => {
     e.stopPropagation(); const id = +b.dataset.mdplay;
@@ -4445,9 +4448,113 @@ document.addEventListener('keydown', e => {
   }
 }, true);
 
+/* ═════════ 👤 Η μέρα ενός ανθρώπου — pop-up απόφασης (22/9/2026) ═════════
+   Ανοίγει από τον κύκλο της μπάρας παρουσίας. Μία οθόνη, χωρίς πλοήγηση:
+   τι κάνει τώρα, πώς πάει η μέρα του, τι κρατάει ανοιχτό και τι μπορείς να κάνεις
+   γι' αυτό επί τόπου. Ο καταγεγραμμένος χρόνος μπαίνει ΔΙΠΛΑ στον συνδεδεμένο:
+   μόνος του δεν ξεχωρίζει «δεν δούλεψε» από «δούλεψε χωρίς να πατήσει χρονόμετρο». */
+async function openTeamPulse(id) {
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.style.zIndex = cnpTopZ() + 10;
+  ovl.innerHTML = '<div class="pal-box tp-box"><div class="tp-load"><div class="skel" style="height:180px"></div></div></div>';
+  document.body.appendChild(ovl);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey);
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+
+  const d = await api('team_pulse&id=' + id).catch(e => ({err: e.message}));
+  const box = ovl.querySelector('.tp-box');
+  if (!d || d.err) { box.innerHTML = `<div style="padding:24px"><div class="mut">${esc((d && d.err) || 'Δεν φόρτωσε.')}</div></div>`; return; }
+
+  const w = d.who, t = d.today, l = d.load, wk = d.week;
+  const hmm = at => at ? new Date(String(at).replace(' ', 'T')).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}) : '—';
+  /* Καταγραφή = πόσο από τον χρόνο που ήταν μέσα έχει χρονόμετρο από πίσω —
+     μετράει ΤΗΝ ΚΑΤΑΓΡΑΦΗ, όχι την αξία της δουλειάς. Κάτω από 30' παρουσία δεν λέει τίποτα. */
+  const cap = t.conn >= 30 ? Math.min(100, Math.round(t.logged / t.conn * 100)) : null;
+  const capC = cap === null ? 'var(--mut)' : cap >= 70 ? 'var(--ok)' : cap >= 40 ? 'var(--warn)' : 'var(--bad)';
+  const mx = Math.max(1, ...wk.days.map(x => x.mins));
+  const spark = wk.days.map(x => `<span class="tp-bar${x.today ? ' on' : ''}" style="--h:${Math.round(x.mins / mx * 100)}%"
+    title="${esc(x.d)} ${esc(x.date.slice(8, 10) + '/' + x.date.slice(5, 7))} — ${esc(fmtMin(x.mins))}"><i></i><small>${esc(x.d)}</small></span>`).join('');
+
+  const kpi = (n, lbl, col, tip) => `<div class="tp-k" title="${esc(tip || '')}"><b style="color:${col || 'var(--ink)'}">${n}</b><small>${lbl}</small></div>`;
+  const taskLine = x => `<div class="tp-row" data-tptask="${x.id}">
+    <span class="dot" style="background:${esc(x.pcolor)}"></span>
+    <span class="tp-t"><b>${esc(x.title)}</b><span class="mut"> · ${esc(x.pname || 'Χωρίς έργο')}</span></span>
+    ${x.due ? `<span class="pill ${x.late ? 'pill-bad' : 'pill-mut'}">${esc(dShort(x.due))}</span>` : '<span class="pill pill-warn">χωρίς ημ/νία</span>'}</div>`;
+
+  box.innerHTML = `
+  <div class="tp-h">
+    <span class="act-ava tp-av" style="--sc:${esc(w.color)}">${esc(w.ini)}</span>
+    <div class="tp-hn"><b>${esc(w.name)}${w.lead ? ' <i class="tm-lead" title="Επικεφαλής ομάδας">★</i>' : ''}</b>
+      <span class="mut">${esc([w.team, w.role].filter(Boolean).join(' · ') || '—')}</span>
+      <span class="tp-st" style="color:${esc(w.color)}">● ${esc(w.label)}${w.hint ? ' · ' + esc(w.hint) : ''}${t.since ? ' · μέσα από ' + hmm(t.since) : ''}</span></div>
+    <button class="btn btn-sm btn-o tp-x" title="Κλείσιμο">✕</button></div>
+
+  <div class="tp-now ${d.now ? 'live' : 'idle'}">
+    ${d.now ? `<span class="tp-now-k">▶ Τώρα</span><b data-tptask="${d.now.id}">${esc(d.now.title)}</b><span class="tp-now-e">${esc(fmtMin(d.now.mins))}</span>`
+      : `<span class="tp-now-k">Δεν τρέχει χρονόμετρο</span><span class="mut">${t.logged ? 'έχει καταγράψει ' + esc(fmtMin(t.logged)) + ' σήμερα' : 'καμία καταγραφή χρόνου σήμερα'}</span>`}</div>
+
+  <div class="tp-k4">
+    ${kpi(esc(fmtMin(t.logged)), 'καταγεγραμμένος<br>χρόνος', null, 'Όσο χρόνο έχει χρεώσει σε εργασίες σήμερα')}
+    ${kpi(esc(fmtMin(t.conn)), 'μέσα στο<br>εργαλείο', null, 'Από την πρώτη ως την τελευταία κίνηση σήμερα')}
+    ${kpi(cap === null ? '—' : cap + '%', 'καταγραφή<br>χρόνου', capC, 'Πόσο από τον χρόνο που ήταν μέσα έχει χρονόμετρο από πίσω. Μετράει την καταγραφή, όχι την αξία της δουλειάς.')}
+    ${kpi(t.done, 'ολοκληρώθηκαν<br>σήμερα', t.done ? 'var(--ok)' : null, 'Εργασίες που έκλεισε σήμερα')}
+  </div>
+
+  <div class="tp-sec"><div class="tp-lbl">Η εβδομάδα — ${esc(fmtMin(wk.logged))} · ${wk.done} ${wk.done === 1 ? 'ολοκλήρωση' : 'ολοκληρώσεις'}</div>
+    <div class="tp-spark">${spark}</div></div>
+
+  <div class="tp-sec"><div class="tp-lbl">Τι κρατάει ανοιχτό</div>
+    <div class="tp-chips">
+      <span class="pill pill-mut">${l.open} ανοιχτές</span>
+      ${l.overdue ? `<span class="pill pill-bad">${l.overdue} εκπρόθεσμες</span>` : ''}
+      ${l.dueToday ? `<span class="pill pill-warn">${l.dueToday} λήγουν σήμερα</span>` : ''}
+      ${l.ball ? `<span class="pill pill-info">${l.ball} με τη μπάλα</span>` : ''}
+      ${l.noEstimate ? `<span class="pill pill-mut" title="Χωρίς εκτίμηση δεν μπορείς να προβλέψεις τη μέρα του">${l.noEstimate} χωρίς εκτίμηση</span>` : ''}
+    </div>
+    ${(l.tasks || []).length ? `<div class="tp-list">${l.tasks.map(taskLine).join('')}</div>` : '<div class="mut" style="padding:8px 2px;font-size:12.5px">Καμία ανοιχτή εργασία.</div>'}</div>
+
+  ${(t.events || []).length ? `<div class="tp-sec"><div class="tp-lbl">Το πρόγραμμα του σήμερα${t.meetMins ? ' — ' + esc(fmtMin(t.meetMins)) + ' σε συσκέψεις' : ''}</div>
+    <div class="tp-list">${t.events.map(e => `<div class="tp-row${e.now ? ' now' : ''}">
+      <span class="tp-time">${e.allDay ? 'όλη μέρα' : hmm(e.start) + '–' + hmm(e.end)}</span>
+      <span class="tp-t"><b>${esc(e.title)}</b></span>
+      ${e.now ? '<span class="pill pill-ok">τώρα</span>' : ''}</div>`).join('')}</div></div>` : ''}
+
+  ${(l.tickets || []).length ? `<div class="tp-sec"><div class="tp-lbl">Tickets που τον περιμένουν</div>
+    <div class="tp-list">${l.tickets.map(k => `<div class="tp-row" data-tptk="${k.id}">
+      <span class="tp-t"><b>#${esc(k.tid)} ${esc(k.title)}</b><span class="mut"> · ${esc(k.status)}</span></span>
+      ${k.days !== null ? `<span class="pill ${k.days >= 2 ? 'pill-warn' : 'pill-mut'}">${k.days} ημ.</span>` : ''}</div>`).join('')}</div></div>` : ''}
+
+  ${(t.doneList || []).length ? `<div class="tp-sec"><div class="tp-lbl">Έκλεισε σήμερα</div>
+    <div class="tp-list">${t.doneList.map(x => `<div class="tp-row done" data-tptask="${x.id}"><span class="tp-t">✔ ${esc(x.title)}</span></div>`).join('')}</div></div>` : ''}
+
+  <div class="tp-a">
+    ${d.canAsk ? '<button class="btn btn-sm btn-p" id="tpAsk">Ρώτα τι γίνεται</button>' : ''}
+    <button class="btn btn-sm btn-o" id="tpChat">Μήνυμα</button>
+    <span style="flex:1"></span>
+    <button class="btn btn-sm btn-o" id="tpAct">Δραστηριότητα →</button></div>`;
+
+  box.querySelector('.tp-x').onclick = close;
+  box.querySelectorAll('[data-tptask]').forEach(r => r.onclick = () => { close(); openTask(+r.dataset.tptask); });
+  box.querySelectorAll('[data-tptk]').forEach(r => r.onclick = () => { close(); go('inbox', +r.dataset.tptk); });
+  { const b = box.querySelector('#tpChat'); if (b) { b.onclick = () => { close(); go('chat'); }; } }
+  { const b = box.querySelector('#tpAct'); if (b) { b.onclick = () => { close(); go('activity'); }; } }
+  { const b = box.querySelector('#tpAsk'); if (b) { b.onclick = async () => {
+      const msg = await cnpDialog({title: 'Ρώτα τον ' + String(w.name).split(' ')[0],
+        body: 'Θα το δει στα «σε ζητούν» και η απάντησή του έρχεται πίσω στα αιτήματα.',
+        input: 'Πώς πάει η μέρα σου; Χρειάζεσαι κάτι;', rows: 3, max: 400, ok: 'Στείλε', cancel: 'Άκυρο'});
+      if (msg === null || msg === false || !String(msg).trim()) { return; }
+      const r = await api('team_ask', {id: w.id, message: String(msg).trim()}).catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast('Η ερώτηση στάλθηκε'); close();
+    }; } }
+}
+
 window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
-  statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop,
+  statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 

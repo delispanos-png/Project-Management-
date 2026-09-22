@@ -2596,6 +2596,112 @@ function cnp_led_teams($adminId)
         ->where('admin_id', (int) $adminId)->where('is_leader', 1)->pluck('team_id')->all());
 }
 
+/**
+ * Ποιους ανθρώπους επιτρέπεται να «βλέπει» κάποιος ως παρουσία/απόδοση.
+ *
+ * Ένας κανόνας, μία πηγή: Full και ομάδα κλιμάκωσης (Manager) βλέπουν όλους·
+ * ο ΕΠΙΚΕΦΑΛΗΣ ομάδας βλέπει τη δική του ομάδα· μέλος της ομάδας project
+ * management βλέπει τις ομάδες όπου ανήκει. Όποιος δεν πατάει σε τίποτε από
+ * αυτά, δεν βλέπει κανέναν — και η κάρτα δεν εμφανίζεται καν.
+ *
+ * @return array{all:bool,ids:?int[],label:string}  ids===null σημαίνει «όλοι».
+ */
+function cnp_team_scope($adminId, $isFull)
+{
+    $adminId = (int) $adminId;
+    if ($isFull || in_array($adminId, DayPlan::escalateTo(), true)) {
+        return ['all' => true, 'ids' => null, 'label' => ''];
+    }
+    $teams = cnp_led_teams($adminId);
+    if (in_array($adminId, DayPlan::owners(), true)) {
+        $teams = array_values(array_unique(array_merge($teams, array_map('intval',
+            Capsule::table('mod_cpm_team_members')->where('admin_id', $adminId)->pluck('team_id')->all()))));
+    }
+    if (!$teams) {
+        return ['all' => false, 'ids' => [], 'label' => ''];
+    }
+    $ids = array_map('intval', Capsule::table('mod_cpm_team_members')
+        ->whereIn('team_id', $teams)->pluck('admin_id')->all());
+    $ids[] = $adminId;
+    return ['all' => false, 'ids' => array_values(array_unique($ids)),
+        'label' => implode(' · ', array_map('strval', Capsule::table('mod_cpm_teams')
+            ->whereIn('id', $teams)->orderBy('name')->pluck('name')->all()))];
+}
+
+/**
+ * Πόση ώρα ήταν συνδεδεμένος κάποιος σήμερα, και από πότε.
+ *
+ * Το tbladminlog κρατά μία γραμμή ανά συνεδρία (logintime → logouttime/lastvisit).
+ * Αθροίζουμε ΜΟΝΟ το κομμάτι που πέφτει μέσα στη σημερινή ημέρα, ώστε μια
+ * συνεδρία που ξεκίνησε χθες το βράδυ να μη χρεώνει δεκάξι ώρες στο σήμερα.
+ *
+ * @return array<string,array{mins:int,since:?string,until:?string}> κλειδί = username πεζά
+ */
+function cnp_conn_today()
+{
+    $out = [];
+    $day0 = strtotime(date('Y-m-d') . ' 00:00:00');
+    $now = time();
+    try {
+        foreach (Capsule::table('tbladminlog')
+            ->where(function ($q) use ($day0) {
+                $q->where('logintime', '>=', date('Y-m-d H:i:s', $day0))
+                  ->orWhere('lastvisit', '>=', date('Y-m-d H:i:s', $day0))
+                  ->orWhere('logouttime', '>=', date('Y-m-d H:i:s', $day0));
+            })->get(['adminusername', 'logintime', 'logouttime', 'lastvisit']) as $r) {
+            $u = strtolower(trim((string) $r->adminusername));
+            if ($u === '') { continue; }
+            $a = $r->logintime ? strtotime($r->logintime) : 0;
+            $b = max($r->logouttime ? strtotime($r->logouttime) : 0, $r->lastvisit ? strtotime($r->lastvisit) : 0, $a);
+            if (!$a) { continue; }
+            $a = max($a, $day0);
+            $b = min(max($b, $a), $now);
+            if (!isset($out[$u])) { $out[$u] = ['mins' => 0, 'since' => null, 'until' => null]; }
+            $out[$u]['mins'] += (int) round(($b - $a) / 60);
+            if ($out[$u]['since'] === null || $a < strtotime($out[$u]['since'])) { $out[$u]['since'] = date('Y-m-d H:i:s', $a); }
+            if ($out[$u]['until'] === null || $b > strtotime($out[$u]['until'])) { $out[$u]['until'] = date('Y-m-d H:i:s', $b); }
+        }
+    } catch (\Throwable $e) { }
+    return $out;
+}
+
+/**
+ * Το παράθυρο παρουσίας κάποιου ΣΗΜΕΡΑ: από πότε είναι μέσα και πόση ώρα.
+ *
+ * Δύο πηγές, γιατί καμία δεν αρκεί μόνη της: ο σφυγμός της εφαρμογής (pref
+ * seen_first → last_seen) ξέρει πότε ήταν πραγματικά μπροστά στην οθόνη, αλλά
+ * ξεκινά από τη μέρα που μπήκε ο κώδικας· το tbladminlog ξέρει τα logins αλλά
+ * το lastvisit του δεν ενημερώνεται πάντα. Κρατάμε το μεγαλύτερο διάστημα.
+ *
+ * @return array{mins:int,since:?string,last:?string}
+ */
+function cnp_seen_span($adminId, $username = '', array $logCache = [])
+{
+    $day = date('Y-m-d');
+    $since = null; $last = null; $mins = 0;
+    $ls = (int) Db::pref((int) $adminId, 'last_seen', '0');
+    if ($ls && date('Y-m-d', $ls) === $day) { $last = $ls; }
+    $fs = (string) Db::pref((int) $adminId, 'seen_first', '');
+    if (strpos($fs, $day . '|') === 0) {
+        $since = (int) substr($fs, strlen($day) + 1);
+        if ($last !== null && $last >= $since) { $mins = (int) round(($last - $since) / 60); }
+    }
+    $lg = $logCache[strtolower(trim((string) $username))] ?? null;
+    if ($lg) {
+        if ((int) $lg['mins'] > $mins) { $mins = (int) $lg['mins']; }
+        $ls2 = $lg['since'] ? strtotime($lg['since']) : 0;
+        if ($ls2 && ($since === null || $ls2 < $since)) { $since = $ls2; }
+        $lu2 = $lg['until'] ? strtotime($lg['until']) : 0;
+        if ($lu2 && ($last === null || $lu2 > $last)) { $last = $lu2; }
+    }
+    if ($since !== null && $last !== null && $mins < (int) round(($last - $since) / 60)) {
+        $mins = (int) round(($last - $since) / 60);
+    }
+    return ['mins' => max(0, $mins),
+        'since' => $since ? date('Y-m-d H:i:s', $since) : null,
+        'last' => $last ? date('Y-m-d H:i:s', $last) : null];
+}
+
 /** Τα μέλη μιας ομάδας (admin ids), μαζί με τον επικεφαλής. */
 function cnp_team_members($teamId)
 {
@@ -3750,9 +3856,11 @@ function cnp_open_actions()
         /* task_billing_ok: κριτής είναι το cnp_can_approve_billing (ένα ορισμένο
            πρόσωπο), όχι cap — με cap θα περνούσαν ΟΛΟΙ οι full admins.
            billing_pending: η ουρά του εγκρίνοντος, φιλτραρισμένη μέσα στην ενέργεια. */
-        /* myteam: κριτής είναι το is_leader της ομάδας, όχι cap — ο επικεφαλής
-           μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
-        'myteam',
+        /* myteam / team_pulse / team_ask: κριτής είναι το is_leader της ομάδας
+           (cnp_team_scope), όχι cap — ο επικεφαλής μπορεί να μην έχει καθόλου
+           δικαιώματα «Αναφορές». Η ενέργεια ελέγχει ΜΕΣΑ της ότι ο άνθρωπος
+           που ζητήθηκε ανήκει στη δική σου εμβέλεια. */
+        'myteam', 'team_pulse', 'team_ask',
         'task', 'task_delete', 'task_handoff', 'task_share',
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
@@ -4838,28 +4946,10 @@ case 'myday':
          · σφυγμός εφαρμογής (last_seen) = «είναι μπροστά στην οθόνη τώρα»
          · tbladminlog = «πότε μπήκε τελευταία φορά στο WHMCS» (κι όταν δεν έχει ανοιχτό το PM) */
     $teamNow = [];
-    $teamScope = '';
-    $teamSeeAll = $FULL || in_array($adminId, DayPlan::escalateTo(), true);
-    $teamOnly = null;
-    if (!$teamSeeAll) {
-        /* Επικεφαλής ομάδας (mod_cpm_team_members.is_leader) βλέπει ΤΗ ΔΙΚΗ ΤΟΥ ομάδα — όχι όλη την εταιρεία. */
-        $scopeTeams = array_map('intval', Capsule::table('mod_cpm_team_members')
-            ->where('admin_id', $adminId)->where('is_leader', 1)->pluck('team_id')->all());
-        if (in_array($adminId, DayPlan::owners(), true)) {
-            /* Η ομάδα project management οργανώνει — βλέπει και τις δικές της ομάδες, όχι μόνο όσες ηγείται. */
-            $scopeTeams = array_values(array_unique(array_merge($scopeTeams, array_map('intval',
-                Capsule::table('mod_cpm_team_members')->where('admin_id', $adminId)->pluck('team_id')->all()))));
-        }
-        if ($scopeTeams) {
-            $teamOnly = array_map('intval', Capsule::table('mod_cpm_team_members')
-                ->whereIn('team_id', $scopeTeams)->pluck('admin_id')->all());
-            $teamOnly[] = $adminId;
-            $teamOnly = array_values(array_unique($teamOnly));
-            $teamScope = implode(' · ', array_map('strval', Capsule::table('mod_cpm_teams')
-                ->whereIn('id', $scopeTeams)->orderBy('name')->pluck('name')->all()));
-        }
-    }
-    if ($teamSeeAll || $teamOnly) {
+    $tsc = cnp_team_scope($adminId, $FULL);
+    $teamScope = $tsc['label'];
+    if ($tsc['all'] || $tsc['ids']) {
+        $teamOnly = $tsc['ids'];
         $teamOf = [];
         foreach (Capsule::table('mod_cpm_team_members as m')->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
             ->orderBy('m.is_leader', 'desc')->get(['m.admin_id', 'm.is_leader', 't.name']) as $tmr) {
@@ -4872,6 +4962,7 @@ case 'myday':
                 $lastLogin[strtolower((string) $lg->adminusername)] = $lg->lt;
             }
         } catch (\Throwable $eL) { }
+        $connT = cnp_conn_today();
         $runNow = [];
         foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['admin_id', 'task_id', 'started_at']) as $rl) {
             $runNow[(int) $rl->admin_id] = ['task' => (int) $rl->task_id, 'since' => $rl->started_at];
@@ -4886,6 +4977,9 @@ case 'myday':
             $seen = (int) Db::pref($aid, 'last_seen', '0');
             $rn = $runNow[$aid] ?? null;
             $tt = $rn ? Db::task($rn['task']) : null;
+            $cn = cnp_seen_span($aid, (string) $ad->username, $connT);
+            $minsT = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $aid)->where('running', 0)
+                ->where('created_at', '>=', $today . ' 00:00:00')->sum('minutes');
             $teamNow[] = [
                 'id' => $aid, 'name' => $nmA, 'ini' => initials($nmA),
                 'status' => $pr['status'], 'label' => $pr['label'], 'color' => $pr['color'],
@@ -4893,12 +4987,12 @@ case 'myday':
                 'hint' => (string) ($pr['hint'] ?? ''),
                 'seenAt' => $seen ? date('Y-m-d H:i:s', $seen) : null,
                 'login' => $lastLogin[strtolower((string) $ad->username)] ?? null,
+                'connMins' => (int) $cn['mins'], 'connSince' => $cn['since'],
                 'workingOn' => $tt ? ['id' => (int) $tt->id, 'title' => (string) $tt->title, 'since' => $rn['since']] : null,
                 'openTasks' => (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIdsT)
                     ->where(function ($q) use ($aid) { $q->where('action_user', $aid)->orWhere(function ($x) use ($aid) {
                         $x->where('assignee', $aid)->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); }); }); })->count(),
-                'minsToday' => (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $aid)->where('running', 0)
-                    ->where('created_at', '>=', $today . ' 00:00:00')->sum('minutes'),
+                'minsToday' => $minsT,
             ];
         }
         /* Πρώτα όσοι δουλεύουν τώρα, μετά οι διαθέσιμοι, τελευταίοι οι εκτός. */
@@ -5174,6 +5268,150 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
         'note' => 'Οι απαντήσεις αντιστοιχίζονται με βάση το όνομα/username του χειριστή. '
             . 'Ο καταγεγραμμένος χρόνος δεν μετράται — υπάρχουν μόλις '
             . (int) Capsule::table('mod_cpm_timelogs')->count() . ' εγγραφές χρόνου συνολικά.']);
+
+case 'team_pulse':                       /* 👤 Η μέρα ενός ανθρώπου με μια ματιά (pop-up απόφασης).
+      Κριτής είναι το cnp_team_scope (επικεφαλής / ομάδα PM / Manager / Full), ΟΧΙ cap:
+      ο επικεφαλής μιας ομάδας μπορεί να μην έχει καθόλου δικαιώματα «Αναφορές». */
+    $tscP = cnp_team_scope($adminId, $FULL);
+    if (!$tscP['all'] && !$tscP['ids']) { fail('Δεν βλέπεις παρουσία ομάδας', 403); }
+    $whoP = (int) ($_GET['id'] ?? $in['id'] ?? 0);
+    if (!$whoP) { fail('Λείπει ο χειριστής'); }
+    if (!$tscP['all'] && !in_array($whoP, $tscP['ids'], true)) { fail('Δεν ανήκει στην ομάδα σου', 403); }
+    $adP = Capsule::table('tbladmins')->where('id', $whoP)->first(['id', 'username']);
+    if (!$adP) { fail('Δεν βρέθηκε ο χειριστής', 404); }
+
+    $nmP = Db::adminName($whoP);
+    $prP = cnp_presence($whoP);
+    $dayP = date('Y-m-d');
+    $nowP = time();
+    $closedP = Db::closedStatusIds();
+    $donePh = Db::statusIds(['done']);
+
+    /* ── Τώρα ── */
+    $runP = Capsule::table('mod_cpm_timelogs')->where('admin_id', $whoP)->where('running', 1)
+        ->first(['task_id', 'started_at']);
+    $nowTask = null;
+    if ($runP) {
+        $tP = Db::task((int) $runP->task_id);
+        $nowTask = ['id' => (int) $runP->task_id, 'title' => $tP ? (string) $tP->title : '#' . (int) $runP->task_id,
+            'mins' => $runP->started_at ? max(0, (int) round(($nowP - strtotime($runP->started_at)) / 60)) : 0];
+    }
+
+    /* ── Σήμερα: καταγεγραμμένος vs συνδεδεμένος χρόνος ──
+       Τα δύο μαζί είναι που λένε κάτι. Ο καταγεγραμμένος χρόνος μόνος του δεν ξεχωρίζει
+       «δεν δούλεψε» από «δούλεψε και δεν πάτησε το χρονόμετρο». */
+    $loggedP = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $whoP)->where('running', 0)
+        ->where('created_at', '>=', $dayP . ' 00:00:00')->sum('minutes');
+    $connP = cnp_seen_span($whoP, (string) $adP->username, cnp_conn_today());
+    if ($nowTask) { $loggedP += $nowTask['mins']; }
+
+    $doneTodayP = Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
+        ->where('completed_at', '>=', $dayP . ' 00:00:00')->orderBy('completed_at', 'desc')
+        ->limit(8)->get(['id', 'title']);
+    $doneTodayN = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
+        ->where('completed_at', '>=', $dayP . ' 00:00:00')->count();
+
+    /* ── Φόρτος: τι κρατάει ανοιχτό ── */
+    $mineQ = function ($q) use ($whoP) {
+        $q->where('action_user', $whoP)->orWhere(function ($x) use ($whoP) {
+            $x->where('assignee', $whoP)->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); });
+        });
+    };
+    $openP = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $closedP)->where($mineQ)->count();
+    $overdueP = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $closedP)->where($mineQ)
+        ->whereNotNull('due_date')->where('due_date', '<', $dayP)->count();
+    $dueTodayP = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $closedP)->where($mineQ)
+        ->where('due_date', $dayP)->count();
+    $ballP = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $closedP)
+        ->where('action_user', $whoP)->count();
+    $noEstP = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $closedP)->where($mineQ)
+        ->where(function ($q) { $q->whereNull('estimate_minutes')->orWhere('estimate_minutes', 0); })->count();
+
+    $topP = [];
+    foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->whereNotIn('t.status_id', $closedP)->where($mineQ)
+        ->orderByRaw('CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END, t.due_date ASC, t.priority DESC')
+        ->limit(6)->get(['t.id', 't.title', 't.due_date', 't.priority', 'p.name as pname', 'p.color as pcolor']) as $tr) {
+        $topP[] = ['id' => (int) $tr->id, 'title' => (string) $tr->title, 'pname' => (string) ($tr->pname ?? ''),
+            'pcolor' => (string) ($tr->pcolor ?? '#8595ac'), 'due' => $tr->due_date,
+            'late' => $tr->due_date && $tr->due_date < $dayP, 'prio' => (int) $tr->priority];
+    }
+
+    /* ── Η εβδομάδα: επτά στήλες χρόνου, για να φαίνεται ο ρυθμός και όχι μία μέρα ── */
+    $weekP = [];
+    $dLbl = ['Κυ', 'Δε', 'Τρ', 'Τε', 'Πε', 'Πα', 'Σα'];
+    for ($i = 6; $i >= 0; $i--) {
+        $d0 = date('Y-m-d', strtotime("-$i days"));
+        $mn = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $whoP)->where('running', 0)
+            ->where('created_at', '>=', $d0 . ' 00:00:00')->where('created_at', '<=', $d0 . ' 23:59:59')->sum('minutes');
+        $weekP[] = ['d' => $dLbl[(int) date('w', strtotime($d0))], 'date' => $d0, 'mins' => $mn, 'today' => $d0 === $dayP];
+    }
+    $weekDone = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
+        ->where('completed_at', '>=', date('Y-m-d', strtotime('-6 days')) . ' 00:00:00')->count();
+
+    /* ── Το πρόγραμμά του σήμερα ── */
+    $evP = [];
+    foreach (Capsule::table('mod_cpm_events')->where('start_dt', '<=', $dayP . ' 23:59:59')
+        ->where('end_dt', '>=', $dayP . ' 00:00:00')->orderBy('start_dt')
+        ->get(['id', 'title', 'start_dt', 'end_dt', 'all_day', 'attendees', 'created_by']) as $ev) {
+        $att = array_map('intval', array_filter(explode(',', (string) $ev->attendees)));
+        if ((int) $ev->created_by !== $whoP && !in_array($whoP, $att, true)) { continue; }
+        $evP[] = ['id' => (int) $ev->id, 'title' => (string) $ev->title, 'start' => $ev->start_dt, 'end' => $ev->end_dt,
+            'allDay' => (int) $ev->all_day === 1,
+            'now' => strtotime($ev->start_dt) <= $nowP && strtotime($ev->end_dt) >= $nowP];
+    }
+    $meetMins = 0;
+    foreach ($evP as $e) { if (!$e['allDay']) { $meetMins += max(0, (int) round((strtotime($e['end']) - strtotime($e['start'])) / 60)); } }
+
+    /* ── Tickets που περιμένουν αυτόν ── */
+    $tkP = [];
+    try {
+        foreach (Capsule::table('tbltickets')->where('flag', $whoP)
+            ->whereNotIn('status', ['Closed'])->orderBy('lastreply', 'asc')
+            ->limit(5)->get(['id', 'tid', 'title', 'status', 'lastreply']) as $tk) {
+            $tkP[] = ['id' => (int) $tk->id, 'tid' => (string) $tk->tid, 'title' => (string) $tk->title,
+                'status' => (string) $tk->status,
+                'days' => $tk->lastreply ? (int) floor(($nowP - strtotime($tk->lastreply)) / 86400) : null];
+        }
+    } catch (\Throwable $eT) { }
+
+    $teamOfP = Capsule::table('mod_cpm_team_members as m')->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
+        ->where('m.admin_id', $whoP)->orderBy('m.is_leader', 'desc')->first(['t.name', 'm.is_leader', 'm.role_title']);
+
+    out(['ok' => true, 'who' => [
+            'id' => $whoP, 'name' => $nmP, 'ini' => initials($nmP),
+            'status' => $prP['status'], 'label' => $prP['label'], 'color' => $prP['color'],
+            'hint' => (string) ($prP['hint'] ?? ''),
+            'team' => $teamOfP ? (string) $teamOfP->name : '', 'lead' => $teamOfP ? ((int) $teamOfP->is_leader === 1) : false,
+            'role' => $teamOfP ? (string) ($teamOfP->role_title ?? '') : '',
+            'seenAt' => ($sv = (int) Db::pref($whoP, 'last_seen', '0')) ? date('Y-m-d H:i:s', $sv) : null,
+        ],
+        'now' => $nowTask,
+        'today' => ['logged' => $loggedP, 'conn' => (int) $connP['mins'], 'since' => $connP['since'],
+            'until' => $connP['last'], 'done' => $doneTodayN, 'doneList' => $doneTodayP,
+            'meetMins' => $meetMins, 'events' => $evP],
+        'load' => ['open' => $openP, 'overdue' => $overdueP, 'dueToday' => $dueTodayP, 'ball' => $ballP,
+            'noEstimate' => $noEstP, 'tasks' => $topP, 'tickets' => $tkP],
+        'week' => ['days' => $weekP, 'done' => $weekDone,
+            'logged' => array_sum(array_column($weekP, 'mins'))],
+        'canAsk' => $whoP !== $adminId]);
+
+case 'team_ask':                         /* «Ρώτα τι γίνεται» από το pop-up — γίνεται κανονικό αίτημα. */
+    $tscA = cnp_team_scope($adminId, $FULL);
+    if (!$tscA['all'] && !$tscA['ids']) { fail('Δεν βλέπεις παρουσία ομάδας', 403); }
+    $whoA = (int) ($in['id'] ?? 0);
+    if (!$whoA) { fail('Λείπει ο χειριστής'); }
+    if ($whoA === $adminId) { fail('Δεν στέλνεις ερώτηση στον εαυτό σου'); }
+    if (!$tscA['all'] && !in_array($whoA, $tscA['ids'], true)) { fail('Δεν ανήκει στην ομάδα σου', 403); }
+    $msgA = trim((string) ($in['message'] ?? ''));
+    if ($msgA === '') { fail('Γράψε τι θέλεις να ρωτήσεις'); }
+    $hidA = Capsule::table('mod_cpm_help')->insertGetId([
+        'from_admin' => $adminId, 'to_admin' => $whoA, 'task_id' => null, 'project_id' => null,
+        'kind' => 'checkin', 'message' => mb_substr($msgA, 0, 500), 'status' => 'open',
+        'created_at' => date('Y-m-d H:i:s')]);
+    Db::pushNotification($whoA, 'checkin', Db::adminName($adminId) . ' ρωτά: ' . mb_substr($msgA, 0, 80),
+        '/project/#/requests/' . $hidA);
+    out(['ok' => true, 'id' => $hidA]);
 
 case 'myteam':                           // Η ομάδα μου — η οθόνη του επικεφαλής
     /* Ποιος βλέπει τι: ο επικεφαλής ΜΟΝΟ τις ομάδες του· ο διαχειριστής όποια
@@ -17353,6 +17591,11 @@ case 'version':
     if ($seenNow - (int) Db::pref($adminId, 'last_seen', '0') > 30) {
         Db::setPref($adminId, 'last_seen', (string) $seenNow);
     }
+    /* Πρώτη κίνηση της ημέρας: το tbladminlog.lastvisit δεν ενημερώνεται αξιόπιστα,
+       οπότε το «από πότε είναι μέσα» το κρατάμε μόνοι μας — μία εγγραφή την ημέρα. */
+    if (strpos((string) Db::pref($adminId, 'seen_first', ''), date('Y-m-d', $seenNow) . '|') !== 0) {
+        Db::setPref($adminId, 'seen_first', date('Y-m-d', $seenNow) . '|' . $seenNow);
+    }
     /* Χρονόμετρα αποσυνδεδεμένων — έλεγχος κάθε 2΄, όχι σε κάθε σφυγμό. */
     if ($seenNow - (int) Db::pref(0, 'ghost_sweep_at', '0') > 120) {
         Db::setPref(0, 'ghost_sweep_at', (string) $seenNow);
@@ -17905,11 +18148,24 @@ case 'leave_staff':
        υπόλοιπο και δεν πρέπει να μπερδεύονται μαζί του. */
     $lvYear = (int) ($in['year'] ?? $_GET['year'] ?? date('Y'));
     $lvOut = [];
+    $lvSkipped = 0;
     foreach (Capsule::table('mod_cpm_leave_staff')->where('active', 1)->get() as $st) {
+        /* Δεν δείχνουμε άνθρωπο σε έτος που δεν ήταν ακόμη εδώ: μια σειρά με
+           μηδενικά διαβάζεται ως «δεν πήρε άδεια», ενώ η αλήθεια είναι «δεν
+           είχε προσληφθεί». */
+        if ($st->hire_date && (int) substr($st->hire_date, 0, 4) > $lvYear) {
+            $lvSkipped++;
+            continue;
+        }
         $bal = Leave::balance($st->id);
         $b = $bal[$lvYear] ?? ['entitled' => 0, 'carried' => 0, 'available' => 0,
             'taken' => 0, 'remaining' => 0, 'mismatch' => false, 'note' => ''];
         $sug = Leave::suggestEntitlement($st, $lvYear);
+        /* ΤΙ ΕΦΥΓΕ ΜΠΡΟΣΤΑ. Η «μεταφορά» του επόμενου έτους ΕΙΝΑΙ ό,τι δεν πήρε
+           φέτος και κρατήθηκε. Χωρίς αυτό η χρονιά δεν κλείνει: βλέπεις ότι
+           έμειναν 5 ημέρες και δεν ξέρεις αν μεταφέρθηκαν, αποζημιώθηκαν ή
+           χάθηκαν. */
+        $carriedOut = (float) ($bal[$lvYear + 1]['carried'] ?? 0);
         $lvOut[] = [
             'staffId'  => (int) $st->id,
             'adminId'  => (int) $st->admin_id,
@@ -17918,6 +18174,9 @@ case 'leave_staff':
             'hire'     => (string) $st->hire_date,
             'entitled' => (float) $b['entitled'],
             'carried'  => (float) $b['carried'],
+            'available' => (float) ($b['available'] ?? ($b['entitled'] + $b['carried'])),
+            'carriedOut' => $carriedOut,
+            'settled'  => !empty($b['settled']),
             'taken'    => (float) $b['taken'],
             'remaining' => (float) $b['remaining'],
             'suggest'  => $sug['days'],
@@ -17932,7 +18191,7 @@ case 'leave_staff':
         ];
     }
     usort($lvOut, function ($a, $b) { return strcmp($a['name'], $b['name']); });
-    out(['ok' => true, 'year' => $lvYear, 'rows' => $lvOut,
+    out(['ok' => true, 'year' => $lvYear, 'rows' => $lvOut, 'notYet' => $lvSkipped,
         'years' => cnp_leave_years_seen(), 'types' => cnp_leave_types()]);
 
 case 'leave_person':
