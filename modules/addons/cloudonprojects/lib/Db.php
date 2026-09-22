@@ -1965,6 +1965,34 @@ class Db
         /* Άνθρωποι, ρόλοι και ειδικότητες — το έδαφος της δεξαμενής. Δες lib/Pool.php. */
         Pool::install();
 
+        /* ΤΙ ΕΓΙΝΕ ΜΕ ΤΗ ΣΥΣΚΕΨΗ ΟΤΑΝ ΠΕΡΑΣΕ Η ΩΡΑ ΤΗΣ. Χωρίς αυτό, στο end_dt
+           ο χειριστής γινόταν αυτόματα «διαθέσιμος» ενώ η σύσκεψη συνεχιζόταν —
+           και όποιος τον έψαχνε νόμιζε ότι είναι ελεύθερος. */
+        if ($s->hasTable('mod_cpm_events') && !$s->hasColumn('mod_cpm_events', 'outcome')) {
+            $s->table('mod_cpm_events', function ($t) {
+                $t->string('outcome', 10)->nullable();        // done — όταν έφυγαν ΟΛΟΙ
+                $t->timestamp('outcome_at')->nullable();
+                $t->integer('outcome_by')->unsigned()->nullable();
+                $t->smallInteger('extended_min')->default(0);
+            });
+        }
+
+        /* Η ΕΚΒΑΣΗ ΕΙΝΑΙ ΑΤΟΜΙΚΗ, ΟΧΙ ΤΗΣ ΣΥΣΚΕΨΗΣ. Σε σύσκεψη με πέντε άτομα
+           δύο μπορεί να έχουν φύγει και τρεις να συνεχίζουν. Αν η απάντηση
+           κρατιόταν πάνω στη σύσκεψη, ο πρώτος που απαντά θα την έκλεινε για
+           όλους — και η παράταση θα κρατούσε «σε σύσκεψη» ακόμη κι όποιον έχει
+           ήδη βγει. Η προγραμματισμένη ώρα (events.end_dt) μένει ΤΟ ΠΛΑΝΟ και
+           δεν πειράζεται· εδώ ζει η πραγματικότητα του καθενός. */
+        if ($s->hasTable('mod_cpm_event_rsvp') && !$s->hasColumn('mod_cpm_event_rsvp', 'until_dt')) {
+            $s->table('mod_cpm_event_rsvp', function ($t) {
+                $t->dateTime('until_dt')->nullable();         // η ΔΙΚΗ ΤΟΥ ώρα λήξης
+                $t->dateTime('left_at')->nullable();          // πότε βγήκε
+                $t->string('outcome', 10)->nullable();        // done
+                $t->timestamp('outcome_at')->nullable();
+                $t->smallInteger('extended_min')->default(0);
+            });
+        }
+
         /* ΜΙΑ λίστα προϊόντων για tickets, τηλεφωνικό κατάλογο και ρόλους.
            Επαναλήψιμο και ακίνδυνο: ό,τι ήδη ταιριάζει το αφήνει ήσυχο. */
         Catalog::unify(false);

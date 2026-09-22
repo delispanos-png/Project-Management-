@@ -847,17 +847,29 @@ function meetPop(a) {
   let w = $('#chatPops');
   if (!w) { w = document.createElement('div'); w.id = 'chatPops'; document.body.appendChild(w); }
   const soon = a.alert === 'soon';
+  /* ΞΕΠΕΡΑΣΕ ΤΗΝ ΩΡΑ ΤΗΣ. Δεν είναι υπενθύμιση — είναι ερώτηση, και δεν φεύγει
+     μόνη της: όσο δεν απαντηθεί, ο χειριστής φαίνεται διαθέσιμος ενώ δεν είναι. */
+  const over = a.alert === 'over';
   const el = document.createElement('div');
-  el.className = 'chat-pop meet-pop' + (soon ? ' soon' : '');
-  el.innerHTML = `<div class="cp-h"><span class="mp-ic">${soon ? '⏰' : '📅'}</span>
-      <b>${soon ? (a.inMin > 0 ? 'Σε ' + a.inMin + '΄ αρχίζει' : 'Αρχίζει τώρα') : 'Πρόσκληση σε σύσκεψη'}</b>
+  el.className = 'chat-pop meet-pop' + (soon ? ' soon' : '') + (over ? ' over' : '');
+  el.innerHTML = `<div class="cp-h"><span class="mp-ic">${over ? '⏳' : soon ? '⏰' : '📅'}</span>
+      <b>${over ? 'Πέρασε η ώρα της' : soon ? (a.inMin > 0 ? 'Σε ' + a.inMin + '΄ αρχίζει' : 'Αρχίζει τώρα') : 'Πρόσκληση σε σύσκεψη'}</b>
       <span style="flex:1"></span><button class="cp-x" title="Κλείσιμο">✕</button></div>
     <div class="cp-b"><b class="mp-t">${esc(a.title)}</b>
       <div class="mp-meta">${esc(a.whenTxt)}${a.how ? ' · ' + esc(a.how) : ''}</div>
       ${a.client ? `<div class="mp-meta">👤 ${esc(a.client)}</div>` : ''}
-      ${!soon && a.by ? `<div class="mp-meta">από ${esc(a.by)}</div>` : ''}</div>
+      ${over ? `<div class="mp-over">+${a.overMin}΄ πάνω από την ώρα της${
+        a.extended ? ` · έχεις ήδη πάρει ${a.extended}΄ παράταση` : ''}</div>
+        <div class="mp-meta">Η απάντηση αφορά <b>εσένα</b> — οι υπόλοιποι μπορεί να συνεχίζουν.
+        Όσο δεν απαντάς, φαίνεσαι <b>διαθέσιμος</b>.</div>` : ''}
+      ${!soon && !over && a.by ? `<div class="mp-meta">από ${esc(a.by)}</div>` : ''}</div>
     <div class="cp-f">
-      ${soon
+      ${over
+        ? `<button class="btn btn-sm btn-p" data-go="done" title="Για εσένα — οι υπόλοιποι μπορεί να συνεχίζουν">✔ Βγήκα</button>
+           <button class="btn btn-sm btn-o" data-go="ext15">+15΄</button>
+           <button class="btn btn-sm btn-o" data-go="ext30">+30΄</button>
+           <button class="btn btn-sm btn-o" data-go="openend" title="Δεν ξέρω πότε — ξαναρωτάμε σε μισή ώρα">Συνεχίζεται</button>`
+        : soon
         ? (a.join ? `<button class="btn btn-sm btn-p" data-go="join">${a.mode === 'phone' ? I.phone : I.video} Συμμετοχή</button>` : '')
           + `<button class="btn btn-sm btn-o" data-go="open">Άνοιγμα</button>`
         : `<button class="btn btn-sm btn-p" data-go="acc">✔ Θα είμαι εκεί</button>
@@ -874,6 +886,17 @@ function meetPop(a) {
       await api('event_rsvp', {id: a.id, status: go2 === 'acc' ? 'accepted' : 'declined'}).catch(() => {});
       toast(go2 === 'acc' ? '✔ Δήλωσες συμμετοχή — η κατάστασή σου θα γίνει «Σε σύσκεψη» την ώρα της'
         : 'Καταγράφηκε ότι δεν μπορείς');
+    } else if (go2 === 'done' || go2.indexOf('ext') === 0 || go2 === 'openend') {
+      const body = go2 === 'done' ? {what: 'done'}
+        : go2 === 'openend' ? {what: 'open'}
+        : {what: 'extend', minutes: +go2.slice(3)};
+      const x = await api('event_outcome', {id: a.id, ...body}).catch(e => ({err: e.message}));
+      if (x && (x.err || x.error)) { toast(x.err || x.error, true); return; }
+      toast(x.msg || 'Καταγράφηκε');
+      /* Η κάρτα «over» ΔΕΝ σημειώνεται ως «την είδα»: αν πήρε παράταση πρέπει
+         να ξαναρωτήσει όταν περάσει και η νέα ώρα. Ο server τη σβήνει. */
+      kill(); stopChatTitle();
+      return;
     } else if (go2 === 'join' && a.join) {
       if (a.mode === 'phone') { location.href = 'tel:' + String(a.join).replace(/\s/g, ''); }
       else { window.open(a.join, '_blank'); }
@@ -881,10 +904,11 @@ function meetPop(a) {
     seen(); kill(); stopChatTitle();
   });
   if (soon) { setTimeout(() => { seen(); kill(); }, 60000); }   // η υπενθύμιση φεύγει μόνη
+  /* Η ερώτηση της υπέρβασης ΔΕΝ φεύγει μόνη: θέλει απάντηση. */
   chatBeep();
   if (!chatTitleTimer) {
     let on = false;
-    const txt = soon ? '⏰ Σύσκεψη τώρα' : '📅 Πρόσκληση σε σύσκεψη';
+    const txt = over ? '⏳ Είσαι ακόμη στη σύσκεψη;' : soon ? '⏰ Σύσκεψη τώρα' : '📅 Πρόσκληση σε σύσκεψη';
     chatTitleTimer = setInterval(() => { on = !on; document.title = on ? txt : CHAT_TITLE0; }, 1100);
     window.addEventListener('focus', stopChatTitle, {once: true});
   }
