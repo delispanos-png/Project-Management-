@@ -1489,6 +1489,33 @@ function cnp_leave_mirror($leaveId)
 }
 
 /** Πόσα «κρέμονται» από κάθε προϊόν — ώστε να μη σβήνεται ό,τι κουβαλά ιστορικό. */
+/**
+ * ΛΕΠΤΑ ΟΜΙΛΙΑΣ στο τηλέφωνο, από τα CDR του 3CX.
+ *
+ * Είναι πραγματική δουλειά που ΚΑΝΕΝΑ χρονόμετρο δεν πιάνει: ο χειριστής δεν
+ * σταματά να πατήσει «έναρξη» επειδή χτύπησε το τηλέφωνο. Χωρίς αυτό, κάποιος
+ * με δεκαέξι ώρες ομιλίας την εβδομάδα φαινόταν να «μην καταγράφει χρόνο».
+ *
+ * Μετριέται ο ΧΡΟΝΟΣ ΟΜΙΛΙΑΣ, όχι η διάρκεια της κλήσης: το κουδούνισμα και η
+ * αναμονή δεν είναι δουλειά.
+ *
+ * @return array<string,int> ημερομηνία => λεπτά
+ */
+function cnp_phone_minutes($adminId, $from, $to)
+{
+    $out = [];
+    foreach (Capsule::table('mod_cpm_calls')
+        ->where('admin_id', (int) $adminId)
+        ->where('talk_seconds', '>', 0)
+        ->where('started_at', '>=', $from . ' 00:00:00')
+        ->where('started_at', '<=', $to . ' 23:59:59')
+        ->selectRaw('DATE(started_at) d, SUM(talk_seconds) s')
+        ->groupBy('d')->get() as $r) {
+        $out[(string) $r->d] = (int) round(((int) $r->s) / 60);
+    }
+    return $out;
+}
+
 function cnp_product_usage()
 {
     $out = [];
@@ -5480,6 +5507,11 @@ case 'team_pulse':                       /* 👤 Η μέρα ενός ανθρώ
         ->where('created_at', '>=', $dayP . ' 00:00:00')->sum('minutes');
     $connP = cnp_seen_span($whoP, (string) $adP->username, cnp_conn_today());
     if ($nowTask) { $loggedP += $nowTask['mins']; }
+    /* Ο χρόνος στο τηλέφωνο μένει ΞΕΧΩΡΙΣΤΟΣ αριθμός: άλλο πράγμα «το κατέγραψε
+       ο ίδιος πάνω σε εργασία», άλλο «το μέτρησε το κέντρο». Μπαίνει όμως μαζί
+       στο ποσοστό κάλυψης, γιατί και τα δύο είναι δουλειά. */
+    $phoneDays = cnp_phone_minutes($whoP, date('Y-m-d', strtotime('-6 days')), $dayP);
+    $phoneP = (int) ($phoneDays[$dayP] ?? 0);
 
     $doneTodayP = Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
         ->where('completed_at', '>=', $dayP . ' 00:00:00')->orderBy('completed_at', 'desc')
@@ -5520,7 +5552,8 @@ case 'team_pulse':                       /* 👤 Η μέρα ενός ανθρώ
         $d0 = date('Y-m-d', strtotime("-$i days"));
         $mn = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $whoP)->where('running', 0)
             ->where('created_at', '>=', $d0 . ' 00:00:00')->where('created_at', '<=', $d0 . ' 23:59:59')->sum('minutes');
-        $weekP[] = ['d' => $dLbl[(int) date('w', strtotime($d0))], 'date' => $d0, 'mins' => $mn, 'today' => $d0 === $dayP];
+        $weekP[] = ['d' => $dLbl[(int) date('w', strtotime($d0))], 'date' => $d0, 'mins' => $mn,
+            'phone' => (int) ($phoneDays[$d0] ?? 0), 'today' => $d0 === $dayP];
     }
     $weekDone = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
         ->where('completed_at', '>=', date('Y-m-d', strtotime('-6 days')) . ' 00:00:00')->count();
@@ -5563,13 +5596,15 @@ case 'team_pulse':                       /* 👤 Η μέρα ενός ανθρώ
             'seenAt' => ($sv = (int) Db::pref($whoP, 'last_seen', '0')) ? date('Y-m-d H:i:s', $sv) : null,
         ],
         'now' => $nowTask,
-        'today' => ['logged' => $loggedP, 'conn' => (int) $connP['mins'], 'since' => $connP['since'],
+        'today' => ['logged' => $loggedP, 'phone' => $phoneP, 'conn' => (int) $connP['mins'],
+            'since' => $connP['since'],
             'until' => $connP['last'], 'done' => $doneTodayN, 'doneList' => $doneTodayP,
             'meetMins' => $meetMins, 'events' => $evP],
         'load' => ['open' => $openP, 'overdue' => $overdueP, 'dueToday' => $dueTodayP, 'ball' => $ballP,
             'noEstimate' => $noEstP, 'tasks' => $topP, 'tickets' => $tkP],
         'week' => ['days' => $weekP, 'done' => $weekDone,
-            'logged' => array_sum(array_column($weekP, 'mins'))],
+            'logged' => array_sum(array_column($weekP, 'mins')),
+            'phone' => array_sum(array_column($weekP, 'phone'))],
         'canAsk' => $whoP !== $adminId]);
 
 case 'team_ask':                         /* «Ρώτα τι γίνεται» από το pop-up — γίνεται κανονικό αίτημα. */
