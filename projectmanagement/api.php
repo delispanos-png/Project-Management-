@@ -3957,7 +3957,9 @@ function cnp_open_actions()
         'quick_task',   // προσωπική εργασία για όλους· έργο/ανάθεση ελέγχονται μέσα στην ενέργεια
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
         'request_update', 'help_ask', 'help_seen',
-        'help_done',
+        /* Το ξαναστείλσιμο και η διαγραφή είναι ΔΙΚΑ ΣΟΥ αιτήματα — ο server
+           ελέγχει μέσα στην ενέργεια ότι είσαι ο αποστολέας. */
+        'help_done', 'help_resend', 'help_del',
         // υπέρβαση εκτίμησης: λίστα μόνο για επικεφαλή/υπεύθυνο (row-level canAsk), ερώτηση & απάντηση row-level
         'overruns', 'overrun_checkin', 'checkin_reply',
         // αρχεία (row-level μέσα στην ενέργεια)
@@ -8726,6 +8728,36 @@ case 'help_seen':                         // ο παραλήπτης είδε τ
     Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))
         ->where('to_admin', $adminId)->whereNull('seen_at')
         ->update(['seen_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true]);
+
+case 'help_resend':                       /* ΞΑΝΑΣΤΕΙΛΕ ΤΟ — σκουντιά χωρίς νέο αίτημα.
+      Το να φτιάχναμε δεύτερο αίτημα θα δίχναζε το νήμα και θα έδειχνε δύο
+      εκκρεμότητες για ένα πράγμα. Εδώ το ίδιο αίτημα ξαναχτυπά: σβήνεται το
+      «το είδα», ώστε να ξαναβγεί μπροστά στον παραλήπτη. */
+    $hrId = (int) ($in['id'] ?? 0);
+    $hrRow = Capsule::table('mod_cpm_help')->where('id', $hrId)->first();
+    if (!$hrRow) { fail('Δεν βρέθηκε το αίτημα', 404); }
+    if ((int) $hrRow->from_admin !== $adminId && !$FULL) { fail('Δεν είναι δικό σου αίτημα', 403); }
+    if ($hrRow->status !== 'open') { fail('Το αίτημα είναι κλειστό — ξανάνοιξέ το πρώτα'); }
+    Capsule::table('mod_cpm_help')->where('id', $hrId)->update(['seen_at' => null]);
+    try {
+        Db::pushNotification((int) $hrRow->to_admin, 'help',
+            Db::adminName($adminId) . ' σε ξαναρωτά: ' . mb_substr((string) $hrRow->message, 0, 80),
+            '#/requests/' . $hrId);
+    } catch (\Throwable $e) { /* η ειδοποίηση δεν χαλάει τη σκουντιά */ }
+    out(['ok' => true]);
+
+case 'help_del':                          /* ΔΙΑΓΡΑΦΗ — μόνο ο ΑΠΟΣΤΟΛΕΑΣ.
+      Ο παραλήπτης δεν σβήνει αίτημα που του έγινε: θα εξαφάνιζε την απόδειξη
+      ότι του ζητήθηκε κάτι. Αυτός το ΤΑΚΤΟΠΟΙΕΙ. */
+    $hdId = (int) ($in['id'] ?? 0);
+    $hdRow = Capsule::table('mod_cpm_help')->where('id', $hdId)->first();
+    if (!$hdRow) { fail('Δεν βρέθηκε το αίτημα', 404); }
+    if ((int) $hdRow->from_admin !== $adminId && !$FULL) {
+        fail('Μόνο αυτός που το έστειλε μπορεί να το διαγράψει', 403);
+    }
+    Capsule::table('mod_cpm_help_msgs')->where('help_id', $hdId)->delete();
+    Capsule::table('mod_cpm_help')->where('id', $hdId)->delete();
     out(['ok' => true]);
 
 case 'help_done':                         // τακτοποιήθηκε

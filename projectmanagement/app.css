@@ -4677,3 +4677,10 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   .pr-cadd{max-width:none;width:100%}
 }
 .cl-picks{max-height:210px;overflow:auto;margin-top:4px}
+
+/* Ενέργειες πάνω στη γραμμή αιτήματος — φαίνονται στο hover, πάντα στο κινητό. */
+.rq-act{display:flex;gap:4px;align-items:center;flex:0 0 auto;opacity:0;transition:opacity .12s}
+.rq-row:hover .rq-act,.rq-row:focus-within .rq-act{opacity:1}
+.rq-act .btn{padding:2px 7px;font-size:12px;line-height:1.5}
+@media (hover:none){ .rq-act{opacity:1} }
+@media (max-width:768px){ .rq-act{opacity:1} }
