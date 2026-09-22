@@ -28,6 +28,7 @@ use WHMCS\Module\Addon\CloudonProjects\Route;
 use WHMCS\Module\Addon\CloudonProjects\Aade;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxPresence;
 use WHMCS\Module\Addon\CloudonProjects\Leave;
+use WHMCS\Module\Addon\CloudonProjects\Watch;
 use WHMCS\Module\Addon\CloudonProjects\DayPlan;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
@@ -3841,6 +3842,8 @@ function cnp_open_actions()
         /* Άδειες: ΤΑ ΔΙΚΑ ΜΟΥ υπόλοιπα και το ΔΙΚΟ ΜΟΥ αίτημα. Ο server ελέγχει
            μέσα στην ενέργεια ότι ο εργαζόμενος είμαι εγώ — δες leave_mine_guard. */
         'leave_me', 'leave_request', 'leave_withdraw',
+        /* «Τι να προσέξω»: ο server αποφασίζει ΤΙ βλέπεις με βάση τον ρόλο σου. */
+        'attention',
         // 🗂 Κάρτες διαχείρισης — ο server ελέγχει ΜΕΣΑ στην ενέργεια ότι είσαι ομάδα PM ή Manager
         'cards', 'card_act', 'cards_build',
         // προφίλ
@@ -4484,7 +4487,17 @@ case 'task':
         }
     }
     $delRight = cnp_task_delete_right($t, $adminId, $FULL);
+    /* ΜΠΟΡΩ ΝΑ ΡΩΤΗΣΩ «ΤΙ ΓΙΝΕΤΑΙ;» — το κρίνει ο server, όχι η οθόνη.
+       Ρωτάει όποιος έχει εποπτεία πάνω σε ΑΥΤΟΝ που κρατά την εργασία:
+       επικεφαλής της ομάδας του ή διαχειριστής. Ο κάτοχος είναι όποιος έχει τη
+       μπάλα — αν πέρασε αλλού, ο ανάδοχος δεν έχει τι να απαντήσει. */
+    $holderT = (int) ($t->action_user ?: $t->assignee);
+    $askScopeT = cnp_team_scope($adminId, $FULL);
+    $canAskT = $holderT && $holderT !== $adminId
+        && ($askScopeT['all'] || in_array($holderT, $askScopeT['ids'], true));
     out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
+        'canAsk' => $canAskT, 'holder' => $holderT,
+        'holderName' => $holderT ? Db::adminName($holderT) : '',
         'creatorId' => (int) $t->created_by, 'path' => $path,
         'depts' => cnp_depts(),
         'owner' => $ownerId ? ['id' => $ownerId, 'name' => clientLabel($ownerId),
@@ -5456,13 +5469,33 @@ case 'team_ask':                         /* «Ρώτα τι γίνεται» α�
     if (!$tscA['all'] && !in_array($whoA, $tscA['ids'], true)) { fail('Δεν ανήκει στην ομάδα σου', 403); }
     $msgA = trim((string) ($in['message'] ?? ''));
     if ($msgA === '') { fail('Γράψε τι θέλεις να ρωτήσεις'); }
+    /* Η ερώτηση μπορεί να κρέμεται από ΣΥΓΚΕΚΡΙΜΕΝΗ εργασία («γιατί καθυστερεί
+       αυτή;»). Χωρίς αυτό, ο χειριστής έπαιρνε «τι γίνεται;» και έπρεπε να
+       μαντέψει για ποιο πράγμα — και ο επικεφαλής να γράψει τον τίτλο με το χέρι. */
+    $taskA = (int) ($in['task'] ?? 0) ?: null;
+    $tTitleA = '';
+    if ($taskA) {
+        $tA = Db::task($taskA);
+        if (!$tA) { $taskA = null; }
+        else {
+            $tTitleA = (string) $tA->title;
+            /* Ρωτάμε ΟΠΟΙΟΝ ΤΗΝ ΚΡΑΤΑ, όχι όποιον της ανατέθηκε κάποτε: αν η
+               μπάλα πέρασε αλλού, ο ανάδοχος δεν έχει τι να απαντήσει. */
+            $holderA = (int) ($tA->action_user ?: $tA->assignee);
+            if ($holderA && $holderA !== $whoA
+                && ($tscA['all'] || in_array($holderA, $tscA['ids'], true))) {
+                $whoA = $holderA;
+            }
+        }
+    }
     $hidA = Capsule::table('mod_cpm_help')->insertGetId([
-        'from_admin' => $adminId, 'to_admin' => $whoA, 'task_id' => null, 'project_id' => null,
+        'from_admin' => $adminId, 'to_admin' => $whoA, 'task_id' => $taskA, 'project_id' => null,
         'kind' => 'checkin', 'message' => mb_substr($msgA, 0, 500), 'status' => 'open',
         'created_at' => date('Y-m-d H:i:s')]);
-    Db::pushNotification($whoA, 'checkin', Db::adminName($adminId) . ' ρωτά: ' . mb_substr($msgA, 0, 80),
+    Db::pushNotification($whoA, 'checkin', Db::adminName($adminId) . ' ρωτά: '
+        . ($tTitleA ? '«' . mb_substr($tTitleA, 0, 48) . '» — ' : '') . mb_substr($msgA, 0, 70),
         '/project/#/requests/' . $hidA);
-    out(['ok' => true, 'id' => $hidA]);
+    out(['ok' => true, 'id' => $hidA, 'to' => $whoA, 'toName' => Db::adminName($whoA)]);
 
 case 'myteam':                           // Η ομάδα μου — η οθόνη του επικεφαλής
     /* Ποιος βλέπει τι: ο επικεφαλής ΜΟΝΟ τις ομάδες του· ο διαχειριστής όποια
@@ -17292,7 +17325,10 @@ case 'topstats':                         // πάνω μενού: live σφυγμ
         }
     } catch (\Throwable $e) {
     }
-    $todayN = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds)
+    /* Ο κανόνας της μπάλας και εδώ: το «σήμερα» μετρούσε σκέτο τον ανάδοχο, οπότε
+       έδειχνε δουλειά που έχει ήδη περάσει σε άλλον. */
+    $todayN = (int) cnp_scope_mine(
+        Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $adminId)
         ->whereNotNull('due_date')->where('due_date', '<=', $today)->count();
     $ball = (int) Capsule::table('mod_cpm_tasks')->where('action_user', $adminId)->whereNotIn('status_id', $doneIds)->count();
     /* Εκκρεμείς εγκρίσεις χρέωσης — μόνο για όποιον τις δίνει. */
@@ -18463,6 +18499,16 @@ case 'leave_ergani':
     out(['ok' => true, 'year' => $lvY, 'rows' => $lvRows, 'missing' => $lvMiss,
         'deadline' => ($lvY + 1) . '-01-31']);
 
+
+case 'attention':
+    /* «Τι να προσέξω» — επόπτης και coach μαζί, ανά ρόλο.
+       ΟΧΙ «watch»: το όνομα το κρατά ήδη ο μηχανισμός παρακολούθησης εργασίας
+       (watchers), και η δεύτερη δήλωση δεν έφτανε ποτέ — η ενέργεια απαντούσε
+       «task» και έμοιαζε με σφάλμα δικαιωμάτων. Προσωπική οθόνη:
+       ο καθένας βλέπει ΤΑ ΔΙΚΑ ΤΟΥ, και επιπλέον την ομάδα του αν είναι
+       επικεφαλής ή τις αναθέσεις αν είναι project manager. Δεν υπάρχει
+       παράμετρος «δείξε μου κάποιον άλλον» — ο ρόλος κρίνεται στον server. */
+    out(Watch::forAdmin($adminId, $FULL));
 
 default:
     fail('unknown action', 404);

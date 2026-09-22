@@ -4493,3 +4493,27 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .pbx-aitk.ok{background:#1f9d5722;color:#1f9d57}
 .pbx-aitk.warn{background:#e0a02022;color:#a8720e}
 .pbx-aitk.bad{background:#e2515f22;color:#e2515f}
+
+/* ═══════════ ΤΙ ΝΑ ΠΡΟΣΕΞΩ — επόπτης & coach ═══════════
+   Κάθε γραμμή είναι ΜΙΑ παρατήρηση με τα αντικείμενά της από κάτω. Το χρώμα
+   στην αριστερή ακμή λέει πόσο επείγει, ώστε το μάτι να πιάνει τη σειρά χωρίς
+   να διαβάσει — κόκκινο πρώτα. */
+.attn-row{display:flex;gap:9px;padding:9px 12px;border-bottom:1px solid var(--line);
+  border-left:3px solid transparent;align-items:flex-start}
+.attn-row:last-of-type{border-bottom:0}
+.attn-row.bad{border-left-color:var(--bad,#b91c1c);background:rgba(185,28,28,.04)}
+.attn-row.warn{border-left-color:var(--warn,#b45309)}
+.attn-row.tip{border-left-color:var(--brand)}
+.attn-ic{flex:none;font-size:15px;line-height:1.35}
+.attn-b{flex:1;min-width:0;font-size:12.5px;color:var(--ink);line-height:1.45}
+.attn-refs{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+/* Τα αντικείμενα είναι σύνδεσμοι, όχι διακόσμηση: πας κατευθείαν εκεί. */
+.attn-ref{display:inline-block;max-width:100%;padding:2px 8px;border-radius:999px;
+  background:var(--line);color:var(--txt);font-size:11px;text-decoration:none;cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attn-ref:hover{background:var(--brand);color:#fff}
+@media (max-width:768px){
+  /* Στο κινητό το αναδυόμενο πιάνει σχεδόν όλο το πλάτος — αλλιώς οι
+     παρατηρήσεις σπάνε σε τέσσερις λέξεις ανά γραμμή. */
+  #attnBtn + .pop,.bell-wrap .pop{max-width:calc(100vw - 24px)}
+}

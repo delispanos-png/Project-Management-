@@ -368,6 +368,9 @@ function renderShell() {
           <button id="remoteChip" style="display:none;border:0;border-radius:99px;background:var(--bad);color:#fff;font-weight:800;padding:7px 14px;cursor:pointer;font-size:12.5px" title="Κλικ για τερματισμό & χρέωση"></button>
           <button class="status-btn" id="statusBtn" title="Κατάσταση διαθεσιμότητας"><span class="dot" id="statusDot"></span><span id="statusLbl">Online</span></button>
           <button class="btn btn-p btn-sm" id="newBtn" title="Δημιουργία">${I.plus} Νέο</button>
+          <div class="bell-wrap"><button class="btn btn-o btn-ico" id="attnBtn" style="position:relative"
+            title="Τι να προσέξεις — ανανεώνεται κάθε ώρα">${I.eye}
+            <span class="bell-n" id="attnN" style="display:none"></span></button></div>
           <button class="btn btn-o btn-ico" id="helpBtn" title="Βοήθεια για αυτή την οθόνη">${I.bulb}</button>
           <div class="bell-wrap"><button class="btn btn-o btn-ico" id="chatBtn" style="position:relative" title="Chat ομάδας">${I.chat}
             <span class="bell-n" id="chatN" style="display:none"></span></button></div>
@@ -445,6 +448,7 @@ function renderShell() {
   };
   $('#bellBtn').onclick = toggleBell;
   const hb = $('#helpBtn'); if (hb) hb.onclick = () => window.CNP.openHelp && window.CNP.openHelp(S.view);
+  { const ab = $('#attnBtn'); if (ab) { ab.onclick = e => { e.stopPropagation(); toggleAttn(); }; } }
   { const cb = $('#chatBtn'); if (cb) { cb.onclick = () => { stopChatTitle(); go('chat'); }; } }
   const pb = $('#palBtn'); if (pb) pb.onclick = () => window.CNP.palette && window.CNP.palette();
   // ── Πάνω μενού: «+ Νέο» quick-create ──
@@ -464,6 +468,9 @@ function renderShell() {
   $('#statusBtn').onclick = e => { e.stopPropagation(); statusPicker(); };
   loadTopStats();
   if (!window._cnpTopTimer) { window._cnpTopTimer = setInterval(loadTopStats, 60000); }
+  /* Η εποπτεία ανανεώνεται ΚΑΘΕ ΩΡΑ — δεν είναι σφυγμός. */
+  loadAttention();
+  if (!window._cnpAttnTimer) { window._cnpAttnTimer = setInterval(loadAttention, 3600000); }
   updateBell(S.boot.unread);
 }
 /* ═══ ΚΑΤΑΣΤΑΣΗ ΔΙΑΘΕΣΙΜΟΤΗΤΑΣ ════════════════════════════════════════════════
@@ -621,6 +628,62 @@ function statusPicker() {
     reason: $('#stReason', ovl).value.trim(),
     mins: pick === 'online' ? '0' : $('#stDur', ovl).value});
 }
+/* ═══════════ ΤΙ ΝΑ ΠΡΟΣΕΞΩ — επόπτης & coach στην πάνω μπάρα ═══════════
+   ΓΙΑΤΙ ΕΔΩ ΚΑΙ ΟΧΙ ΣΤΗ «ΜΕΡΑ ΜΟΥ»: ο coach υπήρχε ήδη, αλλά έπρεπε να ανοίξεις
+   τη «Μέρα μου» για να τον δεις. Όποιος δούλευε όλη μέρα μέσα στα tickets δεν
+   τον έβλεπε ποτέ. Εδώ είναι μπροστά σου σε κάθε οθόνη.
+
+   ΚΑΘΕ ΩΡΑ, ΟΧΙ ΚΑΘΕ ΛΕΠΤΟ: δεν είναι σφυγμός, είναι εποπτεία. Τίποτα από αυτά
+   δεν αλλάζει μέσα σε ένα λεπτό, και μια ένδειξη που αναβοσβήνει συνέχεια
+   παύει να προσέχεται. */
+let cnpAttn = null;
+
+async function loadAttention() {
+  cnpAttn = await api('attention').catch(() => null);
+  const b = $('#attnBtn'), n = $('#attnN');
+  if (!b || !n) { return; }
+  const cnt = cnpAttn ? cnpAttn.n : 0;
+  n.textContent = cnt;
+  n.style.display = cnt ? '' : 'none';
+  n.style.background = cnpAttn && cnpAttn.lvl === 'bad' ? 'var(--bad)'
+    : (cnpAttn && cnpAttn.lvl === 'warn' ? 'var(--warn,#b45309)' : 'var(--brand)');
+  b.title = cnt ? `${cnt} ${cnt === 1 ? 'θέμα θέλει' : 'θέματα θέλουν'} την προσοχή σου`
+    : 'Τίποτα δεν χρειάζεται την προσοχή σου';
+}
+
+function toggleAttn() {
+  const old = $('.pop'); if (old) { old.remove(); return; }
+  const wrap = $('#attnBtn') && $('#attnBtn').parentElement;
+  if (!wrap) { return; }
+  const d = cnpAttn;
+  const pop = document.createElement('div'); pop.className = 'pop';
+  const refRow = r => `<a class="attn-ref" data-rk="${r.kind}" data-ri="${r.id}">${esc(r.label)}</a>`;
+  const body = (d && d.groups && d.groups.length)
+    ? d.groups.map(g => `<div class="pop-sec">${esc(g.title)}</div>`
+        + g.items.map(it => `<div class="attn-row ${it.lvl}">
+            <span class="attn-ic">${it.icon}</span>
+            <div class="attn-b"><div>${esc(it.text)}</div>
+              ${(it.refs || []).length ? `<div class="attn-refs">${it.refs.map(refRow).join('')}</div>` : ''}
+            </div></div>`).join('')).join('')
+    : '<div class="empty" style="padding:24px">Τίποτα δεν χρειάζεται την προσοχή σου αυτή τη στιγμή.</div>';
+  pop.innerHTML = `<div class="pop-h">Τι να προσέξεις
+    <a href="#" id="attnRef" style="font-size:11px;font-weight:600">ανανέωση</a></div>${body}
+    ${d && d.at ? `<div class="mut" style="padding:7px 12px;font-size:11px">τελευταίος έλεγχος ${esc(String(d.at).slice(11, 16))} · ανανεώνεται κάθε ώρα</div>` : ''}`;
+  wrap.appendChild(pop);
+  pop.querySelector('#attnRef').onclick = async e => {
+    e.preventDefault(); e.stopPropagation();
+    pop.remove(); await loadAttention(); toggleAttn();
+  };
+  pop.querySelectorAll('.attn-ref').forEach(a => a.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const k = a.dataset.rk, id = +a.dataset.ri;
+    pop.remove();
+    if (k === 'task') { openTask(id); }
+    else if (k === 'project') { go('board', id); }
+    else if (k === 'request') { go('requests'); }
+  });
+}
+
 async function loadTopStats() {
   const box = $('#topPulse'); if (!box) return;
   const d = await api('topstats').catch(() => null); if (!d) return;
@@ -2519,7 +2582,8 @@ async function openTask(id, entryId, opts) {
         <button class="btn btn-p" id="dSave" data-save>Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${t.done ? '' : `<button class="btn btn-o" id="dHand" title="Τελείωσε το δικό σου κομμάτι — δώσε τη σκυτάλη στον επόμενο">${I.zap} Παράδοση</button>`}
-        ${me.full && t.assignee && t.assignee !== me.id ? '<button class="btn btn-o" id="dAsk">❓ Ζήτα ενημέρωση</button>' : ''}
+        ${d.canAsk ? `<button class="btn btn-o" id="dAskDelay"
+          title="Στέλνει στον ${esc(d.holderName || '')} ερώτηση που ΠΡΕΠΕΙ να απαντηθεί — ο κύκλος κλείνει με την απάντησή του">❓ Γιατί καθυστερεί;</button>` : ''}
         <button class="btn btn-o" id="dHelp" title="Ζήτα ζωντανά τη βοήθεια συναδέλφου για αυτό">${I.sos} Βοήθεια</button>
         <button class="btn btn-o" id="dShare" title="Στείλε την εργασία σε συνάδελφο (chat) ή σε email">${I.link} Στείλε</button>
         ${d.canDelete ? `<button class="btn btn-o" id="dDel" style="color:var(--bad);margin-left:auto"
@@ -2676,7 +2740,7 @@ async function openTask(id, entryId, opts) {
      οι handlers από κάτω να δένουν χωρίς σφάλμα. */
   const canWork = !!(me.full || cnpCan('projects.board.edit') || [t.assignee, t.creator, t.ball].includes(me.id));
   if (!canWork) {
-    ['#dSave', '#dDone', '#dAsk', '#dTitleEdit', '#dBriefSave', '#tStart', '#tStop', '#depAdd', '#dBillOk']
+    ['#dSave', '#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#dBriefSave', '#tStart', '#tStop', '#depAdd', '#dBillOk']
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
     $$('.tk-time-row, .tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
     /* Το πεδίο των ενεργειών κρύβεται — αλλά χωρίς εξήγηση μοιάζει με βλάβη. */
@@ -2850,7 +2914,25 @@ async function openTask(id, entryId, opts) {
     toast(r.watching ? 'Θα ειδοποιείσαι σε κάθε αλλαγή αυτής της εργασίας'
                      : 'Δεν θα ειδοποιείσαι πια για αυτή την εργασία'); openTask(id);
   };
-  const ask = $('#dAsk', dr); if (ask) ask.onclick = async () => { await api('request_update', {task: id}); toast('Στάλθηκε ping στον χειριστή'); };
+  /* ΟΧΙ «ping». Ένα ping το αγνοείς· αυτό είναι ΕΡΩΤΗΣΗ που μένει ανοιχτή μέχρι
+     να απαντηθεί, φαίνεται στα «Αιτήματα» του χειριστή και στο «Τι να προσέξεις»
+     και των δύο — δικό του ως αναπάντητη, δικό μου ως «δεν μου απάντησε». */
+  /* ΟΧΙ «#dAsk»: το id το κρατά ήδη το κουμπί του κυκλώματος υπέρβασης, και ο
+     querySelector έπιανε ΕΚΕΙΝΟ — το κλικ άνοιγε άλλον διάλογο. Ίδιο λάθος με
+     το «ibClose» των tickets· γι' αυτό κάθε νέο κουμπί παίρνει δικό του id. */
+  const ask = $('#dAskDelay', dr);
+  if (ask) { ask.onclick = async () => {
+    const why = await cnpDialog({title: '❓ Γιατί καθυστερεί;',
+      body: `Θα σταλεί στον <b>${esc(d.holderName || '')}</b> ως ερώτηση που πρέπει να απαντήσει.`
+        + ' Μέχρι να απαντήσει, μένει ανοιχτή και στους δύο σας.',
+      input: 'Τι κρατά αυτή την εργασία; Χρειάζεσαι κάτι για να προχωρήσει;',
+      rows: 3, max: 500, ok: 'Στείλε την ερώτηση', cancel: 'Άκυρο'});
+    if (why === null || !String(why).trim()) { return; }
+    try {
+      const r = await api('team_ask', {id: d.holder, task: id, message: String(why).trim()});
+      toast('Στάλθηκε στον ' + (r.toName || '') + ' — θα φανεί όταν απαντήσει');
+    } catch (e) { toast(e.message, 1); }
+  }; }
   /* Ένα αίτημα έρχεται από ΕΝΑ κανάλι — τα chips είναι αμοιβαία αποκλειόμενα,
      και ξανακλικ το καθαρίζει (μπορεί να μπήκε κατά λάθος). */
   $$('[data-src]', dr).forEach(b => b.onclick = () => {
