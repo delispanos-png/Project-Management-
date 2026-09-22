@@ -4890,16 +4890,14 @@ function cnpWireDash(root) {
 /**
  * ΑΚΥΡΩΣΕΙΣ ΥΠΗΡΕΣΙΩΝ στην κάρτα της ημέρας.
  *
- * Τρία πράγματα, με αυτή τη σειρά σημασίας:
- *   1. ΤΡΕΧΕΙ ΑΚΟΜΗ — η υπηρεσία ακυρώθηκε και η Hetzner ΕΠΙΒΕΒΑΙΩΝΕΙ ότι το
- *      μηχάνημα υπάρχει. Χρήμα που τρέχει χωρίς να χρεώνεται.
- *   2. ΑΝΟΙΧΤΑ — το ζήτησε ο πελάτης, δεν έγινε ακόμη.
- *   3. Ξεχασμένες εγγραφές — διαγράφηκε κανονικά, έμεινε μόνο η σύνδεση στα
- *      δικά μας αρχεία. Σιωπηλή σημείωση, ΟΧΙ συναγερμός.
+ * ΚΑΤΟΝΟΜΑΖΕΙ, ΔΕΝ ΑΘΡΟΙΖΕΙ. Ένα «καμία εκκρεμότητα» δεν επιβεβαιώνει τίποτα:
+ * για να ξέρεις ότι οι τρεις σημερινές ακυρώσεις έκλεισαν σωστά, πρέπει να δεις
+ * τις τρεις — με όνομα πελάτη και ετυμηγορία η καθεμία.
  *
- * Η διάκριση 1/3 είναι το όλο νόημα. Η πρώτη εκδοχή δεν τη διέθετε και φώναξε
- * για τρία μηχανήματα που ήταν όλα κανονικά σβησμένα — ψευδής συναγερμός, που
- * είναι χειρότερος από καμία ένδειξη: την επόμενη φορά κανείς δεν την κοιτάζει.
+ * Σειρά: πρώτα ό,τι έχει ΠΡΟΒΛΗΜΑ (από οποιαδήποτε μέρα — ένα ξεχασμένο
+ * μηχάνημα κοστίζει κάθε μέρα), μετά τι ζητήθηκε και εκκρεμεί, μετά οι
+ * σημερινές με ✔/✘. Αν δεν έγινε καμία σήμερα, δείχνει τις τελευταίες — ώστε
+ * να μη μένει ποτέ κενό.
  *
  * Η ΕΝΕΡΓΕΙΑ δεν γίνεται από εδώ: οι υπηρεσίες ζουν στο cloudonadminpanel.
  */
@@ -4909,28 +4907,44 @@ async function mydCancels() {
   const d = await api('cancels').catch(() => null);
   if (!d) { box.innerHTML = '<span class="mut">Δεν φορτώθηκε.</span>'; return; }
 
-  const row = (r, kind) => `<div class="myd-row${kind === 'live' ? ' wait' : ''}">
-    <span class="dot" style="background:${
-      kind === 'live' ? 'var(--bad,#b91c1c)' : 'var(--warn,#b45309)'};flex:none"></span>
+  const dot = r => r.vmState === 'live' ? 'var(--bad,#b91c1c)'
+    : r.vmState === 'unknown' ? 'var(--warn,#b45309)' : 'var(--ok,#15803d)';
+  const mark = r => r.ok ? '✔' : (r.vmState === 'unknown' ? '?' : '✘');
+
+  const row = (r, showNote) => `<div class="myd-row${r.ok ? '' : ' wait'}">
+    <span class="dot" style="background:${dot(r)};flex:none"></span>
     <span class="myd-t"><b>${esc(r.client)}</b><span class="mut"> · ${esc(r.product || 'υπηρεσία')}
       · #${r.service}${r.vm ? ' · VM ' + r.vm : ''}</span>
-      ${kind === 'live' ? `<div class="mut" style="font-size:11.5px">${esc(r.status)} στο WHMCS,
-        αλλά το μηχάνημα <b>τρέχει ακόμη</b>${r.asked === false ? ' · ακύρωση από εμάς' : ''}</div>` : ''}
-      ${kind === 'unknown' ? '<div class="mut" style="font-size:11.5px">δεν απάντησε η Hetzner — δεν ξέρουμε</div>' : ''}
-    </span>
-    ${kind === 'open' && r.type ? `<span class="pill pill-mut" style="flex:none">${esc(r.type)}</span>` : ''}</div>`;
+      ${showNote ? `<div class="mut" style="font-size:11.5px">${esc(r.note)}${
+        r.asked ? ' · το ζήτησε ο πελάτης' : ' · ακύρωση από εμάς'}</div>` : ''}</span>
+    <span class="cn-mk" style="color:${dot(r)};flex:none" title="${esc(r.note)}">${mark(r)}</span></div>`;
 
-  const live = d.stuck || [], unk = d.unknown || [], open = d.open || [];
-  box.innerHTML =
-      (live.length ? `<div class="myd-lbl bad">Τρέχουν ακόμη — ${live.length}</div>${live.map(r => row(r, 'live')).join('')}` : '')
-    + (open.length ? `<div class="myd-lbl">Ζητήθηκαν, εκκρεμούν — ${open.length}</div>${open.map(r => row(r, 'open')).join('')}` : '')
-    + (unk.length ? `<div class="myd-lbl">Δεν μπόρεσε να ελεγχθεί — ${unk.length}</div>${unk.map(r => row(r, 'unknown')).join('')}` : '')
-    + (!live.length && !open.length && !unk.length
-        ? '<span class="mut">Καμία εκκρεμότητα — κάθε ακύρωση έκλεισε και το μηχάνημα σβήστηκε.</span>' : '')
-    + `<div class="mut" style="font-size:11.5px;margin-top:8px">${
-        d.doneRecent ? `Έκλεισαν κανονικά ${d.doneRecent} τις τελευταίες ${d.days} ημέρες. ` : ''}${
-        /* Νοικοκυριό, όχι πρόβλημα: το μηχάνημα έφυγε, η εγγραφή έμεινε. */
-        d.stale ? `${d.stale} παλιές εγγραφές σύνδεσης δεν καθαρίστηκαν — τα μηχανήματα είναι σβηστά.` : ''}</div>`;
+  const bad = d.bad || [], open = d.open || [], today = d.today || [], recent = d.recent || [];
+  let html = '';
+  if (bad.length) {
+    html += `<div class="myd-lbl bad">Θέλουν χέρι — ${bad.length}</div>`
+          + bad.map(r => row(r, true)).join('');
+  }
+  if (open.length) {
+    html += `<div class="myd-lbl">Ζητήθηκαν, εκκρεμούν — ${open.length}</div>`
+          + open.map(r => row(r, true)).join('');
+  }
+  if (today.length) {
+    const okN = today.filter(r => r.ok).length;
+    html += `<div class="myd-lbl">Έκλεισαν σήμερα — ${today.length}${
+      okN === today.length ? ' · όλες σωστά' : ` · ${today.length - okN} με πρόβλημα`}</div>`
+          + today.map(r => row(r, true)).join('');
+  } else if (recent.length) {
+    html += `<div class="myd-lbl">Καμία σήμερα — οι τελευταίες ${recent.length}</div>`
+          + recent.map(r => row(r, true)).join('');
+  }
+  if (!html) { html = '<span class="mut">Καμία ακύρωση τις τελευταίες ημέρες.</span>'; }
+  if (d.stale) {
+    /* Νοικοκυριό, όχι πρόβλημα: το μηχάνημα έφυγε, η εγγραφή σύνδεσης έμεινε. */
+    html += `<div class="mut" style="font-size:11.5px;margin-top:8px">${d.stale} παλιές εγγραφές
+      σύνδεσης δεν καθαρίστηκαν — τα μηχανήματα είναι σβηστά.</div>`;
+  }
+  box.innerHTML = html;
 }
 
 const MYD_BLOCKS = [

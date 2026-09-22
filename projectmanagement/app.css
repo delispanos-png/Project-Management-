@@ -4717,3 +4717,4 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   color:var(--mut,#94a3b8);margin:8px 0 3px}
 .myd-lbl:first-child{margin-top:0}
 .myd-lbl.bad{color:var(--bad,#b91c1c)}
+.cn-mk{font-weight:800;font-size:14px;min-width:16px;text-align:center}

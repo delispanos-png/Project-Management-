@@ -9405,86 +9405,98 @@ case 'call_recent':                      // οι τελευταίες μου κ�
     out(['rows' => $rows9]);
 
 case 'cancels':
-    /* ΑΚΥΡΩΣΕΙΣ ΥΠΗΡΕΣΙΩΝ — τι ζήτησε ο πελάτης και αν έκλεισε ο κύκλος.
+    /* ΑΚΥΡΩΣΕΙΣ ΥΠΗΡΕΣΙΩΝ — τι έκλεισε και αν έκλεισε ΣΩΣΤΑ.
        ΔΕΝ διαχειριζόμαστε υπηρεσίες από εδώ (αυτό ζει στο cloudonadminpanel):
-       εδώ είναι μόνο η ΕΙΔΟΠΟΙΗΣΗ ότι κάτι θέλει ενέργεια ή δεν ολοκληρώθηκε.
+       εδώ είναι μόνο η επιβεβαίωση ότι ο κύκλος έκλεισε — ή η ειδοποίηση ότι δεν.
 
-       Το «ολοκληρώθηκε με επιτυχία» δεν είναι το status του WHMCS. Μια υπηρεσία
-       μπορεί να γράφει «Cancelled» και το VM να τρέχει ακόμη στη Hetzner — και
-       να το πληρώνουμε. Γι' αυτό κοιτάμε αν ΕΜΕΙΣ κρατάμε ακόμη σύνδεση με
-       server: αν ναι, ο κύκλος δεν έκλεισε. */
-    $cnDays = max(7, min(365, (int) ($_GET['days'] ?? $in['days'] ?? 90)));
+       ΚΑΤΟΝΟΜΑΖΟΥΜΕ, ΔΕΝ ΑΘΡΟΙΖΟΥΜΕ. «Καμία εκκρεμότητα» δεν επιβεβαιώνει
+       τίποτα: για να ξέρεις ότι οι τρεις σημερινές έκλεισαν σωστά, πρέπει να
+       δεις τις τρεις. Ημερομηνία ακύρωσης = termination_date, η μέρα που
+       ίσχυσε — όχι η μέρα που το ζήτησε ο πελάτης. */
+    $cnDays = max(1, min(90, (int) ($_GET['days'] ?? $in['days'] ?? 7)));
     $cnHasVm = Capsule::schema()->hasTable('mod_hetzner_instances');
+    $cnToday = date('Y-m-d');
 
-    $cnRow = function ($r) use ($cnHasVm) {
+    $cnBase = function () use ($cnHasVm) {
+        $q = Capsule::table('tblhosting as h')
+            ->leftJoin('tblproducts as p', 'p.id', '=', 'h.packageid')
+            ->leftJoin('tblcancelrequests as cr', 'cr.relid', '=', 'h.id');
+        if ($cnHasVm) {
+            $q->leftJoin('mod_hetzner_instances as hi', 'hi.service_id', '=', 'h.id')
+              ->addSelect('hi.server_id', 'hi.project_id');
+        }
+        return $q->addSelect('h.id as srv', 'h.domainstatus', 'h.userid', 'h.termination_date',
+            'cr.id as crid', 'cr.date as crdate', 'cr.type', 'cr.reason', 'p.name as proion');
+    };
+
+    /* Η κατάσταση ΚΑΘΕ ακύρωσης, με όνομα και ετυμηγορία. */
+    $cnState = ['stale' => 0];
+    $cnSeen = [];   // η ίδια υπηρεσία περνά από δύο λίστες — μετράμε ΜΙΑ φορά
+    $cnRow = function ($r) use ($cnHasVm, &$cnState, &$cnSeen) {
+        $srvId = $cnHasVm ? (int) ($r->server_id ?: 0) : 0;
+        if ($srvId) {
+            $vm = cnp_vm_alive($srvId, $r->project_id);
+            /* Το μηχάνημα έφυγε αλλά η εγγραφή σύνδεσης έμεινε: ο κύκλος
+               ΕΚΛΕΙΣΕ σωστά, απλώς θέλει νοικοκύρεμα στα αρχεία μας. */
+            if ($vm === 'gone' && empty($cnSeen[$srvId])) {
+                $cnState['stale']++;
+                $cnSeen[$srvId] = true;
+            }
+        } else {
+            $vm = 'none';     // δεν ήταν VM — δεν υπάρχει τίποτα να σβηστεί
+        }
+        $ok = ($vm === 'gone' || $vm === 'none');
         return [
-            'id' => (int) $r->id, 'at' => $r->date, 'type' => (string) $r->type,
-            'reason' => mb_substr((string) $r->reason, 0, 200),
             'service' => (int) $r->srv, 'status' => (string) $r->domainstatus,
+            'at' => $r->termination_date,
             'product' => (string) $r->proion,
             'clientId' => (int) $r->userid, 'client' => clientLabel((int) $r->userid),
-            'vm' => $cnHasVm ? (int) ($r->server_id ?: 0) : 0,
+            'asked' => (bool) $r->crid, 'askedAt' => $r->crdate,
+            'type' => (string) $r->type,
+            'vm' => $srvId, 'vmState' => $vm,
+            'ok' => $ok,
+            'note' => $vm === 'live' ? 'το μηχάνημα τρέχει ακόμη'
+                : ($vm === 'unknown' ? 'δεν απάντησε η Hetzner — δεν ελέγχθηκε'
+                : ($vm === 'gone' ? 'το μηχάνημα σβήστηκε' : 'χωρίς μηχάνημα')),
         ];
     };
 
-    $cnBase = function () use ($cnHasVm) {
-        $q = Capsule::table('tblcancelrequests as cr')
-            ->join('tblhosting as h', 'h.id', '=', 'cr.relid')
-            ->leftJoin('tblproducts as p', 'p.id', '=', 'h.packageid');
-        if ($cnHasVm) {
-            $q->leftJoin('mod_hetzner_instances as hi', 'hi.service_id', '=', 'h.id')
-              ->addSelect('hi.server_id');
-        }
-        return $q->addSelect('cr.id', 'cr.date', 'cr.type', 'cr.reason',
-            'h.id as srv', 'h.domainstatus', 'h.userid', 'p.name as proion');
+    $cnPick = function ($from, $to) use ($cnBase, $cnRow) {
+        $out = [];
+        foreach ($cnBase()->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
+            ->whereNotNull('h.termination_date')
+            ->where('h.termination_date', '>=', $from)
+            ->where('h.termination_date', '<=', $to)
+            ->orderBy('h.termination_date', 'desc')->orderBy('h.id', 'desc')
+            ->limit(40)->get() as $r) { $out[] = $cnRow($r); }
+        return $out;
     };
 
-    /* 1. ΑΝΟΙΧΤΑ: το ζήτησε ο πελάτης, η υπηρεσία τρέχει ακόμη. */
+    /* ΣΗΜΕΡΑ. Αν δεν έγινε καμία, δείχνουμε τις τελευταίες ημέρες — ώστε το
+       μπλοκ να μη λέει ποτέ «τίποτα» χωρίς να δείχνει τι έκλεισε τελευταία. */
+    $cnRowsToday = $cnPick($cnToday, $cnToday);
+    $cnRecent = $cnRowsToday ? [] : $cnPick(date('Y-m-d', strtotime('-' . $cnDays . ' days')), $cnToday);
+
+    /* ΑΝΟΙΧΤΑ: το ζήτησε ο πελάτης, η υπηρεσία τρέχει ακόμη. */
     $cnOpen = [];
     foreach ($cnBase()->whereIn('h.domainstatus', ['Active', 'Suspended'])
-        ->orderBy('cr.date', 'desc')->get() as $r) { $cnOpen[] = $cnRow($r); }
+        ->whereNotNull('cr.id')->orderBy('cr.date', 'desc')->get() as $r) {
+        $cnOpen[] = $cnRow($r);
+    }
 
-    /* 2. ΔΕΝ ΕΚΛΕΙΣΕ Ο ΚΥΚΛΟΣ: η υπηρεσία λέει ακυρωμένη, αλλά κρατάμε ακόμη
-          server πάνω της. Αυτό είναι χρήμα που τρέχει χωρίς να χρεώνεται. */
-    $cnStuck = [];      // το VM τρέχει ακόμη — ΕΠΙΒΕΒΑΙΩΜΕΝΟ από τη Hetzner
-    $cnUnknown = [];    // δεν μπορέσαμε να ρωτήσουμε — δεν το λέμε πρόβλημα
-    $cnStale = 0;       // διαγραμμένο, αλλά η εγγραφή σύνδεσης έμεινε
+    /* ΠΡΟΒΛΗΜΑΤΑ ΠΑΝΤΟΥ, όχι μόνο σήμερα: ένα μηχάνημα που ξεχάστηκε πριν έναν
+       μήνα κοστίζει κάθε μέρα. Αυτά ανεβαίνουν πάντα στην κορυφή. */
+    $cnBad = [];
     if ($cnHasVm) {
-        /* Ξεκινάμε από την ΥΠΗΡΕΣΙΑ, όχι από το αίτημα: ένα VM που τρέχει σε
-           ακυρωμένη υπηρεσία είναι το ίδιο πρόβλημα είτε το ζήτησε ο πελάτης
-           είτε το ακύρωσε διαχειριστής. Το πρώτο φίλτρο έχανε τη μισή αλήθεια.
-
-           ΚΑΙ ΜΕΤΑ ΡΩΤΑΜΕ. Η ύπαρξη εγγραφής στον δικό μας πίνακα ΔΕΝ σημαίνει
-           ότι υπάρχει μηχάνημα: η πρώτη εκδοχή φώναξε για τρία που ήταν όλα
-           κανονικά διαγραμμένα. Συναγερμός μόνο για ό,τι επιβεβαιώνει η Hetzner. */
-        foreach (Capsule::table('tblhosting as h')
-            ->join('mod_hetzner_instances as hi', 'hi.service_id', '=', 'h.id')
-            ->leftJoin('tblproducts as p', 'p.id', '=', 'h.packageid')
-            ->leftJoin('tblcancelrequests as cr', 'cr.relid', '=', 'h.id')
-            ->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
-            ->orderBy('h.id', 'desc')
-            ->get(['cr.id', 'cr.date', 'cr.type', 'cr.reason', 'h.id as srv',
-                   'h.domainstatus', 'h.userid', 'p.name as proion',
-                   'hi.server_id', 'hi.project_id']) as $r) {
-            $state = cnp_vm_alive($r->server_id, $r->project_id);
-            $row = $cnRow($r) + ['asked' => (bool) $r->id, 'vmState' => $state];
-            if ($state === 'live')        { $cnStuck[] = $row; }
-            elseif ($state === 'unknown') { $cnUnknown[] = $row; }
-            else                          { $cnStale++; }
+        foreach ($cnBase()->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
+            ->whereNotNull('hi.server_id')->orderBy('h.id', 'desc')->get() as $r) {
+            $row = $cnRow($r);
+            if ($row['vmState'] === 'live' || $row['vmState'] === 'unknown') { $cnBad[] = $row; }
         }
     }
 
-    /* 3. ΕΚΛΕΙΣΑΝ ΚΑΝΟΝΙΚΑ, στην περίοδο — για να φαίνεται ότι δουλεύει. */
-    $cnDone = 0;
-    foreach ($cnBase()->whereIn('h.domainstatus', ['Cancelled', 'Terminated'])
-        ->where('cr.date', '>=', date('Y-m-d 00:00:00', strtotime('-' . $cnDays . ' days')))
-        ->get() as $r) {
-        if (!$cnHasVm || !$r->server_id) { $cnDone++; }
-    }
-
-    out(['ok' => true, 'days' => $cnDays, 'open' => $cnOpen, 'stuck' => $cnStuck,
-         'unknown' => $cnUnknown, 'stale' => $cnStale,
-         'doneRecent' => $cnDone, 'vmAware' => $cnHasVm]);
+    out(['ok' => true, 'days' => $cnDays, 'today' => $cnRowsToday, 'recent' => $cnRecent,
+         'open' => $cnOpen, 'bad' => $cnBad, 'stale' => $cnState['stale'], 'vmAware' => $cnHasVm]);
 
 case 'calls_pending':
     /* ΟΙ ΔΙΚΕΣ ΣΟΥ ΚΛΗΣΕΙΣ ΠΟΥ ΔΕΝ ΕΧΟΥΝ ΧΑΡΑΚΤΗΡΙΣΤΕΙ.
