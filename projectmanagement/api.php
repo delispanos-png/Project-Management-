@@ -3696,13 +3696,49 @@ function cnp_afm_where($w, $like)
  * και δεν έχει μπάλα πουθενά αλλού. Δεν εξαφανίζεται τίποτα — όσες περιμένουν
  * άλλον μαζεύονται χωριστά (βλ. «waiting» στο myday).
  */
-function cnp_scope_mine($q, $adminId)
+/**
+ * Ο ΚΑΝΟΝΑΣ ΤΗΣ ΜΠΑΛΑΣ — ο ΜΟΝΑΔΙΚΟΣ ορισμός του «δικά μου».
+ *
+ * Μια εργασία ανήκει σε ΕΝΑΝ άνθρωπο κάθε φορά: σε αυτόν που κρατά την μπάλα.
+ * Η ανάθεση μετράει ΜΟΝΟ όταν δεν την κρατά κανείς. Αλλιώς η ίδια εργασία
+ * εμφανίζεται σε δύο ανθρώπους και κανείς δεν ξέρει ποιος την τρέχει.
+ *
+ * ΚΑΘΕ οθόνη που λέει «δικά μου» ή «οι εργασίες του Χ» περνά από εδώ. Στις
+ * 22/09/2026 έξι οθόνες φιλτράριζαν μόνο με `assignee` και έδειχναν εργασίες
+ * που η μπάλα τους ήταν αλλού — ο Βάκρινος τις είδε στο «Πλάνο μου».
+ *
+ * @param mixed  $q       query builder πάνω στο mod_cpm_tasks
+ * @param int    $adminId ο χειριστής
+ * @param string $p       πρόθεμα πίνακα όταν υπάρχει join («t.»)
+ */
+/**
+ * Ο ίδιος κανόνας σε πληθυντικό: οι εργασίες ΜΙΑΣ ΟΜΑΔΑΣ. Ανήκει στην ομάδα
+ * όποια κρατά μέλος της — ή, αν δεν την κρατά κανείς, όποια ανατέθηκε σε μέλος.
+ * Χωρίς αυτό, ο επικεφαλής έβλεπε εργασίες που έφυγαν από την ομάδα του.
+ */
+function cnp_scope_team($q, array $ids, $p = '')
 {
-    return $q->where(function ($w) use ($adminId) {
-        $w->where('action_user', $adminId)
-          ->orWhere(function ($x) use ($adminId) {
-              $x->where('assignee', $adminId)
-                ->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); });
+    $ids = $ids ?: [0];
+    return $q->where(function ($w) use ($ids, $p) {
+        $w->whereIn($p . 'action_user', $ids)
+          ->orWhere(function ($x) use ($ids, $p) {
+              $x->whereIn($p . 'assignee', $ids)
+                ->where(function ($y) use ($p) {
+                    $y->whereNull($p . 'action_user')->orWhere($p . 'action_user', 0);
+                });
+          });
+    });
+}
+
+function cnp_scope_mine($q, $adminId, $p = '')
+{
+    return $q->where(function ($w) use ($adminId, $p) {
+        $w->where($p . 'action_user', $adminId)
+          ->orWhere(function ($x) use ($adminId, $p) {
+              $x->where($p . 'assignee', $adminId)
+                ->where(function ($y) use ($p) {
+                    $y->whereNull($p . 'action_user')->orWhere($p . 'action_user', 0);
+                });
           });
     });
 }
@@ -4841,6 +4877,8 @@ case 'myday':
        έχουν 8 μέλη και θα γέμιζαν τη λίστα όλων. Ευθύνη = υπεύθυνος ή έχω δική μου ανοιχτή εργασία. */
     $myProjIds = [];
     foreach (Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds)->whereNotNull('project_id')
+        /* ball-rule: ok — εδώ δεν ρωτάμε «ποιανού είναι η εργασία» αλλά «σε ποια
+           έργα ΕΜΠΛΕΚΟΜΑΙ». Η συμμετοχή είναι σκόπιμα ευρύτερη από την κατοχή. */
         ->where(function ($w) use ($adminId) { $w->where('assignee', $adminId)->orWhere('action_user', $adminId); })
         ->distinct()->pluck('project_id') as $ptId) { $myProjIds[(int) $ptId] = true; }
 
@@ -5463,7 +5501,12 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
 
     $rows = [];
     foreach ($people as $aid => $p) {
-        $tasksDone = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
+        /* ball-rule: ok — η ΟΛΟΚΛΗΡΩΣΗ πιστώνεται σε αυτόν που την έκλεισε, όχι
+           σε αυτόν που την είχε στο όνομά του. Σε 21 από 53 ολοκληρώσεις (40%)
+           την έκλεισε άλλος — η οθόνη πίστωνε λάθος άνθρωπο. Όπου λείπει το
+           completed_by (παλιές εγγραφές) πέφτουμε στην ανάθεση. */
+        $tasksDone = Capsule::table('mod_cpm_tasks')
+            ->whereRaw('COALESCE(completed_by, assignee) = ?', [$aid])
             ->whereBetween('completed_at', [$fromTs, $toTs])->get(['due_date', 'completed_at']);
         $onT = 0; $late = 0; $tDay = [];
         foreach ($tasksDone as $t) {
@@ -5473,10 +5516,10 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
             if (!$t->due_date || strpos((string) $t->due_date, '0000') === 0) { continue; }
             if (substr((string) $t->completed_at, 0, 10) <= $t->due_date) { $onT++; } else { $late++; }
         }
-        $openT = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
-            ->whereNotIn('status_id', $doneIdsP)->count();
-        $overdueT = (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
-            ->whereNotIn('status_id', $doneIdsP)->whereNotNull('due_date')
+        $openT = (int) cnp_scope_mine(
+            Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIdsP), $aid)->count();
+        $overdueT = (int) cnp_scope_mine(
+            Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIdsP), $aid)->whereNotNull('due_date')
             ->where('due_date', '!=', '0000-00-00')->where('due_date', '<', $pfTo)->count();
         $ballT = (int) Capsule::table('mod_cpm_tasks')->where('action_user', $aid)
             ->whereNotIn('status_id', $doneIdsP)->count();
@@ -5719,7 +5762,7 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
 
     $rowsM = Capsule::table('mod_cpm_tasks as t')
         ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-        ->whereIn('t.assignee', $memM)
+        ->where(function ($w) use ($memM) { cnp_scope_team($w, $memM, 't.'); })
         ->where(function ($w) use ($todayM, $doneM, $runTaskIds) {
             /* ό,τι τρέχει τώρα ανήκει στη σημερινή μέρα, ανεξάρτητα από ημερομηνίες */
             if ($runTaskIds) { $w->orWhereIn('t.id', $runTaskIds); }
@@ -5797,7 +5840,7 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             'late' => 0, 'today' => 0, 'noDate' => 0, 'weekMins' => 0,
             'now' => $runM[$aid] ?? null];
     }
-    foreach (Capsule::table('mod_cpm_tasks')->whereIn('assignee', $memM)->whereNotIn('status_id', $doneM)
+    foreach (cnp_scope_team(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneM), $memM)
         ->get(['assignee', 'estimate_minutes', 'schedule_date', 'due_date']) as $r) {
         $k = (int) $r->assignee;
         if (!isset($loadM[$k])) { continue; }
@@ -5819,7 +5862,7 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
     /* ── 3. Καθυστερήσεις & μεταθέσεις ── */
     $lateM = [];
     foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-        ->whereIn('t.assignee', $memM)->whereNotIn('t.status_id', $doneM)
+        ->where(function ($w) use ($memM) { cnp_scope_team($w, $memM, 't.'); })->whereNotIn('t.status_id', $doneM)
         ->whereNotNull('t.due_date')->where('t.due_date', '<', $todayM)
         ->orderBy('t.due_date')->limit(100)
         ->get(['t.id', 't.title', 't.assignee', 't.due_date', 'p.name as pname', 'p.color as pcolor']) as $t) {
@@ -5829,7 +5872,7 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             'project' => $t->pname ? cnp_pn($t->pname) : '', 'color' => $t->pcolor ?: '#8595ac'];
     }
     /* Μεταθέσεις έργων που ΑΓΓΙΖΟΥΝ την ομάδα: έχουν εργασία ανατεθειμένη σε μέλος. */
-    $projIdsM = Capsule::table('mod_cpm_tasks')->whereIn('assignee', $memM)
+    $projIdsM = cnp_scope_team(Capsule::table('mod_cpm_tasks'), $memM)
         ->whereNotNull('project_id')->distinct()->pluck('project_id')->all();
     $rescM = [];
     if ($projIdsM) {
@@ -6209,8 +6252,8 @@ case 'activity':
             'status' => $status, 'idle' => $idle, 'label' => $stLabel, 'manual' => $stManual,
             'reason' => $stHint,
             'timer' => $timer, 'remote' => $remote,
-            'openTasks' => (int) Capsule::table('mod_cpm_tasks')->where('assignee', $aid)
-                ->whereNotIn('status_id', $doneIds9)->count(),
+            'openTasks' => (int) cnp_scope_mine(
+                Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds9), $aid)->count(),
             'ball' => (int) Capsule::table('mod_cpm_tasks')->where('action_user', $aid)
                 ->whereNotIn('status_id', $doneIds9)->count(),
             'tickets' => (int) Capsule::table('tbltickets')->where('flag', $aid)
@@ -14478,7 +14521,8 @@ case 'scheduler':                        // Πρόγραμμα ανά άνθρω
        αλλά πρέπει να φαίνονται, αλλιώς «χάνονται» από το πρόγραμμα. */
     $unsched = [];
     foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-        ->whereIn('t.assignee', $ids)->whereNotIn('t.status_id', $doneS)
+        ->where(function ($w) use ($ids) { cnp_scope_team($w, $ids, 't.'); })
+        ->whereNotIn('t.status_id', $doneS)
         ->where(function ($w) { $w->whereNull('t.start_date')->orWhereNull('t.due_date'); })
         ->orderBy('t.id', 'desc')->limit(60)
         ->get(['t.id', 't.title', 't.assignee', 't.priority', 'p.name as pname', 'p.color as pcolor']) as $t) {
@@ -15315,7 +15359,12 @@ case 'standup':                         // 🏃 Standup dashboard — απασχ
     $tScope = function ($q) use ($FULL, $adminId, $vis) {
         if (!$FULL) {
             $q->where(function ($w) use ($adminId, $vis) {
-                $w->where('t.assignee', $adminId);
+                /* Ό,τι κρατάω εγώ — και ό,τι μου ανατέθηκε χωρίς να το κρατά άλλος. */
+                $w->where('t.action_user', $adminId)
+                  ->orWhere(function ($x) use ($adminId) {
+                      $x->where('t.assignee', $adminId)
+                        ->where(function ($y) { $y->whereNull('t.action_user')->orWhere('t.action_user', 0); });
+                  });
                 if ($vis) { $w->orWhereIn('t.project_id', $vis ?: [0]); }
             });
         }
@@ -15374,13 +15423,15 @@ case 'standup':                         // 🏃 Standup dashboard — απασχ
         $nm = Db::adminName($aid);
         // αγνόησε bots/test/system accounts
         if (preg_match('/\b(bot|test|debug|cnptest|system)\b/i', $nm)) { continue; }
-        $open = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)->count();
-        $overdue = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)
+        $open = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $aid)->count();
+        $overdue = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $aid)
             ->whereNotNull('due_date')->where('due_date', '<', date('Y-m-d'))->count();
         $dueP = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)
             ->whereBetween('due_date', [$ps, $pe])->count();
         // on-time: ολοκληρωμένα με deadline μέσα στην περίοδο
-        $cl = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotNull('due_date')
+        /* ball-rule: ok — πιστώνεται όποιος την έκλεισε (δες `perf`). */
+        $cl = Capsule::table('mod_cpm_tasks')
+            ->whereRaw('COALESCE(completed_by, assignee) = ?', [$aid])->whereNotNull('due_date')
             ->whereBetween('completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
             ->get(['due_date', 'completed_at']);
         $onT = 0; $late = 0;
@@ -15870,8 +15921,10 @@ case 'lib_del':
 /* ============ ✅ ΠΛΑΝΟ ΧΕΙΡΙΣΤΗ ανά project («πού έμεινα») ============ */
 case 'todos_list':
     $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
-    $myOpenTasks = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-        ->where('t.assignee', $adminId)->whereNotIn('t.status_id', $doneIds)
+    /* ΜΠΑΛΑ, ΟΧΙ ΑΝΑΘΕΣΗ. Εδώ ο Βάκρινος έβλεπε εργασίες που τις τρέχει άλλος. */
+    $myOpenTasks = cnp_scope_mine(
+        Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+            ->whereNotIn('t.status_id', $doneIds), $adminId, 't.')
         ->select('t.id', 't.title', 't.project_id', 'p.name as pname', 'p.color as pcolor')->get();
     $todoRows = Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->orderBy('done')->orderBy('sort')->orderBy('id')->get();
     $noteRows = Capsule::table('mod_cpm_worknote')->where('admin_id', $adminId)->get()->keyBy('project_id');
@@ -16022,7 +16075,8 @@ case 'todo_seed':                        // φέρε τα ανοιχτά μου 
     $doneIds = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
     $existing = array_map('mb_strtolower',
         Capsule::table('mod_cpm_todos')->where('admin_id', $adminId)->pluck('text')->all());
-    $q9 = Capsule::table('mod_cpm_tasks')->where('assignee', $adminId)->whereNotIn('status_id', $doneIds);
+    $q9 = cnp_scope_mine(
+        Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $adminId);
     $wanted = array_values(array_filter(array_map('intval', (array) ($in['tasks'] ?? []))));
     if ($wanted) {
         $q9->whereIn('id', $wanted);
