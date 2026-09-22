@@ -104,6 +104,21 @@ class Watch
         }
 
         $isPm = in_array($adminId, DayPlan::owners(), true) || $isFull;
+        /* Ο MANAGER ΒΛΕΠΕΙ ΤΟΥΣ ΟΜΑΔΑΡΧΕΣ. Το τρίτο επίπεδο του coach: ο
+           χειριστής για τον εαυτό του, ο ομαδάρχης για την ομάδα του, ο
+           manager για τους ομαδάρχες. Χωρίς αυτό ο manager έβλεπε μόνο
+           εργασίες που θέλουν ανάθεση — δουλειά, όχι ανθρώπους.
+
+           ΜΟΝΟ πλήρεις διαχειριστές, ΟΧΙ όλη η ομάδα PM: ο ομαδάρχης δεν
+           επιβλέπει τους άλλους ομαδάρχες, ούτε τον manager του. Χωρίς αυτόν
+           τον περιορισμό ο Θύμιος έβλεπε γραμμή «Ρώτα τι χρειάζεται» για τον
+           προϊστάμενό του. */
+        if ($isFull) {
+            $leads = self::leads($adminId);
+            if ($leads) {
+                $groups[] = ['key' => 'leads', 'title' => 'Οι ομαδάρχες σου', 'items' => $leads];
+            }
+        }
         if ($isPm) {
             $pm = self::pm($adminId);
             if ($pm) {
@@ -211,6 +226,81 @@ class Watch
     /* ------------------------------------------------------------------ */
     /* Η ομάδα μου (επικεφαλής)                                           */
     /* ------------------------------------------------------------------ */
+
+    /**
+     * ΓΙΑ ΤΟΝ MANAGER: ΟΙ ΟΜΑΔΑΡΧΕΣ ΤΟΥ.
+     *
+     * Το `pm()` του λέει ποιες ΕΡΓΑΣΙΕΣ θέλουν ανάθεση. Αυτό του λέει ποιος
+     * ΑΝΘΡΩΠΟΣ θέλει το βλέμμα του — γιατί ο manager δεν τρέχει εργασίες, τρέχει
+     * ομαδάρχες. Μία γραμμή ανά ομάδα που έχει πρόβλημα, με το όνομα του
+     * επικεφαλής μπροστά: αυτός είναι που θα το λύσει, ή θα εξηγήσει γιατί όχι.
+     *
+     * Οι ομάδες που ηγείται Ο ΙΔΙΟΣ εξαιρούνται — τις βλέπει ήδη στο «Η ομάδα σου».
+     */
+    private static function leads($adminId)
+    {
+        $out = [];
+        if (!Capsule::schema()->hasTable('mod_cpm_team_members')) { return $out; }
+        $today = date('Y-m-d');
+        $done = self::doneIds();
+
+        $mine = array_map('intval', Capsule::table('mod_cpm_team_members')
+            ->where('admin_id', $adminId)->where('is_leader', 1)->pluck('team_id')->all());
+
+        foreach (Capsule::table('mod_cpm_teams')->orderBy('sort')->get(['id', 'name']) as $t) {
+            $tid = (int) $t->id;
+            if (in_array($tid, $mine, true)) { continue; }
+
+            $lead = (int) Capsule::table('mod_cpm_team_members')->where('team_id', $tid)
+                ->where('is_leader', 1)->value('admin_id');
+            if (!$lead || $lead === $adminId) { continue; }
+
+            $members = array_map('intval', Capsule::table('mod_cpm_team_members as m')
+                ->join('tbladmins as a', 'a.id', '=', 'm.admin_id')
+                ->where('m.team_id', $tid)->where('a.disabled', 0)->pluck('m.admin_id')->all());
+            if (!$members) { continue; }
+
+            /* Τι «καίει» στην ομάδα του. Ίδιος κανόνας με παντού: μετράει
+               αυτός που ΚΡΑΤΑΕΙ την εργασία. */
+            $late = Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done)
+                ->whereNotNull('due_date')->where('due_date', '<', $today)
+                ->where(function ($w) use ($members) {
+                    $w->whereIn('action_user', $members)
+                      ->orWhere(function ($x) use ($members) {
+                          $x->whereIn('assignee', $members)
+                            ->where(function ($y) { $y->whereNull('action_user')->orWhere('action_user', 0); });
+                      });
+                })->orderBy('due_date')->get(['id', 'title'])->all();
+
+            /* Ερωτήσεις ΠΡΟΣ ΤΟΝ ΙΔΙΟ τον ομαδάρχη που δεν απάντησε: αν κολλάει
+               αυτός, κολλάει η ομάδα. */
+            $mute = 0;
+            if (Capsule::schema()->hasTable('mod_cpm_help')) {
+                $mute = (int) Capsule::table('mod_cpm_help')->where('to_admin', $lead)
+                    ->where('status', 'open')
+                    ->where('created_at', '<', date('Y-m-d H:i:s', time() - self::UNANSWERED_HOURS * 3600))
+                    ->count();
+            }
+
+            if (!$late && !$mute) { continue; }
+
+            $bits = [];
+            if ($late) {
+                $bits[] = count($late) . (count($late) > 1 ? ' εκπρόθεσμες' : ' εκπρόθεσμη');
+            }
+            if ($mute) {
+                $bits[] = $mute > 1 ? ($mute . ' αναπάντητες ερωτήσεις') : 'μία αναπάντητη ερώτηση';
+            }
+            $out[] = [
+                'lvl' => $late ? 'bad' : 'warn',
+                'icon' => '🎯',
+                'refs' => self::taskRefs($late),
+                'text' => Db::adminName($lead) . ' (' . $t->name . ') — ' . implode(' · ', $bits)
+                    . '. Ρώτα τι χρειάζεται.',
+            ];
+        }
+        return $out;
+    }
 
     private static function team($adminId, array $teamIds)
     {
