@@ -1986,9 +1986,19 @@ R.chat = async function () {
     const box = $('#chMsgs'); if (!box) return;
     const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;
     if (st.lastId === 0) box.innerHTML = '';
+    /* Ο ΗΧΟΣ ΜΕΣΑ ΣΤΟ CHAT. Ο γενικός σφυγμός δεν τον παίζει εδώ: η οθόνη
+       μαρκάρει τα μηνύματα διαβασμένα πριν προλάβει, οπότε δεν του φτάνουν
+       ποτέ. Τον παίζουμε εκεί που όντως φτάνει το μήνυμα — και μόνο για ξένα
+       και μόνο σε ανανέωση, όχι στο πρώτο γέμισμα της οθόνης. */
+    const firstPaint = st.lastId === 0;
+    let heard = false;
     msgs.forEach(m => {
       if (m.id <= st.lastId) return;   // ήδη ζωγραφισμένο (προστασία από race με το poll)
       st.lastId = m.id;
+      if (!firstPaint && !heard && m.by !== S.boot.me.id && !m.deleted) {
+        heard = true;
+        window.CNP.chatBeep();
+      }
       const div = document.createElement('div');
       div.className = 'ch-m' + (m.by === S.boot.me.id ? ' me' : '');
       div.dataset.mid = m.id;
