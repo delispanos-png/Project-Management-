@@ -4931,7 +4931,8 @@ case 'myday':
         $evToday[] = ['id' => (int) $e->id, 'kind' => $e->kind, 'title' => (string) $e->title, 'start' => $e->start_dt, 'end' => $e->end_dt,
             'allDay' => (bool) $e->all_day, 'clientName' => $e->clientid ? clientLabel($e->clientid) : null, 'location' => (string) $e->location,
             'mode' => (string) $e->mode, 'rsvp' => $rsE ?: '', 'over' => strtotime($e->end_dt) < time(), 'now' => strtotime($e->start_dt) <= time() && strtotime($e->end_dt) >= time(),
-            'attendees' => array_values($attE)];
+            'attendees' => array_values($attE), 'people' => count($attE),
+            'mine' => (int) $e->created_by === $adminId, 'by' => Db::adminName((int) $e->created_by)];
     }
     $timerNow = null;
     if ($run) {

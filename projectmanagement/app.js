@@ -3747,7 +3747,6 @@ async function vMyDay() {
           <span class="myd-now-e" id="mdElapsed">${elapsed(timer.since)}</span><button class="btn btn-sm btn-danger" id="mdStop">${I.stop} Stop</button></div>`
         : nowEv ? `<div class="myd-now"><span class="myd-now-k">📅 Τώρα</span><b class="myd-now-t" data-cal="${nowEv.id}">${esc(nowEv.title)}</b><span class="myd-now-e">έως ${hm(nowEv.end)}</span></div>`
         : `<div class="myd-now idle"><span class="myd-now-k">Δεν τρέχει χρόνος</span><span class="mut">διάλεξε από το πρόγραμμα και πάτα ▶ — ο χρόνος που δεν ξεκινά, δεν καταγράφεται</span></div>`}
-      ${nextEv && !nowEv ? `<div class="myd-next" data-cal="${nextEv.id}">${I.cal} Επόμενη: <b>${esc(nextEv.title)}</b> στις ${hm(nextEv.start)}${minsTo(nextEv) <= 90 ? ` <span class="pill pill-warn">σε ${minsTo(nextEv)}΄</span>` : ''}</div>` : ''}
     </div>
     <div class="myd-hero-r">
       <div class="myd-kpi">${ring(doneN, doneN + planTasks.length)}<div class="myd-kpi-l">έγιναν<br>σήμερα</div></div>
@@ -3795,6 +3794,7 @@ async function vMyDay() {
   const team = d.team || [];
   const teamOn = team.filter(x => x.status !== 'offline');
   const workN = team.filter(x => x.workingOn).length;
+  const dayBar = cnpDayStrip(evs, {link: ['calendar', 'ημερολόγιο →']});
   const tmbBar = cnpPeopleBar(team, {
     hint: teamOn.length + ' μέσα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '') + (d.teamScope ? ' · ' + d.teamScope : ''),
     link: ['activity', 'δραστηριότητα →']});
@@ -3805,7 +3805,7 @@ async function vMyDay() {
       ${o.checkin ? (o.checkin.status === 'done' ? `<span class="pill ${o.checkin.answer === 'help' ? 'pill-bad' : 'pill-ok'}" style="flex:none" title="${esc(o.checkin.answerNote || '')}">${o.checkin.answer === 'help' ? '🆘 θέλει βοήθεια' : '✅ όλα καλά'}</span>` : '<span class="pill pill-info" style="flex:none">💬 ρωτήθηκε</span>') : `<button class="btn btn-sm btn-o" data-ovask style="flex:none">💬 Ρώτα</button>`}
     </div>`).join('') : '';
 
-  c.innerHTML = `<div class="myd-wrap">${hero}${tmbBar}
+  c.innerHTML = `<div class="myd-wrap">${hero}${dayBar}${tmbBar}
   <div class="myd-cols">
     <div class="myd-main">
       ${sec('att', 'Θέλουν εσένα', 'από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')})}
@@ -4497,12 +4497,82 @@ function cnpPeopleBar(people, opts) {
     }).join('')}</div></div>`;
 }
 
+/**
+ * 📅 Η μέρα σε μία γραμμή: πού πάνε οι συσκέψεις, πού είναι το τώρα, πού είναι ο αέρας.
+ *
+ * Μια λίστα σου λέει τι έχεις· μια γραμμή σου λέει αν χωράει κάτι ακόμη — και αυτό
+ * είναι η ερώτηση που κάνεις το πρωί. Οι αναπάντητες προσκλήσεις χτυπάνε στο μάτι,
+ * γιατί μια σύσκεψη που δεν απάντησες είναι το πιο πιθανό να σου φύγει.
+ *
+ * events: [{id, title, start, end, allDay, kind, clientName, location, mode, rsvp, now, over, mine, by, people}]
+ */
+function cnpDayStrip(events, opts) {
+  opts = opts || {};
+  const evs = (events || []).slice();
+  const allDay = evs.filter(e => e.allDay);
+  const timed = evs.filter(e => !e.allDay).sort((a, b) => String(a.start).localeCompare(String(b.start)));
+  const T = x => new Date(String(x).replace(' ', 'T')).getTime();
+  const now = Date.now();
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const H = ms => (ms - d0.getTime()) / 3600000;
+
+  /* Το παράθυρο μεγαλώνει μόνο όσο χρειάζεται: μια σύσκεψη στις 7 το πρωί
+     δεν πρέπει να πέσει έξω από τη γραμμή επειδή διαλέξαμε σταθερό 8:00–18:00. */
+  let a = 8, b = 18;
+  timed.forEach(e => { a = Math.min(a, Math.floor(H(T(e.start)))); b = Math.max(b, Math.ceil(H(T(e.end)))); });
+  a = Math.max(0, Math.min(a, Math.floor(H(now))));
+  b = Math.min(24, Math.max(b, Math.ceil(H(now)) + 1));
+  if (b - a < 6) { b = Math.min(24, a + 6); }
+  const span = b - a;
+  const pos = ms => Math.max(0, Math.min(100, (H(ms) - a) / span * 100));
+
+  const hm = ms => { const dt = new Date(ms); return String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0'); };
+  const ticks = [];
+  for (let h = a; h <= b; h++) { ticks.push(`<span class="dday-tk" style="left:${(h - a) / span * 100}%"><i></i><small>${String(h).padStart(2, '0')}</small></span>`); }
+
+  const unans = timed.filter(e => !e.over && !e.mine && !e.rsvp).length;
+  const nowEv = timed.find(e => T(e.start) <= now && T(e.end) >= now);
+  const nextEv = timed.find(e => T(e.start) > now);
+  const mins = Math.round(timed.reduce((n, e) => n + (T(e.end) - T(e.start)) / 60000, 0));
+  let head;
+  if (nowEv) { head = 'τώρα σε σύσκεψη ως ' + hm(T(nowEv.end)); }
+  else if (nextEv) { const dm = Math.round((T(nextEv.start) - now) / 60000);
+    head = 'ελεύθερος ως ' + hm(T(nextEv.start)) + (dm <= 90 ? ' — σε ' + dm + '΄' : ''); }
+  else if (timed.length) { head = 'καμία σύσκεψη μπροστά σου σήμερα'; }
+  else { head = 'καμία σύσκεψη σήμερα — όλη η μέρα δική σου'; }
+
+  const blk = e => {
+    const l = pos(T(e.start)), w = Math.max(2.2, pos(T(e.end)) - l);
+    const st = e.over ? 'past' : (T(e.start) <= now && T(e.end) >= now) ? 'live' : 'next';
+    const rs = e.mine ? 'mine' : e.rsvp === 'accepted' ? 'yes' : e.rsvp === 'declined' ? 'no' : 'ask';
+    const who = e.mine ? 'εσύ διοργανώνεις' : 'σε κάλεσε ο ' + (e.by || '—');
+    const ans = e.mine ? '' : e.rsvp === 'accepted' ? ' · δήλωσες ✔' : e.rsvp === 'declined' ? ' · δήλωσες ✖' : ' · ΔΕΝ έχεις απαντήσει';
+    return `<button class="dday-e ${st} rs-${rs}" style="left:${l}%;width:${w}%" data-ddev="${e.id}"
+      title="${esc(hm(T(e.start)) + '–' + hm(T(e.end)) + ' · ' + e.title + ' · ' + who + ans + (e.clientName ? ' · ' + e.clientName : '') + (e.people ? ' · ' + e.people + ' άτομα' : ''))}">
+      ${rs === 'ask' && !e.over ? '<i class="dday-q">?</i>' : ''}<span>${esc(e.title)}</span></button>`;
+  };
+
+  return `<div class="dday${opts.cls ? ' ' + opts.cls : ''}">
+    <div class="dday-h">${I.cal}<b>${esc(opts.title || 'Το ημερολόγιό μου σήμερα')}</b>
+      <span class="mut">${esc(timed.length ? timed.length + (timed.length === 1 ? ' σύσκεψη' : ' συσκέψεις') + (mins ? ' · ' + fmtMin(mins) : '') + ' · ' + head : head)}</span>
+      ${unans ? `<span class="pill pill-warn" title="Προσκλήσεις που δεν έχεις απαντήσει">${unans} αναπάντητη${unans > 1 ? 'ς' : ''}</span>` : ''}
+      <span style="flex:1"></span>
+      ${allDay.map(e => `<span class="pill pill-mut" title="Όλη μέρα">${esc(e.title)}</span>`).join('')}
+      ${opts.link ? `<a class="myd-link" data-go="${esc(opts.link[0])}">${esc(opts.link[1])}</a>` : ''}</div>
+    <div class="dday-tr">${ticks.join('')}
+      <span class="dday-now" style="left:${pos(now)}%" title="τώρα ${esc(hm(now))}"></span>
+      ${timed.map(blk).join('')}</div>
+    ${timed.length ? `<div class="dday-list">${timed.map(e => `<button class="dday-c${e.over ? ' past' : ''}" data-ddev="${e.id}">
+      <b>${esc(hm(T(e.start)))}</b> ${esc(e.title)}${!e.mine && !e.rsvp && !e.over ? ' <i class="dday-q">?</i>' : ''}</button>`).join('')}</div>` : ''}</div>`;
+}
+
 /** Δένει ό,τι έχει φτιάξει το kit μέσα σε ένα root (κύκλοι ανθρώπων, κλικαριστά πλακίδια). */
 function cnpWireDash(root) {
   const r = root || document.querySelector('#content');
   if (!r) { return; }
   r.querySelectorAll('[data-tmp]').forEach(b => b.onclick = () => openTeamPulse(+b.dataset.tmp));
   r.querySelectorAll('[data-dkgo]').forEach(b => b.onclick = () => go(b.dataset.dkgo));
+  r.querySelectorAll('[data-ddev]').forEach(b => b.onclick = () => go('calendar'));
 }
 
 /* ═════════ 👤 Η μέρα ενός ανθρώπου — pop-up απόφασης (22/9/2026) ═════════
@@ -4607,7 +4677,7 @@ async function openTeamPulse(id) {
 window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
-  cnpKpis, cnpSpark, cnpPeopleBar, cnpWireDash, cnpLastLbl,
+  cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 

@@ -155,6 +155,7 @@ const XX_F = {
 | Σειρά αριθμών | `cnpKpis([{n, label, color, tip, go}])` | `.dkpi` — μεγάλος αριθμός + μικρή ετικέτα (δέχεται `<br>`) |
 | Στήλες ρυθμού | `cnpSpark(days)` όπου `days=[{d,date,mins,today}]` | `.dspark` — 7 ημέρες, σήμερα πράσινο |
 | Μπάρα ανθρώπων | `cnpPeopleBar(people, {title, hint, link})` | `.tmb` — ένας κύκλος ανά άνθρωπο |
+| Η μέρα σε μία γραμμή | `cnpDayStrip(events, {title, link})` | `.dday` — χρονογραμμή με δείκτη «τώρα» και χρώμα ανά RSVP |
 | Η μέρα ενός ανθρώπου | `openTeamPulse(adminId)` | pop-up απόφασης (`.tp-*`) |
 | Σύντομο «πότε» | `cnpLastLbl(at)` | `17:18` / `χθες` / `3 ημ.` / `21/09` |
 | Δέσιμο | `cnpWireDash(root)` | κλικ σε κύκλους και σε κλικαριστά πλακίδια |
