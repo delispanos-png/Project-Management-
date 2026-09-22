@@ -4160,3 +4160,7 @@ html[data-theme="dark"] .card{border-color:#233043}
   .dc-a{gap:5px}
   .dc-a .btn{flex:1 1 auto;justify-content:center}
 }
+.dc-perf{width:100%;font-size:12.5px}
+.dc-perf th{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;text-align:left;padding:6px 8px}
+.dc-perf td{padding:7px 8px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.dc-perf td:first-child{font-variant-numeric:normal}
