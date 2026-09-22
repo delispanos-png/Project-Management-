@@ -395,13 +395,16 @@ class DayPlan
             $made++;
         }
 
-        /* Ειδοποίηση μία φορά ανά άνθρωπο ανά ημέρα — όχι μία ανά κάρτα. */
+        /* Ειδοποίηση ΜΙΑ φορά ανά άνθρωπο ανά ημέρα. Το cron τρέχει κάθε 10΄ και το build είναι
+           idempotent, αλλά χωρίς αυτόν τον φύλακα κάθε νέα κάρτα μέσα στη μέρα ξαναχτυπούσε
+           ειδοποίηση σε όλους — σε δύο μέρες θα τις αγνοούσαν (22/9/2026). */
         if (!$dry && $made) {
-            foreach (array_merge($owners, [0]) as $o) {
-                if (!$o) { continue; }
+            foreach ($owners as $o) {
+                if (Db::pref($o, 'cards_notified', '') === $day) { continue; }
                 $n = (int) Capsule::table('mod_cpm_cards')->where('day', $day)->where('state', 'open')
                     ->where(function ($q) use ($o) { $q->where('owner_id', $o)->orWhere('owner_id', 0); })->count();
                 if ($n) {
+                    Db::setPref($o, 'cards_notified', $day);
                     Db::pushNotification($o, 'action', 'Η ουρά σου σήμερα: ' . $n . ' αποφάσεις που θέλουν απάντηση', '/project/#/cards');
                 }
             }
