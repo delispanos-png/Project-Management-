@@ -3755,6 +3755,7 @@ async function vMyDay() {
         : nowEv ? `<div class="myd-now"><span class="myd-now-k">📅 Τώρα</span><b class="myd-now-t" data-cal="${nowEv.id}">${esc(nowEv.title)}</b><span class="myd-now-e">έως ${hm(nowEv.end)}</span></div>`
         : `<div class="myd-now idle"><span class="myd-now-k">Δεν τρέχει χρόνος</span><span class="mut">διάλεξε από το πρόγραμμα και πάτα ▶ — ο χρόνος που δεν ξεκινά, δεν καταγράφεται</span></div>`}
     </div>
+    <button class="btn btn-p myd-next-b" id="mydNext" title="Πήγαινέ με στο επόμενο που πρέπει να πιάσω (n)">▶ Επόμενο</button>
     <button class="myd-kbd" id="mydKbd" title="Συντομεύσεις πληκτρολογίου (?)">⌨</button>
     <div class="myd-hero-r">
       <div class="myd-kpi">${ring(doneN, doneN + planTasks.length)}<div class="myd-kpi-l">έγιναν<br>σήμερα</div></div>
@@ -3843,6 +3844,38 @@ async function vMyDay() {
 
   /* ⌨ Ο δρομέας πάνω στις γραμμές που ΚΑΝΟΥΝ κάτι. Η θέση επιβιώνει του redraw:
      κάθε ενέργεια ξαναζωγραφίζει την οθόνη και χωρίς αυτό θα ξεκινούσες από την αρχή. */
+  /* ▶ Επόμενο: η οθόνη ξέρει ήδη τη σειρά — «Θέλουν εσένα» από το πιο επείγον, μετά η
+     σύσκεψη που τρέχει, μετά το πρόγραμμα, μετά η ουρά. Το κουμπί απλώς την ακολουθεί
+     και ΕΚΤΕΛΕΙ την πρώτη γραμμή που δεν έχει τακτοποιηθεί, ώστε να μη διαλέγεις εσύ.
+     Κρατά όσα πέρασες σε αυτή τη συνεδρία, για να μη σε γυρνάει στο ίδιο πράγμα. */
+  const nextSkip = vMyDay._skip = vMyDay._skip || new Set();
+  const nextPick = () => {
+    const nowRow = $('#content .myd-row.ev.now');
+    if (nowRow && !nextSkip.has('ev' + nowRow.dataset.cal)) { return nowRow; }
+    const order = ['#content .myd-row.att', '#content .myd-row.q', '#content .myd-row.task', '#content .myd-row.ev'];
+    for (const sel of order) {
+      const hit = $$(sel).find(el => el.offsetParent !== null && !nextSkip.has(nextKey(el)));
+      if (hit) { return hit; }
+    }
+    return null;
+  };
+  const nextKey = el => (el.dataset.atti !== undefined ? 'a' + el.dataset.atti
+    : el.dataset.qtk ? 'q' + el.dataset.qtk
+    : el.dataset.mdtask ? 't' + el.dataset.mdtask
+    : el.dataset.cal ? 'ev' + el.dataset.cal : 'x' + Math.random());
+  const goNext = () => {
+    const el = nextPick();
+    if (!el) {
+      toast('✨ Τίποτα άλλο δεν σε περιμένει — καθαρή μέρα');
+      return;
+    }
+    nextSkip.add(nextKey(el));
+    el.classList.add('kb-cur');
+    el.scrollIntoView({block: 'center', behavior: 'smooth'});
+    const b = el.querySelector('[data-attgo]');
+    setTimeout(() => (b || el).click(), 180);
+  };
+  { const nb = $('#mydNext'); if (nb) { nb.onclick = goNext; } }
   { const kb = $('#mydKbd'); if (kb) { kb.onclick = () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'],
       ['e', 'ολοκλήρωσε ή τακτοποίησε'], ['r', 'απάντησε (ticket / αίτημα)']]); } }
   const kbKeep = vMyDay._kb;
@@ -3857,6 +3890,7 @@ async function vMyDay() {
       r: el => { const b = el.querySelector('[data-attgo]'); (b || el).click(); },
       t: el => { const b = el.querySelector('[data-mdplay]'); if (b) { b.click(); } else { toast('Χρονόμετρο μόνο σε εργασία', true); } },
       e: el => { const b = el.querySelector('[data-mddone], [data-attdone]'); if (b) { b.click(); } else { toast('Δεν ολοκληρώνεται από εδώ', true); } },
+      n: () => goNext(),
     },
   });
   $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
