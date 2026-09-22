@@ -42,8 +42,39 @@ class Catalog
             ['SSL',                  '#16a26a', ['ssl']],
             ['Δίκτυο / Firewall',    '#e2515f', ['firewall']],
             ['Τεχνική υποστήριξη',   '#6b7a90', ['support', 'υποστήριξ', 'licenses', 'api develop']],
+            /* Προστέθηκαν 22/09/2026: υπήρχαν ΜΟΝΟ στον τηλεφωνικό κατάλογο, ενώ
+               είναι ξεχωριστές ειδικότητες — άλλος ξέρει e-commerce και άλλος
+               hosting. Χωρίς αυτά η δρομολόγηση θα τα έστελνε όλα στο ίδιο. */
+            ['E-Commerce',           '#e2a33c', ['ecommerce', 'e-commerce', 'eshop']],
+            ['Marketplace',          '#c2701a', ['marketplace', 'skroutz', 'bestprice']],
+            ['Courier module',       '#8595ac', ['courier', 'voucher']],
         ];
     }
+
+    /**
+     * ΓΕΦΥΡΑ: το slug του ΤΗΛΕΦΩΝΙΚΟΥ ΚΑΤΑΛΟΓΟΥ → το προϊόν του καταλόγου μας.
+     *
+     * Υπάρχουν δύο λεξιλόγια και δεν ταυτίζονται: ο κατάλογος (Pbx3cx\Route::PRODUCTS)
+     * φτιάχτηκε για τη ΔΡΟΜΟΛΟΓΗΣΗ ΚΛΗΣΕΩΝ, ο δικός μας για τη ΧΡΕΩΣΗ. Δύο slug
+     * μπορούν να δείχνουν στο ίδιο προϊόν (PharmacyOne GR/CY), και το «cloud»
+     * είναι ομπρέλα που πέφτει στο VPS/Server.
+     *
+     * Ταιριάζει με ΟΝΟΜΑ, όχι με id: τα id του καταλόγου δεν είναι σταθερά.
+     */
+    const BOOK_MAP = [
+        'cloud'          => 'VPS / Server',
+        'softone'        => 'SoftOne / ERP',
+        'pharmacyone_gr' => 'PharmacyOne',
+        'pharmacyone_cy' => 'PharmacyOne',
+        '3cx'            => '3CX / Τηλεφωνία',
+        'yeastar'        => '3CX / Τηλεφωνία',
+        'caron'          => 'CarOn',
+        'rxvision'       => 'RxVision',
+        'boxvisio'       => 'BoxVisio',
+        'ecommerce'      => 'E-Commerce',
+        'marketplace'    => 'Marketplace',
+        'courier'        => 'Courier module',
+    ];
 
     /* ══════════════ σχήμα ══════════════ */
 
@@ -91,6 +122,21 @@ class Catalog
                 $t->timestamp('created_at')->nullable();
                 $t->unique(['clientid', 'product_id'], 'cp_uniq');
             });
+        }
+
+        /* Τα τρία προϊόντα του e-commerce προστέθηκαν αργότερα από τα υπόλοιπα.
+           Το seed() τρέχει ΜΟΝΟ σε άδειο κατάλογο, οπότε χωρίς αυτό δεν θα
+           έμπαιναν ποτέ σε εγκατάσταση που ήδη δούλευε. Μπαίνουν ΟΝΟΜΑΣΤΙΚΑ και
+           μόνο αν λείπουν — ώστε να μην ξαναγυρίζουν αν τα σβήσει κάποιος. */
+        if ($s->hasTable('mod_cpm_products') && Capsule::table('mod_cpm_products')->count()) {
+            foreach (['E-Commerce' => '#e2a33c', 'Marketplace' => '#c2701a',
+                      'Courier module' => '#8595ac'] as $nm => $col) {
+                if (Capsule::table('mod_cpm_products')->where('name', $nm)->exists()) { continue; }
+                if (Capsule::table('mod_cpm_products')->where('name', 'like', '%' . $nm . '%')->exists()) { continue; }
+                Capsule::table('mod_cpm_products')->insert([
+                    'name' => $nm, 'color' => $col, 'sort' => 900, 'active' => 1,
+                    'created_at' => date('Y-m-d H:i:s')]);
+            }
         }
 
         /* Το προϊόν γίνεται διάσταση παντού όπου υπάρχει δουλειά. */
@@ -232,6 +278,100 @@ class Catalog
     }
 
     /**
+     * Τα προϊόντα ενός πελάτη ΟΠΩΣ ΤΑ ΛΕΕΙ Ο ΤΗΛΕΦΩΝΙΚΟΣ ΚΑΤΑΛΟΓΟΣ.
+     *
+     * Ο κατάλογος είναι η πηγή αλήθειας (απόφαση 22/09/2026): τον γεμίζουμε εμείς
+     * με το χέρι και ισχύει και για πελάτες που δεν έχουν ακόμη καρτέλα WHMCS.
+     * Οι ενεργές υπηρεσίες του WHMCS μένουν ως ΣΥΜΠΛΗΡΩΜΑ — καλύπτουν όποιον ο
+     * κατάλογος δεν έχει χαρακτηρίσει ακόμη.
+     *
+     * @return array<int,int> ids προϊόντων
+     */
+    public static function bookProducts($clientId)
+    {
+        $csv = Capsule::table('mod_cpm_book')->where('clientid', (int) $clientId)
+            ->whereNotNull('products')->where('products', '<>', '')
+            ->pluck('products')->all();
+        if (!$csv) { return []; }
+
+        $byName = [];
+        foreach (Capsule::table('mod_cpm_products')->get(['id', 'name']) as $r) {
+            $byName[mb_strtolower((string) $r->name)] = (int) $r->id;
+        }
+        $out = [];
+        foreach ($csv as $line) {
+            foreach (explode(',', (string) $line) as $slug) {
+                $slug = trim($slug);
+                if ($slug === '' || !isset(self::BOOK_MAP[$slug])) { continue; }
+                $k = mb_strtolower(self::BOOK_MAP[$slug]);
+                if (isset($byName[$k])) { $out[$byName[$k]] = $byName[$k]; }
+            }
+        }
+        return array_values($out);
+    }
+
+    /**
+     * Περνά στον πίνακα πελάτη→προϊόντων ό,τι λέει ο ΚΑΤΑΛΟΓΟΣ, με `source='book'`.
+     *
+     * Ιεραρχία: `manual` (το είπε άνθρωπος ρητά) > `book` (ο κατάλογος) >
+     * `auto` (οι υπηρεσίες WHMCS). Μια γραμμή `auto` που ο κατάλογος επιβεβαιώνει
+     * ΑΝΑΒΑΘΜΙΖΕΤΑΙ σε `book` — δεν διπλογράφεται.
+     *
+     * @param  bool     $dry      δοκιμή χωρίς εγγραφή
+     * @param  int|null  $clientId μόνο αυτός ο πελάτης (null = όλοι)
+     * @return array{n:int,clients:int}
+     */
+    public static function syncFromBook($dry = true, $clientId = null)
+    {
+        $out = ['n' => 0, 'clients' => 0];
+        $q = Capsule::table('mod_cpm_book')->where('clientid', '>', 0)
+            ->whereNotNull('products')->where('products', '<>', '');
+        if ($clientId) { $q->where('clientid', (int) $clientId); }   // μία καρτέλα, όχι όλος ο κατάλογος
+        $cids = $q->distinct()->pluck('clientid')->all();
+
+        foreach ($cids as $cid) {
+            $pids = self::bookProducts((int) $cid);
+            if (!$pids) { continue; }
+            $out['clients']++;
+            foreach ($pids as $pid) {
+                $ex = Capsule::table('mod_cpm_client_products')
+                    ->where('clientid', (int) $cid)->where('product_id', $pid)->first();
+                if ($ex && ($ex->source === 'book' || $ex->source === 'manual')) { continue; }
+                $out['n']++;
+                if ($dry) { continue; }
+                if ($ex) {
+                    Capsule::table('mod_cpm_client_products')->where('id', $ex->id)
+                        ->update(['source' => 'book', 'status' => 'active']);
+                } else {
+                    Capsule::table('mod_cpm_client_products')->insert([
+                        'clientid' => (int) $cid, 'product_id' => $pid, 'source' => 'book',
+                        'status' => 'active', 'services' => 0,
+                        'created_at' => date('Y-m-d H:i:s')]);
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Τα προϊόντα ενός πελάτη με τη ΣΩΣΤΗ ΣΕΙΡΑ ΑΛΗΘΕΙΑΣ.
+     *
+     * Αν ο κατάλογος μιλά γι\' αυτόν τον πελάτη, ΜΟΝΟ αυτός μετράει: το να
+     * ανακατεύαμε τις υπηρεσίες WHMCS από πάνω θα ξανάφερνε προϊόντα που εμείς
+     * ρητά δεν του αναγνωρίζουμε. Σιωπή του καταλόγου → πέφτουμε στο WHMCS.
+     *
+     * @return array<int,int> ids προϊόντων
+     */
+    public static function clientProducts($clientId)
+    {
+        $book = self::bookProducts($clientId);
+        if ($book) { return $book; }
+        return array_map('intval', Capsule::table('mod_cpm_client_products')
+            ->where('clientid', (int) $clientId)->where('status', 'active')
+            ->pluck('product_id')->all());
+    }
+
+    /**
      * Δίνει ΕΙΔΙΚΟΤΗΤΑ στις εργασίες — το τρίτο σκέλος που λείπει για να μπορεί η
      * δεξαμενή να δρομολογήσει. Χωρίς προϊόν, μια εργασία δεν πάει σε κανέναν.
      *
@@ -262,12 +402,13 @@ class Catalog
             if ($r->product_id) { $byProject[(int) $r->id] = (int) $r->product_id; }
             if ($r->clientid)   { $projClient[(int) $r->id] = (int) $r->clientid; }
         }
-        /* Πελάτες με ΕΝΑ και μόνο ενεργό προϊόν — οι μόνοι όπου δεν μαντεύουμε. */
+        /* Πελάτες με ΕΝΑ και μόνο προϊόν — οι μόνοι όπου δεν μαντεύουμε.
+           Η πηγή είναι ο ΤΗΛΕΦΩΝΙΚΟΣ ΚΑΤΑΛΟΓΟΣ όπου μιλά, αλλιώς οι υπηρεσίες
+           WHMCS — δες clientProducts(). */
         $one = [];
-        foreach (Capsule::table('mod_cpm_client_products')->where('status', 'active')
-                    ->get(['clientid', 'product_id']) as $r) {
-            $c = (int) $r->clientid;
-            $one[$c] = isset($one[$c]) ? 0 : (int) $r->product_id;   // δεύτερο προϊόν → 0
+        foreach (array_unique(array_filter($projClient)) as $c) {
+            $pids = self::clientProducts((int) $c);
+            $one[(int) $c] = count($pids) === 1 ? (int) $pids[0] : 0;
         }
 
         foreach (Capsule::table('mod_cpm_tasks')

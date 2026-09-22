@@ -4,7 +4,7 @@
    Ο έλεγχος σύνδεσης ΔΕΝ είναι διακοσμητικός: ρωτάει το ίδιο το PBX και
    «παγώνει το συμβόλαιο» — τι υπάρχει, τι όχι, πόσο γρήγορα απαντά. */
 'use strict';
-const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, suStat, $, $$} = window.CNP;
+const {S, api, esc, toast, setTop, cnpConfirm, cnpDialog, cnpDenied, cnpCan, dShort, drawer, closeDrawer, go, openTask, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, suStat, $, $$} = window.CNP;
 const R = window.R;
 
 R.pbx = async function () {
