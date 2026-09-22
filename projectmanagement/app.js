@@ -326,6 +326,10 @@ function renderShell() {
   // Ενότητα χωρίς στοιχεία δεν εμφανίζεται καθόλου.
   const nav = groups.filter(g => g[2].length).map(g => [g[0], g[2], g[1]]);
   nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']], 'πώς δουλεύει το εργαλείο']);
+  /* Το ίδιο μενού, σε επίπεδη μορφή, για το Ctrl+K: ό,τι βλέπεις στο πλάι μπορείς να το
+     φτάσεις και γράφοντας. Φιλτραρισμένο ήδη από τα δικαιώματα — μία πηγή, όχι δύο. */
+  S.nav = [];
+  nav.forEach(([g, items]) => items.forEach(([k, ic, lb]) => S.nav.push({k, icon: ic, label: lb, group: g})));
   $('#app').innerHTML = `
   <div class="shell${(localStorage.cnpSideCollapsed === '1' && !matchMedia('(max-width:768px)').matches) ? ' collapsed' : ''}">
     <aside class="side">
@@ -4375,15 +4379,25 @@ function cnpDenied(err) {
 /* ═══ Αναζήτηση παντού (Ctrl+K) ═══
    Το κουμπί υπήρχε από την αρχή, η υλοποίηση όχι — έψαχνες πελάτη και δεν άνοιγε
    τίποτα. Ένα πεδίο, τέσσερις ομάδες αποτελεσμάτων, πλοήγηση με βελάκια. */
+/* ═════════ ⌘K — πήγαινε, ψάξε ή ΚΑΝΕ (22/9/2026) ═════════
+   Ήταν μόνο αναζήτηση. Τώρα είναι και εκτοξευτήρας: κάθε οθόνη που δικαιούσαι και οι
+   συνηθισμένες ενέργειες γράφονται αντί να ψάχνονται στο πλαϊνό μενού. Ανοίγει με
+   προτάσεις, χωρίς να γράψεις τίποτα — αλλιώς κανείς δεν θα μάθαινε ότι κάνει κι αυτό. */
+function cnpPalNorm(x) {
+  return String(x || '').toLowerCase()
+    .replace(/[άΆ]/g, 'α').replace(/[έΈ]/g, 'ε').replace(/[ήΉ]/g, 'η').replace(/[ίΊϊΐ]/g, 'ι')
+    .replace(/[όΌ]/g, 'ο').replace(/[ύΎϋΰ]/g, 'υ').replace(/[ώΏ]/g, 'ω').replace(/ς/g, 'σ');
+}
+
 function cnpPalette() {
   if (document.getElementById('palOvl')) { return; }
   const ovl = document.createElement('div');
-  ovl.className = 'ovl show'; ovl.id = 'palOvl'; ovl.style.zIndex = 260;
-  ovl.innerHTML = `<div class="pal-box" style="margin:10vh auto 0;max-width:540px" onclick="event.stopPropagation()">
+  ovl.className = 'ovl ovl-keep show'; ovl.id = 'palOvl'; ovl.style.zIndex = 260;
+  ovl.innerHTML = `<div class="pal-box" style="margin:10vh auto 0;max-width:560px" onclick="event.stopPropagation()">
     <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;gap:9px;align-items:center">
-      <span style="font-size:15px">🔎</span>
+      <span style="font-size:15px">⌘</span>
       <input class="inp" id="palQ" autocomplete="off" style="border:none;box-shadow:none;font-size:15px;padding:4px 0"
-        placeholder="Πελάτης, εργασία, ticket, lead… (ή #123 για εργασία)">
+        placeholder="Πήγαινε, ψάξε ή κάνε…  (π.χ. «board», «νέο task», «30 #123»)">
       <kbd style="font-size:10px;color:var(--mut)">Esc</kbd>
     </div>
     <div id="palRes" style="max-height:62vh;overflow:auto;padding:6px"></div></div>`;
@@ -4391,12 +4405,28 @@ function cnpPalette() {
   const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey, true); };
   ovl.onclick = close;
   const res = ovl.querySelector('#palRes'), q = ovl.querySelector('#palQ');
-  let items = [], cur = 0, tmr = null;
+  let items = [], cur = 0, tmr = null, seq = 0;
+
+  /* ── Ενέργειες: ό,τι ανοίγει το «+ Νέο», συν όσα έχουν νόημα ως εντολή ── */
+  const C = window.CNP;
+  const acts = () => [
+    {icon: I.checkSquare, title: 'Νέο task', kw: 'νεο task εργασια new', go: () => C.quickNew && C.quickNew()},
+    {icon: I.sos || I.chat, title: 'Ζήτα βοήθεια / ρώτα συνάδελφο', kw: 'ρωτα βοηθεια αιτημα help', go: () => C.quickHelp && C.quickHelp()},
+    {icon: I.users, title: 'Νέα σύσκεψη', kw: 'συσκεψη meeting ραντεβου', go: () => newMeeting()},
+    {icon: I.phone, title: 'Καταγραφή κλήσης', kw: 'κληση call τηλεφωνο', go: () => C.quickCall && C.quickCall()},
+    {icon: I.alert, title: 'Παράπονο πελάτη', kw: 'παραπονο complaint', go: () => C.quickCx && C.quickCx()},
+    {icon: I.target, title: 'Νέο lead', kw: 'lead ευκαιρια crm', go: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
+    {icon: I.stop, title: 'Σταμάτα τον χρόνο', kw: 'στοπ stop χρονος σταματα', go: async () => {
+      const r = await api('timer_stop', {billable: false, note: ''}).catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast('Καταχωρήθηκε ' + fmtMin(r.mins)); if (window.R[S.view]) { window.R[S.view](); } }},
+    {icon: I.list, title: 'Συντομεύσεις πληκτρολογίου', kw: 'συντομευσεις πληκτρολογιο keyboard shortcuts',
+      go: () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'], ['e', 'ολοκλήρωσε'], ['r', 'απάντησε']])},
+  ];
 
   const paint = () => {
     if (!items.length) {
-      res.innerHTML = `<div class="mut" style="padding:16px;text-align:center;font-size:12.5px">${
-        q.value.trim().length < 2 ? 'Γράψε τουλάχιστον δύο χαρακτήρες' : 'Κανένα αποτέλεσμα'}</div>`;
+      res.innerHTML = '<div class="mut" style="padding:16px;text-align:center;font-size:12.5px">Κανένα αποτέλεσμα</div>';
       return;
     }
     let last = '', h = '';
@@ -4418,22 +4448,61 @@ function cnpPalette() {
     const on = res.querySelector('.pal-row.on'); if (on && on.scrollIntoView) { on.scrollIntoView({block: 'nearest'}); }
   };
 
+  /* Τοπικά (οθόνες + ενέργειες) — απαντούν ΑΜΕΣΩΣ, χωρίς γύρο στον server. */
+  const local = v => {
+    const n = cnpPalNorm(v), out = [];
+    /* Κατάταξη: πρώτα όσα ΑΡΧΙΖΟΥΝ από αυτό που έγραψες, μετά όσα το περιέχουν στον
+       τίτλο, τελευταία όσα ταιριάζουν μόνο σε συνώνυμο — αλλιώς το «board» έφερνε
+       πρώτο τις «Συντομεύσεις πληκτρολογίου», επειδή το συνώνυμό τους λέει «keyboard». */
+    const score = (title, kw) => {
+      if (!n) { return 0; }
+      const t = cnpPalNorm(title);
+      if (t.startsWith(n)) { return 0; }
+      if (t.includes(n)) { return 1; }
+      if (cnpPalNorm(kw || '').includes(n)) { return 2; }
+      return -1;
+    };
+    acts().forEach(a => { const sc = score(a.title, a.kw);
+      if (sc >= 0) { out.push({group: 'Ενέργειες', icon: a.icon, title: a.title, go: a.go, _s: sc}); } });
+    (S.nav || []).forEach(x => { const sc = score(x.label, x.group);
+      if (sc >= 0) { out.push({group: 'Οθόνες', icon: x.icon, title: x.label, sub: x.group, go: () => go(x.k), _s: sc}); } });
+    /* Η ομάδα που έχει το καλύτερο ταίριασμα πάει πρώτη — όχι πάντα οι «Ενέργειες». */
+    const best = {};
+    out.forEach(x => { best[x.group] = Math.min(best[x.group] === undefined ? 9 : best[x.group], x._s); });
+    out.sort((a, b) => (best[a.group] - best[b.group])
+      || (a.group < b.group ? -1 : a.group > b.group ? 1 : 0) || a._s - b._s);
+    /* «30 #123» ή «30 123» → χρέωση χρόνου. Η πιο συχνή εντολή που δεν αξίζει οθόνη. */
+    const m = v.match(/^(\d{1,4})\s*(?:λ|min|΄|')?\s*#?(\d{1,7})$/);
+    if (m) {
+      const mins = +m[1], tid = +m[2];
+      out.unshift({group: 'Ενέργειες', icon: I.clock, title: 'Χρέωσε ' + fmtMin(mins) + ' στην εργασία #' + tid,
+        sub: 'χρόνος', go: async () => {
+          const r = await api('time_add', {task: tid, mins}).catch(e => ({err: e.message}));
+          if (r && r.err) { toast(r.err, true); return; }
+          toast('✔ Καταχωρήθηκε ' + fmtMin(mins) + ' στην #' + tid);
+          if (window.R[S.view]) { window.R[S.view](); } }});
+    }
+    return out;
+  };
+
   const run = async () => {
     const v = q.value.trim();
-    if (v.length < 2) { items = []; paint(); return; }
+    const my = ++seq;
+    items = local(v);
+    cur = 0; paint();
+    if (v.length < 2) { return; }
     const d = await api('search&q=' + encodeURIComponent(v)).catch(() => null);
-    if (!d || q.value.trim() !== v) { return; }
-    items = [];
+    if (!d || my !== seq) { return; }
     (d.clients || []).forEach(c => items.push({group: 'Πελάτες', icon: '🏢', title: c.name,
       sub: [c.afm ? 'ΑΦΜ ' + c.afm : '', c.email, '#' + c.id].filter(Boolean).join(' · '),
       go: () => go('client360', c.id)}));
     (d.tasks || []).forEach(t => items.push({group: 'Εργασίες', icon: '🟦', title: t.title,
       sub: t.pname || '', go: () => openTask(t.id)}));
     (d.tickets || []).forEach(t => items.push({group: 'Tickets', icon: '🎫', title: t.title,
-      sub: '#' + t.tid + ' · ' + (t.status || ''), go: () => go('inbox', t.id)}));
+      sub: '#' + t.tid + ' · ' + (t.status || ''), go: () => openTicketQuick(t.id)}));
     (d.leads || []).forEach(l => items.push({group: 'Leads', icon: '🎯', title: l.name,
       sub: l.stage || '', go: () => go('crm')}));
-    cur = 0; paint();
+    paint();
   };
 
   const onKey = e => {
@@ -4444,8 +4513,8 @@ function cnpPalette() {
     else if (e.key === 'Enter') { e.preventDefault(); const it = items[cur]; close(); it.go(); }
   };
   document.addEventListener('keydown', onKey, true);
-  q.oninput = () => { clearTimeout(tmr); tmr = setTimeout(run, 220); };
-  paint();
+  q.oninput = () => { items = local(q.value.trim()); cur = 0; paint(); clearTimeout(tmr); tmr = setTimeout(run, 220); };
+  run();
   setTimeout(() => q.focus(), 40);
 }
 /* Ctrl/⌘+K από παντού — εκτός αν γράφεις ήδη κάπου αλλού. */

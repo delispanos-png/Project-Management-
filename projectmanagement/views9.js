@@ -4,7 +4,7 @@
    Ο έλεγχος σύνδεσης ΔΕΝ είναι διακοσμητικός: ρωτάει το ίδιο το PBX και
    «παγώνει το συμβόλαιο» — τι υπάρχει, τι όχι, πόσο γρήγορα απαντά. */
 'use strict';
-const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, $, $$} = window.CNP;
+const {S, api, esc, toast, setTop, cnpConfirm, cnpDenied, cnpCan, dShort, drawer, closeDrawer, I, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fBool, fOne, suStat, $, $$} = window.CNP;
 const R = window.R;
 
 R.pbx = async function () {
@@ -167,12 +167,18 @@ R.pbx = async function () {
     ${ac.canEdit ? `<select class="inp pbx-voice" id="pxVoice" title="Φωνή — αλλάζει αμέσως, κάλεσε το 902 για να την ακούσεις">${Object.entries(ac.voices || {}).map(([k, v]) => `<option value="${esc(k)}" ${k === ac.voice ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>` : `<span class="mut" style="font-size:11.5px;margin-left:8px">φωνή: ${esc(ac.voice || '')}</span>`}
     <span class="mut" style="font-weight:400;font-size:11.5px;margin-left:auto">η εκπαίδευση ξεκινά από εδώ: διάβασε τι είπε, σημείωσε τι θα έλεγε καλύτερα</span></div>
     <div class="card-b">
+      ${ac.stats ? `<div class="su-tiles pbx-cbt">
+        ${suStat(I.phone, ac.stats.requests, 'αιτήματα επανάκλησης (τελευταίες 30)', '#0097e4')}
+        ${suStat(I.check || '✔', ac.stats.calledBack, 'καλέστηκαν πίσω', '#1f9d57')}
+        ${suStat(I.clock || '⏱', ac.stats.avgMinutes === null ? '—' : ac.stats.avgMinutes + '΄', 'μέσος χρόνος επανάκλησης', '#7b5cd6')}
+        ${suStat(I.zap, ac.stats.pending, ac.stats.late ? 'εκκρεμούν · ' + ac.stats.late + ' πάνω από 2 ώρες' : 'εκκρεμούν', ac.stats.late ? '#e2515f' : '#e0a020')}
+      </div>` : ''}
       ${ac.items.length ? `<div class="pbx-ai">${ac.items.map(x => `<details class="pbx-aic">
         <summary>
           <span class="pbx-ait mut">${esc(x.at)}</span>
           <span class="pbx-ain">${esc(x.otherName || x.other || '—')}${x.otherName && x.other ? `<span class="mut">${esc(x.other)}</span>` : ''}</span>
           <span class="mut">${callHm(x.seconds)}</span>
-          <span class="pbx-ais">${x.net && x.net.ticket ? `<a class="pbx-aitk" href="#/inbox/${x.net.ticketId}" title="${esc(x.net.reason)}">ticket #${esc(x.net.ticket)}</a> ` : (x.net && x.net.deleted ? '<span class="pbx-aitk mut" title="Το ticket διαγράφηκε">ticket διαγράφηκε</span> ' : (x.net && x.net.decision === 'ticket' ? '<span class="pbx-aitk bad">ticket δεν άνοιξε</span> ' : (x.net && x.net.decision === 'human' ? '<span class="pbx-aitk mut">απάντησε συνάδελφος</span> ' : (x.net && x.net.decision === 'incomplete' ? `<span class="pbx-aitk bad" title="${esc(x.net.reason)}">ελλιπές — χωρίς ticket</span> ` : ''))))}${x.summary ? esc(x.summary.slice(0, 140)) : (x.transcribed ? '<span class="mut">χωρίς περίληψη</span>' : '<span class="mut">χωρίς κείμενο</span>')}</span>
+          <span class="pbx-ais">${x.agent === 'callback' ? '<span class="pbx-aitk cb" title="Ο πελάτης πάτησε 1 στο «όλοι κατειλημμένοι» — μίλησε με τον agent Επανάκληση">επανάκληση</span> ' : ''}${x.net && x.net.ticket ? `<a class="pbx-aitk" href="#/inbox/${x.net.ticketId}" title="${esc(x.net.reason)}">ticket #${esc(x.net.ticket)}</a> ${x.callback ? `<span class="pbx-aitk ok" title="${esc(x.callback.at)}${x.callback.answered ? '' : ' — δεν απάντησε'}">κλήθηκε πίσω σε ${x.callback.minutes}΄ από ${esc(x.callback.by)}${x.callback.answered ? '' : ' (χωρίς απάντηση)'}</span> ` : (x.pendingMin !== null ? `<span class="pbx-aitk ${x.pendingMin > 120 ? 'bad' : 'warn'}">εκκρεμεί επανάκληση ${x.pendingMin >= 60 ? Math.floor(x.pendingMin / 60) + 'ω ' + (x.pendingMin % 60) + '΄' : x.pendingMin + '΄'}</span> ` : '')}` : (x.net && x.net.deleted ? '<span class="pbx-aitk mut" title="Το ticket διαγράφηκε">ticket διαγράφηκε</span> ' : (x.net && x.net.decision === 'ticket' ? '<span class="pbx-aitk bad">ticket δεν άνοιξε</span> ' : (x.net && x.net.decision === 'human' ? '<span class="pbx-aitk mut">απάντησε συνάδελφος</span> ' : (x.net && x.net.decision === 'incomplete' ? `<span class="pbx-aitk bad" title="${esc(x.net.reason)}">ελλιπές — χωρίς ticket</span> ` : ''))))}${x.summary ? esc(x.summary.slice(0, 140)) : (x.transcribed ? '<span class="mut">χωρίς περίληψη</span>' : '<span class="mut">χωρίς κείμενο</span>')}</span>
         </summary>
         ${x.summary ? `<div class="pbx-aisum">${esc(x.summary)}</div>` : ''}
         <pre class="pbx-aitr">${esc(x.transcript || 'Χωρίς απομαγνητοφώνηση. Ενεργοποιείται από το βήμα «Ηχογράφηση και απομαγνητοφώνηση» στη Δομή κέντρου — ισχύει για τις επόμενες κλήσεις.')}</pre>

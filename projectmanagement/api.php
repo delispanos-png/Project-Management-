@@ -6331,7 +6331,19 @@ case 'pbx_ai_calls':                     // οι τελευταίες κλήσε
             $nm = $names ? reset($names) : null;
             $aiNet = Capsule::table('mod_cpm_ai_calls')->where('recording_id', (int) $r['Id'])->first();
             $aiTk = $aiNet && $aiNet->ticket_id ? Capsule::table('tbltickets')->where('id', $aiNet->ticket_id)->first(['tid', 'status']) : null;
-            $aiRows[] = ['id' => (int) $r['Id'], 'at' => $st ? date('Y-m-d H:i', $st) : '',
+            /* ΕΠΑΝΑΚΛΗΣΗ (22/09/2026): για κάθε αίτημα που έγινε ticket, πότε τον καλέσαμε πίσω —
+               η πρώτη εξερχόμενη προς τον αριθμό του μετά την κλήση. Αυτό είναι το μέτρο: όχι
+               «χάθηκε η κλήση», αλλά «σε πόσα λεπτά τον πήραμε». */
+            $aiE164 = $other !== '' ? Pbx3cxCdr::e164($other) : '';
+            $aiBack = null;
+            if ($aiTk && $aiE164 !== '' && $st) {
+                $cbRow = Capsule::table('mod_cpm_calls')->where('direction', 'out')->where('other_e164', $aiE164)
+                    ->where('started_at', '>', date('Y-m-d H:i:s', $st))->orderBy('started_at')->first(['started_at', 'admin_id', 'from_dn', 'answered', 'talk_seconds']);
+                if ($cbRow) { $aiBack = ['at' => $cbRow->started_at, 'minutes' => (int) round((strtotime($cbRow->started_at) - $st) / 60),
+                    'by' => $cbRow->admin_id ? Db::adminName((int) $cbRow->admin_id) : (string) $cbRow->from_dn, 'answered' => (bool) $cbRow->answered, 'talk' => (int) $cbRow->talk_seconds]; }
+            }
+            $aiRows[] = ['id' => (int) $r['Id'], 'at' => $st ? date('Y-m-d H:i', $st) : '', 'agent' => (string) ($r['ToDn'] === Pbx3cxBlueprint::CB_DN ? 'callback' : 'reception'),
+                'callback' => $aiBack, 'pendingMin' => ($aiTk && !$aiBack && $st) ? (int) round((time() - $st) / 60) : null,
                 'net' => $aiNet ? ['decision' => $aiNet->decision, 'reason' => (string) $aiNet->reason,
                     'ticket' => $aiTk ? (string) $aiTk->tid : '', 'ticketId' => (int) ($aiNet->ticket_id ?: 0),
                     /* ticket_id χωρίς γραμμή = το ticket διαγράφηκε από κάποιον (π.χ. δοκιμές) — όχι «δεν άνοιξε». */
@@ -6342,7 +6354,13 @@ case 'pbx_ai_calls':                     // οι τελευταίες κλήσε
                 'summary' => trim((string) ($r['Summary'] ?? '')), 'transcript' => trim((string) ($r['Transcription'] ?? ''))];
         }
     } catch (\Throwable $e) { fail('3CX: ' . $e->getMessage()); }
-    out(['items' => $aiRows, 'mode' => Pbx3cxBlueprint::agentMode(), 'modeLabel' => Pbx3cxBlueprint::modeLabel(Pbx3cxBlueprint::agentMode()),
+    /* Σύνοψη επανάκλησης πάνω από τη λίστα: αιτήματα, πόσα καλέστηκαν, μέσος χρόνος, εκκρεμή. */
+    $aiReq = array_values(array_filter($aiRows, function ($x) { return !empty($x['net']['ticketId']) && empty($x['net']['deleted']); }));
+    $aiDone = array_values(array_filter($aiReq, function ($x) { return !empty($x['callback']); }));
+    $aiAvg = $aiDone ? (int) round(array_sum(array_map(function ($x) { return $x['callback']['minutes']; }, $aiDone)) / count($aiDone)) : null;
+    $aiStats = ['requests' => count($aiReq), 'calledBack' => count($aiDone), 'pending' => count($aiReq) - count($aiDone), 'avgMinutes' => $aiAvg,
+        'late' => count(array_filter($aiReq, function ($x) { return empty($x['callback']) && ($x['pendingMin'] ?? 0) > 120; }))];
+    out(['items' => $aiRows, 'stats' => $aiStats, 'mode' => Pbx3cxBlueprint::agentMode(), 'modeLabel' => Pbx3cxBlueprint::modeLabel(Pbx3cxBlueprint::agentMode()),
         'voice' => Pbx3cxBlueprint::voice(), 'voices' => Pbx3cxBlueprint::VOICES,
         'canEdit' => cnp_has_cap($adminId, $FULL, 'comms.pbx.edit')]);
 
