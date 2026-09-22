@@ -1218,7 +1218,7 @@ R.triage = async function () {
 
 /* ═════════ 📚 ΓΝΩΣΗ — «το έχω ξαναλύσει;» ═════════ */
 R.knowledge = async function () {
-  setTop('Γνώση', 'Βιβλιοθήκη γνώσης ανά προϊόν — ψάξε αν το πρόβλημα έχει ξαναλυθεί');
+  setTop('Βάση γνώσης', 'Έχει ξαναλυθεί αυτό; Και ποιος ξέρει πώς');
   const c = $('#content');
   const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}, page: {}};
   const PER = 25;   // πόσα άρθρα ανά ομάδα πριν το «Περισσότερα»
@@ -1227,20 +1227,21 @@ R.knowledge = async function () {
   const KSORT = {uses: 'Πιο χρήσιμα', recent: 'Πιο πρόσφατα', title: 'Αλφαβητικά'};
 
   c.innerHTML = `
-  <div class="card kb-search">
-    <div class="kb-srow">
-      <div class="kb-sinput"><span class="kb-sico">${I.search}</span>
-        <input class="inp" id="kQ" placeholder="Ψάξε τα πάντα — τίτλο, λέξεις-κλειδιά, κείμενο λύσης, προϊόν…" value="${esc(st.q)}"></div>
-      <button class="btn btn-o btn-sm" id="kDeep" title="Ψάξε και στο ιστορικό των tickets">${I.ticket} Και στα tickets</button>
-      <button class="btn btn-o btn-sm" id="kImp" title="Εισαγωγή από online τεκμηρίωση/εγχειρίδιο">${I.download} Εισαγωγή από URL</button>
-      <button class="btn btn-p btn-sm" id="kNew">${I.plus} Προσθήκη γνώσης</button>
-    </div>
-    <div class="kb-filters">
-      <button class="kb-chip${st.prod === '' ? ' on' : ''}" data-kprod="">Όλα <b id="kcAll"></b></button>
-      <span class="chipwrap" id="kProdChips"></span>
-      <select class="inp kb-sort" id="kSort">${Object.entries(KSORT).map(([k, l]) => `<option value="${k}" ${st.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="kb-mine"><input type="checkbox" id="kMine" ${st.mine ? 'checked' : ''}> Μόνο δικά μου</label>
-    </div>
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="kQ" value="${esc(st.q)}"
+      placeholder="τίτλο, λέξεις-κλειδιά, κείμενο λύσης, προϊόν…" style="width:300px">`, !!st.q, '')}
+    ${fChip('Ταξινόμηση', `<select class="fchip-s" id="kSort">${Object.entries(KSORT).map(([k, l]) =>
+      `<option value="${k}" ${st.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`, false, '')}
+    <button type="button" class="fchip fchip-b${st.mine ? ' on' : ''}" id="kMine">${
+      st.mine ? '✓ ' : ''}Μόνο δικά μου</button>
+    <span class="fbar-sp"></span>
+    <button class="fchip" id="kDeep" title="Ψάξε και στο ιστορικό των tickets">${I.ticket} Και στα tickets</button>
+    <button class="fchip" id="kImp" title="Εισαγωγή από online τεκμηρίωση/εγχειρίδιο">${I.download} Εισαγωγή από URL</button>
+    <button class="fchip fchip-go" id="kNew">${I.plus} Προσθήκη γνώσης</button>
+  </div>
+  <div class="kb-filters">
+    <button class="kb-chip${st.prod === '' ? ' on' : ''}" data-kprod="">Όλα <b id="kcAll"></b></button>
+    <span class="chipwrap" id="kProdChips"></span>
   </div>
   <div id="kForm"></div>
   <div id="kRes"></div>
@@ -1548,7 +1549,10 @@ R.knowledge = async function () {
   $('#kNew').onclick = () => openForm(null);
   $('#kImp').onclick = () => openImport(D.products, load);
   $('#kSort').onchange = () => { st.sort = $('#kSort').value; render(); };
-  $('#kMine').onchange = () => { st.mine = $('#kMine').checked; render(); };
+  /* Κουμπί που ανάβει αντί για κουτάκι μέσα σε κουμπάκι: το φίλτρο ΕΙΝΑΙ η
+     τιμή του, δεν έχει ετικέτα+τιμή σαν τα υπόλοιπα. Ξαναζωγραφίζουμε τη
+     γραμμή για να αλλάξει η όψη του. */
+  $('#kMine').onclick = () => { st.mine = !st.mine; st.page = {}; R.knowledge(); };
   await load();
 };
 
