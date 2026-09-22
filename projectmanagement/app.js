@@ -3759,6 +3759,7 @@ async function vMyDay() {
         : `<div class="myd-now idle"><span class="myd-now-k">Δεν τρέχει χρόνος</span><span class="mut">διάλεξε από το πρόγραμμα και πάτα ▶ — ο χρόνος που δεν ξεκινά, δεν καταγράφεται</span></div>`}
     </div>
     <button class="btn btn-p myd-next-b" id="mydNext" title="Πήγαινέ με στο επόμενο που πρέπει να πιάσω (n)">▶ Επόμενο</button>
+    <button class="myd-kbd" id="mydLay" title="Τι βλέπω σε αυτή την οθόνη και με ποια σειρά">⚙</button>
     <button class="myd-kbd" id="mydKbd" title="Συντομεύσεις πληκτρολογίου (?)">⌨</button>
     <div class="myd-hero-r">
       <div class="myd-kpi">${ring(doneN, doneN + planTasks.length)}<div class="myd-kpi-l">έγιναν<br>σήμερα</div></div>
@@ -3817,19 +3818,25 @@ async function vMyDay() {
       ${o.checkin ? (o.checkin.status === 'done' ? `<span class="pill ${o.checkin.answer === 'help' ? 'pill-bad' : 'pill-ok'}" style="flex:none" title="${esc(o.checkin.answerNote || '')}">${o.checkin.answer === 'help' ? '🆘 θέλει βοήθεια' : '✅ όλα καλά'}</span>` : '<span class="pill pill-info" style="flex:none">💬 ρωτήθηκε</span>') : `<button class="btn btn-sm btn-o" data-ovask style="flex:none">💬 Ρώτα</button>`}
     </div>`).join('') : '';
 
-  c.innerHTML = `<div class="myd-wrap">${hero}${dayBar}${tmbBar}
+  /* Κάθε μπλοκ χτίζεται μία φορά και μπαίνει ΜΕ ΤΗ ΣΕΙΡΑ που το θέλει ο χρήστης.
+     Ό,τι έχει σβήσει δεν υπολογίζεται καν στη σελίδα. */
+  const BLK = {
+    day: () => dayBar,
+    team: () => tmbBar,
+    att: () => sec('att', 'Θέλουν εσένα', 'από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')}),
+    plan: () => sec('plan', 'Το πρόγραμμά μου σήμερα', '▶ χρόνος · ✔ ολοκλήρωση', planN, planBody, {ic: I.sun, link: ['calendar', 'ημερολόγιο →']}),
+    queue: () => sec('queue', 'Ουρά tickets', 'πρώτα SLA, μετά ο παλαιότερος', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']}),
+    coach: () => (coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''),
+    dl: () => (dlAhead.length ? sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))}) : ''),
+    wait: () => (waitN ? sec('wait', 'Περιμένω άλλους', 'όχι δική σου εκκρεμότητα', waitN, waitBody, {ic: I.clock, collapsed: true}) : ''),
+    ov: () => (overruns.length ? sec('ov', 'Υπερβάσεις ομάδας', 'πάνω από την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''),
+  };
+  const put = col => mydCol(col).map(k => (BLK[k] ? BLK[k]() : '')).join('');
+
+  c.innerHTML = `<div class="myd-wrap">${hero}${put('bar')}
   <div class="myd-cols">
-    <div class="myd-main">
-      ${sec('att', 'Θέλουν εσένα', 'από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')})}
-      ${sec('plan', 'Το πρόγραμμά μου σήμερα', '▶ χρόνος · ✔ ολοκλήρωση', planN, planBody, {ic: I.sun, link: ['calendar', 'ημερολόγιο →']})}
-      ${sec('queue', 'Ουρά tickets', 'πρώτα SLA, μετά ο παλαιότερος', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
-    </div>
-    <div class="myd-rail">
-      ${coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''}
-      ${dlAhead.length ? sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))}) : ''}
-      ${waitN ? sec('wait', 'Περιμένω άλλους', 'όχι δική σου εκκρεμότητα', waitN, waitBody, {ic: I.clock, collapsed: true}) : ''}
-      ${overruns.length ? sec('ov', 'Υπερβάσεις ομάδας', 'πάνω από την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''}
-    </div>
+    <div class="myd-main">${put('main')}</div>
+    <div class="myd-rail">${put('rail')}</div>
   </div></div>`;
 
   /* ── δέσιμο ── */
@@ -3878,6 +3885,7 @@ async function vMyDay() {
     const b = el.querySelector('[data-attgo]');
     setTimeout(() => (b || el).click(), 180);
   };
+  { const lb = $('#mydLay'); if (lb) { lb.onclick = () => mydLayoutDialog(() => vMyDay()); } }
   { const nb = $('#mydNext'); if (nb) { nb.onclick = goNext; } }
   { const kb = $('#mydKbd'); if (kb) { kb.onclick = () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'],
       ['e', 'ολοκλήρωσε ή τακτοποίησε'], ['r', 'απάντησε (ticket / αίτημα)']]); } }
@@ -4710,6 +4718,83 @@ function cnpWireDash(root) {
   r.querySelectorAll('[data-ddev]').forEach(b => b.onclick = () => go('calendar'));
 }
 
+/* ═════════ 🧩 Η διάταξη της «Μέρας μου» ανά άνθρωπο (22/9/2026) ═════════
+   Ο project manager θέλει τις Κάρτες, ο τεχνικός την Ουρά, ο πωλητής τα follow-ups.
+   Ίδια οθόνη, ο καθένας κρύβει ό,τι δεν του λέει και βάζει πρώτο ό,τι κοιτάζει πρώτο.
+   Η διάταξη ζει στον server (pref myday_layout), ώστε να ακολουθεί το άτομο και όχι
+   τον browser. Νέο μπλοκ που θα προστεθεί αύριο εμφανίζεται μόνο του στο τέλος. */
+const MYD_BLOCKS = [
+  {k: 'day', col: 'bar', label: 'Το ημερολόγιό μου σήμερα'},
+  {k: 'team', col: 'bar', label: 'Η ομάδα τώρα'},
+  {k: 'att', col: 'main', label: 'Θέλουν εσένα'},
+  {k: 'plan', col: 'main', label: 'Το πρόγραμμά μου σήμερα'},
+  {k: 'queue', col: 'main', label: 'Ουρά tickets'},
+  {k: 'coach', col: 'rail', label: 'Καθοδήγηση'},
+  {k: 'dl', col: 'rail', label: 'Προθεσμίες μπροστά'},
+  {k: 'wait', col: 'rail', label: 'Περιμένω άλλους'},
+  {k: 'ov', col: 'rail', label: 'Υπερβάσεις ομάδας'},
+];
+
+/** Η αποθηκευμένη σειρά, συμπληρωμένη με ό,τι δεν ξέρει ακόμη. */
+function mydLayout() {
+  const saved = String((S.boot.me && S.boot.me.mydLayout) || '').split(',').filter(Boolean);
+  const known = MYD_BLOCKS.map(b => b.k);
+  const out = [];
+  saved.forEach(x => { const k = x.replace(/^-/, ''); if (known.includes(k) && !out.some(o => o.k === k)) { out.push({k, on: x[0] !== '-'}); } });
+  known.forEach(k => { if (!out.some(o => o.k === k)) { out.push({k, on: true}); } });
+  return out;
+}
+const mydOn = k => { const f = mydLayout().find(x => x.k === k); return !f || f.on; };
+/** Τα κλειδιά μιας στήλης, με τη σειρά του χρήστη και μόνο τα ανοιχτά. */
+const mydCol = col => mydLayout().filter(x => x.on)
+  .map(x => MYD_BLOCKS.find(b => b.k === x.k)).filter(b => b && b.col === col).map(b => b.k);
+
+/** ⚙ Ο ρυθμιστής: τι βλέπω και με ποια σειρά. */
+function mydLayoutDialog(after) {
+  let st = mydLayout();
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl ovl-keep show'; ovl.style.zIndex = cnpTopZ() + 10;
+  document.body.appendChild(ovl);
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onK, true); };
+  const onK = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+  setTimeout(() => document.addEventListener('keydown', onK, true), 0);
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+
+  const COL = {bar: 'Πλάτος οθόνης', main: 'Κύρια στήλη', rail: 'Δεξιά στήλη'};
+  const paint = () => {
+    ovl.innerHTML = `<div class="pal-box" style="width:min(460px,94vw);margin:10vh auto 0;padding:20px 22px">
+      <b style="font-size:15px;color:var(--ink)">Τι βλέπω στη «Μέρα μου»</b>
+      <div class="mut" style="font-size:12px;margin-top:4px">Σβήσε ό,τι δεν σου λέει· ανέβασε ό,τι κοιτάς πρώτο.</div>
+      <div class="lay">${st.map((x, i) => { const b = MYD_BLOCKS.find(y => y.k === x.k); if (!b) { return ''; }
+        return `<div class="lay-r${x.on ? '' : ' off'}">
+          <label class="lay-c"><input type="checkbox" data-layk="${b.k}"${x.on ? ' checked' : ''}><span>${esc(b.label)}</span></label>
+          <span class="lay-col">${esc(COL[b.col])}</span>
+          <button class="lay-b" data-layup="${i}"${i === 0 ? ' disabled' : ''} title="Πάνω">↑</button>
+          <button class="lay-b" data-laydn="${i}"${i === st.length - 1 ? ' disabled' : ''} title="Κάτω">↓</button></div>`; }).join('')}</div>
+      <div style="display:flex;gap:9px;margin-top:16px;align-items:center">
+        <button class="btn btn-sm btn-o" id="layReset">Επαναφορά</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-o" id="layNo">Άκυρο</button>
+        <button class="btn btn-sm btn-p" id="layOk">Αποθήκευση</button></div></div>`;
+    ovl.querySelectorAll('[data-layk]').forEach(c => c.onchange = () => {
+      const it = st.find(x => x.k === c.dataset.layk); if (it) { it.on = c.checked; } paint(); });
+    ovl.querySelectorAll('[data-layup]').forEach(b => b.onclick = () => {
+      const i = +b.dataset.layup; [st[i - 1], st[i]] = [st[i], st[i - 1]]; paint(); });
+    ovl.querySelectorAll('[data-laydn]').forEach(b => b.onclick = () => {
+      const i = +b.dataset.laydn; [st[i + 1], st[i]] = [st[i], st[i + 1]]; paint(); });
+    ovl.querySelector('#layNo').onclick = close;
+    ovl.querySelector('#layReset').onclick = () => { st = MYD_BLOCKS.map(b => ({k: b.k, on: true})); paint(); };
+    ovl.querySelector('#layOk').onclick = async () => {
+      const v = st.map(x => (x.on ? '' : '-') + x.k).join(',');
+      const r = await api('profile_pref', {key: 'myday_layout', value: v}).catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      S.boot.me.mydLayout = r.value !== undefined ? r.value : v;
+      toast('Αποθηκεύτηκε'); close(); if (after) { after(); }
+    };
+  };
+  paint();
+}
+
 /* ═════════ ⌨ Πλοήγηση με πληκτρολόγιο σε λίστες (22/9/2026) ═════════
    Χώρος εργασίας χωρίς πληκτρολόγιο είναι πίνακας ανακοινώσεων. Ένας δρομέας πάνω
    στις γραμμές: j/k κινείται, Enter ανοίγει, και κάθε οθόνη δηλώνει τα δικά της
@@ -5017,7 +5102,7 @@ window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDe
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
-  openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp,
+  openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp, mydLayoutDialog,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
   fChip, fSel, fBool, fOne, fAdd, fWire, $, $$};
 

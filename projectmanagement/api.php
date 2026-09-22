@@ -3962,7 +3962,10 @@ case 'boot':
             /* Κάρτες διαχείρισης: το μενού τις δείχνει μόνο σε ομάδα PM (παραλήπτες) ή Manager (εποπτεία). */
             'cardsPm' => in_array($adminId, DayPlan::owners(), true),
             'cardsEsc' => in_array($adminId, DayPlan::escalateTo(), true) || $FULL,
-            'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el'],
+            'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el',
+            /* Η διάταξη της «Μέρας μου» ανά χρήστη: σειρά μπλοκ, με «-» μπροστά όσα κρύφτηκαν.
+               Στον server ώστε να ακολουθεί τον άνθρωπο σε κάθε συσκευή, όχι στο localStorage. */
+            'mydLayout' => (string) Db::pref($adminId, 'myday_layout', '')],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
         'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
@@ -11742,6 +11745,21 @@ case 'profile_pref':                   // προσωπικές προτιμήσ�
     if ($key8 === 'lang') {                       // γλώσσα διεπαφής ανά χρήστη (el|en)
         Db::setPref($adminId, 'lang', ($in['value'] ?? '') === 'en' ? 'en' : 'el');
         out(['ok' => true]);
+    }
+    if ($key8 === 'myday_layout') {
+        /* Μόνο γνωστά κλειδιά μπλοκ, με προαιρετικό «-» για κρυμμένο. Δεν αποθηκεύουμε
+           ό,τι στείλει ο browser: η τιμή γυρίζει στο boot και μπαίνει σε HTML. */
+        $okB = ['day', 'team', 'att', 'plan', 'queue', 'coach', 'dl', 'wait', 'ov'];
+        $keep = [];
+        foreach (explode(',', (string) ($in['value'] ?? '')) as $kk) {
+            $kk = trim($kk);
+            $bare = ltrim($kk, '-');
+            if ($bare !== '' && in_array($bare, $okB, true) && !in_array($bare, array_map(function ($x) { return ltrim($x, '-'); }, $keep), true)) {
+                $keep[] = (strpos($kk, '-') === 0 ? '-' : '') . $bare;
+            }
+        }
+        Db::setPref($adminId, 'myday_layout', implode(',', $keep));
+        out(['ok' => true, 'value' => implode(',', $keep)]);
     }
     if (!in_array($key8, ['notify_email', 'digest'], true)) {
         fail('pref');

@@ -1440,18 +1440,18 @@ R.scheduler = async function () {
     </div></div>`; };
 
   c.innerHTML = `
-  <div class="card" style="margin-bottom:12px"><div class="card-b" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
-    <button class="btn btn-sm btn-o" id="scPrev">‹</button>
-    <button class="btn btn-sm btn-o" id="scToday">Σήμερα</button>
-    <button class="btn btn-sm btn-o" id="scNext">›</button>
-    <span class="sc-range"><input type="date" class="inp" id="scFrom" value="${d.from}" title="Από"> <span class="mut">→</span> <input type="date" class="inp" id="scTo" value="${d.to}" title="Έως"></span>
-    <span style="flex:1"></span>
-    <select class="inp" id="scTeam" style="width:auto;min-width:150px">
+  <div class="fbar">
+    <button class="fchip" id="scPrev" title="Προηγούμενη περίοδος">‹</button>
+    <button class="fchip" id="scToday">Σήμερα</button>
+    <button class="fchip" id="scNext" title="Επόμενη περίοδος">›</button>
+    ${fChip('Από', `<input type="date" class="fchip-s" id="scFrom" value="${d.from}">`, false, '')}
+    ${fChip('Έως', `<input type="date" class="fchip-s" id="scTo" value="${d.to}">`, false, '')}
+    ${fChip('Ομάδα', `<select class="fchip-s" id="scTeam" style="min-width:140px">
       <option value="0">— όλη η ομάδα —</option>
-      ${d.teams.map(t => `<option value="${t.id}" ${t.id === d.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
-    <select class="inp" id="scDays" style="width:auto">
-      ${[7, 14, 21, 35, 60, 90].concat([7, 14, 21, 35, 60, 90].includes(d.days) ? [] : [d.days]).sort((a, b) => a - b).map(n => `<option value="${n}" ${n === d.days ? 'selected' : ''}>${n} ημέρες</option>`).join('')}</select>
-  </div></div>
+      ${d.teams.map(t => `<option value="${t.id}" ${t.id === d.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>`, !!d.team, '')}
+    ${fChip('Εύρος', `<select class="fchip-s" id="scDays">
+      ${[7, 14, 21, 35, 60, 90].concat([7, 14, 21, 35, 60, 90].includes(d.days) ? [] : [d.days]).sort((a, b) => a - b).map(n => `<option value="${n}" ${n === d.days ? 'selected' : ''}>${n} ημέρες</option>`).join('')}</select>`, false, '')}
+  </div>
 
   <div class="card"><div class="sc-wrap" id="scWrap">${head}
     ${d.lanes.map(lane).join('') || '<div class="mut" style="padding:20px">Καμία λωρίδα.</div>'}

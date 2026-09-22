@@ -165,20 +165,19 @@ R.gantt = async function () {
   const nothing = !d.tasks.length;
 
   c.innerHTML = `
-  <div class="g-toolbar" style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-    <div style="display:flex;background:#8595ac22;border-radius:10px;padding:3px">
-      <button class="btn btn-sm ${st.mode === 'project' ? 'btn-p' : ''}" id="gMp" style="box-shadow:none">📁 Projects</button>
-      <button class="btn btn-sm ${st.mode === 'people' ? 'btn-p' : ''}" id="gMa" style="box-shadow:none">👥 Διαθεσιμότητα</button>
-    </div>
-    <div style="display:flex;gap:6px;align-items:center">
-      <button class="btn btn-o btn-sm" id="gPrev">←</button>
-      <button class="btn btn-o btn-sm" id="gToday">Σήμερα</button>
-      <button class="btn btn-o btn-sm" id="gNext">→</button>
-    </div>
-    ${st.mode === 'project' ? '<button class="btn btn-o btn-sm" id="gAll">↕ Άνοιγμα όλων</button>' : `
-      <span class="mut" style="font-size:11.5px"><span class="dot" style="background:#16a26a"></span>≤4ω
+  <div class="fbar">
+    <button class="fchip" id="gPrev" title="Προηγούμενη περίοδος">←</button>
+    <button class="fchip" id="gToday">Σήμερα</button>
+    <button class="fchip" id="gNext" title="Επόμενη περίοδος">→</button>
+    ${st.mode === 'project' ? '<button class="fchip" id="gAll">↕ Άνοιγμα όλων</button>' : `
+      <span class="fbar-note"><span class="dot" style="background:#16a26a"></span>≤4ω
       <span class="dot" style="background:#eba63c"></span>≤8ω <span class="dot" style="background:#e2515f"></span>>8ω</span>`}
-    <span class="mut g-hint" style="margin-left:auto;font-size:11.5px">Σύρε μπάρα = μετακίνηση · άκρη = διάρκεια · κλικ = άνοιγμα</span>
+    <span class="fbar-sp"></span>
+    <span class="fbar-note g-hint">σύρε μπάρα = μετακίνηση · άκρη = διάρκεια · κλικ = άνοιγμα</span>
+  </div>
+  <div class="fchips">
+    <button class="kb-chip${st.mode === 'project' ? ' on' : ''}" id="gMp">${I.folder} Projects</button>
+    <button class="kb-chip${st.mode === 'people' ? ' on' : ''}" id="gMa">${I.users} Διαθεσιμότητα</button>
   </div>
   ${nothing ? `<div class="card"><div class="empty" style="padding:44px 22px">
       <div class="big">${I.gantt}</div>
