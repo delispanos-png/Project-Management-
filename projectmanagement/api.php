@@ -8090,12 +8090,35 @@ case 'save_task':
         $ref = preg_replace('/[^0-9A-Za-z\/\-_.#]/u', '', trim((string) $in['ticket_ref']));
         $data['ticket_ref'] = $ref !== '' ? mb_substr($ref, 0, 40) : null;
     }
+    $ballStopped = null;   // γεμίζει αν η παράδοση της μπάλας έκοψε χρονόμετρο
     if (array_key_exists('ball', $in)) {
         $newBall = (int) $in['ball'] ?: null;
         $data['action_user'] = $newBall;
         if ($newBall && $newBall !== (int) $t->action_user && $newBall !== $adminId) {
             Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title,
                 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid);
+        }
+
+        /* ΔΙΝΩ ΤΗΝ ΜΠΑΛΑ = ΤΕΛΕΙΩΣΑ ΤΟ ΔΙΚΟ ΜΟΥ ΚΟΜΜΑΤΙ → ΣΤΑΜΑΤΑ Ο ΧΡΟΝΟΣ ΜΟΥ.
+           Ίδια λογική με την αλλαγή κατάστασης (δες move_task): ο χειριστής
+           ξεκινά τον χρόνο και φεύγει να δουλέψει· όταν παραδίδει σε άλλον, αυτό
+           ΕΙΝΑΙ το «τελείωσα», ακόμη κι αν ξέχασε το Stop. Χωρίς αυτό ο χρόνος
+           έτρεχε για ώρες πάνω σε εργασία που πια την κρατούσε άλλος.
+
+           ΜΟΝΟ όταν φεύγει ΑΠΟ ΕΜΕΝΑ σε ΑΛΛΟΝ: αν πάρω εγώ την μπάλα, ή αν την
+           αφήσω «σε κανέναν» για να την ξαναπιάσω, δεν σταματά τίποτα. */
+        $oldBall = (int) $t->action_user;
+        if ($oldBall === $adminId && $newBall && $newBall !== $adminId) {
+            $runB = Db::runningTimer($adminId);
+            if ($runB && (int) $runB->task_id === (int) $tid) {
+                if (Db::stopTimer($runB->id)) {
+                    Db::updateTimelog($runB->id, ['note' => 'έκλεισε με την παράδοση της μπάλας']);
+                    Time::push($runB->id);
+                }
+                $lgB = Db::timelog($runB->id);
+                $ballStopped = ['id' => (int) $runB->id, 'mins' => $lgB ? (int) $lgB->minutes : 0,
+                    'to' => Db::adminName($newBall)];
+            }
         }
     }
     /* Ανάθεση & προτεραιότητα: όποιος βλέπει την εργασία μπορεί να τις ορίσει.
@@ -8165,7 +8188,7 @@ case 'save_task':
 
     Db::saveTask($tid, $data, $adminId);
     Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
-    out(['ok' => true]);
+    out(['ok' => true, 'ballStopped' => $ballStopped]);
 
 case 'comment':
     $tid = (int) ($in['task'] ?? 0);
