@@ -993,7 +993,11 @@ button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
   .top h1{font-size:16px;letter-spacing:-.3px}
   .top small{display:none}
   .top-acts{gap:6px;margin-left:auto;flex:none}
-  #statusBtn,#helpBtn{display:none}
+  /* Το 💡 ΜΕΝΕΙ στο κινητό: ο χειριστής που δουλεύει από τηλέφωνο είναι
+     ακριβώς αυτός που χρειάζεται περισσότερο βοήθεια οθόνης, και το κουμπί
+     ήταν κρυμμένο. Φεύγει μόνο η κατάσταση διαθεσιμότητας, που δηλώνεται
+     ούτως ή άλλως από το προφίλ. */
+  #statusBtn{display:none}
 
   /* ── content ── */
   .content{padding:14px 12px 48px}

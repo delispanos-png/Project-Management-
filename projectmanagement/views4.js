@@ -740,16 +740,14 @@ R.requests = async function (openId) {
   const c = $('#content');
   const f = R.requests._f = R.requests._f || {box: 'in', state: 'open', q: '', who: 0};
   const {cnpKpis, cnpPeopleBar} = window.CNP;
+  /* Τα φίλτρα ΕΙΝΑΙ τα νούμερα. Έξι κουμπιά «Προς εμένα / Από εμένα / Όλα / Ανοιχτά /
+     Τακτοποιημένα / Όλα» έλεγαν ακριβώς ό,τι λένε τα πλακίδια από πάνω — και ο χρήστης
+     έπρεπε να μεταφράσει μόνος του «σε περιμένουν» = «Προς εμένα + Ανοιχτά». Έμεινε ένα
+     κουμπί «Ιστορικό» για να μη γίνει τίποτα απρόσιτο. */
+  const all = f.box === 'all' && f.state === 'all';
   c.innerHTML = `<div class="fbar">
-    ${fChip('Αναζήτηση', `<input class="fchip-s" id="rqQ" value="${esc(f.q)}" placeholder="κείμενο αιτήματος…" style="width:210px">`, !!f.q, '')}
-    <span class="fseg" id="rqBox">
-      <button class="fchip${f.box === 'in' ? ' on' : ''}" data-b="in">Προς εμένα <b id="rqNi"></b></button>
-      <button class="fchip${f.box === 'out' ? ' on' : ''}" data-b="out">Από εμένα <b id="rqNo"></b></button>
-      <button class="fchip${f.box === 'all' ? ' on' : ''}" data-b="all">Όλα</button></span>
-    <span class="fseg" id="rqState">
-      <button class="fchip${f.state === 'open' ? ' on' : ''}" data-s="open">Ανοιχτά</button>
-      <button class="fchip${f.state === 'done' ? ' on' : ''}" data-s="done">Τακτοποιημένα</button>
-      <button class="fchip${f.state === 'all' ? ' on' : ''}" data-s="all">Όλα</button></span>
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="rqQ" value="${esc(f.q)}" placeholder="κείμενο αιτήματος…" style="width:230px">`, !!f.q, '')}
+    <button class="fchip${all ? ' on' : ''}" id="rqAll" title="Όλα τα αιτήματα — ανοιχτά και τακτοποιημένα, προς εμένα και από εμένα">${I.clock} Ιστορικό</button>
     <span class="fbar-sp"></span>
     <button class="fchip fchip-go" id="rqNew">${I.plus} Ζήτα βοήθεια</button>
   </div>
@@ -757,7 +755,6 @@ R.requests = async function (openId) {
   <div class="rq-split"><div id="rqList"><div class="skel" style="height:200px"></div></div>
     <div id="rqPane" class="rq-pane"><div class="empty" style="padding:50px 16px"><div class="big">${I.chat}</div>Διάλεξε αίτημα για να δεις τη συζήτηση</div></div></div>`;
   const d = await api('requests&box=' + f.box + '&state=' + f.state + '&q=' + encodeURIComponent(f.q)).catch(() => ({items: [], counts: {}, people: [], mates: []}));
-  { const a = $('#rqNi'), b2 = $('#rqNo'); if (a) a.textContent = d.counts.in || ''; if (b2) b2.textContent = d.counts.out || ''; }
 
   const ago = at => { if (!at) return ''; const h = Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 3600000); return h < 1 ? 'μόλις τώρα' : h < 24 ? 'πριν ' + h + 'ω' : 'πριν ' + Math.floor(h / 24) + ' ημ.'; };
   const days = at => Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 86400000);
@@ -773,14 +770,15 @@ R.requests = async function (openId) {
   const avgOk = (cn.avgN || 0) >= 3;
   const dash = `<div class="dbar">${cnpKpis([
     {n: cn.in || 0, label: 'σε περιμένουν', color: cn.in ? 'var(--bad)' : 'var(--ok)',
-      tip: 'Ανοιχτά αιτήματα προς εσένα — αυτά χρωστάς', act: 'in', on: f.box === 'in' && f.state === 'open'},
+      tip: 'Ανοιχτά αιτήματα προς εσένα — αυτά χρωστάς', act: 'in', on: f.box === 'in' && f.state === 'open' && !all},
     {n: cn.out || 0, label: 'περιμένεις<br>άλλους', tip: 'Ό,τι ζήτησες εσύ και δεν έχει απαντηθεί',
-      act: 'out', on: f.box === 'out' && f.state === 'open'},
+      act: 'out', on: f.box === 'out' && f.state === 'open' && !all},
     {n: cn.oldestDays || 0, label: 'ημέρες το<br>παλαιότερο',
       color: (cn.oldestDays || 0) >= 3 ? 'var(--bad)' : (cn.oldestDays || 0) >= 1 ? 'var(--warn)' : null,
       tip: 'Πόσο περιμένει το πιο παλιό ανοιχτό αίτημα προς εσένα'},
     {n: cn.answeredToday || 0, label: 'απάντησες<br>σήμερα', color: cn.answeredToday ? 'var(--ok)' : null,
-      tip: 'Αιτήματα που τακτοποίησες σήμερα', act: 'done', on: f.state === 'done'},
+      tip: 'Αιτήματα που τακτοποίησες σήμερα — κλικ για όλα τα τακτοποιημένα',
+      act: 'done', on: f.state === 'done' && !all},
     {n: avgOk ? hAbs(cn.avgH) : '—', label: 'μέσος χρόνος<br>απάντησης',
       tip: avgOk ? 'Μέσος όρος στα ' + cn.avgN + ' αιτήματα που τακτοποίησες τις τελευταίες 14 ημέρες'
         : 'Χρειάζονται τουλάχιστον 3 τακτοποιημένα αιτήματα σε 14 ημέρες για να βγει μέσος όρος'},
@@ -825,7 +823,10 @@ R.requests = async function (openId) {
     ? `<div class="card"><div class="card-b" style="padding:4px 8px">${items.map(row).join('')}</div></div>`
     : `<div class="card"><div class="empty" style="padding:40px 16px"><div class="big">✅</div><b style="color:var(--ink)">Κανένα αίτημα εδώ</b>
         <div class="mut" style="font-size:12.5px;margin-top:6px">${f.who ? 'Κανένα από αυτό το άτομο — πάτα «✕ όλοι» για να τα δεις όλα.'
-          : f.state === 'open' ? 'Δεν σε περιμένει κανείς — καθαρό τραπέζι.' : 'Δοκίμασε άλλο φίλτρο.'}</div></div></div>`;
+          : f.q ? 'Καμία αντιστοιχία στην αναζήτηση.'
+          : f.box === 'in' && f.state === 'open' ? 'Δεν σε περιμένει κανείς — καθαρό τραπέζι.'
+          : f.box === 'out' && f.state === 'open' ? 'Δεν περιμένεις κανέναν.'
+          : 'Τίποτα εδώ — πάτα «Ιστορικό» για να τα δεις όλα.'}</div></div></div>`;
 
   /* ── Καρτέλα αιτήματος: το ζητούμενο, το νήμα, και το πεδίο απάντησης ── */
   const openRq = async id => {
@@ -877,13 +878,17 @@ R.requests = async function (openId) {
   $$('#rqList .rq-row').forEach(el => el.onclick = () => openRq(+el.dataset.rq));
   $$('#rqDash [data-dkact]').forEach(b => b.onclick = () => {
     const a = b.dataset.dkact;
-    if (a === 'in') { f.box = 'in'; f.state = 'open'; } else if (a === 'out') { f.box = 'out'; f.state = 'open'; } else { f.state = 'done'; }
+    if (a === 'in') { f.box = 'in'; f.state = 'open'; }
+    else if (a === 'out') { f.box = 'out'; f.state = 'open'; }
+    else { f.box = 'all'; f.state = 'done'; }
     f.who = 0; R.requests();
   });
   $$('#rqDash [data-rqwho]').forEach(b => b.onclick = () => { const id = +b.dataset.rqwho; f.who = f.who === id ? 0 : id; R.requests(); });
   { const wx = $('#rqWhoX'); if (wx) { wx.onclick = e => { e.stopPropagation(); f.who = 0; R.requests(); }; } }
-  $$('#rqBox [data-b]').forEach(b => b.onclick = () => { f.box = b.dataset.b; f.who = 0; R.requests(); });
-  $$('#rqState [data-s]').forEach(b => b.onclick = () => { f.state = b.dataset.s; R.requests(); });
+  $('#rqAll').onclick = () => {
+    if (all) { f.box = 'in'; f.state = 'open'; } else { f.box = 'all'; f.state = 'all'; }
+    f.who = 0; R.requests();
+  };
   { let t0; const qi = $('#rqQ'); if (qi) qi.oninput = () => { clearTimeout(t0); t0 = setTimeout(() => { f.q = qi.value.trim(); R.requests(); }, 400); }; }
   $('#rqNew').onclick = () => { if (window.CNP.quickHelp) { window.CNP.quickHelp({}); } };
   if (openId) { openRq(+openId); }
