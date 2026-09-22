@@ -1981,6 +1981,37 @@ function cnp_presence_sweep($now = null)
 }
 
 /** Ένα αίτημα «σε ζητούν» σε μορφή οθόνης — ίδια δομή σε λίστα και σε καρτέλα. */
+/**
+ * Μία καταγραφή κλήσης, όπως τη διαβάζει η οθόνη.
+ *
+ * «Ποιος» = πελάτης αν είναι δεμένη, αλλιώς lead, αλλιώς ό,τι όνομα γράφτηκε, αλλιώς ο
+ * αριθμός. Ποτέ κενό: μια κλήση χωρίς «ποιος» δεν λέει τίποτα σε όποιον τη διαβάσει αύριο.
+ */
+function cnp_call_row($r)
+{
+    $who = '';
+    $whoKind = '';
+    if (!empty($r->clientid)) { $who = clientLabel((int) $r->clientid); $whoKind = 'client'; }
+    elseif (!empty($r->lead_id)) {
+        $who = (string) (Capsule::table('mod_cpm_leads')->where('id', (int) $r->lead_id)->value('name') ?: '');
+        $whoKind = 'lead';
+    }
+    if ($who === '') { $who = (string) ($r->caller ?: ''); $whoKind = $whoKind ?: 'free'; }
+    if ($who === '') { $who = (string) ($r->phone ?: 'Άγνωστος'); $whoKind = $whoKind ?: 'phone'; }
+    $fup = $r->followup_date ?: null;
+    return ['id' => (int) $r->id, 'at' => $r->happened_at,
+        'who' => $who, 'whoKind' => $whoKind,
+        'clientId' => (int) ($r->clientid ?: 0), 'leadId' => (int) ($r->lead_id ?: 0),
+        'phone' => (string) ($r->phone ?: ''), 'dir' => $r->direction ?: 'in',
+        'summary' => (string) $r->summary, 'detail' => (string) ($r->detail ?? ''),
+        'minutes' => (int) $r->minutes,
+        'by' => (int) ($r->admin_id ?: 0), 'byName' => $r->admin_id ? Db::adminName((int) $r->admin_id) : '',
+        'task' => (int) ($r->task_id ?: 0), 'ticket' => (int) ($r->ticketid ?: 0),
+        'followup' => $fup, 'followupDone' => (int) ($r->followup_done ?: 0) === 1,
+        'followupLate' => $fup && !((int) ($r->followup_done ?: 0) === 1) && $fup < date('Y-m-d'),
+        'followupNote' => (string) ($r->followup_note ?? '')];
+}
+
 function cnp_request_dto($r, $adminId)
 {
     $kinds = ['help' => ['🆘', 'Ζητά βοήθεια'], 'checkin' => ['❓', 'Ρωτά τι γίνεται'], 'mention' => ['💬', 'Σε ανέφερε'],
@@ -3252,6 +3283,8 @@ function cnp_caps()
         'support.tickets'        => ['view',   'Tickets', 'Προβολή αιτημάτων υποστήριξης'],
         'support.tickets.edit'   => ['edit',   'Επεξεργασία', 'Απάντηση, εσωτερική σημείωση, ανάθεση, κατηγοριοποίηση, αλλαγή status', 'support.tickets'],
         'support.tickets.delete' => ['delete', 'Διαγραφή', 'Οριστική διαγραφή αιτήματος με όλη τη συνομιλία, τις σημειώσεις και τα συνημμένα του', 'support.tickets'],
+        'support.calllog'    => ['view',   'Καταγραφές κλήσεων', 'Τι μας ζήτησαν στο τηλέφωνο, τι απαντήσαμε, τι έμεινε ανοιχτό'],
+        'support.calllog.edit' => ['edit', 'Καταγραφές κλήσεων: επεξεργασία', 'Διόρθωση περίληψης, χρόνου και follow-up σε καταγραφή άλλου'],
         'support.kb'         => ['view',   'Βάση γνώσης', 'Ανάγνωση και χρήση άρθρων'],
         'support.kb.edit'    => ['edit',   'Επεξεργασία', 'Σύνταξη & μαζική εισαγωγή άρθρων', 'support.kb'],
         'support.kb.delete'  => ['delete', 'Διαγραφή', 'Διαγραφή άρθρων', 'support.kb'],
@@ -3741,6 +3774,8 @@ function cnp_action_cap($action)
             'classify_suggest', 'ticket_update']);
         $add('support.kb', ['kb_list', 'kb_get', 'kb_match', 'kb_draft', 'kb_bulk']);
         $add('support.kb|support.tickets', ['kb_use']);
+        $add('support.calllog', ['calllog']);
+        $add('support.calllog.edit', ['calllog_save']);
         $add('support.kb.edit', ['kb_save', 'kb_import_probe', 'kb_import_commit']);
         $add('support.tickets.delete', ['ticket_delete']);
         $add('support.kb.delete', ['kb_del']);
@@ -8985,6 +9020,88 @@ case 'call_who':                         // ποιος καλεί: πελάτη�
         }));
     }
     out(['results' => array_slice($res9, 0, 10)]);
+
+case 'calllog':                          /* ☎ Καταγραφές κλήσεων — τι μας ζήτησαν και τι απαντήσαμε.
+      ΜΟΝΟ χειροκίνητες καταγραφές (mod_cpm_interactions kind=call). Τα CDR του 3CX ζουν
+      στη «Τηλεφωνική δραστηριότητα»: άλλο πράγμα «χτύπησε το τηλέφωνο», άλλο «να τι είπαμε». */
+    $fromC = (string) ($_GET['from'] ?? date('Y-m-d', strtotime('-30 days')));
+    $toC = (string) ($_GET['to'] ?? date('Y-m-d'));
+    $qC = trim((string) ($_GET['q'] ?? ''));
+    $whoC = (int) ($_GET['admin'] ?? 0);
+    $cliC = (int) ($_GET['client'] ?? 0);
+    $viewC = in_array($_GET['view'] ?? 'all', ['all', 'followup', 'loose', 'mine'], true) ? $_GET['view'] : 'all';
+
+    $baseC = function () use ($fromC, $toC) {
+        return Capsule::table('mod_cpm_interactions')->where('kind', 'call')
+            ->where('happened_at', '>=', $fromC . ' 00:00:00')->where('happened_at', '<=', $toC . ' 23:59:59');
+    };
+    $qq = $baseC();
+    if ($whoC) { $qq->where('admin_id', $whoC); }
+    if ($cliC) { $qq->where('clientid', $cliC); }
+    if ($viewC === 'mine') { $qq->where('admin_id', $adminId); }
+    if ($viewC === 'followup') { $qq->whereNotNull('followup_date')->where('followup_done', 0); }
+    /* «Ξεκρέμαστες» = καμία συνέχεια πουθενά. Αυτές χάνονται, γι' αυτό έχουν δικό τους φίλτρο. */
+    if ($viewC === 'loose') {
+        $qq->where(function ($w) { $w->whereNull('task_id')->orWhere('task_id', 0); })
+           ->where(function ($w) { $w->whereNull('ticketid')->orWhere('ticketid', 0); })
+           ->where(function ($w) { $w->whereNull('followup_date')->orWhere('followup_done', 1); });
+    }
+    if ($qC !== '') {
+        $qq->where(function ($w) use ($qC) {
+            $w->where('summary', 'like', '%' . $qC . '%')->orWhere('detail', 'like', '%' . $qC . '%')
+              ->orWhere('caller', 'like', '%' . $qC . '%')->orWhere('phone', 'like', '%' . $qC . '%');
+        });
+    }
+    $rowsC = [];
+    foreach ($qq->orderByDesc('happened_at')->limit(400)->get() as $r) {
+        $rowsC[] = cnp_call_row($r);
+    }
+    /* Τα νούμερα μετριούνται στο ΙΔΙΟ διάστημα με τη λίστα, αλλιώς δεν δένουν με τις γραμμές. */
+    $totC = (int) $baseC()->count();
+    $minsC = (int) $baseC()->sum('minutes');
+    $fupC = (int) $baseC()->whereNotNull('followup_date')->where('followup_done', 0)->count();
+    $looseC = (int) $baseC()
+        ->where(function ($w) { $w->whereNull('task_id')->orWhere('task_id', 0); })
+        ->where(function ($w) { $w->whereNull('ticketid')->orWhere('ticketid', 0); })
+        ->where(function ($w) { $w->whereNull('followup_date')->orWhere('followup_done', 1); })->count();
+    $mineC = (int) $baseC()->where('admin_id', $adminId)->count();
+    $byWho = [];
+    foreach ($baseC()->selectRaw('admin_id, COUNT(*) n, SUM(minutes) m')->groupBy('admin_id')->get() as $w) {
+        if (!$w->admin_id) { continue; }
+        $byWho[] = ['id' => (int) $w->admin_id, 'name' => Db::adminName((int) $w->admin_id),
+            'n' => (int) $w->n, 'mins' => (int) $w->m];
+    }
+    usort($byWho, function ($a, $b) { return $b['n'] <=> $a['n']; });
+    out(['rows' => $rowsC, 'from' => $fromC, 'to' => $toC, 'view' => $viewC,
+        'counts' => ['total' => $totC, 'mins' => $minsC, 'followup' => $fupC, 'loose' => $looseC, 'mine' => $mineC],
+        'byWho' => $byWho,
+        'canEdit' => cnp_has_cap($adminId, $FULL, 'support.calllog.edit')]);
+
+case 'calllog_save':                     /* Διόρθωση καταγραφής: περίληψη, χρόνος, follow-up. */
+    $idC = (int) ($in['id'] ?? 0);
+    $rowC = Capsule::table('mod_cpm_interactions')->where('id', $idC)->where('kind', 'call')->first();
+    if (!$rowC) { fail('Δεν βρέθηκε η καταγραφή', 404); }
+    /* Τη δική σου τη διορθώνεις πάντα· αλλουνού μόνο με ρητό δικαίωμα. */
+    if ((int) $rowC->admin_id !== $adminId && !cnp_has_cap($adminId, $FULL, 'support.calllog.edit')) {
+        fail('Η καταγραφή είναι άλλου — χρειάζεται «Καταγραφές κλήσεων: επεξεργασία»', 403);
+    }
+    $updC = [];
+    if (isset($in['summary'])) {
+        $sumC = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $in['summary']));
+        if ($sumC === '') { fail('Η περίληψη δεν μπορεί να μείνει κενή'); }
+        $updC['summary'] = mb_substr($sumC, 0, 255);
+    }
+    if (isset($in['detail'])) { $updC['detail'] = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $in['detail'])), 0, 4000); }
+    if (isset($in['minutes'])) { $updC['minutes'] = max(0, min(600, (int) $in['minutes'])); }
+    if (array_key_exists('followup_date', $in)) {
+        $fd = trim((string) $in['followup_date']);
+        $updC['followup_date'] = $fd !== '' ? substr($fd, 0, 10) : null;
+        if ($fd === '') { $updC['followup_done'] = 0; }
+    }
+    if (isset($in['followup_done'])) { $updC['followup_done'] = !empty($in['followup_done']) ? 1 : 0; }
+    if (!$updC) { fail('Τίποτα να αλλάξει'); }
+    Capsule::table('mod_cpm_interactions')->where('id', $idC)->update($updC);
+    out(['ok' => true, 'row' => cnp_call_row(Capsule::table('mod_cpm_interactions')->where('id', $idC)->first())]);
 
 case 'call_recent':                      // οι τελευταίες μου κλήσεις — για τη λίστα «σήμερα»
     $rows9 = [];
