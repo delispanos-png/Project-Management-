@@ -431,12 +431,16 @@ R.leave = async function () {
         return `<tr class="pick" data-lvs="${r.staffId}" role="button" tabindex="0">
         <td class="lv-hd"><b>${esc(r.name)}</b>${r.offLaw
           ? ` <span class="lv-warn-dot" title="Ο νόμος δίνει ${lvN(r.suggest)} — ${esc(r.suggestWhy)}">!</span>` : ''}${
-          r.settled ? ' <span class="mut">τακτοποιημένο</span>' : ''}</td>
+          ''}</td>
         <td class="r" data-l="Δικαιούται">${lvN(r.entitled)}</td>
         <td class="r lv-op" data-l="Από πέρσι">${r.carried ? '+' + lvN(r.carried) : '<span class="mut">—</span>'}</td>
         <td class="r lv-eq" data-l="Διαθέσιμες"><b>${lvN(r.available)}</b></td>
-        <td class="r lv-op" data-l="Πήρε">−${lvN(r.taken)}</td>
-        <td class="r lv-eq" data-l="Έμειναν"><b style="color:${r.remaining > 0 && !r.settled ? 'var(--brand)' : 'var(--mut,#64748b)'}">${lvN(r.remaining)}</b></td>
+        <td class="r lv-op" data-l="Πήρε">${r.settled
+          ? '<span class="mut" title="Το έτος ήταν σημειωμένο ως τακτοποιημένο στο Excel, χωρίς αναλυτικές εγγραφές">—</span>'
+          : '−' + lvN(r.taken)}</td>
+        <td class="r lv-eq" data-l="Έμειναν">${r.settled
+          ? '<span class="mut" title="Δεν καταγράφηκε αναλυτικά — το έτος είχε κλείσει">τακτοποιημένο</span>'
+          : `<b style="color:${r.remaining > 0 ? 'var(--brand)' : 'var(--mut,#64748b)'}">${lvN(r.remaining)}</b>`}</td>
         <td class="r lv-op" data-l="Στο επόμενο">${r.carriedOut ? '→' + lvN(r.carriedOut)
           : (past && lost > 0.01 && !r.settled
              ? `<span class="lv-miss" title="Έμειναν ${lvN(lost)} ημέρες που δεν μεταφέρθηκαν — χάθηκαν ή αποζημιώθηκαν">δεν μεταφέρθηκαν</span>`
@@ -535,8 +539,10 @@ async function lvPerson(staffId) {
           ? `<input class="inp lv-mini" type="number" step="0.5" min="0" data-lvcar="${y.year}" value="${lvN(y.carried)}">`
           : (y.carried ? '+' + lvN(y.carried) : '<span class="mut">—</span>')}</td>
         <td class="r lv-eq" data-l="Διαθέσιμες"><b>${lvN(y.available)}</b></td>
-        <td class="r lv-op" data-l="Πήρε">−${lvN(y.taken)}</td>
-        <td class="r lv-eq" data-l="Έμειναν"><b style="color:${y.remaining > 0 && !y.settled ? 'var(--brand)' : 'var(--mut,#64748b)'}">${lvN(y.remaining)}</b></td>
+        <td class="r lv-op" data-l="Πήρε">${y.settled ? '<span class="mut">—</span>' : '−' + lvN(y.taken)}</td>
+        <td class="r lv-eq" data-l="Έμειναν">${y.settled
+          ? '<span class="mut">τακτοποιημένο</span>'
+          : `<b style="color:${y.remaining > 0 ? 'var(--brand)' : 'var(--mut,#64748b)'}">${lvN(y.remaining)}</b>`}</td>
         <td class="r lv-op" data-l="Στο επόμενο">${carryOut(y.year) ? '→' + lvN(carryOut(y.year)) : '<span class="mut">—</span>'}</td>
         <td class="mut" data-l="Προθεσμία">${y.remaining > 0 && !y.settled ? lvDate(y.deadline) : '—'}</td>
         <td class="r">${canEdit ? `<button class="btn btn-p btn-sm" data-lvsave="${y.year}">Αποθήκευση</button>` : ''}</td>
