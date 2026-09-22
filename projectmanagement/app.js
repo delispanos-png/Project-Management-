@@ -236,6 +236,7 @@ function renderShell() {
       ['requests', I.sos || I.chat, 'Αιτήματα'],   /* «σε ζητούν» με ιστορικό: ποιος ρώτησε, τι απαντήθηκε */
       ...((S.boot.me.cardsPm || S.boot.me.cardsEsc) ? [['cards', I.clipboard, 'Κάρτες διαχείρισης']] : []),
       ['time', I.clock, 'Ο χρόνος μου'],   /* ΜΟΝΟ δικός μου — η ομάδα είναι στις Αναφορές */
+      ['myleave', I.sun, 'Οι άδειές μου'],   /* προσωπική οθόνη — χωρίς cap, όπως «Ο χρόνος μου» */
       ['library', I.book, 'Η βιβλιοθήκη μου'],
       ['vault', I.key, 'Κωδικοί'],
       ['profile', I.contact || I.user, 'Το προφίλ μου'],
@@ -301,7 +302,11 @@ function renderShell() {
       ['balances', I.receipt, 'Ανοιχτά υπόλοιπα', 'finance.balances'],
       ['suspend', I.alert, 'Αναστολές', 'finance.suspend'],
     ]],
-    ['Προσλήψεις', 'υποψήφιοι & αξιολογήσεις', [
+    /* Η ενότητα λεγόταν «Προσλήψεις» και στέγαζε μόνο βιογραφικά. Με τις άδειες
+       καλύπτει πλέον ολόκληρο τον κύκλο του εργαζομένου, και το όνομα της
+       ενότητας πρέπει να ταυτίζεται με την περιοχή δικαιωμάτων (`hr`). */
+    ['Προσωπικό', 'άδειες, υπόλοιπα και υποψήφιοι', [
+      ['leave', I.sun, 'Άδειες', 'hr.leave'],
       ['recruit', I.contact || I.users, 'Βιογραφικά', 'hr.cv'],
     ]],
     ['Σύστημα', 'ποιος μπαίνει, τι βλέπει, πώς δουλεύει', [
@@ -3707,11 +3712,13 @@ async function vMyDay() {
     ${e.location && /^https?:/i.test(e.location) ? `<a class="btn btn-sm btn-o" href="${esc(e.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="flex:none" title="${esc(e.location)}">🎥 Μπες</a>` : ''}
     ${e.now ? '<span class="pill pill-ok" style="flex:none">τώρα</span>' : e.rsvp === 'accepted' ? '<span class="pill pill-mut" style="flex:none" title="Δήλωσες συμμετοχή">✔</span>' : e.rsvp === '' && !e.over ? '<span class="pill pill-warn" style="flex:none" title="Δεν απάντησες στην πρόσκληση">αναπάντητη</span>' : ''}</div>`;
   const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p || 0];
+  /* Η ένδειξη «⚡ μπάλα» ξεχωρίζει μόνο όταν ΔΕΝ την έχουν όλες — αλλιώς είναι επανάληψη σε κάθε γραμμή. */
+  const ballAll = planTasks.length > 1 && planTasks.every(t => t.ball === me.id);
   const taskRow = t => { const here = timer && timer.task === t.id; return `<div class="myd-row task${here ? ' live' : ''}" data-mdtask="${t.id}">
     <button class="myd-play${here ? ' on' : ''}" data-mdplay="${t.id}" title="${here ? 'Τρέχει ο χρόνος εδώ — πάτα για στοπ' : 'Ξεκίνα τον χρόνο σε αυτή'}">${here ? I.stop : I.play}</button>
     <span class="myd-t"><b>${esc(t.title)}</b><span class="mut"> · <span class="dot" style="background:${t.pcolor || '#8595ac'};width:7px;height:7px;display:inline-block;border-radius:50%"></span> ${esc(t.pname || 'Χωρίς έργο')}${t.est ? ' · ⏱ ' + fmtMin(t.est) : ''}</span></span>
     ${t.prio ? `<span class="dot" style="background:${prioDot(t.prio)};flex:none" title="Προτεραιότητα"></span>` : ''}
-    ${t.ball === me.id ? '<span class="pill pill-info" style="flex:none">⚡ μπάλα</span>' : ''}
+    ${t.ball === me.id && !ballAll ? '<span class="pill pill-info" style="flex:none">⚡ μπάλα</span>' : ''}
     ${t.tag && t.tag !== 'μπάλα' && t.tag !== 'σήμερα' ? `<span class="pill pill-warn" style="flex:none">${esc(t.tag)}</span>` : ''}
     ${fin ? `<button class="btn btn-sm btn-o myd-done" data-mddone="${t.id}" title="Ολοκλήρωση">✔</button>` : ''}</div>`; };
   const folRow = f => `<div class="myd-row fol" data-lead="${f.lead}">
@@ -3784,26 +3791,29 @@ async function vMyDay() {
     + (d.waiting || []).map(w => `<div class="myd-row wait" data-dltask="${w.id}"><span class="dot" style="background:${w.pcolor};flex:none"></span><span class="myd-t"><b>${esc(w.title)}</b><span class="mut"> · ${esc(w.pname || '—')} · περιμένει <b>${esc(w.ballName || '—')}</b></span></span><span class="pill pill-mut" style="flex:none">${esc(w.statusName || '')}</span></div>`).join('')
     + (d.tickets || []).filter(t => t.waitOn === 'client').map(tk => `<div class="myd-row wait" data-qtk="${tk.id}"><span class="myd-ic">${I.ticket}</span><span class="myd-t"><b>#${esc(tk.tid)} ${esc(tk.title)}</b><span class="mut"> · περιμένει πελάτη${tk.waitDays ? ' ' + tk.waitDays + ' ημ.' : ''}</span></span></div>`).join('')
     || '<div class="myd-empty">Δεν περιμένεις κανέναν.</div>';
-  /* 👥 Η ομάδα τώρα — μόνο για όσους οργανώνουν (ο server στέλνει `team` μόνο σε αυτούς).
-     Δύο χρόνοι, γιατί λένε διαφορετικά πράγματα: «σφυγμός» = είναι μπροστά στην οθόνη,
-     «μπήκε» = πότε έκανε login, ακόμη κι αν έκλεισε το εργαλείο. */
+  /* 👥 Η ομάδα τώρα — για όσους οργανώνουν: Full & Manager βλέπουν όλους,
+     ο ΕΠΙΚΕΦΑΛΗΣ μιας ομάδας βλέπει τη δική του ομάδα (ο server κόβει τη λίστα, όχι το UI).
+     Τακτοποιημένα: πάνω όσοι είναι μέσα, οι εκτός μαζεμένοι σε μία γραμμή που ανοίγει. */
   const team = d.team || [];
-  const liveN = team.filter(x => x.status === 'online').length;
+  const teamOn = team.filter(x => x.status !== 'offline');
+  const teamOff = team.filter(x => x.status === 'offline');
   const workN = team.filter(x => x.workingOn).length;
   const hm2 = at => { if (!at) { return '—'; } const dt = new Date(String(at).replace(' ', 'T'));
     const sameDay = dt.toDateString() === new Date().toDateString();
     return sameDay ? dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
       : dt.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'}) + ' ' + dt.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false}); };
-  const teamBody = team.map(x => `<div class="tm-row${x.workingOn ? ' live' : ''}" data-tmid="${x.id}">
+  const tmRow = x => `<div class="tm-row${x.workingOn ? ' live' : ''}" data-tmid="${x.id}" title="${esc(x.name)}${x.team ? ' · ' + esc(x.team) : ''}">
     <span class="act-ava tm-av" style="--sc:${esc(x.color)}">${esc(x.ini || '?')}</span>
-    <span class="tm-t"><b>${esc(x.name)}</b>
-      <span class="mut">${esc(x.label)}${x.hint ? ' · ' + esc(x.hint) : ''}</span>
-      ${x.workingOn ? `<span class="tm-work">▶ ${esc(x.workingOn.title)}</span>` : ''}</span>
-    <span class="tm-m">
-      <span title="Τελευταίος σφυγμός της εφαρμογής — «είναι μπροστά στην οθόνη»">${I.eye} ${esc(hm2(x.seenAt))}</span>
-      <span title="Τελευταία είσοδος στο σύστημα">${I.key || I.user} ${esc(hm2(x.login))}</span>
-      <span title="Ανοιχτές εργασίες · χρόνος σήμερα">${x.openTasks || 0} εργ. · ${fmtMin(x.minsToday || 0)}</span>
-    </span></div>`).join('');
+    <span class="tm-t"><b>${esc(x.name)}${x.lead ? '<i class="tm-lead" title="Επικεφαλής ομάδας">★</i>' : ''}</b>
+      <span class="tm-s">${x.workingOn ? `<em class="tm-work">▶ ${esc(x.workingOn.title)}</em>`
+        : `${esc(x.label)}${x.hint ? ' · ' + esc(x.hint) : ''}`}</span></span>
+    <span class="tm-m"><b>${esc(fmtMin(x.minsToday || 0))}</b>
+      <small>${x.openTasks || 0} εργ. · ${x.status === 'offline' ? esc(hm2(x.seenAt)) : 'μπήκε ' + esc(hm2(x.login))}</small></span></div>`;
+  const teamBody = (teamOn.length ? teamOn.map(tmRow).join('')
+      : '<div class="myd-empty">Κανείς μέσα αυτή τη στιγμή.</div>')
+    + (teamOff.length ? `<div class="tm-offt" data-tmoff><span class="tm-offav">${teamOff.slice(0, 7).map(x => `<i class="act-ava tm-av tm-mini" style="--sc:${esc(x.color)}" title="${esc(x.name)}">${esc(x.ini || '?')}</i>`).join('')}</span>
+        <span class="mut">${teamOff.length} εκτός</span><span class="myd-chev">${I.chev}</span></div>
+      <div class="tm-offlist">${teamOff.map(tmRow).join('')}</div>` : '');
 
   const ovBody = overruns.length ? overruns.map(o => `<div class="myd-row ov-row" data-ovwhat="${o.what}" data-ovid="${o.id}">
       <span class="pill ${o.worst >= 100 ? 'pill-bad' : 'pill-warn'}" style="flex:none;font-weight:700">+${esc(String(Math.round(o.worst)))}%</span>
@@ -3814,16 +3824,18 @@ async function vMyDay() {
   c.innerHTML = `<div class="myd-wrap">${hero}
   <div class="myd-cols">
     <div class="myd-main">
-      ${sec('att', 'Θέλουν εσένα', 'απάντησε ή τακτοποίησε — από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')})}
-      ${sec('plan', 'Το πρόγραμμά μου σήμερα', '▶ ξεκινά τον χρόνο · ✔ ολοκληρώνει', planN, planBody, {ic: I.sun, link: ['calendar', 'ημερολόγιο →']})}
-      ${sec('queue', 'Ουρά tickets', 'η σειρά της ημέρας: πρώτα SLA, μετά όποιος περιμένει περισσότερο', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
+      ${sec('att', 'Θέλουν εσένα', 'από το πιο επείγον', att.length, attBody, {ic: I.alert, cls: 'att' + (att.length ? '' : ' ok')})}
+      ${sec('plan', 'Το πρόγραμμά μου σήμερα', '▶ χρόνος · ✔ ολοκλήρωση', planN, planBody, {ic: I.sun, link: ['calendar', 'ημερολόγιο →']})}
+      ${sec('queue', 'Ουρά tickets', 'πρώτα SLA, μετά ο παλαιότερος', queue.length, queueBody, {ic: I.compass, collapsed: !queue.some(q => q.lvl === 'bad' || q.lvl === 'warn'), link: ['inbox', 'όλα →']})}
     </div>
     <div class="myd-rail">
-      ${team.length ? sec('team', 'Η ομάδα τώρα', liveN + ' ενεργοί τώρα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : ''), team.length, teamBody, {ic: I.users}) : ''}
+      ${team.length ? sec('team', d.teamScope ? 'Η ομάδα μου' : 'Η ομάδα τώρα',
+        teamOn.length + ' μέσα · ' + teamOff.length + ' εκτός' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '') + (d.teamScope ? ' · ' + esc(d.teamScope) : ''),
+        team.length, teamBody, {ic: I.users}) : ''}
       ${coach.length ? sec('coach', 'Καθοδήγηση', '', null, coachBody, {ic: I.compass}) : ''}
-      ${sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))})}
-      ${sec('wait', 'Περιμένω άλλους', 'δεν μετράει ως εκκρεμότητά σου', waitN, waitBody, {ic: I.clock, collapsed: true})}
-      ${overruns.length ? sec('ov', 'Η ομάδα μου — υπερβάσεις', 'ξεπέρασαν την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%+· ρώτα τι γίνεται', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''}
+      ${dlAhead.length ? sec('dl', 'Προθεσμίες μπροστά', '', dlAhead.length, dlBody, {ic: I.clock, collapsed: !dlAhead.some(x => (x.days !== null && x.days <= 1) || (x.hours !== null && x.hours <= 12))}) : ''}
+      ${waitN ? sec('wait', 'Περιμένω άλλους', 'όχι δική σου εκκρεμότητα', waitN, waitBody, {ic: I.clock, collapsed: true}) : ''}
+      ${overruns.length ? sec('ov', 'Υπερβάσεις ομάδας', 'πάνω από την εκτίμηση ' + esc(String(ovr.pct || 10)) + '%', overruns.length, ovBody, {ic: I.alert, collapsed: true}) : ''}
     </div>
   </div></div>`;
 
@@ -3838,6 +3850,7 @@ async function vMyDay() {
   { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
+  { const ot = $('#content [data-tmoff]'); if (ot) { ot.onclick = () => ot.parentNode.classList.toggle('tm-show'); } }
   $$('#content [data-lead]').forEach(r => r.onclick = async () => { const dd = await api('crm').catch(() => null); if (dd) { const ld = (dd.leads || []).find(x => x.id === +r.dataset.lead); openLead(ld || null, dd); } });
   $$('#content [data-mdplay]').forEach(b => b.onclick = async e => {
     e.stopPropagation(); const id = +b.dataset.mdplay;

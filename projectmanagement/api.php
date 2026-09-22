@@ -27,6 +27,7 @@ use WHMCS\Module\Addon\CloudonProjects\Pbx3cxBlueprint;
 use WHMCS\Module\Addon\CloudonProjects\Route;
 use WHMCS\Module\Addon\CloudonProjects\Aade;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxPresence;
+use WHMCS\Module\Addon\CloudonProjects\Leave;
 use WHMCS\Module\Addon\CloudonProjects\DayPlan;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
@@ -1220,6 +1221,270 @@ function cnp_admin_by_name($name)
     }
     return $map[mb_strtolower(trim((string) $name))] ?? 0;
 }
+/* ═══ ΑΔΕΙΕΣ — βοηθητικά ═══════════════════════════════════════════════ */
+
+/** Πόσες ημέρες ενός τύπου (ή όλων εκτός κάποιων) μέσα σε ένα έτος δικαιώματος. */
+function cnp_leave_sum($staffId, $year, $type = null, array $except = [])
+{
+    $q = Capsule::table('mod_cpm_leaves')->where('staff_id', (int) $staffId)
+        ->where('year', (int) $year)->whereIn('status', Leave::COUNTS);
+    if ($type !== null) { $q->where('type', $type); }
+    if ($except) { $q->whereNotIn('type', $except); }
+    return (float) $q->sum('days');
+}
+
+/** Πώς γράφεται μια περίοδος για άνθρωπο. */
+function cnp_leave_span($r)
+{
+    $f = $r->date_from ?? null;
+    $t = $r->date_to ?? null;
+    if (!$f) { return (string) ($r->raw_period ?? '—'); }
+    $fmt = function ($d) { return date('d/m/Y', strtotime($d)); };
+    return ($t && $t !== $f) ? $fmt($f) . ' – ' . $fmt($t) : $fmt($f);
+}
+
+/**
+ * Η κατάσταση που ΒΛΕΠΕΙ ο χρήστης.
+ *
+ * Το `taken` δεν το πατάει κανείς: μια εγκεκριμένη άδεια που πέρασε είναι
+ * ληφθείσα, και μια που τρέχει σήμερα είναι «σε εξέλιξη». Το υπολογίζουμε
+ * κάθε φορά αντί να τρέχει cron που «κλείνει» άδειες — λιγότερα κινούμενα μέρη.
+ */
+function cnp_leave_phase($r, $today = null)
+{
+    $today = $today ?: date('Y-m-d');
+    if (in_array($r->status, ['rejected', 'cancelled'], true)) { return $r->status; }
+    if ($r->status === 'requested') { return 'requested'; }
+    $f = $r->date_from ?? null;
+    $t = $r->date_to ?: $f;
+    if (!$f) { return $r->status; }
+    if ($t < $today) { return 'taken'; }
+    if ($f <= $today && $t >= $today) { return 'running'; }
+    return 'upcoming';
+}
+
+function cnp_leave_row($r)
+{
+    $st = Capsule::table('mod_cpm_leave_staff')->where('id', $r->staff_id)->first();
+    return [
+        'id'        => (int) $r->id,
+        'staffId'   => (int) $r->staff_id,
+        'adminId'   => $st ? (int) $st->admin_id : 0,
+        'name'      => $st ? Db::adminName($st->admin_id) : '—',
+        'year'      => (int) $r->year,
+        'type'      => (string) $r->type,
+        'typeLabel' => Leave::typeLabel($r->type),
+        'deducts'   => Leave::deducts($r->type),
+        'days'      => (float) $r->days,
+        'from'      => (string) $r->date_from,
+        'to'        => (string) $r->date_to,
+        'span'      => cnp_leave_span($r),
+        'raw'       => (string) $r->raw_period,
+        'status'    => (string) $r->status,
+        'phase'     => cnp_leave_phase($r),
+        'ergani'    => (string) $r->ergani,
+        'flag'      => (string) $r->flag,
+        'flagLabel' => $r->flag ? (Leave::FLAGS[$r->flag] ?? $r->flag) : '',
+        'note'      => (string) $r->note,
+        'source'    => (string) $r->source_id,
+        'approvedBy' => $r->approved_by ? Db::adminName($r->approved_by) : '',
+    ];
+}
+
+/** Τα έτη δικαιώματος που υπάρχουν στα δεδομένα — για το φίλτρο. */
+function cnp_leave_years_seen()
+{
+    $y = Capsule::table('mod_cpm_leave_years')->distinct()->orderBy('year', 'desc')
+        ->pluck('year')->all();
+    $cur = (int) date('Y');
+    if (!in_array($cur, array_map('intval', $y), true)) { array_unshift($y, $cur); }
+    return array_values(array_map('intval', $y));
+}
+
+function cnp_leave_types()
+{
+    $out = [];
+    foreach (Leave::TYPES as $code => $d) {
+        $out[] = ['code' => $code, 'label' => $d[0], 'deducts' => $d[1]];
+    }
+    return $out;
+}
+
+/** Φιλτραρισμένη λίστα αδειών — ίδια αριθμητική με τα πλακίδια. */
+function cnp_leave_query(array $in)
+{
+    $q = Capsule::table('mod_cpm_leaves as l')
+        ->join('mod_cpm_leave_staff as s', 's.id', '=', 'l.staff_id');
+    if (!empty($in['staffId'])) { $q->where('l.staff_id', (int) $in['staffId']); }
+    if (!empty($in['adminId'])) { $q->where('s.admin_id', (int) $in['adminId']); }
+    if (!empty($in['year']))    { $q->where('l.year', (int) $in['year']); }
+    if (!empty($in['type']))    { $q->where('l.type', (string) $in['type']); }
+    if (!empty($in['flag']))    { $q->where('l.flag', (string) $in['flag']); }
+    if (!empty($in['status']))  { $q->where('l.status', (string) $in['status']); }
+    if (!empty($in['erganiMissing'])) {
+        $q->where(function ($w) { $w->whereNull('l.ergani')->orWhere('l.ergani', ''); })
+          ->whereIn('l.status', ['approved', 'taken']);
+    }
+    if (!empty($in['q'])) {
+        /* Ταύτιση ΟΠΟΥΔΗΠΟΤΕ μέσα στο κείμενο — όπως παντού στο εργαλείο. */
+        $needle = '%' . trim((string) $in['q']) . '%';
+        $q->where(function ($w) use ($needle) {
+            $w->where('l.note', 'like', $needle)->orWhere('l.raw_period', 'like', $needle)
+              ->orWhere('l.ergani', 'like', $needle)->orWhere('l.source_id', 'like', $needle);
+        });
+    }
+    $rows = [];
+    foreach ($q->orderBy('l.date_from', 'desc')->orderBy('l.id', 'desc')
+            ->limit(500)->get(['l.*']) as $r) {
+        $rows[] = cnp_leave_row($r);
+    }
+    return ['rows' => $rows, 'count' => count($rows)];
+}
+
+/** Η καρτέλα ενός εργαζομένου: υπόλοιπα ανά έτος + οι άδειές του. */
+function cnp_leave_person($st, $withLeaves = false)
+{
+    $years = [];
+    foreach (Leave::balance($st->id) as $y => $b) {
+        $years[] = ['year' => $y] + $b + ['deadline' => Leave::carryDeadline($y)];
+    }
+    $out = [
+        'staffId'   => (int) $st->id,
+        'adminId'   => (int) $st->admin_id,
+        'name'      => Db::adminName($st->admin_id),
+        'afm'       => (string) $st->afm,
+        'hire'      => (string) $st->hire_date,
+        'priorMonths' => (int) ($st->prior_months ?? 0),
+        'years'     => $years,
+        'remaining' => Leave::remainingTotal($st->id),
+        'expiring'  => Leave::expiring($st->id),
+        'sickThisYear' => cnp_leave_sum($st->id, (int) date('Y'), 'SICK'),
+    ];
+    if ($withLeaves) {
+        $out += cnp_leave_query(['staffId' => (int) $st->id]);
+    }
+    return $out;
+}
+
+/**
+ * Γράφει άδεια (νέα ή υπάρχουσα) και κρατά το ημερολόγιο συγχρονισμένο.
+ *
+ * @param string|null $forceStatus 'requested' όταν ζητάει ο ίδιος ο εργαζόμενος —
+ *                                 δεν του επιτρέπουμε να γράψει «εγκεκριμένη».
+ */
+function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null)
+{
+    $type = (string) ($in['type'] ?? 'ANNUAL');
+    if (!isset(Leave::TYPES[$type])) { fail('Άγνωστος τύπος άδειας'); }
+    $from = trim((string) ($in['from'] ?? ''));
+    $to   = trim((string) ($in['to'] ?? '')) ?: $from;
+    if ($from === '') { fail('Βάλε ημερομηνία έναρξης'); }
+    if ($to < $from) { fail('Η λήξη είναι πριν από την έναρξη'); }
+
+    /* Οι ημέρες ΔΕΝ υπολογίζονται από τις ημερομηνίες (αργίες, μισές μέρες).
+       Αν δεν δοθούν, προτείνουμε τις εργάσιμες — και ο χειριστής τις βλέπει. */
+    $days = isset($in['days']) && $in['days'] !== ''
+        ? round((float) $in['days'], 2) : (float) Leave::suggestDays($from, $to);
+
+    /* Το έτος ΔΙΚΑΙΩΜΑΤΟΣ δεν είναι το έτος της ημερομηνίας: άδεια του 2025
+       λαμβάνεται νόμιμα ως τις 31/3/2026. Αν δεν δοθεί ρητά, το μαντεύουμε
+       συντηρητικά — μέσα στο πρώτο τρίμηνο χρεώνεται στο προηγούμενο έτος. */
+    if (isset($in['year']) && (int) $in['year'] > 2000) {
+        $year = (int) $in['year'];
+    } else {
+        $y = (int) date('Y', strtotime($from));
+        $year = ((int) date('n', strtotime($from)) <= 3) ? $y - 1 : $y;
+    }
+
+    $vals = [
+        'staff_id'   => (int) $staff->id,
+        'year'       => $year,
+        'type'       => $type,
+        'days'       => $days,
+        'date_from'  => $from,
+        'date_to'    => $to,
+        'raw_period' => trim((string) ($in['raw'] ?? '')) ?: null,
+        'ergani'     => trim((string) ($in['ergani'] ?? '')) ?: null,
+        'flag'       => isset(Leave::FLAGS[(string) ($in['flag'] ?? '')]) ? $in['flag'] : null,
+        'note'       => trim((string) ($in['note'] ?? '')) ?: null,
+        'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    if ($forceStatus !== null) {
+        $vals['status'] = $forceStatus;
+    } elseif (isset($in['status']) && isset(Leave::FLOW[(string) $in['status']])) {
+        $vals['status'] = (string) $in['status'];
+    }
+
+    if ($id) {
+        Capsule::table('mod_cpm_leaves')->where('id', (int) $id)->update($vals);
+    } else {
+        $vals['status'] = $vals['status'] ?? ($forceStatus ?: 'approved');
+        $vals['created_by'] = (int) $byAdminId;
+        $vals['created_at'] = date('Y-m-d H:i:s');
+        $id = (int) Capsule::table('mod_cpm_leaves')->insertGetId($vals);
+    }
+    cnp_leave_mirror($id);
+
+    /* Ο υπεύθυνος μαθαίνει ότι υπάρχει αίτημα — χωρίς αυτό, το αίτημα κάθεται. */
+    if ($forceStatus === 'requested') {
+        foreach (Capsule::table('tbladmins')->where('disabled', 0)->pluck('id') as $aid) {
+            if ((int) $aid !== (int) $byAdminId && cnp_has_cap((int) $aid, false, 'hr.leave.approve')) {
+                Db::pushNotification((int) $aid, 'leave',
+                    'Αίτημα άδειας: ' . Db::adminName($staff->admin_id) . ' — '
+                    . date('d/m/Y', strtotime($from)) . ($to !== $from ? ' – ' . date('d/m/Y', strtotime($to)) : ''),
+                    '#/leave');
+            }
+        }
+    }
+
+    $bal = Leave::balance($staff->id, $type);
+    return ['ok' => true, 'id' => (int) $id, 'days' => $days, 'year' => $year,
+        'balance' => $bal[$year] ?? null];
+}
+
+/**
+ * Καθρέφτισμα στο κοινό ημερολόγιο.
+ *
+ * Το ημερολόγιο και η ζώνη διαθεσιμότητας διαβάζουν ήδη `mod_cpm_events` με
+ * kind='leave' — υπήρχαν πριν από αυτό το κύκλωμα. Αντί να τα ξαναγράψουμε,
+ * κρατάμε ένα αντίγραφο συγχρονισμένο: μία πηγή αλήθειας (οι άδειες), μία
+ * προβολή (το ημερολόγιο). ΜΟΝΟ εγκεκριμένες φαίνονται — ένα αίτημα δεν είναι
+ * απουσία μέχρι να εγκριθεί.
+ */
+function cnp_leave_mirror($leaveId)
+{
+    $r = Capsule::table('mod_cpm_leaves')->where('id', (int) $leaveId)->first();
+    if (!$r) { return; }
+    $st = Capsule::table('mod_cpm_leave_staff')->where('id', $r->staff_id)->first();
+    $show = $st && in_array($r->status, ['approved', 'taken'], true) && $r->date_from;
+
+    if (!$show) {
+        if ($r->event_id) {
+            Capsule::table('mod_cpm_events')->where('id', (int) $r->event_id)->delete();
+            Capsule::table('mod_cpm_leaves')->where('id', (int) $r->id)->update(['event_id' => null]);
+        }
+        return;
+    }
+    $ev = [
+        'kind'      => 'leave',
+        'title'     => Leave::typeLabel($r->type) . ' — ' . Db::adminName($st->admin_id),
+        'start_dt'  => $r->date_from . ' 00:00:00',
+        'end_dt'    => ($r->date_to ?: $r->date_from) . ' 23:59:59',
+        'all_day'   => 1,
+        'attendees' => ',' . (int) $st->admin_id . ',',
+        'scope'     => 'internal',
+        'notes'     => trim((string) $r->note) ?: null,
+    ];
+    if ($r->event_id && Capsule::table('mod_cpm_events')->where('id', (int) $r->event_id)->exists()) {
+        Capsule::table('mod_cpm_events')->where('id', (int) $r->event_id)->update($ev);
+    } else {
+        $ev['created_by'] = (int) ($r->created_by ?: $st->admin_id);
+        $ev['created_at'] = date('Y-m-d H:i:s');
+        $eid = (int) Capsule::table('mod_cpm_events')->insertGetId($ev);
+        Capsule::table('mod_cpm_leaves')->where('id', (int) $r->id)->update(['event_id' => $eid]);
+    }
+}
+
 function cnp_area_defs()
 {
     /* Ένα δικαίωμα = μία ενότητα του μενού, με το ίδιο όνομα. Η σειρά εδώ είναι
@@ -1247,7 +1512,7 @@ function cnp_area_defs()
         'prepaid'  => ['Προαγορά χρόνου', 'Συμβόλαια, υπόλοιπα, ακάλυπτος χρόνος, μηνιαίες αναφορές'],
         'reports'  => ['Αναφορές & απόδοση', 'Δραστηριότητα, πλάνο ημέρας, KPI, ανάλυση ριζών, απόδοση'],
         'finance'  => ['Οικονομικά', 'Κερδοφορία, συμφωνία πληρωμών, λογιστικός έλεγχος, αναστολές'],
-        'hr'       => ['Προσλήψεις', 'Βιογραφικά και αξιολογήσεις υποψηφίων'],
+        'hr'       => ['Προσωπικό', 'Άδειες και υπόλοιπα, βιογραφικά και αξιολογήσεις υποψηφίων'],
         'admin'    => ['Σύστημα', 'Ομάδες & δικαιώματα, χρήστες, ρυθμίσεις, automations, πακέτα'],
     ];
 }
@@ -2951,6 +3216,13 @@ function cnp_caps()
         'hr.jobs'        => ['view',   'Θέσεις & αγγελίες', 'Προβολή θέσεων/αγγελιών'],
         'hr.jobs.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία & δημοσίευση θέσεων', 'hr.jobs'],
         'hr.jobs.delete' => ['delete', 'Διαγραφή', 'Διαγραφή θέσης/αγγελίας', 'hr.jobs'],
+        /* ΑΔΕΙΕΣ. Τα ΔΙΚΑ ΣΟΥ υπόλοιπα και το δικό σου αίτημα ΔΕΝ θέλουν cap —
+           είναι προσωπική οθόνη, όπως «Η μέρα μου». Cap θέλει το να βλέπεις ή να
+           αλλάζεις ΞΕΝΕΣ άδειες: είναι στοιχεία μισθοδοσίας, όχι ημερολόγιο. */
+        'hr.leave'         => ['view',   'Άδειες προσωπικού', 'Υπόλοιπα, ιστορικό και αναρρωτικές όλης της ομάδας'],
+        'hr.leave.edit'    => ['edit',   'Καταχώριση & δικαιώματα', 'Εγγραφή αδειών, δικαιούμενες ημέρες ανά έτος, μεταφορά, ΕΡΓΑΝΗ', 'hr.leave'],
+        'hr.leave.approve' => ['power',  'Έγκριση αδειών', 'Έγκριση ή απόρριψη αιτημάτων άδειας της ομάδας', 'hr.leave'],
+        'hr.leave.delete'  => ['delete', 'Διαγραφή άδειας', 'Οριστική διαγραφή εγγραφής άδειας από το μητρώο', 'hr.leave'],
 
         // ═══ ΣΥΣΤΗΜΑ ═══
         'admin.teams'        => ['view',   'Ομάδες & δικαιώματα', 'Προβολή ομάδων, μελών, δικαιωμάτων'],
@@ -3403,6 +3675,11 @@ function cnp_action_cap($action)
         $add('hr.jobs.edit', ['cv_job_save', 'cv_job_draft', 'cv_job_views',
             'cv_job_image_upload', 'cv_job_image_delete']);
         $add('hr.jobs.delete', ['cv_job_del']);
+        /* ── ΑΔΕΙΕΣ ── */
+        $add('hr.leave', ['leave_staff', 'leave_list', 'leave_get', 'leave_person', 'leave_ergani']);
+        $add('hr.leave.edit', ['leave_save', 'leave_year_save', 'leave_staff_save']);
+        $add('hr.leave.approve', ['leave_decide']);
+        $add('hr.leave.delete', ['leave_delete']);
 
         /* ── ΣΥΣΤΗΜΑ ── */
         $add('admin.teams', ['teams']);
@@ -3455,6 +3732,9 @@ function cnp_open_actions()
         'mentions', 'mention_read', 'supervised',
         // 📨 Αιτήματα («σε ζητούν») — αφορούν ΕΜΕΝΑ, προσωπική οθόνη
         'requests', 'request_get', 'help_reply', 'request_reopen',
+        /* Άδειες: ΤΑ ΔΙΚΑ ΜΟΥ υπόλοιπα και το ΔΙΚΟ ΜΟΥ αίτημα. Ο server ελέγχει
+           μέσα στην ενέργεια ότι ο εργαζόμενος είμαι εγώ — δες leave_mine_guard. */
+        'leave_me', 'leave_request', 'leave_withdraw',
         // 🗂 Κάρτες διαχείρισης — ο server ελέγχει ΜΕΣΑ στην ενέργεια ότι είσαι ομάδα PM ή Manager
         'cards', 'card_act', 'cards_build',
         // προφίλ
@@ -4558,7 +4838,34 @@ case 'myday':
          · σφυγμός εφαρμογής (last_seen) = «είναι μπροστά στην οθόνη τώρα»
          · tbladminlog = «πότε μπήκε τελευταία φορά στο WHMCS» (κι όταν δεν έχει ανοιχτό το PM) */
     $teamNow = [];
-    if (in_array($adminId, DayPlan::owners(), true) || in_array($adminId, DayPlan::escalateTo(), true) || $FULL) {
+    $teamScope = '';
+    $teamSeeAll = $FULL || in_array($adminId, DayPlan::escalateTo(), true);
+    $teamOnly = null;
+    if (!$teamSeeAll) {
+        /* Επικεφαλής ομάδας (mod_cpm_team_members.is_leader) βλέπει ΤΗ ΔΙΚΗ ΤΟΥ ομάδα — όχι όλη την εταιρεία. */
+        $scopeTeams = array_map('intval', Capsule::table('mod_cpm_team_members')
+            ->where('admin_id', $adminId)->where('is_leader', 1)->pluck('team_id')->all());
+        if (in_array($adminId, DayPlan::owners(), true)) {
+            /* Η ομάδα project management οργανώνει — βλέπει και τις δικές της ομάδες, όχι μόνο όσες ηγείται. */
+            $scopeTeams = array_values(array_unique(array_merge($scopeTeams, array_map('intval',
+                Capsule::table('mod_cpm_team_members')->where('admin_id', $adminId)->pluck('team_id')->all()))));
+        }
+        if ($scopeTeams) {
+            $teamOnly = array_map('intval', Capsule::table('mod_cpm_team_members')
+                ->whereIn('team_id', $scopeTeams)->pluck('admin_id')->all());
+            $teamOnly[] = $adminId;
+            $teamOnly = array_values(array_unique($teamOnly));
+            $teamScope = implode(' · ', array_map('strval', Capsule::table('mod_cpm_teams')
+                ->whereIn('id', $scopeTeams)->orderBy('name')->pluck('name')->all()));
+        }
+    }
+    if ($teamSeeAll || $teamOnly) {
+        $teamOf = [];
+        foreach (Capsule::table('mod_cpm_team_members as m')->join('mod_cpm_teams as t', 't.id', '=', 'm.team_id')
+            ->orderBy('m.is_leader', 'desc')->get(['m.admin_id', 'm.is_leader', 't.name']) as $tmr) {
+            $aidT = (int) $tmr->admin_id;
+            if (!isset($teamOf[$aidT])) { $teamOf[$aidT] = ['name' => (string) $tmr->name, 'lead' => (int) $tmr->is_leader === 1]; }
+        }
         $lastLogin = [];
         try {
             foreach (Capsule::select('SELECT adminusername, MAX(logintime) lt FROM tbladminlog GROUP BY adminusername') as $lg) {
@@ -4572,6 +4879,7 @@ case 'myday':
         $doneIdsT = $doneIds;
         foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'username', 'firstname', 'lastname']) as $ad) {
             $aid = (int) $ad->id;
+            if ($teamOnly !== null && !in_array($aid, $teamOnly, true)) { continue; }
             $nmA = Db::adminName($aid);
             if (cnp_is_bot($nmA, (string) $ad->username)) { continue; }
             $pr = cnp_presence($aid);
@@ -4581,6 +4889,7 @@ case 'myday':
             $teamNow[] = [
                 'id' => $aid, 'name' => $nmA, 'ini' => initials($nmA),
                 'status' => $pr['status'], 'label' => $pr['label'], 'color' => $pr['color'],
+                'team' => (string) ($teamOf[$aid]['name'] ?? ''), 'lead' => !empty($teamOf[$aid]['lead']),
                 'hint' => (string) ($pr['hint'] ?? ''),
                 'seenAt' => $seen ? date('Y-m-d H:i:s', $seen) : null,
                 'login' => $lastLogin[strtolower((string) $ad->username)] ?? null,
@@ -4603,7 +4912,7 @@ case 'myday':
     }
     out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
         'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
-        'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'team' => $teamNow,
+        'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'team' => $teamNow, 'teamScope' => $teamScope,
         'pending' => cnp_pending_for($adminId, $FULL),
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
@@ -17545,6 +17854,224 @@ case 'client_search':
         }
     }
     out(['results' => $res]);
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ΑΔΕΙΕΣ ΠΡΟΣΩΠΙΚΟΥ
+
+   Το κύκλωμα: ο εργαζόμενος ζητάει → ο υπεύθυνος εγκρίνει → ο χρόνος την
+   κάνει «ελήφθη». Κανείς δεν χρειάζεται να θυμηθεί να κλείσει μια άδεια που
+   ήδη πέρασε.
+
+   ΤΙ ΕΙΝΑΙ ΠΡΟΣΩΠΙΚΟ ΚΑΙ ΤΙ ΟΧΙ: τα δικά σου υπόλοιπα και το δικό σου αίτημα
+   δεν θέλουν δικαίωμα. Οι ΞΕΝΕΣ άδειες θέλουν — είναι στοιχεία μισθοδοσίας.
+   Ο έλεγχος γίνεται ΜΕΣΑ στην ενέργεια, γιατί η ίδια οθόνη δείχνει και τα
+   δικά σου και της ομάδας ανάλογα με το ποιος είσαι.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+case 'leave_me':
+    $lvS = Leave::staffFor($adminId);
+    if (!$lvS) {
+        /* Δεν είναι σφάλμα: όχι κάθε χειριστής είναι εργαζόμενος με μητρώο
+           αδειών (λογαριασμοί συστήματος, εξωτερικοί συνεργάτες). */
+        out(['ok' => true, 'enrolled' => false,
+            'note' => 'Αν πρόκειται για λάθος, μίλα στο γραφείο προσωπικού.']);
+    }
+    out(['ok' => true, 'enrolled' => true] + cnp_leave_person($lvS, true));
+
+case 'leave_request':
+    $lvS = Leave::staffFor($adminId);
+    if (!$lvS) { fail('Δεν είσαι στο μητρώο αδειών'); }
+    out(cnp_leave_write(null, $lvS, $in, $adminId, 'requested'));
+
+case 'leave_withdraw':
+    /* Ανακαλείς ΔΙΚΟ ΣΟΥ αίτημα που δεν έχει ακόμη εγκριθεί. Εγκεκριμένη άδεια
+       δεν εξαφανίζεται με ένα κλικ — την ακυρώνει ο υπεύθυνος, ώστε να μείνει
+       ίχνος για τη μισθοδοσία. */
+    $lvS = Leave::staffFor($adminId);
+    $lvId = (int) ($in['id'] ?? 0);
+    $lvRow = $lvId ? Capsule::table('mod_cpm_leaves')->where('id', $lvId)->first() : null;
+    if (!$lvRow || !$lvS || (int) $lvRow->staff_id !== (int) $lvS->id) { fail('Δεν βρέθηκε'); }
+    if ($lvRow->status !== 'requested') {
+        fail('Έχει ήδη εγκριθεί — ζήτα από τον υπεύθυνο να την ακυρώσει');
+    }
+    Capsule::table('mod_cpm_leaves')->where('id', $lvId)
+        ->update(['status' => 'cancelled', 'updated_at' => date('Y-m-d H:i:s')]);
+    cnp_leave_mirror($lvId);
+    out(['ok' => true]);
+
+case 'leave_staff':
+    /* Η εικόνα όλης της ομάδας: ανά εργαζόμενο, ανά έτος — δικαιούται,
+       μεταφορά, πήρε, μένουν. Και οι αναρρωτικές ΧΩΡΙΣΤΑ, γιατί δεν χρεώνουν
+       υπόλοιπο και δεν πρέπει να μπερδεύονται μαζί του. */
+    $lvYear = (int) ($in['year'] ?? $_GET['year'] ?? date('Y'));
+    $lvOut = [];
+    foreach (Capsule::table('mod_cpm_leave_staff')->where('active', 1)->get() as $st) {
+        $bal = Leave::balance($st->id);
+        $b = $bal[$lvYear] ?? ['entitled' => 0, 'carried' => 0, 'available' => 0,
+            'taken' => 0, 'remaining' => 0, 'mismatch' => false, 'note' => ''];
+        $sug = Leave::suggestEntitlement($st, $lvYear);
+        $lvOut[] = [
+            'staffId'  => (int) $st->id,
+            'adminId'  => (int) $st->admin_id,
+            'name'     => Db::adminName($st->admin_id),
+            'afm'      => (string) $st->afm,
+            'hire'     => (string) $st->hire_date,
+            'entitled' => (float) $b['entitled'],
+            'carried'  => (float) $b['carried'],
+            'taken'    => (float) $b['taken'],
+            'remaining' => (float) $b['remaining'],
+            'suggest'  => $sug['days'],
+            'suggestWhy' => $sug['why'],
+            /* Το εργαλείο δεν διορθώνει από μόνο του τη μισθοδοσία — το δείχνει. */
+            'offLaw'   => abs($sug['days'] - (float) $b['entitled']) > 0.01,
+            'sick'     => cnp_leave_sum($st->id, $lvYear, 'SICK'),
+            'other'    => cnp_leave_sum($st->id, $lvYear, null, ['ANNUAL', 'SICK']),
+            'expiring' => Leave::expiring($st->id),
+            'mismatch' => (bool) $b['mismatch'],
+            'totalRemaining' => Leave::remainingTotal($st->id),
+        ];
+    }
+    usort($lvOut, function ($a, $b) { return strcmp($a['name'], $b['name']); });
+    out(['ok' => true, 'year' => $lvYear, 'rows' => $lvOut,
+        'years' => cnp_leave_years_seen(), 'types' => cnp_leave_types()]);
+
+case 'leave_person':
+    /* Η καρτέλα ΕΝΟΣ εργαζομένου: υπόλοιπα ανά έτος + οι άδειές του. Ίδια
+       αριθμητική με το «leave_me», αλλά για άλλον — γι' αυτό θέλει cap. */
+    $lvSt = Capsule::table('mod_cpm_leave_staff')
+        ->where('id', (int) ($in['staffId'] ?? $_GET['staffId'] ?? 0))->first();
+    if (!$lvSt) { fail('Δεν βρέθηκε ο εργαζόμενος'); }
+    out(['ok' => true] + cnp_leave_person($lvSt, true) + ['types' => cnp_leave_types()]);
+
+case 'leave_list':
+    out(['ok' => true] + cnp_leave_query($in));
+
+case 'leave_get':
+    $lvRow = Capsule::table('mod_cpm_leaves')->where('id', (int) ($in['id'] ?? $_GET['id'] ?? 0))->first();
+    if (!$lvRow) { fail('Δεν βρέθηκε'); }
+    out(['ok' => true, 'leave' => cnp_leave_row($lvRow)]);
+
+case 'leave_save':
+    $lvId = (int) ($in['id'] ?? 0);
+    $lvSt = Capsule::table('mod_cpm_leave_staff')
+        ->where('id', (int) ($in['staffId'] ?? 0))->first();
+    if (!$lvSt) { fail('Διάλεξε εργαζόμενο'); }
+    out(cnp_leave_write($lvId ?: null, $lvSt, $in, $adminId, null));
+
+case 'leave_decide':
+    $lvId = (int) ($in['id'] ?? 0);
+    $lvRow = $lvId ? Capsule::table('mod_cpm_leaves')->where('id', $lvId)->first() : null;
+    if (!$lvRow) { fail('Δεν βρέθηκε'); }
+    $lvTo = (string) ($in['decision'] ?? '');
+    if (!in_array($lvTo, ['approved', 'rejected', 'cancelled'], true)) { fail('Άγνωστη απόφαση'); }
+    /* Η έγκριση κοιτάει ΞΑΝΑ το υπόλοιπο: ανάμεσα στο αίτημα και την έγκριση
+       μπορεί να έχει καταχωρηθεί άλλη άδεια. */
+    if ($lvTo === 'approved' && Leave::deducts($lvRow->type)) {
+        $bal = Leave::balance($lvRow->staff_id);
+        $b = $bal[(int) $lvRow->year] ?? null;
+        if ($b && $b['remaining'] < 0 && empty($in['force'])) {
+            fail('Το υπόλοιπο του ' . $lvRow->year . ' θα γίνει ' . $b['remaining']
+                . '. Στείλε force=1 αν το εγκρίνεις εν γνώσει σου.');
+        }
+    }
+    Capsule::table('mod_cpm_leaves')->where('id', $lvId)->update([
+        'status'      => $lvTo,
+        'approved_by' => $adminId,
+        'approved_at' => date('Y-m-d H:i:s'),
+        'updated_at'  => date('Y-m-d H:i:s'),
+    ]);
+    cnp_leave_mirror($lvId);
+    /* Ο εργαζόμενος μαθαίνει την απόφαση μέσα στο εργαλείο — δεν την ψάχνει. */
+    $lvSt = Capsule::table('mod_cpm_leave_staff')->where('id', $lvRow->staff_id)->first();
+    if ($lvSt) {
+        Db::pushNotification((int) $lvSt->admin_id, 'leave',
+            'Άδεια ' . Leave::flowLabel($lvTo) . ': ' . cnp_leave_span($lvRow)
+            . ' (' . Leave::typeLabel($lvRow->type) . ')', '#/leave/me');
+    }
+    out(['ok' => true]);
+
+case 'leave_delete':
+    $lvId = (int) ($in['id'] ?? 0);
+    $lvRow = $lvId ? Capsule::table('mod_cpm_leaves')->where('id', $lvId)->first() : null;
+    if (!$lvRow) { fail('Δεν βρέθηκε'); }
+    if ($lvRow->event_id) {
+        Capsule::table('mod_cpm_events')->where('id', (int) $lvRow->event_id)->delete();
+    }
+    Capsule::table('mod_cpm_leaves')->where('id', $lvId)->delete();
+    out(['ok' => true]);
+
+case 'leave_year_save':
+    /* Οι δικαιούμενες ημέρες ανά έτος — αυτό που ζητήθηκε ρητά: «να περάσουμε
+       ανά εργαζόμενο μέρες άδειας που δικαιούται». Ο νόμος προτείνει, εδώ
+       γράφεται η απόφαση. */
+    $lvSid = (int) ($in['staffId'] ?? 0);
+    $lvY   = (int) ($in['year'] ?? 0);
+    $lvT   = (string) ($in['type'] ?? 'ANNUAL');
+    if (!$lvSid || $lvY < 2000 || $lvY > 2100) { fail('Λείπει εργαζόμενος ή έτος'); }
+    if (!isset(Leave::TYPES[$lvT])) { fail('Άγνωστος τύπος άδειας'); }
+    $lvVals = [
+        'staff_id'      => $lvSid,
+        'year'          => $lvY,
+        'type'          => $lvT,
+        'entitled_days' => round((float) ($in['entitled'] ?? 0), 2),
+        'carried_in'    => round((float) ($in['carried'] ?? 0), 2),
+        'note'          => trim((string) ($in['note'] ?? '')) ?: null,
+    ];
+    $lvEx = Capsule::table('mod_cpm_leave_years')->where('staff_id', $lvSid)
+        ->where('year', $lvY)->where('type', $lvT)->first();
+    if ($lvEx) { Capsule::table('mod_cpm_leave_years')->where('id', $lvEx->id)->update($lvVals); }
+    else { Capsule::table('mod_cpm_leave_years')->insert($lvVals); }
+    out(['ok' => true, 'balance' => Leave::balance($lvSid, $lvT)]);
+
+case 'leave_staff_save':
+    $lvSid = (int) ($in['staffId'] ?? 0);
+    $lvAdm = (int) ($in['adminId'] ?? 0);
+    $lvVals = [
+        'afm'           => trim((string) ($in['afm'] ?? '')) ?: null,
+        'hire_date'     => trim((string) ($in['hire'] ?? '')) ?: null,
+        'prior_months'  => max(0, (int) ($in['priorMonths'] ?? 0)),
+        'week_days'     => (int) ($in['weekDays'] ?? 5) === 6 ? 6 : 5,
+        'active'        => empty($in['inactive']) ? 1 : 0,
+        'notes'         => trim((string) ($in['notes'] ?? '')) ?: null,
+    ];
+    if ($lvSid) {
+        Capsule::table('mod_cpm_leave_staff')->where('id', $lvSid)->update($lvVals);
+    } else {
+        if (!$lvAdm) { fail('Διάλεξε χειριστή'); }
+        if (Capsule::table('mod_cpm_leave_staff')->where('admin_id', $lvAdm)->exists()) {
+            fail('Ο χειριστής είναι ήδη στο μητρώο');
+        }
+        $lvVals['admin_id'] = $lvAdm;
+        $lvVals['created_at'] = date('Y-m-d H:i:s');
+        $lvSid = (int) Capsule::table('mod_cpm_leave_staff')->insertGetId($lvVals);
+    }
+    out(['ok' => true, 'staffId' => $lvSid]);
+
+case 'leave_ergani':
+    /* Ε11 / βιβλίο αδειών: ο εργοδότης δηλώνει ΤΟΝ ΙΑΝΟΥΑΡΙΟ τις άδειες του
+       προηγούμενου έτους, αλλιώς πρόστιμο. Η οθόνη δείχνει τι έχει δηλωθεί και
+       τι όχι — το `ergani` είναι ξεχωριστό πεδίο ακριβώς γι' αυτό. */
+    $lvY = (int) ($in['year'] ?? $_GET['year'] ?? (date('Y') - 1));
+    $lvRows = [];
+    foreach (Capsule::table('mod_cpm_leaves as l')
+            ->join('mod_cpm_leave_staff as s', 's.id', '=', 'l.staff_id')
+            ->where('l.year', $lvY)->whereIn('l.status', ['approved', 'taken'])
+            ->orderBy('s.id')->orderBy('l.date_from')
+            ->get(['l.*', 's.admin_id']) as $r) {
+        $lvRows[] = [
+            'id'     => (int) $r->id,
+            'name'   => Db::adminName($r->admin_id),
+            'type'   => Leave::typeLabel($r->type),
+            'days'   => (float) $r->days,
+            'span'   => cnp_leave_span($r),
+            'ergani' => (string) $r->ergani,
+            'missing' => trim((string) $r->ergani) === '',
+        ];
+    }
+    $lvMiss = count(array_filter($lvRows, function ($r) { return $r['missing']; }));
+    out(['ok' => true, 'year' => $lvY, 'rows' => $lvRows, 'missing' => $lvMiss,
+        'deadline' => ($lvY + 1) . '-01-31']);
+
 
 default:
     fail('unknown action', 404);
