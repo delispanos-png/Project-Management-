@@ -1835,6 +1835,7 @@ async function clOpen(r, canEdit) {
     </div>
     <div class="qr-a"><div class="qr-btns">
       ${r.clientId ? `<button class="btn btn-sm btn-o" id="clCli">\u03a0\u03b5\u03bb\u03ac\u03c4\u03b7\u03c2</button>` : ''}
+      ${editable ? `<button class="btn btn-sm btn-o" id="clWho">${r.clientId ? 'Αλλαγή πελάτη' : 'Ποιος ήταν;'}</button>` : ''}
       ${r.task ? `<button class="btn btn-sm btn-o" id="clTask">\u0395\u03c1\u03b3\u03b1\u03c3\u03af\u03b1 #${r.task}</button>` : ''}
       ${r.ticket ? `<button class="btn btn-sm btn-o" id="clTk">Ticket</button>` : ''}
       <span style="flex:1"></span>
@@ -1855,6 +1856,68 @@ async function clOpen(r, canEdit) {
     const x = await api('calllog_save', {id: r.id, followup_done: 1}).catch(e => ({err: e.message}));
     if (x && x.err) { toast(x.err, true); return; }
     toast('\u0397 \u03b5\u03c0\u03b1\u03bd\u03b5\u03c0\u03b9\u03ba\u03bf\u03b9\u03bd\u03c9\u03bd\u03af\u03b1 \u03ba\u03bb\u03b5\u03af\u03c3\u03c4\u03b7\u03ba\u03b5'); close(); R.calllog(); }; }
+  /* ΠΟΙΟΣ ΗΤΑΝ. Οι καταγραφές γίνονται πάνω στην ώρα και κρατούν μόνο τον
+     αριθμό — κανείς δεν σταματά να ψάξει πελάτη ενώ μιλάει. Χωρίς αυτό η κλήση
+     έμενε για πάντα «+30694…» και δεν μετρούσε ποτέ στο ιστορικό του πελάτη. */
+  if (b('#clWho')) { b('#clWho').onclick = () => {
+    const w = document.createElement('div');
+    w.className = 'ovl ovl-keep show';
+    w.style.zIndex = 320;
+    w.innerHTML = `<div class="pal-box qr-box" style="max-width:460px">
+      <div class="qr-h"><div class="qr-hn"><b>Ποιος ήταν;</b>
+        <span class="mut">${esc(r.phone || r.who)}</span></div>
+        <button class="btn btn-sm btn-o qr-x">✕</button></div>
+      <div class="qr-body">
+        <label class="lbl">Ψάξε πελάτη</label>
+        <input class="inp" id="clWq" placeholder="επωνυμία, email, ΑΦΜ…" autocomplete="off">
+        <div id="clWr" class="cl-picks"></div>
+        <label class="lbl" style="margin-top:12px">…ή γράψε σκέτο όνομα</label>
+        <input class="inp" id="clWn" value="${esc(r.whoKind === 'free' ? r.who : '')}"
+          placeholder="π.χ. Φαρμακείο Ιωάννη" maxlength="120">
+      </div>
+      <div class="qr-a"><div class="qr-btns">
+        ${r.clientId ? '<button class="btn btn-sm btn-o" id="clWclr">Αποσύνδεση</button>' : ''}
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-p" id="clWok">Αποθήκευση</button>
+      </div></div></div>`;
+    document.body.appendChild(w);
+    const kill = () => w.remove();
+    w.querySelector('.qr-x').onclick = kill;
+    w.onclick = e => { if (e.target === w) { kill(); } };
+
+    const put = async body => {
+      const x = await api('calllog_save', {id: r.id, ...body}).catch(e => ({err: e.message}));
+      if (x && (x.err || x.error)) { toast(x.err || x.error, true); return; }
+      kill(); close(); toast('Αποθηκεύτηκε'); R.calllog();
+    };
+
+    const q = w.querySelector('#clWq');
+    const res = w.querySelector('#clWr');
+    let tmr;
+    q.oninput = () => {
+      clearTimeout(tmr);
+      const v = q.value.trim();
+      if (v.length < 2) { res.innerHTML = ''; return; }
+      tmr = setTimeout(async () => {
+        const x = await api('client_search&q=' + encodeURIComponent(v)).catch(() => null);
+        const list = (x && x.results) || [];
+        res.innerHTML = list.length
+          ? list.slice(0, 6).map(c => `<div class="cn-pick" data-cid="${c.id}"><b>${esc(c.name)}</b>
+              <span class="mut">#${c.id}</span></div>`).join('')
+          : '<div class="mut" style="padding:7px 2px;font-size:12px">Κανένα αποτέλεσμα</div>';
+        res.querySelectorAll('.cn-pick').forEach(el =>
+          el.onclick = () => put({clientid: +el.dataset.cid}));
+      }, 260);
+    };
+    w.querySelector('#clWok').onclick = () => {
+      const nm = w.querySelector('#clWn').value.trim();
+      if (!nm) { toast('Διάλεξε πελάτη ή γράψε όνομα', true); return; }
+      put({caller: nm});
+    };
+    if (w.querySelector('#clWclr')) { w.querySelector('#clWclr').onclick = () => put({clientid: 0}); }
+    setTimeout(() => q.focus(), 60);
+  }; }
+
   if (b('#clEdit')) { b('#clEdit').onclick = async () => {
     const sum = await cnpDialog({title: '\u0394\u03b9\u03cc\u03c1\u03b8\u03c9\u03c3\u03b7 \u03c0\u03b5\u03c1\u03af\u03bb\u03b7\u03c8\u03b7\u03c2', body: '\u03a4\u03b9 \u03b6\u03ae\u03c4\u03b7\u03c3\u03b5 \u03bf \u03c0\u03b5\u03bb\u03ac\u03c4\u03b7\u03c2;',
       input: r.summary, max: 255, ok: '\u03a3\u03c5\u03bd\u03ad\u03c7\u03b5\u03b9\u03b1', cancel: '\u0386\u03ba\u03c5\u03c1\u03bf'});

@@ -4652,14 +4652,28 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 @media (max-width:768px){ .pl-cov .pl-kid{padding-left:0} }
 
 /* ── Ρυθμίσεις → Προϊόντα & υποκατηγορίες ── */
-.pr-row{gap:6px}
+.pr-row{display:block}
+.pr-main{display:flex;align-items:center;gap:6px}
 .pr-kid{padding-left:26px;position:relative}
-.pr-kid::before{content:'↳';position:absolute;left:8px;color:var(--mut,#94a3b8);font-size:13px}
-.pr-q{max-width:150px;font-size:12px}
+.pr-kid::before{content:'↳';position:absolute;left:8px;top:12px;color:var(--mut,#94a3b8);font-size:13px}
 .pr-on{display:inline-flex;align-items:center}
 .pr-on input{width:15px;height:15px;cursor:pointer}
+/* Ποιοι καλύπτουν τη δουλειά — ο ίδιος χάρτης με τους Ρόλους, ανάποδα. */
+.pr-cov{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:5px 0 0 46px}
+.pr-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c);border-radius:999px;
+  background:color-mix(in srgb,var(--c) 10%,transparent);color:var(--c);
+  font-size:11.5px;font-weight:600;padding:1px 8px 1px 4px;line-height:1.6}
+.pr-chip b{background:var(--c);color:#fff;border-radius:50%;width:15px;height:15px;
+  display:inline-flex;align-items:center;justify-content:center;font-size:9.5px}
+.pr-chip-x{border:0;background:0;color:var(--c);cursor:pointer;padding:0;opacity:.55;font-size:11px}
+.pr-chip-x:hover{opacity:1}
+.pr-cadd{border:1px dashed var(--line,#e2e8f0);border-radius:999px;background:transparent;
+  color:var(--mut,#64748b);font-size:11.5px;padding:2px 6px;cursor:pointer;max-width:190px}
+.pr-cadd:hover{border-color:var(--brand);color:var(--brand)}
 @media (max-width:768px){
-  .pr-row{flex-wrap:wrap}
-  .pr-q{max-width:none;flex:1 1 100%}
+  .pr-main{flex-wrap:wrap}
   .pr-kid{padding-left:18px}
+  .pr-cov{margin-left:0}
+  .pr-cadd{max-width:none;width:100%}
 }
+.cl-picks{max-height:210px;overflow:auto;margin-top:4px}
