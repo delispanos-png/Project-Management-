@@ -538,10 +538,6 @@ TXT;
        προτιμά), G722/opus για ευρυζωνικό όπου υποστηρίζεται. */
     const CODECS_SYSTEM = ['OPUS', 'G722', 'PCMA', 'PCMU'];   // opus πρώτο: οι εφαρμογές (κινητό/Windows/Mac) το προτιμούν, τα Fanvil πέφτουν σε G722
     const CODECS_PHONE  = ['PCMU', 'PCMA', 'G722', 'G729'];   // = η προεπιλογή του 3CX για Fanvil· το G729 δεν προσφέρεται ποτέ από το κέντρο   // ΜΕΤΡΗΘΗΚΕ 21/09: με 3 τιμές το αρχείο βγάζει «G711U,G711U» (διπλό) και οι κλήσεις πέφτουν στο σήκωμα· το G729 δεν χρησιμοποιείται ποτέ (δεν το δίνει το κέντρο)
-    /** Δικό μας πρότυπο Fanvil: το επίσημο ΧΩΡΙΣ τα STUN_* και το VPN_CONFIG_MODULE — οι απομακρυσμένες
-        συσκευές (203/204/220) έχουν VPN/STUN με το χέρι και η επαναπρομήθεια τα έσβηνε (20/09/2026). */
-    const FANVIL_TPL = 'fanvil.cloudon.ph.xml';
-    const FANVIL_BASE = 'fanvil.ph.xml';   // οι δικοί μας κανόνες: 20, 21, … (οι παλιοί ήταν 41-54)
     /** Το script «μετά την αναπάντητη ουρά»: εκεί στέλνουν οι ουρές ό,τι δεν απαντήθηκε. */
     const AFTER_DN = '809';   // (το 805 είναι το ring group «Door Phone»)
     const CFA_NAMES = ['806' => 'cloudonnew', '809' => 'cloudonafter'];
@@ -1371,37 +1367,6 @@ TXT;
                     if ($chg) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['Phones' => $phones]); }
                 }
                 Pbx3cxClient::log('blueprint', 'ok', 'Κωδικοποιητές συσκευών: ' . implode(', ', self::CODECS_PHONE) . ' (οι συσκευές ξαναπαίρνουν ρυθμίσεις μόνες τους)');
-            }];
-
-        /* 6στ. ΠΡΟΤΥΠΟ FANVIL χωρίς STUN/VPN, και ανάθεση σε όλα τα Fanvil (όχι το θυροτηλέφωνο). */
-        $S[] = ['key' => 'phone_tpl', 'label' => 'Πρότυπο Fanvil «' . self::FANVIL_TPL . '»: δεν αγγίζει STUN/VPN της συσκευής — σε όλα τα Fanvil',
-            'risk' => 'low',
-            'check' => function ($L) {
-                $d = [];
-                if (!$L['fanvil_tpl']) { $d[] = 'δεν υπάρχει το πρότυπο'; } elseif (!$L['fanvil_tpl']['ok']) { $d[] = 'το πρότυπο γράφει STUN/VPN'; }
-                foreach ($L['phones'] as $u) { foreach ($u['Phones'] as $p) { if (($p['TemplateName'] ?? '') === self::FANVIL_BASE) { $d[] = $u['Number'] . ' με επίσημο πρότυπο'; } } }
-                return [$d ? 'change' : 'ok', $d ? implode(' · ', $d) : 'πρότυπο σωστό, συσκευές ανατεθειμένες'];
-            },
-            'apply' => function ($L) {
-                if (!$L['fanvil_tpl'] || !$L['fanvil_tpl']['ok']) {
-                    ini_set('memory_limit', '1G');
-                    $t = Pbx3cxClient::xapi('PhoneTemplates(\'' . self::FANVIL_BASE . '\')'); unset($t['@odata.context']);
-                    $c = preg_replace('/\{IF network=REMOTESTUN\}\s*<STUN_Server>%%pbx_ip%%<\/STUN_Server>.*?\{ENDIF\}\s*/s', "<!-- CloudOn: STUN μένει όπως το έχει η συσκευή -->\n", $t['Content'], 1, $k1);
-                    $c = preg_replace('/<VPN_CONFIG_MODULE>.*?<\/VPN_CONFIG_MODULE>\s*/s', "<!-- CloudOn: VPN μένει όπως το έχει η συσκευή -->\n", $c, 1, $k2);
-                    if (!$k1 || !$k2) { throw new \RuntimeException('Το επίσημο πρότυπο Fanvil άλλαξε μορφή — δεν βρέθηκαν τα STUN/VPN'); }
-                    $t['Id'] = self::FANVIL_TPL; $t['Content'] = $c; $t['IsCustom'] = true;
-                    unset($t['TemplateType'], $t['AddAllowed'], $t['RpsEnabled']);
-                    /* ΜΕΤΡΗΘΗΚΕ: POST δουλεύει μόνο χωρίς TemplateType/AddAllowed/RpsEnabled (αλλιώς «delta required»). */
-                    if ($L['fanvil_tpl']) { Pbx3cxClient::xwrite('PATCH', 'PhoneTemplates(\'' . self::FANVIL_TPL . '\')', ['Content' => $c]); }
-                    else { Pbx3cxClient::xwrite('POST', 'PhoneTemplates', $t); }
-                    Pbx3cxClient::log('blueprint', 'ok', 'Πρότυπο Fanvil ' . self::FANVIL_TPL . ' (χωρίς STUN/VPN)');
-                }
-                foreach ($L['phones'] as $u) {
-                    $ph = $u['Phones']; $chg = false;
-                    foreach ($ph as &$p) { if (($p['TemplateName'] ?? '') === self::FANVIL_BASE) { $p['TemplateName'] = self::FANVIL_TPL; $chg = true; } } unset($p);
-                    if ($chg) { Pbx3cxClient::xwrite('PATCH', 'Users(' . (int) $u['Id'] . ')', ['Phones' => $ph]); }
-                }
-                /* ΧΩΡΙΣ επαναπρομήθεια εδώ — απόφαση χρήστη (βλ. κανόνα για 203/204/220). */
             }];
 
         /* 7. Τα scripts του κέντρου ως κώδικας: 806 (εφεδρική δρομολόγηση) και 809 (μετά
