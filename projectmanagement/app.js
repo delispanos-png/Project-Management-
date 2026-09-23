@@ -492,7 +492,7 @@ const CNP_ST = [
   ['dnd', 'Μην ενοχλείτε', '#E05B4A', 'Μη με διακόπτετε — σιγάζουν οι ειδοποιήσεις', 'Do Not Disturb'],
   ['lunch', 'Διάλειμμα', '#2FBBB3', 'Φαγητό ή διάλειμμα — σιγάζουν οι ειδοποιήσεις', 'Lunch'],
   ['trip', 'Εκτός έδρας', '#1D8FD2', 'Σε πελάτη ή μετακίνηση', 'Business Trip'],
-  ['meeting', 'Σε σύσκεψη', '#E05B4A', 'Το βάζει το ημερολόγιο', '', 1],
+  ['meeting', 'Σε σύσκεψη', '#E05B4A', 'Σε σύσκεψη — το τηλέφωνο πάει «Out of office»', 'Out of office'],
   ['offline', 'Εκτός', '#5d6b85', 'Δεν είσαι στην εφαρμογή', '', 1],
 ];
 const CNP_ST_REASONS = {
@@ -501,9 +501,14 @@ const CNP_ST_REASONS = {
   dnd: ['Deep work', 'Σε άλλον πελάτη', 'Επείγον περιστατικό'],
   lunch: ['Φαγητό', 'Διάλειμμα'],
   trip: ['Σε πελάτη', 'Ταξίδι εργασίας', 'Εκτός γραφείου'],
+  meeting: ['Σύσκεψη ομάδας', 'Με πελάτη', 'Παρουσίαση', 'Συνέντευξη'],
 };
 const CNP_ST_DUR = [['0', 'μέχρι να το αλλάξω'], ['30', '30 λεπτά'], ['60', '1 ώρα'],
   ['120', '2 ώρες'], ['240', '4 ώρες'], ['eod', 'μέχρι το τέλος της ημέρας']];
+/* Η ΣΥΣΚΕΨΗ ΘΕΛΕΙ ΠΑΝΤΑ ΛΗΞΗ. Κατεβάζει το τηλέφωνο σε «Out of office» — μια
+   σύσκεψη χωρίς τέλος σημαίνει χειριστής άφαντος για ώρες. Ο server το επιβάλλει·
+   εδώ απλώς δεν προσφέρουμε την επιλογή που θα απορριπτόταν. */
+const cnpStDur = k => (k === 'meeting' ? CNP_ST_DUR.filter(d => d[0] !== '0') : CNP_ST_DUR);
 const cnpStDef = k => CNP_ST.find(x => x[0] === k) || CNP_ST[0];
 
 /** Ζωγραφίζει την κουκκίδα/ετικέτα στην πάνω μπάρα από ένα αντικείμενο presence. */
@@ -546,9 +551,9 @@ function statusPicker() {
       <span class="sw"><span class="sw-k"></span></span>
       <span class="st-t"><b>Αυτόματη κατάσταση <span class="sw-v" id="stAutoV"></span></b>
         <span class="mut" id="stAutoH"></span></span></button>
-    ${/* Μόνο οι επιλέξιμες. Το «σε σύσκεψη» το βάζει το ημερολόγιο και το
-         «εκτός» ο παλμός — αν τα άφηνες να επιλεγούν, θα δήλωνες σύσκεψη που
-         δεν υπάρχει και δεν θα έφευγε ποτέ. */''}
+    ${/* Μόνο οι επιλέξιμες. Το «εκτός» το βάζει ο παλμός, δεν δηλώνεται.
+         Τη σύσκεψη τη βάζει και το ημερολόγιο, αλλά δηλώνεται και με το χέρι
+         — με υποχρεωτική λήξη, ώστε το τηλέφωνο να ξανανοίξει μόνο του. */''}
     <div class="st-list" id="stList">${CNP_ST.filter(x => !x[5]).map(([k, lbl, col, hint, pbx]) => `
       <button class="st-opt${k === pick ? ' on' : ''}" data-st="${k}">
         <span class="dot" style="background:${col}"></span>
@@ -560,7 +565,7 @@ function statusPicker() {
       <input class="inp" id="stReason" maxlength="80" placeholder="…ή γράψε δικό σου" value="${esc(cur.manual ? (cur.reason || '') : '')}">
       <div id="stDurBox">
         <label style="margin-top:11px">Για πόσο</label>
-        <select class="inp" id="stDur">${CNP_ST_DUR.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
+        <select class="inp" id="stDur">${cnpStDur(pick).map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
       </div>
     </div>
     <div class="st-foot">
@@ -578,6 +583,13 @@ function statusPicker() {
     $('#stChips', ovl).innerHTML = (CNP_ST_REASONS[pick] || []).map(r =>
       `<button class="btn btn-o btn-sm stR" data-r="${esc(r)}">${esc(r)}</button>`).join('');
     $$('.stR', ovl).forEach(b => b.onclick = () => { $('#stReason', ovl).value = b.dataset.r; });
+    /* Και η διάρκεια: η σύσκεψη δεν δέχεται «μέχρι να το αλλάξω». */
+    const ds = $('#stDur', ovl);
+    if (ds) {
+      const keep = ds.value;
+      ds.innerHTML = cnpStDur(pick).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('');
+      ds.value = [...ds.options].some(o => o.value === keep) ? keep : ds.options[0].value;
+    }
   };
   let auto = !cur.manual;                 // ON = αποφασίζει ο παλμός · OFF = το δηλώνω εγώ
   const paintAuto = () => {
