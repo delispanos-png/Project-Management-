@@ -97,6 +97,19 @@ h1 b{color:var(--brand)}
 #grid{flex:1;min-height:0;display:grid;gap:10px;padding:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));grid-auto-rows:1fr}
 .tile{position:relative;background:#000;border-radius:14px;overflow:hidden;min-height:0}
 .tile video{width:100%;height:100%;object-fit:cover}
+/* ΟΤΑΝ ΚΑΠΟΙΟΣ ΜΟΙΡΑΖΕΤΑΙ ΟΘΟΝΗ, Η ΟΘΟΝΗ ΕΙΝΑΙ ΤΟ ΘΕΜΑ.
+   Το κοινόχρηστο βίντεο αντικαθιστά την κάμερα στο ΙΔΙΟ κομμάτι, οπότε εμφανιζόταν
+   σε ένα κελί 300px — δηλαδή αδιάβαστο. Εδώ η οθόνη πιάνει όλο τον χώρο και τα
+   πρόσωπα μαζεύονται σε μια λωρίδα από κάτω. Και `contain` αντί για `cover`:
+   μια οθόνη δεν κόβεται στις άκρες, εκεί είναι τα μενού. */
+#grid.presenting{grid-template-columns:1fr;grid-auto-rows:auto;grid-template-rows:1fr auto}
+#grid.presenting .tile.present{grid-column:1/-1}
+#grid.presenting .tile.present video{object-fit:contain;background:#000}
+#grid.presenting .tile:not(.present){display:none}
+#strip{display:none;gap:8px;padding:0 12px 12px;overflow-x:auto;flex:none}
+#grid.presenting ~ #strip{display:flex}
+#strip .tile{width:168px;height:96px;flex:none}
+@media (max-width:640px){ #strip .tile{width:118px;height:68px} }
 .tile.me video.mirror{transform:scaleX(-1)}
 .tile .nm{position:absolute;left:10px;bottom:8px;background:#0009;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:700}
 #bar{display:flex;gap:12px;justify-content:center;padding:14px;background:var(--card)}
@@ -174,6 +187,7 @@ h1 b{color:var(--brand)}
     <b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span><?= $win ? ' · <span id="endAt" title="Το meeting κλείνει αυτόματα στη λήξη">λήγει ' . date('H:i', $win['endTs']) . '</span>' : '' ?></div>
   <div id="endBanner" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9;background:#eba63c;color:#1a1200;font-weight:800;padding:10px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:15px"></div>
   <div id="grid"></div>
+  <div id="strip"></div>
   <div id="bar">
     <button class="rbtn" id="cMic" title="Μικρόφωνο"></button>
     <button class="rbtn" id="cCam" title="Κάμερα"></button>
@@ -238,6 +252,8 @@ const ICO = {
 };
 
 let stream = null, camTrack = null, micOn = true, camOn = true, sharing = false;
+/* Ποιος μοιράζεται οθόνη τώρα (peer id) — καθορίζει τη διάταξη, όχι τις ροές. */
+let presenter = null;
 let rawStream = null, bgMode = 'none', bgImg = null, seg = null, segBusy = false, procRAF = 0;
 const procCanvas = document.createElement('canvas');
 const procCtx = procCanvas.getContext('2d');
@@ -491,7 +507,9 @@ function addTile(peer, name, isMe) {
   t.className = 'tile' + (isMe ? ' me' : '');
   t.id = 'tile-' + peer;
   t.innerHTML = `<video autoplay playsinline ${isMe ? 'muted class="mirror"' : ''}></video><div class="nm">${name}${isMe ? ' (εσύ)' : ''}</div>`;
-  $('#grid').appendChild(t);
+  /* Μπαίνει κάποιος ΕΝΩ τρέχει παρουσίαση: το πρόσωπό του πάει στη λωρίδα, όχι
+     πάνω από την οθόνη που όλοι κοιτούν. */
+  $(presenter && presenter !== peer ? '#strip' : '#grid').appendChild(t);
   return t.querySelector('video');
 }
 function updCnt() {
@@ -527,6 +545,9 @@ async function callPeer(peer, name) {
   const off = await pc.createOffer();
   await pc.setLocalDescription(off);
   api('rtc_signal', {peer: me, to: peer, kind: 'offer', payload: JSON.stringify({sdp: off, name: myNameVal()})});
+  /* Αν ήδη μοιράζομαι, πες το και στον καινούριο — αλλιώς θα έβλεπε την οθόνη μου
+     σε μικρό πλακίδιο, σαν να ήταν πρόσωπο. */
+  if (sharing) { api('rtc_signal', {peer: me, to: peer, kind: 'share', payload: '1'}); }
 }
 function myNameVal() { return $('#myName') ? ($('#myName').value.trim() || 'Επισκέπτης') : ''; }
 async function handleMsg(m) {
@@ -550,7 +571,11 @@ async function handleMsg(m) {
     await pcs[m.from].pc.setRemoteDescription(JSON.parse(m.payload));
   } else if (m.kind === 'ice' && pcs[m.from]) {
     try { await pcs[m.from].pc.addIceCandidate(JSON.parse(m.payload)); } catch (e) {}
+  } else if (m.kind === 'share') {
+    /* Ο άλλος άρχισε ή σταμάτησε να μοιράζεται. Δεν πειράζουμε ροές — μόνο διάταξη. */
+    setPresenter(m.payload === '1' ? m.from : (presenter === m.from ? null : presenter));
   } else if (m.kind === 'bye') {
+    if (presenter === m.from) { setPresenter(null); }
     dropPeer(m.from);
   }
 }
@@ -677,6 +702,32 @@ $('#joinBtn').onclick = async () => {
   pollT = setInterval(poll, 1200);
 };
 
+/* ═══ ΔΙΑΤΑΞΗ ΠΑΡΟΥΣΙΑΣΗΣ ═══
+   Ποιος μοιράζεται τώρα. Όταν υπάρχει κάποιος, το πλακίδιό του πιάνει όλη την
+   οθόνη και τα υπόλοιπα πάνε σε λωρίδα από κάτω. Αν μοιράζονται δύο, δείχνουμε
+   τον πιο πρόσφατο — δύο «μεγάλες» οθόνες δεν χωράνε πουθενά. */
+function setPresenter(peer) {
+  presenter = peer;
+  const grid = $('#grid'), strip = $('#strip');
+  document.querySelectorAll('.tile').forEach(t => t.classList.remove('present'));
+  if (!peer || !document.getElementById('tile-' + peer)) {
+    presenter = null;
+    grid.classList.remove('presenting');
+    /* Τα πρόσωπα γυρίζουν στο πλέγμα. */
+    [...strip.children].forEach(t => grid.appendChild(t));
+    return;
+  }
+  grid.classList.add('presenting');
+  const big = document.getElementById('tile-' + peer);
+  big.classList.add('present');
+  grid.appendChild(big);
+  document.querySelectorAll('#grid .tile').forEach(t => { if (t !== big) { strip.appendChild(t); } });
+}
+window.setPresenter = setPresenter;   // για δοκιμές διάταξης χωρίς δεύτερο peer
+function announceShare(on) {
+  Object.keys(pcs).forEach(p => api('rtc_signal', {peer: me, to: p, kind: 'share', payload: on ? '1' : '0'}));
+}
+
 /* ─── In-call controls ─── */
 $('#cMic').onclick = () => { micOn = !micOn; applyToggles(); };
 $('#cCam').onclick = () => { camOn = !camOn; applyToggles(); };
@@ -693,6 +744,7 @@ $('#cShare').onclick = async () => {
       myV.srcObject = new MediaStream([track, ...stream.getAudioTracks()]);
       myV.classList.remove('mirror');
       sharing = true; $('#cShare').classList.add('off'); toast('Μοιράζεσαι την οθόνη σου 🖥');
+      announceShare(true); setPresenter(me);
       track.onended = stopShare;
     } catch (e) {}
   } else stopShare();
@@ -700,6 +752,7 @@ $('#cShare').onclick = async () => {
 function stopShare() {
   if (!sharing) return;
   sharing = false; $('#cShare').classList.remove('off');
+  announceShare(false); if (presenter === me) { setPresenter(null); }
   Object.values(pcs).forEach(({pc}) => {
     const sn = pc.getSenders().find(s => s.track && s.track.kind === 'video');
     if (sn && camTrack) sn.replaceTrack(camTrack);
