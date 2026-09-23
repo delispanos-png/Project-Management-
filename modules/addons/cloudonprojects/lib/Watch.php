@@ -302,14 +302,20 @@ class Watch
            δεν φαίνεται ποιος φταίει. Κάθε άνθρωπος παίρνει τη δική του γραμμή, με
            ΤΙΣ ΔΙΚΕΣ ΤΟΥ εργασίες και δικό του κουμπί ερώτησης. Η ομάδα μένει μόνο
            ως συμφραζόμενο σε παρένθεση. */
+        /* Και όταν κάποιος είναι επικεφαλής σε ΔΥΟ ομάδες (π.χ. «Support» και
+           «Project Manager»), εμφανιζόταν δύο φορές με τις ίδιες εκπρόθεσμες.
+           Ο κανόνας μένει ένας: ένας άνθρωπος, μία γραμμή — η πρώτη. */
+        $seen = [];
         $line = function ($title, array $people, $noLead, $rowLead = 0)
-            use ($lateBy, $lateRows, $leadsSomewhere, $mineTeamPeople, &$out) {
+            use ($lateBy, $lateRows, $leadsSomewhere, $mineTeamPeople, &$seen, &$out) {
             $per = [];
             foreach ($people as $pid) {
                 if (empty($lateBy[$pid])) { continue; }
+                if (isset($seen[(int) $pid])) { continue; }
                 if ($pid !== (int) $rowLead && in_array((int) $pid, $leadsSomewhere, true)) { continue; }
                 if (in_array((int) $pid, $mineTeamPeople, true)) { continue; }
                 $per[$pid] = $lateBy[$pid];
+                $seen[(int) $pid] = true;
             }
             if (!$per) { return; }
             arsort($per);
