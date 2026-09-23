@@ -255,6 +255,17 @@ class Deadlines
      * μετά κλιμακώνει σε υπεύθυνο έργου και στον χειριστή του ticket — εκεί
      * κρίνεται αν θα ειδοποιηθεί ο πελάτης.
      */
+    /** Οι επικεφαλής των ομάδων ΟΠΟΥ ΑΝΗΚΕΙ ο συγκεκριμένος άνθρωπος (όχι ο ίδιος). */
+    private static function leadersOf($adminId)
+    {
+        if (!$adminId || !Capsule::schema()->hasTable('mod_cpm_team_members')) { return []; }
+        return array_values(array_filter(array_map('intval', Capsule::table('mod_cpm_team_members as m')
+            ->join('mod_cpm_team_members as l', 'l.team_id', '=', 'm.team_id')
+            ->where('m.admin_id', (int) $adminId)->where('l.is_leader', 1)
+            ->distinct()->pluck('l.admin_id')->all()),
+            function ($l) use ($adminId) { return $l !== (int) $adminId; }));
+    }
+
     /** Οι επικεφαλής των ομάδων που εξυπηρετούν ένα department. */
     private static function deptLeads($deptId)
     {
@@ -289,13 +300,22 @@ class Deadlines
                 }
             }
         }
-        /* Εργασία χωρίς έργο δεν έχει manager να κλιμακώσει. Ανήκει όμως σε
-           department, και το department το εξυπηρετούν ομάδες: ειδοποιούμε τους
-           επικεφαλής τους. Αλλιώς μια χαμένη προθεσμία σε ticket-εργασία θα
-           έφτανε μόνο στον ανάδοχο — δηλαδή σε αυτόν που ήδη την έχασε. */
+        /* ΣΤΟΝ ΔΙΚΟ ΤΟΥ ΕΠΙΚΕΦΑΛΗ, ΟΧΙ ΣΕ ΟΛΟΥΣ ΤΟΥ DEPARTMENT (23/09/2026).
+           Το «Support Department» το εξυπηρετούν πέντε ομάδες — γιατί εκεί δουλεύουν
+           όλοι. Με κλιμάκωση «σε όλους τους επικεφαλής του department», κάθε μία
+           εκπρόθεσμη ξυπνούσε πέντε ανθρώπους: μετρήθηκαν 49 ειδοποιήσεις για 11
+           εργασίες. Ό,τι φτάνει σε όλους δεν το διαβάζει κανείς.
+           Κλιμακώνουμε σε αυτόν που όντως λογοδοτεί για τον άνθρωπο: τον επικεφαλή
+           ΤΗΣ ΟΜΑΔΑΣ ΤΟΥ. Οι επικεφαλής του department μένουν ως εφεδρεία, για
+           όποιον δεν ανήκει σε καμία ομάδα — αλλιώς δεν θα τον κοίταζε κανείς. */
         if ($level === 't0' || $level === 'over') {
-            foreach (self::deptLeads(isset($t->dept_id) ? (int) $t->dept_id : 0) as $lid) {
-                if (!isset($to[$lid])) { $to[$lid] = 'lead'; }
+            $ownLeads = self::leadersOf($holder);
+            if ($ownLeads) {
+                foreach ($ownLeads as $lid) { if (!isset($to[$lid])) { $to[$lid] = 'lead'; } }
+            } else {
+                foreach (self::deptLeads(isset($t->dept_id) ? (int) $t->dept_id : 0) as $lid) {
+                    if (!isset($to[$lid])) { $to[$lid] = 'deptlead'; }
+                }
             }
         }
         // Ο ίδιος ο ενεργός χειριστής μπορεί να είναι και τα δύο — το array κλειδί το λύνει.
