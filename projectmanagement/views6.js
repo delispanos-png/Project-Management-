@@ -993,8 +993,9 @@ R.teamday = async function () {
      κεφαλίδα και ανοίγουν με ένα κλικ. Αλλιώς η σελίδα γίνεται τοίχος. */
   const st = R.teamday._s = R.teamday._s || {closed: {spanning: 1, opened: 1}, who: 0};
   c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
-  const d = await api('teamday').catch(() => null);
-  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  let dErr = null;
+  const d = await api('teamday').catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
   const BUCKETS = [
     ['running',  I.play,        'Δουλεύονται τώρα',   'ανοιχτό χρονόμετρο',              '#16a26a'],
@@ -1128,8 +1129,9 @@ R.reschedules = async function () {
   const c = $('#content');
   const st = R.reschedules._s = R.reschedules._s || {d: 90};
   c.innerHTML = '<div class="skel" style="height:80px;margin-bottom:14px"></div><div class="skel" style="height:380px"></div>';
-  const d = await api('reschedules&d=' + st.d).catch(() => null);
-  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  let dErr = null;
+  const d = await api('reschedules&d=' + st.d).catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
   const totalDays = d.items.reduce((a, x) => a + Math.abs(x.days), 0);
   const back = d.items.filter(x => x.days > 0).length;

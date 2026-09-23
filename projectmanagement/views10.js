@@ -175,8 +175,9 @@ R.myleave = async function () {
   setTop('Οι άδειές μου', 'πόσες μου μένουν, τι έχω ζητήσει, τι λήγει');
   const c = $('#content');
   cnpSkel(c, '<div class="skel" style="height:70px;margin-bottom:14px"></div><div class="skel" style="height:360px"></div>');
-  const d = await api('leave_me').catch(() => null);
-  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  let dErr = null;
+  const d = await api('leave_me').catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
   if (!d.enrolled) {
     c.innerHTML = `<div class="card"><div class="card-b"><div class="empty">
       <b>Δεν είσαι στο μητρώο αδειών.</b>
@@ -324,8 +325,9 @@ R.leave = async function () {
   cnpSkel(c, '<div class="skel" style="height:70px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
 
   const wantRows = st.view === 'log';
+  let dErr = null;
   const [d, l] = await Promise.all([
-    api('leave_staff', {year: +st.year}).catch(() => null),
+    api('leave_staff', {year: +st.year}).catch(e => { dErr = e; return null; }),
     api('leave_list', wantRows
       ? {year: +st.year, staffId: st.staffId, type: st.type, status: st.status,
          erganiMissing: st.erganiMissing, q: st.q}
@@ -333,7 +335,7 @@ R.leave = async function () {
          ενέργεια. Το ιστορικό είναι δική του προβολή. */
       : {year: 0, status: 'requested'}).catch(() => ({rows: []})),
   ]);
-  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
   const canEdit = cnpCan('hr.leave.edit');
   const canOk   = cnpCan('hr.leave.approve');

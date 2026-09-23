@@ -44,7 +44,7 @@ add_hook('TicketOpen', 1, function ($vars) {
     if ($ticketId <= 0 || Db::taskForTicket($ticketId)) {
         return;
     }
-    $t = Capsule::table('tbltickets')->where('id', $ticketId)->first(['did', 'tid', 'title', 'userid', 'urgency']);
+    $t = Capsule::table('tbltickets')->where('id', $ticketId)->first(['did', 'tid', 'title', 'userid', 'urgency', 'flag']);
     if (!$t) {
         return;
     }
@@ -59,6 +59,12 @@ add_hook('TicketOpen', 1, function ($vars) {
         'status_id'  => Db::firstStatusId(),
         'priority'   => $prio,
         'ticketid'   => $ticketId,
+        /* ΑΝ ΤΟ TICKET ΕΧΕΙ ΗΔΗ ΑΝΘΡΩΠΟ, ΤΟΝ ΠΑΙΡΝΕΙ ΚΑΙ Η ΕΡΓΑΣΙΑ (23/09/2026).
+           Η ανάθεση κανονικά έρχεται μετά, από το TicketFlagged. Όταν όμως το
+           ticket ήταν ήδη χρεωμένο τη στιγμή που γεννήθηκε η εργασία, εκείνο το
+           hook δεν ξαναχτυπά — και η εργασία έμενε ΧΩΡΙΣ ΚΑΝΕΝΑΝ: δεν φαινόταν
+           σε κανενός τη μέρα και δεν θα κινούνταν ποτέ μόνη της. Βρέθηκε μία. */
+        'assignee'   => (int) ($t->flag ?? 0) ?: null,
     ], null);
     Db::logActivity($taskId, null, 'auto', 'Δημιουργήθηκε αυτόματα από ticket #' . $t->tid);
 });
