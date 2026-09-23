@@ -5268,10 +5268,18 @@ case 'myday':
         ->where('kind', '!=', 'leave')->orderBy('start_dt')->get() as $e) {
         $attE = array_filter(array_map('intval', explode(',', (string) $e->attendees)));
         if ($attE && !in_array($adminId, $attE, true) && (int) $e->created_by !== $adminId) { continue; }
-        $rsE = Capsule::table('mod_cpm_event_rsvp')->where('event_id', (int) $e->id)->where('kind', 'admin')->where('ref', $adminId)->value('status');
+        $rowE = Capsule::table('mod_cpm_event_rsvp')->where('event_id', (int) $e->id)
+            ->where('kind', 'admin')->where('ref', $adminId)->first();
+        $rsE = $rowE ? $rowE->status : null;
+        /* ΑΝ ΒΓΗΚΕΣ, ΤΕΛΕΙΩΣΕ ΓΙΑ ΕΣΕΝΑ. Η σύσκεψη μπορεί να συνεχίζεται για τους
+           υπόλοιπους — στο ΔΙΚΟ σου πρόγραμμα όμως δεν «τρέχει» πια, αλλιώς θα
+           κοίταζες όλη μέρα μια γραμμή που δεν σε αφορά. */
+        $leftE = $rowE && !empty($rowE->left_at);
         $evToday[] = ['id' => (int) $e->id, 'kind' => $e->kind, 'title' => (string) $e->title, 'start' => $e->start_dt, 'end' => $e->end_dt,
             'allDay' => (bool) $e->all_day, 'clientName' => $e->clientid ? clientLabel($e->clientid) : null, 'location' => (string) $e->location,
-            'mode' => (string) $e->mode, 'rsvp' => $rsE ?: '', 'over' => strtotime($e->end_dt) < time(), 'now' => strtotime($e->start_dt) <= time() && strtotime($e->end_dt) >= time(),
+            'left' => $leftE, 'leftAt' => $leftE ? $rowE->left_at : null,
+            'mode' => (string) $e->mode, 'rsvp' => $rsE ?: '', 'over' => $leftE || strtotime($e->end_dt) < time(),
+            'now' => !$leftE && strtotime($e->start_dt) <= time() && strtotime($e->end_dt) >= time(),
             'attendees' => array_values($attE), 'people' => count($attE),
             'mine' => (int) $e->created_by === $adminId, 'by' => Db::adminName((int) $e->created_by)];
     }
@@ -9912,6 +9920,16 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
     if ($title === '' || !strtotime($startD) || !strtotime($endD)) {
         fail('Τίτλος και ημερομηνίες είναι υποχρεωτικά');
     }
+    /* ΞΕΧΑΣΜΕΝΗ ΩΡΑ ΛΗΞΗΣ → ΜΙΑ ΩΡΑ, ΟΧΙ ΟΛΗ Η ΜΕΡΑ (23/09/2026).
+       Χωρίς ώρα, η οθόνη έστελνε «2026-09-25 » — δηλαδή μεσάνυχτα — και έπαιρνες
+       «η λήξη είναι πριν την έναρξη». Η φυσική αντίδραση ήταν να τσεκάρεις
+       «Ολοήμερο», που κάνει τη σύσκεψη 00:00–23:59: όλοι οι συμμετέχοντες
+       απασχολημένοι μέχρι τα μεσάνυχτα και τα τηλέφωνά τους κλειστά.
+       Μια σύσκεψη χωρίς δηλωμένη λήξη είναι μία ώρα. Αλλάζει με δύο κλικ. */
+    if (in_array($kind, ['meeting', 'appointment'], true) && empty($in['allDay'])
+        && !preg_match('/\d{1,2}:\d{2}/', (string) $endD)) {
+        $endD = date('Y-m-d H:i', strtotime($startD) + 3600);
+    }
     if (strtotime($endD) < strtotime($startD)) {
         fail('Η λήξη είναι πριν την έναρξη');
     }
@@ -9920,7 +9938,10 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
        «απασχολημένους» όλη μέρα και κατεβάζει τα τηλέφωνά τους — ενώ το μόνο που
        συνέβη ήταν λάθος ώρα λήξης. Δεν είναι ψεύτικο σενάριο· υπάρχουν ημερίδες.
        Γι' αυτό ζητάμε ρητή επιβεβαίωση αντί να το κόβουμε. */
-    if (in_array($kind, ['meeting', 'appointment'], true) && empty($in['longOk']) && empty($in['allDay'])) {
+    /* Η «ολοήμερη» ΔΕΝ εξαιρείται όταν είναι σύσκεψη: το κουτάκι λέει ρητά «για
+       άδειες/πολυήμερα», και ολοήμερη σύσκεψη σημαίνει κλειστά τηλέφωνα ως τα
+       μεσάνυχτα. Αν όντως είναι ημερίδα, το επιβεβαιώνεις. */
+    if (in_array($kind, ['meeting', 'appointment'], true) && empty($in['longOk'])) {
         $durH = (strtotime($endD) - strtotime($startD)) / 3600;
         if ($durH > 4) {
             http_response_code(409);
@@ -14903,7 +14924,10 @@ case 'rtc_signal':
     if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
         fail('room', 403);
     }
-    $kind = in_array($in['kind'] ?? '', ['offer', 'answer', 'ice', 'bye'], true) ? $in['kind'] : null;
+    /* «share» = «μοιράζομαι/σταμάτησα να μοιράζομαι οθόνη». Δεν είναι WebRTC
+       σηματοδοσία, είναι πληροφορία διάταξης: χωρίς αυτήν ο παραλήπτης δεν έχει
+       τρόπο να ξέρει ότι το βίντεο που λαμβάνει είναι οθόνη και όχι πρόσωπο. */
+    $kind = in_array($in['kind'] ?? '', ['offer', 'answer', 'ice', 'bye', 'share'], true) ? $in['kind'] : null;
     if (!$kind || empty($in['peer']) || empty($in['to'])) {
         fail('input');
     }

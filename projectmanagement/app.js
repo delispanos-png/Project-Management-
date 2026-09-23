@@ -4217,8 +4217,15 @@ async function vMyDay() {
       <button class="btn btn-sm btn-p" data-attgo="${i}">${esc(a.act)}</button></span></div>`;
   const evRow = e => `<div class="myd-row ev${e.over ? ' past' : ''}${e.now ? ' now' : ''}" data-cal="${e.id}">
     <span class="myd-time">${e.allDay ? 'όλη μέρα' : hm(e.start) + '–' + hm(e.end)}</span>
-    <span class="myd-t"><b>${esc(e.title)}</b><span class="mut"> · ${e.kind === 'appointment' ? 'ραντεβού' : e.kind === 'meeting' ? 'σύσκεψη' : esc(e.kind)}${e.clientName ? ' · ' + esc(e.clientName) : ''}${e.location && !/^https?:/i.test(e.location) ? ' · ' + esc(e.location) : ''}${e.mode ? ' · ' + esc(e.mode) : ''}</span></span>
+    <span class="myd-t"><b>${esc(e.title)}</b><span class="mut"> · ${e.left ? 'βγήκες ' + hm(e.leftAt) + ' · ' : ''}${e.kind === 'appointment' ? 'ραντεβού' : e.kind === 'meeting' ? 'σύσκεψη' : esc(e.kind)}${e.clientName ? ' · ' + esc(e.clientName) : ''}${e.location && !/^https?:/i.test(e.location) ? ' · ' + esc(e.location) : ''}${e.mode ? ' · ' + esc(e.mode) : ''}</span></span>
     ${e.location && /^https?:/i.test(e.location) ? `<a class="btn btn-sm btn-o" href="${esc(e.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="flex:none" title="${esc(e.location)}">🎥 Μπες</a>` : ''}
+    ${/* «ΒΓΗΚΑ» ΟΣΟ ΤΡΕΧΕΙ, ΟΧΙ ΜΟΝΟ ΣΤΗΝ ΥΠΕΡΒΑΣΗ. Η σύσκεψη μπορεί να συνεχίζεται
+         για τους υπόλοιπους κι εσύ να έχεις φύγει· μέχρι τώρα έπρεπε να περιμένεις
+         να ξεπεράσει την ώρα της για να το δηλώσεις. Η απάντηση είναι ατομική:
+         φεύγει από ΤΟ ΔΙΚΟ σου πρόγραμμα, ελευθερώνεται η κατάστασή σου και
+         ξανανοίγει το τηλέφωνό σου — οι άλλοι συνεχίζουν. */''}
+    ${e.now && e.kind !== 'leave' ? `<button class="btn btn-sm btn-o" data-evleft="${e.id}" style="flex:none"
+      title="Βγήκα — φεύγει από το πρόγραμμά μου και ελευθερώνεται η κατάστασή μου· οι υπόλοιποι συνεχίζουν">Βγήκα</button>` : ''}
     ${e.now ? '<span class="pill pill-ok" style="flex:none">τώρα</span>' : e.rsvp === 'accepted' ? '<span class="pill pill-mut" style="flex:none" title="Δήλωσες συμμετοχή">✔</span>' : e.rsvp === '' && !e.over ? '<span class="pill pill-warn" style="flex:none" title="Δεν απάντησες στην πρόσκληση">αναπάντητη</span>' : ''}</div>`;
   const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p || 0];
   /* Η ένδειξη «⚡ μπάλα» ξεχωρίζει μόνο όταν ΔΕΝ την έχουν όλες — αλλιώς είναι επανάληψη σε κάθε γραμμή. */
@@ -4379,7 +4386,14 @@ async function vMyDay() {
   $$('#content .myd-row.att').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } att[+r.dataset.atti].on(); });
   { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
-  $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button')) { return; } go('calendar'); });
+  $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } go('calendar'); });
+  $$('#content [data-evleft]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const r = await api('event_outcome', {id: +b.dataset.evleft, what: 'done'}).catch(er => ({err: er && er.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('Βγήκες από τη σύσκεψη — η κατάστασή σου ελευθερώθηκε');
+    vMyDay();
+  });
   cnpWireDash($('#content'));
   mydCancels();
   /* Το κουτί των κλήσεων είναι το ΙΔΙΟ με της οθόνης «Καταγραφές κλήσεων» — μία
