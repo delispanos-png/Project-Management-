@@ -482,7 +482,7 @@ function openEvent(ev, ymRefresh) {
     $('#evSave', dr).onclick = async () => {
       addXm();   // ό,τι έμεινε γραμμένο στο πεδίο email μπαίνει στη λίστα αυτόματα
       const allDay = $('#evAll', dr).checked;
-      const r = await api('event_save', {id: ev.id || 0, kind, title: $('#evT', dr).value,
+      const send = extra => api('event_save', Object.assign({id: ev.id || 0, kind, title: $('#evT', dr).value,
         start: $('#evD0', dr).value + (allDay ? ' 00:00' : ' ' + $('#evT0', dr).value),
         end: $('#evD1', dr).value + (allDay ? ' 23:59' : ' ' + $('#evT1', dr).value),
         allDay, attendees: $$('.evA:checked', dr).map(x => +x.value),
@@ -491,7 +491,17 @@ function openEvent(ev, ymRefresh) {
         location: $('#evLoc', dr).value,
         inviteClient: scope === 'client' && $('#evInv', dr).checked,
         extraEmails: xmails.join(','),
-        notes: rteVal('evN', dr)}).catch(e => ({err: e.message}));
+        notes: rteVal('evN', dr)}, extra || {})).catch(e => ({err: e.message, data: e && e.data}));
+      let r = await send(null);
+      /* ΑΣΥΝΗΘΙΣΤΑ ΜΕΓΑΛΗ ΣΥΣΚΕΨΗ. Ο server δεν την κόβει — ρωτά, γιατί υπάρχουν
+         ημερίδες. Χωρίς την ερώτηση, μια λάθος ώρα λήξης κρατά όλη την ομάδα
+         «απασχολημένη» και κατεβάζει τα τηλέφωνά της για ώρες. */
+      if (r.err && r.data && r.data.need === 'long') {
+        const ok = await cnpConfirm(r.err, {title: '⏳ Πολύωρη σύσκεψη',
+          ok: 'Ναι, είναι σωστό', cancel: 'Θα διορθώσω την ώρα'});
+        if (!ok) { return; }
+        r = await send({longOk: 1});
+      }
       if (r.err) { toast(r.err, true); return; }
       toast('Αποθηκεύτηκε 📅'); closeDrawer(); R.calendar(ymRefresh);
     };
