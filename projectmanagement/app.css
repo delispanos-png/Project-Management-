@@ -4554,6 +4554,14 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .cl-pres{position:absolute;top:100%;left:0;min-width:220px;z-index:40;background:var(--card);
   border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 26px #0f172a1f;margin-top:4px;padding:4px}
 .cl-pres:empty{display:none}
+/* Η ένδειξη της αυτόματης αποθήκευσης: διακριτική, αλλά ορατή όταν κάτι πάει στραβά. */
+.tk-auto{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mut);margin:10px 0 -2px}
+.tk-auto-d{width:7px;height:7px;border-radius:50%;background:var(--mut);opacity:.5;flex:none}
+.tk-auto[data-s=saving] .tk-auto-d{background:var(--brand);opacity:1}
+.tk-auto[data-s=saved] .tk-auto-d{background:var(--ok);opacity:1}
+.tk-auto[data-s=saved]{color:var(--ok)}
+.tk-auto[data-s=error] .tk-auto-d{background:var(--bad);opacity:1}
+.tk-auto[data-s=error]{color:var(--bad);font-weight:700}
 .attn-act{margin-top:8px}
 .attn-act .attn-ask{font-size:11.5px;padding:4px 10px}
 /* Τα αντικείμενα είναι σύνδεσμοι, όχι διακόσμηση: πας κατευθείαν εκεί. */

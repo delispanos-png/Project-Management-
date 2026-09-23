@@ -2817,8 +2817,10 @@ async function openTask(id, entryId, opts) {
           value="${t.est ? String(Math.round(t.est / 60 * 100) / 100).replace('.', ',') : ''}">
         <span class="mut">ώρες</span>
         <span class="mut" id="fEstHint" style="margin-left:auto">${t.est ? '= ' + fmtMin(t.est) : ''}</span></label>
+      ${/* Τα πεδία σώζονται μόνα τους· το κουμπί μένει για «τελείωσα, κλείσ᾽ το». */''}
+      <div class="tk-auto"><span class="tk-auto-d"></span><span id="dAutoS">αποθηκεύεται μόνο του</span></div>
       <div class="tk-actions">
-        <button class="btn btn-p" id="dSave" data-save>Αποθήκευση</button>
+        <button class="btn btn-p" id="dSave" data-save title="Αποθήκευση και κλείσιμο — τα πεδία σώζονται ούτως ή άλλως μόνα τους">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${t.done ? '' : `<button class="btn btn-o" id="dHand" title="Τελείωσε το δικό σου κομμάτι — δώσε τη σκυτάλη στον επόμενο">${I.zap} Παράδοση</button>`}
         ${d.canAsk ? `<button class="btn btn-o" id="dAskDelay"
@@ -2982,6 +2984,8 @@ async function openTask(id, entryId, opts) {
   if (!canWork) {
     ['#dSave', '#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#tStart', '#tStop', '#depAdd', '#dBillOk']
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
+    /* Σε καρτέλα μόνο-προβολής η ένδειξη «αποθηκεύεται μόνο του» θα ήταν ψέμα. */
+    { const au = $('.tk-auto', dr); if (au) { au.style.display = 'none'; } }
     $$('.tk-time-row, .tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
     /* Το πεδίο των ενεργειών κρύβεται — αλλά χωρίς εξήγηση μοιάζει με βλάβη. */
     const sl = $('#dCheck', dr);
@@ -3022,7 +3026,12 @@ async function openTask(id, entryId, opts) {
     }; } }
   { const fe = $('#fEst', dr), fh = $('#fEstHint', dr);
     if (fe && fh) { fe.oninput = () => { const m = estMins(fe.value); fh.textContent = m ? '= ' + fmtMin(m) : ''; }; } }
-  $('#dSave', dr).onclick = async () => {
+  /* ΑΠΟΘΗΚΕΥΕΤΑΙ ΜΟΝΟ ΤΟΥ (23/09/2026). Η ίδια διαδικασία εξυπηρετεί και το κουμπί
+     και την αυτόματη αποθήκευση: ίδιος έλεγχος, ίδιοι διάλογοι (ημερομηνίες
+     υλοποίησης, σύγκρουση ώρας), ίδια μηνύματα. Δύο δρόμοι αποθήκευσης θα
+     απέκλιναν την πρώτη φορά που άλλαζε κανόνας σε έναν από τους δύο. */
+  const saveFields = async (o0) => {
+    const opts = o0 || {};
     const payload = over => Object.assign({task: id,
       due: $('#fDue', dr).value || null, sched: $('#fSched', dr).value || null, start: $('#fStart', dr).value || null,
       startT: $('#fStartT', dr) ? ($('#fStartT', dr).value || null) : undefined,
@@ -3042,8 +3051,9 @@ async function openTask(id, entryId, opts) {
       descr: (canEditBrief && $('#fDescr', dr) && rteVal('fDescr') !== (d.descr || '')) ? rteVal('fDescr') : undefined,
       ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined}, over || {});
 
-    /* Μισογραμμένη ενέργεια στον συνθέτη: καταχωρείται κι αυτή, δεν πετιέται. */
-    { const ed = $('#chkNew', dr); const html = ed ? ed.innerHTML.trim() : '';
+    /* Μισογραμμένη ενέργεια στον συνθέτη: καταχωρείται κι αυτή, δεν πετιέται.
+       ΜΟΝΟ όταν πατάς «Αποθήκευση» — η αυτόματη δεν στέλνει μισές προτάσεις. */
+    if (opts.composer) { const ed = $('#chkNew', dr); const html = ed ? ed.innerHTML.trim() : '';
       if (html && html !== '<br>') {
         const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er && er.message, er}));
         if (ra && ra.err) { if (!(await cnpCodeRefused(ra.er))) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); } return; }
@@ -3078,7 +3088,7 @@ async function openTask(id, entryId, opts) {
         .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
     }
     if (r.ok && extra.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
-    if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }
+    if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return false; }
     dr.dataset.fresh = ''; dr.dataset.dirty = '';
     /* ΤΟ ΣΤΑΜΑΤΗΜΑ ΤΟΥ ΧΡΟΝΟΥ ΔΕΝ ΓΙΝΕΤΑΙ ΣΙΩΠΗΛΑ. Ο server κόβει το χρονόμετρο
        όταν παραδίδεις την μπάλα — αν δεν το πει, ο χειριστής νομίζει ότι μετράει
@@ -3086,11 +3096,53 @@ async function openTask(id, entryId, opts) {
     const bs = r.res && r.res.ballStopped;
     if (bs) {
       toast('Ο χρόνος σου σταμάτησε — ' + fmtMin(bs.mins) + ' · η μπάλα πήγε στον/στην ' + bs.to);
-    } else {
-      toast('Αποθηκεύτηκε');
     }
+    if (!opts.close) { return true; }
+    if (!bs) { toast('Αποθηκεύτηκε'); }
     closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
+    return true;
   };
+  $('#dSave', dr).onclick = () => saveFields({close: true, composer: true});
+
+  /* ── Αυτόματη αποθήκευση των πεδίων ──────────────────────────────────────
+     Δεν χρειάζεται να θυμάσαι να πατήσεις τίποτα: αλλάζεις, σώζεται. Οι λίστες
+     και οι ημερομηνίες σώζονται μόλις αλλάξουν· τα πεδία που πληκτρολογείς
+     περιμένουν λίγο να τελειώσεις. Αν ο server ζητήσει κάτι (ημερομηνίες
+     υλοποίησης, σύγκρουση ώρας), εμφανίζεται ο ίδιος διάλογος με πριν. */
+  {
+    const st = $('#dAutoS', dr), box = st && st.parentElement;
+    const mark = k => {
+      if (!st || !box) { return; }
+      box.dataset.s = k;
+      st.textContent = k === 'saving' ? 'αποθήκευση…'
+        : k === 'saved' ? 'αποθηκεύτηκε'
+        : k === 'error' ? 'δεν αποθηκεύτηκε — δοκίμασε «Αποθήκευση»' : 'αποθηκεύεται μόνο του';
+      if (k === 'saved') { clearTimeout(box._t); box._t = setTimeout(() => mark('idle'), 2200); }
+    };
+    let tmr = null, busy = false, again = false;
+    const run = async () => {
+      if (busy) { again = true; return; }
+      busy = true; mark('saving');
+      let ok = false;
+      try { ok = await saveFields({close: false, composer: false}); } catch (e) { ok = false; }
+      busy = false;
+      mark(ok ? 'saved' : 'error');
+      if (again) { again = false; run(); }
+    };
+    const bump = ms => { clearTimeout(tmr); tmr = setTimeout(run, ms); };
+    dr._autosave = () => bump(0);
+    ['#fAssignee', '#fBall', '#fPrio', '#fType', '#fDept', '#fStart', '#fStartT', '#fDue', '#fDueT',
+      '#fSched', '#fOffer', '#fInternal', '#fSource', '#fOfferRef', '#fEst', '#fTkRef'].forEach(sel => {
+      const e = $(sel, dr);
+      if (!e || e.disabled) { return; }
+      const quick = e.tagName === 'SELECT' || e.type === 'date' || e.type === 'time' || e.type === 'checkbox';
+      e.addEventListener('change', () => bump(quick ? 120 : 600));
+      if (!quick) { e.addEventListener('input', () => bump(900)); }
+    });
+    /* Και το ζητούμενο, που δεν έχει πια δικό του κουμπί. */
+    const fd = $('#fDescr', dr);
+    if (fd && fd.isContentEditable) { fd.addEventListener('input', () => bump(1400)); }
+  }
   /* Ανοίγει «καθαρό»: μέχρι να αλλάξει κάτι, το κουμπί είναι γκρίζο. */
   _cnpPaintSave(dr);
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
