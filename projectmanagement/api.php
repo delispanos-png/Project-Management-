@@ -6596,6 +6596,14 @@ case 'move_task':
     $backlogId = cnp_backlog_status_id();
     if ($stChk && empty($stChk->is_done) && $backlogId
         && (int) $t->status_id === $backlogId && (int) $stChk->id !== $backlogId) {
+        /* ΒΓΑΙΝΕΙ ΑΠΟ ΤΟ BACKLOG = ΞΕΚΙΝΑΕΙ. Χωρίς ημερομηνία έναρξης η εργασία δεν
+           μπαίνει σε κανενός το «Πρόγραμμα σήμερα» — δουλεύεται, αλλά πουθενά δεν
+           φαίνεται ότι δουλεύεται. Δεν το ρωτάμε: η ίδια η κίνηση είναι η απάντηση,
+           και «σήμερα» είναι αλήθεια, όχι εικασία. Βρέθηκαν 4 που είχαν βγει χωρίς. */
+        if (empty($t->start_date)) {
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['start_date' => date('Y-m-d')]);
+            Db::logActivity($t->id, $adminId, 'edit', 'Έναρξη με τη μετακίνηση από το Backlog: ' . cnp_dgr(date('Y-m-d')));
+        }
         $dueIn = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
         if ($dueIn) {
             Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['due_date' => $dueIn]);

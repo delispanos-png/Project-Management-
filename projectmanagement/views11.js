@@ -84,11 +84,12 @@ R.roles = async function () {
   Object.keys(PL_F).forEach(k => { if (st[k] && !st.shown.includes(k)) { st.shown.push(k); } });
   cnpSkel(c, '<div class="skel" style="height:70px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
 
+  let dErr = null;
   const [d, cov] = await Promise.all([
-    api('roles').catch(() => null),
+    api('roles').catch(e => { dErr = e; return null; }),
     api('roles_coverage').catch(() => ({rows: []})),
   ]);
-  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
   const canEdit = cnpCan('hr.roles.edit');
   const prods = d.products || [];
@@ -304,8 +305,9 @@ R.pool = async function () {
   Object.keys(PD_F).forEach(k => { if (st[k] && !st.shown.includes(k)) { st.shown.push(k); } });
   cnpSkel(c, '<div class="skel" style="height:70px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>');
 
-  const d = await api('pool_today', {date: st.date, at: st.at}).catch(() => null);
-  if (!d) { c.innerHTML = '<div class="card"><div class="card-b mut">Δεν φορτώθηκε.</div></div>'; return; }
+  let dErr = null;
+  const d = await api('pool_today', {date: st.date, at: st.at}).catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
   const rows = d.rows || [];
   const free = rows.filter(r => !r.away && !r.holding).length;

@@ -15,7 +15,12 @@ R.pbx = async function () {
   }
   setTop('Διασύνδεση 3CX', 'CloudOn Agent — σύνδεση με το τηλεφωνικό κέντρο');
   const c = $('#content');
-  cnpSkel(c, '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>');
+  /* ΛΕΕΙ ΤΙ ΠΕΡΙΜΕΝΕΙ. Η οθόνη ρωτάει το ίδιο το κέντρο και θέλει ~8 δευτερόλεπτα:
+     με σκέτο σκελετό μοιάζει κολλημένη και ο χειριστής ξαναπατάει ή φεύγει. */
+  cnpSkel(c, '<div class="card"><div class="card-b mut" style="padding:16px;font-size:13px">'
+    + '☎ Ρωτάμε το τηλεφωνικό κέντρο… <span style="opacity:.7">κρατά λίγα δευτερόλεπτα — '
+    + 'οι απαντήσεις έρχονται ζωντανά από το 3CX, δεν είναι αποθηκευμένες.</span></div></div>'
+    + '<div class="skel" style="height:220px;margin-bottom:14px"></div><div class="skel" style="height:300px"></div>');
   const [d, m, bp, ac] = await Promise.all([
     api('pbx_settings').catch(() => null),
     api('pbx_map').catch(() => null),
