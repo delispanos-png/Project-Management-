@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — views pack 2 (όλες οι ενότητες) ═══════════ */
 'use strict';
-const {S, api, esc, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
+const {S, api, esc, timeInput, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
   adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, $, $$, cnpHolder} = window.CNP;
 const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
@@ -273,9 +273,9 @@ function openEvent(ev, ymRefresh) {
     <input class="inp" id="evT" value="${esc(ev.title || '')}" placeholder="π.χ. Κλήση με PharmacyOne / Καλοκαιρινή άδεια">
     <div class="frow" style="margin-top:11px">
       <div><label class="lbl">Έναρξη</label><input type="date" class="inp" id="evD0" value="${d0}"></div>
-      <div id="evT0w"><label class="lbl">Ώρα</label><input type="time" class="inp" id="evT0" value="${t0}"></div>
+      <div id="evT0w"><label class="lbl">Ώρα</label>${timeInput('evT0', t0)}</div>
       <div><label class="lbl">Λήξη</label><input type="date" class="inp" id="evD1" value="${d1}"></div>
-      <div id="evT1w"><label class="lbl">Ώρα</label><input type="time" class="inp" id="evT1" value="${t1}"></div>
+      <div id="evT1w"><label class="lbl">Ώρα</label>${timeInput('evT1', t1)}</div>
     </div>
     <label style="display:flex;gap:6px;align-items:center;margin-top:9px;font-size:12.5px">
       <input type="checkbox" id="evAll" ${ev.allDay ? 'checked' : ''}> Ολοήμερο (για άδειες/πολυήμερα)</label>

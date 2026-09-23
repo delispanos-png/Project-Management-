@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
-const {S, api, esc, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
+const {S, api, esc, timeInput, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
   cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpHolder, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
@@ -1829,7 +1829,7 @@ R.chat = async function () {
     const d = new Date(ch.lastAt * 1000);
     const sameDay = d.toDateString() === new Date().toDateString();
     const txt = sameDay
-      ? d.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit'})
+      ? d.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit', hour12: false})
       : d.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'});
     return `<span class="ch-row-t" title="Τελευταίο μήνυμα">${esc(txt)}</span>`;
   };
@@ -3031,7 +3031,7 @@ function tdDateMenu(anchor, current, onPick) {
   p.innerHTML = tdQuick().map(([lbl, dt]) =>
       `<button data-v="${tdSql(dt)}">${lbl}<span>${tdWhen(tdSql(dt))}</span></button>`).join('')
     + `<div class="td-pop-sep"></div>
-       <div class="td-pop-row"><input type="date" id="tdPD"><input type="time" id="tdPT" value="09:00"></div>
+       <div class="td-pop-row"><input type="date" id="tdPD">${timeInput('tdPT', '09:00')}</div>
        <button data-ok="1" class="td-pop-ok">Ορισμός</button>
        ${current ? '<button data-v="" class="td-pop-clr">Αφαίρεση ημερομηνίας</button>' : ''}`;
   document.body.appendChild(p);
