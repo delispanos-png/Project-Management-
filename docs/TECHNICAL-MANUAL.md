@@ -372,6 +372,7 @@ node --check app.js             # export PATH=/opt/plesk/node/20/bin:$PATH
 | Η ίδια εργασία σε δύο ανθρώπους | παραβίαση του κανόνα της μπάλας → `dev-check-ball.py` |
 | «Βλέπω στα δικά μου κάτι που δεν είναι δικό μου» | οθόνη χωρίς φίλτρο προσώπου → `dev-check-scope.py` |
 | Ειδοποίηση για εργασία που δεν μπορώ να κινήσω | ο παραλήπτης βγαίνει από την ανάθεση αντί για τη μπάλα |
+| Ειδοποίηση για εργασία που δεν με αφορά καθόλου | παραλήπτης «όλοι οι Full admins» — πρέπει να είναι δημιουργός / ανάδοχος / watchers |
 | Ειδοποίηση που δεν ανοίγει τίποτα | σύνδεσμος παλιάς εποχής — περνά από `Db::appLink()` |
 | CLI PHP: «ionCube» ή class not found | έτρεξες σκέτο `php` — θέλει `/opt/plesk/php/8.3/bin/php` από το **root του WHMCS** |
 | `Class "…\Route" not found` | mismatched filename (`lib/Pbx3cx/Route.php`) — θέλει ρητό `require_once` |
