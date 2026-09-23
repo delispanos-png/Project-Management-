@@ -4567,6 +4567,11 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 /* Το δικό μας πεδίο ώρας: ίδιο πλάτος με το παλιό native, μονόχωρα ψηφία ώστε
    το «11:15» και το «08:05» να ευθυγραμμίζονται σε λίστες. */
 .tinp{width:96px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+/* Υπόμνημα χρωμάτων στη λωρίδα της ομάδας — διακριτικό, κρύβεται σε στενή οθόνη. */
+.tmb-leg{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--mut);white-space:nowrap}
+.tmb-leg i{width:7px;height:7px;border-radius:50%;display:inline-block;margin-left:7px}
+.tmb-leg i:first-child{margin-left:0}
+@media (max-width:900px){ .tmb-leg{display:none} }
 .myd-st{flex:none;display:inline-flex}
 .myd-stD{flex:none;display:none;align-items:center}
 @media (max-width:768px){ .myd-st{display:none} .myd-stD{display:inline-flex} }

@@ -5192,6 +5192,12 @@ function cnpPeopleBar(people, opts) {
     <div class="tmb-h">${I.users}<b>${esc(opts.title || 'Η ομάδα τώρα')}</b>
       <span class="mut">${esc(opts.hint || (inN + ' μέσα' + (workN ? ' · ' + workN + ' με χρονόμετρο' : '')))}</span>
       <span style="flex:1"></span>
+      ${/* ΤΙ ΣΗΜΑΙΝΕΙ ΤΟ ΧΡΩΜΑ. Χωρίς υπόμνημα, το κίτρινο διαβαζόταν ως «έφυγε» —
+           ενώ σημαίνει απλώς ότι δεν άγγιξε το εργαλείο τα τελευταία λεπτά. */''}
+      <span class="tmb-leg" title="Το χρώμα δείχνει αν ο άνθρωπος κινείται ΜΕΣΑ στο εργαλείο — όχι αν δουλεύει">
+        <i style="background:var(--ok)"></i>στην εφαρμογή
+        <i style="background:var(--warn,#eba63c)"></i>χωρίς κίνηση 5΄+
+        <i style="background:#9aa7ba"></i>εκτός</span>
       ${opts.link ? `<a class="myd-link" data-go="${esc(opts.link[0])}">${esc(opts.link[1])}</a>` : ''}
       ${opts.right || ''}</div>
     <div class="tmb-strip">${ps.map(x => {
