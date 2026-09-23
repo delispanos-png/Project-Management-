@@ -581,8 +581,8 @@ window.CNP.quickCall = quickCall;
 /* Τα πρόσθετα φίλτρα της λίστας tasks. Το «μόνο ανοιχτά» ξεκινά ανοιχτό: είναι
    η προεπιλογή της οθόνης, οπότε πρέπει να ΦΑΙΝΕΤΑΙ ότι ισχύει. */
 const LF_F = {
-  open: {label: 'Μόνο ανοιχτά', bool: 1},
-  mine: {label: 'Μόνο δικά μου', bool: 1},
+  open: {label: 'Ανοιχτά', bool: 1},
+  mine: {label: 'Δικά μου', bool: 1},        // ανάθεση ή μπάλα — cnpIsMine
   proj: {label: 'Έργο', opts: d => [['', '— κάθε —']]
            .concat((d.projects || []).map(n => [n, n]))},
 };
@@ -985,11 +985,17 @@ R.supervised = async function () {
 };
 
 R.list = async function () {
-  setTop('Λίστα tasks', 'Όλα τα tasks ομαδοποιημένα — g+l');
+  setTop('Λίστα tasks', 'Τα δικά σου πρώτα — βγάλε το φίλτρο για όλη την ομάδα · g+l');
   const c = $('#content');
   // ίδια δομή με τη Βιβλιοθήκη γνώσης: search + chips + ομαδοποίηση + φόρμα πίσω από κουμπί
+  /* ΑΝΟΙΓΕΙ ΣΤΑ ΔΙΚΑ ΣΟΥ (23/09/2026). Η ορατότητα ανά έργο είναι τόσο πλατιά που
+     πρακτικά όλοι είναι μέλη σε όλα τα έργα: η λίστα άνοιγε με 70 ανοιχτές
+     εργασίες όλης της εταιρείας, με κόκκινες ημερομηνίες δίπλα σε ονόματα άλλων.
+     Ο Βάκρινος διάβασε ως δική του καθυστέρηση εργασία που ούτε του είχε ανατεθεί
+     ούτε κρατούσε τη μπάλα της. Το φίλτρο υπήρχε — απλώς ήταν σβηστό και κρυμμένο.
+     Τώρα είναι αναμμένο και φαίνεται, με ✕ για να δεις τα πάντα με ένα κλικ. */
   const f = R.list._f = R.list._f || {open: 1, group: 'project', proj: '', q: '', fs: '', fa: '',
-    mine: 0, closed: {}, shown: ['open']};
+    mine: 1, closed: {}, shown: ['open', 'mine']};
   if (!f.shown) { f.shown = ['open']; }
   Object.keys(LF_F).forEach(k => { if (f[k] && !f.shown.includes(k)) { f.shown.push(k); } });
   const views = JSON.parse(localStorage.cnpViews || '[]');
@@ -1005,7 +1011,7 @@ R.list = async function () {
        γιατί ΔΕΝ είναι φίλτρα — είναι συντομεύσεις σε σύνολα φίλτρων. */''}
   <div class="fbar">
     ${fChip('Αναζήτηση', `<input class="fchip-s" id="lfQ" data-fk="q" value="${esc(f.q || '')}"
-      placeholder="τίτλο, project, χειριστή, #αριθμό…" style="width:250px">`, !!f.q, '')}
+      placeholder="τίτλο, project, χειριστή, #αριθμό…" style="width:180px">`, !!f.q, '')}
     ${fChip('Ομαδοποίηση', fSel('group', Object.entries(GROUPS), f.group), false, '')}
     <span id="lfMore"></span>
     <span class="fbar-sp"></span>
