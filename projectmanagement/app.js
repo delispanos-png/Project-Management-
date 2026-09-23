@@ -2592,7 +2592,11 @@ async function openTask(id, entryId, opts) {
       <div class="card-b">
         ${canEditBrief
           ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι… (@Όνομα = ειδοποίηση)', {min: 110})
-            + `<div class="tk-brief-foot"><button class="btn btn-p btn-sm" id="dBriefSave">Αποθήκευση ζητουμένου</button><span class="mut" id="dBriefHint" style="font-size:11px"></span></div>`
+            /* ΜΙΑ ΑΠΟΘΗΚΕΥΣΗ, ΣΤΑ ΔΕΞΙΑ. Εδώ υπήρχε δεύτερο κουμπί μόνο για το
+               ζητούμενο — δύο «αποθηκεύσεις» στην ίδια καρτέλα, και έπρεπε να
+               ξέρεις ποια σώζει τι. Το δεξί «Αποθήκευση» τα σώζει όλα, και το
+               ζητούμενο μαζί. */
+            + `<div class="tk-brief-foot"><span class="mut" id="dBriefHint" style="font-size:11.5px">Αποθηκεύεται με το «Αποθήκευση» δεξιά.</span></div>`
           : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? cnpBalanced(d.descr) : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>`}
         <details class="tk-att" open><summary id="dFilesSum">${I.clip} Συνημμένα ζητουμένου<b data-attn></b></summary>
           <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
@@ -2654,7 +2658,7 @@ async function openTask(id, entryId, opts) {
       };
       return `<div class="card tk-step"><div class="card-h">💬 <b>Συζήτηση & ενέργειες</b>
       <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
-      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · Ctrl+Enter καταχωρεί</span></div>
+      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> καταχωρεί</span></div>
       <div class="card-b">
         <div id="dCheck" class="th">
           ${hidden ? `<button type="button" class="th-more" id="thMore">${I.chev} ${hidden} παλαιότερα</button>` : ''}
@@ -2670,10 +2674,15 @@ async function openTask(id, entryId, opts) {
             ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
           </div></div>
           <div class="act-edit" id="chkNew" contenteditable="true" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
+          ${/* ΚΑΤΑΧΩΡΕΙ ΤΟ ENTER. Το κουμπί ήταν μια τρίτη κίνηση για κάτι που
+               γράφεις σαν μήνυμα — και κρατούσε ύψος που έσπρωχνε τη συζήτηση
+               κάτω. Shift+Enter για νέα γραμμή, όπως παντού. */''}
           <div class="act-foot">
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
             <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
-            <button type="button" class="btn btn-sm btn-p" id="chkGo">Καταχώρηση</button>
+            <span class="mut act-tip"><b>Enter</b> καταχωρεί · <b>Shift+Enter</b> νέα γραμμή</span>
+            ${/* Στο κινητό το Enter είναι πλήκτρο νέας γραμμής — εκεί μένει κουμπί. */''}
+            <button type="button" class="btn btn-sm btn-p act-send" id="chkGo" title="Καταχώρηση">${I.send}</button>
           </div>
           <input type="file" id="chkFile" multiple hidden>
         </div>
@@ -2964,7 +2973,7 @@ async function openTask(id, entryId, opts) {
      οι handlers από κάτω να δένουν χωρίς σφάλμα. */
   const canWork = !!(me.full || cnpCan('projects.board.edit') || [t.assignee, t.creator, t.ball].includes(me.id));
   if (!canWork) {
-    ['#dSave', '#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#dBriefSave', '#tStart', '#tStop', '#depAdd', '#dBillOk']
+    ['#dSave', '#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#tStart', '#tStop', '#depAdd', '#dBillOk']
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
     $$('.tk-time-row, .tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
     /* Το πεδίο των ενεργειών κρύβεται — αλλά χωρίς εξήγηση μοιάζει με βλάβη. */
@@ -3079,14 +3088,6 @@ async function openTask(id, entryId, opts) {
   _cnpPaintSave(dr);
   /* Το «ζητούμενο» έχει δικό του πλήκτρο αποθήκευσης (μόνο για δημιουργό/Full),
      ώστε ο συντάκτης να σώζει το κείμενο χωρίς να κλείνει το παράθυρο. */
-  { const bsv = $('#dBriefSave', dr); if (bsv) bsv.onclick = async () => {
-    bsv.disabled = true;
-    const r = await api('save_task', {task: id, descr: rteVal('fDescr')}).catch(e => ({err: e && e.message}));
-    bsv.disabled = false;
-    if (r && r.err) { toast(r.err, true); return; }
-    const h = $('#dBriefHint', dr); if (h) { h.textContent = '✓ αποθηκεύτηκε'; setTimeout(() => { h.textContent = ''; }, 2500); }
-    toast('Το ζητούμενο αποθηκεύτηκε');
-  }; }
   /* Αλλαγή κατάστασης από το κουμπί της κεφαλίδας (μία μόνο θέση): ισχύει αμέσως.
      Αν η νέα κατάσταση είναι τελική, ζητάει δυο λόγια για το πώς έκλεισε. */
   const stPill = $('#dStPill', dr); if (stPill) stPill.onclick = () => {
@@ -3524,13 +3525,15 @@ async function openTask(id, entryId, opts) {
         clip.onclick = () => fi.click();
         fi.onchange = () => { [...fi.files].forEach(f => pending.push(f)); fi.value = ''; paint(); };
       }
+      let busy = false;   // χωρίς κουμπί, ο φύλακας διπλής αποστολής ζει εδώ
       const submit = async () => {
         const html = ed.innerHTML.trim();
-        if (!html || html === '<br>') { return; }
-        const btn = $('#chkGo', dr); btn.disabled = true;
+        if (busy || !html || html === '<br>') { return; }
+        busy = true; ed.setAttribute('aria-busy', '1');
         const r = await api('check_add', {task: id, title: html, html: 1})
           .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
-        if (r && r.err) { btn.disabled = false; if (!(await cnpCodeRefused(r.er))) { toast(r.err, true); } return; }
+        if (r && r.err) { busy = false; ed.removeAttribute('aria-busy');
+          if (!(await cnpCodeRefused(r.er))) { toast(r.err, true); } return; }
         for (const f of pending) { await actUpload(f, r.id); }
         /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
            επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
@@ -3538,10 +3541,16 @@ async function openTask(id, entryId, opts) {
         ed.innerHTML = '';
         openTask(id);
       };
-      $('#chkGo', dr).onclick = submit;
-      /* Ctrl/⌘+Enter = γρήγορη καταχώρηση για όποιον το συνήθισε· σκέτο Enter όχι. */
+      /* Enter = καταχώρηση. Shift+Enter = νέα γραμμή. Το Ctrl/⌘+Enter μένει για
+         όποιον το συνήθισε. Όσο είναι ανοιχτή η λίστα @mentions, το Enter ανήκει
+         σε εκείνη — διαλέγει όνομα, δεν στέλνει μισό μήνυμα. */
+      { const gb = $('#chkGo', dr); if (gb) { gb.onclick = submit; } }
       ed.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+        if (e.key !== 'Enter') { return; }
+        if (document.querySelector('.ment-box')) { return; }
+        if (e.shiftKey) { return; }
+        e.preventDefault();
+        submit();
       });
     } }
 
