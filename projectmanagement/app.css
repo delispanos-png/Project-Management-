@@ -933,6 +933,12 @@ button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
 .man-sec ul,.man-sec ol{font-size:13.5px;line-height:1.7;color:var(--txt);margin:0 0 12px;padding-left:22px}
 .man-sec li{margin-bottom:5px}
 .man-sec b{color:var(--ink)}
+/* Πίνακας μέσα στον οδηγό: διαβάζεται και σε στενή οθόνη, χωρίς οριζόντιο scroll. */
+.man-t{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+.man-t th,.man-t td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.man-t th{font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);font-weight:700}
+.man-t td:first-child{white-space:nowrap;font-weight:600;color:var(--ink)}
+@media (max-width:640px){ .man-t td:first-child{white-space:normal} }
 .man-tip{display:flex;gap:10px;align-items:flex-start;background:color-mix(in srgb,var(--brand) 8%,transparent);border-left:3px solid var(--brand);border-radius:10px;padding:11px 14px;margin:12px 0;font-size:13px;line-height:1.6}
 .man-tip.warn{background:color-mix(in srgb,var(--warn) 12%,transparent);border-left-color:var(--warn)}
 /* ΜΟΝΟ ο τίτλος της συμβουλής είναι μπλοκ. Πριν, κάθε <b> μέσα στο κείμενο
