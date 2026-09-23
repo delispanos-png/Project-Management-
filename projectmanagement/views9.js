@@ -1958,15 +1958,20 @@ async function clPending(boxId, after) {
   const st = clPending._s = {sel: new Set(), kinds: d.kinds, client: 0, clientName: ''};
   const hm = m => m < 60 ? m + '΄' : Math.floor(m / 60) + 'ω ' + (m % 60 ? (m % 60) + '΄' : '');
 
+  /* Ενσωματωμένο (μέσα στη «Μέρα μου»): χωρίς δική του κάρτα και χωρίς δεύτερη
+     επικεφαλίδα — η ομάδα του προγράμματος το λέει ήδη. Ίδιος κώδικας, δύο θέσεις. */
+  const flat = !!boxId;
   const draw = () => {
-    box.innerHTML = `<div class="card cl-pend">
-      <div class="card-h"><b>${d.total} ${d.total === 1 ? 'κλήση σου δεν έχει' : 'κλήσεις σου δεν έχουν'} χαρακτηριστεί</b>
-        <span class="mut"> — ${hm(d.mins)} που δεν ξέρουμε πού πήγαν</span>
+    box.innerHTML = `<div class="${flat ? 'cl-pend cl-flat' : 'card cl-pend'}">
+      <div class="${flat ? 'cl-flat-h' : 'card-h'}">${flat
+        ? `<span class="mut">${d.total} χωρίς χαρακτηρισμό · ${hm(d.mins)} που δεν ξέρουμε πού πήγαν</span>`
+        : `<b>${d.total} ${d.total === 1 ? 'κλήση σου δεν έχει' : 'κλήσεις σου δεν έχουν'} χαρακτηριστεί</b>
+        <span class="mut"> — ${hm(d.mins)} που δεν ξέρουμε πού πήγαν</span>`}
         <span style="flex:1"></span>
         <button class="btn btn-sm btn-o" id="clpAll">Όλες</button>
         ${d.rows.some(r => r.internal) ? '<button class="btn btn-sm btn-o" id="clpInt">Μόνο εσωτερικές</button>' : ''}
         <button class="btn btn-sm btn-o" id="clpNone">Καμία</button></div>
-      <div class="card-b">
+      <div class="${flat ? 'cl-flat-b' : 'card-b'}">
         <div class="cl-plist">${d.rows.map(r => `
           <label class="cl-p${st.sel.has(r.id) ? ' on' : ''}">
             <input type="checkbox" data-cp="${r.id}"${st.sel.has(r.id) ? ' checked' : ''}>

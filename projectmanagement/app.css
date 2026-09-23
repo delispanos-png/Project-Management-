@@ -4710,6 +4710,12 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 
 /* ── Χαρακτηρισμός κλήσεων: μαζικά, όχι μία-μία ── */
 .cl-pend{border-left:3px solid var(--warn,#b45309);margin-bottom:14px}
+/* Ενσωματωμένο στο πρόγραμμα της ημέρας: χωρίς κάρτα, χωρίς πλαίσιο — μια ομάδα σαν τις άλλες. */
+.cl-flat{border-left:0;margin:0}
+.cl-flat-h{display:flex;align-items:center;gap:7px;padding:2px 2px 7px;font-size:11.5px;flex-wrap:wrap}
+.cl-flat-b{padding:0}
+.cl-flat .cl-plist{max-height:260px}
+.cl-flat .cl-pbar{padding:9px 2px 2px;background:none;border:0}
 .cl-plist{display:flex;flex-direction:column;gap:2px;max-height:330px;overflow:auto}
 .cl-p{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:7px;
   cursor:pointer;font-size:12.5px}

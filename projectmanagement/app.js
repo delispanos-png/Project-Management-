@@ -1417,6 +1417,20 @@ function _rteSeed(v) {
     ? s : esc(s).replace(/\n/g, '<br>');
 }
 
+/* Η ΕΡΓΑΛΕΙΟΘΗΚΗ ΤΗΣ ΣΥΖΗΤΗΣΗΣ, ΜΙΑ ΦΟΡΑ. Ήταν γραμμένη μόνο μέσα στον συνθέτη
+   νέου μηνύματος — οπότε όταν πήγαινες να ΔΙΟΡΘΩΣΕΙΣ ένα καταχωρημένο, έχανες
+   έντονα, χρώματα και κουκκίδες. Ίδιο πεδίο, άλλες δυνατότητες. */
+function actTbHtml() {
+  return `<div class="act-tb rte-tb"><div class="rte-tools">
+    ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
+    <span class="rte-sep"></span>
+    ${['#e2515f', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6'].map(c => `<button type="button" class="rte-b rte-col" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('')}
+    <button type="button" class="rte-b rte-col" data-cmd="hiliteColor" data-arg="#fff3a3" title="Επισήμανση"><span style="background:#fff3a3;border:1px solid #e0c040"></span></button>
+    <span class="rte-sep"></span>
+    ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
+  </div></div>`;
+}
+
 function rteHtml(id, value, placeholder, opts) {
   const o = opts || {};
   return `<div class="rte-wrap"${o.style ? ` style="${o.style}"` : ''}>
@@ -2665,14 +2679,7 @@ async function openTask(id, entryId, opts) {
           ${items.map(row).join('') || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
         </div>
         <div class="act-composer">
-          <div class="act-tb rte-tb"><div class="rte-tools">
-            ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
-            <span class="rte-sep"></span>
-            ${['#e2515f', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6'].map(c => `<button type="button" class="rte-b rte-col" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('')}
-            <button type="button" class="rte-b rte-col" data-cmd="hiliteColor" data-arg="#fff3a3" title="Επισήμανση"><span style="background:#fff3a3;border:1px solid #e0c040"></span></button>
-            <span class="rte-sep"></span>
-            ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
-          </div></div>
+          ${actTbHtml()}
           <div class="act-edit" id="chkNew" contenteditable="true" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
           ${/* ΚΑΤΑΧΩΡΕΙ ΤΟ ENTER. Το κουμπί ήταν μια τρίτη κίνηση για κάτι που
                γράφεις σαν μήνυμα — και κρατούσε ύψος που έσπρωχνε τη συζήτηση
@@ -3561,6 +3568,15 @@ async function openTask(id, entryId, opts) {
     const body = dr.querySelector(`[data-ctext="${cid}"]`); if (!body) { return; }
     if (body.isContentEditable) { return; }
     const before = body.innerHTML;
+    /* Ίδιο κουτί με τη σύνθεση: εργαλειοθήκη πάνω, κείμενο, κουμπιά κάτω. Το
+       `.act-composer` είναι αυτό που ψάχνει η καθολική delegation των .rte-b για
+       να βρει ποιο πεδίο αφορά το κουμπί — χωρίς αυτό η εργαλειοθήκη θα ήταν
+       διακοσμητική. */
+    const wrap = document.createElement('div');
+    wrap.className = 'act-composer act-editing';
+    body.parentNode.insertBefore(wrap, body);
+    wrap.insertAdjacentHTML('beforeend', actTbHtml());
+    wrap.appendChild(body);
     body.contentEditable = 'true';
     body.classList.add('act-edit');
     wireEditor(body);
@@ -3570,7 +3586,7 @@ async function openTask(id, entryId, opts) {
     bar.innerHTML = `<span style="flex:1"></span>
       <button type="button" class="btn btn-sm btn-o" data-eno>Άκυρο</button>
       <button type="button" class="btn btn-sm btn-p" data-eok>Αποθήκευση</button>`;
-    body.after(bar);
+    wrap.appendChild(bar);
     bar.querySelector('[data-eno]').onclick = () => { body.innerHTML = before; openTask(id); };
     bar.querySelector('[data-eok]').onclick = async () => {
       const v = body.innerHTML.trim();
@@ -4127,6 +4143,10 @@ async function vMyDay() {
     + (planTasks.length ? `<div class="myd-grp">Εργασίες</div>${planTasks.map(taskRow).join('')}` : '')
     + ((d.follows || []).length ? `<div class="myd-grp">Follow-ups πωλήσεων</div>${d.follows.map(folRow).join('')}` : '')
     + (todos.length ? `<div class="myd-grp">Σημειώσεις πλάνου <a class="myd-link" data-go="todos">όλες →</a></div>${todos.slice(0, 5).map(todoRow).join('')}` : '')
+    /* ΤΑ ΤΗΛΕΦΩΝΑ ΕΙΝΑΙ ΜΕΡΟΣ ΤΗΣ ΜΕΡΑΣ, ΟΧΙ ΞΕΧΩΡΙΣΤΟ ΣΥΡΤΑΡΙ. Ο χρόνος που
+       μίλησες μετράει ήδη στη μέρα σου· αν η καταγραφή του ζει σε άλλο κουτί,
+       διαβάζεται σαν δεύτερη δουλειά αντί για την ίδια. Γεμίζει ασύγχρονα. */
+    + '<div class="myd-grp" id="mydCallsG" hidden>Τηλέφωνα χωρίς καταγραφή</div><div id="mydCalls"></div>'
     + (!evs.length && !planTasks.length && !(d.follows || []).length && !todos.length ? '<div class="myd-empty">🏖️ Καθαρή μέρα — τίποτα προγραμματισμένο. Πάρε κάτι από την ουρά ή το board.</div>' : '');
   const queue = d.queue || [];
   const queueBody = queue.length ? queue.slice(0, 6).map((q, i) => `<div class="myd-row q" data-qtk="${q.id}">
@@ -4204,8 +4224,6 @@ async function vMyDay() {
        μέρα πίσω για ένα ερώτημα που αφορά λίγους. */
     cancels: () => sec('cancels', 'Ακυρώσεις υπηρεσιών', 'τι ζητήθηκε και αν έκλεισε', null,
       '<div id="mydCn" class="mut" style="font-size:12.5px">φόρτωση…</div>', {ic: I.alert}),
-    calls: () => sec('calls', 'Τηλέφωνα χωρίς καταγραφή', 'ποιον πήρες, τι αφορούσε', null,
-      '<div id="mydCalls" class="mut" style="font-size:12.5px">φόρτωση…</div>', {ic: I.phone}),
   };
   const put = col => mydCol(col).map(k => (BLK[k] ? BLK[k]() : '')).join('');
 
@@ -4230,7 +4248,14 @@ async function vMyDay() {
   mydCancels();
   /* Το κουτί των κλήσεων είναι το ΙΔΙΟ με της οθόνης «Καταγραφές κλήσεων» — μία
      υλοποίηση, δύο θέσεις. Μετά τον χαρακτηρισμό ξαναζωγραφίζεται η μέρα. */
-  if ($('#mydCalls') && window.CNP.clPending) { window.CNP.clPending('mydCalls', vMyDay); }
+  if ($('#mydCalls') && window.CNP.clPending) {
+    window.CNP.clPending('mydCalls', vMyDay).then(() => {
+      /* Η ετικέτα εμφανίζεται μόνο αν όντως υπάρχουν κλήσεις — αλλιώς η μέρα θα
+         έγραφε «Τηλέφωνα χωρίς καταγραφή» πάνω από ένα κενό. */
+      const g = $('#mydCallsG'), bx = $('#mydCalls');
+      if (g && bx) { g.hidden = !bx.querySelector('.cl-p'); if (g.hidden) { bx.innerHTML = ''; } }
+    });
+  }
 
   /* ⌨ Ο δρομέας πάνω στις γραμμές που ΚΑΝΟΥΝ κάτι. Η θέση επιβιώνει του redraw:
      κάθε ενέργεια ξαναζωγραφίζει την οθόνη και χωρίς αυτό θα ξεκινούσες από την αρχή. */
@@ -5201,10 +5226,6 @@ const MYD_BLOCKS = [
   /* Φαίνεται μόνο σε όποιον έχει το δικαίωμα — ξεκινά με τους διαχειριστές και
      δίνεται σε όποιον ορίσουμε, χωρίς αλλαγή κώδικα. */
   {k: 'cancels', col: 'rail', label: 'Ακυρώσεις υπηρεσιών', cap: 'reports.cancels'},
-  /* Ο χρόνος στο τηλέφωνο μετριέται μόνος του και μπαίνει στη μέρα σου· αυτό που
-     λείπει είναι το ΓΙΑΤΙ. Η υπενθύμιση ζούσε μόνο στο «ματάκι» και η καταγραφή
-     σε άλλη οθόνη — δύο κλικ μακριά από εκεί που κοιτάς κάθε πρωί. */
-  {k: 'calls', col: 'main', label: 'Τηλέφωνα χωρίς καταγραφή'},
 ];
 
 /** Η αποθηκευμένη σειρά, συμπληρωμένη με ό,τι δεν ξέρει ακόμη. */
