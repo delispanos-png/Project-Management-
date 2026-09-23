@@ -4181,6 +4181,11 @@ async function vMyDay() {
     <button class="myd-play${here ? ' on' : ''}" data-mdplay="${t.id}" title="${here ? 'Τρέχει ο χρόνος εδώ — πάτα για στοπ' : 'Ξεκίνα τον χρόνο σε αυτή'}">${here ? I.stop : I.play}</button>
     <span class="myd-t"><b>${esc(t.title)}</b><span class="mut"> · <span class="dot" style="background:${t.pcolor || '#8595ac'};width:7px;height:7px;display:inline-block;border-radius:50%"></span> ${esc(t.pname || 'Χωρίς έργο')}${t.est ? ' · ⏱ ' + fmtMin(t.est) : ''}</span></span>
     ${t.prio ? `<span class="dot" style="background:${prioDot(t.prio)};flex:none" title="Προτεραιότητα"></span>` : ''}
+    ${/* Η ΚΑΤΑΣΤΑΣΗ ΦΑΙΝΕΤΑΙ ΚΑΙ ΕΔΩ. Το πρόγραμμα της ημέρας έδειχνε τι θα κάνεις,
+         όχι σε τι σημείο είναι: «Backlog» και «Έλεγχος» έμοιαζαν ίδια γραμμή, ενώ
+         η μία θέλει ξεκίνημα και η άλλη μια ματιά. Ίδιο χρώμα και ίδιο όνομα με
+         κάθε άλλη οθόνη — stPill, μία πηγή. */''}
+    <span class="myd-st">${stPill(t.status)}</span><span class="myd-stD">${stDot(t.status)}</span>
     ${t.ball === me.id && !ballAll ? '<span class="pill pill-info" style="flex:none">⚡ μπάλα</span>' : ''}
     ${t.tag && t.tag !== 'μπάλα' && t.tag !== 'σήμερα' ? `<span class="pill pill-warn" style="flex:none">${esc(t.tag)}</span>` : ''}
     ${fin ? `<button class="btn btn-sm btn-o myd-done" data-mddone="${t.id}" title="Ολοκλήρωση">✔</button>` : ''}</div>`; };
