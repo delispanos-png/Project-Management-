@@ -4871,7 +4871,21 @@ case 'myday':
     $plan = [];
     foreach (Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
         ->select('t.*', 'p.name as pname', 'p.color as pcolor')
-        ->whereNotIn('t.status_id', $doneIds)->whereNotNull('t.schedule_date')->where('t.schedule_date', '<=', $today)
+        /* ΤΙ ΕΙΝΑΙ «ΤΟ ΠΡΟΓΡΑΜΜΑ ΜΟΥ ΣΗΜΕΡΑ» (23/09/2026).
+           Κοίταζε ΜΟΝΟ το `schedule_date` — που στην οθόνη λέγεται «Deadline».
+           Δηλαδή το πρόγραμμα της ημέρας ήταν στην πραγματικότητα «τι λήγει», όχι
+           «τι δουλεύω». Εργασία με Έναρξη σήμερα και Deadline σε δύο μέρες δεν
+           εμφανιζόταν πουθενά: 41 από τις 59 ανοιχτές που είχαν ήδη ξεκινήσει
+           έλειπαν από τα προγράμματα όλων.
+           Η κάρτα το λέει ρητά: «Έναρξη/Λήξη = πότε θα δουλευτεί». Άρα μπαίνει
+           ό,τι ΞΕΚΙΝΗΣΕ (start_date), ό,τι έπρεπε να έχει τελειώσει (due_date)
+           και ό,τι έφτασε στο deadline του. */
+        ->whereNotIn('t.status_id', $doneIds)
+        ->where(function ($d) use ($today) {
+            $d->where('t.start_date', '<=', $today)
+              ->orWhere('t.schedule_date', '<=', $today)
+              ->orWhere('t.due_date', '<=', $today);
+        })
         ->where(function ($w) use ($adminId) {
             $w->where('t.action_user', $adminId)
               ->orWhere(function ($x) use ($adminId) {
@@ -6504,6 +6518,32 @@ case 'move_task':
             }
         }
     }
+    /* ── Κλείσιμο: χωρίς ΛΗΞΗ (ημερομηνία ΚΑΙ ώρα) δεν κλείνει ─────────────
+       Η Λήξη είναι η απάντηση στο «πότε τελείωσε πραγματικά» — και τη δίνει ο
+       χειριστής, όχι αυτός που άνοιξε την εργασία. Αν την αφήσουμε κενή τη
+       στιγμή του κλεισίματος, δεν ξαναμπαίνει ποτέ: η εργασία φεύγει από τις
+       οθόνες και η πληροφορία χάνεται. Η ώρα μετράει το ίδιο με την ημέρα —
+       χωρίς αυτήν δεν ξέρουμε αν παραδόθηκε το πρωί ή στις έντεκα το βράδυ. */
+    if ($stChk && $stChk->is_done) {
+        $dD = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
+        $dT = preg_match('/^\d{2}:\d{2}$/', (string) ($in['dueT'] ?? '')) ? $in['dueT'] : null;
+        $curD = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
+        $curT = ($t->due_time && (string) $t->due_time !== '00:00:00') ? substr((string) $t->due_time, 0, 5) : null;
+        $finD = $dD ?: $curD;
+        $finT = $dT ?: $curT;
+        if (!$finD || !$finT) {
+            http_response_code(409);
+            out(['error' => 'Πριν κλείσει, συμπλήρωσε πότε τελείωσε — ημερομηνία ΚΑΙ ώρα λήξης.',
+                'need' => 'duetime', 'task' => (int) $t->id, 'status' => (int) $stChk->id,
+                'due' => $curD, 'dueT' => $curT]);
+        }
+        if ($dD || $dT) {
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)
+                ->update(['due_date' => $finD, 'due_time' => $finT . ':00']);
+            Db::logActivity($t->id, $adminId, 'edit', 'Λήξη κατά το κλείσιμο: ' . cnp_dgr($finD) . ' ' . $finT);
+        }
+    }
+
     /* ── Έξοδος από το Backlog: χωρίς προθεσμία δεν ξεκινά ──────────────────
        Το «πότε παραδίδεται» δεν μπορεί να απαντηθεί από τις αναφορές όταν 39
        στις 48 εργασίες δεν έχουν ημερομηνία. Δεν το ζητάμε στη δημιουργία —
@@ -8072,6 +8112,26 @@ case 'save_task':
         if (array_key_exists($k, $in)) {
             $data[$col] = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $in[$k]) ? $in[$k] : null;
         }
+    }
+    /* Η ΛΗΞΗ ΑΝΗΚΕΙ ΣΤΟΝ ΧΕΙΡΙΣΤΗ (23/09/2026).
+       Όποιος ανοίγει την εργασία ορίζει ΕΝΑΡΞΗ και DEADLINE: πότε ξεκινά και
+       μέχρι πότε το θέλει. Το «πότε θα τελειώσει» δεν το ξέρει — το ξέρει αυτός
+       που θα το κάνει, και το δηλώνει ο ίδιος. Αλλιώς η Λήξη είναι ευχή του
+       αιτούντος και καμία μέτρηση παράδοσης δεν σημαίνει τίποτα.
+       Η οθόνη στέλνει όλα τα πεδία σε κάθε αποθήκευση, γι' αυτό ελέγχουμε αν
+       όντως ΑΛΛΑΖΕΙ τιμή — αλλιώς ο δημιουργός δεν θα μπορούσε ούτε τον τίτλο
+       να διορθώσει. */
+    $holderT = (int) ($t->action_user ?: $t->assignee);
+    if ($holderT && $holderT !== $adminId) {
+        $curDd = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
+        $curDt = $t->due_time ? substr((string) $t->due_time, 0, 5) : null;
+        $newDd = array_key_exists('due_date', $data) ? $data['due_date'] : $curDd;
+        $newDt = array_key_exists('due_time', $data) ? ($data['due_time'] ? substr((string) $data['due_time'], 0, 5) : null) : $curDt;
+        if ($newDd !== $curDd || $newDt !== $curDt) {
+            fail('Τη λήξη τη δηλώνει ο χειριστής (' . Db::adminName($holderT) . '). '
+               . 'Εσύ ορίζεις έναρξη και deadline.', 403);
+        }
+        unset($data['due_date'], $data['due_time']);
     }
     if (array_key_exists('type', $in)) {
         $data['type_id'] = (int) $in['type'] ?: null;

@@ -2291,7 +2291,48 @@ async function cnpMoveTask(id, status, note) {
       return {ok: !!r.ok};
     })
     .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+  /* ΤΟ ΚΛΕΙΣΙΜΟ ΘΕΛΕΙ ΛΗΞΗ: ΗΜΕΡΟΜΗΝΙΑ ΚΑΙ ΩΡΑ. Δεν είναι τυπικότητα — είναι η
+     μόνη στιγμή που κάποιος ξέρει πότε τελείωσε πραγματικά. Μόλις κλείσει, η
+     εργασία φεύγει από τις οθόνες και κανείς δεν ξαναγυρίζει να το συμπληρώσει. */
+  const askDueTime = () => new Promise(resolve => {
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+    const now = new Date();
+    ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:460px" role="dialog">
+      <div style="padding:20px 22px 18px">
+        <b style="font-size:15.5px;color:var(--ink)">✔ Πότε τελείωσε;</b>
+        <div style="font-size:13px;color:var(--txt);margin-top:8px">Συμπλήρωσε τη λήξη για να κλείσει η εργασία.</div>
+        ${/* Προσυμπληρώνουμε ΤΩΡΑ, όχι την προγραμματισμένη λήξη: η ερώτηση είναι
+             «πότε τελείωσε», και η προγραμματισμένη μπορεί να είναι στο μέλλον —
+             θα κατέγραφε παράδοση που δεν έχει γίνει ακόμη. */''}
+        <div style="margin-top:14px"><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
+          <div class="dt2"><input type="date" class="inp" id="dtD" value="${today()}">
+            <input type="time" class="inp" id="dtT" value="${String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')}"></div></div>
+        <div id="dtErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:6px" hidden></div>
+        <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
+          <button class="btn btn-o" id="dtNo">Άκυρο</button>
+          <button class="btn btn-ok" id="dtGo">Ολοκλήρωση</button></div>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    const fin = v => { ovl.remove(); resolve(v); };
+    $('#dtNo', ovl).onclick = () => fin(null);
+    $('#dtGo', ovl).onclick = () => {
+      const dd = $('#dtD', ovl).value, tt = $('#dtT', ovl).value, er = $('#dtErr', ovl);
+      if (!dd || !tt) { er.hidden = false; er.textContent = 'Χρειάζονται και η ημερομηνία και η ώρα.'; return; }
+      fin({due: dd, dueT: tt});
+    };
+    setTimeout(() => $('#dtT', ovl).focus(), 40);
+  });
+
   let r = await send(null);
+  if (!r.ok && r.data && r.data.need === 'duetime') {
+    const pick = await askDueTime();
+    if (!pick) { return {ok: false, cancelled: true}; }
+    r = await api('move_task', {task: id, status, note: note || '', due: pick.due, dueT: pick.dueT})
+      .then(x => ({ok: !!x.ok}))
+      .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+    return r;
+  }
   if (!r.ok && r.data && r.data.need === 'due') {
     const d = new Date(); d.setDate(d.getDate() + 7);
     const pick = await cnpDialog({
@@ -2324,6 +2365,9 @@ async function openTask(id, entryId, opts) {
      οι υπόλοιποι το βλέπουν read-only (ο server επιβάλλει τον ίδιο κανόνα). */
   const creatorId = d.creatorId || 0;
   const canEditBrief = !!(me.full || (creatorId && me.id === creatorId));
+  /* Ποιος κρατάει την εργασία — ο ίδιος κανόνας με παντού (cnpHolder). */
+  const dueHolder = cnpHolder(t);
+  const dueLock = !!(dueHolder && dueHolder !== me.id);
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
   /* Το department δεν εκτελεί — εκτελεί ένας άνθρωπος από τις ομάδες που το
@@ -2635,9 +2679,13 @@ async function openTask(id, entryId, opts) {
         <div><label class="lbl">Έναρξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
           <div class="dt2"><input type="date" class="inp" id="fStart" value="${t.start || ''}">
             <input type="time" class="inp" id="fStartT" value="${t.startT || ''}" title="Προαιρετικό — κενό = όλη η μέρα"></div></div>
-        <div><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
-          <div class="dt2"><input type="date" class="inp" id="fDue" value="${t.due || ''}">
-            <input type="time" class="inp" id="fDueT" value="${t.dueT || ''}" title="Προαιρετικό — κενό = όλη η μέρα"></div></div>
+        ${/* Η ΛΗΞΗ ΕΙΝΑΙ ΤΟΥ ΧΕΙΡΙΣΤΗ. Όποιος ανοίγει την εργασία ορίζει έναρξη και
+             deadline· το «πότε θα τελειώσει» το δηλώνει αυτός που θα το κάνει.
+             Ο server επιβάλλει τον ίδιο κανόνα — εδώ απλώς φαίνεται. */''}
+        <div><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα${dueLock ? ' · το δηλώνει ο χειριστής' : ''}</span></label>
+          <div class="dt2"><input type="date" class="inp" id="fDue" value="${t.due || ''}" ${dueLock ? 'disabled' : ''}>
+            <input type="time" class="inp" id="fDueT" value="${t.dueT || ''}" ${dueLock ? 'disabled' : ''} title="Προαιρετικό — κενό = όλη η μέρα"></div>
+          ${dueLock ? `<div class="mut" style="font-size:11px;margin-top:3px">Τη συμπληρώνει ο/η <b>${esc(adminName(dueHolder))}</b> — εσύ ορίζεις έναρξη και deadline.</div>` : ''}</div>
         <div><label class="lbl">${I.flag || ''} Deadline <span class="mut" style="font-weight:400">— δεν μετατίθεται άλλο</span></label>
           <input type="date" class="inp" id="fSched" value="${t.sched || ''}">
           <div class="mut" style="font-size:11px;margin-top:3px">Έναρξη/Λήξη = πότε θα δουλευτεί. Deadline = πότε ΠΡΕΠΕΙ να έχει τελειώσει.</div></div>
