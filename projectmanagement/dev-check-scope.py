@@ -100,6 +100,27 @@ def admins():
     return [int(x) for x in r.stdout.split() if x.isdigit()]
 
 
+# Οθόνες όπου η ΙΔΙΑ εργασία δεν επιτρέπεται να εμφανιστεί δύο φορές. Το «ματάκι»
+# έδειχνε τις δύο εκπρόθεσμες του Θέμιου και στη γραμμή του και στη γραμμή του
+# Βάκρινου (επικεφαλής άλλης ομάδας όπου ο Θέμιος είναι μέλος) — διάβαζες δύο
+# προβλήματα εκεί που υπήρχε ένα, με λάθος όνομα από πάνω. Κανόνας: ένας άνθρωπος,
+# μία γραμμή — στη δική του αν είναι επικεφαλής, αλλιώς σε αυτήν του επικεφαλή του.
+NO_DUPES = [(u'Τι να προσέξω', 'attention')]
+
+
+def dupes(admin_id, action):
+    d = call(admin_id, action)
+    if not isinstance(d, dict) or 'groups' not in d:
+        return {}
+    seen = {}
+    for g in d['groups']:
+        for it in g.get('items', []):
+            for r in it.get('refs', []):
+                k = '%s#%s' % (r.get('kind'), r.get('id'))
+                seen[k] = seen.get(k, 0) + 1
+    return {k: v for k, v in seen.items() if v > 1}
+
+
 def main():
     who = [int(a) for a in sys.argv[1:]] or admins()
     bad = 0
@@ -115,6 +136,13 @@ def main():
                 print(u'✗ %s · χειριστής #%d: %d ξένα — %s'
                       % (label, a, len(found),
                          ', '.join(u'#%s (κρατά ο #%s, στο «%s»)' % (i, h, p) for p, i, t, h in found[:5])))
+    for label, action in NO_DUPES:
+        for a in who:
+            dd = dupes(a, action)
+            if dd:
+                bad += len(dd)
+                print(u'✗ %s · χειριστής #%d: η ίδια εργασία δύο φορές — %s'
+                      % (label, a, ', '.join('%s ×%d' % (k, v) for k, v in list(dd.items())[:5])))
     if bad:
         print(u'\nΔιαρροές σε προσωπικές οθόνες: %d' % bad)
         print(u'Κανόνας: ό,τι δείχνεις ως δικό κάποιου περνά από τη μπάλα '

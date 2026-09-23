@@ -279,11 +279,30 @@ class Watch
             $lateRows[$who][] = $t;
         }
 
-        $line = function ($title, array $people, $noLead) use ($lateBy, $lateRows, &$out) {
+        /* ΚΑΘΕ ΑΝΘΡΩΠΟΣ ΑΝΑΦΕΡΕΤΑΙ ΜΙΑ ΦΟΡΑ (23/09/2026).
+           Ο Θέμιος είναι επικεφαλής του «Support» ΚΑΙ μέλος του «Project Manager».
+           Οι δύο εκπρόθεσμές του έβγαιναν λοιπόν δύο φορές: μία στη δική του γραμμή
+           και μία στη γραμμή του Βάκρινου — που διάβαζες ως «ο Βάκρινος έχει δύο
+           εκπρόθεσμες», ενώ δεν ήταν δικές του ούτε κατ' όνομα.
+           Όποιος είναι ο ίδιος επικεφαλής λογοδοτεί στη ΔΙΚΗ ΤΟΥ γραμμή· στη γραμμή
+           του δικού του επικεφαλή δεν ξαναμετριέται. */
+        $leadsSomewhere = array_map('intval', Capsule::table('mod_cpm_team_members')
+            ->where('is_leader', 1)->distinct()->pluck('admin_id')->all());
+
+        /* ΚΑΙ ΟΧΙ ΔΕΥΤΕΡΗ ΦΟΡΑ ΑΠΟ ΜΑΚΡΙΑ. Όποιον έχεις στη ΔΙΚΗ σου ομάδα τον
+           βλέπεις ήδη στο «Η ομάδα σου». Αν τύχει να είναι και μέλος ή επικεφαλής
+           αλλού, η ίδια εκπρόθεσμη ξαναερχόταν με άλλο όνομα από πάνω. */
+        $mineTeamPeople = $mine ? array_map('intval', Capsule::table('mod_cpm_team_members')
+            ->whereIn('team_id', $mine)->distinct()->pluck('admin_id')->all()) : [];
+
+        $line = function ($title, array $people, $noLead, $rowLead = 0)
+            use ($lateBy, $lateRows, $leadsSomewhere, $mineTeamPeople, &$out) {
             $per = [];
             $refs = [];
             foreach ($people as $pid) {
                 if (empty($lateBy[$pid])) { continue; }
+                if ($pid !== (int) $rowLead && in_array((int) $pid, $leadsSomewhere, true)) { continue; }
+                if (in_array((int) $pid, $mineTeamPeople, true)) { continue; }
                 $per[$pid] = $lateBy[$pid];
                 foreach ($lateRows[$pid] as $r) { $refs[] = $r; }
             }
@@ -321,7 +340,7 @@ class Watch
             $title = $lead
                 ? Db::adminName($lead) . ' (' . $t->name . ')'
                 : $t->name . ' (χωρίς επικεφαλής)';
-            $line($title, $members, !$lead);
+            $line($title, $members, !$lead, $lead);
         }
 
         /* Εκτός κάθε ομάδας: κανείς δεν τους κοιτάζει. */
