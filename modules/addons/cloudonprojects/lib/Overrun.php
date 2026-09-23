@@ -217,7 +217,20 @@ class Overrun
         $to = [];
         foreach (self::leadersOf($agentId) as $l) { $to[$l] = 'lead'; }
         if ($managerId && (int) $managerId !== (int) $agentId) { $to[(int) $managerId] = $to[(int) $managerId] ?? 'manager'; }
-        if (!$to) { foreach (self::deptLeaders($deptId, $agentId) as $l) { $to[$l] = 'deptlead'; } }
+        /* ΟΤΑΝ ΔΕΝ ΥΠΑΡΧΕΙ ΚΑΝΕΙΣ ΑΠΟ ΠΑΝΩ (23/09/2026).
+           Η εφεδρεία ήταν «οι επικεφαλής του department». Επειδή το Support το
+           εξυπηρετούν όλες οι ομάδες, αυτό σήμαινε «όλοι οι επικεφαλής»: μια
+           υπέρβαση του ίδιου του διαχειριστή ξυπνούσε τέσσερα άτομα. Η κλιμάκωση
+           όμως σημαίνει «πες το σε κάποιον από πάνω» — αν δεν υπάρχει κανείς από
+           πάνω, πάει στους πλήρεις διαχειριστές, που είναι λίγοι και είναι η
+           δουλειά τους. Ποτέ σε ολόκληρο department. */
+        if (!$to) {
+            foreach (Db::fullAccessAdminIds() as $l) {
+                /* Όχι λογαριασμοί συστήματος: κανείς δεν τους διαβάζει. */
+                if (preg_match('/\b(bot|test|debug|system|support team|cloud on)\b/i', Db::adminName((int) $l))) { continue; }
+                $to[(int) $l] = 'admin';
+            }
+        }
         unset($to[(int) $agentId], $to[0]);
         return $to;
     }
