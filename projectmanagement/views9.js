@@ -1941,17 +1941,21 @@ async function clOpen(r, canEdit) {
    ΜΑΖΙΚΑ, ΟΧΙ ΜΙΑ-ΜΙΑ. Με διακόσιες κλήσεις την εβδομάδα, μια φόρμα ανά κλήση
    δεν συμπληρώνεται ποτέ — και μια υποχρέωση που δεν τηρείται είναι χειρότερη
    από καμία. Διαλέγεις πολλές, λες τι ήταν, τέλος. */
-async function clPending() {
+async function clPending(boxId, after) {
   /* Το tShort ζει στο window.CNP και το έπαιρνε η R.calllog μέσα στο σώμα της —
      εδώ είμαστε εκτός, οπότε πρέπει να το πάρουμε ξανά. Το ίδιο λάθος με το
      «fChip is not a function»: helper που φαίνεται διαθέσιμος και δεν είναι. */
   const {tShort} = window.CNP;
-  const box = $('#clPend');
+  const box = $('#' + (boxId || 'clPend'));
   if (!box) { return; }
   const d = await api('calls_pending&days=7').catch(() => null);
-  if (!d || !d.total) { box.innerHTML = ''; return; }
+  if (!d || !d.total) {
+    box.innerHTML = boxId
+      ? '<div class="mut" style="font-size:12.5px">Καμία κλήση χωρίς καταγραφή 🎉</div>' : '';
+    return;
+  }
 
-  const st = clPending._s = {sel: new Set(), kinds: d.kinds};
+  const st = clPending._s = {sel: new Set(), kinds: d.kinds, client: 0, clientName: ''};
   const hm = m => m < 60 ? m + '΄' : Math.floor(m / 60) + 'ω ' + (m % 60 ? (m % 60) + '΄' : '');
 
   const draw = () => {
@@ -1974,13 +1978,23 @@ async function clPending() {
         ${d.total > d.rows.length ? `<div class="mut" style="font-size:12px;margin-top:8px">
           Δείχνονται οι ${d.rows.length} πιο πρόσφατες από ${d.total}.</div>` : ''}
       </div>
+      ${/* ΚΑΙ ΠΟΙΑ ΔΟΥΛΕΙΑ ΑΦΟΡΟΥΣΑΝ. Το «τι ήταν» λέει το είδος· δεν λέει σε
+           ποιον πελάτη ή σε ποια εργασία πήγε η ώρα. Χωρίς αυτό ο χρόνος στο
+           τηλέφωνο μένει έξω από κάθε λογαριασμό — δεν χρεώνεται, δεν φαίνεται
+           στην εργασία, και στο τέλος του μήνα λείπει από το σύνολο. */''}
       <div class="cl-pbar${st.sel.size ? ' on' : ''}">
         <b>${st.sel.size}</b> επιλεγμένες
-        <select class="inp" id="clpKind" style="max-width:210px">
+        <select class="inp" id="clpKind" style="max-width:190px">
           <option value="">τι ήταν;…</option>
           ${Object.keys(d.kinds).map(k => `<option value="${k}">${esc(d.kinds[k][0])}</option>`).join('')}
         </select>
-        <input class="inp" id="clpSum" placeholder="με δυο λόγια, τι (προαιρετικό)" maxlength="255" style="flex:1;min-width:160px">
+        <input class="inp" id="clpSum" placeholder="με δυο λόγια, τι (προαιρετικό)" maxlength="255" style="flex:1;min-width:150px">
+        <input class="inp" id="clpTask" placeholder="εργασία #" maxlength="9" style="width:92px" title="Ο αριθμός της εργασίας που αφορούσε — ο χρόνος πάει εκεί">
+        <span class="cl-pcli">
+          <input class="inp" id="clpCli" placeholder="πελάτης…" style="width:140px" value="${esc(st.clientName)}"
+            title="Άφησέ το κενό αν ο πελάτης βγαίνει ήδη από τον κατάλογο">
+          <span class="cl-pres" id="clpCliR"></span>
+        </span>
         <button class="btn btn-sm btn-p" id="clpSave">Χαρακτηρισμός</button>
       </div></div>`;
 
@@ -1994,16 +2008,44 @@ async function clPending() {
     $('#clpNone', box).onclick = () => pick(() => false);
     if ($('#clpInt', box)) { $('#clpInt', box).onclick = () => pick(r => r.internal); }
 
+    /* Αναζήτηση πελάτη με τα ίδια δύο γράμματα που χρησιμοποιεί όλη η εφαρμογή. */
+    { const q = $('#clpCli', box), res = $('#clpCliR', box); let tmr;
+      if (q) { q.oninput = () => {
+        clearTimeout(tmr);
+        st.client = 0;
+        const v = q.value.trim();
+        if (v.length < 2) { res.innerHTML = ''; return; }
+        tmr = setTimeout(async () => {
+          const x = await api('client_search&q=' + encodeURIComponent(v)).catch(() => null);
+          const list = (x && x.results) || [];
+          res.innerHTML = list.length
+            ? list.slice(0, 6).map(c => `<div class="cn-pick" data-cid="${c.id}"><b>${esc(c.name)}</b>
+                <span class="mut">#${c.id}</span></div>`).join('')
+            : '<div class="mut" style="padding:6px 2px;font-size:12px">Κανένα αποτέλεσμα</div>';
+          res.querySelectorAll('.cn-pick').forEach(el => el.onclick = () => {
+            st.client = +el.dataset.cid;
+            st.clientName = el.querySelector('b').textContent;
+            q.value = st.clientName; res.innerHTML = '';
+          });
+        }, 260);
+      }; } }
+
     $('#clpSave', box).onclick = async () => {
       if (!st.sel.size) { toast('Διάλεξε κλήσεις', true); return; }
       const kind = $('#clpKind', box).value;
       if (!kind) { toast('Πες τι ήταν', true); $('#clpKind', box).focus(); return; }
-      const x = await api('calls_label', {ids: [...st.sel], kind,
-        summary: $('#clpSum', box).value.trim()}).catch(e => ({err: e.message}));
+      const tRaw = ($('#clpTask', box).value || '').replace(/[^0-9]/g, '');
+      const payload = {ids: [...st.sel], kind, summary: $('#clpSum', box).value.trim()};
+      if (tRaw) { payload.task = +tRaw; }
+      if (st.client) { payload.client = st.client; }
+      const x = await api('calls_label', payload).catch(e => ({err: e.message}));
       if (x && (x.err || x.error)) { toast(x.err || x.error, true); return; }
       toast(`Χαρακτηρίστηκαν ${x.n}`);
-      R.calllog();
+      if (after) { after(); } else { R.calllog(); }
     };
   };
   draw();
 }
+
+/* Το ίδιο κουτί χρησιμοποιείται και στη «Μέρα μου» — μία υλοποίηση, δύο θέσεις. */
+window.CNP.clPending = clPending;

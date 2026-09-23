@@ -4545,6 +4545,11 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .attn-b{flex:1;min-width:0;font-size:12.5px;color:var(--ink);line-height:1.45}
 .attn-refs{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 /* Η κίνηση της γραμμής: ένα κουμπί, κάτω δεξιά, χωρίς να τραβά το βλέμμα πριν διαβάσεις. */
+/* Ο πελάτης στη γραμμή χαρακτηρισμού: μικρό πεδίο με πτυσσόμενα αποτελέσματα. */
+.cl-pcli{position:relative;display:inline-flex}
+.cl-pres{position:absolute;top:100%;left:0;min-width:220px;z-index:40;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 26px #0f172a1f;margin-top:4px;padding:4px}
+.cl-pres:empty{display:none}
 .attn-act{margin-top:8px}
 .attn-act .attn-ask{font-size:11.5px;padding:4px 10px}
 /* Τα αντικείμενα είναι σύνδεσμοι, όχι διακόσμηση: πας κατευθείαν εκεί. */
