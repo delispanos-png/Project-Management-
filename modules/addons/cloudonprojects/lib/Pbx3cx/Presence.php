@@ -45,7 +45,7 @@ class Pbx3cxPresence
         'dnd'     => 'Out of office',  // Do Not Disturb
         'lunch'   => 'Custom 1',       // Lunch
         'trip'    => 'Custom 2',       // Business Trip
-        'meeting' => 'Out of office',  // αυτόματο από το ημερολόγιο
+        'meeting' => 'Out of office',  // από το ημερολόγιο ή δηλωμένη με το χέρι
         'busy'    => 'Out of office',  // «Απασχολημένος» = μη με ενοχλείτε
         'offline' => 'Away',           // έκλεισε την εφαρμογή → Away στο κέντρο
     ];
