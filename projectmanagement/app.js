@@ -268,7 +268,7 @@ function renderShell() {
     ['Έργα & υλοποιήσεις', 'τι παραδίδουμε, σε ποιον, με ποια βήματα', [
       ['projects', I.folder, 'Έργα', 'projects.portfolio'],   /* πελατών ΚΑΙ εσωτερικά (R&D) */
       ['board', I.board, 'Board', 'projects.board'],
-      ['list', I.list, 'Όλα τα tasks', 'projects.board'],
+      ['list', I.list, 'Λίστα tasks', 'projects.board'],   /* ανοίγει στα δικά σου — δεν υπόσχεται «όλα» */
       ['gantt', I.gantt, 'Χρονοδιάγραμμα', 'projects.board'],
       ['scheduler', I.cal, 'Πρόγραμμα ομάδας', 'projects.board'],
       ['templates', I.box, 'Modules', 'projects.modules'],
@@ -1082,7 +1082,11 @@ async function toggleBell() {
     if (!a) return; e.preventDefault();
     const r = await api('notif_read', {id: +a.dataset.id}); updateBell(r.unread + (r.pending || 0));
     const url = a.dataset.url;
-    const m = url && url.match(/tab=task&id=(\d+)/);
+    /* ΚΑΘΕ ΕΠΟΧΗ ΣΥΝΔΕΣΜΟΥ ΑΝΟΙΓΕΙ. Οι νέες ειδοποιήσεις γράφονται πλέον ως
+       `/project/#/task/N` (Db::appLink), αλλά στη βάση ζουν ακόμη 520 παλιές με
+       `tab=task&id=N`. Και οι δύο μορφές πρέπει να ανοίγουν την κάρτα — αλλιώς
+       πατάς την ειδοποίηση και δεν βρίσκεις τίποτα. */
+    const m = url && (url.match(/tab=task&id=(\d+)/) || url.match(/\/project\/#\/task\/(\d+)/));
     const mt = url && url.match(/supporttickets\.php\?action=view&id=(\d+)/);
     const hv = url && url.match(/\/project(?:management)?\/#\/(\w+)/);
     if (m) { pop.remove(); openTask(+m[1]); }

@@ -9752,7 +9752,8 @@ case 'list':
           'client' => (int) ($_GET['fc'] ?? 0), 'creator' => (int) ($_GET['fb'] ?? 0),
           'product' => (int) ($_GET['fpr'] ?? 0), 'dept' => (int) ($_GET['fd'] ?? 0),
           'priority' => ($_GET['fr'] ?? '') !== '' ? (int) $_GET['fr'] : '',
-          'q' => trim($_GET['q'] ?? ''), 'open_only' => (int) ($_GET['open'] ?? 1)];
+          'q' => trim($_GET['q'] ?? ''), 'open_only' => (int) ($_GET['open'] ?? 1),
+          'mine_only' => !empty($_GET['mine']) ? $adminId : 0];
     /* «#123» ή σκέτο «123» = αναζήτηση με αριθμό εργασίας — βρίσκει ΚΑΙ κλειστές. */
     if (preg_match('/^#?(\d{1,9})$/', $f['q'], $mId)) {
         $f['id'] = (int) $mId[1]; $f['q'] = ''; $f['open_only'] = 0;

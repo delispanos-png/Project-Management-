@@ -349,9 +349,15 @@ tail -100 /var/www/vhosts/cloudon.gr/my.cloudon.gr/storage/logs/laravel-$(date +
 ```bash
 cd projectmanagement
 python3 dev-check-helpers.py    # helper χωρίς import → runtime ReferenceError
-python3 dev-check-ball.py       # ο κανόνας της μπάλας, σε PHP και JS
+python3 dev-check-ball.py       # ο κανόνας της μπάλας, σε PHP και JS (στατικός)
+python3 dev-check-scope.py      # ζωντανός: καμία προσωπική οθόνη δεν δείχνει ξένη δουλειά
 node --check app.js             # export PATH=/opt/plesk/node/20/bin:$PATH
 ```
+
+Ο τρίτος είναι ο μόνος που πιάνει την οθόνη **που δεν φιλτράρει καθόλου** — το
+λάθος της «Λίστας tasks» (23/09/2026). Χτυπά το API ως κάθε ενεργός χειριστής και
+μετράει τι γυρίζει· ό,τι δεν κρατάει ο ίδιος και δεν δικαιολογείται ρητά στον
+πίνακα `PERSONAL` του αρχείου, είναι σφάλμα. Νέα προσωπική οθόνη → νέα γραμμή εκεί.
 
 ### Τυπικά συμπτώματα
 
@@ -364,6 +370,9 @@ node --check app.js             # export PATH=/opt/plesk/node/20/bin:$PATH
 | Email δεν φτάνει | `Notify::send()` είναι κλειστή — χρησιμοποίησε `sendTo()` |
 | Ο browser δείχνει παλιό JS | `cnp_asset_version()` — έλεγξε `filemtime`, όχι cache του CDN |
 | Η ίδια εργασία σε δύο ανθρώπους | παραβίαση του κανόνα της μπάλας → `dev-check-ball.py` |
+| «Βλέπω στα δικά μου κάτι που δεν είναι δικό μου» | οθόνη χωρίς φίλτρο προσώπου → `dev-check-scope.py` |
+| Ειδοποίηση για εργασία που δεν μπορώ να κινήσω | ο παραλήπτης βγαίνει από την ανάθεση αντί για τη μπάλα |
+| Ειδοποίηση που δεν ανοίγει τίποτα | σύνδεσμος παλιάς εποχής — περνά από `Db::appLink()` |
 | CLI PHP: «ionCube» ή class not found | έτρεξες σκέτο `php` — θέλει `/opt/plesk/php/8.3/bin/php` από το **root του WHMCS** |
 | `Class "…\Route" not found` | mismatched filename (`lib/Pbx3cx/Route.php`) — θέλει ρητό `require_once` |
 | Cron δεν τρέχει | `flock` κρατά παλιό lock: `ls -la /tmp/cpm-*.lock` |

@@ -86,8 +86,16 @@ class Notify
             return;
         }
         $p = Db::project($t->project_id);
-        Db::pushNotification($assigneeId, 'assign', 'Σου ανατέθηκε: ' . $t->title,
-            'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $taskId);
+        /* ΠΟΙΟΣ, ΤΙ, ΠΟΥ. Η ειδοποίηση έλεγε μόνο τον τίτλο της εργασίας — και όταν ο
+           τίτλος είναι το όνομα ενός φαρμακείου («Pharmacy295 Περιστέρι»), ο
+           παραλήπτης δεν έχει ιδέα τι του ζητήθηκε ούτε από ποιον. Το όνομα του
+           συναδέλφου και το έργο κάνουν τη διαφορά μεταξύ «κάτι ήρθε» και
+           «ξέρω τι να κάνω». */
+        Db::pushNotification($assigneeId, 'assign',
+            'Σου ανατέθηκε: ' . mb_substr((string) $t->title, 0, 90)
+            . ' · ' . mb_substr((string) ($p->name ?? '—'), 0, 40)
+            . ' — από ' . Db::adminName($byAdminId),
+            '/project/#/task/' . (int) $taskId);
         self::send($assigneeId, 'Σου ανατέθηκε task: ' . $t->title,
             '<p><b>' . htmlspecialchars(Db::adminName($byAdminId)) . '</b> σου ανέθεσε το task:</p>'
             . '<p style="font-size:16px"><a href="' . self::taskLink($taskId) . '"><b>' . htmlspecialchars($t->title) . '</b></a></p>'
