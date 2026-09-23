@@ -41,6 +41,8 @@ PERSONAL = [
     (u'Λίστα tasks', 'list&mine=1&open=1', ['tasks'], {}),
     (u'Το πλάνο μου', 'todos_list', None, {}),
     (u'Ο χρόνος μου', 'time', None, {}),
+    # «Δικές μου» πρέπει να σημαίνει δικές μου και για τους managers, όχι μόνο για τους PM.
+    (u'Κάρτες διαχείρισης', 'cards&scope=mine&state=open', None, {}),
     # Το «ματάκι»: προσωπικό, αλλά με ρητά τμήματα εποπτείας για όσους έχουν ρόλο.
     (u'Τι να προσέξω', 'attention', None,
      {'team': u'ρητά «η ομάδα σου» — μόνο για επικεφαλής',
@@ -72,14 +74,15 @@ def call(admin_id, action):
 
 
 def holder(o):
-    """Ο κανόνας της μπάλας, σε μορφή Python — ίδιος με cnpHolder/cnp_scope_mine."""
-    return int(o.get('ball') or 0) or int(o.get('assignee') or 0)
+    """Ο κανόνας της μπάλας, σε μορφή Python — ίδιος με cnpHolder/cnp_scope_mine.
+    Για τις κάρτες διαχείρισης ο κάτοχος λέγεται `owner` (0 = δεξαμενή, δεν είναι ξένη)."""
+    return int(o.get('ball') or 0) or int(o.get('assignee') or 0) or int(o.get('owner') or 0)
 
 
 def leaks(node, me, path=''):
     out = []
     if isinstance(node, dict):
-        if 'id' in node and 'title' in node and ('ball' in node or 'assignee' in node):
+        if 'id' in node and 'title' in node and ('ball' in node or 'assignee' in node or 'owner' in node):
             h = holder(node)
             if h and h != me:
                 out.append((path, node.get('id'), (node.get('title') or '')[:48], h))
