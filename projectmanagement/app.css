@@ -352,11 +352,15 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
 /* Συνθέτης: ένα μεγάλο πεδίο, ένα κουμπί. */
 .act-composer{margin-top:12px;border:1.5px solid var(--line);border-radius:11px;background:var(--card);overflow:hidden}
 .act-composer:focus-within{border-color:var(--brand)}
-.act-edit{min-height:74px;max-height:340px;overflow:auto;padding:10px 12px;font-size:13px;line-height:1.55;
+.act-edit{min-height:40px;max-height:340px;overflow:auto;padding:9px 12px;font-size:13px;line-height:1.55;
   color:var(--txt);outline:none}
 .act-edit:empty:before{content:attr(data-ph);color:var(--mut);pointer-events:none}
 .act-edit img{max-width:100%;height:auto;border-radius:8px;margin:7px 0;display:block}
-.act-foot{display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid var(--line);background:var(--canvas)}
+.act-foot{display:flex;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid var(--line);background:var(--canvas)}
+/* Η υπόμνηση των πλήκτρων: φαίνεται, χωρίς να διεκδικεί προσοχή. */
+.act-tip{font-size:10.5px;opacity:.75;white-space:nowrap}
+.act-send{display:none}
+@media (max-width:768px){ .act-tip{display:none} .act-send{display:inline-flex} }
 
 /* Λίστα @αναφορών */
 .ment-box{position:fixed;z-index:500;background:var(--card);border:1px solid var(--line);border-radius:10px;
