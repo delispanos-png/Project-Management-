@@ -182,19 +182,31 @@ class Deadlines
                 continue;
             }
 
-            /* Στο έργο ειδοποιείται ο υπεύθυνος· αν δεν έχει οριστεί, τα μέλη —
-               αλλιώς η προθεσμία του έργου δεν θα την έβλεπε κανείς. */
+            /* Στο έργο ειδοποιείται ο υπεύθυνος. Αν δεν έχει οριστεί, ΟΧΙ «τα μέλη»:
+               η ιδιότητα του μέλους δίνει ορατότητα, όχι ευθύνη, και στην πράξη
+               σχεδόν όλοι είναι μέλη σε σχεδόν όλα τα έργα (42 από τα 62 έργα
+               έχουν και τους 9 ανθρώπους). Η προθεσμία πήγαινε δηλαδή σε όλους —
+               και ό,τι πάει σε όλους δεν το διαβάζει κανείς. Πάει σε όποιον
+               ΠΡΑΓΜΑΤΙΚΑ δουλεύει το έργο: τους κατόχους των ανοιχτών εργασιών
+               του· αν δεν υπάρχει καμία, στους επικεφαλής του department του. */
             $to = [];
             if ($p->manager_id) {
                 $to[(int) $p->manager_id] = 'manager';
             } else {
-                foreach (Capsule::table('mod_cpm_project_members')->where('project_id', $p->id)
-                             ->pluck('admin_id') as $m) {
-                    $to[(int) $m] = 'member';
+                $doneP = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
+                foreach (Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)
+                             ->whereNotIn('status_id', $doneP)->get(['assignee', 'action_user']) as $tp) {
+                    $h = (int) ($tp->action_user ?: $tp->assignee);
+                    if ($h) { $to[$h] = 'holder'; }
+                }
+                if (!$to) {
+                    foreach (self::deptLeads(isset($p->deptid) ? (int) $p->deptid : 0) as $lid) {
+                        $to[(int) $lid] = 'lead';
+                    }
                 }
             }
             if (!$to) {
-                continue;
+                continue;   // κανείς δεν το δουλεύει και κανείς δεν το επιβλέπει — σιωπή, όχι θόρυβος σε όλους
             }
 
             $line = 'Έργο «' . mb_substr((string) $p->name, 0, 70) . '» — ' . self::phrase($days);
@@ -243,14 +255,28 @@ class Deadlines
      * μετά κλιμακώνει σε υπεύθυνο έργου και στον χειριστή του ticket — εκεί
      * κρίνεται αν θα ειδοποιηθεί ο πελάτης.
      */
+    /** Οι επικεφαλής των ομάδων που εξυπηρετούν ένα department. */
+    private static function deptLeads($deptId)
+    {
+        if (!$deptId || !Capsule::schema()->hasTable('mod_cpm_team_depts')) { return []; }
+        return array_map('intval', Capsule::table('mod_cpm_team_depts as td')
+            ->join('mod_cpm_team_members as m', 'm.team_id', '=', 'td.team_id')
+            ->where('td.dept_id', (int) $deptId)->where('m.is_leader', 1)
+            ->distinct()->pluck('m.admin_id')->all());
+    }
+
     private static function recipients($t, $proj, $level)
     {
-        $to = [];
-        if ($t->assignee) {
-            $to[(int) $t->assignee] = 'assignee';
-        }
-        if ($t->action_user) {
-            $to[(int) $t->action_user] = 'ball';
+        /* Ο ΚΑΝΟΝΑΣ ΤΗΣ ΜΠΑΛΑΣ ΚΑΙ ΣΤΙΣ ΕΙΔΟΠΟΙΗΣΕΙΣ (23/09/2026).
+           Ειδοποιούνταν ΚΑΙ ο ανάδοχος ΚΑΙ ο κάτοχος της μπάλας. Όταν διαφέρουν —
+           μετρήθηκαν 18 τέτοιες εργασίες — ο ανάδοχος έπαιρνε «⛔ Εκπρόθεσμη
+           εργασία» για κάτι που δεν μπορεί να κινήσει: την μπάλα την έχει άλλος.
+           Δύο ειδοποιήσεις για μία κίνηση, και η μία ψεύτικη. Ο κανόνας είναι
+           ένας παντού: ειδοποιείται όποιος ΚΡΑΤΑΕΙ, δηλαδή η μπάλα· αν δεν την
+           κρατά κανείς, ο ανάδοχος. Η κλιμάκωση παρακάτω μένει ως έχει. */
+        $holder = (int) ($t->action_user ?: $t->assignee);
+        if ($holder) {
+            $to[$holder] = $t->action_user ? 'ball' : 'assignee';
         }
         if ($level === 't0' || $level === 'over') {
             if ($proj && $proj->manager_id) {
@@ -268,17 +294,8 @@ class Deadlines
            επικεφαλής τους. Αλλιώς μια χαμένη προθεσμία σε ticket-εργασία θα
            έφτανε μόνο στον ανάδοχο — δηλαδή σε αυτόν που ήδη την έχασε. */
         if ($level === 't0' || $level === 'over') {
-            $did = isset($t->dept_id) ? (int) $t->dept_id : 0;
-            if ($did && Capsule::schema()->hasTable('mod_cpm_team_depts')) {
-                $leads = Capsule::table('mod_cpm_team_depts as td')
-                    ->join('mod_cpm_team_members as m', 'm.team_id', '=', 'td.team_id')
-                    ->where('td.dept_id', $did)->where('m.is_leader', 1)
-                    ->distinct()->pluck('m.admin_id')->all();
-                foreach ($leads as $lid) {
-                    if (!isset($to[(int) $lid])) {
-                        $to[(int) $lid] = 'lead';
-                    }
-                }
+            foreach (self::deptLeads(isset($t->dept_id) ? (int) $t->dept_id : 0) as $lid) {
+                if (!isset($to[$lid])) { $to[$lid] = 'lead'; }
             }
         }
         // Ο ίδιος ο ενεργός χειριστής μπορεί να είναι και τα δύο — το array κλειδί το λύνει.

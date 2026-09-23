@@ -2183,6 +2183,21 @@ class Db
             if ($done) { $q->whereNotIn('t.status_id', $done); }
         }
         // περιορισμένος agent: μόνο μέλος-projects Ή δικές του αναθέσεις
+        /* «ΔΙΚΑ ΜΟΥ» ΣΤΟΝ SERVER, ΟΧΙ ΜΟΝΟ ΣΤΗΝ ΟΘΟΝΗ (23/09/2026).
+           Η Λίστα φιλτράριζε τα ξένα στον browser: ο server έστελνε 61 εργασίες
+           και η οθόνη έκρυβε τις 49. Ό,τι κρύβεται μόνο στην οθόνη, κάποια στιγμή
+           ξαναφαίνεται — αρκεί ένα νέο σημείο που ξεχνά το φίλτρο. Ο κανόνας της
+           μπάλας μπαίνει εδώ, στο ίδιο ερώτημα. */
+        if (!empty($f['mine_only'])) {
+            $mid = (int) $f['mine_only'];
+            $q->where(function ($w) use ($mid) {
+                $w->where('t.action_user', $mid)
+                  ->orWhere(function ($x) use ($mid) {
+                      $x->where('t.assignee', $mid)
+                        ->where(function ($y) { $y->whereNull('t.action_user')->orWhere('t.action_user', 0); });
+                  });
+            });
+        }
         if (!empty($f['restrict_admin'])) {
             $aid = (int) $f['restrict_admin'];
             $vis = self::visibleProjectIds($aid);
@@ -3289,6 +3304,38 @@ class Db
         return $closed;
     }
 
+    /**
+     * ΟΠΟΥ ΚΙ ΑΝ ΦΤΙΑΧΤΗΚΕ Ο ΣΥΝΔΕΣΜΟΣ, ΚΑΤΑΛΗΓΕΙ ΣΤΗ ΣΗΜΕΡΙΝΗ ΕΦΑΡΜΟΓΗ.
+     *
+     * Οι ειδοποιήσεις γράφτηκαν σε τρεις εποχές και κουβαλούν τρεις μορφές:
+     * `addonmodules.php?...&tab=task&id=N` (παλιό addon του WHMCS),
+     * `/projectmanagement/#/x` (παλιά διαδρομή) και `/project/#/x` (η σημερινή).
+     * Αποτέλεσμα: πατούσες την ειδοποίηση και δεν άνοιγε τίποτα σαφές.
+     * Μετρήθηκαν 520 από 1.534 στην παλιά μορφή (23/09/2026).
+     *
+     * Διορθώνεται ΕΔΩ, στο ένα σημείο απ' όπου περνούν όλες, ώστε να μη χρειάζεται
+     * να θυμάται τη σωστή μορφή κάθε νέο σημείο που στέλνει ειδοποίηση.
+     */
+    public static function appLink($url)
+    {
+        $u = trim((string) $url);
+        if ($u === '') { return null; }
+        if (preg_match('~^https?://~i', $u)) { return mb_substr($u, 0, 255); }
+        if (preg_match('~tab=task&id=(\d+)~', $u, $m)) {
+            return '/project/#/task/' . (int) $m[1];
+        }
+        if (preg_match('~module=cloudonprojects[^#]*#/(.+)$~', $u, $m)) {
+            return '/project/#/' . ltrim($m[1], '/');
+        }
+        if (strpos($u, '/projectmanagement/#') === 0) {
+            return '/project/#' . substr($u, strlen('/projectmanagement/#'));
+        }
+        if (strpos($u, 'addonmodules.php?module=cloudonprojects') === 0) {
+            return '/project/';
+        }
+        return mb_substr($u, 0, 255);
+    }
+
     public static function pushNotification($adminId, $type, $title, $url = null)
     {
         if (!(int) $adminId) {
@@ -3297,6 +3344,7 @@ class Db
         /* Η βάση είναι utf8mb3: τα 4-byte emoji (🆘 💬 📣 …) γίνονται «????». Κόβονται εδώ
            μία και καλή — η οθόνη βάζει το εικονίδιο ανά τύπο (cnp_notif_display). */
         $title = trim((string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $title));
+        $url = self::appLink($url);
         Capsule::table('mod_cpm_notifications')->insert([
             'admin_id'   => (int) $adminId,
             'type'       => mb_substr($type, 0, 20),

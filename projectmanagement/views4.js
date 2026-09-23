@@ -1166,7 +1166,7 @@ R.list = async function () {
   // κατά χειριστή/project/κατάσταση θα γύριζε 0. Ό,τι αφορά κείμενο γίνεται client-side (match).
   const load = async () => {
     const qs = ['fs=' + encodeURIComponent(f.fs || ''), 'fa=' + encodeURIComponent(f.fa || ''),
-      'open=' + (f.open ? 1 : 0)].join('&');
+      'open=' + (f.open ? 1 : 0), 'mine=' + (f.mine ? 1 : 0)].join('&');
     D = await api('list&' + qs).catch(() => ({tasks: []}));
     render();
   };
