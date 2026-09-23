@@ -6594,7 +6594,7 @@ case 'move_task':
     if ($ok && !$FULL) {
         $st = Db::status((int) $in['status']);
         if ($st && $st->is_done) {
-            Notify::workDone($adminId, $t->title, 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $t->id);
+            Notify::workDone($adminId, $t->title, '/project/#/task/' . (int) $t->id, (int) $t->id);
         }
     }
     if ($ok) {

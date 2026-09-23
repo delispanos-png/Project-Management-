@@ -190,7 +190,7 @@ function cloudonprojects_output($vars)
         if ($ok && !Db::isFullAccess($adminId)) {
             $st = Db::status((int) ($_POST['statusid'] ?? 0));
             if ($st && $st->is_done) {
-                Notify::workDone($adminId, $t->title, 'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $t->id);
+                Notify::workDone($adminId, $t->title, '/project/#/task/' . (int) $t->id, (int) $t->id);
             }
         }
         if ($ok) {
@@ -387,7 +387,7 @@ function cloudonprojects_output($vars)
                     if (!Db::isFullAccess($adminId)) {
                         $stNew = Db::status($data['status_id']);
                         if ($stNew && $stNew->is_done) {
-                            Notify::workDone($adminId, $data['title'], 'addonmodules.php?module=cloudonprojects&tab=task&id=' . $newId);
+                            Notify::workDone($adminId, $data['title'], '/project/#/task/' . (int) $newId, (int) $newId);
                         }
                     }
                 }

@@ -119,13 +119,37 @@ class Notify
     }
 
     /**
-     * Ο χειριστής δήλωσε ολοκλήρωση εργασίας → ενημέρωση ΟΛΩΝ των διαχειριστών
-     * (καμπανάκι + email).
+     * Ο χειριστής δήλωσε ολοκλήρωση εργασίας.
+     *
+     * ΣΕ ΟΠΟΙΟΝ ΤΗΝ ΠΕΡΙΜΕΝΕ, ΟΧΙ ΣΕ ΟΛΟΥΣ ΤΟΥΣ ΔΙΑΧΕΙΡΙΣΤΕΣ (23/09/2026).
+     * Έφευγε σε κάθε Full admin, ανεξάρτητα από σχέση με την εργασία: ο Παναγιώτης
+     * έπαιρνε «ολοκληρώθηκε» για εργασία που ούτε άνοιξε ούτε του ανατέθηκε ούτε
+     * παρακολουθούσε. Και το χειρότερο: ο ΔΗΜΙΟΥΡΓΟΣ, δηλαδή αυτός που τη ζήτησε
+     * και την περίμενε, δεν έπαιρνε τίποτα — η ειδοποίηση πήγαινε παντού εκτός
+     * από εκεί που είχε νόημα.
+     *
+     * Παραλήπτες: όποιος την άνοιξε, όποιος την είχε αναλάβει, όσοι την
+     * παρακολουθούν. Κανείς άλλος. Αν δεν υπάρχει κανείς από αυτούς, σιωπή.
+     *
+     * @param int $taskId η εργασία — χωρίς αυτήν δεν ξέρουμε ποιον αφορά
      */
-    public static function workDone($byAdminId, $what, $url)
+    public static function workDone($byAdminId, $what, $url, $taskId = 0)
     {
         $by = Db::adminName($byAdminId);
-        foreach (Db::fullAccessAdminIds() as $mgr) {
+        $to = [];
+        if ($taskId) {
+            $t = Db::task((int) $taskId);
+            if ($t) {
+                if (!empty($t->created_by)) { $to[(int) $t->created_by] = 1; }
+                if (!empty($t->assignee)) { $to[(int) $t->assignee] = 1; }
+            }
+            foreach (Db::watcherIds((int) $taskId) as $w) { $to[(int) $w] = 1; }
+        } else {
+            /* Χωρίς εργασία (π.χ. κλείσιμο ticket): μένει η παλιά συμπεριφορά. */
+            foreach (Db::fullAccessAdminIds() as $m) { $to[(int) $m] = 1; }
+        }
+        unset($to[(int) $byAdminId], $to[0]);
+        foreach (array_keys($to) as $mgr) {
             if ((int) $mgr === (int) $byAdminId) {
                 continue;
             }
