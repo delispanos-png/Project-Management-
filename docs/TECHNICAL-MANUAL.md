@@ -352,6 +352,9 @@ python3 dev-check-helpers.py    # helper χωρίς import → runtime Reference
 python3 dev-check-ball.py       # ο κανόνας της μπάλας, σε PHP και JS (στατικός)
 python3 dev-check-scope.py      # ζωντανός: καμία προσωπική οθόνη δεν δείχνει ξένη δουλειά
 node --check app.js             # export PATH=/opt/plesk/node/20/bin:$PATH
+
+cd ..                           # από το root του WHMCS
+/opt/plesk/php/8.3/bin/php projectmanagement/dev-check-data.php   # ακεραιότητα δεδομένων
 ```
 
 Ο τρίτος είναι ο μόνος που πιάνει την οθόνη **που δεν φιλτράρει καθόλου** — το
@@ -371,6 +374,7 @@ node --check app.js             # export PATH=/opt/plesk/node/20/bin:$PATH
 | Ο browser δείχνει παλιό JS | `cnp_asset_version()` — έλεγξε `filemtime`, όχι cache του CDN |
 | Η ίδια εργασία σε δύο ανθρώπους | παραβίαση του κανόνα της μπάλας → `dev-check-ball.py` |
 | «Βλέπω στα δικά μου κάτι που δεν είναι δικό μου» | οθόνη χωρίς φίλτρο προσώπου → `dev-check-scope.py` |
+| Εργασία χωρίς πινακίδα κατάστασης, αόρατη σε φίλτρα | γεννήθηκε με `status_id` 0 → `dev-check-data.php` |
 | Ειδοποίηση για εργασία που δεν μπορώ να κινήσω | ο παραλήπτης βγαίνει από την ανάθεση αντί για τη μπάλα |
 | Ειδοποίηση για εργασία που δεν με αφορά καθόλου | παραλήπτης «όλοι οι Full admins» — πρέπει να είναι δημιουργός / ανάδοχος / watchers |
 | Ειδοποίηση που δεν ανοίγει τίποτα | σύνδεσμος παλιάς εποχής — περνά από `Db::appLink()` |
