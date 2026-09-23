@@ -2819,8 +2819,10 @@ async function openTask(id, entryId, opts) {
         <span class="mut" id="fEstHint" style="margin-left:auto">${t.est ? '= ' + fmtMin(t.est) : ''}</span></label>
       ${/* Τα πεδία σώζονται μόνα τους· το κουμπί μένει για «τελείωσα, κλείσ᾽ το». */''}
       <div class="tk-auto"><span class="tk-auto-d"></span><span id="dAutoS">αποθηκεύεται μόνο του</span></div>
+      ${/* ΧΩΡΙΣ ΚΟΥΜΠΙ ΑΠΟΘΗΚΕΥΣΗΣ. Αφού τα πεδία σώζονται μόνα τους, ένα κουμπί
+           «Αποθήκευση» δεν έχει τι να κάνει — και όσο υπάρχει, σε βάζει να
+           αναρωτιέσαι αν χρειάζεται να το πατήσεις. Κλείνεις με το ✕. */''}
       <div class="tk-actions">
-        <button class="btn btn-p" id="dSave" data-save title="Αποθήκευση και κλείσιμο — τα πεδία σώζονται ούτως ή άλλως μόνα τους">Αποθήκευση</button>
         ${t.done ? '' : '<button class="btn btn-ok" id="dDone">✔ Ολοκλήρωση</button>'}
         ${t.done ? '' : `<button class="btn btn-o" id="dHand" title="Τελείωσε το δικό σου κομμάτι — δώσε τη σκυτάλη στον επόμενο">${I.zap} Παράδοση</button>`}
         ${d.canAsk ? `<button class="btn btn-o" id="dAskDelay"
@@ -2971,10 +2973,35 @@ async function openTask(id, entryId, opts) {
       return true;
     }
     dr.dataset.fresh = ''; dr.dataset.dirty = '';
-    const sb = $('#dSave', dr); if (sb) { sb.click(); } else { closeDrawer(); }
+    if (dr._saveNow) { await dr._saveNow(); }
+    closeDrawer();
+    if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
     return true;
   };
-  dr._askClose = () => (dr.dataset.fresh === '1' ? askFresh() : cnpAskClose(dr));
+  /* ΤΙ ΜΠΟΡΕΙ ΠΡΑΓΜΑΤΙΚΑ ΝΑ ΧΑΘΕΙ. Τα πεδία είναι ήδη αποθηκευμένα, οπότε η παλιά
+     ερώτηση «έχεις μη αποθηκευμένες αλλαγές» δεν ισχύει πια. Το μόνο που χάνεται
+     στο κλείσιμο είναι ένα μήνυμα που έγραψες και δεν πάτησες Enter. */
+  dr._askClose = async () => {
+    if (dr.dataset.fresh === '1') { return askFresh(); }
+    const ed = $('#chkNew', dr);
+    const html = ed ? ed.innerHTML.trim() : '';
+    if (html && html !== '<br>') {
+      const r = await cnpDialog({
+        title: '💬 Μισογραμμένο μήνυμα',
+        body: 'Έγραψες κάτι στη συζήτηση και δεν το καταχώρησες. Τα υπόλοιπα πεδία είναι ήδη αποθηκευμένα.',
+        ok: 'Καταχώρησέ το', cancel: 'Συνέχεια επεξεργασίας', third: 'Πέτα το', thirdPlain: true});
+      if (r === false || r === null) { return false; }
+      if (r !== 'third') {
+        const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er, er}));
+        if (ra && ra.err) { if (!(await cnpCodeRefused(ra.er))) { toast('Δεν καταχωρήθηκε', true); } return false; }
+      }
+      ed.innerHTML = '';
+      closeDrawer();
+      if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+      return true;
+    }
+    return cnpAskClose(dr);
+  };
   $('#dX', dr).onclick = () => dr._askClose();
   /* Χωρίς «Board: επεξεργασία» και χωρίς να είναι δική του εργασία (ανάδοχος/
      επιβλέπων/δημιουργός), η καρτέλα είναι ΜΟΝΟ για διάβασμα — ό,τι θα απέρριπτε
@@ -2982,7 +3009,7 @@ async function openTask(id, entryId, opts) {
      οι handlers από κάτω να δένουν χωρίς σφάλμα. */
   const canWork = !!(me.full || cnpCan('projects.board.edit') || [t.assignee, t.creator, t.ball].includes(me.id));
   if (!canWork) {
-    ['#dSave', '#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#tStart', '#tStop', '#depAdd', '#dBillOk']
+    ['#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#tStart', '#tStop', '#depAdd', '#dBillOk']
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
     /* Σε καρτέλα μόνο-προβολής η ένδειξη «αποθηκεύεται μόνο του» θα ήταν ψέμα. */
     { const au = $('.tk-auto', dr); if (au) { au.style.display = 'none'; } }
@@ -3102,7 +3129,7 @@ async function openTask(id, entryId, opts) {
     closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
     return true;
   };
-  $('#dSave', dr).onclick = () => saveFields({close: true, composer: true});
+  dr._saveNow = () => saveFields({close: false, composer: false});
 
   /* ── Αυτόματη αποθήκευση των πεδίων ──────────────────────────────────────
      Δεν χρειάζεται να θυμάσαι να πατήσεις τίποτα: αλλάζεις, σώζεται. Οι λίστες
@@ -3121,6 +3148,9 @@ async function openTask(id, entryId, opts) {
     };
     let tmr = null, busy = false, again = false;
     const run = async () => {
+      /* Κλειδωμένη καρτέλα (ολοκληρωμένη ή ξένη): ο server θα το απέρριπτε ούτως
+         ή άλλως — δεν στέλνουμε για να μην κοκκινίζει η ένδειξη χωρίς λόγο. */
+      if (dr.classList.contains('tk-locked')) { return; }
       if (busy) { again = true; return; }
       busy = true; mark('saving');
       let ok = false;
@@ -3373,8 +3403,7 @@ async function openTask(id, entryId, opts) {
      χρονόμετρο δεν αγγίζεται και βλέπεις το μήνυμα. */
   const saveFirst = async () => {
     if (dr.dataset.dirty !== '1') { return true; }
-    const sb = $('#dSave', dr); if (!sb || !sb.onclick) { return true; }
-    await sb.onclick();
+    if (dr._saveNow) { await dr._saveNow(); }
     return dr.dataset.dirty !== '1';
   };
   const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { if (!(await saveFirst())) { return; } await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
@@ -3956,6 +3985,10 @@ window.CNP_markDirty = markDirty;
 
 /** Το κουμπί αποθήκευσης ενός popup (για την επιλογή «Αποθήκευση» στην ερώτηση). */
 function _cnpSaveBtn(box) {
+  /* Η αναζήτηση με το ΚΕΙΜΕΝΟ είναι για τα popup. Στην καρτέλα εργασίας δεν
+     υπάρχει πια κουμπί αποθήκευσης (τα πεδία σώζονται μόνα τους) και το
+     «Καταχώρηση» του χρόνου ΔΕΝ είναι αυτό — θα πατιόταν κατά λάθος. */
+  if (!box.querySelector('[data-save]') && box.classList && box.classList.contains('drawer')) { return null; }
   return box.querySelector('[data-save]')
     || Array.prototype.find.call(box.querySelectorAll('.btn-p, button.btn'),
       b => /αποθήκευ|δημιουργ|καταχώρ|save/i.test(b.textContent || '')) || null;
