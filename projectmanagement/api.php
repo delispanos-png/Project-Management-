@@ -15134,6 +15134,37 @@ case 'chat_channels':
             'unread' => Capsule::table('mod_cpm_chat')->where('channel', $ch)
                 ->where('id', '>', $reads[$ch] ?? 0)->where('admin_id', '!=', $adminId)->count()];
     }
+    /* ΠΑΝΩ-ΠΑΝΩ ΟΠΟΙΟΣ ΣΟΥ ΜΙΛΗΣΕ ΤΕΛΕΥΤΑΙΟΣ (23/09/2026).
+       Η λίστα ήταν αλφαβητική: για να βρεις ποιος σου έστειλε κάτι έπρεπε να
+       ψάξεις για την κόκκινη κουκκίδα ανάμεσα σε δώδεκα ονόματα. Η σειρά βγαίνει
+       πλέον από την τελευταία κουβέντα — και υπολογίζεται ΕΔΩ, ώστε η πρώτη
+       σχεδίαση και η ανανέωση κάθε 20΄΄ να συμφωνούν. */
+    $lastAt = [];
+    $chIds6 = array_map(function ($c) { return $c['id']; }, $chans);
+    foreach (Capsule::table('mod_cpm_chat')->whereIn('channel', $chIds6)
+        ->selectRaw('channel, MAX(id) AS mid, MAX(created_at) AS mat')
+        ->groupBy('channel')->get() as $l6) {
+        $lastAt[$l6->channel] = ['ts' => strtotime((string) $l6->mat) ?: 0, 'id' => (int) $l6->mid];
+    }
+    $kindRank = ['team' => 0, 'group' => 1, 'dm' => 2];
+    foreach ($chans as &$c6) {
+        $c6['lastAt'] = $lastAt[$c6['id']]['ts'] ?? 0;
+        $c6['lastId'] = $lastAt[$c6['id']]['id'] ?? 0;
+    }
+    unset($c6);
+    usort($chans, function ($a, $b) use ($kindRank) {
+        /* Πρώτα ό,τι σε περιμένει: αδιάβαστο, με το πιο πρόσφατο μπροστά. */
+        $au = $a['unread'] > 0 ? 1 : 0;
+        $bu = $b['unread'] > 0 ? 1 : 0;
+        if ($au !== $bu) { return $bu - $au; }
+        if ($a['lastAt'] !== $b['lastAt']) { return $b['lastAt'] <=> $a['lastAt']; }
+        /* Όσοι δεν έχουν μιλήσει ποτέ κρατούν τη γνωστή σειρά: δωμάτιο, ομάδες, άνθρωποι. */
+        $ka = $kindRank[$a['kind']] ?? 9;
+        $kb = $kindRank[$b['kind']] ?? 9;
+        if ($ka !== $kb) { return $ka - $kb; }
+        return strcasecmp($a['name'], $b['name']);
+    });
+
     out(['channels' => $chans, 'me' => cnp_presence($adminId, $now6),
         'myStatus' => Db::pref($adminId, 'chat_status', 'online'),
         'myReason' => Db::pref($adminId, 'chat_reason', '')]);

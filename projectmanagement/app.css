@@ -1229,6 +1229,8 @@ button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
 .ch-row-name{font-weight:700;color:var(--ink);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ch-row-sub{font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ch-row.on .ch-row-name{color:var(--brand-d)}
+/* Η ώρα της τελευταίας κουβέντας: δικαιολογεί γιατί αυτή η γραμμή είναι εκεί που είναι. */
+.ch-row-t{font-size:10.5px;color:var(--mut);flex:none;align-self:flex-start;padding-top:2px;white-space:nowrap}
 .ch-row-x{cursor:pointer;opacity:.45;font-size:12px;flex:none;padding:2px 4px}
 .ch-row-x:hover{opacity:1;color:var(--bad)}
 .ch-newgrp .ch-av{background:color-mix(in srgb,var(--brand) 12%,transparent);color:var(--brand)}
