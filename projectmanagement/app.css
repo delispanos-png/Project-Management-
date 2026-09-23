@@ -4555,6 +4555,12 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 26px #0f172a1f;margin-top:4px;padding:4px}
 .cl-pres:empty{display:none}
 /* Η ένδειξη της αυτόματης αποθήκευσης: διακριτική, αλλά ορατή όταν κάτι πάει στραβά. */
+/* Η κατάσταση στη γραμμή της ημέρας: σταθερό πλάτος, να μη χοροπηδά η στήλη. */
+/* Στενή οθόνη: η κατάσταση ως κουκκίδα — ίδιο χρώμα, το όνομα στο tooltip.
+   Με ολόκληρη πινακίδα κάθε γραμμή έσπαγε σε δύο και η λίστα διπλασιαζόταν. */
+.myd-st{flex:none;display:inline-flex}
+.myd-stD{flex:none;display:none;align-items:center}
+@media (max-width:768px){ .myd-st{display:none} .myd-stD{display:inline-flex} }
 .tk-auto{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mut);margin:10px 0 -2px}
 .tk-auto-d{width:7px;height:7px;border-radius:50%;background:var(--mut);opacity:.5;flex:none}
 .tk-auto[data-s=saving] .tk-auto-d{background:var(--brand);opacity:1}
