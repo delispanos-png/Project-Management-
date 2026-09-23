@@ -295,30 +295,36 @@ class Watch
         $mineTeamPeople = $mine ? array_map('intval', Capsule::table('mod_cpm_team_members')
             ->whereIn('team_id', $mine)->distinct()->pluck('admin_id')->all()) : [];
 
+        /* ΕΝΑΣ ΑΝΘΡΩΠΟΣ, ΜΙΑ ΓΡΑΜΜΗ (23/09/2026).
+           Η γραμμή έλεγε «Θέμιος (Support) — 7 εκπρόθεσμες: Kleon 5 · Θέμιος 2»:
+           δύο ανθρώπων η δουλειά πλεγμένη σε μία πρόταση, με τα #id όλων μαζί από
+           κάτω. Δεν ξέρεις ποιανού είναι ποιο, δεν μπορείς να ρωτήσεις έναν, και
+           δεν φαίνεται ποιος φταίει. Κάθε άνθρωπος παίρνει τη δική του γραμμή, με
+           ΤΙΣ ΔΙΚΕΣ ΤΟΥ εργασίες και δικό του κουμπί ερώτησης. Η ομάδα μένει μόνο
+           ως συμφραζόμενο σε παρένθεση. */
         $line = function ($title, array $people, $noLead, $rowLead = 0)
             use ($lateBy, $lateRows, $leadsSomewhere, $mineTeamPeople, &$out) {
             $per = [];
-            $refs = [];
             foreach ($people as $pid) {
                 if (empty($lateBy[$pid])) { continue; }
                 if ($pid !== (int) $rowLead && in_array((int) $pid, $leadsSomewhere, true)) { continue; }
                 if (in_array((int) $pid, $mineTeamPeople, true)) { continue; }
                 $per[$pid] = $lateBy[$pid];
-                foreach ($lateRows[$pid] as $r) { $refs[] = $r; }
             }
             if (!$per) { return; }
             arsort($per);
-            $bits = [];
-            foreach ($per as $pid => $n) { $bits[] = Db::adminName($pid) . ' ' . $n; }
-            $tot = array_sum($per);
-            $out[] = [
-                'lvl' => 'bad',
-                'icon' => $noLead ? '⚠' : '🎯',
-                'refs' => self::taskRefs($refs),
-                'text' => $title . ' — ' . $tot . ($tot > 1 ? ' εκπρόθεσμες' : ' εκπρόθεσμη')
-                    . ': ' . implode(' · ', $bits) . '.'
-                    . ($noLead ? ' Η ομάδα δεν έχει επικεφαλής — είσαι εσύ.' : ' Ρώτα τι χρειάζεται.'),
-            ];
+            foreach ($per as $pid => $n) {
+                $out[] = [
+                    'lvl' => 'bad',
+                    'icon' => $noLead ? '⚠' : '🎯',
+                    'refs' => self::taskRefs($lateRows[$pid]),
+                    'ask' => (int) $pid,
+                    'askName' => Db::adminName((int) $pid),
+                    'text' => Db::adminName((int) $pid) . ' (' . $title . ') — '
+                        . $n . ($n > 1 ? ' εκπρόθεσμες' : ' εκπρόθεσμη')
+                        . ($noLead ? ' · η ομάδα δεν έχει επικεφαλής, είσαι εσύ.' : ''),
+                ];
+            }
         };
 
         $inTeam = [];
@@ -337,10 +343,7 @@ class Watch
             if (!$members || in_array($tid, $mine, true) || in_array($tid, $above, true)) { continue; }
             if ($lead === $adminId) { continue; }
 
-            $title = $lead
-                ? Db::adminName($lead) . ' (' . $t->name . ')'
-                : $t->name . ' (χωρίς επικεφαλής)';
-            $line($title, $members, !$lead, $lead);
+            $line((string) $t->name, $members, !$lead, $lead);
         }
 
         /* Εκτός κάθε ομάδας: κανείς δεν τους κοιτάζει. */
@@ -381,19 +384,22 @@ class Watch
                   });
             })->orderBy('due_date')->get(['id', 'title', 'assignee', 'action_user'])->all();
         if ($rows) {
+            /* Ανά άνθρωπο, όχι «12 στην ομάδα»: ο επικεφαλής δεν ρωτά την ομάδα,
+               ρωτά κάποιον — και πρέπει να βλέπει ΤΙ ακριβώς κρατά ο καθένας. */
             $per = [];
             foreach ($rows as $t) {
                 $who = (int) ($t->action_user ?: $t->assignee);
-                $per[$who] = ($per[$who] ?? 0) + 1;
+                if (!$who) { continue; }
+                $per[$who][] = $t;
             }
-            arsort($per);
-            $bits = [];
-            foreach (array_slice($per, 0, 4, true) as $w => $n) {
-                $bits[] = Db::adminName($w) . ' ' . $n;
+            uasort($per, function ($a, $b) { return count($b) - count($a); });
+            foreach ($per as $who => $his) {
+                $n = count($his);
+                $out[] = ['lvl' => 'bad', 'icon' => '🔴', 'refs' => self::taskRefs($his),
+                    'ask' => (int) $who, 'askName' => Db::adminName((int) $who),
+                    'text' => Db::adminName((int) $who) . ' — ' . $n
+                        . ($n > 1 ? ' εκπρόθεσμες' : ' εκπρόθεσμη') . ' στην ομάδα σου.'];
             }
-            $out[] = ['lvl' => 'bad', 'icon' => '🔴', 'refs' => self::taskRefs($rows),
-                'text' => (count($rows) > 1 ? count($rows) . ' εκπρόθεσμες' : 'Μία εκπρόθεσμη')
-                    . ' στην ομάδα — ' . implode(' · ', $bits) . '.'];
         }
 
         $stale = Capsule::table('mod_cpm_tasks')->whereIn('status_id', Db::statusIds('work'))
