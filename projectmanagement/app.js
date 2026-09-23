@@ -6,8 +6,54 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtMin = m => { m = +m || 0; const h = Math.floor(m / 60), r = m % 60; return h && r ? `${h}ω ${r}΄` : h ? `${h}ω` : `${r}΄`; };
 const fmtEur = v => (+v || 0).toLocaleString((window.CNP_LOCALE||'el-GR'), {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+/* ═══ ΩΡΑ 24ΩΡΗ, ΠΑΝΤΟΥ ═══
+   Το <input type="time"> το ζωγραφίζει ο browser με τη ΔΙΚΗ του γλώσσα: στο ίδιο
+   πεδίο άλλος έβλεπε «02:30 PM» κι άλλος «14:30». Ούτε το lang του πεδίου ούτε η
+   γλώσσα της σελίδας το αλλάζουν — το μετρήσαμε (23/09/2026). Και η ώρα δεν είναι
+   προτίμηση συσκευής: όταν λέμε «η σύσκεψη λήγει 23:40» πρέπει να το διαβάζουν
+   όλοι το ίδιο.
+   Γι' αυτό γράφουμε δικό μας πεδίο. Η ΤΙΜΗ μένει ακριβώς η ίδια («ΩΩ:ΛΛ»), ώστε
+   κάθε υπάρχον `.value` να δουλεύει χωρίς αλλαγή. */
+function timeInput(id, value, extra) {
+  return `<input type="text" class="inp tinp" ${id ? 'id="' + id + '" ' : ''}value="${esc(value || '')}"`
+    + ` maxlength="5" inputmode="numeric" autocomplete="off" placeholder="ωω:λλ"`
+    + ` aria-label="Ώρα, 24ωρη μορφή"${extra ? ' ' + extra : ''}>`;
+}
+/** «9» → 09:00 · «930» → 09:30 · «9:5» → 09:05 · ό,τι δεν στέκει → κενό. */
+function cnpTimeNorm(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  if (!d) { return ''; }
+  let h, m;
+  if (d.length <= 2) { h = +d; m = 0; }
+  else if (d.length === 3) { h = +d.slice(0, 1); m = +d.slice(1); }
+  else { h = +d.slice(0, 2); m = +d.slice(2, 4); }
+  if (h > 23 || m > 59) { return ''; }
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains('tinp')) { return; }
+  /* Μόνο ψηφία· η άνω-κάτω τελεία μπαίνει μόνη της ΜΟΛΙΣ βγάζει νόημα. Αν τα δύο
+     πρώτα ψηφία δεν είναι ώρα (π.χ. γράφεις «930» για 9:30), δεν τη βάζουμε — θα
+     έδειχνε «93:0». Το blur το τακτοποιεί. */
+  const raw = el.value.replace(/\D/g, '').slice(0, 4);
+  el.value = (raw.length > 2 && +raw.slice(0, 2) <= 23) ? raw.slice(0, 2) + ':' + raw.slice(2, 4) : raw;
+});
+document.addEventListener('blur', e => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains('tinp')) { return; }
+  const before = el.value;
+  el.value = cnpTimeNorm(el.value);
+  /* Η αυτόματη αποθήκευση ακούει το `change` — αν διορθώσαμε τη μορφή, ειδοποίησέ τη. */
+  if (el.value !== before) { el.dispatchEvent(new Event('change', {bubbles: true})); }
+}, true);
+
 const dShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleDateString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit'}) : '';
-const tShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
+/* ΠΑΝΤΟΥ 24ΩΡΟ. Χωρίς hour12:false η μορφή ακολουθεί τον browser: ο ίδιος χρόνος
+   έβγαινε «02:31 μ.μ.» σε έναν υπολογιστή και «14:31» σε άλλον — και σε λίστες
+   κλήσεων ή συσκέψεων αυτό διαβάζεται λάθος. Η ώρα είναι δεδομένο, όχι προτίμηση
+   συσκευής. */
+const tShort = d => d ? new Date(d.replace(' ', 'T')).toLocaleString((window.CNP_LOCALE||'el-GR'), {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false}) : '';
 /* Πλήρης ημερομηνία, ΠΑΝΤΑ ηη/μμ/εεεε. Το ISO (2026-08-18) και η αμερικανική
    σειρά δεν εμφανίζονται πουθενά στην εφαρμογή. */
 const dFull = d => {
@@ -2290,10 +2336,10 @@ function askImplDates(info, me) {
         <div class="frow" style="margin-top:14px">
           <div><label class="lbl">Έναρξη</label>
             <div class="dt2"><input type="date" class="inp" id="idStart" value="${d0}">
-              <input type="time" class="inp" id="idStartT" value="${info.startT || ''}"></div></div>
+              ${timeInput('idStartT', info.startT)}</div></div>
           <div><label class="lbl">Λήξη</label>
             <div class="dt2"><input type="date" class="inp" id="idDue" value="${dEnd}">
-              <input type="time" class="inp" id="idDueT" value="${info.dueT || ''}"></div></div>
+              ${timeInput('idDueT', info.dueT)}</div></div>
         </div>
         <div class="mut" style="font-size:11px;margin-top:2px">Η ώρα είναι προαιρετική — κενή σημαίνει ότι πιάνει όλη τη μέρα.</div>
         <div id="idErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:4px" hidden></div>
@@ -2348,7 +2394,7 @@ async function cnpMoveTask(id, status, note) {
              θα κατέγραφε παράδοση που δεν έχει γίνει ακόμη. */''}
         <div style="margin-top:14px"><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
           <div class="dt2"><input type="date" class="inp" id="dtD" value="${today()}">
-            <input type="time" class="inp" id="dtT" value="${String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')}"></div></div>
+            ${timeInput('dtT', String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))}</div></div>
         <div id="dtErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:6px" hidden></div>
         <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
           <button class="btn btn-o" id="dtNo">Άκυρο</button>
@@ -2761,13 +2807,13 @@ async function openTask(id, entryId, opts) {
           ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Έναρξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
           <div class="dt2"><input type="date" class="inp" id="fStart" value="${t.start || ''}">
-            <input type="time" class="inp" id="fStartT" value="${t.startT || ''}" title="Προαιρετικό — κενό = όλη η μέρα"></div></div>
+            ${timeInput('fStartT', t.startT, 'title="Προαιρετικό — κενό = όλη η μέρα"')}</div></div>
         ${/* Η ΛΗΞΗ ΕΙΝΑΙ ΤΟΥ ΧΕΙΡΙΣΤΗ. Όποιος ανοίγει την εργασία ορίζει έναρξη και
              deadline· το «πότε θα τελειώσει» το δηλώνει αυτός που θα το κάνει.
              Ο server επιβάλλει τον ίδιο κανόνα — εδώ απλώς φαίνεται. */''}
         <div><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα${dueLock ? ' · το δηλώνει ο χειριστής' : ''}</span></label>
           <div class="dt2"><input type="date" class="inp" id="fDue" value="${t.due || ''}" ${dueLock ? 'disabled' : ''}>
-            <input type="time" class="inp" id="fDueT" value="${t.dueT || ''}" ${dueLock ? 'disabled' : ''} title="Προαιρετικό — κενό = όλη η μέρα"></div>
+            ${timeInput('fDueT', t.dueT, (dueLock ? 'disabled ' : '') + 'title="Προαιρετικό — κενό = όλη η μέρα"')}</div>
           ${dueLock ? `<div class="mut" style="font-size:11px;margin-top:3px">Τη συμπληρώνει ο/η <b>${esc(adminName(dueHolder))}</b> — εσύ ορίζεις έναρξη και deadline.</div>` : ''}</div>
         <div><label class="lbl">${I.flag || ''} Deadline <span class="mut" style="font-weight:400">— δεν μετατίθεται άλλο</span></label>
           <input type="date" class="inp" id="fSched" value="${t.sched || ''}">
@@ -5698,7 +5744,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

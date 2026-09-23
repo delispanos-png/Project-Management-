@@ -174,7 +174,7 @@ R.roles = async function () {
             <select data-k="day_mode" class="pl-in"${canEdit ? '' : ' disabled'}>${
               Object.keys(d.modes).map(k => `<option value="${k}"${
                 r.day_mode === k ? ' selected' : ''}>${esc(d.modes[k])}</option>`).join('')}</select>
-            <input type="time" data-k="deep_from" class="pl-in pl-df" value="${esc(r.deep_from)}"${
+            <input type="text" class="pl-in pl-df tinp" maxlength="5" inputmode="numeric" autocomplete="off" placeholder="ωω:λλ" aria-label="Ώρα, 24ωρη μορφή" data-k="deep_from" value="${esc(r.deep_from)}"${
               r.day_mode === 'mixed' ? '' : ' hidden'}${canEdit ? '' : ' disabled'}
               title="από πότε δουλεύει σε βάθος">
           </td>
