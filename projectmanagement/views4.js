@@ -1822,6 +1822,17 @@ R.chat = async function () {
     + (ch.hint ? ' · ' + esc(ch.hint) : '')
     + (ch.untilTxt ? ' · ' + esc(ch.untilTxt) : '');
   const chPresence = ch => chLbl(ch) + (ch.manual ? ' <span class="ch-manual">το δήλωσε</span>' : '');
+  /* Πότε μιλήσατε τελευταία φορά — η αιτιολόγηση της σειράς. Σήμερα μόνο ώρα,
+     παλιότερα ημερομηνία· χωρίς κουβέντα, τίποτα. */
+  const chWhen = ch => {
+    if (!ch.lastAt) { return ''; }
+    const d = new Date(ch.lastAt * 1000);
+    const sameDay = d.toDateString() === new Date().toDateString();
+    const txt = sameDay
+      ? d.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit'})
+      : d.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'});
+    return `<span class="ch-row-t" title="Τελευταίο μήνυμα">${esc(txt)}</span>`;
+  };
   const cur = d.channels.find(x => x.id === st.ch) || d.channels[0] || {name: 'Chat', kind: 'team'};
   c.innerHTML = `
   <div class="voicebar">
@@ -1846,6 +1857,7 @@ R.chat = async function () {
             <span class="ch-row-name">${esc(ch.name)}${ch.kind === 'group' ? ` <span class="mut" style="font-size:10.5px;font-weight:500">· ${ch.members} μέλη</span>` : ''}</span>
             <span class="ch-row-sub">${ch.kind === 'dm' ? (ch.mute ? '🔕 ' : '') + chLbl(ch) : ch.kind === 'team' ? 'Όλη η ομάδα' : 'Ομαδική συνομιλία'}</span>
           </span>
+          ${chWhen(ch)}
           ${ch.unread ? `<span class="chat-n">${ch.unread}</span>` : ''}
           ${ch.kind === 'group' ? `<span data-gdel="${ch.groupId}" data-gmine="${ch.mine ? 1 : 0}" title="${ch.mine ? 'Διαγραφή ομάδας' : 'Αποχώρηση'}" class="ch-row-x">✕</span>` : ''}
         </div>`).join('')}
@@ -2303,7 +2315,24 @@ R.chat = async function () {
         if (!n) { n = document.createElement('span'); n.className = 'chat-n'; row.appendChild(n); }
         n.textContent = ch.unread;
       } else if (n) { n.remove(); }
+      /* Και η ώρα της τελευταίας κουβέντας, που δικαιολογεί τη θέση στη λίστα. */
+      let tEl = row.querySelector('.ch-row-t');
+      if (ch.lastAt) {
+        if (!tEl) { row.insertAdjacentHTML('beforeend', chWhen(ch)); }
+        else { tEl.outerHTML = chWhen(ch); }
+      } else if (tEl) { tEl.remove(); }
     });
+    /* ΚΑΙ Η ΣΕΙΡΑ. Χωρίς αυτό, όποιος σου γράφει ενώ κοιτάς το chat θα έμενε εκεί
+       που ήταν μέχρι να ξαναμπείς. Μετακινούμε τους ΙΔΙΟΥΣ κόμβους — δεν τους
+       ξαναχτίζουμε — ώστε να μη χαθεί επιλογή, κύλιση ή ό,τι γράφεις. */
+    const list = document.querySelector('.ch-list');
+    if (list) {
+      const order = nd.channels.map(ch => document.querySelector(`.ch-row[data-ch="${ch.id}"]`)).filter(Boolean);
+      const now = [...list.querySelectorAll('.ch-row[data-ch]')];
+      if (order.length === now.length && order.some((el, i) => el !== now[i])) {
+        order.forEach(el => list.insertBefore(el, list.querySelector('#chNewGrp')));
+      }
+    }
   };
   R.chat._p = setInterval(refreshPresence, 20000);
 };
