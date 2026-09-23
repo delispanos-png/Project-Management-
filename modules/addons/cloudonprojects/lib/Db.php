@@ -2137,6 +2137,16 @@ class Db
             $data['sort'] = 1 + (int) Capsule::table('mod_cpm_tasks')
                 ->where('project_id', (int) ($data['project_id'] ?? 0))->max('sort');
         }
+        /* ΚΑΜΙΑ ΕΡΓΑΣΙΑ ΧΩΡΙΣ ΚΑΤΑΣΤΑΣΗ (23/09/2026).
+           Η δημιουργία από καταγραφή κλήσης δεν περνούσε status_id, οπότε η εργασία
+           γεννιόταν με 0 — κατάσταση που δεν υπάρχει. Αποτέλεσμα: χωρίς πινακίδα,
+           έξω από κάθε φίλτρο κατάστασης, και αόρατη στο board. Βρέθηκαν δύο τέτοιες.
+           Η προεπιλογή μπαίνει ΕΔΩ, στο ένα σημείο απ' όπου περνούν όλες οι
+           δημιουργίες, αντί να τη θυμάται κάθε νέο σημείο ξεχωριστά. */
+        if (empty($data['status_id'])) {
+            $data['status_id'] = (int) Capsule::table('mod_cpm_statuses')
+                ->orderBy('sort')->orderBy('id')->value('id');
+        }
         return (int) Capsule::table('mod_cpm_tasks')->insertGetId($data);
     }
 
