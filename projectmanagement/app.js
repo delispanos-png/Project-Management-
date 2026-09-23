@@ -2351,8 +2351,47 @@ window._cnpTimerAsked_ = window._cnpTimerAsked_ || {};
 
 /* ═════════ TASK DRAWER ═════════ */
 let timerInt = null;
+/* ΟΤΙ ΕΓΡΑΨΕΣ ΚΑΙ ΔΕΝ ΚΑΤΑΧΩΡΗΣΕΣ, ΕΠΙΖΕΙ ΤΟΥ ΞΑΝΑΣΧΕΔΙΑΣΜΟΥ (23/09/2026).
+   Η καρτέλα ξαναχτίζεται ολόκληρη σε δεκαπέντε αφορμές: αποθήκευση, χρονόμετρο,
+   καταχώρηση χρόνου, δέσιμο προσφοράς… Ό,τι είχες μισογραμμένο αριστερά —
+   μια απάντηση στη συζήτηση, μια διόρθωση στο ζητούμενο — έσβηνε μαζί.
+   Τα κρατάμε εδώ, σε ΕΝΑ σημείο απ' όπου περνούν όλες οι αφορμές, αντί να
+   θυμάται η καθεμιά να τα σώσει. */
+function cnpTaskDraftGrab(id) {
+  const dr = document.querySelector('.drawer.tk-modal');
+  if (!dr || +dr.dataset.task !== +id) { return null; }
+  const g = sel => { const e = dr.querySelector(sel); return e ? (e.isContentEditable ? e.innerHTML : e.value) : null; };
+  const chk = g('#chkNew');
+  return {
+    chk: (chk && chk.trim() && chk.trim() !== '<br>') ? chk : null,
+    descr: g('#fDescr'),
+    mins: g('#tMins') || null,
+    note: g('#tNote') || null,
+  };
+}
+
+function cnpTaskDraftPut(dr, draft) {
+  if (!draft) { return; }
+  const put = (sel, v) => {
+    if (v === null || v === undefined || v === '') { return; }
+    const e = dr.querySelector(sel); if (!e) { return; }
+    if (e.isContentEditable) { e.innerHTML = v; } else { e.value = v; }
+  };
+  put('#chkNew', draft.chk);
+  put('#tMins', draft.mins);
+  put('#tNote', draft.note);
+  /* Το ζητούμενο μόνο αν όντως διαφέρει από αυτό που μόλις ήρθε — αλλιώς θα
+     «επανέφερε» παλιό κείμενο πάνω σε αποθηκευμένο. */
+  const fd = dr.querySelector('#fDescr');
+  if (fd && draft.descr !== null && draft.descr !== undefined && draft.descr !== fd.innerHTML) {
+    fd.innerHTML = draft.descr;
+    fd.dataset.dirty = '1';
+  }
+}
+
 async function openTask(id, entryId, opts) {
   opts = opts || {};
+  const draft = cnpTaskDraftGrab(id);
   const d = await api('task&id=' + id).catch(() => null);
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   closeDrawer();
@@ -2370,6 +2409,7 @@ async function openTask(id, entryId, opts) {
   const dueLock = !!(dueHolder && dueHolder !== me.id);
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
+  dr.dataset.task = id;            // ώστε να ξέρει ο επόμενος ξανασχεδιασμός σε ποια εργασία ανήκε το πρόχειρο
   /* Το department δεν εκτελεί — εκτελεί ένας άνθρωπος από τις ομάδες που το
      εξυπηρετούν. Τους φέρνουμε πρώτους· οι υπόλοιποι μένουν διαθέσιμοι. */
   const admOpts = (sel, didFor) => {
@@ -2802,6 +2842,7 @@ async function openTask(id, entryId, opts) {
         <b>${esc(a.detail || a.action)}</b> <span class="mut">— ${esc(a.by)} · ${tShort(a.at)}</span></div>`).join('')}</div></details>
   </div>`;
   document.body.append(ovl, dr);
+  cnpTaskDraftPut(dr, draft);      // ό,τι ήταν μισογραμμένο πριν τον ξανασχεδιασμό, γυρίζει στη θέση του
   /* Δύο στήλες. Αριστερά (main): ΖΗΤΟΥΜΕΝΟ πάνω και από κάτω οι ΕΝΕΡΓΕΙΕΣ — το
      μόνο που κυλά είναι η λίστα ενεργειών. Δεξιά (side), συμπαγώς και χωρίς
      scroll: χρόνος, πεδία, εξαρτήσεις, ticket (κλειστό), ιστορικό (κλειστό).
@@ -3464,6 +3505,10 @@ async function openTask(id, entryId, opts) {
           .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
         if (r && r.err) { btn.disabled = false; if (!(await cnpCodeRefused(r.er))) { toast(r.err, true); } return; }
         for (const f of pending) { await actUpload(f, r.id); }
+        /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
+           επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
+           καταχωρημένο κείμενο θα επέστρεφε στον συνθέτη σαν να μην στάλθηκε. */
+        ed.innerHTML = '';
         openTask(id);
       };
       $('#chkGo', dr).onclick = submit;
