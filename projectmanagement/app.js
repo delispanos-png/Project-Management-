@@ -682,6 +682,14 @@ function toggleAttn() {
             <span class="attn-ic">${it.icon}</span>
             <div class="attn-b"><div>${esc(it.text)}</div>
               ${(it.refs || []).length ? `<div class="attn-refs">${it.refs.map(refRow).join('')}</div>` : ''}
+              ${/* ΜΙΑ ΚΙΝΗΣΗ, ΟΧΙ ΜΙΑ ΔΙΑΠΙΣΤΩΣΗ. Το «7 εκπρόθεσμες» δεν λέει γιατί
+                   αργούν — και το να ανοίξεις επτά καρτέλες για να ρωτήσεις είναι
+                   δουλειά που κανείς δεν κάνει. Ένα κουμπί, μία ερώτηση στον
+                   άνθρωπο, με τη λίστα του μέσα. */''}
+              ${it.ask ? `<div class="attn-act"><button class="btn btn-o btn-sm attn-ask"
+                data-ask="${it.ask}" data-askn="${esc(it.askName || '')}"
+                data-askids="${(it.refs || []).filter(r => r.kind === 'task').map(r => r.id).join(',')}"
+                title="Στείλε του ερώτηση — γίνεται κανονικό αίτημα που περιμένει απάντηση">💬 Ζήτα ενημέρωση</button></div>` : ''}
             </div></div>`).join('')).join('')
     : '<div class="empty" style="padding:24px">Τίποτα δεν χρειάζεται την προσοχή σου αυτή τη στιγμή.</div>';
   pop.innerHTML = `<div class="pop-h">Τι να προσέξεις
@@ -692,6 +700,25 @@ function toggleAttn() {
     e.preventDefault(); e.stopPropagation();
     pop.remove(); await loadAttention(); toggleAttn();
   };
+  pop.querySelectorAll('.attn-ask').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const who = +b.dataset.ask, name = b.dataset.askn || 'τον συνάδελφο';
+    const ids = (b.dataset.askids || '').split(',').filter(Boolean);
+    const lst = ids.length ? ids.map(i => '#' + i).join(', ') : '';
+    const def = 'Έχεις ' + (ids.length || '') + (ids.length === 1 ? ' εργασία' : ' εργασίες')
+      + ' με περασμένη ημερομηνία' + (lst ? ' (' + lst + ')' : '')
+      + '. Δες τες και ενημέρωσέ με τι παίζει με την καθεμιά: αν χρειάζεσαι κάτι, '
+      + 'αν κολλάει κάπου, ή αν πρέπει να βάλουμε νέα ημερομηνία.';
+    const msg = await cnpDialog({
+      title: '💬 Ζήτα ενημέρωση από ' + name,
+      body: 'Θα φτάσει ως αίτημα που μένει ανοιχτό μέχρι να απαντηθεί — δεν είναι ειδοποίηση που αγνοείται.',
+      input: def, rows: 5, max: 500, ok: 'Στείλ᾽ το', cancel: 'Άκυρο'});
+    if (msg === null || !String(msg).trim()) { return; }
+    const r = await api('team_ask', {id: who, message: String(msg).trim()}).catch(er => ({err: er && er.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('Στάλθηκε στον/στην ' + name + ' — περιμένει απάντηση');
+    pop.remove();
+  });
   pop.querySelectorAll('[data-attgo]').forEach(r => r.onclick = () => {
     const v = r.dataset.attgo;
     pop.remove();

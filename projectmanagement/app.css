@@ -4544,6 +4544,9 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .attn-ic{flex:none;font-size:15px;line-height:1.35}
 .attn-b{flex:1;min-width:0;font-size:12.5px;color:var(--ink);line-height:1.45}
 .attn-refs{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+/* Η κίνηση της γραμμής: ένα κουμπί, κάτω δεξιά, χωρίς να τραβά το βλέμμα πριν διαβάσεις. */
+.attn-act{margin-top:8px}
+.attn-act .attn-ask{font-size:11.5px;padding:4px 10px}
 /* Τα αντικείμενα είναι σύνδεσμοι, όχι διακόσμηση: πας κατευθείαν εκεί. */
 .attn-ref{display:inline-block;max-width:100%;padding:2px 8px;border-radius:999px;
   background:var(--line);color:var(--txt);font-size:11px;text-decoration:none;cursor:pointer;
