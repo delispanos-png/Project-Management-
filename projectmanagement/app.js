@@ -3030,6 +3030,31 @@ async function openTask(id, entryId, opts) {
       </div>
     </div></div>
 
+    ${/* ── Υποεργασίες ── Ό,τι σπάει σε κομμάτια που ανατίθενται και χρονομετρούνται
+          ξεχωριστά. Διαφέρει από τα «ζητούμενα»: εκεί είναι λίστα ελέγχων, εδώ είναι
+          κανονικές εργασίες με δικό τους ανάδοχο, ημερομηνία και χρόνο. */''}
+    ${d.parentTask ? `<div class="card tk-side"><div class="card-b tk-parent">
+        ${I.up || I.chev} Υποεργασία της
+        <a data-dgo="${d.parentTask.id}">${esc(d.parentTask.title)}</a></div></div>`
+      : `<div class="card tk-side"><div class="card-h">${I.list} Υποεργασίες
+        ${(d.subs || []).length ? `<span class="kb-n" style="margin-left:auto">${(d.subs || []).filter(x => x.done).length}/${d.subs.length}</span>` : ''}</div>
+      <div class="card-b" id="dSubs">
+        ${(d.subs || []).length ? `<div class="sub-list">${d.subs.map(sb => `<div class="sub-row${sb.done ? ' done' : ''}" data-dgo="${sb.id}">
+            <span class="sub-dot">${sb.done ? '✔' : '○'}</span>
+            <span class="sub-t">${esc(sb.title)}</span>
+            ${sb.assignee ? `<span class="sub-a" title="${esc(sb.assigneeName)}">${esc(adminIni(sb.assignee))}</span>` : ''}
+            ${sb.due ? `<span class="pill ${sb.late ? 'pill-bad' : 'pill-mut'}">${esc(dShort(sb.due))}</span>` : ''}
+            ${sb.mins ? `<span class="mut sub-m">${esc(fmtMin(sb.mins))}</span>` : ''}
+          </div>`).join('')}</div>`
+          : '<div class="mut" style="font-size:12px;padding:4px 0">Καμία υποεργασία — σπάσε τη δουλειά σε κομμάτια που ανατίθενται ξεχωριστά.</div>'}
+        ${d.canWrite ? `<div class="sub-add">
+          <input class="inp" id="subT" placeholder="Νέα υποεργασία… (Enter)" maxlength="200" style="flex:1;font-size:12px;padding:6px 8px">
+          <select class="inp" id="subA" style="width:132px;font-size:12px;padding:6px 8px">
+            <option value="">— ανάδοχος —</option>
+            ${(S.boot.admins || []).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+          <button class="btn btn-sm btn-o" id="subAdd">+</button></div>` : ''}
+      </div></div>`}
+
     <div class="card tk-side"><div class="card-h">${I.link} Εξαρτήσεις <span class="mut" style="font-weight:600;font-size:11px">— πρέπει να τελειώσουν πρώτα</span></div>
       <div class="card-b" id="dDeps">
       ${(d.deps || []).map(dp => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px">
@@ -3457,6 +3482,19 @@ async function openTask(id, entryId, opts) {
   });
   /* 📁 Αλλαγή έργου: διορθώνει τα «Χωρίς έργο» χωρίς να ξαναφτιάξεις την εργασία.
      Η λίστα χωρίζεται σε έργα πελατών και εσωτερικά — και δείχνει ΠΟΥ είναι τώρα. */
+  /* Υποεργασίες: ένα Enter φτιάχνει· η κάρτα ξαναφορτώνεται για να δεις το σύνολο. */
+  { const sa = $('#subAdd', dr), st = $('#subT', dr), sl = $('#subA', dr);
+    const addSub = async () => {
+      const title = (st.value || '').trim();
+      if (!title) { st.focus(); return; }
+      const r = await api('task_sub_add', {task: id, title, assignee: sl && sl.value ? +sl.value : 0})
+        .catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      st.value = ''; toast('Προστέθηκε υποεργασία'); openTask(id);
+    };
+    if (sa) { sa.onclick = addSub; }
+    if (st) { st.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addSub(); } }; } }
+
   { const mv = $('#dPjMove', dr); if (mv) { mv.onclick = async () => {
       if (!S.boot.projects.length) { await cnpRefreshProjects(); }
       const cur = d.project.none ? 0 : +d.project.id;

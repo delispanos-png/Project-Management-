@@ -2792,6 +2792,7 @@ function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap
            χειροκίνητα για ticket της παλιάς πλατφόρμας. Ένα πεδίο στην οθόνη. */
         'ticketNo' => $tkNoMap !== null ? ($tkNoMap[(int) $t->id] ?? null) : null,
         'ticketRef' => isset($t->ticket_ref) && $t->ticket_ref !== '' ? (string) $t->ticket_ref : null,
+        'parent' => isset($t->parent_id) && $t->parent_id ? (int) $t->parent_id : null,
         'dept' => isset($t->dept_id) && $t->dept_id ? (int) $t->dept_id : null,
         'module' => isset($t->module_id) && $t->module_id ? (int) $t->module_id : null,
         'delivery' => !empty($t->is_delivery),
@@ -4263,7 +4264,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
         $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler']);
-        $add('projects.board.edit', ['task_project', 'gantt_move', 'dep_add', 'dep_del',
+        $add('projects.board.edit', ['task_project', 'gantt_move',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
         $add('projects.modules.edit', ['template_save', 'template_step_save', 'template_step_move',
@@ -4402,6 +4403,10 @@ function cnp_open_actions()
            δικαιώματα «Αναφορές». Η ενέργεια ελέγχει ΜΕΣΑ της ότι ο άνθρωπος
            που ζητήθηκε ανήκει στη δική σου εμβέλεια. */
         'myteam', 'team_pulse', 'team_ask',
+        /* Υποεργασίες & εξαρτήσεις: κριτής είναι το cnp_task_write_ok (δική σου εργασία ή
+           «Board: επεξεργασία»), όχι σκέτο cap — όποιος δουλεύει την εργασία τη σπάει σε
+           κομμάτια και δηλώνει τι περιμένει, χωρίς να ζητά δικαίωμα διαχειριστή. */
+        'task_sub_add', 'task_parent', 'dep_add', 'dep_del',
         'task', 'task_delete', 'task_handoff', 'task_share',
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
@@ -5051,6 +5056,37 @@ case 'task':
     $askScopeT = cnp_team_scope($adminId, $FULL);
     $canAskT = $holderT && $holderT !== $adminId
         && ($askScopeT['all'] || in_array($holderT, $askScopeT['ids'], true));
+    /* ── Υποεργασίες: τα κομμάτια στα οποία έσπασε η δουλειά ──
+       Κρατάμε ΕΝΑ επίπεδο, οπότε ή έχεις γονιό ή έχεις παιδιά, ποτέ και τα δύο. */
+    $closedSub = Db::closedStatusIds();
+    $parentOf = null;
+    if (!empty($t->parent_id)) {
+        $pRow = Db::task((int) $t->parent_id);
+        if ($pRow) { $parentOf = ['id' => (int) $pRow->id, 'title' => (string) $pRow->title]; }
+    }
+    $subsOf = [];
+    if (empty($t->parent_id)) {
+        $subMins = [];
+        $subIds = array_map('intval', Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $t->id)->pluck('id')->all());
+        if ($subIds) {
+            foreach (Capsule::table('mod_cpm_timelogs')->whereIn('task_id', $subIds)->where('running', 0)
+                ->selectRaw('task_id, SUM(minutes) m')->groupBy('task_id')->get() as $sm) {
+                $subMins[(int) $sm->task_id] = (int) $sm->m;
+            }
+        }
+        foreach (Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $t->id)
+            ->orderBy('sort')->orderBy('id')->get() as $sb) {
+            $subsOf[] = ['id' => (int) $sb->id, 'title' => (string) $sb->title,
+                'status' => (int) $sb->status_id,
+                'done' => in_array((int) $sb->status_id, $closedSub, true),
+                'assignee' => $sb->assignee ? (int) $sb->assignee : null,
+                'assigneeName' => $sb->assignee ? Db::adminName((int) $sb->assignee) : '',
+                'due' => $sb->due_date, 'late' => $sb->due_date && $sb->due_date < date('Y-m-d')
+                    && !in_array((int) $sb->status_id, $closedSub, true),
+                'mins' => $subMins[(int) $sb->id] ?? 0];
+        }
+    }
+
     out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
         'canAsk' => $canAskT, 'holder' => $holderT,
         'holderName' => $holderT ? Db::adminName($holderT) : '',
@@ -5071,6 +5107,7 @@ case 'task':
         'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
         /* Ίδιος κριτής με τον server (cnp_task_write_ok): η οθόνη δεν μαντεύει ποιος γράφει. */
         'canWrite' => cnp_task_write_ok($adminId, $FULL, $t),
+        'parentTask' => $parentOf, 'subs' => $subsOf,
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
@@ -6782,6 +6819,72 @@ case 'push_latest':                       // ο service worker τραβά τι �
 
 
 /* ================= ACTIONS ================= */
+case 'task_sub_add':                     /* ➕ Νέα υποεργασία κάτω από εργασία.
+      ΔΕΝ είναι checklist: έχει ανάδοχο, ημερομηνία, κατάσταση και δικό της χρόνο.
+      Κληρονομεί έργο/τμήμα/προϊόν από τον γονιό — αλλιώς θα γεννιόταν «χωρίς έργο». */
+    $saP = Db::task((int) ($in['task'] ?? 0));
+    if (!$saP || !Db::canSeeTask($adminId, $saP)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $saP)) {
+        fail('Δεν μπορείς να προσθέσεις υποεργασία εδώ — δεν είναι δική σου και δεν έχεις «Board: επεξεργασία»', 403);
+    }
+    cnp_task_lock_guard($saP);
+    if (!empty($saP->parent_id)) {
+        fail('Η εργασία είναι ήδη υποεργασία — κρατάμε ΕΝΑ επίπεδο ώστε να παρακολουθείται');
+    }
+    $saTitle = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['title'] ?? '')));
+    if ($saTitle === '') { fail('Γράψε τι πρέπει να γίνει'); }
+    if (mb_strlen($saTitle) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($saTitle) . ' χαρακτήρες — μέγιστο 200'); }
+    $saAss = (int) ($in['assignee'] ?? 0);
+    $saNew = [
+        'parent_id' => (int) $saP->id,
+        'project_id' => $saP->project_id ?: null,
+        'dept_id' => $saP->dept_id ?: null,
+        'product_id' => $saP->product_id ?: null,
+        'internal' => (int) ($saP->internal ?? 0),
+        'title' => $saTitle,
+        'status_id' => (int) (Db::statusIds(['wait'])[0] ?? 0) ?: (int) Capsule::table('mod_cpm_statuses')->orderBy('sort')->value('id'),
+        'priority' => 0,
+        'assignee' => $saAss ?: null,
+        'action_user' => $saAss ?: null,
+        'due_date' => !empty($in['due']) ? substr((string) $in['due'], 0, 10) : null,
+        'created_by' => $adminId,
+        'created_at' => date('Y-m-d H:i:s'),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    $saId = (int) Capsule::table('mod_cpm_tasks')->insertGetId($saNew);
+    Db::logActivity((int) $saP->id, $adminId, 'sub', 'Νέα υποεργασία: ' . mb_substr($saTitle, 0, 80));
+    if ($saAss && $saAss !== $adminId) {
+        Db::pushNotification($saAss, 'task', Db::adminName($adminId) . ' σου ανέθεσε υποεργασία: '
+            . mb_substr($saTitle, 0, 70), '/project/#/task/' . $saId);
+    }
+    out(['ok' => true, 'id' => $saId]);
+
+case 'task_parent':                      /* 🔗 Σύνδεση/αποσύνδεση ΥΠΑΡΧΟΥΣΑΣ εργασίας ως υποεργασία. */
+    $tpC = Db::task((int) ($in['task'] ?? 0));
+    if (!$tpC || !Db::canSeeTask($adminId, $tpC)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $tpC)) { fail('Δεν είναι δική σου εργασία', 403); }
+    cnp_task_lock_guard($tpC);
+    $tpPid = (int) ($in['parent'] ?? 0);
+    if ($tpPid) {
+        if ($tpPid === (int) $tpC->id) { fail('Μια εργασία δεν γίνεται υποεργασία του εαυτού της'); }
+        $tpPar = Db::task($tpPid);
+        if (!$tpPar || !Db::canSeeTask($adminId, $tpPar)) { fail('Η γονική εργασία δεν βρέθηκε', 404); }
+        if (!empty($tpPar->parent_id)) { fail('Ο γονιός είναι ήδη υποεργασία — κρατάμε ΕΝΑ επίπεδο'); }
+        if (Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $tpC->id)->exists()) {
+            fail('Αυτή η εργασία έχει ήδη δικές της υποεργασίες — δεν γίνεται και παιδί');
+        }
+        Capsule::table('mod_cpm_tasks')->where('id', (int) $tpC->id)
+            ->update(['parent_id' => $tpPid, 'updated_at' => date('Y-m-d H:i:s')]);
+        Db::logActivity((int) $tpPid, $adminId, 'sub', 'Συνδέθηκε υποεργασία #' . (int) $tpC->id . ' ' . mb_substr((string) $tpC->title, 0, 60));
+        Db::logActivity((int) $tpC->id, $adminId, 'sub', 'Έγινε υποεργασία της #' . $tpPid);
+    } else {
+        $tpOldP = (int) ($tpC->parent_id ?: 0);
+        Capsule::table('mod_cpm_tasks')->where('id', (int) $tpC->id)
+            ->update(['parent_id' => null, 'updated_at' => date('Y-m-d H:i:s')]);
+        if ($tpOldP) { Db::logActivity($tpOldP, $adminId, 'sub', 'Αποσυνδέθηκε η υποεργασία #' . (int) $tpC->id); }
+    }
+    out(['ok' => true, 'parent' => $tpPid]);
+
 case 'task_project':                     /* 📁 Αλλαγή έργου μιας εργασίας — διόρθωση των «Χωρίς έργο».
       Η εργασία κρατά ιστορικό, χρόνο και συζήτηση· αλλάζει μόνο πού κρέμεται. */
     $tpT = Db::task((int) ($in['task'] ?? 0));
@@ -12399,6 +12502,9 @@ case 'task_delete':
     /* Εξαρτήσεις προς ΚΑΙ από την εργασία — αλλιώς άλλες εργασίες μένουν
        μπλοκαρισμένες από κάτι που δεν υπάρχει πια. */
     Capsule::table('mod_cpm_deps')->where('depends_on', $tid)->delete();
+    /* Οι υποεργασίες ΔΕΝ διαγράφονται μαζί: έχουν δικό τους χρόνο, συζήτηση και ανάδοχο.
+       Απλώς παύουν να είναι παιδιά — αλλιώς μια διαγραφή γονιού θα έσβηνε δουλειά άλλων. */
+    Capsule::table('mod_cpm_tasks')->where('parent_id', $tid)->update(['parent_id' => null]);
     Capsule::table('mod_cpm_tasks')->where('id', $tid)->delete();
 
     /* Πρόχειρο που ακυρώθηκε αμέσως (άνοιξε κατά λάθος, ✕ → «Όχι»): δεν είναι
@@ -15233,15 +15339,35 @@ case 'gantt_move':
 
 /* ================= ΕΞΑΡΤΗΣΕΙΣ + ΑΡΧΕΙΑ ================= */
 case 'dep_add':
+    /* Ο κριτής δεν είναι πια cap αλλά η ίδια η εργασία: όποιος τη δουλεύει δηλώνει τι
+       περιμένει. Επειδή όμως η ενέργεια είναι πλέον ανοιχτή, ο έλεγχος γίνεται ΕΔΩ —
+       πριν, τον έκανε το «Board: επεξεργασία» από πάνω. */
     $t7 = Db::task((int) ($in['task'] ?? 0));
     if (!$t7 || !Db::canSeeTask($adminId, $t7)) {
         fail('task', 403);
     }
-    $ok7 = Db::addDep($t7->id, (int) ($in['on'] ?? 0));
+    if (!cnp_task_write_ok($adminId, $FULL, $t7)) {
+        fail('Δεν είναι δική σου εργασία — χρειάζεται «Board: επεξεργασία»', 403);
+    }
+    cnp_task_lock_guard($t7);
+    /* Και η εργασία από την οποία εξαρτάται πρέπει να σου είναι ορατή, αλλιώς θα
+       έβλεπες στην κάρτα τίτλο εργασίας που δεν δικαιούσαι. */
+    $on7 = Db::task((int) ($in['on'] ?? 0));
+    if (!$on7 || !Db::canSeeTask($adminId, $on7)) { fail('Η εργασία δεν βρέθηκε', 404); }
+    $ok7 = Db::addDep($t7->id, (int) $on7->id);
+    if ($ok7) { Db::logActivity((int) $t7->id, $adminId, 'dep', 'Περιμένει την #' . (int) $on7->id . ' ' . mb_substr((string) $on7->title, 0, 60)); }
     out(['ok' => (bool) $ok7]);
 
 case 'dep_del':
-    Db::delDep((int) ($in['id'] ?? 0));
+    /* Πριν δεν έλεγχε ΤΙΠΟΤΑ — το κάλυπτε το cap. Τώρα ελέγχει ποιανού είναι η εξάρτηση. */
+    $d7 = Capsule::table('mod_cpm_deps')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$d7) { out(['ok' => true]); }
+    $dt7 = Db::task((int) $d7->task_id);
+    if (!$dt7 || !Db::canSeeTask($adminId, $dt7)) { fail('task', 403); }
+    if (!cnp_task_write_ok($adminId, $FULL, $dt7)) {
+        fail('Δεν είναι δική σου εργασία — χρειάζεται «Board: επεξεργασία»', 403);
+    }
+    Db::delDep((int) $d7->id);
     out(['ok' => true]);
 
 /* Τα task attachments ενοποιήθηκαν στο γενικό Storage layer (file_* endpoints, module=task).
