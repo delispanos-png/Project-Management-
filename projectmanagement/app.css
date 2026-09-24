@@ -4299,6 +4299,10 @@ html[data-theme="dark"] .dday-e.rs-ask{background:#eba63c33}
 }
 
 /* ── Δρομέας πληκτρολογίου ── */
+.pill-act{border:1px solid var(--line);background:var(--card);color:var(--brand);cursor:pointer;font:inherit;
+  font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;display:inline-flex;align-items:center;gap:5px}
+.pill-act:hover{border-color:var(--brand);background:#0090dd0f}
+.pill-act svg{width:12px;height:12px}
 .kb-cur{position:relative;background:#0090dd0f!important;box-shadow:inset 3px 0 0 var(--brand)}
 html[data-theme="dark"] .kb-cur{background:#0090dd22!important}
 .myd-next-b{flex:none;align-self:flex-start;margin-left:auto;white-space:nowrap}

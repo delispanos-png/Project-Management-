@@ -4263,7 +4263,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
         $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler']);
-        $add('projects.board.edit', ['gantt_move', 'dep_add', 'dep_del',
+        $add('projects.board.edit', ['task_project', 'gantt_move', 'dep_add', 'dep_del',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
         $add('projects.modules.edit', ['template_save', 'template_step_save', 'template_step_move',
@@ -5069,6 +5069,8 @@ case 'task':
             ->where('module', 'task')->where('ref_type', 'check')->where('ref_id', (int) $t->id)
             ->orderBy('id')->get()->all()),
         'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
+        /* Ίδιος κριτής με τον server (cnp_task_write_ok): η οθόνη δεν μαντεύει ποιος γράφει. */
+        'canWrite' => cnp_task_write_ok($adminId, $FULL, $t),
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
@@ -6780,6 +6782,46 @@ case 'push_latest':                       // ο service worker τραβά τι �
 
 
 /* ================= ACTIONS ================= */
+case 'task_project':                     /* 📁 Αλλαγή έργου μιας εργασίας — διόρθωση των «Χωρίς έργο».
+      Η εργασία κρατά ιστορικό, χρόνο και συζήτηση· αλλάζει μόνο πού κρέμεται. */
+    $tpT = Db::task((int) ($in['task'] ?? 0));
+    if (!$tpT || !Db::canSeeTask($adminId, $tpT)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $tpT)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    cnp_task_lock_guard($tpT);
+    $tpNew = (int) ($in['project'] ?? 0);
+    $tpOld = (int) ($tpT->project_id ?: 0);
+    if ($tpNew === $tpOld) { out(['ok' => true, 'same' => true]); }
+
+    $tpUpd = [];
+    if ($tpNew) {
+        if (!Db::canSeeProject($adminId, $tpNew)) { fail('Δεν έχεις πρόσβαση σε αυτό το έργο', 403); }
+        $tpP = Capsule::table('mod_cpm_projects')->where('id', $tpNew)->first(['id', 'name', 'clientid', 'deptid', 'product_id', 'kind']);
+        if (!$tpP) { fail('Το έργο δεν βρέθηκε', 404); }
+        $tpUpd['project_id'] = $tpNew;
+        /* Το department και το προϊόν ακολουθούν το έργο ΜΟΝΟ αν η εργασία δεν έχει δικά της:
+           μια εργασία που στάλθηκε ρητά σε τμήμα δεν πρέπει να αλλάξει χέρια από μια μετακίνηση. */
+        if (empty($tpT->dept_id) && !empty($tpP->deptid)) { $tpUpd['dept_id'] = (int) $tpP->deptid; }
+        if (empty($tpT->product_id) && !empty($tpP->product_id)) { $tpUpd['product_id'] = (int) $tpP->product_id; }
+        /* Εσωτερικό έργο → εσωτερική εργασία, και το αντίστροφο. Το flag ακολουθεί την πραγματικότητα. */
+        $tpUpd['internal'] = ((string) ($tpP->kind ?? '') === 'internal' || empty($tpP->clientid)) ? 1 : 0;
+    } else {
+        /* Βγαίνει από έργο: πρέπει να μείνει σε department, αλλιώς δεν κρέμεται πουθενά. */
+        $tpDept = (int) ($in['dept'] ?? 0) ?: (int) ($tpT->dept_id ?: 0);
+        if (!$tpDept) { fail('Χωρίς έργο, η εργασία πρέπει να ανήκει σε department — διάλεξε ένα'); }
+        $tpUpd['project_id'] = null;
+        $tpUpd['dept_id'] = $tpDept;
+    }
+    $tpUpd['updated_at'] = date('Y-m-d H:i:s');
+    Capsule::table('mod_cpm_tasks')->where('id', (int) $tpT->id)->update($tpUpd);
+
+    $nmOf = function ($id) {
+        return $id ? (string) (Capsule::table('mod_cpm_projects')->where('id', $id)->value('name') ?: ('#' . $id)) : 'Χωρίς έργο';
+    };
+    Db::logActivity((int) $tpT->id, $adminId, 'move', 'Άλλαξε έργο: ' . $nmOf($tpOld) . ' → ' . $nmOf($tpNew));
+    out(['ok' => true, 'project' => $tpNew, 'name' => $nmOf($tpNew)]);
+
 case 'move_task':
     $t = Db::task((int) ($in['task'] ?? 0));
     if (!$t || !Db::canSeeTask($adminId, $t)) {
