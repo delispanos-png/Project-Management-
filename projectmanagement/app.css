@@ -3386,6 +3386,9 @@ html[data-theme="dark"] .myd-row.ev.now,html[data-theme="dark"] .myd-row.task.li
 .ch-acts{position:absolute;top:-15px;right:8px;display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:2px 4px;box-shadow:0 3px 10px rgba(0,0,0,.12);opacity:0;transition:opacity .15s;z-index:2}
 .ch-m:hover .ch-acts,.ch-m:focus-within .ch-acts{opacity:1}
 .ch-acts .ch-del{opacity:1;box-shadow:none;background:none;width:26px;height:26px}
+/* τελευταία 30΄΄ για διόρθωση — το μολύβι το λέει πριν φύγει */
+.ch-acts .ch-del.ch-last{color:#d97706;animation:chLast 1s ease-in-out infinite}
+@keyframes chLast{50%{opacity:.35}}
 @media(hover:none){.ch-acts{opacity:.85}}
 .ch-edited{font-style:italic;font-weight:400;opacity:.8}
 .ch-del{position:static;width:24px;height:24px;border-radius:7px;border:none;background:var(--card);color:var(--mut);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;box-shadow:0 1px 4px rgba(0,0,0,.15)}

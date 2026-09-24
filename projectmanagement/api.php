@@ -2035,6 +2035,7 @@ define('CNP_PRESENCE_GONE', 1800);     // μισή ώρα χωρίς παλμό 
    (β) ο άνθρωπος λείπει από την εφαρμογή πάνω από CNP_MEET_GONE. */
 define('CNP_GREET_OK', 10);            // λεπτά ανοχής πριν πούμε «άργησες»
 define('CNP_MEET_LONG', 14400);        // 4 ώρες: πάνω από αυτό, «σύσκεψη» σημαίνει ξεχασμένη ώρα λήξης
+define('CNP_CHAT_EDIT', 120);          // 2΄ για διόρθωση δικού σου μηνύματος στο chat
 define('CNP_MEET_GONE', 3600);         // και μία ώρα εκτός εφαρμογής → δεν στέκει
 
 /**
@@ -15495,8 +15496,8 @@ case 'chat_msgs':
             'edited' => !empty($m9->edited_at),
             'reply' => $quoteOf($m9->reply_to ?? 0),
             'reacts' => $reactsM[(int) $m9->id] ?? (object) [],
-            /* Διόρθωση μόνο το πρώτο λεπτό (κανόνας 18/9/2026): πόσα δευτερόλεπτα μένουν */
-            'editLeft' => (int) $m9->admin_id === $adminId && !$m9->filename ? max(0, 60 - (time() - strtotime($m9->created_at))) : 0,
+            /* Διόρθωση μόνο στα πρώτα δύο λεπτά: πόσα δευτερόλεπτα μένουν. Μία πηγή αλήθειας: ο server. */
+            'editLeft' => (int) $m9->admin_id === $adminId && !$m9->filename ? max(0, CNP_CHAT_EDIT - (time() - strtotime($m9->created_at))) : 0,
             'file' => $m9->filename ? ['name' => $m9->filename, 'size' => (int) $m9->size, 'id' => (int) $m9->id,
                 'mime' => $m9->mime, 'kind' => Storage::kindFromMime($m9->mime),
                 'url' => 'api.php?a=chat_file&id=' . (int) $m9->id] : null];
@@ -15559,7 +15560,7 @@ case 'chat_edit':                       // επεξεργασία δικού μ�
     if (!$mE || !cnp_chat_access($mE->channel, $adminId) || !empty($mE->deleted_at)) { fail('message', 404); }
     if ((int) $mE->admin_id !== $adminId) { fail('Μπορείς να αλλάξεις μόνο δικά σου μηνύματα', 403); }
     if ($mE->filename) { fail('Μήνυμα με αρχείο/φωνητικό δεν επεξεργάζεται — σβήσ’ το και στείλε νέο'); }
-    if (time() - strtotime($mE->created_at) > 60) { fail('Η διόρθωση επιτρέπεται μόνο το πρώτο λεπτό — μετά, σβήσ’ το και στείλε νέο'); }
+    if (time() - strtotime($mE->created_at) > CNP_CHAT_EDIT) { fail('Η διόρθωση επιτρέπεται μόνο τα πρώτα 2΄ — μετά, σβήσ’ το και στείλε νέο'); }
     $bodyE = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 4000);
     if ($bodyE === '') { fail('Κενό μήνυμα — αν θέλεις να το αφαιρέσεις, πάτα διαγραφή'); }
     if ($bodyE !== (string) $mE->body) {
