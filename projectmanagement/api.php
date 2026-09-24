@@ -2235,11 +2235,57 @@ function cnp_close_ghost_timers($now = null)
  * Και μόνο το πρωί — αν κάποιος ανοίξει το εργαλείο για πρώτη φορά στις 9 το
  * βράδυ, ένα «καλημέρα» θα ήταν κοροϊδία.
  */
+/**
+ * Η ΕΙΚΟΝΑ ΤΗΣ ΗΜΕΡΑΣ ΣΕ ΠΕΝΤΕ ΑΡΙΘΜΟΥΣ — αυτόνομη, γιατί το καλωσόρισμα μπορεί
+ * να φτάσει και από τον σφυγμό (όταν χτυπήσει η ώρα έναρξης), όχι μόνο από τη
+ * «Μέρα μου». Μετράει ΜΟΝΟ ό,τι θέλει κίνηση σήμερα.
+ */
+function cnp_day_summary($adminId)
+{
+    $today = date('Y-m-d');
+    $done = Capsule::table('mod_cpm_statuses')->whereIn('phase', ['done', 'cancel'])->pluck('id')->all() ?: [0];
+
+    $plan = (int) cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done), $adminId)
+        ->where(function ($d) use ($today) {
+            $d->where('start_date', '<=', $today)->orWhere('schedule_date', '<=', $today)
+              ->orWhere('due_date', '<=', $today);
+        })->count();
+
+    $due = (int) cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done), $adminId)
+        ->whereNotNull('due_date')->where('due_date', '<=', $today)->count();
+
+    /* Tickets που περιμένουν ΕΜΑΣ: τελευταία απάντηση από τον πελάτη (ή καμία). */
+    $tk = 0;
+    foreach (Capsule::table('tbltickets')->where('flag', $adminId)
+        ->whereNotIn('status', ['Closed', 'Cancelled'])->get(['id']) as $t) {
+        $lr = Capsule::table('tblticketreplies')->where('tid', $t->id)->orderBy('id', 'desc')->first(['admin']);
+        if (!$lr || $lr->admin === null || $lr->admin === '') { $tk++; }
+    }
+
+    $ev = 0; $firstAt = '';
+    $nowS = date('Y-m-d H:i:s');
+    foreach (Capsule::table('mod_cpm_events')->whereIn('kind', ['meeting', 'appointment'])
+        ->where('all_day', 0)->where('start_dt', '<=', $today . ' 23:59:59')
+        ->where('end_dt', '>=', $nowS)->orderBy('start_dt')->get() as $e) {
+        $att = array_filter(array_map('intval', explode(',', (string) $e->attendees)));
+        if ($att && !in_array((int) $adminId, $att, true) && (int) $e->created_by !== (int) $adminId) { continue; }
+        $left = Capsule::table('mod_cpm_event_rsvp')->where('event_id', $e->id)
+            ->where('kind', 'admin')->where('ref', $adminId)->value('left_at');
+        if ($left) { continue; }
+        $ev++;
+        if ($firstAt === '') { $firstAt = substr((string) $e->start_dt, 11, 5); }
+    }
+
+    $asks = 0;
+    try { $asks = (int) (cnp_pending_for($adminId, false)['count'] ?? 0); } catch (\Throwable $e) { }
+
+    return ['plan' => $plan, 'due' => $due, 'tickets' => $tk, 'events' => $ev,
+        'firstAt' => $firstAt, 'asks' => $asks];
+}
+
 function cnp_greeting($adminId, array $day = [])
 {
     $today = date('Y-m-d');
-    if ((string) Db::pref($adminId, 'greet_day', '') === $today) { return null; }
-
     $now = time();
     $sh = Pool::shift($adminId);
     $startTs = $sh ? strtotime($today . ' ' . $sh['from']) : null;
@@ -2250,6 +2296,19 @@ function cnp_greeting($adminId, array $day = [])
         ? ($now >= $startTs - 2 * 3600 && $now <= $startTs + 4 * 3600)
         : ($now >= strtotime($today . ' 05:00') && $now <= strtotime($today . ' 12:00'));
     if (!$okWindow) { return null; }
+
+    /* ΔΥΟ ΣΤΑΔΙΑ (24/09/2026).
+       Όποιος μπαίνει ΠΡΙΝ το ωράριό του δεν παίρνει ακόμη τη μέρα του: παίρνει
+       «ξεκινάμε σε τόσο» και την υπόσχεση ότι η λίστα έρχεται στην ώρα της. Δεν
+       είναι φραγμός — μπορεί να δουλέψει ό,τι θέλει· είναι σεβασμός στο ωράριο.
+       Μόλις χτυπήσει η ώρα, ο σφυγμός φέρνει το κανονικό, με τη σύνοψη.
+       Δύο σημάδια, γιατί είναι δύο διαφορετικά μηνύματα. */
+    $early = $startTs && $now < $startTs - 60;
+    if ($early) {
+        if ((string) Db::pref($adminId, 'greet_early', '') === $today) { return null; }
+    } elseif ((string) Db::pref($adminId, 'greet_day', '') === $today) {
+        return null;
+    }
 
     /* Η ευχή αλλάζει ανά ημέρα και ανά άνθρωπο, αλλά ΔΕΝ αλλάζει σε κάθε refresh:
        ίδια μέρα, ίδιο άτομο, ίδια ευχή. */
@@ -2271,6 +2330,7 @@ function cnp_greeting($adminId, array $day = [])
        εικόνα γίνεται προετοιμασία. Μετράμε ΜΟΝΟ ό,τι θέλει κίνηση σήμερα — όχι
        σύνολα που δεν αλλάζουν τίποτα στο πρώτο λεπτό της ημέρας. */
     $sum = [];
+    if (!$early && !$day) { $day = cnp_day_summary($adminId); }
     $ev = (int) ($day['events'] ?? 0);
     if ($ev) {
         $sum[] = ['ic' => '📅', 'txt' => $ev === 1
@@ -2296,7 +2356,7 @@ function cnp_greeting($adminId, array $day = [])
         $sum[] = ['ic' => '💬', 'txt' => $ask === 1 ? 'Ένας συνάδελφος σε ζητά'
             : $ask . ' συνάδελφοι σε ζητούν'];
     }
-    if (!$sum) { $sum[] = ['ic' => '🌤', 'txt' => 'Καθαρό τραπέζι — τίποτα δεν σε περιμένει.']; }
+    if (!$sum && !$early) { $sum[] = ['ic' => '🌤', 'txt' => 'Καθαρό τραπέζι — τίποτα δεν σε περιμένει.']; }
 
     $line = '';
     $kind = 'plain';
@@ -2304,7 +2364,11 @@ function cnp_greeting($adminId, array $day = [])
         $diff = (int) round(($now - $startTs) / 60);
         if ($diff < -1) {
             $kind = 'early';
-            $line = 'Ξεκινάμε σε ' . cnp_greet_span(-$diff) . ' — στις ' . $sh['from'] . '.';
+            $line = 'Το ωράριό σου ξεκινά σε ' . cnp_greet_span(-$diff) . ' — στις ' . $sh['from'] . '.';
+            $sum = [
+                ['ic' => '📋', 'txt' => 'Στις ' . $sh['from'] . ' θα σου δώσω τη μέρα σου: τι έχεις, τι λήγει, ποιος σε ζητά.'],
+                ['ic' => '🖐', 'txt' => 'Μέχρι τότε κινείσαι ελεύθερα — ό,τι θες στο πρόγραμμα δουλεύει κανονικά.'],
+            ];
         } elseif ($diff <= CNP_GREET_OK) {
             $kind = 'ontime';
             $line = 'Στην ώρα σου. Ωράριο ' . $sh['from'] . '–' . $sh['to'] . '.';
@@ -2314,7 +2378,7 @@ function cnp_greeting($adminId, array $day = [])
         }
     }
 
-    Db::setPref($adminId, 'greet_day', $today);
+    Db::setPref($adminId, $early ? 'greet_early' : 'greet_day', $today);
     return ['hi' => 'Καλημέρα, ' . explode(' ', trim(Db::adminName($adminId)))[0] . '!',
         'sum' => $sum, 'wish' => $wish, 'line' => $line, 'kind' => $kind,
         'from' => $sh['from'] ?? '', 'to' => $sh['to'] ?? ''];
@@ -18924,7 +18988,11 @@ case 'version':
         'build' => cnp_asset_version(),
         'unread' => Db::unreadCount($adminId), 'pending' => cnp_pending_for($adminId, $FULL)['count'],
         'chatUnread' => $chatUnread, 'alerts' => $alerts,
-        'meetAlerts' => $meetAlerts, 'myTimer' => $myTimer]);
+        'meetAlerts' => $meetAlerts, 'myTimer' => $myTimer,
+        /* Το καλωσόρισμα ΔΕΝ περιμένει να ανοίξεις τη «Μέρα μου»: όταν χτυπήσει
+           η ώρα έναρξης, έρχεται μόνο του στον σφυγμό. Αλλιώς η υπόσχεση «στις
+           09:00 θα σου δώσω τη μέρα σου» θα ήταν κενή. */
+        'greet' => cnp_greeting($adminId)]);
 
 case 'event_nudge':                      // «απάντησε» σε όσους δεν έχουν απαντήσει
     $nv = Capsule::table('mod_cpm_events')->where('id', (int) ($in['id'] ?? 0))->first();

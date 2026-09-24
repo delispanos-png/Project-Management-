@@ -4117,6 +4117,7 @@ document.addEventListener('keydown', e => {
    ως γεγονός, όχι ως παρατήρηση: πληροφορία για τον ίδιο, όχι καταγγελία. */
 function cnpGreet(g) {
   if (!g || !g.hi) { return; }
+  if (document.querySelector('.gr-ovl')) { return; }   // ποτέ δύο μαζί
   const tone = {early: 'ok', ontime: 'ok', late: 'warn', plain: 'ok'}[g.kind] || 'ok';
   const ico = {early: '🌅', ontime: '☕', late: '⏰', plain: '🌞'}[g.kind] || '🌞';
   const ovl = document.createElement('div');
@@ -5927,6 +5928,10 @@ window.CNP = {S, api, esc, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, pa
       if (Array.isArray(d.alerts) && window.CNP.showHelpAlert) { d.alerts.forEach(a => window.CNP.showHelpAlert(a)); }
       // 📅 προσκλήσεις σε σύσκεψη & υπενθύμιση πριν την έναρξη
       if (Array.isArray(d.meetAlerts)) { d.meetAlerts.forEach(meetPop); }
+      /* 🌞 Το καλωσόρισμα του πρωινού. Έρχεται από τον σφυγμό, ώστε όποιος μπήκε
+         πριν το ωράριό του να πάρει τη μέρα του ΣΤΗΝ ΩΡΑ ΤΟΥ, χωρίς να χρειαστεί
+         να ανοίξει ή να ανανεώσει κάτι. */
+      if (d.greet) { cnpGreet(d.greet); }
       // ⏱ «τρέχει πολλή ώρα — ακόμα δουλεύεις;»
       if (d.myTimer) { timerCheckPop(d.myTimer); }
       /* 💬 μετρητής στην πάνω μπάρα: το chat είναι θαμμένο στο πλάι μέσα σε
