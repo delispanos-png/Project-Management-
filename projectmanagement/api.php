@@ -2049,6 +2049,34 @@ define('CNP_CHAT_EDIT', 120);
  * Μία λίστα σημαίνει ότι αυτό δεν μπορεί να ξανασυμβεί: ό,τι σώζεται,
  * διαβάζεται. Νέα ρύθμιση = μία γραμμή εδώ, και δουλεύει και στις δύο φορές.
  */
+/**
+ * ΕΝΑ ΜΗΝΥΜΑ, ΜΙΑ ΦΟΡΑ.
+ *
+ * Το ίδιο μήνυμα εμφανιζόταν δύο φορές στη συνομιλία. Δεν ήταν η οθόνη — ήταν
+ * δύο γραμμές στη βάση: δεύτερο Enter όσο έτρεχε το πρώτο, διπλό πάτημα, ή
+ * «δεν κατάλαβα αν έφυγε, το ξαναστέλνω».
+ *
+ * Εδώ κλείνει ο δρόμος στην πηγή: πανομοιότυπο κείμενο, από το ίδιο πρόσωπο,
+ * στο ίδιο κανάλι, μέσα στο παράθυρο — δεν γράφεται δεύτερη φορά. Γυρίζει το
+ * id του πρώτου, ώστε ο αποστολέας να μη δει σφάλμα· για εκείνον στάλθηκε.
+ *
+ * Το παράθυρο είναι σκόπιμα μικρό στη συνομιλία (δευτερόλεπτα): δύο ίδιες
+ * λέξεις με απόσταση είναι κουβέντα, όχι διπλοεγγραφή.
+ */
+function cnp_chat_insert($channel, $adminId, array $row, $within = 6)
+{
+    $body = (string) ($row['body'] ?? '');
+    if ($body !== '' && empty($row['filename'])) {
+        $dup = Capsule::table('mod_cpm_chat')->where('channel', $channel)->where('admin_id', (int) $adminId)
+            ->where('body', $body)->whereNull('deleted_at')
+            ->where('created_at', '>=', date('Y-m-d H:i:s', time() - (int) $within))
+            ->orderBy('id', 'desc')->value('id');
+        if ($dup) { return (int) $dup; }
+    }
+    return (int) Capsule::table('mod_cpm_chat')->insertGetId(
+        $row + ['channel' => $channel, 'admin_id' => (int) $adminId]);
+}
+
 function cnp_settings_keys()
 {
     return ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour',
@@ -12173,8 +12201,10 @@ case 'task_share':                       // Στείλε εργασία σε σ�
                 . ($lines ? "\n" . implode(' · ', $lines) : '')
                 . ($noteS !== '' ? "\n\n" . $noteS : '')
                 . "\n" . $absS;
-            Capsule::table('mod_cpm_chat')->insert(['channel' => $chS, 'admin_id' => $adminId,
-                'body' => mb_substr($bodyS, 0, 4000), 'created_at' => date('Y-m-d H:i:s')]);
+            /* Δύο λεπτά: η ίδια εργασία στον ίδιο άνθρωπο, ξανά μέσα σε δύο λεπτά,
+               είναι «δεν κατάλαβα αν έφυγε» — όχι δεύτερη κοινοποίηση. */
+            cnp_chat_insert($chS, $adminId, ['body' => mb_substr($bodyS, 0, 4000),
+                'created_at' => date('Y-m-d H:i:s')], 120);
             Db::pushNotification($oth, 'comment',
                 mb_substr('💬 ' . $meS . ' σου έστειλε την εργασία #' . (int) $t->id . ': ' . $t->title, 0, 240),
                 $urlS);
@@ -15647,7 +15677,7 @@ case 'chat_send':
     /* Απάντηση με παράθεμα: μόνο σε μήνυμα του ΙΔΙΟΥ καναλιού */
     $replyTo = (int) ($in['reply_to'] ?? 0);
     if ($replyTo && !Capsule::table('mod_cpm_chat')->where('id', $replyTo)->where('channel', $ch)->exists()) { $replyTo = 0; }
-    $mid = Capsule::table('mod_cpm_chat')->insertGetId(['channel' => $ch, 'admin_id' => $adminId,
+    $mid = cnp_chat_insert($ch, $adminId, [
         'body' => $body ?: null, 'filename' => $fn, 'storage_id' => $storageId, 'mime' => $fmime, 'size' => $sz,
         'reply_to' => $replyTo ?: null, 'created_at' => date('Y-m-d H:i:s')]);
     Db::setPref($adminId, 'last_seen', (string) time());
