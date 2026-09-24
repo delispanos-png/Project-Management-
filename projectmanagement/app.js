@@ -257,6 +257,77 @@ const typeOf = id => S.boot.types.find(t => t.id === +id);
   }, {passive: true});
 })();
 
+/* ══ Ο ΕΠΙΛΟΓΕΑΣ ΤΟΥ ΔΙΚΟΥ ΣΟΥ ΜΕΝΟΥ ══════════════════════════════════════
+   Δείχνει ΟΛΟ το μενού που δικαιούσαι, ομαδοποιημένο, και σε αφήνει να κρατήσεις
+   όσα πιάνεις στα χέρια σου. Ολόκληρο κύκλωμα με ένα κλικ, ή μεμονωμένες οθόνες.
+
+   Δύο κανόνες που δεν παραβιάζονται:
+   • Κρύβει, δεν απαγορεύει — τα δικαιώματα δίνονται από τις Ομάδες και δεν τα
+     αγγίζει αυτό εδώ. Ό,τι κρύψεις το φτάνεις πάντα με Ctrl+K.
+   • Ζει στον server, όχι στον browser: σε ακολουθεί σε κάθε συσκευή. */
+function cnpMyMenu() {
+  const groups = S.navAll || [];
+  const pick = new Set(S.menuMine || []);
+  const ovl = document.createElement('div'); ovl.className = 'ovl mym-ovl';
+  const box = document.createElement('div'); box.className = 'mym-box';
+  const startMine = S.boot.me.menuMode === 'mine';
+  box.innerHTML = `
+    <div class="mym-h"><div><b>Το μενού μου</b>
+      <div class="mut">Διάλεξε ολόκληρα κυκλώματα ή μεμονωμένες οθόνες — όσες θέλεις.</div></div>
+      <span class="mym-n" id="mymN">${pick.size}</span></div>
+    <div class="mym-b">${groups.map(([g, items], gi) => `
+      <div class="mym-g" data-g="${gi}">
+        <label class="mym-gh"><input type="checkbox" data-gall="${gi}"><span class="mym-gt">${esc(g)}</span>
+          <span class="mym-gn">${items.length}</span><span class="mym-all">όλο το κύκλωμα</span></label>
+        ${items.map(([k, ic, lb]) => `<label class="mym-i"><input type="checkbox" data-mk="${esc(k)}"${
+          pick.has(k) ? ' checked' : ''}><span>${esc(lb)}</span></label>`).join('')}
+      </div>`).join('')}</div>
+    <div class="mym-f">
+      <label class="mym-def"><input type="checkbox" id="mymStart"${startMine ? ' checked' : ''}>
+        <span>Να ξεκινώ με το δικό μου μενού όταν συνδέομαι</span></label>
+      <div class="mym-btns">
+        <button class="btn btn-o btn-sm" id="mymNo">Άκυρο</button>
+        <button class="btn btn-p btn-sm" id="mymOk">Αποθήκευση</button></div>
+    </div>`;
+  ovl.appendChild(box); document.body.appendChild(ovl);
+  requestAnimationFrame(() => ovl.classList.add('show'));   /* το .ovl ξεκινά διάφανο */
+
+  const chks = () => [...box.querySelectorAll('[data-mk]')];
+  const paint = () => {
+    $('#mymN', box).textContent = chks().filter(x => x.checked).length;
+    box.querySelectorAll('[data-gall]').forEach(ga => {
+      const its = [...ga.closest('.mym-g').querySelectorAll('[data-mk]')];
+      const on = its.filter(x => x.checked).length;
+      ga.checked = on === its.length && its.length > 0;
+      ga.indeterminate = on > 0 && on < its.length;   // «κάτι από αυτό το κύκλωμα»
+    });
+  };
+  box.querySelectorAll('[data-gall]').forEach(ga => ga.onchange = () => {
+    ga.closest('.mym-g').querySelectorAll('[data-mk]').forEach(x => { x.checked = ga.checked; });
+    paint();
+  });
+  chks().forEach(c => c.onchange = paint);
+  paint();
+
+  const close = () => ovl.remove();
+  $('#mymNo', box).onclick = close;
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+  $('#mymOk', box).onclick = async () => {
+    const keys = chks().filter(x => x.checked).map(x => x.dataset.mk);
+    const start = $('#mymStart', box).checked;
+    /* Καμία επιλογή + «ξεκίνα με τα δικά μου» θα έδινε άδειο πλαϊνό μενού.
+       Κρατάμε τον άνθρωπο στο Κεντρικό μέχρι να διαλέξει κάτι. */
+    const mode = (start && keys.length) ? 'mine' : 'all';
+    S.boot.me.menuMine = keys.join(',');
+    S.boot.me.menuMode = keys.length ? (start ? 'mine' : (S.menuMode === 'mine' ? 'mine' : 'all')) : 'all';
+    close();
+    renderShell(); go(S.view);
+    await api('profile_pref', {key: 'menu_mine', value: keys.join(',')}).catch(() => null);
+    await api('profile_pref', {key: 'menu_mode', value: mode}).catch(() => null);
+    toast(keys.length ? `Το μενού σου: ${keys.length} οθόνες` : 'Καθαρίστηκε — βλέπεις ξανά τα πάντα');
+  };
+}
+
 function renderShell() {
   const me = S.boot.me;
   /* Το δικαίωμα είναι πια **δυνατότητα** μέσα σε ενότητα: `projects.board`.
@@ -373,17 +444,42 @@ function renderShell() {
     ]],
   ].map(([title, hint, items]) => [title, hint, items.filter(it => !it[3] || has(it[3]))]);
   // Ενότητα χωρίς στοιχεία δεν εμφανίζεται καθόλου.
-  const nav = groups.filter(g => g[2].length).map(g => [g[0], g[2], g[1]]);
-  nav.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']], 'πώς δουλεύει το εργαλείο']);
+  const navAll = groups.filter(g => g[2].length).map(g => [g[0], g[2], g[1]]);
+  navAll.push(['Βοήθεια', [['help', I.bulb, 'Οδηγός χρήσης']], 'πώς δουλεύει το εργαλείο']);
+
+  /* ══ ΤΟ ΔΙΚΟ ΣΟΥ ΜΕΝΟΥ ═══════════════════════════════════════════════════
+     Τα κυκλώματα είναι πολλά γιατί η δουλειά είναι πολλή — αλλά κανείς δεν τα
+     χρησιμοποιεί όλα. Εδώ ο καθένας κρατά στο πλάι μόνο όσα πιάνει στα χέρια
+     του, και μπορεί να ξεκινά με αυτά μόλις συνδεθεί.
+
+     ΚΡΥΒΕΙ, ΔΕΝ ΑΠΑΓΟΡΕΥΕΙ. Το Ctrl+K και ο διακόπτης «Όλα» φτάνουν πάντα
+     παντού — τα δικαιώματα είναι αλλού, και δεν τα αγγίζει αυτό εδώ. */
+  const mineSet = new Set(String(me.menuMine || '').split(',').map(x => x.trim()).filter(Boolean));
+  /* Κενή επιλογή = δεν έχει διαλέξει ακόμη· τότε «τα δικά μου» δεν κρύβει τίποτα,
+     αλλιώς θα έβλεπε άδειο πλαϊνό και θα νόμιζε ότι χάλασε. */
+  S.menuMode = (me.menuMode === 'mine' && mineSet.size) ? 'mine' : 'all';
+  S.menuMine = mineSet;
+  S.navAll = navAll;
+  const nav = S.menuMode === 'mine'
+    ? navAll.map(([g, items, hint]) => [g, items.filter(([k]) => mineSet.has(k)), hint]).filter(g => g[1].length)
+    : navAll;
   /* Το ίδιο μενού, σε επίπεδη μορφή, για το Ctrl+K: ό,τι βλέπεις στο πλάι μπορείς να το
      φτάσεις και γράφοντας. Φιλτραρισμένο ήδη από τα δικαιώματα — μία πηγή, όχι δύο. */
+  /* Η παλέτα (Ctrl+K) βλέπει ΟΛΟ το μενού, όχι το προσωπικό: το προσωπικό
+     μενού είναι συντόμευση, όχι τοίχος. */
   S.nav = [];
-  nav.forEach(([g, items]) => items.forEach(([k, ic, lb]) => S.nav.push({k, icon: ic, label: lb, group: g})));
+  navAll.forEach(([g, items]) => items.forEach(([k, ic, lb]) => S.nav.push({k, icon: ic, label: lb, group: g})));
   $('#app').innerHTML = `
   <div class="shell${(localStorage.cnpSideCollapsed === '1' && !matchMedia('(max-width:768px)').matches) ? ' collapsed' : ''}">
     <aside class="side">
       <div class="brand"><div class="brand-ico">P</div>
         <div class="brand-t">Cloudon<b>Projects</b><small>Project Manager</small></div></div>
+      ${/* Ο διακόπτης του προσωπικού μενού. Το μολύβι ανοίγει τον επιλογέα. */''}
+      <div class="mymenu" role="group" aria-label="Μορφή μενού">
+        <button class="mym-t${S.menuMode === 'all' ? ' on' : ''}" data-menumode="all" title="Όλα τα κυκλώματα">Κεντρικό</button>
+        <button class="mym-t${S.menuMode === 'mine' ? ' on' : ''}" data-menumode="mine" title="Μόνο όσα διάλεξες">Δικά μου</button>
+        <button class="mym-e" id="myMenuEdit" title="Διάλεξε τι θα βλέπεις εδώ" aria-label="Επεξεργασία του μενού μου">${I.edit}</button>
+      </div>
       <nav class="snav">
       ${(() => {
         let openSet = null;
@@ -466,6 +562,7 @@ function renderShell() {
         e.stopPropagation();
         miniMenu(_av, [
           {icon: I.user || I.contact, label: 'Το προφίλ μου', on: () => { const p = $('[data-profile]'); if (p) { p.click(); } }},
+          {icon: I.edit, label: 'Το μενού μου', on: () => cnpMyMenu()},
           {icon: I.bulb, label: S.theme === 'dark' ? 'Φωτεινό θέμα' : 'Σκοτεινό θέμα', on: () => $('#themeBtn').click()},
           {icon: I.lock, label: 'Αποσύνδεση', on: () => $('#logoutBtn').click()},
         ]);
@@ -476,6 +573,16 @@ function renderShell() {
       document.addEventListener('keydown', e => { if (e.key === 'Escape') { const s = document.querySelector('.shell'); if (s) s.classList.remove('nav-open'); } });
     }
   }
+  /* ── Ο διακόπτης και ο επιλογέας του προσωπικού μενού ────────────────── */
+  $$('[data-menumode]').forEach(b => b.onclick = async () => {
+    const mode = b.dataset.menumode;
+    if (mode === S.menuMode) { return; }
+    if (mode === 'mine' && !S.menuMine.size) { cnpMyMenu(); return; }   // δεν έχει διαλέξει ακόμη
+    S.boot.me.menuMode = mode;
+    renderShell(); go(S.view);
+    await api('profile_pref', {key: 'menu_mode', value: mode}).catch(() => null);
+  });
+  { const me2 = $('#myMenuEdit'); if (me2) { me2.onclick = () => cnpMyMenu(); } }
   $$('[data-grptoggle]').forEach(b => b.onclick = () => {
     b.closest('.snav-grp').classList.toggle('open');
     localStorage.cnpNavOpen = JSON.stringify($$('.snav-grp.open').map(x => x.querySelector('.sgroup').dataset.grptoggle));

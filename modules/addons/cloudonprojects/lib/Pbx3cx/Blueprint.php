@@ -621,7 +621,8 @@ TXT;
             $rule('Παλιό πρόθεμα 01 → Sip1', '01', '', $all, [], [self::obRoute($gr, 2), self::obRoute($alt, 2)]),
             $rule('Διεθνή 00: μόνο ' . implode(' & ', self::OB_INTL_DNS), '00', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 0), self::obRoute($gr, 0)]),
             $rule('Διεθνή +: μόνο ' . implode(' & ', self::OB_INTL_DNS), '+', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 1, '00'), self::obRoute($gr, 1, '00')]),
-            $rule('Κύπρος εθνικά (' . implode(', ', self::OB_CY_DNS) . ')', '2,9', '8', [], $dn(self::OB_CY_DNS), [self::obRoute($cy, 0, '00357'), self::obRoute($alt, 0, '00357')]),
+            /* 8ψήφιο = μόνο Κύπρος (κανένας ελληνικός αριθμός δεν έχει 8 ψηφία) — για ΟΛΟΥΣ (24/09: ο 212 καλούσε 99527138 και κοβόταν). */
+            $rule('Κύπρος 8ψήφιο (όλοι)', '2,9', '8', $all, [], [self::obRoute($cy, 0, '00357'), self::obRoute($alt, 0, '00357')]),
             $rule('Σταθερά Ελλάδας', '2', '10', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
             $rule('Κινητά Ελλάδας', '6', '10', $all, [], [self::obRoute($gr, 0), self::obRoute($alt, 0)]),
             $rule('800 / 801', '80', '10', $all, [], [self::obRoute($gr, 0)]),

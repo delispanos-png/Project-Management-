@@ -4514,7 +4514,12 @@ case 'boot':
             'lang' => Db::pref($adminId, 'lang', 'el') === 'en' ? 'en' : 'el',
             /* Η διάταξη της «Μέρας μου» ανά χρήστη: σειρά μπλοκ, με «-» μπροστά όσα κρύφτηκαν.
                Στον server ώστε να ακολουθεί τον άνθρωπο σε κάθε συσκευή, όχι στο localStorage. */
-            'mydLayout' => (string) Db::pref($adminId, 'myday_layout', '')],
+            'mydLayout' => (string) Db::pref($adminId, 'myday_layout', ''),
+            /* ΤΟ ΔΙΚΟ ΣΟΥ ΜΕΝΟΥ. Ποιες οθόνες διάλεξες να βλέπεις στο πλάι, και αν
+               ξεκινάς με αυτές όταν συνδέεσαι. Κρύβει — δεν απαγορεύει: ό,τι δεν
+               είναι στη λίστα φτάνεται πάντα με Ctrl+K ή με τον διακόπτη «Ολα». */
+            'menuMine' => (string) Db::pref($adminId, 'menu_mine', ''),
+            'menuMode' => Db::pref($adminId, 'menu_mode', 'all') === 'mine' ? 'mine' : 'all'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
         'costPerHour' => $FULL ? (float) str_replace(',', '.', (string) (Capsule::table('tbladdonmodules')
@@ -12885,6 +12890,24 @@ case 'profile_pref':                   // προσωπικές προτιμήσ�
         }
         Db::setPref($adminId, 'myday_layout', implode(',', $keep));
         out(['ok' => true, 'value' => implode(',', $keep)]);
+    }
+    if ($key8 === 'menu_mine') {
+        /* Η τιμή γυρίζει στο boot και μπαίνει σε HTML: δεχόμαστε ΜΟΝΟ καθαρά
+           κλειδιά οθόνης, τίποτα άλλο. Ποιες οθόνες επιτρέπονται το κρίνει ήδη
+           το μενού με τα δικαιώματα — εδώ φυλάμε μόνο τη μορφή. */
+        $keys8 = [];
+        foreach (explode(',', (string) ($in['value'] ?? '')) as $kk) {
+            $kk = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($kk)));
+            if ($kk !== '' && !in_array($kk, $keys8, true)) { $keys8[] = $kk; }
+            if (count($keys8) >= 120) { break; }
+        }
+        Db::setPref($adminId, 'menu_mine', implode(',', $keys8));
+        out(['ok' => true, 'value' => implode(',', $keys8)]);
+    }
+    if ($key8 === 'menu_mode') {
+        $mode8 = ($in['value'] ?? '') === 'mine' ? 'mine' : 'all';
+        Db::setPref($adminId, 'menu_mode', $mode8);
+        out(['ok' => true, 'value' => $mode8]);
     }
     if (!in_array($key8, ['notify_email', 'digest'], true)) {
         fail('pref');
