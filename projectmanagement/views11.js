@@ -162,7 +162,7 @@ R.roles = async function () {
       <table class="tbl pl-map">
         <thead><tr>
           <th class="pl-nm">Χειριστής</th>
-          <th>Παίζει</th><th>Χαρακτήρας</th><th>Ώρες</th><th>Μικρό ως</th>
+          <th>Παίζει</th><th>Ωράριο</th><th>Χαρακτήρας</th><th>Ώρες</th><th>Μικρό ως</th>
           <th class="pl-sk">Ειδικότητες</th>
         </tr></thead>
         <tbody>${rows.map(r => `<tr data-a="${r.admin_id}">
@@ -171,6 +171,22 @@ R.roles = async function () {
               r.teams.map(t => esc(t.team) + (t.leader ? ' ★' : '')).join(' · ')}</div>` : ''}</td>
           <td data-l="Παίζει"><label class="pl-sw"><input type="checkbox" data-k="in_pool"${
             r.in_pool ? ' checked' : ''}${canEdit ? '' : ' disabled'}><span></span></label></td>
+          ${/* ΤΟ ΩΡΑΡΙΟ. Κενό σημαίνει «δεν έχει οριστεί» — και τότε κανείς δεν
+               του λέει «άργησες», γιατί δεν ξέρουμε από πότε. */''}
+          <td data-l="Ωράριο" class="pl-shift">
+            <input type="text" class="pl-in pl-hh tinp" maxlength="5" inputmode="numeric" autocomplete="off"
+              placeholder="ωω:λλ" aria-label="Ώρα έναρξης, 24ωρη" data-k="work_from" value="${esc(r.work_from || '')}"${
+              canEdit ? '' : ' disabled'} title="από πότε δουλεύει">
+            <span class="mut">–</span>
+            <input type="text" class="pl-in pl-hh tinp" maxlength="5" inputmode="numeric" autocomplete="off"
+              placeholder="ωω:λλ" aria-label="Ώρα λήξης, 24ωρη" data-k="work_to" value="${esc(r.work_to || '')}"${
+              canEdit ? '' : ' disabled'} title="ως πότε δουλεύει">
+            <div class="pl-days">${['Δ', 'Τ', 'Τ', 'Π', 'Π', 'Σ', 'Κ'].map((lb, i) => `<label title="${
+              ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο', 'Κυριακή'][i]}">
+              <input type="checkbox" data-wd="${i + 1}"${
+                String(r.work_days || '').split(',').includes(String(i + 1)) ? ' checked' : ''}${
+                canEdit ? '' : ' disabled'}><span>${lb}</span></label>`).join('')}</div>
+          </td>
           <td data-l="Χαρακτήρας">
             <select data-k="day_mode" class="pl-in"${canEdit ? '' : ' disabled'}>${
               Object.keys(d.modes).map(k => `<option value="${k}"${
@@ -229,6 +245,9 @@ R.roles = async function () {
     const body = {
       admin_id: a,
       in_pool: g('in_pool').checked ? 1 : 0,
+      work_from: g('work_from') ? g('work_from').value : '',
+      work_to: g('work_to') ? g('work_to').value : '',
+      work_days: [...tr.querySelectorAll('[data-wd]:checked')].map(x => x.dataset.wd).join(','),
       day_mode: g('day_mode').value,
       deep_from: g('deep_from').value,
       hours_day: g('hours_day').value,
@@ -242,7 +261,7 @@ R.roles = async function () {
   };
 
   $$('#content .pl-map tbody tr').forEach(tr => {
-    tr.querySelectorAll('[data-k]').forEach(el => { el.onchange = () => saveCard(tr); });
+    tr.querySelectorAll('[data-k], [data-wd]').forEach(el => { el.onchange = () => saveCard(tr); });
     const aid = +tr.dataset.a;
     /* Γράφει, και μόνο αν πετύχει αλλάζει η οθόνη: ο χάρτης δεν επιτρέπεται να
        δείχνει κάτι που δεν αποθηκεύτηκε — πάνω του θα στηθεί η μοιρασιά. */

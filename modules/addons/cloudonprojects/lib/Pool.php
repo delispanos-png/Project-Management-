@@ -53,6 +53,12 @@ class Pool
     const DEF_HOURS = 6.0;    // ωφέλιμες, όχι 8
     const DEF_SMALL = 30;     // λεπτά — τι θεωρείται «μικρό»
     const DEF_DEEP  = '11:00';
+    /* Το ωράριο. Δεν μαντεύεται: όσο δεν έχει οριστεί, ΔΕΝ υπάρχει ωράριο για
+       αυτόν τον άνθρωπο και κανείς δεν του λέει «άργησες». */
+    const DEF_FROM  = '09:00';
+    const DEF_TO    = '17:00';
+    const DEF_DAYS  = '1,2,3,4,5';   // ISO: 1=Δευτέρα … 7=Κυριακή
+    const LATE_OK   = 10;       // λεπτά ανοχής — κάτω από αυτό είσαι στην ώρα σου
 
     /* ══════════════ σχήμα ══════════════ */
 
@@ -77,6 +83,19 @@ class Pool
                 $t->integer('updated_by')->unsigned()->nullable();
                 $t->timestamp('updated_at')->nullable();
             });
+        }
+        /* ΩΡΑΡΙΟ (24/09/2026). Προσθετικά, γιατί ο πίνακας υπάρχει ήδη. Μένουν
+           NULL μέχρι να τα ορίσει άνθρωπος — «δεν ξέρω» δεν είναι «09:00». */
+        if ($s->hasTable('mod_cpm_agents')) {
+            foreach (['work_from', 'work_to'] as $col) {
+                if (!$s->hasColumn('mod_cpm_agents', $col)) {
+                    $s->table('mod_cpm_agents', function ($t) use ($col) { $t->time($col)->nullable(); });
+                }
+            }
+            /* ΠΟΙΕΣ ΗΜΕΡΕΣ. Το ωράριο χωρίς ημέρες θα έλεγε «άργησες» και Κυριακή. */
+            if (!$s->hasColumn('mod_cpm_agents', 'work_days')) {
+                $s->table('mod_cpm_agents', function ($t) { $t->string('work_days', 16)->nullable(); });
+            }
         }
 
         /* Ο χάρτης: άνθρωπος × προϊόν × βαθμός. Τον γεμίζει ο επικεφαλής της
@@ -109,8 +128,30 @@ class Pool
             'hours_day' => $r ? (float) $r->hours_day : self::DEF_HOURS,
             'small_min' => $r ? (int) $r->small_min : self::DEF_SMALL,
             'note'      => $r ? (string) $r->note : '',
+            'work_from' => $r && $r->work_from ? substr($r->work_from, 0, 5) : '',
+            'work_to'   => $r && $r->work_to ? substr($r->work_to, 0, 5) : '',
+            'work_days' => $r && $r->work_days ? (string) $r->work_days : self::DEF_DAYS,
             'set'       => (bool) $r,       // έχει ρυθμιστεί ή τρέχει με προεπιλογές;
         ];
+    }
+
+    /**
+     * ΤΟ ΩΡΑΡΙΟ ΕΝΟΣ ΑΝΘΡΩΠΟΥ — ή null αν δεν έχει οριστεί.
+     *
+     * Επιστρέφει ['from' => 'ΩΩ:ΛΛ', 'to' => 'ΩΩ:ΛΛ']. Το null είναι σημαντικό:
+     * χωρίς ωράριο δεν λέμε σε κανέναν «άργησες», γιατί δεν ξέρουμε από πότε.
+     */
+    public static function shift($adminId, $day = null)
+    {
+        $r = Capsule::table('mod_cpm_agents')->where('admin_id', (int) $adminId)
+            ->first(['work_from', 'work_to', 'work_days']);
+        if (!$r || !$r->work_from || !$r->work_to) { return null; }
+        /* Εργάσιμη ημέρα; Σε αργία δεν υπάρχει ωράριο — άρα ούτε «άργησες». */
+        $days = array_filter(array_map('intval', explode(',', (string) ($r->work_days ?: self::DEF_DAYS))));
+        $iso = (int) date('N', $day ? strtotime($day) : time());
+        if ($days && !in_array($iso, $days, true)) { return null; }
+        return ['from' => substr($r->work_from, 0, 5), 'to' => substr($r->work_to, 0, 5),
+            'days' => $days];
     }
 
     /** Αποθήκευση κάρτας. Επιστρέφει την κάρτα όπως έμεινε. */
@@ -131,7 +172,27 @@ class Pool
             $deep = preg_match('/^\d{1,2}:\d{2}$/', $d) ? $d . ':00' : self::DEF_DEEP . ':00';
         }
 
+        /* Ωράριο: δεκτό μόνο ολόκληρο (και τα δύο άκρα) — μισό ωράριο δεν λέει τίποτα. */
+        $wf = isset($in['work_from']) && preg_match('/^\d{1,2}:\d{2}$/', trim((string) $in['work_from']))
+            ? trim((string) $in['work_from']) . ':00' : null;
+        $wt = isset($in['work_to']) && preg_match('/^\d{1,2}:\d{2}$/', trim((string) $in['work_to']))
+            ? trim((string) $in['work_to']) . ':00' : null;
+        if (!$wf || !$wt) { $wf = $wt = null; }
+        $wd = null;
+        if ($wf && isset($in['work_days'])) {
+            $d = array_values(array_unique(array_filter(array_map('intval',
+                is_array($in['work_days']) ? $in['work_days'] : explode(',', (string) $in['work_days'])),
+                function ($x) { return $x >= 1 && $x <= 7; })));
+            sort($d);
+            $wd = $d ? implode(',', $d) : self::DEF_DAYS;
+        } elseif ($wf) {
+            $wd = self::DEF_DAYS;
+        }
+
         $row = [
+            'work_from'  => $wf,
+            'work_to'    => $wt,
+            'work_days'  => $wd,
             'in_pool'    => !empty($in['in_pool']) ? 1 : 0,
             'day_mode'   => $mode,
             'deep_from'  => $deep,
