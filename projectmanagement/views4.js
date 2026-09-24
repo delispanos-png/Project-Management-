@@ -2197,11 +2197,21 @@ R.chat = async function () {
     if (r.error) { toast(r.error, true); return false; }
     return true;
   };
+  /* ΜΙΑ ΑΠΟΣΤΟΛΗ ΤΗ ΦΟΡΑ. Το κουμπί κλείδωνε, το πλήκτρο όχι: ένα δεύτερο Enter
+     όσο έτρεχε το πρώτο έβρισκε το κείμενο ακόμη στο κουτί και το ξανάστελνε —
+     δύο ίδια μηνύματα, με απόσταση ενός δευτερολέπτου. Τώρα το κουτί αδειάζει
+     ΑΜΕΣΩΣ (και επιστρέφει μόνο αν η αποστολή αποτύχει), και όσο τρέχει μία
+     αποστολή δεν ξεκινά άλλη. */
+  let sending = false;
   const send = async () => {
+    if (sending) { return; }
     const body = $('#chIn').value.trim();
     const f = $('#chFile').files[0];
     if (!body && !f && !pend.length) return;
+    sending = true;
+    $('#chIn').value = '';
     const btn = $('#chSend'); if (btn) { btn.disabled = true; }
+    let ok = false;
     try {
       let txt = body;
       for (const p of pend.slice()) {          // το κείμενο πάει με την πρώτη εικόνα
@@ -2218,10 +2228,15 @@ R.chat = async function () {
         const rt = replyTo; replyTo = 0; paintReply();
         await api('chat_send', {channel: st.ch, body: txt, reply_to: rt || 0});
       }
-      $('#chIn').value = '';
+      ok = true;
       if (st.lastId === -1) st.lastId = 0;
       load();
-    } finally { if (btn) { btn.disabled = false; } }
+    } finally {
+      sending = false;
+      if (btn) { btn.disabled = false; }
+      /* Αν κάτι πήγε στραβά, τα λόγια σου γυρίζουν στο κουτί — δεν χάνονται. */
+      if (!ok && body && !$('#chIn').value) { $('#chIn').value = body; }
+    }
   };
   $('#chSend').onclick = send;
   $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } if (e.key === 'Escape' && replyTo) { replyTo = 0; paintReply(); } };
