@@ -6417,7 +6417,17 @@ case 'teamday':                          // Η μέρα της ομάδας — 
     }
 
     $dto = function ($t) use ($doneT, $runT, $spentT) {
-        return ['id' => (int) $t->id, 'title' => $t->title,
+        /* ΠΟΙΟΣ ΤΗΝ ΕΧΕΙ ≠ ΣΕ ΠΟΙΟΝ ΑΝΑΤΕΘΗΚΕ.
+           Η οθόνη ομαδοποιούσε κατά `assignee` και έδειχνε λάθος άνθρωπο: μια εργασία
+           ανατεθειμένη στον Α αλλά με τη μπάλα στον Β εμφανιζόταν στον Α, και μια εργασία
+           που κάποιος ΔΟΥΛΕΥΕΙ τώρα χωρίς ανάθεση έπεφτε στο «χωρίς ανάθεση».
+           Σειρά αλήθειας: τρέχον χρονόμετρο → μπάλα → ανάθεση (δες memory/ball-rule). */
+        $tid = (int) $t->id;
+        $holder = isset($runT[$tid]) ? (int) $runT[$tid]['who'] : 0;
+        if (!$holder) { $holder = (int) ($t->action_user ?: 0); }
+        if (!$holder) { $holder = (int) ($t->assignee ?: 0); }
+        return ['id' => $tid, 'title' => $t->title,
+            'holderId' => $holder, 'holder' => $holder ? Db::adminName($holder) : '',
             'who' => $t->assignee ? Db::adminName((int) $t->assignee) : '',
             'whoId' => $t->assignee ? (int) $t->assignee : 0,
             /* Η μπάλα: ποιος πρέπει να δράσει ΤΩΡΑ. Χωρίς αυτήν η οθόνη δείχνει
@@ -6459,9 +6469,9 @@ case 'teamday':                          // Η μέρα της ομάδας — 
     $spentSeen = [];
     $bump = function ($list, $key) use (&$perT, &$spentSeen) {
         foreach ($list as $t) {
-            $k = $t['whoId'];
+            $k = $t['holderId'];
             if (!isset($perT[$k])) {
-                $perT[$k] = ['id' => $k, 'name' => $k ? $t['who'] : '— χωρίς ανάθεση —',
+                $perT[$k] = ['id' => $k, 'name' => $k ? $t['holder'] : '— χωρίς κάτοχο —',
                     'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
             }
             $perT[$k][$key]++;
@@ -6476,9 +6486,9 @@ case 'teamday':                          // Η μέρα της ομάδας — 
     /* Το «τι κάνει τώρα» γράφεται απευθείας από το χρονόμετρο: αν η εργασία δεν
        είναι σε κανέναν κουβά (χωρίς ημερομηνίες), το $bump δεν θα το έπιανε. */
     foreach ($running as $t) {
-        $k = $t['whoId'];
+        $k = $t['holderId'];
         if (!isset($perT[$k])) {
-            $perT[$k] = ['id' => $k, 'name' => $k ? $t['who'] : '— χωρίς ανάθεση —',
+            $perT[$k] = ['id' => $k, 'name' => $k ? $t['holder'] : '— χωρίς κάτοχο —',
                 'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
         }
         $perT[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']];
