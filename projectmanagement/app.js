@@ -3023,8 +3023,9 @@ async function openTask(id, entryId, opts) {
       </div>
       <div class="tk-pills">
         ${d.project.none
-          ? '<span class="pill pill-mut" title="Η εργασία ανήκει μόνο σε department, δεν είναι μέρος έργου">Χωρίς έργο</span>'
+          ? `<span class="pill pill-warn" title="Η εργασία ανήκει μόνο σε department, δεν είναι μέρος έργου">Χωρίς έργο</span>`
           : `<a class="pill pill-mut" href="#/board/${d.project.id}" data-navclose title="Board του έργου">${I.board} ${esc(d.project.name)}</a>`}
+        ${d.canWrite ? `<button class="pill pill-act" id="dPjMove" title="Άλλαξε το έργο στο οποίο ανήκει η εργασία">${I.folder} ${d.project.none ? 'Βάλ᾽ τη σε έργο' : 'Αλλαγή έργου'}</button>` : ''}
         ${(() => { const u = (d.depts || []).find(x => x.id === t.dept); return u ? `<a class="pill pill-mut" href="#/unit/${u.id}" data-navclose title="Εργασίες του department">${esc(u.name)}</a>` : ''; })()}
       </div>
     </div></div>
@@ -3454,6 +3455,32 @@ async function openTask(id, entryId, opts) {
     $$('[data-src]', dr).forEach(x => x.classList.toggle('on', x.dataset.src === nv));
     markDirty();
   });
+  /* 📁 Αλλαγή έργου: διορθώνει τα «Χωρίς έργο» χωρίς να ξαναφτιάξεις την εργασία.
+     Η λίστα χωρίζεται σε έργα πελατών και εσωτερικά — και δείχνει ΠΟΥ είναι τώρα. */
+  { const mv = $('#dPjMove', dr); if (mv) { mv.onclick = async () => {
+      if (!S.boot.projects.length) { await cnpRefreshProjects(); }
+      const cur = d.project.none ? 0 : +d.project.id;
+      const mine = S.boot.projects.filter(p => p.client), inter = S.boot.projects.filter(p => !p.client);
+      const opt = p => `<option value="${p.id}"${p.id === cur ? ' selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
+      const html = `<select class="inp" id="pjMoveSel" style="width:100%">
+        <option value="0"${cur ? '' : ' selected'}>— Χωρίς έργο (μόνο department) —</option>
+        ${inter.length ? `<optgroup label="Εσωτερικά / R&D">${inter.map(opt).join('')}</optgroup>` : ''}
+        ${mine.length ? `<optgroup label="Έργα πελατών">${mine.map(opt).join('')}</optgroup>` : ''}
+      </select>`;
+      /* Το cnpDialog δέχεται HTML στο `body` — δεν υπάρχει ξεχωριστό πεδίο για μαρκάρισμα. */
+      const ok = await cnpDialog({title: 'Σε ποιο έργο ανήκει;',
+        body: `<div style="margin-bottom:10px">${d.project.none ? 'Τώρα δεν ανήκει πουθενά.' : 'Τώρα: <b>' + esc(d.project.name) + '</b>'}
+          Ο χρόνος, η συζήτηση και το ιστορικό μένουν — αλλάζει μόνο πού κρέμεται.</div>${html}`,
+        ok: 'Μετακίνηση', cancel: 'Άκυρο'});
+      if (!ok) { return; }
+      const sel = document.getElementById('pjMoveSel');
+      const pid = sel ? +sel.value : cur;
+      if (pid === cur) { return; }
+      const r = await api('task_project', {task: id, project: pid}).catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); return; }
+      toast('📁 ' + r.name);
+      openTask(id);
+    }; } }
   const dhl = $('#dHelp', dr); if (dhl) dhl.onclick = () => window.CNP.quickHelp && window.CNP.quickHelp({task: id, taskTitle: t.title});
 
   /* ── Στείλε την εργασία ───────────────────────────────────────────────────
@@ -4019,7 +4046,9 @@ async function openTask(id, entryId, opts) {
   }
   if (t._viewOnly) {
     /* Η διαγραφή δεν χρειάζεται χρονόμετρο: όποιος έχει το δικαίωμα, σβήνει και από εδώ. */
-    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel');
+    /* Η αλλαγή έργου είναι ΔΙΟΡΘΩΣΗ αρχειοθέτησης, όχι δουλειά πάνω στην εργασία:
+       δεν έχει νόημα να ζητάει χρονόμετρο, όπως και η διαγραφή. */
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel,#dPjMove');
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
     banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>

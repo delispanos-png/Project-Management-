@@ -63,6 +63,19 @@ function quickNew() {
   let scope = 'client';
   try { scope = localStorage.getItem('cnpQnScope') === 'internal' ? 'internal' : 'client'; } catch (e) {}
   const isInternalProj = p => !p.client;   // το boot δεν φέρνει kind — εσωτερικό = χωρίς πελάτη
+  /* ── Στο «Εσωτερικό / R&D» η εργασία ΠΡΕΠΕΙ να καταλήξει σε εσωτερικό έργο ──
+     Πριν, οι γρήγορες προθέσεις («θα το κάνω εγώ», «κράτα το», «ανάθεσε») έφτιαχναν
+     εργασία χωρίς έργο: έμπαινε μόνο σε department και εμφανιζόταν ως «Χωρίς έργο».
+     Προορισμός = το τελευταίο που χρησιμοποίησες → αλλιώς το μοναδικό → αλλιώς τίποτα,
+     οπότε ζητάμε να διαλέξεις αντί να μαντέψουμε ανάμεσα σε εννιά. */
+  const internals = projects.filter(isInternalProj);
+  const lastInternal = () => { try { return +localStorage.getItem('cnpQnLastInternal') || 0; } catch (e) { return 0; } };
+  const rememberInternal = id => { try { localStorage.setItem('cnpQnLastInternal', String(id)); } catch (e) {} };
+  const internalTarget = () => {
+    const l = internals.find(p => p.id === lastInternal());
+    if (l) { return l; }
+    return internals.length === 1 ? internals[0] : null;
+  };
   /* Πελάτες: τους αντλούμε από τα έργα — έτσι ξέρουμε πάντα πού θα μπει η κλήση. */
   const clients = [];
   { const seen = {};
@@ -96,6 +109,13 @@ function quickNew() {
     if (!canBoard && (it.k === 'project' || it.k === 'assign' || it.k === 'call')) { return 'χρειάζεται «Board: επεξεργασία» — μπορείς μόνο δική σου εργασία'; }
     if (it.k === 'call' && scope !== 'client') { return 'μόνο σε «Έργο πελάτη»'; }
     if (it.k === 'call' && !clients.length) { return 'δεν υπάρχει έργο πελάτη για να δεθεί η κλήση — φτιάξε πρώτα έργο'; }
+    /* Εσωτερικό χωρίς προορισμό: δεν φτιάχνουμε «Χωρίς έργο» στα κρυφά. */
+    /* Όχι μόνο οι «χωρίς ερώτημα» προθέσεις: και η ανάθεση σε συνάδελφο καταλήγει
+       σε εργασία χωρίς έργο αν δεν ξέρουμε προορισμό. Μόνο το «Εργασία σε έργο»
+       διαλέγει μόνο του. */
+    if (scope === 'internal' && it.k !== 'project' && internals.length && !internalTarget()) {
+      return 'διάλεξε πρώτα «Εργασία σε έργο» — θα το θυμηθεί για την επόμενη φορά';
+    }
     return '';
   };
   const intentsFor = () => INTENTS.filter(x => x.k !== 'call' || scope === 'client');
@@ -171,7 +191,11 @@ function quickNew() {
     step = 'intent'; intent = null; filter = ''; cur = 0;
     crumbEl.hidden = true;
     lblEl.textContent = 'Τι γίνεται με αυτό;';
-    rows = intentsFor().map(it => { const why = blocked(it); return {label: it.title, sub: why || it.hint(), ic: it.ic, col: why ? '#8595ac' : it.col, dis: !!why, it}; });
+    rows = intentsFor().map(it => { const why = blocked(it);
+      let sub = why || it.hint();
+      /* Καμία έκπληξη: η γρήγορη πρόθεση λέει σε ΠΟΙΟ εσωτερικό έργο θα μπει. */
+      if (!why && scope === 'internal' && it.k !== 'project') { const t0 = internalTarget(); if (t0) { sub = 'στο «' + t0.name + '» · ' + sub; } }
+      return {label: it.title, sub, ic: it.ic, col: why ? '#8595ac' : it.col, dis: !!why, it}; });
     paint();
     inp.focus();
   };
@@ -253,6 +277,12 @@ function quickNew() {
     if (opts && opts.mine) { body.assignee = me.id; }
     if (opts && opts.start) { body.start = 1; }
     if (go.client) { body.title = '☎ Κάλεσε ' + go.client + ' — ' + title; }
+    /* Εσωτερική εργασία → πάντα σε εσωτερικό έργο, ακόμη κι όταν δεν το διάλεξες ρητά. */
+    if (!body.project && scope === 'internal') {
+      const t0 = internalTarget();
+      if (t0) { body.project = t0.id; }
+    }
+    if (body.project) { const p0 = projects.find(x => x.id === +body.project); if (p0 && isInternalProj(p0)) { rememberInternal(p0.id); } }
     /* Χωρίς έργο, η εργασία πρέπει τουλάχιστον να ανήκει σε department. */
     if (!body.project) {
       if (!myDept) { say('Δεν ανήκεις σε department — διάλεξε έργο', true); return; }
