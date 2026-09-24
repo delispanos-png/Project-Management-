@@ -147,6 +147,13 @@ class Db
         if (!$s->hasColumn('mod_cpm_tasks', 'offer_ref')) {
             $s->table('mod_cpm_tasks', function ($t) { $t->string('offer_ref', 40)->nullable(); });
         }
+        /* Υποεργασίες: μια εργασία μπορεί να σπάσει σε κομμάτια που ανατίθενται και
+           χρονομετρούνται ΞΕΧΩΡΙΣΤΑ — σε αντίθεση με το checklist, που είναι απλή λίστα
+           ελέγχων. ΕΝΑ επίπεδο μόνο (δες cnp: η υποεργασία δεν γίνεται γονιός), ώστε να
+           μη φτιάχνονται δέντρα που κανείς δεν παρακολουθεί. */
+        if (!$s->hasColumn('mod_cpm_tasks', 'parent_id')) {
+            $s->table('mod_cpm_tasks', function ($t) { $t->unsignedInteger('parent_id')->nullable()->index(); });
+        }
 
         /* Αντιδράσεις (👍 ✅ 👀 …) σε ενέργειες της συζήτησης μιας εργασίας. Ο κωδικός
            είναι λέξη (up/ok/eyes/…), όχι emoji — η βάση είναι utf8mb3. */
