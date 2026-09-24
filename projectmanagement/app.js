@@ -4118,6 +4118,15 @@ document.addEventListener('keydown', e => {
 function cnpGreet(g) {
   if (!g || !g.hi) { return; }
   if (document.querySelector('.gr-ovl')) { return; }   // ποτέ δύο μαζί
+  /* ΔΕΥΤΕΡΗ ΑΣΦΑΛΕΙΑ, ΣΤΟΝ BROWSER. Ο server κρατά ήδη «δόθηκε σήμερα», αλλά αν
+     για οποιονδήποτε λόγο ξαναφτάσει (δύο καρτέλες, επαναφορά σημαδιού, δοκιμή),
+     δεν θα ξαναπεταχτεί στον ίδιο άνθρωπο την ίδια μέρα. Ένα καλωσόρισμα που
+     εμφανίζεται δεύτερη φορά παύει να είναι καλωσόρισμα. */
+  const day = new Date().toISOString().slice(0, 10) + '|' + (g.kind || '');
+  try {
+    if (localStorage.cnpGreetSeen === day) { return; }
+    localStorage.cnpGreetSeen = day;
+  } catch (e) { /* ιδιωτική περιήγηση: ο server αρκεί */ }
   const tone = {early: 'ok', ontime: 'ok', late: 'warn', plain: 'ok'}[g.kind] || 'ok';
   const ico = {early: '🌅', ontime: '☕', late: '⏰', plain: '🌞'}[g.kind] || '🌞';
   const ovl = document.createElement('div');
