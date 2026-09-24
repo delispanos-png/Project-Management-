@@ -2221,11 +2221,47 @@ function dnd(cardSel, colSel, onDrop, onClick) {
 }
 
 /* ═════════ BOARD ═════════ */
+/**
+ * Ξαναδιαβάζει τη λίστα έργων από τον server.
+ *
+ * Η `S.boot.projects` φορτώνεται ΜΙΑ φορά, όταν ανοίγει η σελίδα. Έργο που
+ * δημιουργήθηκε μετά — ή που μόλις σου δόθηκε πρόσβαση — δεν υπάρχει σε αυτήν,
+ * και μια ανοιχτή καρτέλα δεν το μαθαίνει ποτέ μόνη της.
+ */
+async function cnpRefreshProjects() {
+  try {
+    const b = await api('boot');
+    if (b && Array.isArray(b.projects)) {
+      S.boot.projects = b.projects;
+      if (Array.isArray(b.statuses)) { S.boot.statuses = b.statuses; }
+      if (Array.isArray(b.types)) { S.boot.types = b.types; }
+      return true;
+    }
+  } catch (e) { }
+  return false;
+}
+
 async function vBoard(arg) {
   if (arg) S.project = +arg;
-  /* Το έργο μπορεί να έχει διαγραφεί ή να μην είναι ορατό: μην επιμένεις σε
-     id που δεν υπάρχει στη λίστα — το API θα απαντούσε 403/404. */
-  if (S.project && !S.boot.projects.some(p => p.id === +S.project)) { S.project = 0; }
+  const known = () => S.boot.projects.some(p => p.id === +S.project);
+  /* ΖΗΤΗΘΗΚΕ ΣΥΓΚΕΚΡΙΜΕΝΟ ΕΡΓΟ ΠΟΥ ΔΕΝ ΞΕΡΟΥΜΕ.
+     Πριν, εδώ έπεφτε σιωπηλά στο ΠΡΩΤΟ έργο της λίστας: το URL έλεγε «/board/128»
+     και η οθόνη έδειχνε το board ΑΛΛΟΥ ΠΕΛΑΤΗ, χωρίς καμία ένδειξη. Συνέβαινε σε
+     κάθε έργο που φτιάχτηκε αφότου άνοιξε η καρτέλα. Τώρα πρώτα ρωτάμε τον server,
+     και αν πάλι δεν υπάρχει το λέμε — δεν ανοίγουμε ξένο έργο. */
+  if (arg && S.project && !known()) { await cnpRefreshProjects(); }
+  if (arg && S.project && !known()) {
+    setTop('Board');
+    $('#content').innerHTML = `<div class="empty"><div class="big">${I.lock}</div>
+      <b style="color:var(--ink);font-size:15px">Αυτό το έργο δεν είναι διαθέσιμο</b>
+      <div class="mut" style="font-size:12.5px;margin-top:8px;max-width:440px;margin-inline:auto;line-height:1.7">
+        Το έργο #${esc(String(+S.project))} είτε διαγράφηκε είτε δεν σου έχει δοθεί πρόσβαση.
+        Δες τα δικά σου στο <a href="#/portfolio">Χαρτοφυλάκιο</a>.</div></div>`;
+    S.project = 0;
+    return;
+  }
+  /* Χωρίς ρητό id (σκέτο #/board): η πτώση στο πρώτο έργο είναι λογική. */
+  if (S.project && !known()) { S.project = 0; }
   if (!S.project && S.boot.projects[0]) S.project = S.boot.projects[0].id;
   setTop('Board');
   const c = $('#content');
@@ -5917,7 +5953,7 @@ async function openTeamPulse(id) {
 
 window.CNP = {S, api, esc, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
-  statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse,
+  statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
   openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp, mydLayoutDialog,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
