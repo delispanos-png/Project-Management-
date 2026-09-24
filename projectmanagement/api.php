@@ -4567,7 +4567,12 @@ case 'templates':
                  ->orderBy('g.order')->orderBy('p.order')->get(['p.id', 'p.name', 'g.name as gname']) as $pr) {
         $prods[] = ['id' => (int) $pr->id, 'name' => $pr->name, 'group' => $pr->gname];
     }
-    out(['templates' => $tpl, 'depts' => cnp_depts(), 'canManage' => $FULL, 'products' => $prods,
+    /* ΟΧΙ $FULL: η δυνατότητα «Modules: Επεξεργασία» υπήρχε, δινόταν σε ομάδες και την
+       έλεγχε ο server στις ενέργειες — αλλά η οθόνη έκρυβε τα κουμπιά σε όποιον δεν ήταν
+       διαχειριστής. Το δικαίωμα ήταν στην πράξη ανενεργό. Η Διαγραφή μένει ΞΕΧΩΡΙΣΤΗ. */
+    out(['templates' => $tpl, 'depts' => cnp_depts(), 'products' => $prods,
+        'canManage' => cnp_has_cap($adminId, $FULL, 'projects.modules.edit'),
+        'canDelete' => cnp_has_cap($adminId, $FULL, 'projects.modules.delete'),
         'canClone' => cnp_can_create_project($adminId, $FULL),
         'admins' => (function () {
             $o = [];
