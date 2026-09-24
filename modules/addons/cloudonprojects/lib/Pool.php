@@ -212,6 +212,57 @@ class Pool
         return self::card($adminId);
     }
 
+    /**
+     * ΜΟΝΟ ΤΟ ΩΡΑΡΙΟ — χωρίς να αγγίξει τίποτε άλλο στην κάρτα.
+     *
+     * Η saveCard() γράφει ΟΛΟΚΛΗΡΗ την κάρτα: αν μια οθόνη που ξέρει μόνο το
+     * ωράριο την καλούσε, θα έσβηνε τη δεξαμενή, τον χαρακτήρα της ημέρας και
+     * τη σημείωση. Γι' αυτό το ωράριο έχει δικό του δρόμο, και μπορεί να
+     * ρυθμίζεται από όπου βολεύει τον άνθρωπο — στην καρτέλα του χειριστή ή
+     * στον χάρτη — χωρίς παρενέργειες.
+     *
+     * Ο κανόνας μένει ίδιος: ή και τα δύο άκρα, ή τίποτα. Μισό ωράριο δεν λέει
+     * τίποτα, και κενό ωράριο σημαίνει «δεν ξέρουμε» — τότε κανείς δεν παίρνει
+     * «άργησες».
+     */
+    public static function saveShift($adminId, array $in, $by = 0)
+    {
+        $adminId = (int) $adminId;
+        $hhmm = function ($v) {
+            $v = trim((string) $v);
+            return preg_match('/^\d{1,2}:\d{2}$/', $v) ? $v . ':00' : null;
+        };
+        $wf = $hhmm($in['work_from'] ?? '');
+        $wt = $hhmm($in['work_to'] ?? '');
+        if (!$wf || !$wt) { $wf = $wt = null; }
+        $wd = null;
+        if ($wf) {
+            $d = array_values(array_unique(array_filter(array_map('intval',
+                is_array($in['work_days'] ?? null) ? $in['work_days'] : explode(',', (string) ($in['work_days'] ?? ''))),
+                function ($x) { return $x >= 1 && $x <= 7; })));
+            sort($d);
+            $wd = $d ? implode(',', $d) : self::DEF_DAYS;
+        }
+        $row = ['work_from' => $wf, 'work_to' => $wt, 'work_days' => $wd,
+            'updated_by' => (int) $by, 'updated_at' => date('Y-m-d H:i:s')];
+        if (Capsule::table('mod_cpm_agents')->where('admin_id', $adminId)->exists()) {
+            Capsule::table('mod_cpm_agents')->where('admin_id', $adminId)->update($row);
+        } else {
+            /* Δεν υπάρχει κάρτα ακόμη: φτιάχνεται με τις προεπιλογές της, ώστε
+               το ωράριο να μη γεννήσει μισοτελειωμένη εγγραφή. */
+            Capsule::table('mod_cpm_agents')->insert($row + ['admin_id' => $adminId,
+                'in_pool' => 0, 'day_mode' => self::DEF_MODE, 'hours_day' => self::DEF_HOURS,
+                'small_min' => self::DEF_SMALL, 'note' => '']);
+        }
+        /* Επιστρέφουμε ΟΤΙ ΑΠΟΘΗΚΕΥΤΗΚΕ, όχι το shift() — εκείνο απαντά «τίποτα»
+           σε αργία, και η οθόνη θα νόμιζε ότι η αποθήκευση απέτυχε. */
+        $r = Capsule::table('mod_cpm_agents')->where('admin_id', $adminId)
+            ->first(['work_from', 'work_to', 'work_days']);
+        return ['work_from' => $r && $r->work_from ? substr($r->work_from, 0, 5) : '',
+            'work_to'   => $r && $r->work_to ? substr($r->work_to, 0, 5) : '',
+            'work_days' => $r ? (string) ($r->work_days ?? '') : ''];
+    }
+
     /* ══════════════ ο χάρτης ══════════════ */
 
     /** Οι δεξιότητες ενός χειριστή: [product_id => level]. */
