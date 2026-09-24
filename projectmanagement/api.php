@@ -2035,7 +2035,29 @@ define('CNP_PRESENCE_GONE', 1800);     // μισή ώρα χωρίς παλμό 
    (β) ο άνθρωπος λείπει από την εφαρμογή πάνω από CNP_MEET_GONE. */
 define('CNP_GREET_OK', 10);            // λεπτά ανοχής πριν πούμε «άργησες»
 define('CNP_MEET_LONG', 14400);        // 4 ώρες: πάνω από αυτό, «σύσκεψη» σημαίνει ξεχασμένη ώρα λήξης
-define('CNP_CHAT_EDIT', 120);          // 2΄ για διόρθωση δικού σου μηνύματος στο chat
+define('CNP_CHAT_EDIT', 120);
+
+/**
+ * ΟΙ ΡΥΘΜΙΣΕΙΣ ΤΗΣ ΕΦΑΡΜΟΓΗΣ — ΜΙΑ ΛΙΣΤΑ, ΟΧΙ ΔΥΟ.
+ *
+ * Υπήρχαν δύο: μία για την ανάγνωση και μία για την αποθήκευση. Ο,τι έλειπε
+ * από την πρώτη αποθηκευόταν κανονικά αλλά δεν γύριζε ποτέ πίσω στην οθόνη:
+ * ο διακόπτης ξαναφαινόταν κλειστός, και η επόμενη «Αποθήκευση» έστελνε το
+ * κενό που έβλεπε — σβήνοντας τη ρύθμιση. Ετσι χάθηκαν οι κάρτες διαχείρισης
+ * και «δεν έμενε ενεργό» το αυτόματο κλείσιμο tickets.
+ *
+ * Μία λίστα σημαίνει ότι αυτό δεν μπορεί να ξανασυμβεί: ό,τι σώζεται,
+ * διαβάζεται. Νέα ρύθμιση = μία γραμμή εδώ, και δουλεύει και στις δύο φορές.
+ */
+function cnp_settings_keys()
+{
+    return ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour',
+        'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
+        'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas', 'overrun_on', 'overrun_pct',
+        'cards_on', 'cards_team', 'cards_esc_team', 'cards_age_days', 'cards_idle_days', 'cards_unassigned_days',
+        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
+}
+          // 2΄ για διόρθωση δικού σου μηνύματος στο chat
 define('CNP_MEET_GONE', 3600);         // και μία ώρα εκτός εφαρμογής → δεν στέκει
 
 /**
@@ -4262,6 +4284,9 @@ function cnp_action_cap($action)
         $add('hr.leave.delete', ['leave_delete']);
         $add('hr.roles', ['roles', 'roles_coverage']);
         $add('hr.roles.edit', ['role_save', 'skill_save']);
+        /* Το ωράριο ρυθμίζεται από δύο σημεία — τον χάρτη ειδικοτήτων και την
+           καρτέλα του χειριστή στις Ρυθμίσεις. Αρκεί ένα από τα δύο δικαιώματα. */
+        $add('hr.roles.edit|admin.users.edit', ['shift_save']);
         $add('reports.pool', ['pool_today']);
         $add('reports.cancels', ['cancels']);
         /* Ο κατάλογος προϊόντων είναι ΡΥΘΜΙΣΗ — ίδιο δικαίωμα με τις περιοχές
@@ -13857,12 +13882,20 @@ case 'users':                          // λίστα χειριστών — δι
     $fullRoles = array_filter(array_map('intval', explode(',',
         (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
             ->where('setting', 'full_access_roles')->value('value') ?: '1'))));
-    out(['users' => array_map(function ($a) use ($fullRoles) {
+    /* Το ωράριο ζει στην κάρτα του χειριστή (mod_cpm_agents). Το φέρνουμε εδώ
+       γιατί εδώ το ψάχνει ο άνθρωπος: στην καρτέλα του χειριστή, όχι σε χάρτη. */
+    $shifts = [];
+    foreach (Capsule::table('mod_cpm_agents')->get(['admin_id', 'work_from', 'work_to', 'work_days']) as $sh) {
+        $shifts[(int) $sh->admin_id] = ['from' => $sh->work_from ? substr($sh->work_from, 0, 5) : '',
+            'to' => $sh->work_to ? substr($sh->work_to, 0, 5) : '', 'days' => (string) ($sh->work_days ?? '')];
+    }
+    out(['users' => array_map(function ($a) use ($fullRoles, $shifts) {
             $isFullU = in_array((int) $a->roleid, $fullRoles, true);
             return ['id' => (int) $a->id, 'username' => $a->username,
                 'name' => trim($a->firstname . ' ' . $a->lastname), 'email' => $a->email,
                 'roleid' => (int) $a->roleid, 'disabled' => (bool) $a->disabled,
                 'full' => $isFullU, 'areas' => cnp_admin_areas((int) $a->id, $isFullU),
+                'shift' => $shifts[(int) $a->id] ?? ['from' => '', 'to' => '', 'days' => ''],
                 /* Τα δικαιώματα δίνονται από τις ΟΜΑΔΕΣ. Εδώ τα δείχνουμε μόνο,
                    μαζί με τυχόν παλιά προσωπική εξαίρεση ώστε να μπορεί να λυθεί. */
                 'teams' => Capsule::table('mod_cpm_team_members as m')
@@ -14335,8 +14368,7 @@ case 'search':
 
 /* ================= ΡΥΘΜΙΣΕΙΣ (in-app) ================= */
 case 'settings_get':
-    $keys = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
-        'overrun_on', 'overrun_pct', 'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
+    $keys = cnp_settings_keys();
     $vals = [];
     foreach ($keys as $k) {
         $vals[$k] = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
@@ -14345,6 +14377,12 @@ case 'settings_get':
     /* Υπέρβαση εκτίμησης: ανοιχτή από προεπιλογή (ποτέ δεν αποθηκεύτηκε = on), 10%. */
     if (!Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'overrun_on')->exists()) { $vals['overrun_on'] = 'on'; }
     if ($vals['overrun_pct'] === '') { $vals['overrun_pct'] = '10'; }
+    /* Τα κενά αριθμητικά: ο server χρησιμοποιεί προεπιλογή, άρα η οθόνη πρέπει να
+       δείχνει την ίδια προεπιλογή — όχι κενό κουτί που μοιάζει με «ανενεργό». */
+    if ($vals['ticket_autoclose_days'] === '') { $vals['ticket_autoclose_days'] = '5'; }
+    foreach (['cards_age_days' => 'age', 'cards_idle_days' => 'idle', 'cards_unassigned_days' => 'unassign'] as $kT => $kD) {
+        if ($vals[$kT] === '') { $vals[$kT] = (string) DayPlan::thresholds()[$kD]; }
+    }
     $vals['s3_secret_set'] = $vals['s3_secret'] !== '' ? '1' : '';   // δεν εκθέτουμε το secret
     $vals['s3_secret'] = '';
     /* Το AI key είναι μυστικό όπως κάθε άλλο: δεν φεύγει ποτέ προς τον browser.
@@ -14372,10 +14410,7 @@ case 'settings_get':
         'cardsDefaults' => ['team' => DayPlan::teamId(), 'escTeam' => DayPlan::escTeamId()] + DayPlan::thresholds()]);
 
 case 'settings_save':
-    $allowed = ['auto_task', 'notify_email', 'request_form', 'sales_target', 'cost_per_hour', 'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
-        'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas', 'overrun_on', 'overrun_pct',
-        'cards_on', 'cards_team', 'cards_esc_team', 'cards_age_days', 'cards_idle_days', 'cards_unassigned_days',
-        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
+    $allowed = cnp_settings_keys();
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {
             continue;
@@ -19808,6 +19843,11 @@ case 'roles_coverage':
     }
     unset($plC);
     out(['ok' => true, 'rows' => $plCov]);
+
+case 'shift_save':                      // ΜΟΝΟ το ωράριο ενός χειριστή
+    $shAid = (int) ($in['admin_id'] ?? 0);
+    if (!$shAid) { fail('Λείπει ο χειριστής'); }
+    out(['ok' => true, 'shift' => Pool::saveShift($shAid, $in, $adminId)]);
 
 case 'role_save':
     $plAid = (int) ($in['admin_id'] ?? 0);
