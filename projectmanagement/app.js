@@ -4124,8 +4124,13 @@ function cnpGreet(g) {
   ovl.innerHTML = `<div class="gr-box gr-${tone}" role="dialog" aria-label="Καλημέρα">
     <div class="gr-ico">${ico}</div>
     <b class="gr-hi">${esc(g.hi)}</b>
-    <div class="gr-wish">${esc(g.wish || '')}</div>
     ${g.line ? `<div class="gr-line">${esc(g.line)}</div>` : ''}
+    ${/* ΠΡΩΤΑ Η ΕΙΚΟΝΑ ΤΗΣ ΗΜΕΡΑΣ, ΜΕΤΑ Η ΕΥΧΗ. Μια ευχή χωρίς εικόνα είναι
+         ευγένεια· με την εικόνα γίνεται προετοιμασία — ξέρεις τι σε περιμένει
+         πριν πατήσεις «Ξεκινάμε». */''}
+    ${(g.sum || []).length ? `<ul class="gr-sum">${g.sum.map(x =>
+      `<li><span class="gr-sic">${esc(x.ic || '')}</span>${esc(x.txt || '')}</li>`).join('')}</ul>` : ''}
+    <div class="gr-wish">${esc(g.wish || '')}</div>
     <button class="btn btn-p gr-go" id="grGo">Ξεκινάμε</button>
   </div>`;
   document.body.appendChild(ovl);

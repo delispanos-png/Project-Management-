@@ -2235,7 +2235,7 @@ function cnp_close_ghost_timers($now = null)
  * Και μόνο το πρωί — αν κάποιος ανοίξει το εργαλείο για πρώτη φορά στις 9 το
  * βράδυ, ένα «καλημέρα» θα ήταν κοροϊδία.
  */
-function cnp_greeting($adminId)
+function cnp_greeting($adminId, array $day = [])
 {
     $today = date('Y-m-d');
     if ((string) Db::pref($adminId, 'greet_day', '') === $today) { return null; }
@@ -2267,6 +2267,37 @@ function cnp_greeting($adminId)
     ];
     $wish = $wishes[(crc32($today . '|' . $adminId)) % count($wishes)];
 
+    /* ΤΙ ΕΧΕΙ ΜΠΡΟΣΤΑ ΤΟΥ. Η ευχή χωρίς εικόνα της ημέρας είναι ευγένεια· με την
+       εικόνα γίνεται προετοιμασία. Μετράμε ΜΟΝΟ ό,τι θέλει κίνηση σήμερα — όχι
+       σύνολα που δεν αλλάζουν τίποτα στο πρώτο λεπτό της ημέρας. */
+    $sum = [];
+    $ev = (int) ($day['events'] ?? 0);
+    if ($ev) {
+        $sum[] = ['ic' => '📅', 'txt' => $ev === 1
+            ? 'Μία σύσκεψη' . (!empty($day['firstAt']) ? ' στις ' . $day['firstAt'] : '')
+            : $ev . ' συσκέψεις' . (!empty($day['firstAt']) ? ' — η πρώτη στις ' . $day['firstAt'] : '')];
+    }
+    $tasks = (int) ($day['plan'] ?? 0);
+    if ($tasks) {
+        $sum[] = ['ic' => '✅', 'txt' => $tasks === 1 ? 'Μία εργασία στο πρόγραμμά σου'
+            : $tasks . ' εργασίες στο πρόγραμμά σου'];
+    }
+    $due = (int) ($day['due'] ?? 0);
+    if ($due) {
+        $sum[] = ['ic' => '⏳', 'txt' => $due === 1 ? 'Μία λήγει σήμερα' : $due . ' λήγουν σήμερα'];
+    }
+    $tk = (int) ($day['tickets'] ?? 0);
+    if ($tk) {
+        $sum[] = ['ic' => '🎟', 'txt' => $tk === 1 ? 'Ένα ticket περιμένει εσένα'
+            : $tk . ' tickets περιμένουν εσένα'];
+    }
+    $ask = (int) ($day['asks'] ?? 0);
+    if ($ask) {
+        $sum[] = ['ic' => '💬', 'txt' => $ask === 1 ? 'Ένας συνάδελφος σε ζητά'
+            : $ask . ' συνάδελφοι σε ζητούν'];
+    }
+    if (!$sum) { $sum[] = ['ic' => '🌤', 'txt' => 'Καθαρό τραπέζι — τίποτα δεν σε περιμένει.']; }
+
     $line = '';
     $kind = 'plain';
     if ($startTs) {
@@ -2285,7 +2316,7 @@ function cnp_greeting($adminId)
 
     Db::setPref($adminId, 'greet_day', $today);
     return ['hi' => 'Καλημέρα, ' . explode(' ', trim(Db::adminName($adminId)))[0] . '!',
-        'wish' => $wish, 'line' => $line, 'kind' => $kind,
+        'sum' => $sum, 'wish' => $wish, 'line' => $line, 'kind' => $kind,
         'from' => $sh['from'] ?? '', 'to' => $sh['to'] ?? ''];
 }
 
@@ -5505,7 +5536,24 @@ case 'myday':
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday],
-        'greet' => cnp_greeting($adminId)]);
+        /* Η σύνοψη της ημέρας χτίζεται από ό,τι ΗΔΗ μετρήθηκε παραπάνω — κανένα
+           δεύτερο ερώτημα στη βάση για να πούμε «καλημέρα». */
+        'greet' => cnp_greeting($adminId, [
+            'plan'    => count($plan),
+            'due'     => $dueToday,
+            'tickets' => count(array_filter($myTickets, function ($t) { return ($t['waitOn'] ?? '') === 'us'; })),
+            'events'  => count(array_filter($evToday, function ($e) {
+                return empty($e['allDay']) && empty($e['over']) && empty($e['left']); })),
+            'firstAt' => (function () use ($evToday) {
+                foreach ($evToday as $e) {
+                    if (empty($e['allDay']) && empty($e['over']) && empty($e['left'])) {
+                        return substr((string) $e['start'], 11, 5);
+                    }
+                }
+                return '';
+            })(),
+            'asks'    => (int) (cnp_pending_for($adminId, $FULL)['count'] ?? 0),
+        ])]);
 
 /* ================= CRM ================= */
 case 'crm':

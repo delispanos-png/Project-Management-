@@ -4577,8 +4577,15 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 @keyframes grIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
 .gr-ico{font-size:40px;line-height:1;margin-bottom:10px}
 .gr-hi{display:block;font-size:20px;color:var(--ink);font-weight:800}
-.gr-wish{margin-top:9px;font-size:14px;line-height:1.55;color:var(--txt)}
-.gr-line{margin-top:13px;font-size:12.5px;color:var(--mut);background:var(--canvas);
+/* Η σύνοψη: τι σε περιμένει σήμερα, μία γραμμή το καθένα. */
+.gr-sum{list-style:none;margin:16px 0 0;padding:0;text-align:left;display:flex;flex-direction:column;gap:7px}
+.gr-sum li{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink);
+  background:var(--canvas);border-radius:10px;padding:8px 12px}
+.gr-sic{flex:none;font-size:15px;line-height:1}
+/* Η ευχή έρχεται ΜΕΤΑ τη σύνοψη — γι' αυτό ξεχωρίζει με γραμμή από πάνω. */
+.gr-wish{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);
+  font-size:14px;line-height:1.55;color:var(--txt);font-style:italic}
+.gr-line{margin-top:11px;font-size:12.5px;color:var(--mut);background:var(--canvas);
   border-radius:10px;padding:8px 12px;display:inline-block}
 .gr-box.gr-warn .gr-line{color:var(--warn,#b45309);background:color-mix(in srgb,var(--warn,#eba63c) 12%,transparent)}
 .gr-go{margin-top:18px;min-width:150px}
