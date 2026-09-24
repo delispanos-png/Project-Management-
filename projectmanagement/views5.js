@@ -956,7 +956,7 @@ R.templates = async function () {
     <td style="width:70px" class="mut">${s2.est ? fmtMin(s2.est) : '—'}</td>
     ${d.canManage ? `<td style="width:80px">
       <button class="btn btn-sm btn-o" data-sedit="${tp.id}:${s2.id}">${I.edit}</button>
-      <button class="btn btn-sm btn-o" data-sdel="${s2.id}" style="color:var(--bad)">✕</button></td>` : ''}</tr>`;
+      ${d.canDelete ? `<button class="btn btn-sm btn-o" data-sdel="${s2.id}" style="color:var(--bad)">✕</button>` : ''}</td>` : ''}</tr>`;
 
   const card = tp => `<div class="card" style="border-top:4px solid ${tp.color}">
     <div class="card-h" style="gap:9px">
@@ -1067,7 +1067,7 @@ function openTpl(tp, d) {
       <input type="checkbox" id="tpA" ${tp.active !== false ? 'checked' : ''}> Ενεργό — εμφανίζεται στην έναρξη νέας υλοποίησης</label>
     <div style="display:flex;gap:9px;margin-top:14px">
       <button class="btn btn-p" id="tpSave">Αποθήκευση</button>
-      ${tp.id ? `<button class="btn btn-o" id="tpDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή προτύπου</button>` : ''}
+      ${tp.id && d.canDelete ? `<button class="btn btn-o" id="tpDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή προτύπου</button>` : ''}
     </div>
   </div></div></div>`;
   document.body.append(ovl, dr);
