@@ -2057,8 +2057,23 @@ R.chat = async function () {
       cnpWireMsgLinks(div);
       chWireVoice(div);
       chWireMsg(div);
+      /* ΤΟ ΜΟΛΥΒΙ ΜΕ ΧΡΟΝΟΜΕΤΡΟ. Πριν, το κουμπί έφευγε στα μουγκά και ο
+         άνθρωπος δεν καταλάβαινε γιατί χάθηκε. Τώρα λέει πόσος χρόνος μένει και
+         τα τελευταία 30΄΄ χρωματίζεται. Το όριο το ορίζει ο server (CNP_CHAT_EDIT). */
       const eb = div.querySelector('[data-chedit]');
-      if (eb) { eb.title = 'Επεξεργασία (μόνο το πρώτο λεπτό)'; setTimeout(() => eb.remove(), Math.max(1000, (m.editLeft || 0) * 1000)); }
+      if (eb) {
+        const gone = Date.now() + (m.editLeft || 0) * 1000;
+        let iv = 0;
+        const tick = () => {
+          if (!eb.isConnected) { clearInterval(iv); return; }
+          const left = Math.round((gone - Date.now()) / 1000);
+          if (left <= 0) { clearInterval(iv); eb.remove(); return; }
+          eb.title = 'Διόρθωση — απομένουν ' + (left >= 60 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : left + '΄΄');
+          eb.classList.toggle('ch-last', left <= 30);
+        };
+        iv = setInterval(tick, 1000);
+        tick();
+      }
       if (eb) eb.onclick = async e => {
         e.stopPropagation();
         const cur = div._body !== undefined ? div._body : (m.body || '');
