@@ -2636,7 +2636,12 @@ async function openTask(id, entryId, opts) {
   const canEditBrief = !!(me.full || (creatorId && me.id === creatorId));
   /* Ποιος κρατάει την εργασία — ο ίδιος κανόνας με παντού (cnpHolder). */
   const dueHolder = cnpHolder(t);
-  const dueLock = !!(dueHolder && dueHolder !== me.id);
+  /* Ποιος αλλάζει τι το αποφασίζει ο server (canDue / canDeadline) — ίδιος κανόνας με
+     το save_task: λήξη = χειριστής + ανάδοχος + επιβλέπων· deadline = ανάδοχος + επιβλέπων. */
+  const dueLock = d.canDue === undefined ? !!(dueHolder && dueHolder !== me.id) : !d.canDue;
+  const schedLock = !!(t.sched && d.canDeadline === false);
+  const schedWho = [t.assignee ? adminName(t.assignee) + ' (ανάδοχος)' : '', creatorId ? adminName(creatorId) + ' (επιβλέπων)' : '']
+    .filter(Boolean).join(' ή ') || 'ο διαχειριστής';
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
   dr.dataset.task = id;            // ώστε να ξέρει ο επόμενος ξανασχεδιασμός σε ποια εργασία ανήκε το πρόχειρο
@@ -2957,10 +2962,12 @@ async function openTask(id, entryId, opts) {
         <div><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα${dueLock ? ' · το δηλώνει ο χειριστής' : ''}</span></label>
           <div class="dt2"><input type="date" class="inp" id="fDue" value="${t.due || ''}" ${dueLock ? 'disabled' : ''}>
             ${timeInput('fDueT', t.dueT, (dueLock ? 'disabled ' : '') + 'title="Προαιρετικό — κενό = όλη η μέρα"')}</div>
-          ${dueLock ? `<div class="mut" style="font-size:11px;margin-top:3px">Τη συμπληρώνει ο/η <b>${esc(adminName(dueHolder))}</b> — εσύ ορίζεις έναρξη και deadline.</div>` : ''}</div>
-        <div><label class="lbl">${I.flag || ''} Deadline <span class="mut" style="font-weight:400">— δεν μετατίθεται άλλο</span></label>
-          <input type="date" class="inp" id="fSched" value="${t.sched || ''}">
-          <div class="mut" style="font-size:11px;margin-top:3px">Έναρξη/Λήξη = πότε θα δουλευτεί. Deadline = πότε ΠΡΕΠΕΙ να έχει τελειώσει.</div></div>
+          ${dueLock ? `<div class="mut" style="font-size:11px;margin-top:3px">Τη συμπληρώνει ο/η <b>${esc(adminName(dueHolder))}</b> — την αλλάζουν επίσης ${esc(schedWho)}.</div>` : ''}</div>
+        <div><label class="lbl">${I.flag || ''} Deadline <span class="mut" style="font-weight:400">— το μετακινούν μόνο ανάδοχος &amp; επιβλέπων</span></label>
+          <input type="date" class="inp" id="fSched" value="${t.sched || ''}" ${schedLock ? 'disabled' : ''}>
+          <div class="mut" style="font-size:11px;margin-top:3px">${schedLock
+            ? `Δεν μετατίθεται από εσένα — ζήτα το από ${esc(schedWho)}.`
+            : 'Έναρξη/Λήξη = πότε θα δουλευτεί. Deadline = πότε ΠΡΕΠΕΙ να έχει τελειώσει.'}</div></div>
       </div>
       <label class="tk-offer" title="Σήμανε την εργασία ως σχετική με προσφορά — φαίνεται στις κάρτες και παίρνει προτεραιότητα">
         <input type="checkbox" id="fOffer" ${t.isOffer ? 'checked' : ''}> ${I.doc} <b>Αφορά προσφορά</b> <span class="mut">— προτεραιότητα</span></label>

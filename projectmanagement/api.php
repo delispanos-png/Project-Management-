@@ -5107,6 +5107,10 @@ case 'task':
         'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
         /* Ίδιος κριτής με τον server (cnp_task_write_ok): η οθόνη δεν μαντεύει ποιος γράφει. */
         'canWrite' => cnp_task_write_ok($adminId, $FULL, $t),
+        /* Ίδιος κανόνας με το save_task: η οθόνη δεν τον ξαναγράφει μόνη της. */
+        'canDue' => $FULL || (int) ($t->action_user ?: $t->assignee) === 0 || (int) ($t->action_user ?: $t->assignee) === $adminId
+            || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
+        'canDeadline' => $FULL || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
         'parentTask' => $parentOf, 'subs' => $subsOf,
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
@@ -8585,17 +8589,45 @@ case 'save_task':
        Η οθόνη στέλνει όλα τα πεδία σε κάθε αποθήκευση, γι' αυτό ελέγχουμε αν
        όντως ΑΛΛΑΖΕΙ τιμή — αλλιώς ο δημιουργός δεν θα μπορούσε ούτε τον τίτλο
        να διορθώσει. */
+    /* ΠΟΙΟΣ ΑΛΛΑΖΕΙ ΤΙ (24/09/2026):
+         · Λήξη    → ο χειριστής (μπάλα, αλλιώς ανάθεση) + ο ΑΝΑΔΟΧΟΣ + ο ΕΠΙΒΛΕΠΩΝ.
+         · Deadline → ο ΑΝΑΔΟΧΟΣ + ο ΕΠΙΒΛΕΠΩΝ. Για όλους τους άλλους «δεν μετατίθεται»:
+                      όποιος απλώς κρατά τη μπάλα για ένα κομμάτι της δουλειάς δεν μετακινεί
+                      τη δέσμευση προς τον πελάτη. ΟΡΙΣΜΟΣ σε κενό deadline επιτρέπεται σε όλους —
+                      ο κανόνας αφορά τη ΜΕΤΑΚΙΝΗΣΗ, όχι το να συμπληρωθεί.
+       Πριν, η λήξη ήταν ΜΟΝΟ του χειριστή και το deadline όλων: ο επιβλέπων δεν μπορούσε
+       να φέρει το deadline πριν τη λήξη (το απορρίπτει η επικύρωση πιο κάτω) ούτε να
+       διορθώσει τη λήξη — αδιέξοδο. Διαχειριστής: πάντα.
+       Η οθόνη στέλνει όλα τα πεδία σε κάθε αποθήκευση, γι' αυτό ελέγχουμε αν όντως
+       ΑΛΛΑΖΕΙ τιμή — αλλιώς κανείς δεν θα μπορούσε ούτε τον τίτλο να διορθώσει. */
     $holderT = (int) ($t->action_user ?: $t->assignee);
-    if ($holderT && $holderT !== $adminId) {
+    $isAssigneeT = (int) $t->assignee && (int) $t->assignee === $adminId;
+    $isSupT = (int) $t->created_by && (int) $t->created_by === $adminId;
+    $dateBossT = $FULL || $isAssigneeT || $isSupT;
+    $whoMoves = function () use ($t) {
+        $n = [];
+        if ((int) $t->assignee) { $n[] = 'ο ανάδοχος (' . Db::adminName((int) $t->assignee) . ')'; }
+        if ((int) $t->created_by) { $n[] = 'ο επιβλέπων (' . Db::adminName((int) $t->created_by) . ')'; }
+        return $n ? implode(' ή ', $n) : 'ο διαχειριστής';
+    };
+    if ($holderT && $holderT !== $adminId && !$dateBossT) {
         $curDd = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
         $curDt = $t->due_time ? substr((string) $t->due_time, 0, 5) : null;
         $newDd = array_key_exists('due_date', $data) ? $data['due_date'] : $curDd;
         $newDt = array_key_exists('due_time', $data) ? ($data['due_time'] ? substr((string) $data['due_time'], 0, 5) : null) : $curDt;
         if ($newDd !== $curDd || $newDt !== $curDt) {
-            fail('Τη λήξη τη δηλώνει ο χειριστής (' . Db::adminName($holderT) . '). '
-               . 'Εσύ ορίζεις έναρξη και deadline.', 403);
+            fail('Τη λήξη τη δηλώνει ο χειριστής (' . Db::adminName($holderT) . ') — '
+               . 'μπορεί επίσης να την αλλάξει ' . $whoMoves() . '.', 403);
         }
         unset($data['due_date'], $data['due_time']);
+    }
+    if (!$dateBossT) {
+        $curX = ($t->schedule_date && strpos((string) $t->schedule_date, '0000') !== 0) ? (string) $t->schedule_date : null;
+        $newX = array_key_exists('schedule_date', $data) ? $data['schedule_date'] : $curX;
+        if ($curX && $newX !== $curX) {
+            fail('Το deadline δεν μετατίθεται — το μετακινεί μόνο ' . $whoMoves() . '.', 403);
+        }
+        if ($curX) { unset($data['schedule_date']); }
     }
     if (array_key_exists('type', $in)) {
         $data['type_id'] = (int) $in['type'] ?: null;
@@ -8703,7 +8735,11 @@ case 'save_task':
     $vS = $eff('start_date', 'start_date'); $vD = $eff('due_date', 'due_date'); $vX = $eff('schedule_date', 'schedule_date');
     $ok = function ($d) { return $d && strpos((string) $d, '0000') !== 0; };
     if ($ok($vS) && $ok($vD) && strtotime($vD) < strtotime($vS)) { fail('Η λήξη (' . cnp_d($vD) . ') είναι πριν την έναρξη (' . cnp_d($vS) . ') — διόρθωσε τις ημερομηνίες'); }
-    if ($ok($vX) && $ok($vD) && strtotime($vX) < strtotime($vD)) { fail('Το deadline (' . cnp_d($vX) . ') είναι πριν τη λήξη (' . cnp_d($vD) . ') — το deadline είναι η τελευταία ημέρα, όχι νωρίτερη'); }
+    if ($ok($vX) && $ok($vD) && strtotime($vX) < strtotime($vD)) {
+        fail('Η λήξη (' . cnp_d($vD) . ') πέφτει μετά το deadline (' . cnp_d($vX) . '). '
+           . ($dateBossT ? 'Μετακίνησε το deadline ή φέρε τη λήξη νωρίτερα.'
+                         : 'Το deadline το μετακινεί μόνο ' . $whoMoves() . ' — ζήτα το από αυτόν/ή.'));
+    }
     foreach (['assignee' => 'Ανάθεση', 'action_user' => 'Μπάλα'] as $colA => $lblA) {
         if (array_key_exists($colA, $data) && $data[$colA]) {
             if (!Capsule::table('tbladmins')->where('id', (int) $data[$colA])->where('disabled', 0)->exists()) { fail($lblA . ': ο χειριστής δεν υπάρχει ή είναι απενεργοποιημένος'); }
