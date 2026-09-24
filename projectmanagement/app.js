@@ -4110,6 +4110,34 @@ document.addEventListener('keydown', e => {
 }, true);
 
 /* ═════════ Η ΜΕΡΑ ΜΟΥ ═════════ */
+/* ═══ ΤΟ ΚΑΛΩΣΟΡΙΣΜΑ ΤΟΥ ΠΡΩΙΝΟΥ ═══
+   Μία φορά την ημέρα, στην πρώτη εμφάνιση του πρωινού. Δεν είναι ειδοποίηση και
+   δεν πάει πουθενά αλλού: το βλέπει μόνο ο ίδιος. Τρία πράγματα μαζί — καλημέρα,
+   μια ευχή, και πού βρίσκεται σε σχέση με το ωράριό του. Η καθυστέρηση λέγεται
+   ως γεγονός, όχι ως παρατήρηση: πληροφορία για τον ίδιο, όχι καταγγελία. */
+function cnpGreet(g) {
+  if (!g || !g.hi) { return; }
+  const tone = {early: 'ok', ontime: 'ok', late: 'warn', plain: 'ok'}[g.kind] || 'ok';
+  const ico = {early: '🌅', ontime: '☕', late: '⏰', plain: '🌞'}[g.kind] || '🌞';
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show gr-ovl';
+  ovl.innerHTML = `<div class="gr-box gr-${tone}" role="dialog" aria-label="Καλημέρα">
+    <div class="gr-ico">${ico}</div>
+    <b class="gr-hi">${esc(g.hi)}</b>
+    <div class="gr-wish">${esc(g.wish || '')}</div>
+    ${g.line ? `<div class="gr-line">${esc(g.line)}</div>` : ''}
+    <button class="btn btn-p gr-go" id="grGo">Ξεκινάμε</button>
+  </div>`;
+  document.body.appendChild(ovl);
+  const close = () => { ovl.classList.remove('show'); setTimeout(() => ovl.remove(), 180); };
+  $('#grGo', ovl).onclick = close;
+  ovl.onclick = e => { if (e.target === ovl) { close(); } };
+  document.addEventListener('keydown', function k(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', k); }
+  });
+  setTimeout(() => { const b = $('#grGo', ovl); if (b) { b.focus(); } }, 60);
+}
+
 async function vMyDay() {
   /* ═══════════ «Η μέρα μου» v2 (18/9/2026) ═══════════
      Μία ματιά = μία απάντηση: «τι κάνω τώρα;». Δομή κατά τις καλές πρακτικές των
@@ -4395,6 +4423,7 @@ async function vMyDay() {
     vMyDay();
   });
   cnpWireDash($('#content'));
+  cnpGreet(d.greet);          // μία φορά την ημέρα — ο server αποφασίζει πότε
   mydCancels();
   /* Το κουτί των κλήσεων είναι το ΙΔΙΟ με της οθόνης «Καταγραφές κλήσεων» — μία
      υλοποίηση, δύο θέσεις. Μετά τον χαρακτηρισμό ξαναζωγραφίζεται η μέρα. */
