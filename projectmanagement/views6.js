@@ -1009,7 +1009,8 @@ R.teamday = async function () {
   ];
   const KEY = Object.fromEntries(BUCKETS.map(b => [b[0], b]));
 
-  const hit = t => !st.who || t.whoId === st.who;
+  /* Κάτοχος = ποιος την ΕΧΕΙ (χρονόμετρο → μπάλα → ανάθεση), όχι σε ποιον ανατέθηκε. */
+  const hit = t => !st.who || t.holderId === st.who;
   const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
 
   /* ── Γραμμή εργασίας: σταθερές στήλες, ώστε το μάτι να κατεβαίνει ίσια ──
@@ -1026,11 +1027,12 @@ R.teamday = async function () {
       ${t.statusId ? stPill(t.statusId) : ''}
       <span class="td-time">${timeChip}</span>
       <span class="td-proj">${t.project ? `<span class="td-tag" title="${esc(t.project)}">${esc(t.project)}</span>` : ''}${t.internal ? '<span class="td-tag rnd">R&D</span>' : ''}</span>
-      <span class="td-who">${t.who
-        ? `<span class="td-av" title="${esc(t.who)}">${esc(ini(t.who))}</span><span class="td-wn">${esc(t.who)}</span>`
-        : '<span class="mut" style="font-size:11.5px">χωρίς ανάθεση</span>'}</span>
-      <span class="td-ball">${t.ball && t.ball !== t.whoId
-        ? `<span class="td-wait" title="Ανατεθειμένη αλλού, αλλά η μπάλα είναι σε αυτόν">${I.zap} ${esc(t.ballName)}</span>` : ''}</span>
+      <span class="td-who">${t.holderId
+        ? `<span class="td-av" title="${esc(t.holder)}${t.running !== null ? ' — δουλεύει τώρα' : ''}">${esc(ini(t.holder))}</span><span class="td-wn">${esc(t.holder)}</span>`
+        : '<span class="mut" style="font-size:11.5px">χωρίς κάτοχο</span>'}</span>
+      ${/* Η ανάθεση εμφανίζεται ΜΟΝΟ όταν διαφέρει από τον κάτοχο — αλλιώς είναι θόρυβος. */''}
+      <span class="td-ball">${t.whoId && t.whoId !== t.holderId
+        ? `<span class="td-wait" title="Ανατεθειμένη στον/στην ${esc(t.who)} — η δουλειά όμως είναι στον/στην ${esc(t.holder)}">${I.user} ${esc(t.who)}</span>` : ''}</span>
       <span class="td-due${late ? ' late' : ''}">${t.due ? esc(dShort(t.due)) : ''}</span>
     </div>`;
   };
