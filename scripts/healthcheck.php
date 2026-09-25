@@ -168,6 +168,9 @@ section('Ρυθμίσεις');
 $settings = [
 
     'Language'                      => 'greek',
+    'SequentialInvoiceNumbering'    => '1',
+    'SequentialInvoiceNumberFormat' => '{YEAR}{NUMBER}',
+    'TaxCustomInvoiceNumberFormat'  => 'PF{YEAR}{NUMBER}',
 ];
 // Πρότυπο: αποδεκτά είναι horn (παλιό) και cloudon (δικό μας fork).
 foreach (['Template' => 'πελάτη', 'OrderFormTemplate' => 'παραγγελίας'] as $k => $lbl) {
@@ -182,16 +185,17 @@ foreach ($settings as $s => $expected) {
     $v === $expected ? ok("$s = $expected") : bad("$s", "αναμενόταν '$expected', βρέθηκε '" . $v . "'");
 }
 
-/* «Tax Compliant Invoicing» (Sequential + Proforma) — ΣΚΟΠΙΜΑ ΚΛΕΙΣΤΟ (25/09/2026).
-   Το ενεργό κλείδωνε ΚΑΘΕ τιμολόγιο (και απλήρωτο) από επεξεργασία — δεν γίνεται να
-   διορθωθεί λάθος τιμολόγιο, μόνο ακύρωση+νέο. Δεν προστατεύει τίποτα νομικά εδώ:
-   η επίσημη τιμολόγηση προς ΑΑΔΕ γίνεται από το SoftOne, όχι το WHMCS (βλ. μνήμη
-   vat-and-billing-guards). Οι μετρητές/μορφές ΔΕΝ μηδενίστηκαν — αν κάποτε
-   ξαναχρειαστεί, ξαναενεργοποιείται χωρίς να χαθεί η συνέχεια της αρίθμησης. */
-foreach (['TaxCustomInvoices', 'SequentialInvoiceNumbering', 'EnableProformaInvoicing', 'TaxCustomInvoiceNumbering'] as $s) {
+// Οι μετρητές δεν έχουν «σωστή» τιμή — απλώς δεν πρέπει να πάνε πίσω.
+foreach (['SequentialInvoiceNumberValue' => '2026', 'TaxNextCustomInvoiceNumber' => ''] as $s => $prefix) {
     $v = Capsule::table('tblconfiguration')->where('setting', $s)->value('value');
-    $v === '' ? ok("$s = κλειστό", 'τα τιμολόγια επεξεργάζονται ελεύθερα πριν την πληρωμή')
-              : bad("$s", "αναμενόταν κλειστό, βρέθηκε '" . $v . "' — ξαναγύρισε το κλείδωμα επεξεργασίας");
+    $maxUsed = $prefix !== ''
+        ? (int) substr((string) Capsule::table('tblinvoices')->where('invoicenum', 'like', $prefix . '%')->max('invoicenum'), 4)
+        : (int) substr((string) Capsule::table('tblinvoices')->where('invoicenum', 'like', 'PF%')->max('invoicenum'), 6);
+    if ((int) $v > $maxUsed) {
+        ok("$s = $v", "μεγαλύτερο από το τελευταίο σε χρήση ($maxUsed)");
+    } else {
+        bad("$s = $v", "ΜΙΚΡΟΤΕΡΟ/ΙΣΟ με το τελευταίο σε χρήση ($maxUsed) — ΚΙΝΔΥΝΟΣ ΔΙΠΛΩΝ ΑΡΙΘΜΩΝ");
+    }
 }
 
 /* ------------------------------------------------------------------ */
