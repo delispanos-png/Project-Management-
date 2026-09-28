@@ -342,6 +342,12 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
 .act-body p{margin:0 0 6px}
 .act-body p:last-child{margin-bottom:0}
 .act-body pre{background:var(--line);border-radius:6px;padding:8px 10px;overflow-x:auto;font-size:12px;white-space:pre-wrap}
+/* Κώδικας μέσα σε ενέργεια (28/9/2026) — δικό του κουτί με όριο ύψους, ώστε ένα
+   μεγάλο απόσπασμα να μη σέρνει όλη τη συζήτηση από κάτω· scroll ΜΕΣΑ σε αυτό. */
+.cnp-code{position:relative;margin:4px 0}
+.cnp-code pre{max-height:260px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;margin:0}
+.cnp-code:before{content:attr(data-lang);position:absolute;top:6px;right:9px;font-size:9.5px;font-weight:700;
+  color:var(--mut);text-transform:uppercase;letter-spacing:.5px;background:var(--card);padding:1px 6px;border-radius:5px}
 .act-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
 .act-file{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--txt);
   background:var(--canvas);border:1px solid var(--line);border-radius:20px;padding:3px 10px;text-decoration:none}
@@ -685,11 +691,13 @@ table.tbl{width:100%;border-collapse:collapse}
 .ch-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .ch-dot.online{background:var(--ok)}.ch-dot.away{background:var(--warn)}.ch-dot.offline{background:#9aa7ba}
 .ch-main{flex:1;display:flex;flex-direction:column;min-width:0}
+.ch-main.ch-dragover{outline:2px dashed var(--brand);outline-offset:-2px;background:var(--brand-soft)}
 .ch-msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
 .ch-m{max-width:72%;padding:8px 12px;border-radius:13px;background:var(--line);font-size:13px;align-self:flex-start;word-wrap:break-word}
 .ch-m.me{align-self:flex-end;background:color-mix(in srgb,var(--brand) 16%,transparent)}
 .ch-m .h{font-size:10.5px;color:var(--mut);margin-bottom:2px}
 .ch-comp{display:flex;gap:8px;padding:11px 13px;border-top:1px solid var(--line);align-items:center}
+.ch-in{resize:none;overflow-y:auto;line-height:1.35;max-height:140px;font-family:inherit}
 
 /* Standup KPI cards */
 .kpi-bad{box-shadow:inset 3px 0 0 var(--bad)}
@@ -2518,14 +2526,13 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .tk-pj-prod{opacity:.7;font-weight:400}
 /* Καρτέλα πελάτη: προϊόν → τμήμα → δουλειά. Το προϊόν είναι το κουτί, το τμήμα η
    γραμμή μέσα του· έτσι διαβάζεται η ιεραρχία χωρίς να χρειάζεται εξήγηση. */
-.c3-prod{padding:10px 0 10px 13px;margin-bottom:10px;background:var(--canvas);border-radius:0 11px 11px 0}
-.c3-prod:last-child{margin-bottom:0}
-.c3-prod-h{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:6px}
-.c3-prod-h b{font-size:13.5px;color:var(--ink)}
-.c3-dept{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 10px 4px 0}
-.c3-dept-n{min-width:150px;font-size:12px;font-weight:600;color:var(--txt)}
-.c3-dept-b{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-@media (max-width:700px){.c3-dept-n{min-width:0;flex-basis:100%}}
+#c3Tree{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;align-items:start}
+.c3-prod{padding:9px 11px;background:var(--canvas);border-radius:0 8px 8px 0}
+.c3-prod-h{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin-bottom:2px}
+.c3-prod-h b{font-size:13px;color:var(--ink)}
+.c3-dept{padding:3px 0 0}
+.c3-dept-n{font-size:11px;font-weight:600;color:var(--txt);display:block;margin-bottom:2px}
+.c3-dept-b{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:3px}
 /* Ο διακανονισμός: μία γραμμή ανά δόση — τύπος, ποσό, πότε. */
 .ph-plan{margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
 .ph-plan-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;
@@ -2743,6 +2750,13 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .tk-bill input{width:16px;height:16px;accent-color:var(--warn)}
 .tk-bill svg{width:13px;height:13px}
 .tk-log{display:flex;gap:8px;font-size:11.5px;padding:3px 0;align-items:baseline;min-width:0}
+.tk-person{border-bottom:1px solid var(--line)}
+.tk-person:last-child{border-bottom:none}
+.tk-person-h{display:flex;align-items:center;gap:7px;width:100%;padding:6px 2px;border:none;background:none;cursor:pointer;font-size:12.5px;color:var(--txt);text-align:left}
+.tk-person-h .chev{flex:none;opacity:.55;transition:transform .12s}
+.tk-person.open .tk-person-h .chev{transform:rotate(90deg)}
+.tk-person-h b{color:var(--ink)}
+.tk-person-b{padding:0 0 6px 18px}
 .tk-frow{grid-template-columns:1fr 1fr;gap:7px 10px;margin-bottom:0}
 .tk-frow .lbl{font-size:10px;margin-bottom:2px}
 .tk-frow .inp{padding:6px 8px;font-size:12.5px}
@@ -2945,6 +2959,8 @@ html[data-theme="dark"] .pbx-alert{background:#3a2c14;color:#f1e3c8}
 .ch-thumb{position:relative;width:96px;height:72px;border-radius:9px;overflow:hidden;
   border:2px solid var(--brand);background:var(--hover)}
 .ch-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.ch-thumb-ic{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--brand)}
+.ch-thumb-ic svg{width:28px;height:28px}
 .ch-thumb .x{position:absolute;top:3px;right:3px;width:20px;height:20px;border:none;border-radius:6px;
   background:#0009;color:#fff;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center}
 .ch-thumb .x:hover{background:#e2515f}
@@ -4072,7 +4088,6 @@ html[data-theme="dark"] .card{border-color:#233043}
 .kb-mobnav button b{margin-left:4px;color:var(--mut);font-weight:700}
 .kb-mobnav button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .kb-mobnav button.on b{color:#fff}
-@media (min-width:769px){.kb-mobnav{display:none}}
 .pj-more{margin-top:8px;padding:3px 12px;font-size:16px;line-height:1}
 @media (min-width:769px){.pj-more{display:none}}
 @media (max-width:768px){

@@ -156,12 +156,6 @@ document.documentElement.dataset.theme = S.theme;
 /* HTML από επικόλληση/εισαγωγή: ξαναπερνά από τον parser σε απομονωμένο <template>, ώστε
    κάθε ανοιχτό tag να κλείσει ΜΕΣΑ στο απόσπασμα. Αλλιώς ένα ανισόρροπο <div> σε μία ενέργεια
    «κατάπινε» ό,τι ακολουθούσε στην καρτέλα (εργασία #191). */
-/* Ο server αρνήθηκε κώδικα μέσα σε ενέργεια: ξεκάθαρο παράθυρο, όχι toast που χάνεται. */
-async function cnpCodeRefused(er) {
-  const d = er && er.data; if (!d || d.need !== 'attach') { return false; }
-  await cnpDialog({title: '📎 Ο κώδικας πάει σε συνημμένο', body: (er.message || d.error) + '\n\nΤο κείμενό σου παραμένει στη σύνθεση — σβήσε τον κώδικα, επισύναψε το αρχείο και στείλε ξανά.', ok: 'Κατάλαβα', cancel: null});
-  return true;
-}
 function cnpBalanced(html) {
   const s = String(html || ''); if (s.indexOf('<') < 0) { return s; }
   const t = document.createElement('template'); t.innerHTML = s; return t.innerHTML;
@@ -2282,11 +2276,13 @@ async function vBoard(arg) {
   const d = await api('board&project=' + S.project);
   const kb = $('#kb'); if (!kb) return;
   if (d.meta) { boardHead(d.meta); }
-  /* Κινητό (21/9/2026): οι στήλες είναι 84vw και το «Backlog» άδειο έπιανε όλη την οθόνη — οι εργασίες
-     ήταν εκτός οθόνης χωρίς ένδειξη. Τώρα: γραμμή chips με τις στήλες (και μετρητές) που πηδά στη
-     στήλη, και αυτόματο άνοιγμα στην πρώτη στήλη που έχει εργασίες. */
+  /* Γραμμή chips με ΟΛΕΣ τις στήλες (και μετρητές) που πηδά στη στήλη — αρχικά μόνο
+     για κινητό (21/9/2026: οι στήλες είναι 84vw, το «Backlog» άδειο έπιανε όλη την
+     οθόνη). Τώρα ΠΑΝΤΟΤΕ, και σε desktop (28/9/2026): με 13 καταστάσεις και στήλες
+     ~280px χωράνε μόνο ~6 πριν χρειαστεί οριζόντιο scroll, χωρίς καμία ένδειξη ότι
+     υπάρχουν κι άλλες — ο χρήστης έβλεπε 6/13 καταστάσεις νομίζοντας ότι είναι όλες. */
   { const old = $('#kbMobNav'); if (old) old.remove(); }
-  if (matchMedia('(max-width:768px)').matches) {
+  {
     const nav = document.createElement('div'); nav.id = 'kbMobNav'; nav.className = 'kb-mobnav';
     nav.innerHTML = d.columns.map(col => { const st = statusOf(col.status); return `<button type="button" data-kbjump="${st.id}" style="--c:${st.color}">${esc(st.title)} <b>${col.tasks.length}</b></button>`; }).join('');
     kb.before(nav);
@@ -2866,7 +2862,7 @@ async function openTask(id, entryId, opts) {
       };
       return `<div class="card tk-step"><div class="card-h">💬 <b>Συζήτηση & ενέργειες</b>
       <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
-      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> καταχωρεί</span></div>
+      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> καταχωρεί, <b>Shift+Enter</b> νέα γραμμή</span></div>
       <div class="card-b">
         <div id="dCheck" class="th">
           ${hidden ? `<button type="button" class="th-more" id="thMore">${I.chev} ${hidden} παλαιότερα</button>` : ''}
@@ -2926,15 +2922,39 @@ async function openTask(id, entryId, opts) {
           : `<span class="mut" style="font-size:11px;text-align:right">${(d.billApprover || {}).name
               ? 'εγκρίνει μόνο<br><b>' + esc(d.billApprover.name) + '</b>' : 'μόνο ο διαχειριστής'}</span>`}
       </div>` : ''}
-      ${d.timelogs.length ? `<div class="mut" style="font-size:10.5px;margin-top:8px">Για να αλλάξεις χρέωση σε καταχώρηση που έγινε, πάτα το σημάδι «χρέωση» / «χωρίς χρέωση» δίπλα της.</div>
-      <div style="margin-top:4px" id="tLogs">${d.timelogs.map(l =>
-        `<div class="tk-log">
+      ${(() => {
+        if (!d.timelogs.length) { return ''; }
+        /* Ομαδοποίηση ανά χειριστή — μία γραμμή/χρόνος συνολικά, με ανάλυση σε
+           κλικ (28/9/2026): μια εργασία με πολλούς χειριστές γέμιζε το πλάι με
+           δεκάδες καταχωρήσεις ("κατεβατάρι"), δεν φαινόταν καθόλου ποιος πήρε
+           πόσο χρόνο χωρίς να τα προσθέσεις όλα με το μάτι. Ταξινόμηση φθίνουσα
+           κατά σύνολο — ο βαρύτερος χειριστής πρώτος, αυτός που "ξέφυγε" φαίνεται αμέσως. */
+        const groups = new Map();
+        d.timelogs.forEach(l => {
+          const key = l.byId || l.by;
+          if (!groups.has(key)) { groups.set(key, {name: l.by, mins: 0, running: false, items: []}); }
+          const g = groups.get(key);
+          if (l.running) { g.running = true; } else { g.mins += l.mins; }
+          g.items.push(l);
+        });
+        const logRow = l => `<div class="tk-log">
           <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
           ${l.running || !d.owner ? '' : `<button type="button" class="pill ${l.billable ? 'pill-warn' : 'pill-mut'} tk-billtog"
             data-tbill="${l.id}" data-on="${l.billable ? 1 : 0}" style="font-size:9.5px"
             title="Κλικ για αλλαγή — χρεώσιμο ή όχι">${l.billable ? 'χρέωση ' + fmtMin(l.charged || l.mins) : 'χωρίς χρέωση'}</button>`}
-          <span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(l.by)}${l.note ? ' · ' + esc(l.note) : ''}</span>
-          <span class="mut" style="margin-left:auto;flex:none">${tShort(l.at)}</span></div>`).join('')}</div>` : ''}
+          <span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${l.note ? esc(l.note) : ''}</span>
+          <span class="mut" style="margin-left:auto;flex:none">${tShort(l.at)}</span></div>`;
+        const rows = [...groups.values()].sort((a, b) => b.mins - a.mins).map(g => `<div class="tk-person">
+          <button type="button" class="tk-person-h">
+            <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+            <b>${esc(g.name)}</b>${g.running ? '<span class="pill pill-ok" style="font-size:9px">▶ τώρα</span>' : ''}
+            <span class="mut" style="margin-left:auto">${fmtMin(g.mins)}${g.items.length > 1 ? ' · ' + g.items.length + '×' : ''}</span>
+          </button>
+          <div class="tk-person-b" hidden>${g.items.map(logRow).join('')}</div>
+        </div>`).join('');
+        return `<div class="mut" style="font-size:10.5px;margin-top:8px">Κλικ σε χειριστή για ανάλυση ανά καταχώρηση — εκεί αλλάζεις και τη χρέωση.</div>
+        <div style="margin-top:4px" id="tLogs">${rows}</div>`;
+      })()}
     </div></div>
 
     <div class="card tk-side"><div class="card-b">
@@ -3215,7 +3235,7 @@ async function openTask(id, entryId, opts) {
       if (r === false || r === null) { return false; }
       if (r !== 'third') {
         const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er, er}));
-        if (ra && ra.err) { if (!(await cnpCodeRefused(ra.er))) { toast('Δεν καταχωρήθηκε', true); } return false; }
+        if (ra && ra.err) { toast('Δεν καταχωρήθηκε', true); return false; }
       }
       ed.innerHTML = '';
       closeDrawer();
@@ -3305,7 +3325,7 @@ async function openTask(id, entryId, opts) {
     if (opts.composer) { const ed = $('#chkNew', dr); const html = ed ? ed.innerHTML.trim() : '';
       if (html && html !== '<br>') {
         const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er && er.message, er}));
-        if (ra && ra.err) { if (!(await cnpCodeRefused(ra.er))) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); } return; }
+        if (ra && ra.err) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); return; }
         ed.innerHTML = '';
       } }
     let r = await api('save_task', payload()).then(d => ({ok: true, res: d}))
@@ -3639,7 +3659,9 @@ async function openTask(id, entryId, opts) {
         btn.disabled = false; btn.innerHTML = I.zap + ' Παράδοση'; return;
       }
       ovl.remove(); closeDrawer();
-      toast('Παραδόθηκε στον/στην ' + (r.name || ''));
+      toast(r.ballStopped
+        ? 'Παραδόθηκε στον/στην ' + (r.name || '') + ' — ο χρόνος σου σταμάτησε (' + fmtMin(r.ballStopped.mins) + ')'
+        : 'Παραδόθηκε στον/στην ' + (r.name || ''));
       if (window.R && window.R[S.view]) { window.R[S.view](); }
     };
   };
@@ -3683,6 +3705,13 @@ async function openTask(id, entryId, opts) {
       el.textContent = `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
     tick(); timerInt = setInterval(tick, 1000);
   }
+  /* Ανάλυση χρόνου ανά χειριστή σε κλικ — κλειστή από προεπιλογή, ώστε το πλάι
+     να δείχνει ΜΙΑ γραμμή ανά άνθρωπο, όχι όλες τις καταχωρήσεις μαζί. */
+  $$('.tk-person-h', dr).forEach(b => b.onclick = () => {
+    const box = b.nextElementSibling;
+    box.hidden = !box.hidden;
+    b.closest('.tk-person').classList.toggle('open', !box.hidden);
+  });
   /* Η χρέωση διορθώνεται επί τόπου: ένα λάθος κλικ στο χρονόμετρο δεν πρέπει να
      κοστίζει χρεώσιμο χρόνο που δεν τιμολογήθηκε ποτέ. */
   $$('[data-tbill]', dr).forEach(b => b.onclick = async () => {
@@ -3881,8 +3910,7 @@ async function openTask(id, entryId, opts) {
         busy = true; ed.setAttribute('aria-busy', '1');
         const r = await api('check_add', {task: id, title: html, html: 1})
           .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
-        if (r && r.err) { busy = false; ed.removeAttribute('aria-busy');
-          if (!(await cnpCodeRefused(r.er))) { toast(r.err, true); } return; }
+        if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
         for (const f of pending) { await actUpload(f, r.id); }
         /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
            επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
