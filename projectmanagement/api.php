@@ -6482,22 +6482,27 @@ case 'teamday':                          // Η μέρα της ομάδας — 
 
     /* Σύνοψη ανά άτομο: ποιος έχει πόσα στο πιάτο του σήμερα. */
     $perT = [];
-    /* Μια εργασία μπορεί να είναι νόμιμα σε δύο κουβάδες (π.χ. άνοιξε σήμερα ΚΑΙ
-       είναι προγραμματισμένη για σήμερα). Οι ΜΕΤΡΗΤΕΣ των κουβάδων το θέλουν
-       αυτό· ο ΧΡΟΝΟΣ όχι — θα προσθετόταν δύο φορές και θα έδειχνε διπλάσιο. */
-    $spentSeen = [];
-    $bump = function ($list, $key) use (&$perT, &$spentSeen) {
+    /* Ο ΧΡΟΝΟΣ ΕΙΝΑΙ ΑΥΤΟΥ ΠΟΥ ΤΟΝ ΚΑΤΕΓΡΑΨΕ (28/9/2026). Πριν αθροιζόταν ο χρόνος
+       κάθε ΕΡΓΑΣΙΑΣ (όλων μαζί) και πήγαινε στον ΤΩΡΙΝΟ κάτοχό της — έτσι με κάθε
+       παράδοση μπάλας ο χρόνος «μετακόμιζε» στον επόμενο, και μετρούσαν μόνο
+       εργασίες με πλάνο για σήμερα. Ο Λιόντος είχε 2ω46΄ καταγεγραμμένα και η
+       οθόνη έδειχνε 25΄, όλο και λιγότερα όσο δούλευε. Τώρα: άθροισμα ανά admin_id,
+       ίδια πηγή με την κάρτα ανθρώπου (team_pulse). */
+    $spentA = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 0)
+        ->where('created_at', '>=', $today0 . ' 00:00:00')
+        ->groupBy('admin_id')->get(['admin_id', Capsule::raw('SUM(minutes) as m')]) as $r) {
+        $spentA[(int) $r->admin_id] = (int) $r->m;
+    }
+    $newPer = function ($k, $name) use ($spentA) {
+        return ['id' => $k, 'name' => $name, 'planned' => 0, 'spanning' => 0, 'opened' => 0,
+            'carried' => 0, 'spent' => $k ? ($spentA[$k] ?? 0) : 0, 'now' => null];
+    };
+    $bump = function ($list, $key) use (&$perT, $newPer) {
         foreach ($list as $t) {
             $k = $t['holderId'];
-            if (!isset($perT[$k])) {
-                $perT[$k] = ['id' => $k, 'name' => $k ? $t['holder'] : '— χωρίς κάτοχο —',
-                    'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
-            }
+            if (!isset($perT[$k])) { $perT[$k] = $newPer($k, $k ? $t['holder'] : '— χωρίς κάτοχο —'); }
             $perT[$k][$key]++;
-            if (!isset($spentSeen[$t['id']])) {
-                $spentSeen[$t['id']] = true;
-                $perT[$k]['spent'] += $t['spent'];
-            }
         }
     };
     $bump($planned, 'planned'); $bump($spanning, 'spanning');
@@ -6506,11 +6511,13 @@ case 'teamday':                          // Η μέρα της ομάδας — 
        είναι σε κανέναν κουβά (χωρίς ημερομηνίες), το $bump δεν θα το έπιανε. */
     foreach ($running as $t) {
         $k = $t['holderId'];
-        if (!isset($perT[$k])) {
-            $perT[$k] = ['id' => $k, 'name' => $k ? $t['holder'] : '— χωρίς κάτοχο —',
-                'planned' => 0, 'spanning' => 0, 'opened' => 0, 'carried' => 0, 'spent' => 0, 'now' => null];
-        }
+        if (!isset($perT[$k])) { $perT[$k] = $newPer($k, $k ? $t['holder'] : '— χωρίς κάτοχο —'); }
         $perT[$k]['now'] = ['task' => $t['id'], 'title' => $t['title'], 'mins' => $t['running']];
+    }
+    /* Όποιος δούλεψε σήμερα φαίνεται, ακόμη κι αν δεν κρατά καμία εργασία με πλάνο
+       για σήμερα (π.χ. τις παρέδωσε όλες) — αλλιώς ο χρόνος του δεν φαινόταν πουθενά. */
+    foreach ($spentA as $aid => $m) {
+        if (!isset($perT[$aid]) && $m > 0) { $perT[$aid] = $newPer($aid, Db::adminName($aid)); }
     }
     usort($perT, function ($a, $b) {
         return ($b['planned'] + $b['spanning'] + $b['carried']) <=> ($a['planned'] + $a['spanning'] + $a['carried']);
@@ -10346,7 +10353,13 @@ case 'list':
           'product' => (int) ($_GET['fpr'] ?? 0), 'dept' => (int) ($_GET['fd'] ?? 0),
           'priority' => ($_GET['fr'] ?? '') !== '' ? (int) $_GET['fr'] : '',
           'q' => trim($_GET['q'] ?? ''), 'open_only' => (int) ($_GET['open'] ?? 1),
-          'mine_only' => !empty($_GET['mine']) ? $adminId : 0];
+          'mine_only' => !empty($_GET['mine']) ? $adminId : 0,
+          /* Πότε δημιουργήθηκε / πότε ολοκληρώθηκε — δύο ξεχωριστά διαστήματα, το
+             καθένα ανεξάρτητο (δεν χρειάζεται και τα δύο άκρα). */
+          'created_from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['created_from'] ?? '') ? $_GET['created_from'] : '',
+          'created_to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['created_to'] ?? '') ? $_GET['created_to'] : '',
+          'done_from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['done_from'] ?? '') ? $_GET['done_from'] : '',
+          'done_to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['done_to'] ?? '') ? $_GET['done_to'] : ''];
     /* «#123» ή σκέτο «123» = αναζήτηση με αριθμό εργασίας — βρίσκει ΚΑΙ κλειστές. */
     if (preg_match('/^#?(\d{1,9})$/', $f['q'], $mId)) {
         $f['id'] = (int) $mId[1]; $f['q'] = ''; $f['open_only'] = 0;

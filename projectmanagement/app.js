@@ -1850,6 +1850,11 @@ const fBool = (key, label, on, rm) =>
 /* Χτίζει ΜΟΝΟ του το κουμπάκι ενός πρόσθετου φίλτρου από τον ορισμό του, ώστε
    κάθε οθόνη να μη γράφει ξανά την ίδια τριάδα if. */
 const fOne = (k, F, st, d) => F.bool ? fBool(k, F.label, !!st[k], k)
+  : F.dateRange ? fChip(F.label,
+      `<input type="date" class="fchip-s" data-fk="${k}_from" value="${st[k + '_from'] || ''}" style="width:126px">
+       <span class="fchip-dash">–</span>
+       <input type="date" class="fchip-s" data-fk="${k}_to" value="${st[k + '_to'] || ''}" style="width:126px">`,
+      !!(st[k + '_from'] || st[k + '_to']), k)
   : fChip(F.label,
       F.num ? `<input type="number" class="fchip-s" data-fk="${k}" min="0" max="${F.max || 600}" value="${st[k] || ''}" style="width:52px">${
                 F.unit ? `<span class="fchip-u">${esc(F.unit)}</span>` : ''}`
@@ -1889,7 +1894,8 @@ const fWire = (st, defs, redraw) => {
     e.preventDefault(); e.stopPropagation();
     const k = el.dataset.fx;
     st.shown = st.shown.filter(x => x !== k);
-    st[k] = (defs[k] && (defs[k].num || defs[k].bool)) ? 0 : '';
+    if (defs[k] && defs[k].dateRange) { st[k + '_from'] = ''; st[k + '_to'] = ''; }
+    else { st[k] = (defs[k] && (defs[k].num || defs[k].bool)) ? 0 : ''; }
     redraw();
   });
 };

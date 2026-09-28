@@ -2199,6 +2199,13 @@ class Db
             $done = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all();
             if ($done) { $q->whereNotIn('t.status_id', $done); }
         }
+        /* Πότε δημιουργήθηκε / πότε ολοκληρώθηκε — «Λίστα tasks» (28/9/2026): δεν
+           υπήρχε τρόπος να βρεις τι έκλεισε ή τι ανοίχτηκε σε συγκεκριμένη
+           ημερομηνία, μόνο κατάσταση/χειριστή/έργο. */
+        if (!empty($f['created_from'])) { $q->where('t.created_at', '>=', $f['created_from'] . ' 00:00:00'); }
+        if (!empty($f['created_to']))   { $q->where('t.created_at', '<=', $f['created_to'] . ' 23:59:59'); }
+        if (!empty($f['done_from']))    { $q->where('t.completed_at', '>=', $f['done_from'] . ' 00:00:00'); }
+        if (!empty($f['done_to']))      { $q->where('t.completed_at', '<=', $f['done_to'] . ' 23:59:59'); }
         // περιορισμένος agent: μόνο μέλος-projects Ή δικές του αναθέσεις
         /* «ΔΙΚΑ ΜΟΥ» ΣΤΟΝ SERVER, ΟΧΙ ΜΟΝΟ ΣΤΗΝ ΟΘΟΝΗ (23/09/2026).
            Η Λίστα φιλτράριζε τα ξένα στον browser: ο server έστελνε 61 εργασίες
