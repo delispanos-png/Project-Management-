@@ -615,6 +615,8 @@ const LF_F = {
   mine: {label: 'Δικά μου', bool: 1},        // ανάθεση ή μπάλα — cnpIsMine
   proj: {label: 'Έργο', opts: d => [['', '— κάθε —']]
            .concat((d.projects || []).map(n => [n, n]))},
+  created: {label: 'Δημιουργήθηκε', dateRange: 1},
+  done: {label: 'Ολοκληρώθηκε', dateRange: 1},   // ενεργοποιεί κι αυτόματα «όλα» — βλ. load()
 };
 
 /* ═════════ 🗂 Κάρτες διαχείρισης — η ουρά αποφάσεων (22/9/2026) ═════════
@@ -1071,6 +1073,8 @@ R.list = async function () {
         ${cnpHolder(t) ? `<span class="mut"${cnpHolder(t) !== +(t.assignee || 0) && t.assignee
           ? ` title="ανάθεση: ${esc(adminName(t.assignee))}"` : ''}>${esc(adminName(cnpHolder(t)))}</span>`
           : '<span class="mut">χωρίς χειριστή</span>'}
+        ${(f.created_from || f.created_to) && t.createdAt ? `<span class="mut" title="Δημιουργήθηκε">📅 ${dShort(t.createdAt.slice(0, 10))}</span>` : ''}
+        ${(f.done_from || f.done_to) && t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(t.doneAt.slice(0, 10))}</span>` : ''}
         ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
         ${t.mins ? `<span class="mut">${fmtMin(t.mins)}</span>` : ''}
       </span></div>`;
@@ -1154,7 +1158,8 @@ R.list = async function () {
     const box = $('#lfMore'); if (!box) { return; }
     const projs = [...new Set(D.tasks.map(t => t.pname || 'Χωρίς έργο'))]
       .sort((a, b) => a.localeCompare(b, 'el'));
-    const key = [f.shown.join('~'), projs.join('~'), f.open, f.mine, f.proj].join('|');
+    const key = [f.shown.join('~'), projs.join('~'), f.open, f.mine, f.proj,
+      f.created_from, f.created_to, f.done_from, f.done_to].join('|');
     if (key === barKey) { return; }
     barKey = key;
     box.innerHTML = f.shown.map(k => fOne(k, LF_F[k], f, {projects: projs})).join('')
@@ -1195,8 +1200,14 @@ R.list = async function () {
   // Το q ΔΕΝ πάει στον server: το tasksFiltered ψάχνει μόνο title/descr, οπότε αναζήτηση
   // κατά χειριστή/project/κατάσταση θα γύριζε 0. Ό,τι αφορά κείμενο γίνεται client-side (match).
   const load = async () => {
+    /* Φίλτρο ολοκλήρωσης χωρίς νόημα κάτω από «μόνο ανοιχτά» — τα ολοκληρωμένα
+       είναι ήδη έξω από το αποτέλεσμα. Το ζητούμενο («βρες τι έκλεισε στις
+       Χ») υπονοεί αυτόματα «όλα», όχι δεύτερο κλικ πρώτα στο "Ανοιχτά". */
+    const wantDone = !!(f.done_from || f.done_to);
     const qs = ['fs=' + encodeURIComponent(f.fs || ''), 'fa=' + encodeURIComponent(f.fa || ''),
-      'open=' + (f.open ? 1 : 0), 'mine=' + (f.mine ? 1 : 0)].join('&');
+      'open=' + (wantDone ? 0 : (f.open ? 1 : 0)), 'mine=' + (f.mine ? 1 : 0),
+      'created_from=' + encodeURIComponent(f.created_from || ''), 'created_to=' + encodeURIComponent(f.created_to || ''),
+      'done_from=' + encodeURIComponent(f.done_from || ''), 'done_to=' + encodeURIComponent(f.done_to || '')].join('&');
     D = await api('list&' + qs).catch(() => ({tasks: []}));
     render();
   };
