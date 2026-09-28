@@ -1913,7 +1913,7 @@ R.chat = async function () {
         <div class="ch-comp">
           <label class="btn btn-o btn-sm" style="cursor:pointer" title="Αρχείο">${I.clip}<input type="file" id="chFile" style="display:none"></label>
           <span id="chFn" class="mut" style="font-size:11px"></span>
-          <input class="inp" id="chIn" placeholder="Μήνυμα… (Enter) — ή επικόλλησε εικόνα με Ctrl+V" style="flex:1">
+          <textarea class="inp ch-in" id="chIn" rows="1" placeholder="Μήνυμα… (Enter στέλνει, Shift+Enter νέα γραμμή) — ή επικόλλησε εικόνα με Ctrl+V" style="flex:1"></textarea>
           <div class="ch-rec" id="chRec" hidden></div>
           <button class="btn btn-o btn-sm" id="chMic" title="Φωνητικό μήνυμα — κράτα πατημένο όσο μιλάς, άφησέ το για να σταλεί">${MIC_SVG}</button>
           <button class="btn btn-p btn-sm" id="chSend">${I.send}</button>
@@ -2147,8 +2147,8 @@ R.chat = async function () {
   const paintPend = () => {
     const box = $('#chPaste'); if (!box) { return; }
     box.hidden = !pend.length;
-    box.innerHTML = pend.map((f, i) => `<div class="ch-thumb">
-      <img src="${f._url}" alt="${esc(f.name)}">
+    box.innerHTML = pend.map((f, i) => `<div class="ch-thumb${f._url ? '' : ' ch-thumb-file'}">
+      ${f._url ? `<img src="${f._url}" alt="${esc(f.name)}">` : `<span class="ch-thumb-ic">${I.clip}</span>`}
       <span class="nm">${esc(f.name)}</span>
       <button class="x" data-rm="${i}" title="Αφαίρεση">✕</button></div>`).join('');
     $$('[data-rm]', box).forEach(b => b.onclick = () => {
@@ -2156,17 +2156,22 @@ R.chat = async function () {
       URL.revokeObjectURL(pend[i]._url); pend.splice(i, 1); paintPend();
     });
   };
-  const addPend = file => {
-    if (!file || !/^image\//.test(file.type)) { return false; }
+  const addPend = (file, anyType) => {
+    /* Η επικόλληση (Ctrl+V) φέρνει ΜΟΝΟ εικόνα — αυτό μένει όπως ήταν (`anyType`
+       δεν περνιέται από το onpaste). Το σύρσιμο (drag&drop) όμως δέχεται
+       ΟΠΟΙΟΔΗΠΟΤΕ αρχείο, ίδιο με το 📎 — πριν δεχόταν ΜΟΝΟ εικόνες, το σύρσιμο
+       ενός pdf/docx έφευγε σιωπηλά χωρίς κανένα μήνυμα λάθους (28/9/2026). */
+    if (!file || (!anyType && !/^image\//.test(file.type))) { return false; }
     if (file.size > 50 * 1024 * 1024) { toast('Μέγιστο 50MB', true); return true; }
+    const isImg = /^image\//.test(file.type);
     const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
     const z = n => String(n).padStart(2, '0');
     const d0 = new Date();
     const stamp = d0.getFullYear() + z(d0.getMonth() + 1) + z(d0.getDate())
       + '-' + z(d0.getHours()) + z(d0.getMinutes()) + z(d0.getSeconds());
-    const nf = new File([file], file.name && file.name !== 'image.png' ? file.name
-      : 'screenshot-' + stamp + '.' + ext, {type: file.type});
-    nf._url = URL.createObjectURL(nf);
+    const nf = isImg ? new File([file], file.name && file.name !== 'image.png' ? file.name
+      : 'screenshot-' + stamp + '.' + ext, {type: file.type}) : file;
+    nf._url = isImg ? URL.createObjectURL(nf) : '';
     pend.push(nf); paintPend();
     return true;
   };
@@ -2239,7 +2244,7 @@ R.chat = async function () {
     const f = $('#chFile').files[0];
     if (!body && !f && !pend.length) return;
     sending = true;
-    $('#chIn').value = '';
+    $('#chIn').value = ''; $('#chIn').style.height = '';
     const btn = $('#chSend'); if (btn) { btn.disabled = true; }
     let ok = false;
     try {
@@ -2265,11 +2270,19 @@ R.chat = async function () {
       sending = false;
       if (btn) { btn.disabled = false; }
       /* Αν κάτι πήγε στραβά, τα λόγια σου γυρίζουν στο κουτί — δεν χάνονται. */
-      if (!ok && body && !$('#chIn').value) { $('#chIn').value = body; }
+      if (!ok && body && !$('#chIn').value) { $('#chIn').value = body; if (R.chat._growIn) { R.chat._growIn(); } }
     }
   };
   $('#chSend').onclick = send;
   $('#chIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } if (e.key === 'Escape' && replyTo) { replyTo = 0; paintReply(); } };
+  /* Μεγαλώνει καθώς γράφεις (Shift+Enter νέα γραμμή) — δεν μπορούσε να χωρέσει
+     δεύτερη γραμμή όσο ήταν <input> (28/9/2026: το πλήκτρο ήταν ήδη σωστά
+     καλωδιωμένο, αλλά το ίδιο το στοιχείο δεν δέχεται ποτέ αλλαγή γραμμής). */
+  { const inEl = $('#chIn');
+    const grow = () => { inEl.style.height = 'auto'; inEl.style.height = Math.min(140, inEl.scrollHeight) + 'px'; };
+    inEl.addEventListener('input', grow);
+    R.chat._growIn = grow;   // ξαναχρησιμοποιείται μετά την αποστολή, για να ξαναμικρύνει
+  }
   $('#chFile').onchange = () => { $('#chFn').textContent = $('#chFile').files[0]?.name || ''; };
   /* ── 🎙 Φωνητικό μήνυμα: ΚΡΑΤΑΣ πατημένο το μικρόφωνο → ηχογραφεί· το αφήνεις → φεύγει αμέσως.
      Χωρίς «Στοπ», χωρίς «Στείλε». Πολύ σύντομο πάτημα (<0,7΄΄) = τίποτα, με υπόδειξη. Esc = άκυρο.
@@ -2333,16 +2346,26 @@ R.chat = async function () {
     });
     if (took) { e.preventDefault(); }
   };
-  { /* σύρσιμο εικόνας πάνω στη συνομιλία */
-    const drop = $('.ch-comp-wrap');
+  { /* σύρσιμο αρχείου πάνω στη συνομιλία — σε ΟΛΗ την περιοχή (header+μηνύματα+
+       συνθέτης), όχι μόνο στη λεπτή μπάρα του συνθέτη: εκεί έπεφτε συνήθως το
+       χέρι, το drop δεν είχε handler, κι ο browser έκανε το δικό του default —
+       άνοιγμα του αρχείου σε νέα καρτέλα (28/9/2026). Και δικλείδα σε όλο το
+       παράθυρο όσο είναι ανοιχτό το chat, ώστε ένα drop έξω από τα όρια να μην
+       πλοηγηθεί ποτέ μακριά από το εργαλείο. */
+    const drop = $('.ch-main');
     if (drop) {
-      drop.ondragover = e => { e.preventDefault(); drop.style.background = 'var(--hover)'; };
-      drop.ondragleave = () => { drop.style.background = ''; };
+      drop.ondragover = e => { e.preventDefault(); drop.classList.add('ch-dragover'); };
+      drop.ondragleave = e => { if (!drop.contains(e.relatedTarget)) { drop.classList.remove('ch-dragover'); } };
       drop.ondrop = e => {
-        e.preventDefault(); drop.style.background = '';
-        [...(e.dataTransfer.files || [])].forEach(addPend);
+        e.preventDefault(); drop.classList.remove('ch-dragover');
+        [...(e.dataTransfer.files || [])].forEach(f => addPend(f, true));
       };
     }
+    if (R.chat._dragGuard) { R.chat._dragGuard(); }   // αλλαγή συνομιλίας ξαναχτίζει το view — να μη διπλασιάζονται οι listeners
+    const stray = e => { if (S.view === 'chat') { e.preventDefault(); } };
+    window.addEventListener('dragover', stray);
+    window.addEventListener('drop', stray);
+    R.chat._dragGuard = () => { window.removeEventListener('dragover', stray); window.removeEventListener('drop', stray); };
   }
   if (st.lastId === -1) st.lastId = 0;
   st.lastId = 0;

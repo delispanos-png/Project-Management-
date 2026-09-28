@@ -645,9 +645,13 @@ function cnp_clean_html($html, $max = 12000)
  * ενέργεια (18/9/2026, εργασία #191: 20.000 χαρακτήρες XML της ΗΔΥΚΑ μέσα σε μήνυμα).
  * Επιστρέφει true αν ≥4 γραμμές (ή ≥3 και πάνω από το 1/3) μοιάζουν με κώδικα.
  */
+function cnp_html_to_plain($html)
+{
+    return html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
+}
 function cnp_code_kind($html)
 {
-    $plain = html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
+    $plain = cnp_html_to_plain($html);
     if (preg_match('#<\?xml\b#i', $plain)) { return 'xml'; }
     if (preg_match('#<\?php\b#i', $plain)) { return 'php'; }
     if (preg_match('#^\s*[\[{]#', $plain) && preg_match('#"[\w.-]+"\s*:#', $plain)) { return 'json'; }
@@ -655,16 +659,27 @@ function cnp_code_kind($html)
     if (preg_match('#^\s*<[a-zA-Z][\w:.-]*[^>]*>#m', $plain)) { return 'xml'; }
     return 'txt';
 }
-function cnp_code_reject($html)
+/**
+ * Αντί να απορρίπτεται (όπως πριν 28/9/2026 — ανάγκαζε σε 📎 συνημμένο για να
+ * μοιραστείς ένα κομμάτι κώδικα με συνάδελφο για σχόλια, αχρείαστα αργό), ο
+ * κώδικας μπαίνει στο δικό του μπλοκ: escaped ως ΑΠΛΟ ΚΕΙΜΕΝΟ, όχι «καθαρισμένο»
+ * HTML — άρα εγγυημένα ισορροπημένο, δεν μπορεί να «καταπιεί» τίποτα γύρω του
+ * (η αρχική αιτία του ελέγχου, εργασία #191). Η κάρτα το δείχνει σε δικό του
+ * scroll-άρισμα (`.cnp-code`, app.css), όχι απλωμένο μέσα στη ροή.
+ */
+function cnp_code_block($html, $max = 20000)
 {
+    $plain = cnp_html_to_plain($html);
     $ext = cnp_code_kind($html);
     $lbl = ['xml' => 'XML', 'php' => 'PHP', 'json' => 'JSON', 'sql' => 'SQL', 'txt' => 'κώδικας'][$ext];
-    out(['error' => 'Δεν μπορεί να αποθηκευτεί: ' . $lbl . ' μέσα στη συζήτηση. Ο κώδικας μπαίνει ως συνημμένο αρχείο αντίστοιχης δομής (.' . $ext . ') — πάτα 📎 στη σύνθεση, επισύναψέ το, και γράψε εδώ με δυο λόγια τι θέλεις.',
-        'need' => 'attach', 'ext' => $ext]);
+    $cut = mb_strlen($plain) > $max;
+    $plain = mb_substr($plain, 0, $max);
+    return '<div class="cnp-code" data-lang="' . htmlspecialchars($lbl, ENT_QUOTES, 'UTF-8') . '"><pre>'
+        . htmlspecialchars($plain, ENT_QUOTES, 'UTF-8') . ($cut ? "\n…" : '') . '</pre></div>';
 }
 function cnp_looks_like_code($html)
 {
-    $plain = html_entity_decode(strip_tags(preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", (string) $html)), ENT_QUOTES, 'UTF-8');
+    $plain = cnp_html_to_plain($html);
     /* ΤΟ <pre> ΕΙΝΑΙ ΕΝΔΕΙΞΗ, ΟΧΙ ΑΠΟΔΕΙΞΗ. Έφραζε κάθε κείμενο που έτυχε να
        βρεθεί σε μπλοκ κώδικα — και μέχρι σήμερα το κουμπί «κώδικας» της μπάρας
        δεν έβγαινε, οπότε ένα κείμενο οδηγιών κολλούσε εκεί μέσα και ΔΕΝ
@@ -4938,7 +4953,7 @@ case 'task':
     }
     $logs = [];
     foreach (Db::timelogsForTask($t->id) as $l) {
-        $logs[] = ['id' => (int) $l->id, 'by' => Db::adminName($l->admin_id), 'mins' => (int) $l->minutes,
+        $logs[] = ['id' => (int) $l->id, 'by' => Db::adminName($l->admin_id), 'byId' => (int) $l->admin_id, 'mins' => (int) $l->minutes,
             'billable' => (bool) $l->billable, 'charged' => (int) $l->charged_minutes,
             'note' => $l->note, 'running' => (bool) $l->running, 'at' => $l->running ? $l->started_at : $l->created_at];
     }
@@ -8963,11 +8978,11 @@ case 'check_add':
     /* Πλούσιο κείμενο: εικόνες μέσα στη ροή, όχι συνημμένα δίπλα. Ο καθαριστής
        είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
     $isHtml = !empty($in['html']);
-    if (cnp_looks_like_code($title)) { cnp_code_reject($title); }
-    if (mb_strlen(trim(strip_tags($title))) > 6000) { fail('Πολύ μεγάλη ενέργεια (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 6.000). Βάλε το εκτενές κείμενο στο ζητούμενο ή σε συνημμένο, και εδώ την ουσία.'); }
-    $stored = $isHtml ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000);
+    $isCode = cnp_looks_like_code($title);
+    if (!$isCode && mb_strlen(trim(strip_tags($title))) > 6000) { fail('Πολύ μεγάλη ενέργεια (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 6.000). Βάλε το εκτενές κείμενο στο ζητούμενο ή σε συνημμένο, και εδώ την ουσία.'); }
+    $stored = $isCode ? cnp_code_block($title) : ($isHtml ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000));
     $id = Db::addCheckItem($tid, $stored, $adminId);
-    if ($isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
+    if ($isCode || $isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
     /* Έγραψα στην εργασία = απάντησα σε όποιον με ανέφερε εδώ. */
     $ansM = Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)->get();
@@ -8992,10 +9007,10 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     }
     cnp_task_lock_guard($t);
     $isHtml2 = !empty($in['html']);
-    if (cnp_looks_like_code($title)) { cnp_code_reject($title); }
+    $isCode2 = cnp_looks_like_code($title);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->update([
-        'title' => $isHtml2 ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000),
-        'fmt' => $isHtml2 ? 'html' : ($ci->fmt ?? null),
+        'title' => $isCode2 ? cnp_code_block($title) : ($isHtml2 ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000)),
+        'fmt' => ($isCode2 || $isHtml2) ? 'html' : ($ci->fmt ?? null),
     ]);
     /* Οι αναφορές @Όνομα μπορεί να μπήκαν στη ΔΙΟΡΘΩΣΗ, όχι στην αρχική γραφή. */
     cnp_notify_mentions($title, (int) $ci->task_id, $adminId, 'ενέργεια');
@@ -9504,6 +9519,18 @@ case 'help_reply':                        // απάντηση στο νήμα ε
             Capsule::table('mod_cpm_help')->where('id', (int) $rr->id)->update(['status' => 'done', 'done_at' => date('Y-m-d H:i:s'),
                 'answer' => $rr->answer ?: 'reply', 'answer_note' => mb_substr($bodyR, 0, 500),
                 'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+        }
+        /* Ένα @Όνομα μέσα σε εργασία απαντιέται εδώ (οθόνη «Αιτήματα»), ΟΧΙ μόνο μέσα από
+           την εργασία — αλλιώς η απάντηση μένει μόνο στο νήμα του αιτήματος και όποιος
+           ανοίξει την εργασία δεν τη βλέπει ποτέ (εντοπίστηκε 28/9/2026). Ίδια λογική
+           με το check_add: γράφεται ΚΑΙ ως ενέργεια στην εργασία. */
+        if ($rr->kind === 'mention' && (int) $rr->task_id) {
+            $tM = Db::task((int) $rr->task_id);
+            if ($tM && Db::canSeeTask($adminId, $tM) && cnp_task_write_ok($adminId, $FULL, $tM)) {
+                $stepBody = 'Απάντηση σε ' . Db::adminName((int) $rr->from_admin) . ': ' . $bodyR;
+                Db::addCheckItem((int) $rr->task_id, $stepBody, $adminId);
+                cnp_notify_mentions($stepBody, (int) $rr->task_id, $adminId, 'ενέργεια');
+            }
         }
     }
     Db::pushNotification($otherR, 'info', '💬 ' . Db::adminName($adminId) . ' απάντησε: ' . mb_substr($bodyR, 0, 90), '/project/#/requests/' . (int) $rr->id);
@@ -12484,6 +12511,24 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
     if ($dueH) { $upd['due_date'] = $dueH; }
     Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update($upd);
 
+    /* ΠΑΡΕΔΩΣΑ ΤΗ ΣΚΥΤΑΛΗ = ΤΕΛΕΙΩΣΑ ΤΟ ΔΙΚΟ ΜΟΥ ΚΟΜΜΑΤΙ → ΣΤΑΜΑΤΑ Ο ΧΡΟΝΟΣ ΜΟΥ.
+       Ίδιος κανόνας με το save_task (παράδοση μπάλας) — εδώ έλειπε εντελώς: το
+       task_handoff άλλαζε τον action_user με ωμό update, χωρίς να κόβει χρονόμετρο,
+       οπότε ο χρόνος συνέχιζε να ανεβαίνει σε όποιον παρέδωσε ενώ πλέον τη δουλειά
+       την είχε ο άλλος (εντοπίστηκε 28/9/2026). ΜΟΝΟ αν η μπάλα ήταν δική μου. */
+    $ballStoppedH = null;
+    if ((int) $t->action_user === $adminId) {
+        $runH = Db::runningTimer($adminId);
+        if ($runH && (int) $runH->task_id === (int) $t->id) {
+            if (Db::stopTimer($runH->id)) {
+                Db::updateTimelog($runH->id, ['note' => 'έκλεισε με την παράδοση της σκυτάλης']);
+                Time::push($runH->id);
+            }
+            $lgH = Db::timelog($runH->id);
+            $ballStoppedH = ['id' => (int) $runH->id, 'mins' => $lgH ? (int) $lgH->minutes : 0, 'to' => Db::adminName($toH)];
+        }
+    }
+
     $whoH = Db::adminName($adminId);
     $logH = 'Παράδοση σε ' . Db::adminName($toH)
         . ($didH !== '' ? ' · έγινε: ' . mb_substr($didH, 0, 120) : '')
@@ -12508,7 +12553,7 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
     } catch (\Throwable $e) { /* το email δεν ακυρώνει την παράδοση */ }
     Notify::watchers((int) $t->id, $adminId, $t->title . ' → παραδόθηκε σε ' . Db::adminName($toH), null);
 
-    out(['ok' => true, 'to' => $toH, 'name' => Db::adminName($toH)]);
+    out(['ok' => true, 'to' => $toH, 'name' => Db::adminName($toH), 'ballStopped' => $ballStoppedH]);
 
 case 'task_delete':
     $t = Db::task((int) ($in['id'] ?? 0));

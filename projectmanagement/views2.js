@@ -2156,23 +2156,30 @@ async function cnpClientTree(box, cid) {
     });
     return bits.join(' ') || '<span class="mut" style="font-size:11.5px">—</span>';
   };
-  const block = p => `<div class="c3-prod" style="border-left:3px solid ${p.color}">
-    <div class="c3-prod-h"><b>${esc(p.name)}</b>
-      <span class="mut" style="font-size:11.5px">${p.services ? p.services + ' υπηρεσίες'
-        : (p.source === 'manual' ? 'χειροκίνητα' : 'χωρίς ενεργή υπηρεσία')}</span>
-      ${p.status !== 'active' ? '<span class="pill pill-mut">ανενεργό</span>' : ''}</div>
-    ${(p.depts || []).length ? p.depts.map(dp => `<div class="c3-dept">
-        <span class="c3-dept-n">${esc(dp.name)}</span><span class="c3-dept-b">${bar(dp)}</span></div>`).join('')
-      : '<div class="c3-dept"><span class="mut" style="font-size:11.5px">καμία δραστηριότητα</span></div>'}
+  /* Κουτάκι αντί για ολόκληρη σειρά ανά προϊόν (28/9/2026) — με 8-9 προϊόντα η παλιά
+     στοίβα έπιανε όλη την οθόνη ακόμα κι όταν το κάθε προϊόν είχε μία γραμμή δραστηριότητας.
+     Ένα τμήμα πάει δίπλα στο όνομα· 2+ τμήματα μένουν από κάτω, σε μικρότερη γραμματοσειρά. */
+  const block = p => {
+    const depts = p.depts || [];
+    const oneDept = depts.length === 1 ? depts[0] : null;
+    return `<div class="c3-prod" style="border-left:3px solid ${p.color}">
+    <div class="c3-prod-h"><b>${esc(p.name)}</b>${p.status !== 'active' ? '<span class="pill pill-mut">ανενεργό</span>' : ''}</div>
+    <div class="mut" style="font-size:11px">${p.services ? p.services + ' υπηρεσίες'
+      : (p.source === 'manual' ? 'χειροκίνητα' : 'χωρίς ενεργή υπηρεσία')}${oneDept ? ' · ' + esc(oneDept.name) : ''}</div>
+    ${oneDept ? `<div class="c3-dept-b">${bar(oneDept)}</div>`
+      : depts.length ? depts.map(dp => `<div class="c3-dept">
+          <span class="c3-dept-n">${esc(dp.name)}</span><span class="c3-dept-b">${bar(dp)}</span></div>`).join('')
+        : '<div class="mut" style="font-size:11px">καμία δραστηριότητα</div>'}
   </div>`;
+  };
   box.innerHTML = (d.products.length ? d.products.map(block).join('')
       : '<div class="mut" style="font-size:12.5px">Δεν έχει δηλωμένα προϊόντα.</div>')
     + (d.orphan && d.orphan.length ? `<div class="c3-prod" style="border-left:3px solid var(--warn)">
-        <div class="c3-prod-h"><b>⚠ Χωρίς προϊόν</b>
-          <span class="mut" style="font-size:11.5px">δουλειά που δεν κρέμεται πουθενά — θέλει ανάθεση</span></div>
+        <div class="c3-prod-h"><b>⚠ Χωρίς προϊόν</b></div>
+        <div class="mut" style="font-size:11px">δουλειά που δεν κρέμεται πουθενά — θέλει ανάθεση</div>
         ${d.orphan.map(dp => `<div class="c3-dept"><span class="c3-dept-n">${esc(dp.name)}</span>
           <span class="c3-dept-b">${bar(dp)}</span></div>`).join('')}</div>` : '')
-    + (d.unmapped && d.unmapped.length ? `<div class="mut" style="font-size:11.5px;margin-top:9px">
+    + (d.unmapped && d.unmapped.length ? `<div class="mut" style="font-size:11.5px;margin-top:9px;grid-column:1/-1">
         ⚠ Χρεώνονται χωρίς να ανήκουν σε προϊόν:
         ${d.unmapped.map(u => esc(u.name) + (u.n > 1 ? ' ×' + u.n : '')).join(' · ')}</div>` : '');
   box.querySelectorAll('[data-c3pj]').forEach(a => { a.onclick = () => go('board', +a.dataset.c3pj); });
