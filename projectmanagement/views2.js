@@ -6,64 +6,6 @@ const R = window.R;
 const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
 
-/* ═════════ ΛΙΣΤΑ TASKS ═════════ */
-R.list = async function () {
-  setTop('Όλα τα tasks', 'Ευρετήριο με φίλτρα — πελάτης, ποιος το άνοιξε, ποιος το χειρίζεται');
-  const c = $('#content');
-  const f = R.list._f = R.list._f || {open: 1};
-  c.innerHTML = `
-  <div class="card" style="padding:13px 16px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
-    <select class="inp" id="lfP" style="width:auto"><option value="">— όλα τα projects —</option>
-      ${S.boot.projects.map(p => `<option value="${p.id}" ${f.fp == p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-    <select class="inp" id="lfS" style="width:auto"><option value="">— status —</option>
-      ${S.boot.statuses.map(s => `<option value="${s.id}" ${f.fs == s.id ? 'selected' : ''}>${esc(s.title)}</option>`).join('')}</select>
-    <select class="inp" id="lfA" style="width:auto"><option value="">— ποιος το χειρίζεται —</option>
-      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fa == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
-    <select class="inp" id="lfB" style="width:auto"><option value="">— ποιος το άνοιξε —</option>
-      ${S.boot.admins.map(a => `<option value="${a.id}" ${f.fb == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
-    <span style="position:relative">
-      <input class="inp" id="lfCli" list="lfCliL" autocomplete="off" placeholder="— πελάτης —"
-        style="width:190px" value="${esc(f.fcName || '')}"><datalist id="lfCliL"></datalist>
-      <input type="hidden" id="lfC" value="${f.fc || ''}"></span>
-    <input class="inp" id="lfQ" placeholder="αναζήτηση…" style="width:180px" value="${esc(f.q || '')}">
-    <label style="display:flex;gap:5px;align-items:center;font-size:12.5px">
-      <input type="checkbox" id="lfO" ${f.open ? 'checked' : ''}> μόνο ανοιχτά</label>
-    <button class="btn btn-p btn-sm" id="lfGo">Φίλτρο</button>
-  </div><div id="lRes">${skel(1, 300)}</div>`;
-  /* Ο πελάτης γράφεται και επιλέγεται — το id κρατιέται κρυφό, όπως παντού αλλού. */
-  if (window.CNP.clientAuto) { window.CNP.clientAuto('lfCli', 'lfCliL', 'lfC'); }
-  const apply = () => {
-    R.list._f = {fp: $('#lfP').value, fs: $('#lfS').value, fa: $('#lfA').value,
-      fb: $('#lfB').value, fc: $('#lfC').value, fcName: $('#lfCli').value,
-      q: $('#lfQ').value, open: $('#lfO').checked ? 1 : 0};
-    R.list();
-  };
-  $('#lfGo').onclick = apply;
-  $('#lfQ').onkeydown = e => { if (e.key === 'Enter') { apply(); } };
-  const qs = Object.entries(f).filter(([k, v]) => k !== 'fcName' && v !== '' && v != null)
-    .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
-  const d = await api('list&' + qs);
-  $('#lRes').innerHTML = `<div class="card"><table class="tbl"><thead><tr>
-    <th>Task</th><th>Πελάτης</th><th>Project</th><th>Status</th><th>Άνοιξε</th><th>Χειρίζεται</th><th>Λήξη</th><th>Χρόνος</th></tr></thead><tbody>
-    ${d.tasks.length ? d.tasks.map(t => {
-      const st = statusOf(t.status), over = t.due && t.due < today() && !t.done;
-      return `<tr data-task="${t.id}" style="cursor:pointer">
-        <td><span class="dot" style="background:${prioDot(t.prio)};margin-right:7px"></span><b>${esc(t.title)}</b>
-          ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}">⚡${esc(adminIni(t.ball))}</span>` : ''}</td>
-        <td>${t.clientName ? esc(t.clientName) : '<span class="mut">—</span>'}</td>
-        <td><span class="dot" style="background:${t.pcolor};margin-right:5px"></span>${esc(t.pname)}</td>
-        <td><span class="pill" style="background:${st.color}22;color:${st.color}">${esc(st.title)}</span></td>
-        <td>${t.creator ? esc(adminName(t.creator)) : '—'}</td>
-        <td${cnpHolder(t) !== +(t.assignee || 0) && t.assignee
-          ? ` title="ανάθεση: ${esc(adminName(t.assignee))}"` : ''}>${
-          cnpHolder(t) ? esc(adminName(cnpHolder(t))) : '—'}</td>
-        <td class="${over ? 'pill pill-bad' : ''}">${t.due ? dShort(t.due) : '—'}</td>
-        <td>${t.mins ? fmtMin(t.mins) : '—'}</td></tr>`;
-    }).join('') : '<tr><td colspan="8" class="empty">Κανένα task με αυτά τα φίλτρα</td></tr>'}</tbody></table>
-    <div class="mut" style="padding:9px 14px;font-size:11.5px;border-top:1px solid var(--line)">${d.tasks.length} εργασίες</div></div>`;
-  $$('#lRes tr[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
-};
-
 /* ═════════ ΟΜΑΔΙΚΟ ΗΜΕΡΟΛΟΓΙΟ ═════════ */
 const EV_KINDS = {meeting: ['🤝', 'Meeting', '#7b5cd6'], appointment: ['📅', 'Ραντεβού', '#0090dd'],
   leave: ['🌴', 'Άδεια', '#e2a33c'], other: ['📌', 'Άλλο', '#8595ac']};
@@ -214,7 +156,7 @@ function openEvent(ev, ymRefresh) {
       })()}</div></div>
 
     ${ev.notes ? `<div class="card"><div class="card-h">${I.fileText} Σημειώσεις</div>
-      <div class="card-b rt-view" style="font-size:13px;color:var(--txt)">${ev.notes}</div></div>` : ''}
+      <div class="card-b rt-view" style="font-size:13px;color:var(--txt)">${window.CNP.cnpBalanced(ev.notes)}</div></div>` : ''}
 
     ${ev.canEdit ? `<div class="ev-foot">
       <button class="btn btn-o" id="evEdit">${I.edit} Επεξεργασία</button>
@@ -932,7 +874,7 @@ R.offers = async function () {
       <b style="color:var(--ink);font-size:15px">${d.offers.length ? 'Καμία προσφορά με αυτά τα φίλτρα' : 'Καμία προσφορά ακόμη'}</b>
       <div class="mut" style="font-size:12.5px;margin-top:6px">${d.offers.length
         ? 'Καθάρισε την αναζήτηση ή τα φίλτρα.' : 'Ξεκίνα φτιάχνοντας την πρώτη προσφορά.'}</div>
-      <button class="btn btn-p" id="newOffer2" style="margin-top:14px">${I.plus} Νέα προσφορά</button></div></div>`)
+      ${cnpCan('clients.offers.create') ? `<button class="btn btn-p" id="newOffer2" style="margin-top:14px">${I.plus} Νέα προσφορά</button>` : ''}</div></div>`)
     + d.stages.map(sg => {
       const list = shown.filter(o => o.stage === sg.key);
       const sum = list.reduce((s, o) => s + o.value, 0);
@@ -1025,9 +967,9 @@ R.offers = async function () {
       placeholder="τίτλο, πελάτη, αριθμό quote…" style="width:250px">`, !!st.q, '')}
     <span class="fbar-sp"></span>
     <span class="fbar-note">${I.doc} <b>${fmtEur(openV)}</b> ανοιχτές · ${I.trophy} <b>${won.length}</b> κερδισμένες (${fmtEur(won.reduce((s, o) => s + o.value, 0))})</span>
-    <button class="fchip" id="newPharm" title="Κοστολόγηση PharmacyOne — γεννά κανονική προσφορά στο κύκλωμα">${I.doc} PharmacyOne</button>
+    ${cnpCan('clients.offers.create') ? `<button class="fchip" id="newPharm" title="Κοστολόγηση PharmacyOne — γεννά κανονική προσφορά στο κύκλωμα">${I.doc} PharmacyOne</button>
     <button class="fchip" id="newPbx" title="Κοστολόγηση τηλεφωνικού κέντρου 3CX / Yeastar — γεννά κανονική προσφορά στο κύκλωμα">${I.phone} Τηλ. κέντρο</button>
-    <button class="fchip fchip-go" id="newOffer">${I.plus} Νέα προσφορά</button>
+    <button class="fchip fchip-go" id="newOffer">${I.plus} Νέα προσφορά</button>` : ''}
   </div>
   <div class="fchips">
     <button class="kb-chip${st.tab === 'pipe' ? ' on' : ''}" data-otab="pipe">${I.board} Pipeline</button>
@@ -1046,7 +988,7 @@ R.offers = async function () {
   $$('[data-goleadof]').forEach(b => b.onclick = e => { e.stopPropagation(); go('crm'); });
   $$('[data-goprojof]').forEach(b => b.onclick = e => { e.stopPropagation(); go('board', +b.dataset.goprojof); });
   $$('.lb-title[data-offer]').forEach(b => b.onclick = () => openOffer(d.offers.find(o => o.id === +b.dataset.offer), d));
-  $('#newOffer').onclick = () => openOffer(null, d);
+  const no1 = $('#newOffer'); if (no1) { no1.onclick = () => openOffer(null, d); }
   const npm = $('#newPharm'); if (npm) { npm.onclick = () => window.openPharmacy(0, null); }
   const npx = $('#newPbx'); if (npx) { npx.onclick = () => window.openPbx(0, null); }
   const no2 = $('#newOffer2'); if (no2) { no2.onclick = () => openOffer(null, d); }
@@ -1219,6 +1161,7 @@ window.CNP.openOfferComments = openOfferComments;
 /* Νέα προσφορά ΓΙΑ μια εργασία (από την καρτέλα της ή από αίτημα συναδέλφου):
    ανοίγει τη σωστή φόρμα με τον πελάτη έτοιμο και, στην αποθήκευση, δένεται με την εργασία. */
 window.CNP.newOfferFor = async function ({client, name, task, kind}) {
+  if (!cnpCan('clients.offers.create')) { toast('Νέα προσφορά δημιουργούν μόνο εξουσιοδοτημένοι χειριστές', true); return; }
   kind = kind || 'plain';
   if (kind === 'pharmacyone' && window.openPharmacy) { window.openPharmacy(0, {client, name, task}); return; }
   if (kind === 'pbx' && window.openPbx) { window.openPbx(0, {client, name, task}); return; }
@@ -1235,6 +1178,7 @@ window.CNP.openOfferById = async function (id) {
 };
 
 function openOffer(o, d) {
+  if (!o && !cnpCan('clients.offers.create')) { toast('Νέα προσφορά δημιουργούν μόνο εξουσιοδοτημένοι χειριστές', true); return; }
   /* Η προσφορά PharmacyOne γεννήθηκε από τον κοστολογητή· εκεί επιστρέφει κιόλας,
      αλλιώς η επόμενη αποθήκευση θα έσβηνε το ποσό που βγήκε από τους υπολογισμούς. */
   if (o && o.kind === 'pharmacyone' && window.openPharmacy) { window.openPharmacy(o.id, null); return; }
@@ -1691,7 +1635,7 @@ R.clientlist = async function () {
     if (cnpCan('clients.card.edit')) { items.push({icon: I.repeat, label: 'Ενημέρωση από ΑΑΔΕ', on: () => clientAadeSync(cl.id, cl.afm, cl.name, () => R.clientlist())}); }
     if (cnpCan('projects.portfolio.edit')) { items.push({icon: I.rocket, label: 'Νέο έργο', on: () => { R.projects._pre = {client: cl.id, clientName: cl.name}; go('projects'); }}); }
     if (cnpCan('projects.board')) { items.push({icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()}); }
-    if (cnpCan('clients.offers.edit')) {
+    if (cnpCan('clients.offers.create')) {
       items.push({icon: I.doc, label: 'Νέα προσφορά', on: async () => {
         const od = await api('offers').catch(() => null); if (!od) { toast('Σφάλμα', true); return; }
         openOffer(null, od);
@@ -4256,7 +4200,7 @@ R.profile = async function () {
           <span class="ava" style="width:46px;height:46px;font-size:17px">${esc(S.boot.me.ini)}</span>
           <div><b style="font-size:15px;color:var(--ink)">${esc(p.username)}</b>
             <div class="mut" style="font-size:12px">${esc(p.role)} · <span class="pill ${p.full ? 'pill-info' : ''}" style="font-size:9.5px">${p.full ? 'Διαχειριστής' : 'Χειριστής'}</span>
-            ${p.since ? ' · μέλος από ' + dShort(p.since) : ''}</div></div></div>
+            ${p.since && !String(p.since).startsWith('0000') ? ' · μέλος από ' + dShort(p.since) : ''}</div></div></div>
         <div class="frow">
           <div><label class="lbl">Όνομα</label><input class="inp" id="prF" value="${esc(p.first || '')}"></div>
           <div><label class="lbl">Επώνυμο</label><input class="inp" id="prL" value="${esc(p.last || '')}"></div>

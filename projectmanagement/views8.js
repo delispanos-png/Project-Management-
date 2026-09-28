@@ -27,6 +27,7 @@ const pxNum = v => new Intl.NumberFormat('el-GR', {minimumFractionDigits: 2, max
  */
 async function openPbx(offerId, pre) {
   if (!cnpCan('clients.offers')) { toast('Δεν έχεις δικαίωμα στις Προσφορές', true); return; }
+  if (!offerId && !cnpCan('clients.offers.create')) { toast('Νέα προσφορά δημιουργούν μόνο εξουσιοδοτημένοι χειριστές', true); return; }
   closeDrawer();
   const ovl = document.createElement('div'); ovl.className = 'ovl';
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal ph-dr';
@@ -568,7 +569,7 @@ async function openPbx(offerId, pre) {
   async function save() {
     if (!st.clientName.trim()) { toast('Δώσε επωνυμία πελάτη', true); $('#pxWho', body).focus(); return; }
     const btn = $('#pxSave', body); btn.disabled = true;
-    const r = await api('pbx_save', {offer: st.offer, client: st.client, clientName: st.clientName, config: st.cfg, task: st.task || 0})
+    const r = await api('pbx_offer_save', {offer: st.offer, client: st.client, clientName: st.clientName, config: st.cfg, task: st.task || 0})
       .catch(e => ({ok: false, error: e && e.message}));
     btn.disabled = false;
     if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return; }

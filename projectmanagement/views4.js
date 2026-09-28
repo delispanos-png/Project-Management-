@@ -1480,7 +1480,7 @@ R.knowledge = async function () {
       box.dataset.loaded = '1';
       const r = await api('kb_get&id=' + box.dataset.kbsol).catch(() => null);
       if (r && r.solution) {
-        box.innerHTML = r.solution;
+        box.innerHTML = window.CNP.cnpBalanced(r.solution);
         // κάθε πίνακας σε δικό του scroller — αλλιώς οι στήλες στριμώχνονται και
         // οι επικεφαλίδες σπάνε στη μέση σε στενές οθόνες
         box.querySelectorAll('table').forEach(t => {
@@ -2330,7 +2330,7 @@ R.chat = async function () {
       const d = new Date(), pad = n => String(n).padStart(2, '0');
       const file = new File([blob], 'voice-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.' + ext, {type: blob.type});
       recShow(true); recUi.innerHTML = '<span class="mut" style="font-size:12px">🎙 Αποστολή φωνητικού (' + recFmt(Math.max(1, secs)) + ')…</span>';
-      const ok = await sendOne('🎙 Φωνητικό μήνυμα · ' + recFmt(Math.max(1, secs)), file);
+      const ok = await sendOne('♪ Φωνητικό μήνυμα · ' + recFmt(Math.max(1, secs)), file);
       recShow(false); recUi.innerHTML = '';
       if (ok) { if (st.lastId === -1) st.lastId = 0; load(); }
     };
@@ -2697,7 +2697,7 @@ R.library = async function () {
     });
     $$('[data-lbget]', box).forEach(b => b.onclick = () => window.open('api.php?a=lib_get&id=' + b.dataset.lbget, '_blank'));
     $$('[data-lbcopy]', box).forEach(b => b.onclick = async () => { await navigator.clipboard.writeText(b.dataset.lbcopy); toast('Αντιγράφηκε'); });
-    $$('[data-lbcopyn]', box).forEach(b => b.onclick = async () => { const it = d.items.find(x => x.id === +b.dataset.lbcopyn); const tmp = document.createElement('div'); tmp.innerHTML = it.body || ''; await navigator.clipboard.writeText(tmp.textContent || ''); toast('Κείμενο αντιγράφηκε'); });
+    $$('[data-lbcopyn]', box).forEach(b => b.onclick = async () => { const it = d.items.find(x => x.id === +b.dataset.lbcopyn); const tmp = document.createElement('div'); tmp.innerHTML = window.CNP.cnpBalanced(it.body || ''); await navigator.clipboard.writeText(tmp.textContent || ''); toast('Κείμενο αντιγράφηκε'); });
     $$('[data-lbpin]', box).forEach(b => b.onclick = async () => { await api('lib_pin', {id: +b.dataset.lbpin}); load(); });
     $$('[data-lbedit]', box).forEach(b => b.onclick = () => { const it = d.items.find(x => x.id === +b.dataset.lbedit); openLibForm(it.kind, it); });
     $$('[data-lbdel]', box).forEach(b => b.onclick = async () => { if (!await cnpConfirm('Διαγραφή;')) { return; } await api('lib_del', {id: +b.dataset.lbdel}); load(); });
@@ -2736,7 +2736,7 @@ R.library = async function () {
         ${it.updated ? `<span class="mut" style="font-size:11.5px">ενημερώθηκε ${esc(dFull(it.updated))}</span>` : ''}
         ${(it.tags || '').split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9.5px">${esc(t.trim())}</span>`).join('')}
       </div>
-      <div class="lb-doc">${it.body || '<span class="mut">Χωρίς κείμενο.</span>'}</div>
+      <div class="lb-doc">${it.body ? window.CNP.cnpBalanced(it.body) : '<span class="mut">Χωρίς κείμενο.</span>'}</div>
       <div id="lvFiles" class="lb-read-f"></div>
     </div>`;
     document.body.appendChild(ovl);
