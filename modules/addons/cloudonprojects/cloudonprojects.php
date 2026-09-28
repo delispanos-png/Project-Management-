@@ -276,6 +276,13 @@ function cloudonprojects_output($vars)
 
     /* ---- POST handlers (redirect after) ---- */
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        /* Νέα προσφορά (28/9/2026): μόνο ονομαστικά — εδώ, στην παλιά οθόνη, μόνο Full.
+           Το /project/ ελέγχει το ρητό clients.offers.create (cnp_offer_create_guard). */
+        if (($do === 'leadoffer' || ($do === 'saveoffer' && !(int) ($_POST['id'] ?? 0)))
+            && !Db::isFullAccess($adminId)) {
+            header('Location: ' . $link . '&tab=offers');
+            return;
+        }
         if ($do === 'saveproject') {
             if (!Db::isFullAccess($adminId)) {
                 header('Location: ' . $link . '&tab=projects');

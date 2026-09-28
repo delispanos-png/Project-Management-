@@ -83,7 +83,20 @@ function fail($msg, $code = 400, array $extra = [])
 }
 
 $action = $_GET['a'] ?? '';
+/* ΣΦΑΛΜΑ = JSON, ΟΧΙ ΣΕΛΙΔΑ (28/9/2026). Πριν, κάθε απρόβλεπτο σφάλμα έβγαζε τη σελίδα
+   «Oops!» του WHMCS και η οθόνη έδειχνε «Unexpected token '<'…». Τώρα: καθαρό μήνυμα στον
+   χρήστη, λεπτομέρειες στο error_log (με την ενέργεια) για διάγνωση. */
+set_exception_handler(function ($e) use ($action) {
+    error_log('[CNP api ' . $action . '] ' . get_class($e) . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
+    echo json_encode(['error' => 'Σφάλμα διακομιστή στην ενέργεια «' . $action . '» — καταγράφηκε. Δοκίμασε ξανά ή ενημέρωσε τον διαχειριστή.'], JSON_UNESCAPED_UNICODE);
+});
 $adminId = pm_admin_id();
+/* ΞΕΚΛΕΙΔΩΜΑ ΣΥΝΕΔΡΙΑΣ (28/9/2026): το PHP κρατά κλειδωμένο το αρχείο της συνεδρίας ως
+   το τέλος του αιτήματος — έτσι τα 5-6 παράλληλα αιτήματα κάθε οθόνης περίμεναν το ένα
+   το άλλο (μετρήθηκε «σκάλα» 0,43→0,69s), και ένα αργό (AI/3CX) πάγωνε όλη την εφαρμογή
+   του χρήστη. Μετά τον έλεγχο ταυτότητας η συνεδρία μόνο διαβάζεται — την κλείνουμε. */
+if (session_status() === PHP_SESSION_ACTIVE) { session_write_close(); }
 $MEET_ROOM = null;   // guests του CloudOn Meet: έγκυρο room token αντί για login
 $CRON_OK = false;    // presence_sweep από το pulse cron: HMAC της ώρας με το pm_secret, χωρίς login
 if ($adminId <= 0) {
@@ -100,6 +113,19 @@ if ($adminId <= 0) {
     }
 }
 $FULL = $adminId > 0 ? Db::isFullAccess($adminId) : false;
+/* ΑΙΤΗΜΑΤΑ ΑΠΟ ΑΛΛΗ ΣΕΛΙΔΑ (CSRF, 28/9/2026): κάθε POST που έρχεται από browser με Origin/
+   Referer ξένου site απορρίπτεται. Πριν στηριζόμασταν μόνο στο SameSite=Lax του cookie, που
+   ΔΕΝ καλύπτει subdomains του cloudon.gr (WordPress, remote., sip.). Crons/CLI δεν στέλνουν
+   Origin και δεν επηρεάζονται. */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && PHP_SAPI !== 'cli') {
+    $selfO = 'https://' . strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    $orgO = strtolower((string) ($_SERVER['HTTP_ORIGIN'] ?? ''));
+    $refO = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+    if (($orgO !== '' && $orgO !== 'null' && $orgO !== $selfO)
+        || ($orgO === '' && $refO !== '' && stripos($refO, $selfO . '/') !== 0)) {
+        fail('Το αίτημα απορρίφθηκε — ήρθε από άλλη σελίδα', 403);
+    }
+}
 $in = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $testIn = getenv("CNP_TEST_INPUT");
@@ -637,7 +663,67 @@ function cnp_clean_html($html, $max = 12000)
     }, $html);
     // target=_blank + rel για ασφάλεια σε συνδέσμους
     $html = preg_replace('/<a\s+(?![^>]*\btarget=)/i', '<a target="_blank" rel="noopener noreferrer" ', $html);
-    return cnp_balance_html(mb_substr(trim($html), 0, (int) $max));
+    return cnp_dom_scrub(cnp_balance_html(mb_substr(trim($html), 0, (int) $max)));
+}
+
+/**
+ * Τελικό φίλτρο ΣΕ ΕΠΙΠΕΔΟ DOM (28/9/2026, έλεγχος ασφαλείας). Οι κανονικές εκφράσεις
+ * πιο πάνω παρακάμπτονταν: `<img src="x"onerror=…>` (χωρίς κενό πριν το on…) περνούσε, και
+ * το cnp_balance_html το ξαναέγραφε ως κανονικό χαρακτηριστικό → εκτέλεση κώδικα στον
+ * browser όποιου άνοιγε την εργασία. Εδώ κρατάμε ΜΟΝΟ επιτρεπόμενα στοιχεία και
+ * χαρακτηριστικά, όπως τα βλέπει ο parser — ό,τι κι αν έγραψε κανείς.
+ */
+function cnp_dom_scrub($html)
+{
+    $html = (string) $html;
+    if ($html === '' || strpos($html, '<') === false) { return $html; }
+    static $tags = ['b', 'strong', 'i', 'em', 'u', 's', 'ul', 'ol', 'li', 'a', 'br', 'p', 'div', 'span', 'h3', 'h4',
+        'blockquote', 'code', 'pre', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'mark'];
+    static $attrs = ['href', 'src', 'alt', 'title', 'style', 'class', 'target', 'rel', 'colspan', 'rowspan', 'width', 'height', 'data-lang'];
+    $prev = libxml_use_internal_errors(true);
+    $doc = new \DOMDocument();
+    $ok = $doc->loadHTML('<?xml encoding="UTF-8"><html><body><div id="cnp-scrub">' . $html . '</div></body></html>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prev);
+    $root = $ok ? $doc->getElementById('cnp-scrub') : null;
+    if (!$root) { return htmlspecialchars(strip_tags($html), ENT_QUOTES, 'UTF-8'); }
+    $walk = function ($node) use (&$walk, $tags, $attrs) {
+        for ($c = $node->firstChild; $c; $c = $next) {
+            $next = $c->nextSibling;
+            if ($c->nodeType === XML_COMMENT_NODE) { $node->removeChild($c); continue; }
+            if ($c->nodeType !== XML_ELEMENT_NODE) { continue; }
+            $tag = strtolower($c->nodeName);
+            if (!in_array($tag, $tags, true)) {
+                // script/style/iframe/svg/object… → έξω ΜΑΖΙ με το περιεχόμενο· τα υπόλοιπα ξετυλίγονται
+                if (in_array($tag, ['script', 'style', 'iframe', 'object', 'embed', 'svg', 'math', 'noscript', 'template', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base'], true)) {
+                    $node->removeChild($c); continue;
+                }
+                $first = $c->firstChild;           // τα παιδιά ελέγχονται κι αυτά — ξεκινάμε από το πρώτο
+                while ($c->firstChild) { $node->insertBefore($c->firstChild, $c); }
+                $node->removeChild($c);
+                if ($first) { $next = $first; }
+                continue;
+            }
+            foreach (iterator_to_array($c->attributes) as $a) {
+                $an = strtolower($a->nodeName);
+                if (!in_array($an, $attrs, true)) { $c->removeAttribute($a->nodeName); continue; }
+                if ($an === 'href' || $an === 'src') {
+                    $u = preg_replace('/[\x00-\x20]/', '', (string) $a->nodeValue);
+                    $safe = $u === '' || $u[0] === '#' || $u[0] === '/' || preg_match('#^(https?:|mailto:|tel:)#i', $u)
+                        || !preg_match('/^[a-z0-9.+-]*:/i', $u);
+                    if (!$safe) { $c->setAttribute($a->nodeName, '#'); }
+                }
+                if ($an === 'style' && preg_match('/expression|url\s*\(|javascript:|@import|behavior/i', (string) $a->nodeValue)) {
+                    $c->removeAttribute($a->nodeName);
+                }
+            }
+            $walk($c);
+        }
+    };
+    $walk($root);
+    $out = '';
+    foreach ($root->childNodes as $n) { $out .= $doc->saveHTML($n); }
+    return $out;
 }
 
 /**
@@ -1365,7 +1451,7 @@ function cnp_leave_query(array $in)
     }
     $rows = [];
     foreach ($q->orderBy('l.date_from', 'desc')->orderBy('l.id', 'desc')
-            ->limit(500)->get(['l.*']) as $r) {
+            ->limit(2000)->get(['l.*']) as $r) {
         $rows[] = cnp_leave_row($r);
     }
     return ['rows' => $rows, 'count' => count($rows)];
@@ -2224,7 +2310,9 @@ function cnp_call_row($r)
     $whoKind = '';
     if (!empty($r->clientid)) { $who = clientLabel((int) $r->clientid); $whoKind = 'client'; }
     elseif (!empty($r->lead_id)) {
-        $who = (string) (Capsule::table('mod_cpm_leads')->where('id', (int) $r->lead_id)->value('name') ?: '');
+        /* ο πίνακας leads ΔΕΝ έχει στήλη name — company/contact (έριχνε 500 σε όλη την οθόνη, 28/9/2026) */
+        $ldW = Capsule::table('mod_cpm_leads')->where('id', (int) $r->lead_id)->first(['company', 'contact']);
+        $who = $ldW ? (string) (trim((string) $ldW->company) ?: trim((string) $ldW->contact)) : '';
         $whoKind = 'lead';
     }
     /* Το «free» σημαίνει ΕΛΕΥΘΕΡΟ ΟΝΟΜΑ. Δινόταν όμως και όταν το caller ήταν
@@ -2730,11 +2818,15 @@ function cnp_kb_suggest($text, $limit = 3, $floor = 0.30)
     if ($docs === null) {
         $docs = [];
         $df = [];
-        foreach (Capsule::table('mod_cpm_kb')->get(['id', 'title', 'keywords', 'tags', 'solution']) as $k) {
+        /* ΜΟΝΟ τα πρώτα 12.000 bytes κάθε λύσης (η σύγκριση κοιτάζει 4.000 χαρακτήρες) — πριν
+           φορτωνόταν ολόκληρη η βάση γνώσης (27MB) σε κάθε άνοιγμα ticket, με όριο μνήμης
+           128MB. Το πλήρες κείμενο φέρνεται μόνο για τα λίγα άρθρα που προτείνονται. */
+        foreach (Capsule::table('mod_cpm_kb')->select('id', 'title', 'keywords', 'tags')
+                     ->selectRaw('LEFT(solution, 12000) as sol_head')->get() as $k) {
             // Τίτλος και λέξεις-κλειδιά μετρούν διπλά: εκεί είναι η ουσία του άρθρου.
             $head = cnp_words($k->title . ' ' . $k->keywords . ' ' . $k->tags, 60);
-            $body = cnp_words(mb_substr(strip_tags((string) $k->solution), 0, 4000), 120);
-            $docs[] = ['id' => (int) $k->id, 'title' => $k->title, 'solution' => $k->solution,
+            $body = cnp_words(mb_substr(strip_tags((string) $k->sol_head), 0, 4000), 120);
+            $docs[] = ['id' => (int) $k->id, 'title' => $k->title,
                 'head' => array_flip($head), 'body' => array_flip($body)];
             foreach (array_unique(array_merge($head, $body)) as $w) {
                 $df[$w] = ($df[$w] ?? 0) + 1;
@@ -2780,12 +2872,18 @@ function cnp_kb_suggest($text, $limit = 3, $floor = 0.30)
         /* Απαιτούμε τουλάχιστον μία λέξη στον ΤΙΤΛΟ ή στις λέξεις-κλειδιά: μόνο
            με λέξεις από το σώμα, το ταίριασμα είναι σύμπτωση, όχι θέμα. */
         if ($sc >= $floor && count($hits) >= 2 && $headHits >= 1) {
-            $out[] = ['id' => $d['id'], 'title' => $d['title'], 'solution' => $d['solution'],
+            $out[] = ['id' => $d['id'], 'title' => $d['title'],
                 'score' => round($sc, 3), 'words' => array_slice(array_unique($hits), 0, 6)];
         }
     }
     usort($out, function ($a, $b) { return $b['score'] <=> $a['score']; });
-    return array_slice($out, 0, $limit);
+    $out = array_slice($out, 0, $limit);
+    if ($out) {
+        $sols = Capsule::table('mod_cpm_kb')->whereIn('id', array_column($out, 'id'))->pluck('solution', 'id')->all();
+        foreach ($out as &$o) { $o['solution'] = $sols[$o['id']] ?? ''; }
+        unset($o);
+    }
+    return $out;
 }
 
 function taskDto($t, $minsMap = null, $checkMap = null, $attMap = null, $tkNoMap = null)
@@ -2938,6 +3036,23 @@ function cnp_nonbillable_type($typeId)
 function cnp_task_billable_ok($t)
 {
     return $t && !cnp_nonbillable_type($t->type_id ?? 0);
+}
+
+/**
+ * ΝΕΟΣ χρεώσιμος χρόνος σε εργασία: αν η χρέωση είχε ήδη εγκριθεί, η έγκριση ξανανοίγει —
+ * αλλιώς ο χρόνος που μπαίνει ΜΕΤΑ την έγκριση περνά ανέλεγκτος και η εργασία κλείνει
+ * (βρέθηκαν 81΄ έτσι στην #121, 28/9/2026). Μετά ζητείται έγκριση κανονικά.
+ */
+function cnp_billing_reopen($t, $byAdminId)
+{
+    if (!$t) { return; }
+    if (!empty($t->billing_ok)) {
+        Capsule::table('mod_cpm_tasks')->where('id', (int) $t->id)
+            ->update(['billing_ok' => 0, 'billing_ok_by' => null, 'billing_ok_at' => null]);
+        Db::logActivity((int) $t->id, $byAdminId, 'edit', 'Νέος χρεώσιμος χρόνος μετά την έγκριση — η χρέωση θέλει ξανά έγκριση');
+        $t = Db::task((int) $t->id);
+    }
+    cnp_billing_request($t, $byAdminId);
 }
 
 function cnp_billing_request($t, $byAdminId)
@@ -3492,6 +3607,42 @@ function cnp_lib_can($adminId, $refId, $needOwner = false)
     if ((int) $row->admin_id === (int) $adminId) { return true; }
     return !$needOwner && !empty($row->shared);   // κοινόχρηστο → μόνο ανάγνωση
 }
+/** Υπογραφή peer id κλήσης — δένει σηματοδοσία/poll/αποχώρηση με όποιον μπήκε. */
+function pm_rtc_key($room, $peer)
+{
+    return substr(hash_hmac('sha256', 'rtc|' . $room . '|' . $peer, pm_secret()), 0, 32);
+}
+
+/**
+ * Πρόσβαση στο ΣΥΓΚΕΚΡΙΜΕΝΟ αντικείμενο ενός αρχείου (28/9/2026) — το cnp_file_authz
+ * κοιτάζει μόνο το module. Χωρίς αυτό: όποιος συνδεόταν έβλεπε τα συνημμένα ΙΔΙΩΤΙΚΩΝ
+ * συνομιλιών άλλων και αρχεία εργασιών που δεν βλέπει.
+ * $write = ανέβασμα/διαγραφή. Αδέσμευτα (ref_id 0, π.χ. εικόνες μέσα σε κείμενο) μένουν
+ * στον κανόνα του module.
+ */
+function cnp_file_obj_ok($adminId, $FULL, $module, $refType, $refId, $write = false, $createdAt = null)
+{
+    if ($FULL) { return true; }
+    $refType = (string) $refType; $refId = (int) $refId;
+    if ($module === 'library') { return cnp_lib_can($adminId, $refId, $write); }
+    if ($module === 'chat') { return $refType !== '' && cnp_chat_access($refType, $adminId); }
+    if ($module === 'project') { return !$refId || Db::canSeeProject($adminId, $refId); }
+    if ($module === 'task') {
+        $tid = 0;
+        if ($refType === 'task') { $tid = $refId; }
+        /* Πριν 17/9/2026 11:44 (81d0f7a) τα συνημμένα ενεργειών έπαιρναν ref_id = ΕΡΓΑΣΙΑ·
+           μετά ref_id = ΕΝΕΡΓΕΙΑ. Οι αριθμοί συμπίπτουν, άρα κρίνει η ημερομηνία. */
+        elseif ($refType === 'check' && $refId && $createdAt !== null && (string) $createdAt < '2026-09-17 11:44:10') { $tid = $refId; }
+        elseif ($refType === 'check' && $refId) { $tid = (int) Capsule::table('mod_cpm_checklist')->where('id', $refId)->value('task_id'); }
+        elseif ($refType === 'comment' && $refId) { $tid = (int) Capsule::table('mod_cpm_comments')->where('id', $refId)->value('task_id'); }
+        else { return true; }                                   // αδέσμευτο (rte / πριν δεθεί)
+        if (!$tid) { return !$refId; }
+        $t = Db::task($tid);
+        if (!$t || !Db::canSeeTask($adminId, $t)) { return false; }
+        return !$write || cnp_task_write_ok($adminId, $FULL, $t) || cnp_was_asked($adminId, $tid);
+    }
+    return true;
+}
 function cnp_file_authz($adminId, $FULL, $module)
 {
     $area = cnp_file_area($module);
@@ -3724,7 +3875,8 @@ function cnp_caps()
         'clients.crm'           => ['view',   'CRM & leads', 'Funnel, επαφές, επικοινωνίες, καμπάνιες, στόχοι'],
         'clients.crm.edit'      => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή leads, επαφών, καμπανιών, στόχων', 'clients.crm'],
         'clients.offers'        => ['view',   'Προσφορές', 'Παρακολούθηση προσφορών (pipeline)'],
-        'clients.offers.edit'   => ['edit',   'Επεξεργασία', 'Δημιουργία/αλλαγή/αποστολή προσφορών & quotes', 'clients.offers'],
+        'clients.offers.edit'   => ['edit',   'Επεξεργασία', 'Αλλαγή/αποστολή υπαρχουσών προσφορών & quotes', 'clients.offers'],
+        'clients.offers.create' => ['power',  'Δημιουργία προσφοράς', 'Νέα προσφορά (κάθε τύπου). ΟΝΟΜΑΣΤΙΚΗ — δεν έρχεται με το κύκλωμα ούτε με την Επεξεργασία', 'clients.offers'],
         'clients.offers.delete' => ['delete', 'Διαγραφή', 'Διαγραφή προσφοράς από το pipeline (το WHMCS quote μένει)', 'clients.offers'],
         'clients.calls'   => ['power',  'Καταγραφή κλήσης', 'Γρήγορη καταχώρηση τηλεφώνου, με εργασία ή ticket', 'clients.card'],
         'clients.new'     => ['power',  'Δημιουργία πελάτη', 'Άνοιγμα νέου πελάτη στο WHMCS επί τόπου', 'clients.card'],
@@ -3869,7 +4021,28 @@ function cnp_caps_of($area)
 /** Δυνατότητες που δίνονται ΜΟΝΟ ονομαστικά (βλ. cnp_has_cap). */
 function cnp_explicit_caps()
 {
-    return ['reports.time'];
+    /* clients.offers.create (28/9/2026): νέα προσφορά κάνουν μόνο ονομαστικά ορισμένοι
+       (σήμερα: Παναγιώτης & Εμμανουέλα, Full). Όλοι οι άλλοι βλέπουν τις προσφορές. */
+    return ['reports.time', 'clients.offers.create'];
+}
+
+/** Αλλαγή σε lead ή σε ό,τι κρέμεται από αυτό (εργασίες, προϊόντα, συγχώνευση): ίδιος
+ *  κανόνας με το save_lead — Full, ανάδοχος ή δημιουργός (28/9/2026). */
+function cnp_lead_write_guard($adminId, $isFull, $leadId)
+{
+    $l = Db::lead((int) $leadId);
+    if (!$l) { fail('lead', 404); }
+    if (!$isFull && (int) $l->assignee !== (int) $adminId && (int) $l->created_by !== (int) $adminId) {
+        fail('Το lead ανήκει σε άλλον', 403);
+    }
+}
+
+/** Νέα προσφορά (κάθε τύπου) — μόνο όποιος έχει ρητά το clients.offers.create. */
+function cnp_offer_create_guard($adminId, $isFull)
+{
+    if (!cnp_has_cap($adminId, $isFull, 'clients.offers.create')) {
+        fail('Νέα προσφορά δημιουργούν μόνο εξουσιοδοτημένοι χειριστές. Μπορείς να δεις τις προσφορές, όχι να φτιάξεις νέα.', 403);
+    }
 }
 
 /**
@@ -4100,6 +4273,42 @@ function cnp_task_locked($t)
 }
 
 /** Κόβει με 409 όταν η εργασία είναι κλειστή — με οδηγία, όχι σκέτο «όχι». */
+/**
+ * Τι πρέπει να ισχύει για να ΚΛΕΙΣΕΙ μια εργασία: καμία εκκρεμής εξάρτηση, λίστα
+ * παράδοσης τσεκαρισμένη, χρεώσιμος χρόνος εγκεκριμένος. Κοινό για κάθε δρόμο
+ * κλεισίματος (move_task, κάρτα διαχείρισης) — πριν η κάρτα τα παρέκαμπτε όλα (28/9/2026).
+ */
+function cnp_close_guard($t, $adminId)
+{
+    $bm = Db::blockedMap([$t->id]);
+    if (!empty($bm[(int) $t->id])) {
+        fail('Μπλοκάρεται από: ' . implode(', ', array_slice($bm[(int) $t->id], 0, 3)));
+    }
+    /* Παράδοση module: δεν κλείνει όσο μένει ατσέκαρο βήμα. Αυτό είναι το
+       «απαιτητό» — αλλιώς το checklist θα ήταν διακοσμητικό. */
+    if (!empty($t->is_delivery)) {
+        $left = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->where('done', 0)->count();
+        if ($left > 0) {
+            $tot = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->count();
+            fail('Μένουν ' . $left . ' από ' . $tot . ' ενέργειες παράδοσης — '
+                . 'τσέκαρέ τις πρώτα και μετά κλείσε την εργασία', 409);
+        }
+    }
+    /* Χρεώσιμος χρόνος χωρίς έγκριση λογιστηρίου: αν κλείσει τώρα, ο χρόνος
+       δεν θα τιμολογηθεί ποτέ γιατί κανείς δεν θα τον ξανακοιτάξει. */
+    if (empty($t->billing_ok)) {
+        $billMin = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)
+            ->where('billable', 1)->where('running', 0)->sum('minutes');
+        if ($billMin > 0) {
+            /* Εδώ η καθυστέρηση κοστίζει: ξανασπρώχνουμε την ειδοποίηση. */
+            cnp_billing_request($t, $adminId);
+            $apN9 = cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : 'τον διαχειριστή';
+            fail('Έχει ' . round($billMin / 60, 1) . 'ω χρεώσιμο χρόνο χωρίς έγκριση — '
+                . 'ειδοποιήθηκε ο/η ' . $apN9 . ' και δεν κλείνει πριν εγκριθεί η χρέωση', 409);
+        }
+    }
+}
+
 function cnp_task_lock_guard($t)
 {
     if (cnp_task_locked($t)) {
@@ -4122,6 +4331,11 @@ function cnp_link_offer_to_task($taskId, $offerId, $adminId)
     $t = Db::task((int) $taskId);
     $o = Db::offer((int) $offerId);
     if (!$t || !$o) { return false; }
+    /* Δένει μόνο σε εργασία που βλέπει και γράφει (ή όπου του ζητήθηκε η προσφορά), και
+       όχι σε κλειδωμένη — πριν δεχόταν ΟΠΟΙΟΔΗΠΟΤΕ id εργασίας (28/9/2026). */
+    $fullL = Db::isFullAccess($adminId);
+    if (!Db::canSeeTask($adminId, $t) || cnp_task_locked($t)
+        || (!cnp_task_write_ok($adminId, $fullL, $t) && !cnp_was_asked($adminId, $t->id))) { return false; }
     Capsule::table('mod_cpm_tasks')->where('id', (int) $t->id)->update(['offer_id' => (int) $o->id, 'is_offer' => 1]);
     $reqs = Capsule::table('mod_cpm_help')->where('kind', 'offer')->where('task_id', (int) $t->id)->where('status', 'open')->get();
     Capsule::table('mod_cpm_help')->where('kind', 'offer')->where('task_id', (int) $t->id)->where('status', 'open')
@@ -4136,6 +4350,13 @@ function cnp_link_offer_to_task($taskId, $offerId, $adminId)
     }
     Db::logActivity((int) $t->id, $adminId, 'edit', 'Δέθηκε η προσφορά «' . mb_substr((string) $o->title, 0, 80) . '» (#' . (int) $o->id . ')');
     return true;
+}
+
+/** Ρωτήθηκε ο χειριστής σε αυτή την εργασία (@mention / αίτημα); Τότε μπορεί να
+ *  ΑΠΑΝΤΗΣΕΙ μέσα της (νέα ενέργεια) — όχι όμως να αλλάξει πεδία της. */
+function cnp_was_asked($adminId, $taskId)
+{
+    return Capsule::table('mod_cpm_help')->where('task_id', (int) $taskId)->where('to_admin', (int) $adminId)->exists();
 }
 
 function cnp_task_write_ok($adminId, $isFull, $t)
@@ -4254,7 +4475,7 @@ function cnp_action_cap($action)
         $add('clients.offers.edit', ['save_offer', 'move_offer', 'create_quote', 'pharmacy_save',
             'pharmacy_ai_draft', 'pharmacy_email', 'offer_comment_add']);
         $add('clients.offers', ['pbx_defs', 'pbx_calc', 'pbx_doc']);
-        $add('clients.offers.edit', ['pbx_save', 'pbx_email']);
+        $add('clients.offers.edit', ['pbx_offer_save', 'pbx_email']);
         $add('admin.settings.edit', ['pbx_catalog_save', 'pbx_catalog_reset']);
         $add('admin.settings.edit', ['cards_settings']);
         $add('clients.offers.delete', ['delete_offer']);
@@ -4498,7 +4719,10 @@ case 'boot':
     $admins = [];
     foreach (Db::admins() as $a) {
         $nm = trim($a->firstname . ' ' . $a->lastname);
-        $admins[] = ['id' => (int) $a->id, 'name' => $nm, 'ini' => initials($nm), 'full' => Db::isFullAccess($a->id)];
+        $fullA = Db::isFullAccess($a->id);
+        $admins[] = ['id' => (int) $a->id, 'name' => $nm, 'ini' => initials($nm), 'full' => $fullA,
+            /* Ποιος φτιάχνει προσφορές — για το «Ζήτα προσφορά από συνάδελφο». */
+            'offerMaker' => cnp_has_cap((int) $a->id, $fullA, 'clients.offers.create')];
     }
     $projects = [];
     foreach (Db::projectsFor($adminId) as $p) {
@@ -4522,6 +4746,7 @@ case 'boot':
             'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
             /* Οι αναλυτικές δυνατότητες: το μενού κρύβει πια ΣΤΟΙΧΕΙΑ, όχι μόνο ενότητες. */
             'caps' => cnp_admin_caps($adminId, $FULL),
+            'explicitCaps' => cnp_explicit_caps(),   // ονομαστικές: δεν κληρονομούνται από το κύκλωμα
             /* Το μενού πρέπει να ξέρει ποιες δυνατότητες ΔΕΝ κληρονομούνται, αλλιώς
                θα έδειχνε «Χρόνος ομάδας» σε όποιον έχει απλώς το κύκλωμα Αναφορές
                και ο server θα του γύριζε μόνο τα δικά του. */
@@ -4955,7 +5180,11 @@ case 'task':
     foreach (Db::timelogsForTask($t->id) as $l) {
         $logs[] = ['id' => (int) $l->id, 'by' => Db::adminName($l->admin_id), 'byId' => (int) $l->admin_id, 'mins' => (int) $l->minutes,
             'billable' => (bool) $l->billable, 'charged' => (int) $l->charged_minutes,
-            'note' => $l->note, 'running' => (bool) $l->running, 'at' => $l->running ? $l->started_at : $l->created_at];
+            'note' => $l->note, 'running' => (bool) $l->running, 'at' => $l->running ? $l->started_at : $l->created_at,
+            /* Το χρονόμετρο γράφει ώρα έναρξης· η χειροκίνητη καταχώρηση (και η κλήση) όχι —
+               εκεί ξέρουμε μόνο πότε καταχωρήθηκε και πόσα λεπτά δηλώθηκαν. */
+            'src' => $l->started_at ? 'timer' : 'manual',
+            'start' => $l->started_at, 'end' => $l->running ? null : $l->created_at];
     }
     /* Συνημμένα ΑΝΑ ενέργεια: ref_id = id της ενέργειας. Τα παλιά γράφτηκαν με
        ref_id = id της ΕΡΓΑΣΙΑΣ και μένουν στο παλιό κοινό καλάθι — δεν τα
@@ -5602,7 +5831,7 @@ case 'myday':
         $tr = Db::task((int) $run->task_id);
         $timerNow = ['task' => (int) $run->task_id, 'title' => $tr ? (string) $tr->title : '#' . (int) $run->task_id, 'since' => $run->started_at];
     }
-    $doneToday = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $adminId)->where('completed_at', '>=', $today . ' 00:00:00')->count();
+    $doneToday = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $adminId)->where('completed_at', '>=', $today . ' 00:00:00')->whereNotIn('status_id', Db::statusIds(['cancel']))->count();
 
     /* 👁 Επιβλέπω: ό,τι ΑΝΟΙΞΑ εγώ και το κάνει ΑΛΛΟΣ (22/9/2026).
        Δεν είναι δική μου εκκρεμότητα — είναι η ευθύνη μου να δω ότι προχώρησε. Η σειρά
@@ -5954,7 +6183,7 @@ case 'perf':                             // 📊 Απόδοση χειριστώ
            completed_by (παλιές εγγραφές) πέφτουμε στην ανάθεση. */
         $tasksDone = Capsule::table('mod_cpm_tasks')
             ->whereRaw('COALESCE(completed_by, assignee) = ?', [$aid])
-            ->whereBetween('completed_at', [$fromTs, $toTs])->get(['due_date', 'completed_at']);
+            ->whereBetween('completed_at', [$fromTs, $toTs])->whereNotIn('status_id', Db::statusIds(['cancel']))->get(['due_date', 'completed_at']);
         $onT = 0; $late = 0; $tDay = [];
         foreach ($tasksDone as $t) {
             // Ολοκληρώσεις ανά ημέρα — μαζί με τις απαντήσεις δίνουν την εικόνα της μέρας.
@@ -6045,10 +6274,10 @@ case 'team_pulse':                       /* 👤 Η μέρα ενός ανθρώ
     $phoneP = (int) ($phoneDays[$dayP] ?? 0);
 
     $doneTodayP = Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
-        ->where('completed_at', '>=', $dayP . ' 00:00:00')->orderBy('completed_at', 'desc')
+        ->where('completed_at', '>=', $dayP . ' 00:00:00')->whereNotIn('status_id', Db::statusIds(['cancel']))->orderBy('completed_at', 'desc')
         ->limit(8)->get(['id', 'title']);
     $doneTodayN = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
-        ->where('completed_at', '>=', $dayP . ' 00:00:00')->count();
+        ->where('completed_at', '>=', $dayP . ' 00:00:00')->whereNotIn('status_id', Db::statusIds(['cancel']))->count();
 
     /* ── Φόρτος: τι κρατάει ανοιχτό ── */
     $mineQ = function ($q) use ($whoP) {
@@ -6087,7 +6316,7 @@ case 'team_pulse':                       /* 👤 Η μέρα ενός ανθρώ
             'phone' => (int) ($phoneDays[$d0] ?? 0), 'today' => $d0 === $dayP];
     }
     $weekDone = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $whoP)
-        ->where('completed_at', '>=', date('Y-m-d', strtotime('-6 days')) . ' 00:00:00')->count();
+        ->where('completed_at', '>=', date('Y-m-d', strtotime('-6 days')) . ' 00:00:00')->whereNotIn('status_id', Db::statusIds(['cancel']))->count();
 
     /* ── Το πρόγραμμά του σήμερα ── */
     $evP = [];
@@ -6154,7 +6383,7 @@ case 'team_ask':                         /* «Ρώτα τι γίνεται» α�
     $tTitleA = '';
     if ($taskA) {
         $tA = Db::task($taskA);
-        if (!$tA) { $taskA = null; }
+        if (!$tA || !Db::canSeeTask($adminId, $tA)) { $taskA = null; }   // ίδιος κανόνας με help_ask
         else {
             $tTitleA = (string) $tA->title;
             /* Ρωτάμε ΟΠΟΙΟΝ ΤΗΝ ΚΡΑΤΑ, όχι όποιον της ανατέθηκε κάποτε: αν η
@@ -6264,8 +6493,11 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             'startAt' => $startShown, 'startKind' => $startKind, 'age' => $ageDays, 'left' => $left,
             'lastAt' => $tc ? substr((string) $tc['last'], 0, 10) : null,
             'spent' => $tc ? $tc['total'] : 0, 'todayMins' => $tc ? $tc['today'] : 0,
-            'running' => (isset($runM[(int) $t->assignee]) && $runM[(int) $t->assignee]['task'] === (int) $t->id)
-                ? $runM[(int) $t->assignee]['mins'] : null];
+            /* Τρέχει χρονόμετρο ΠΑΝΩ της — από οποιονδήποτε, όχι μόνο από τον ανάδοχο. */
+            'running' => (function () use ($runM, $t) {
+                foreach ($runM as $rn) { if ((int) $rn['task'] === (int) $t->id) { return $rn['mins']; } }
+                return null;
+            })()];
     };
     $planM = $spanM = $newM = $carryM = $nowListM = [];
     foreach ($rowsM as $t) {
@@ -6346,6 +6578,16 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
         $laneM[$aid] = ['id' => $aid, 'name' => Db::adminName($aid), 'ini' => initials(Db::adminName($aid)),
             'now' => null, 'tasks' => [], 'todayMins' => 0];
     }
+    /* Ο ΧΡΟΝΟΣ ΤΗΣ ΛΩΡΙΔΑΣ = ό,τι κατέγραψε Ο ΙΔΙΟΣ σήμερα (28/9/2026), όχι ο χρόνος
+       των εργασιών που του έχουν ανατεθεί — ίδιο λάθος με το teamday: 90΄ του Α σε
+       εργασία του Β έπεφταν στον Β, και δουλειά σε εργασίες χωρίς πλάνο δεν φαινόταν. */
+    if ($memM) {
+        foreach (Capsule::table('mod_cpm_timelogs')->whereIn('admin_id', $memM)->where('running', 0)
+            ->where('created_at', '>=', $todayM . ' 00:00:00')
+            ->groupBy('admin_id')->get(['admin_id', Capsule::raw('SUM(minutes) as m')]) as $r) {
+            if (isset($laneM[(int) $r->admin_id])) { $laneM[(int) $r->admin_id]['todayMins'] = (int) $r->m; }
+        }
+    }
     $seenM = [];
     $push = function ($list, $tag) use (&$laneM, &$seenM) {
         foreach ($list as $t) {
@@ -6355,7 +6597,6 @@ case 'myteam':                           // Η ομάδα μου — η οθόν
             if (!isset($laneM[$k])) { continue; }
             $t['tag'] = $tag;
             $laneM[$k]['tasks'][] = $t;
-            $laneM[$k]['todayMins'] += $t['todayMins'];
         }
     };
     /* Σειρά προτεραιότητας ετικέτας: ό,τι είναι ήδη πίσω μετράει πρώτο. */
@@ -6606,10 +6847,14 @@ case 'kpi':
             $agents[$nameToId[$r->admin]]['replies'] = (int) $r->n;
         }
     }
-    foreach (Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $today)->whereNotNull('assignee')
-        ->selectRaw('assignee, COUNT(*) n')->groupBy('assignee')->get() as $r) {
-        if (isset($agents[(int) $r->assignee])) {
-            $agents[(int) $r->assignee]['done'] = (int) $r->n;
+    /* «Έκλεισε» = ΑΥΤΟΣ ΠΟΥ ΤΗΝ ΕΚΛΕΙΣΕ (completed_by), όχι ο ανάδοχος (28/9/2026) — αλλιώς
+       κλείνεις εργασία άλλου και οι πόντοι πάνε σε εκείνον. Παλιές εγγραφές χωρίς
+       completed_by πέφτουν στον ανάδοχο, όπως στο perf/standup. */
+    foreach (Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $today)->whereNotIn('status_id', Db::statusIds(['cancel']))
+        ->whereRaw('COALESCE(completed_by, assignee) IS NOT NULL')
+        ->selectRaw('COALESCE(completed_by, assignee) as who, COUNT(*) n')->groupBy('who')->get() as $r) {
+        if (isset($agents[(int) $r->who])) {
+            $agents[(int) $r->who]['done'] = (int) $r->n;
         }
     }
     foreach (Capsule::table('mod_cpm_timelogs')->where('running', 0)->where('created_at', '>=', $today)
@@ -6725,7 +6970,7 @@ case 'activity':
             'minsToday' => (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $aid)
                 ->where('running', 0)->where('created_at', '>=', $today0)->sum('minutes'),
             'doneToday' => (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $aid)
-                ->where('completed_at', '>=', $today0)->count(),
+                ->where('completed_at', '>=', $today0)->whereNotIn('status_id', Db::statusIds(['cancel']))->count(),
             'lastAt' => $lastAct ? $lastAct->created_at : null,
             'lastWhat' => $lastAct ? $lastAct->detail : null,
         ];
@@ -6797,7 +7042,7 @@ case 'activity':
     out(['people' => $people, 'feed' => $feed, 'hours' => $hrs,
         'summary' => [
             'online' => $live, 'working' => $working, 'team' => $active, 'all' => count($people),
-            'doneToday' => (int) Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $today0)->count(),
+            'doneToday' => (int) Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $today0)->whereNotIn('status_id', Db::statusIds(['cancel']))->count(),
             'repliesToday' => (int) Capsule::table('tblticketreplies')->where('date', '>=', $today0)
                 ->whereRaw("COALESCE(admin,'') <> ''")->count(),
             'minsToday' => (int) Capsule::table('mod_cpm_timelogs')->where('running', 0)
@@ -6850,7 +7095,7 @@ case 'push_latest':                       // ο service worker τραβά τι �
     $u = (string) ($ln->url ?? '');
     if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
     elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
-    elseif (preg_match('#/project(?:management)?/#/(\w+)#', $u, $m)) { $spa = '/project/#/' . $m[1]; }
+    elseif (preg_match('~/project(?:management)?/#/(\w+)~', $u, $m)) { $spa = '/project/#/' . $m[1]; }
     out(['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => '', 'url' => $spa, 'unread' => (bool) !$ln->is_read]);
 
 
@@ -6971,35 +7216,7 @@ case 'move_task':
     }
     $stChk = Db::status((int) ($in['status'] ?? 0));
     if (!$stChk) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα και δοκίμασε ξανά'); }
-    if ($stChk && $stChk->is_done) {
-        $bm = Db::blockedMap([$t->id]);
-        if (!empty($bm[(int) $t->id])) {
-            fail('Μπλοκάρεται από: ' . implode(', ', array_slice($bm[(int) $t->id], 0, 3)));
-        }
-        /* Παράδοση module: δεν κλείνει όσο μένει ατσέκαρο βήμα. Αυτό είναι το
-           «απαιτητό» — αλλιώς το checklist θα ήταν διακοσμητικό. */
-        if (!empty($t->is_delivery)) {
-            $left = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->where('done', 0)->count();
-            if ($left > 0) {
-                $tot = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $t->id)->count();
-                fail('Μένουν ' . $left . ' από ' . $tot . ' ενέργειες παράδοσης — '
-                    . 'τσέκαρέ τις πρώτα και μετά κλείσε την εργασία', 409);
-            }
-        }
-        /* Χρεώσιμος χρόνος χωρίς έγκριση λογιστηρίου: αν κλείσει τώρα, ο χρόνος
-           δεν θα τιμολογηθεί ποτέ γιατί κανείς δεν θα τον ξανακοιτάξει. */
-        if (empty($t->billing_ok)) {
-            $billMin = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)
-                ->where('billable', 1)->where('running', 0)->sum('minutes');
-            if ($billMin > 0) {
-                /* Εδώ η καθυστέρηση κοστίζει: ξανασπρώχνουμε την ειδοποίηση. */
-                cnp_billing_request($t, $adminId);
-                $apN9 = cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : 'τον διαχειριστή';
-                fail('Έχει ' . round($billMin / 60, 1) . 'ω χρεώσιμο χρόνο χωρίς έγκριση — '
-                    . 'ειδοποιήθηκε ο/η ' . $apN9 . ' και δεν κλείνει πριν εγκριθεί η χρέωση', 409);
-            }
-        }
-    }
+    if ($stChk && $stChk->is_done) { cnp_close_guard($t, $adminId); }
     /* ── Κλείσιμο: χωρίς ΛΗΞΗ (ημερομηνία ΚΑΙ ώρα) δεν κλείνει ─────────────
        Η Λήξη είναι η απάντηση στο «πότε τελείωσε πραγματικά» — και τη δίνει ο
        χειριστής, όχι αυτός που άνοιξε την εργασία. Αν την αφήσουμε κενή τη
@@ -7439,7 +7656,7 @@ case 'calls_report':                     // Η τηλεφωνική δραστη
         }
     }
 
-    $rows = $base()->orderBy('started_at', 'desc')->limit(500)->get();
+    $rows = $base()->orderBy('started_at', 'desc')->limit(5000)->get();   // ήταν 500: 30 ημέρες ≈ 2.000 κλήσεις
     $bookIt = cnp_book_names(array_column($rows->all(), 'other_e164'));
     $items = [];
     foreach ($rows as $r) {
@@ -8811,7 +9028,9 @@ case 'billing_pending':                   // η ουρά εγκρίσεων — 
         ->groupBy('t.id', 't.title', 't.project_id', 't.assignee', 't.type_id')
         ->orderBy('t.id', 'desc')->limit(50)
         ->get(['t.id', 't.title', 't.project_id', 't.assignee', 't.type_id',
-            Capsule::raw('SUM(l.minutes) as mins'), Capsule::raw('MAX(l.created_at) as last_at')]);
+            Capsule::raw('SUM(l.minutes) as mins'), Capsule::raw('MAX(l.created_at) as last_at'),
+            /* Ποιοι ΚΑΤΕΓΡΑΨΑΝ τον χρεώσιμο χρόνο — όχι ο ανάδοχος της εργασίας (28/9/2026). */
+            Capsule::raw('GROUP_CONCAT(DISTINCT l.admin_id) as loggers')]);
     $items9 = [];
     foreach ($rows9 as $r) {
         if (cnp_nonbillable_type($r->type_id)) {
@@ -8819,7 +9038,8 @@ case 'billing_pending':                   // η ουρά εγκρίσεων — 
         }
         $items9[] = ['id' => (int) $r->id, 'title' => $r->title,
             'mins' => (int) $r->mins, 'at' => $r->last_at,
-            'who' => $r->assignee ? Db::adminName((int) $r->assignee) : '',
+            'who' => implode(', ', array_map(function ($a) { return Db::adminName((int) $a); },
+                array_filter(explode(',', (string) $r->loggers)))),
             'project' => $r->project_id
                 ? cnp_pn(Capsule::table('mod_cpm_projects')->where('id', $r->project_id)->value('name')) : ''];
     }
@@ -8912,7 +9132,7 @@ case 'timer_stop':
             'note' => mb_substr(trim($in['note'] ?? ''), 0, 255)]);
         Time::push($running->id);
     }
-    if ($billStop) { cnp_billing_request($tStop, $adminId); }
+    if ($billStop) { cnp_billing_reopen($tStop, $adminId); }
     out(['ok' => true, 'mins' => $e ? (int) Db::timelog($running->id)->minutes : 0,
         'billBlocked' => !empty($in['billable']) && !$billStop]);
 
@@ -8945,7 +9165,7 @@ case 'time_bill':                        // διόρθωση «χρεώσιμο/
     Time::push($lid);
     Db::logActivity((int) $lg->task_id, $adminId, 'billing',
         ($bill9 ? 'Σημάνθηκε χρεώσιμος' : 'Σημάνθηκε μη χρεώσιμος') . ' χρόνος ' . (int) $lg->minutes . "'");
-    if ($bill9) { cnp_billing_request(Db::task((int) $lg->task_id), $adminId); }
+    if ($bill9) { cnp_billing_reopen(Db::task((int) $lg->task_id), $adminId); }
     out(['ok' => true, 'billable' => $bill9]);
 
 case 'time_add':
@@ -8966,7 +9186,7 @@ case 'time_add':
     $billAdd = !empty($in['billable']) && cnp_task_billable_ok($t);
     $eid = Db::addTime($tid, $adminId, $mins, $billAdd, trim($in['note'] ?? ''));
     Time::push($eid);
-    if ($billAdd) { cnp_billing_request(Db::task($tid), $adminId); }
+    if ($billAdd) { cnp_billing_reopen(Db::task($tid), $adminId); }
     out(['ok' => true, 'billBlocked' => !empty($in['billable']) && !$billAdd]);
 
 case 'check_add':
@@ -8977,8 +9197,9 @@ case 'check_add':
         fail('input');
     }
     /* Όποιος εκτελεί την εργασία πρέπει να μπορεί να γράψει τι έκανε — αλλιώς το
-       «τι έγινε» το ξέρει μόνο αυτός. Ίδιος έλεγχος με το check_toggle. */
-    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+       «τι έγινε» το ξέρει μόνο αυτός. Ίδιος έλεγχος με το check_toggle. Και όποιος
+       ΡΩΤΗΘΗΚΕ εδώ (@mention) γράφει την απάντησή του. */
+    if (!cnp_task_write_ok($adminId, $FULL, $t) && !cnp_was_asked($adminId, $t->id)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
@@ -9026,18 +9247,21 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
 case 'check_del':
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$ci) { fail('input'); }
-    /* Τα συνημμένα της ενέργειας φεύγουν μαζί της — αλλιώς μένουν ορφανά
-       αρχεία που δεν φαίνονται πουθενά και πιάνουν χώρο. */
-    foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'check')
-                 ->where('ref_id', (int) $ci->id)->pluck('id') as $fid) {
-        try { Storage::delete((int) $fid); } catch (\Throwable $e) { /* δεν μπλοκάρει */ }
-    }
+    /* ΠΡΩΤΑ ο έλεγχος, ΜΕΤΑ η διαγραφή (28/9/2026): τα συνημμένα έσβηναν πριν ελεγχθεί
+       οτιδήποτε — ένα αίτημα με ξένο id εξαφάνιζε αρχεία ακόμη κι αν μετά έπαιρνε 403. */
     $t = Db::task((int) $ci->task_id);
     if (!$t || !Db::canSeeTask($adminId, $t)) { fail('input'); }
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
+    /* Τα συνημμένα της ενέργειας φεύγουν μαζί της — αλλιώς μένουν ορφανά
+       αρχεία που δεν φαίνονται πουθενά και πιάνουν χώρο. Μόνο όσα γράφτηκαν ΑΝΑ
+       ενέργεια (μετά 17/9 11:44) — τα παλιά είχαν ref_id = εργασία, όχι ενέργεια. */
+    foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'check')
+                 ->where('ref_id', (int) $ci->id)->where('created_at', '>=', '2026-09-17 11:44:10')->pluck('id') as $fid) {
+        try { Storage::delete((int) $fid); } catch (\Throwable $e) { /* δεν μπλοκάρει */ }
+    }
     if (Capsule::schema()->hasTable('mod_cpm_check_react')) { Capsule::table('mod_cpm_check_react')->where('check_id', (int) $ci->id)->delete(); }
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->delete();
     out(['ok' => true]);
@@ -9048,6 +9272,10 @@ case 'task_offer_request':               // «φτιάξε προσφορά γι
     if (!$tO || !Db::canSeeTask($adminId, $tO)) { fail('task', 404); }
     if (!cnp_task_write_ok($adminId, $FULL, $tO)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403); }
     if ($toO <= 0 || !Capsule::table('tbladmins')->where('id', $toO)->where('disabled', 0)->exists()) { fail('Διάλεξε συνάδελφο'); }
+    /* Αίτημα προσφοράς μόνο σε όποιον ΜΠΟΡΕΙ να τη φτιάξει — αλλιώς μένει εκκρεμές για πάντα. */
+    if (!cnp_has_cap($toO, Db::isFullAccess($toO), 'clients.offers.create')) {
+        fail(Db::adminName($toO) . ' δεν δημιουργεί προσφορές — ζήτα από εξουσιοδοτημένο συνάδελφο.');
+    }
     $clO = Time::clientForTask($tO);
     $msgO = mb_substr(trim((string) ($in['message'] ?? '')), 0, 2000)
         ?: ('Χρειάζεται προσφορά για «' . mb_substr((string) $tO->title, 0, 80) . '»' . ($clO ? ' — πελάτης ' . html_entity_decode(clientLabel($clO), ENT_QUOTES, 'UTF-8') : '') . '. Όταν τη φτιάξεις, δέσε την με την εργασία.');
@@ -9145,7 +9373,9 @@ case 'help_ask':
     if ($hmsg === '') { fail('Γράψε τι χρειάζεσαι'); }
     if ($htask) {
         $ht = Db::task($htask);
-        if (!$ht) { $htask = null; }
+        /* Ρωτάς για εργασία που ΒΛΕΠΕΙΣ — αλλιώς το αίτημα θα άνοιγε στον παραλήπτη
+           εργασία που ούτε εσύ δεν έχεις δικαίωμα να δεις (Db::canSeeTask). */
+        if (!$ht || !Db::canSeeTask($adminId, $ht)) { $htask = null; }
     }
     $hid = Capsule::table('mod_cpm_help')->insertGetId([
         'from_admin' => $adminId, 'to_admin' => $hto, 'task_id' => $htask, 'kind' => 'help',
@@ -9330,6 +9560,7 @@ case 'card_act':                          // η απόφαση πάνω στην
         if ($cd->ref_type !== 'task' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε εργασία'); }
         $tC = Db::task((int) $cd->ref_id);
         if (!$tC) { fail('Η εργασία δεν υπάρχει πια'); }
+        cnp_task_lock_guard($tC);
         $upC = ['due_date' => $dNew];
         if (!$tC->start_date || $tC->start_date > $dNew) { $upC['start_date'] = date('Y-m-d'); }
         if ($tC->schedule_date && $tC->schedule_date < $dNew) { $upC['schedule_date'] = $dNew; }
@@ -9350,6 +9581,9 @@ case 'card_act':                          // η απόφαση πάνω στην
         $toA = (int) ($in['to'] ?? 0);
         if (!$toA || !Capsule::table('tbladmins')->where('id', $toA)->where('disabled', 0)->exists()) { fail('Διάλεξε χειριστή'); }
         if ($cd->ref_type !== 'task' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε εργασία'); }
+        $tAs = Db::task((int) $cd->ref_id);
+        if (!$tAs) { fail('Η εργασία δεν υπάρχει πια'); }
+        cnp_task_lock_guard($tAs);
         Db::saveTask((int) $cd->ref_id, ['assignee' => $toA], $adminId);
         Db::logActivity((int) $cd->ref_id, $adminId, 'assign', 'Ανάθεση σε ' . Db::adminName($toA) . ' (κάρτα διαχείρισης)');
         $ttA = Db::task((int) $cd->ref_id);
@@ -9359,7 +9593,11 @@ case 'card_act':                          // η απόφαση πάνω στην
     }
     if ($actC === 'close') {
         if ($cd->ref_type !== 'task' || !$cd->ref_id) { fail('Η κάρτα δεν δείχνει σε εργασία'); }
-        $finC = (int) Capsule::table('mod_cpm_statuses')->where('is_done', 1)->value('id');
+        $tCl = Db::task((int) $cd->ref_id);
+        if (!$tCl) { fail('Η εργασία δεν υπάρχει πια'); }
+        cnp_task_lock_guard($tCl);
+        cnp_close_guard($tCl, $adminId);   // εξαρτήσεις, λίστα παράδοσης, χρέωση — όπως στο move_task
+        $finC = Db::doneStatusId();   // «Ολοκληρώθηκε» (φάση done) — όχι τυχαία is_done, που πιάνει και το «Ακυρωμένο»
         if (!$finC) { fail('Δεν υπάρχει κατάσταση ολοκλήρωσης'); }
         Db::saveTask((int) $cd->ref_id, ['status_id' => $finC, 'completed_at' => date('Y-m-d H:i:s'), 'completed_by' => $adminId], $adminId);
         Db::logActivity((int) $cd->ref_id, $adminId, 'status', 'Ολοκληρώθηκε (κάρτα διαχείρισης)' . ($noteC ? ' — ' . $noteC : ''));
@@ -9533,7 +9771,7 @@ case 'help_reply':                        // απάντηση στο νήμα ε
            με το check_add: γράφεται ΚΑΙ ως ενέργεια στην εργασία. */
         if ($rr->kind === 'mention' && (int) $rr->task_id) {
             $tM = Db::task((int) $rr->task_id);
-            if ($tM && Db::canSeeTask($adminId, $tM) && cnp_task_write_ok($adminId, $FULL, $tM)) {
+            if ($tM && Db::canSeeTask($adminId, $tM)) {   // ρωτήθηκε → βλέπει & απαντά (Db::canSeeTask)
                 $stepBody = 'Απάντηση σε ' . Db::adminName((int) $rr->from_admin) . ': ' . $bodyR;
                 Db::addCheckItem((int) $rr->task_id, $stepBody, $adminId);
                 cnp_notify_mentions($stepBody, (int) $rr->task_id, $adminId, 'ενέργεια');
@@ -9937,7 +10175,7 @@ case 'calllog':                          /* ☎ Καταγραφές κλήσε�
     $qC = trim((string) ($_GET['q'] ?? ''));
     $whoC = (int) ($_GET['admin'] ?? 0);
     $cliC = (int) ($_GET['client'] ?? 0);
-    $viewC = in_array($_GET['view'] ?? 'all', ['all', 'followup', 'loose', 'mine'], true) ? $_GET['view'] : 'all';
+    $viewC = in_array($_GET['view'] ?? 'all', ['all', 'followup', 'loose', 'mine'], true) ? ($_GET['view'] ?? 'all') : 'all';
 
     $baseC = function () use ($fromC, $toC) {
         return Capsule::table('mod_cpm_interactions')->where('kind', 'call')
@@ -10675,7 +10913,7 @@ case 'time':
         $tot['w'] += $m;
         $tot[(int) $r->billable ? 'b' : 'nb'] += $m;
         $tot['c'] += (int) $r->charged_minutes;
-        foreach ([['project', $r->project_name], ['client', $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —'],
+        foreach ([['project', cnp_pn($r->project_name)], ['client', $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —'],
                   ['admin', Db::adminName($r->admin_id)],
                   ['product', $r->product_name ?: '— χωρίς προϊόν —']] as $g) {
             [$grp, $key] = $g;
@@ -10703,7 +10941,7 @@ case 'time':
         $el = max(0, (int) floor((time() - strtotime($r->started_at)) / 60));
         $tot['r'] += $el;
         $who = Db::adminName($r->admin_id);
-        $keys = ['project' => $r->project_name,
+        $keys = ['project' => cnp_pn($r->project_name),
             'client' => $r->clientid ? clientLabel($r->clientid) : '— εσωτερικά —',
             'admin' => $who,
             'product' => $r->product_name ?: '— χωρίς προϊόν —'];
@@ -10870,6 +11108,8 @@ case 'save_offer':
         if (!$o || (!$FULL && (int) $o->assignee !== $adminId && (int) $o->created_by !== $adminId)) {
             fail('offer', 403);
         }
+    } else {
+        cnp_offer_create_guard($adminId, $FULL);
     }
     $stage = array_key_exists($in['stage'] ?? '', Db::offerStages()) ? $in['stage'] : 'new';
     $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
@@ -10891,6 +11131,8 @@ case 'offer_track':                      // αποστολή / απάντηση 
     if (!$o) {
         fail('offer', 404);
     }
+    /* Αλλάζει την προσφορά → ίδιος κανόνας κατοχής με save_offer/move_offer (28/9/2026). */
+    if (!$FULL && (int) $o->assignee !== $adminId && (int) $o->created_by !== $adminId) { fail('Η προσφορά ανήκει σε άλλον', 403); }
     $d = [];
     foreach (['sent' => 'sent_at', 'replied' => 'replied_at', 'followup' => 'followup_date'] as $k => $col) {
         if (array_key_exists($k, $in)) {
@@ -11018,6 +11260,7 @@ case 'create_quote':
     if (!$o || $o->quoteid || !$o->clientid) {
         fail('offer');
     }
+    if (!$FULL && (int) $o->assignee !== $adminId && (int) $o->created_by !== $adminId) { fail('Η προσφορά ανήκει σε άλλον', 403); }
     $r = localAPI('CreateQuote', ['subject' => $o->title, 'stage' => 'Draft',
         'validuntil' => $o->expected_close ?: date('Y-m-d', strtotime('+30 days')),
         'userid' => (int) $o->clientid,
@@ -11177,6 +11420,7 @@ case 'pharmacy_ai_draft':                 // ✨ Copilot: από περιγρα�
 
 case 'pharmacy_save':                    // δημιουργία / ενημέρωση της προσφοράς
     $oid9 = (int) ($in['offer'] ?? 0);
+    if (!$oid9) { cnp_offer_create_guard($adminId, $FULL); }
     $cfg9 = is_array($in['config'] ?? null) ? $in['config'] : [];
     $cfg9 = Pharmacy::normalize($cfg9);
     $cid9 = (int) ($in['client'] ?? 0) ?: null;
@@ -11395,8 +11639,9 @@ case 'pbx_calc':                         // ζωντανή προεπισκόπ�
             'net' => $rP['net'], 'vat' => $rP['vat'], 'gross' => $rP['gross'], 'y2net' => $rP['y2net'], 'y2' => $rP['y2']],
         'amount' => $rP['net']]);
 
-case 'pbx_save':                         // δημιουργία / ενημέρωση προσφοράς τηλεφωνικού κέντρου
+case 'pbx_offer_save':                       // δημιουργία / ενημέρωση προσφοράς τηλεφωνικού κέντρου
     $oidP = (int) ($in['offer'] ?? 0);
+    if (!$oidP) { cnp_offer_create_guard($adminId, $FULL); }
     $cfgP = Pbx::normalize(is_array($in['config'] ?? null) ? $in['config'] : []);
     $cidP = (int) ($in['client'] ?? 0) ?: null;
     if ($cidP && !Capsule::table('tblclients')->where('id', $cidP)->exists()) { $cidP = null; }
@@ -11940,6 +12185,7 @@ case 'prepaid_move':                    // χειροκίνητη πίστωση
     out(['ok' => true, 'balance' => (int) $bal9]);
 
 case 'prepaid_offer':                   // ακάλυπτος χρόνος → προσφορά προς τον πελάτη
+    cnp_offer_create_guard($adminId, $FULL);
     $uid9 = (int) ($in['client'] ?? 0);
     $ids9 = array_values(array_filter(array_map('intval', (array) ($in['entries'] ?? []))));
     $rate9 = round((float) ($in['rate'] ?? 0), 2);
@@ -12484,6 +12730,7 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
     if (!cnp_task_write_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
+    cnp_task_lock_guard($t);   // ολοκληρωμένη δεν παραδίδεται — πρώτα «Ξανάνοιγμα»
     $toH = (int) ($in['to'] ?? 0);
     if (!$toH || !Capsule::table('tbladmins')->where('id', $toH)->where('disabled', 0)->exists()) {
         fail('Διάλεξε σε ποιον παραδίδεις');
@@ -12640,6 +12887,9 @@ case 'task_delete':
 case 'project_delete':
     $p = Db::project((int) ($in['id'] ?? 0));
     if (!$p) { fail('project', 404); }
+    /* Η διαγραφή είναι βαρύτερη από την αρχειοθέτηση — τουλάχιστον ο ίδιος κανόνας:
+       υπεύθυνος του έργου ή Full, πέρα από το δικαίωμα «Διαγραφή». */
+    if (!cnp_can_edit_project($adminId, $FULL, $p)) { fail('Μόνο ο υπεύθυνος του έργου ή διαχειριστής', 403); }
     $tIds = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->pluck('id')->all();
     /* Χωρίς ρητή επιβεβαίωση δεν σβήνουμε έργο που έχει εργασίες — η διαγραφή
        παίρνει μαζί χρόνο, σχόλια, checklists και ιστορικό. */
@@ -14647,7 +14897,7 @@ case 'search':
         $tkq->where('flag', $adminId);
     }
     foreach ($tkq->get(['id', 'tid', 'title', 'status']) as $t) {
-        $tickets[] = ['id' => (int) $t->id, 'tid' => $t->tid, 'title' => $t->title, 'status' => $t->status];
+        $tickets[] = ['id' => (int) $t->id, 'tid' => $t->tid, 'title' => html_entity_decode((string) $t->title, ENT_QUOTES, 'UTF-8')   /* το WHMCS τον κρατά ήδη escaped */, 'status' => $t->status];
     }
     $leads = [];
     foreach (Capsule::table('mod_cpm_leads')->where(function ($w) use ($like) {
@@ -14686,6 +14936,10 @@ case 'settings_get':
     }
     /* Υπέρβαση εκτίμησης: ανοιχτή από προεπιλογή (ποτέ δεν αποθηκεύτηκε = on), 10%. */
     if (!Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'overrun_on')->exists()) { $vals['overrun_on'] = 'on'; }
+    /* ΙΔΙΟ ΓΙΑ ΤΙΣ ΚΑΡΤΕΣ (28/9/2026): ο server τις θεωρεί ανοιχτές όταν δεν έχουν αποθηκευτεί
+       ποτέ (DayPlan::enabled), η οθόνη όμως έδειχνε τον διακόπτη κλειστό — και η πρώτη
+       «Αποθήκευση» Ρυθμίσεων για οτιδήποτε άλλο τις έσβησε σιωπηλά στις 24/9. */
+    if (!Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'cards_on')->exists()) { $vals['cards_on'] = 'on'; }
     if ($vals['overrun_pct'] === '') { $vals['overrun_pct'] = '10'; }
     /* Τα κενά αριθμητικά: ο server χρησιμοποιεί προεπιλογή, άρα η οθόνη πρέπει να
        δείχνει την ίδια προεπιλογή — όχι κενό κουτί που μοιάζει με «ανενεργό». */
@@ -14763,11 +15017,11 @@ case 'file_presign_put':                  // direct-to-S3 upload (μεγάλα/�
 case 'file_confirm':                      // καταχώρηση μετά από direct-to-S3 upload
     $module = (string) ($in['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
-    if ($module === 'library' && !cnp_lib_can($adminId, (int) ($in['ref_id'] ?? 0), true)) { fail('forbidden', 403); }
+    if (!cnp_file_obj_ok($adminId, $FULL, $module, $in['ref_type'] ?? '', $in['ref_id'] ?? 0, true)) { fail('forbidden', 403); }
     $key = (string) ($in['key'] ?? '');
     $prefix = trim(Storage::config('s3_prefix', ''), '/');
     $rel = ($prefix !== '' && strpos($key, $prefix . '/') === 0) ? substr($key, strlen($prefix) + 1) : $key;
-    if (!preg_match('#^' . preg_quote($module ?: 'general', '#') . '/\d{4}/\d{2}/[a-f0-9]{32}#', $rel)) { fail('Μη έγκυρο key', 400); }
+    if (!preg_match('#^' . preg_quote($module ?: 'general', '#') . '/\d{4}/\d{2}/[a-f0-9]{32}(\.[a-z0-9]{1,16})?$#', $rel)) { fail('Μη έγκυρο key', 400); }
     if (!Storage::exists($key, 's3')) { fail('Το αρχείο δεν βρέθηκε στο storage', 404); }
     $mime = mb_substr((string) ($in['mime'] ?? 'application/octet-stream'), 0, 120);
     $size = (int) ($in['size'] ?? 0);
@@ -14780,7 +15034,7 @@ case 'file_upload':                       // server-side upload (μικρά ή l
     if (!empty($_FILES)) { $in = $_POST; }
     $module = (string) ($in['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
-    if ($module === 'library' && !cnp_lib_can($adminId, (int) ($in['ref_id'] ?? 0), true)) { fail('forbidden', 403); }
+    if (!cnp_file_obj_ok($adminId, $FULL, $module, $in['ref_type'] ?? '', $in['ref_id'] ?? 0, true)) { fail('forbidden', 403); }
     $f = $_FILES['file'] ?? null;
     if (!$f || $f['error'] !== UPLOAD_ERR_OK) { fail('Σφάλμα ανεβάσματος', 400); }
     if (!cnp_file_ext_ok($f['name'])) { fail('Μη επιτρεπτός τύπος αρχείου', 400); }
@@ -14792,17 +15046,23 @@ case 'file_upload':                       // server-side upload (μικρά ή l
 case 'file_list':                         // λίστα αρχείων ανά οντότητα
     $module = (string) ($_GET['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
-    if ($module === 'library' && !cnp_lib_can($adminId, (int) ($_GET['ref_id'] ?? 0))) { fail('forbidden', 403); }
+    /* Συνομιλία/εργασία/έργο: μόνο για ΣΥΓΚΕΚΡΙΜΕΝΟ αντικείμενο που βλέπεις — όχι «όλα του module». */
+    if (!$FULL && in_array($module, ['chat', 'task', 'project', 'library'], true)
+        && (!isset($_GET['ref_type']) && !isset($_GET['ref_id']))) { fail('forbidden', 403); }
     $q = Capsule::table('mod_cpm_storage')->where('module', $module);
     if (isset($_GET['ref_type'])) { $q->where('ref_type', (string) $_GET['ref_type']); }
     if (isset($_GET['ref_id'])) { $q->where('ref_id', (int) $_GET['ref_id']); }
-    out(['files' => array_map('cnp_file_row', $q->orderByDesc('id')->limit(500)->get()->all())]);
+    /* Έλεγχος ΑΝΑ αρχείο: ίδιο ref_id μπορεί να σημαίνει άλλο αντικείμενο (βλ. cnp_file_obj_ok). */
+    $rowsF = array_values(array_filter($q->orderByDesc('id')->limit(500)->get()->all(), function ($r) use ($adminId, $FULL) {
+        return cnp_file_obj_ok($adminId, $FULL, $r->module, $r->ref_type, $r->ref_id, false, $r->created_at);
+    }));
+    out(['files' => array_map('cnp_file_row', $rowsF)]);
 
 case 'file_get':                          // προβολή/λήψη (s3→302 presigned, local→proxy stream)
     $rec = Storage::record((int) ($_GET['id'] ?? 0));
     if (!$rec) { fail('file', 404); }
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('file', 403); }
-    if ($rec['module'] === 'library' && !cnp_lib_can($adminId, (int) $rec['ref_id'])) { fail('file', 403); }
+    if (!cnp_file_obj_ok($adminId, $FULL, $rec['module'], $rec['ref_type'] ?? '', $rec['ref_id'] ?? 0, false, $rec['created_at'] ?? null)) { fail('file', 403); }
     $mime = $rec['mime'] ?: 'application/octet-stream';
     /* Inline μόνο για παθητικούς τύπους· ό,τι θα μπορούσε να εκτελεστεί (html, svg,
        πηγαίος κώδικας) φεύγει ως λήψη — ακόμη κι αν ο τύπος έρθει «πειραγμένος». */
@@ -14823,10 +15083,13 @@ case 'file_delete':
     $rec = Storage::record((int) ($in['id'] ?? 0));
     if (!$rec) { fail('file', 404); }
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('forbidden', 403); }
-    if ($rec['module'] === 'library' && !cnp_lib_can($adminId, (int) $rec['ref_id'], true)) { fail('forbidden', 403); }
-    /* Πριν, όποιος είχε πρόσβαση στο module διέγραφε ΟΠΟΙΟΔΗΠΟΤΕ αρχείο με το id.
-       Τώρα: ο ίδιος που το ανέβασε, ή Full, ή «Board: επεξεργασία». */
-    if (!$FULL && (int) ($rec['uploaded_by'] ?? 0) !== $adminId && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) {
+    if (!cnp_file_obj_ok($adminId, $FULL, $rec['module'], $rec['ref_type'] ?? '', $rec['ref_id'] ?? 0, true, $rec['created_at'] ?? null)
+        && (int) ($rec['uploaded_by'] ?? 0) !== $adminId) { fail('forbidden', 403); }
+    /* Διαγράφει: ο ίδιος που το ανέβασε, ή Full, ή όποιος γράφει στην ΙΔΙΑ την εργασία
+       (όχι πλέον «Board: επεξεργασία» γενικά — έσβηνε και αρχεία chat/βιογραφικών). */
+    if (!$FULL && (int) ($rec['uploaded_by'] ?? 0) !== $adminId
+        && !($rec['module'] === 'task' && cnp_file_obj_ok($adminId, $FULL, 'task', $rec['ref_type'] ?? '', $rec['ref_id'] ?? 0, true, $rec['created_at'] ?? null)
+             && (int) ($rec['ref_id'] ?? 0))) {
         fail('Μόνο όποιος ανέβασε το αρχείο μπορεί να το διαγράψει', 403);
     }
     Storage::delete($rec['id']);
@@ -15432,6 +15695,16 @@ case 'gantt_move':
     if (!$t6 || !Db::canSeeTask($adminId, $t6)) {
         fail('task', 403);
     }
+    /* Ίδιοι κανόνες με το save_task (28/9/2026): γράφει όποιος γράφει την εργασία, όχι σε
+       ολοκληρωμένη, και τη ΛΗΞΗ τη μετακινεί ο χειριστής — ή ανάδοχος/επιβλέπων/Full. */
+    if (!cnp_task_write_ok($adminId, $FULL, $t6)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    cnp_task_lock_guard($t6);
+    $holder6 = (int) ($t6->action_user ?: $t6->assignee);
+    if ($holder6 && $holder6 !== $adminId && !$FULL && (int) $t6->assignee !== $adminId && (int) $t6->created_by !== $adminId) {
+        fail('Τη λήξη τη μετακινεί ο χειριστής (' . Db::adminName($holder6) . '), ο ανάδοχος ή ο επιβλέπων', 403);
+    }
     $st6 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['start'] ?? '') ? $in['start'] : null;
     $en6 = preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['end'] ?? '') ? $in['end'] : null;
     if (!$st6 || !$en6 || $en6 < $st6) {
@@ -15471,6 +15744,7 @@ case 'dep_del':
     if (!cnp_task_write_ok($adminId, $FULL, $dt7)) {
         fail('Δεν είναι δική σου εργασία — χρειάζεται «Board: επεξεργασία»', 403);
     }
+    cnp_task_lock_guard($dt7);   // ίδιο με το dep_add
     Db::delDep((int) $d7->id);
     out(['ok' => true]);
 
@@ -15481,6 +15755,8 @@ case 'dep_del':
 /* ============ 🎥 CLOUDON MEET (WebRTC signaling) ============ */
 case 'rtc_join':
     $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    /* ΚΛΕΙΔΙ ΣΥΜΜΕΤΕΧΟΝΤΑ (28/9/2026): υπογραφή του peer id. Χωρίς αυτό όποιος ήξερε
+       ένα peer id (φαίνεται στη λίστα) διάβαζε τη σηματοδοσία του άλλου ή έστελνε ως εκείνος. */
     if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
         fail('room', 403);
     }
@@ -15489,7 +15765,7 @@ case 'rtc_join':
         out(['error' => 'Το meeting «' . $winJ['title'] . '» ολοκληρώθηκε στις ' . date('H:i', $winJ['endTs']) . ' — για συνέχεια χρειάζεται νέο meeting', 'ended' => true]);
     }
     $peer = substr(bin2hex(random_bytes(8)), 0, 12);
-    $name = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim($in['name'] ?? ''), 0, 60) ?: 'Επισκέπτης');
+    $name = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim(strip_tags((string) ($in['name'] ?? ''))), 0, 60) ?: 'Επισκέπτης');
     // καθάρισμα: πεθαμένοι peers + παλιά μηνύματα
     /* 120s (ήταν 40s): laptop σε sleep ή αλλαγή δικτύου ΔΕΝ σβήνει τον συμμετέχοντα — και
        το rtc_poll τον ξαναγράφει αν λείπει (18/9/2026). */
@@ -15501,7 +15777,7 @@ case 'rtc_join':
     foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', '!=', $peer)->get() as $p9) {
         $roster[] = ['peer' => $p9->peer, 'name' => $p9->name];
     }
-    out(['peer' => $peer, 'name' => $name, 'roster' => $roster]);
+    out(['peer' => $peer, 'key' => pm_rtc_key($room, $peer), 'name' => $name, 'roster' => $roster]);
 
 case 'rtc_signal':
     $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
@@ -15515,6 +15791,7 @@ case 'rtc_signal':
     if (!$kind || empty($in['peer']) || empty($in['to'])) {
         fail('input');
     }
+    if (!hash_equals(pm_rtc_key($room, preg_replace('/[^a-f0-9]/', '', $in['peer'])), (string) ($in['k'] ?? ''))) { fail('peer', 403); }
     Capsule::table('mod_cpm_rtc_msgs')->insert(['room' => $room,
         'to_peer' => preg_replace('/[^a-f0-9]/', '', $in['to']),
         'from_peer' => preg_replace('/[^a-f0-9]/', '', $in['peer']),
@@ -15529,10 +15806,11 @@ case 'rtc_poll':
     }
     $peer = preg_replace('/[^a-f0-9]/', '', $_GET['peer'] ?? '');
     if ($peer === '') { fail('input'); }
+    if (!hash_equals(pm_rtc_key($room, $peer), (string) ($_GET['k'] ?? ''))) { fail('peer', 403); }
     /* Upsert, όχι update: αν η γραμμή μου σβήστηκε (καθάρισμα «νεκρών» από άλλο join ενώ
        είχα πρόβλημα δικτύου), ξαναμπαίνω στη λίστα μόλις ξαναμιλήσω — αλλιώς έμενα αόρατος
        για πάντα ενώ η οθόνη μου έδειχνε «συνδεδεμένος» (18/9/2026). */
-    $nameP = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim((string) ($_GET['name'] ?? '')), 0, 60) ?: 'Επισκέπτης');
+    $nameP = $adminId > 0 ? Db::adminName($adminId) : (mb_substr(trim(strip_tags((string) ($_GET['name'] ?? ''))), 0, 60) ?: 'Επισκέπτης');
     $upd = Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->update(['last_seen' => date('Y-m-d H:i:s')]);
     $restored = false;
     if (!$upd && !Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->exists()) {
@@ -15563,6 +15841,7 @@ case 'rtc_poll':
 case 'rtc_leave':
     $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
     $peer = preg_replace('/[^a-f0-9]/', '', $in['peer'] ?? '');
+    if (!hash_equals(pm_rtc_key($room, $peer), (string) ($in['k'] ?? ''))) { fail('peer', 403); }
     Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->delete();
     out(['ok' => true]);
 
@@ -16014,7 +16293,7 @@ case 'chat_file':                       // κατέβασμα/προβολή σ�
         $stream = Storage::openRead($srec['id']);
         if (!$stream) { fail('file', 404); }
         $mime = $srec['mime'] ?: 'application/octet-stream';
-        $preview = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0 || strpos($mime, 'video/') === 0 || strpos($mime, 'audio/') === 0);
+        $preview = cnp_mime_inline_ok($mime);   // ΟΧΙ svg: το image/svg+xml τρέχει κώδικα inline
         header('Content-Type: ' . $mime);
         header('X-Content-Type-Options: nosniff');
         header('Content-Disposition: ' . (($dl || !$preview) ? 'attachment' : 'inline') . '; filename="' . rawurlencode($srec['orig_name'] ?: 'file') . '"');
@@ -16026,7 +16305,7 @@ case 'chat_file':                       // κατέβασμα/προβολή σ�
         fail('file', 404);
     }
     header('Content-Type: application/octet-stream');
-    header('Content-Disposition: attachment; filename="' . $m9->filename . '"');
+    header('Content-Disposition: attachment; filename="' . rawurlencode((string) $m9->filename) . '"');
     header('Content-Length: ' . filesize($path));
     readfile($path);
     exit;
@@ -16346,7 +16625,7 @@ case 'standup':                         // 🏃 Standup dashboard — απασχ
         return ['type' => 'task', 'id' => (int) $t->id, 'title' => $t->title, 'sub' => cnp_pn($t->pname) . ' · λήγει ' . $t->due_date];
     })->all();
     $doneRows = $tScope(Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id'))
-        ->whereBetween('t.completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
+        ->whereBetween('t.completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])->whereNotIn('t.status_id', Db::statusIds(['cancel']))
         ->orderByDesc('t.completed_at')->get(['t.id', 't.title', 't.completed_at', 'p.name as pname']);
     $doneThis = count($doneRows);
     $drill['completed'] = $doneRows->map(function ($t) {
@@ -16383,7 +16662,7 @@ case 'standup':                         // 🏃 Standup dashboard — απασχ
         /* ball-rule: ok — πιστώνεται όποιος την έκλεισε (δες `perf`). */
         $cl = Capsule::table('mod_cpm_tasks')
             ->whereRaw('COALESCE(completed_by, assignee) = ?', [$aid])->whereNotNull('due_date')
-            ->whereBetween('completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])
+            ->whereBetween('completed_at', [$ps . ' 00:00:00', $pe . ' 23:59:59'])->whereNotIn('status_id', Db::statusIds(['cancel']))
             ->get(['due_date', 'completed_at']);
         $onT = 0; $late = 0;
         foreach ($cl as $t) { if (substr($t->completed_at, 0, 10) <= $t->due_date) { $onT++; } else { $late++; } }
@@ -16665,13 +16944,14 @@ case 'lead_task_save':
     $lid = (int) ($in['lead'] ?? 0);
     $title = mb_substr(trim($in['title'] ?? ''), 0, 200);
     if (!$lid || $title === '') { fail('input'); }
+    cnp_lead_write_guard($adminId, $FULL, $lid);
     $data = ['title' => $title,
         'kind' => in_array($in['kind'] ?? '', ['call', 'email', 'meeting', 'todo'], true) ? $in['kind'] : 'todo',
         'due_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['due'] ?? '') ? $in['due'] : null,
         'assignee' => (int) ($in['assignee'] ?? 0) ?: null];
     $tid = (int) ($in['id'] ?? 0);
     if ($tid) {
-        Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)->update($data);
+        Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)->where('lead_id', $lid)->update($data);   // μόνο εργασία ΑΥΤΟΥ του lead
     } else {
         $data['lead_id'] = $lid; $data['created_by'] = $adminId; $data['created_at'] = date('Y-m-d H:i:s');
         Capsule::table('mod_cpm_lead_tasks')->insert($data);
@@ -16682,13 +16962,17 @@ case 'lead_task_toggle':
     $tid = (int) ($in['id'] ?? 0);
     $t = Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)->first();
     if (!$t) { fail('task'); }
+    cnp_lead_write_guard($adminId, $FULL, (int) $t->lead_id);
     $nd = $t->done ? 0 : 1;
     Capsule::table('mod_cpm_lead_tasks')->where('id', $tid)
         ->update(['done' => $nd, 'done_at' => $nd ? date('Y-m-d H:i:s') : null]);
     out(['ok' => true, 'done' => (bool) $nd]);
 
 case 'lead_task_del':
-    Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->delete();
+    $ltD = Capsule::table('mod_cpm_lead_tasks')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$ltD) { fail('task'); }
+    cnp_lead_write_guard($adminId, $FULL, (int) $ltD->lead_id);
+    Capsule::table('mod_cpm_lead_tasks')->where('id', (int) $ltD->id)->delete();
     out(['ok' => true]);
 
 /* ============ 🔐 ΘΥΡΙΔΑ ΚΩΔΙΚΩΝ (ανά χειριστή· admin βλέπει όλα) ============ */
@@ -18552,7 +18836,7 @@ case 'cv_file':                          // προβολή/λήψη CV (auth + h
     $r = Capsule::table('mod_cpm_cv')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r || (!$r->cv_stored && empty($r->cv_storage_id))) { fail('file', 404); }
     $mime = $r->cv_mime ?: 'application/octet-stream';
-    $previewable = ($mime === 'application/pdf' || strpos($mime, 'image/') === 0);   // μόνο PDF/εικόνα inline
+    $previewable = cnp_mime_inline_ok($mime) && strpos(strtolower($mime), 'video/') !== 0 && strpos(strtolower($mime), 'audio/') !== 0;   // PDF/εικόνα (όχι svg)
     $disp = (!empty($_GET['dl']) || !$previewable) ? 'attachment' : 'inline';
     if (!empty($r->cv_storage_id)) {                        // migrated → S3/local via Storage
         $sr = Storage::record((int) $r->cv_storage_id);
@@ -18792,11 +19076,12 @@ case 'lead_product_save':
     $lid = (int) ($in['lead'] ?? 0);
     $name = mb_substr(trim($in['name'] ?? ''), 0, 150);
     if (!$lid || $name === '') { fail('input'); }
+    cnp_lead_write_guard($adminId, $FULL, $lid);
     $data = ['name' => $name, 'product_id' => (int) ($in['product_id'] ?? 0) ?: null,
         'qty' => max(0, round((float) ($in['qty'] ?? 1), 2)), 'unit_price' => round((float) ($in['price'] ?? 0), 2)];
     $iid = (int) ($in['id'] ?? 0);
     if ($iid) {
-        Capsule::table('mod_cpm_lead_products')->where('id', $iid)->update($data);
+        Capsule::table('mod_cpm_lead_products')->where('id', $iid)->where('lead_id', $lid)->update($data);   // μόνο γραμμή ΑΥΤΟΥ του lead
     } else {
         $data['lead_id'] = $lid; $data['created_at'] = date('Y-m-d H:i:s');
         Capsule::table('mod_cpm_lead_products')->insert($data);
@@ -18812,6 +19097,8 @@ case 'lead_product_save':
 case 'lead_product_del':
     $iid = (int) ($in['id'] ?? 0);
     $lid = (int) Capsule::table('mod_cpm_lead_products')->where('id', $iid)->value('lead_id');
+    if (!$lid) { fail('input'); }
+    cnp_lead_write_guard($adminId, $FULL, $lid);
     Capsule::table('mod_cpm_lead_products')->where('id', $iid)->delete();
     if ($lid) {
         $sum = 0.0;
@@ -19097,6 +19384,7 @@ case 'leads_dupes':                      // εντοπισμός διπλότυ�
 case 'lead_merge':                       // συγχώνευση: μετακίνηση σχέσεων drop→keep, διαγραφή drop
     $keep = (int) ($in['keep'] ?? 0); $drop = (int) ($in['drop'] ?? 0);
     if (!$keep || !$drop || $keep === $drop) { fail('input'); }
+    cnp_lead_write_guard($adminId, $FULL, $keep); cnp_lead_write_guard($adminId, $FULL, $drop);
     Capsule::table('mod_cpm_interactions')->where('lead_id', $drop)->update(['lead_id' => $keep]);
     Capsule::table('mod_cpm_lead_tasks')->where('lead_id', $drop)->update(['lead_id' => $keep]);
     Capsule::table('mod_cpm_lead_products')->where('lead_id', $drop)->update(['lead_id' => $keep]);
@@ -19205,7 +19493,8 @@ case 'version':
     $d6 = (string) Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)->max('id');
     $e6 = (string) Capsule::table('mod_cpm_comments')->max('id');
     $f6 = (string) Capsule::table('mod_cpm_leads')->max('updated_at');
-    Db::setPref($adminId, 'last_seen', (string) time());
+    /* (εδώ υπήρχε δεύτερη, ΑΝΕΥ ΟΡΩΝ εγγραφή last_seen σε κάθε χτύπο 12΄΄ — περιττή: το
+       last_seen γράφεται ήδη πιο πάνω ανά 30΄΄, αρκετό για την παρουσία. 28/9/2026) */
     $reads6 = [];
     foreach (Capsule::table('mod_cpm_chat_reads')->where('admin_id', $adminId)->get() as $r6) {
         $reads6[$r6->channel] = (int) $r6->last_id;

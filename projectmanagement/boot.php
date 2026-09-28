@@ -101,6 +101,8 @@ if (isset($_GET['t'])) {
         session_regenerate_id(true);
         $_SESSION['pm_admin'] = $aid;
         $_SESSION['pm_ua'] = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 120);
+        $_SESSION['pm_at'] = time();
+        $_SESSION['pm_pw'] = pm_pw_mark($aid);
     }
 }
 
@@ -115,7 +117,27 @@ function pm_admin_id()
     if (($_SESSION['pm_ua'] ?? '') !== substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 120)) {
         return 0;
     }
+    /* ΑΝΑΚΛΗΣΗ (28/9/2026): πριν, ο έλεγχος «ενεργός» γινόταν ΜΟΝΟ στην είσοδο — ένας
+       απενεργοποιημένος χρήστης ή κάποιος που του άλλαξε ο κωδικός έμενε μέσα για πάντα
+       (το app κάνει συνεχώς polling, η συνεδρία δεν έληγε ποτέ). Τώρα: απενεργοποίηση ή
+       αλλαγή κωδικού = έξω, και απόλυτο όριο 16 ωρών. Η επανείσοδος από το WHMCS είναι
+       αυτόματη όσο ισχύει εκεί η σύνδεση. */
+    static $ok = null;
+    if ($ok !== null) { return $ok ? $aid : 0; }
+    $row = Capsule::table('tbladmins')->where('id', $aid)->first(['disabled']);
+    if (!$row || (int) $row->disabled) { return (int) ($ok = 0); }
+    if (empty($_SESSION['pm_at'])) { $_SESSION['pm_at'] = time(); }          // παλιές συνεδρίες
+    if (empty($_SESSION['pm_pw'])) { $_SESSION['pm_pw'] = pm_pw_mark($aid); }
+    if (time() - (int) $_SESSION['pm_at'] > 16 * 3600) { return (int) ($ok = 0); }
+    if (!hash_equals((string) $_SESSION['pm_pw'], pm_pw_mark($aid))) { return (int) ($ok = 0); }
+    $ok = true;
     return $aid;
+}
+
+/** Αποτύπωμα του κωδικού του admin (όχι ο κωδικός) — αλλάζει όταν αλλάξει ο κωδικός. */
+function pm_pw_mark($aid)
+{
+    return substr(hash('sha256', 'pm|' . (string) Capsule::table('tbladmins')->where('id', (int) $aid)->value('password')), 0, 24);
 }
 
 /** 📅 Το γεγονός ημερολογίου στο οποίο ανήκει ένα δωμάτιο Meet (ή null για ad-hoc/φωνή/remote).

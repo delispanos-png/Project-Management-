@@ -176,7 +176,9 @@ class Overrun
     /** Ο άνθρωπος που «κρατά» την εργασία: ανάδοχος, αλλιώς η μπάλα, αλλιώς ο δημιουργός. */
     public static function taskAgent($t)
     {
-        foreach (['assignee', 'action_user', 'created_by'] as $f) {
+        /* ΜΠΑΛΑ ΠΡΩΤΑ (28/9/2026): ρωτάμε όποιον κρατά τη μπάλα — αυτός δουλεύει τώρα την
+           εργασία. Πριν ρωτούσε τον ανάδοχο: σε 25 από 99 ανοιχτές ήταν άλλος άνθρωπος. */
+        foreach (['action_user', 'assignee', 'created_by'] as $f) {
             if (!empty($t->$f)) { return (int) $t->$f; }
         }
         return 0;

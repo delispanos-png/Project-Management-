@@ -330,7 +330,7 @@ class DayPlan
         /* ── (5) Ροή ουράς: ανοίγουν περισσότερα από όσα κλείνουν; Μία κάρτα, στη δεξαμενή. ── */
         $w0 = date('Y-m-d H:i:s', $now - 7 * 86400);
         $opened = (int) Capsule::table('mod_cpm_tasks')->where('created_at', '>=', $w0)->count();
-        $closed = (int) Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $w0)->count();
+        $closed = (int) Capsule::table('mod_cpm_tasks')->where('completed_at', '>=', $w0)->whereNotIn('status_id', Db::statusIds(['cancel']))->count();
         if ($opened > $closed && ($opened - $closed) >= 10) {
             $openNow = (int) Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done)->count();
             $cards[] = ['kind' => 'flow', 'sev' => 1, 'w' => 0, 'owner' => 0, 'ref' => ['none', 0],
@@ -380,6 +380,28 @@ class DayPlan
         $day = date('Y-m-d');
         $cards = self::collect($owners);
 
+        /* ΑΥΤΟ-ΤΑΚΤΟΠΟΙΗΣΗ (28/9/2026). Πριν οι κάρτες δεν ξαναελέγχονταν ποτέ: 15 έδειχναν
+           εργασίες ήδη κλεισμένες, 9 έργα χωρίς πια ημερομηνία, τίτλοι «περιμένει 1 ημέρα»
+           από μέρες πριν — και 41 κλιμακώθηκαν στους Managers ως αναπάντητες. Τώρα κάθε
+           ανοιχτή κάρτα ξανακρίνεται: αν ο κανόνας δεν ισχύει πια, κλείνει μόνη της· αν
+           ισχύει, το κείμενό της ενημερώνεται στα σημερινά νούμερα. */
+        $now = [];
+        foreach ($cards as $c) { $now[$c['kind'] . ':' . $c['ref'][0] . ':' . $c['ref'][1]] = $c; }
+        if (!$dry) {
+            foreach (Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])->get() as $oc) {
+                $k = $oc->kind . ':' . $oc->ref_type . ':' . (int) $oc->ref_id;
+                if (!isset($now[$k])) {
+                    Capsule::table('mod_cpm_cards')->where('id', (int) $oc->id)->update(['state' => 'done',
+                        'resolved_at' => date('Y-m-d H:i:s'), 'resolve_note' => 'αυτόματα: δεν ισχύει πια']);
+                    continue;
+                }
+                $nc = $now[$k];
+                Capsule::table('mod_cpm_cards')->where('id', (int) $oc->id)->update([
+                    'title' => mb_substr($nc['title'], 0, 255), 'body' => mb_substr($nc['body'], 0, 1000),
+                    'sev' => (int) $nc['sev'], 'weight' => (int) ($nc['w'] ?? 0)]);
+            }
+        }
+
         /* Ταξινόμηση: πρώτα η σοβαρότητα, μετά η σειρά των κανόνων. */
         $order = ['unassigned' => 0, 'project_late' => 1, 'overdue' => 2, 'workload' => 3, 'idle' => 4,
             'age' => 5, 'flow' => 6, 'no_estimate' => 7, 'no_deadline' => 8];
@@ -406,7 +428,9 @@ class DayPlan
         foreach ($owners as $o) { $muted[$o] = self::mutedKinds($o); }
 
         $perOwner = [];
-        foreach (Capsule::table('mod_cpm_cards')->whereIn('state', ['open'])->where('day', $day)
+        /* Το όριο μετράει ΟΛΕΣ τις ανοιχτές κάρτες του ανθρώπου, όχι μόνο τις σημερινές —
+           αλλιώς οι παλιές δεν μετρούσαν και κάποιος είχε 16 ανοιχτές με όριο 7. */
+        foreach (Capsule::table('mod_cpm_cards')->whereIn('state', ['open'])
             ->selectRaw('owner_id, COUNT(*) n')->groupBy('owner_id')->get() as $r) {
             $perOwner[(int) $r->owner_id] = (int) $r->n;
         }
@@ -474,7 +498,7 @@ class DayPlan
             $left = (int) Capsule::table('mod_cpm_cards')->whereIn('state', ['open', 'snoozed'])
                 ->where(function ($q) use ($o) { $q->where('owner_id', $o)->orWhere('owner_id', 0); })->count();
             $tasksDone = (int) Capsule::table('mod_cpm_tasks')->where('completed_by', $o)
-                ->where('completed_at', '>=', $day . ' 00:00:00')->count();
+                ->where('completed_at', '>=', $day . ' 00:00:00')->whereNotIn('status_id', Db::statusIds(['cancel']))->count();
             $mins = (int) Capsule::table('mod_cpm_timelogs')->where('admin_id', $o)->where('running', 0)
                 ->where('created_at', '>=', $day . ' 00:00:00')->sum('minutes');
             /* Εργασίες που έληξαν σήμερα και δεν έκλεισαν → μεταφέρονται, και πρέπει να το ξέρει. */

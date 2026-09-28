@@ -27,6 +27,7 @@ const phMoney = v => fmtEur(Math.round((+v || 0) * 100) / 100);
  */
 async function openPharmacy(offerId, pre) {
   if (!cnpCan('clients.offers')) { toast('Δεν έχεις δικαίωμα στις Προσφορές', true); return; }
+  if (!offerId && !cnpCan('clients.offers.create')) { toast('Νέα προσφορά δημιουργούν μόνο εξουσιοδοτημένοι χειριστές', true); return; }
   closeDrawer();
   const ovl = document.createElement('div'); ovl.className = 'ovl';
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal ph-dr';

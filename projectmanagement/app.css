@@ -2756,7 +2756,25 @@ html[data-theme="dark"] .pill-ph{background:#7b5cd62e;color:#b3a0f0}
 .tk-person-h .chev{flex:none;opacity:.55;transition:transform .12s}
 .tk-person.open .tk-person-h .chev{transform:rotate(90deg)}
 .tk-person-h b{color:var(--ink)}
-.tk-person-b{padding:0 0 6px 18px}
+.tk-person-b{padding:0 0 8px 18px}
+.tk-psum{font-size:11px;margin:0 0 5px}
+.tk-ltab{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.tk-ltab th{text-align:left;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);padding:3px 6px 4px 0;border-bottom:1px solid var(--line)}
+.tk-ltab td{padding:4px 6px 4px 0;vertical-align:middle;white-space:nowrap}
+.tk-lrow td{border-top:1px solid var(--line)}
+.tk-lrow:first-child td{border-top:none}
+.tk-lnote td{padding-top:0;font-size:10.5px;white-space:normal}
+.tk-ld{text-align:right;padding-right:10px!important}
+.tk-lb{width:26px}
+.tk-bill-s{width:22px;height:20px;border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--mut);
+  font-weight:800;font-size:12px;line-height:1;cursor:pointer;padding:0}
+.tk-bill-s.on{background:#eba63c22;border-color:#eba63c;color:#a8720e}
+.tk-bill-s:hover{border-color:var(--brand)}
+.tk-bill-s.off{display:inline-flex;align-items:center;justify-content:center;border-style:dashed;cursor:default;opacity:.7}
+.tk-bill-s.off:hover{border-color:var(--line)}
+.tk-src{display:inline-block;font-size:12px;padding:1px 5px;border-radius:5px;background:var(--bg2);color:var(--mut)}
+.tk-src.timer{color:var(--brand-d);background:var(--brand-soft)}
+.tk-src.manual{color:#a8720e;background:#eba63c1f}
 .tk-frow{grid-template-columns:1fr 1fr;gap:7px 10px;margin-bottom:0}
 .tk-frow .lbl{font-size:10px;margin-bottom:2px}
 .tk-frow .inp{padding:6px 8px;font-size:12.5px}
@@ -4896,3 +4914,19 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .mym-def{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
 .mym-btns{margin-left:auto;display:flex;gap:8px}
 @media(max-width:560px){.mym-f{flex-direction:column;align-items:stretch}.mym-btns{margin-left:0}}
+
+/* ═══ Διορθώσεις από τον έλεγχο UI/UX (28/9/2026) ═══ */
+/* «Φωνή ομάδας»: το καθολικό b{color:var(--ink)} το έκανε σκούρο πάνω σε σκούρο φόντο */
+.voicebar .vb-l b{color:#fff}
+/* Μεγάλο όνομα χρήστη: δεν σπρώχνει πια την «Αποσύνδεση» έξω από το πλαϊνό */
+.side-foot > div[data-profile]{min-width:0;flex:1 1 auto}
+.side-foot-name,.side-foot-role{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Καρτέλα εργασίας: τα κύρια κουμπιά μένουν ορατά στο κάτω μέρος του δεξιού πάνελ */
+.tk-actions{position:sticky;bottom:0;z-index:3;background:var(--card);padding-top:8px;padding-bottom:8px;box-shadow:0 -8px 12px -10px rgba(15,32,56,.25)}
+@media (max-width:768px){
+  /* Κινητό: με μεγάλο τίτλο, καμπανάκι & λογαριασμός έβγαιναν εκτός οθόνης */
+  .top{gap:8px;padding-left:12px;padding-right:12px}
+  .top-l{min-width:0;flex:1 1 auto}
+  #helpBtn,#sideTgl{display:none}
+  .top-acts{gap:6px;flex:0 0 auto}
+}

@@ -388,10 +388,11 @@ function toast(m) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = m;
   document.body.appendChild(t); setTimeout(() => t.remove(), 3000);
 }
+let myKey = '';   // υπογραφή του peer μας (rtc_join) — απαιτείται σε signal/poll/leave
 async function api(a, data, qs) {
   const url = API + '?a=' + a + (MT ? '&mt=' + encodeURIComponent(MT) : '') + (qs || '');
   const r = await fetch(url, data ? {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(Object.assign({room: ROOM}, data)), credentials: 'same-origin'} : {credentials: 'same-origin'});
+    body: JSON.stringify(Object.assign({room: ROOM, k: myKey}, data)), credentials: 'same-origin'} : {credentials: 'same-origin'});
   return r.json();
 }
 
@@ -506,7 +507,10 @@ function addTile(peer, name, isMe) {
   const t = document.createElement('div');
   t.className = 'tile' + (isMe ? ' me' : '');
   t.id = 'tile-' + peer;
-  t.innerHTML = `<video autoplay playsinline ${isMe ? 'muted class="mirror"' : ''}></video><div class="nm">${name}${isMe ? ' (εσύ)' : ''}</div>`;
+  /* Το όνομα το δίνει ο ΕΠΙΣΚΕΠΤΗΣ (πελάτης) — ΠΟΤΕ ως HTML: αλλιώς ένα «όνομα» με κώδικα
+     έτρεχε στη σελίδα του υπαλλήλου, στο ίδιο origin με το api.php (28/9/2026). */
+  t.innerHTML = `<video autoplay playsinline ${isMe ? 'muted class="mirror"' : ''}></video><div class="nm"></div>`;
+  t.querySelector('.nm').textContent = String(name == null ? '' : name) + (isMe ? ' (εσύ)' : '');
   /* Μπαίνει κάποιος ΕΝΩ τρέχει παρουσίαση: το πρόσωπό του πάει στη λωρίδα, όχι
      πάνω από την οθόνη που όλοι κοιτούν. */
   $(presenter && presenter !== peer ? '#strip' : '#grid').appendChild(t);
@@ -591,7 +595,7 @@ async function poll() {
   if (!me || rejoining) return;
   let r;
   try {
-    r = await api('rtc_poll', null, '&room=' + ROOM + '&peer=' + me + '&after=' + lastMsg + '&name=' + encodeURIComponent(myNameVal()));
+    r = await api('rtc_poll', null, '&room=' + ROOM + '&peer=' + me + '&k=' + myKey + '&after=' + lastMsg + '&name=' + encodeURIComponent(myNameVal()));
     if (!r || !Array.isArray(r.messages)) { throw new Error(r && r.error ? r.error : 'bad'); }
   } catch (e) {
     /* Ο server δεν απαντά ή αρνείται: μετά από 4 συνεχόμενες αποτυχίες (~5΄΄) ξαναμπαίνουμε
@@ -633,13 +637,13 @@ async function rejoin(why) {
   Object.keys(pcs).forEach(dropPeer);
   const oldTile = me ? $('#tile-' + me) : null;
   const oldMe = me;
-  if (oldMe) { api('rtc_leave', {peer: oldMe}).catch(() => {}); }   // να μη μείνει «φάντασμα» στη λίστα
+  if (oldMe) { api('rtc_leave', {peer: oldMe, k: myKey}).catch(() => {}); }   // να μη μείνει «φάντασμα» στη λίστα
   for (let i = 0; i < 20; i++) {
     try {
       const r = await api('rtc_join', {name: myNameVal()});
       if (r && r.ended) { endDone = true; rejoining = false; leaveCleanup(); showEnded(); return; }
       if (r && r.peer) {
-        me = r.peer; lastMsg = 0; pollFails = 0;
+        me = r.peer; myKey = r.key || ''; lastMsg = 0; pollFails = 0;
         if (oldTile) { oldTile.id = 'tile-' + me; }
         r.roster.forEach(p => callPeer(p.peer, p.name).catch(() => {}));
         rejoining = false; updCnt(); toast('✅ Ξανά μέσα');
@@ -674,7 +678,7 @@ $('#joinBtn').onclick = async () => {
   const r = await api('rtc_join', {name: myNameVal()});
   if (r && r.ended) { showEnded(); return; }
   if (!r.peer) { toast(r && r.error ? r.error : 'Σφάλμα σύνδεσης'); return; }
-  me = r.peer;
+  me = r.peer; myKey = r.key || '';
   $('#pre').style.display = 'none';
   $('#call').style.display = 'flex';
   const mv = addTile(me, r.name, true);
@@ -857,7 +861,7 @@ $('#cLeave').onclick = leave;
 window.addEventListener('pagehide', () => {
   if (!me) return;
   const url = API + '?a=rtc_leave' + (MT ? '&mt=' + encodeURIComponent(MT) : '');
-  try { navigator.sendBeacon(url, new Blob([JSON.stringify({room: ROOM, peer: me})], {type: 'application/json'})); } catch (e) {}
+  try { navigator.sendBeacon(url, new Blob([JSON.stringify({room: ROOM, peer: me, k: myKey})], {type: 'application/json'})); } catch (e) {}
 });
 </script>
 </body>

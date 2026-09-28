@@ -156,14 +156,60 @@ document.documentElement.dataset.theme = S.theme;
 /* HTML από επικόλληση/εισαγωγή: ξαναπερνά από τον parser σε απομονωμένο <template>, ώστε
    κάθε ανοιχτό tag να κλείσει ΜΕΣΑ στο απόσπασμα. Αλλιώς ένα ανισόρροπο <div> σε μία ενέργεια
    «κατάπινε» ό,τι ακολουθούσε στην καρτέλα (εργασία #191). */
+/* ΚΑΙ ΦΙΛΤΡΟ (28/9/2026): ίδια λίστα επιτρεπόμενων με το cnp_dom_scrub του server, ώστε
+   και ό,τι αποθηκεύτηκε ΠΡΙΝ φτιαχτεί εκείνο (π.χ. «<img src=x onerror=…>») να μην
+   εκτελείται. Το <template> δεν τρέχει ποτέ κώδικα όσο το επεξεργαζόμαστε. */
+const CNP_OK_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'UL', 'OL', 'LI', 'A', 'BR', 'P', 'DIV', 'SPAN', 'H3', 'H4',
+  'BLOCKQUOTE', 'CODE', 'PRE', 'IMG', 'FIGURE', 'FIGCAPTION', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'MARK']);
+const CNP_OK_ATTR = new Set(['href', 'src', 'alt', 'title', 'style', 'class', 'target', 'rel', 'colspan', 'rowspan', 'width', 'height', 'data-lang']);
+const CNP_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'NOSCRIPT', 'TEMPLATE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'LINK', 'META', 'BASE']);
+function cnpScrubNode(root) {
+  [...root.childNodes].forEach(n => {
+    if (n.nodeType === 8) { n.remove(); return; }
+    if (n.nodeType !== 1) { return; }
+    const tag = n.nodeName.toUpperCase();
+    if (!CNP_OK_TAGS.has(tag)) {
+      if (CNP_DROP.has(tag)) { n.remove(); return; }
+      cnpScrubNode(n);                     // πρώτα τα παιδιά του, μετά ξετύλιγμα
+      n.replaceWith(...n.childNodes);
+      return;
+    }
+    [...n.attributes].forEach(a => {
+      const an = a.name.toLowerCase();
+      if (!CNP_OK_ATTR.has(an)) { n.removeAttribute(a.name); return; }
+      if (an === 'href' || an === 'src') {
+        const u = String(a.value).replace(/[\x00-\x20]/g, '');
+        const safe = u === '' || u[0] === '#' || u[0] === '/' || /^(https?:|mailto:|tel:)/i.test(u) || !/^[a-z0-9.+-]*:/i.test(u);
+        if (!safe) { n.setAttribute(a.name, '#'); }
+      }
+      if (an === 'style' && /expression|url\s*\(|javascript:|@import|behavior/i.test(a.value)) { n.removeAttribute(a.name); }
+    });
+    cnpScrubNode(n);
+  });
+}
+/* Για κείμενα ΜΕΣΑ ΣΤΗ ΔΙΕΠΑΦΗ (τίτλοι/σώματα διαλόγων) που περιέχουν σκόπιμα εικονίδια
+   SVG και <b>: κρατά τη μορφή, πετά ό,τι εκτελείται (on*, javascript:, script/iframe…).
+   Οι τίτλοι εργασιών/ονόματα πελατών μπαίνουν συχνά αυτούσιοι εδώ (28/9/2026). */
+function cnpSafeMarkup(html) {
+  const s = String(html == null ? '' : html); if (s.indexOf('<') < 0) { return s; }
+  const t = document.createElement('template'); t.innerHTML = s;
+  t.content.querySelectorAll('script,iframe,object,embed,link,meta,base,form,style,foreignObject,animate,set,animateTransform,animateMotion').forEach(n => n.remove());
+  t.content.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => {
+    const an = a.name.toLowerCase(), v = String(a.value).replace(/[\x00-\x20]/g, '');
+    if (an.startsWith('on') || (/(^|:)(href|src|action|formaction|xlink:href)$/.test(an) && /^(javascript|data|vbscript):/i.test(v))) { n.removeAttribute(a.name); }
+  }));
+  return t.innerHTML;
+}
 function cnpBalanced(html) {
   const s = String(html || ''); if (s.indexOf('<') < 0) { return s; }
-  const t = document.createElement('template'); t.innerHTML = s; return t.innerHTML;
+  const t = document.createElement('template'); t.innerHTML = s; cnpScrubNode(t.content); return t.innerHTML;
 }
 async function api(a, data) {
   const opt = data ? {method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'}} : {};
   const r = await fetch('api.php?a=' + a + (data ? '' : '&_=' + Date.now()), {credentials: 'same-origin', ...opt});
   if (r.status === 401) { location.href = '/cloudonadminpanel/addonmodules.php?module=cloudonprojects&pmlaunch=1'; throw new Error('auth'); }
+  /* Αν ο server δεν έστειλε JSON (σελίδα σφάλματος), δείξε κατανοητό μήνυμα — όχι «Unexpected token '<'». */
+  if (!/json/i.test(r.headers.get('content-type') || '')) { const e = new Error('Σφάλμα διακομιστή (HTTP ' + r.status + ') — δοκίμασε ξανά σε λίγο'); e.data = {}; throw e; }
   const j = await r.json();
   /* Το σφάλμα κουβαλά ΟΛΟ το σώμα: ο server στέλνει και δομημένα πεδία (π.χ.
      need:'due') που το UI χρειάζεται για να αντιδράσει, όχι μόνο το μήνυμα. */
@@ -606,13 +652,15 @@ function renderShell() {
     e.stopPropagation();
     miniMenu($('#newBtn'), [
       {icon: I.checkSquare, label: 'Νέο task', on: () => window.CNP.quickNew && window.CNP.quickNew()},
-      {icon: I.target, label: 'Νέο lead', on: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
+      /* Μόνο ό,τι μπορεί ΝΑ ΑΠΟΘΗΚΕΥΣΕΙ ο χρήστης (28/9/2026): πριν έβλεπε φόρμες που ο server
+         αρνιόταν στο τέλος (π.χ. «Νέο lead» χωρίς δικαίωμα CRM). */
+      cnpCan('clients.crm.edit') ? {icon: I.target, label: 'Νέο lead', on: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }} : null,
       {icon: I.users, label: 'Νέα σύσκεψη', on: () => newMeeting()},
-      {icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall()},
-      {icon: I.alert, label: 'Παράπονο πελάτη', on: () => window.CNP.quickCx && window.CNP.quickCx()},
+      cnpCan('clients.calls') ? {icon: I.phone, label: 'Καταγραφή κλήσης', on: () => window.CNP.quickCall && window.CNP.quickCall()} : null,
+      cnpCan('support.complaints.edit') ? {icon: I.alert, label: 'Παράπονο πελάτη', on: () => window.CNP.quickCx && window.CNP.quickCx()} : null,
       {icon: I.clock, label: 'Καταγραφή χρόνου', on: () => go('time')},
       {icon: I.sos, label: 'Ζήτα βοήθεια', on: () => window.CNP.quickHelp && window.CNP.quickHelp()},
-    ]);
+    ].filter(Boolean));
   };
   // ── Κατάσταση διαθεσιμότητας ──
   $('#statusBtn').onclick = e => { e.stopPropagation(); statusPicker(); };
@@ -1561,7 +1609,7 @@ const _rteB = (cmd, label, title, arg) =>
 function _rteSeed(v) {
   const s = String(v == null ? '' : v);
   return /<(p|div|br|ul|ol|li|b|strong|i|em|u|h3|h4|blockquote|pre|code|span|a)\b/i.test(s)
-    ? s : esc(s).replace(/\n/g, '<br>');
+    ? cnpBalanced(s) : esc(s).replace(/\n/g, '<br>');   // φιλτραρισμένο — το πεδίο είναι contenteditable
 }
 
 /* Η ΕΡΓΑΛΕΙΟΘΗΚΗ ΤΗΣ ΣΥΖΗΤΗΣΗΣ, ΜΙΑ ΦΟΡΑ. Ήταν γραμμένη μόνο μέσα στον συνθέτη
@@ -1716,7 +1764,7 @@ async function rteProof(ed, btn) {
   document.body.appendChild(ovl);
   ovl.querySelector('#pfNo').onclick = () => ovl.remove();
   ovl.querySelector('#pfYes').onclick = () => {
-    ed.innerHTML = r.html;
+    ed.innerHTML = cnpBalanced(r.html);
     ovl.remove();
     toast('Οι διορθώσεις εφαρμόστηκαν — μην ξεχάσεις Αποθήκευση');
   };
@@ -1969,8 +2017,8 @@ function cnpDialog(opts) {
     ovl.innerHTML = `<div class="pal-box" style="margin:22vh auto 0;max-width:440px" role="dialog"
       data-cnp-dlg="1"${o.noClose ? ' data-noclose="1"' : ''}>
       <div style="padding:20px 22px 18px">
-        ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${o.title}</b>` : ''}
-        ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap;max-height:46vh;overflow:auto">${o.body}</div>` : ''}
+        ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${cnpSafeMarkup(o.title)}</b>` : ''}
+        ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap;max-height:46vh;overflow:auto">${cnpSafeMarkup(o.body)}</div>` : ''}
         ${o.input !== null ? (o.rows
           ? `<textarea class="inp" id="cnpDlgIn" rows="${+o.rows}" maxlength="${+o.max || 2000}" placeholder="${esc(o.placeholder || '')}" style="margin-top:12px;width:100%;resize:vertical">${esc(o.input || '')}</textarea>`
           : `<input class="inp" type="${o.inputType || 'text'}" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
@@ -1987,7 +2035,15 @@ function cnpDialog(opts) {
     const ok = () => done(o.input !== null ? (inp ? inp.value : '') : true);
     const onKey = e => {
       if (e.key === 'Escape' && !o.noClose) { e.stopPropagation(); done(o.input !== null ? null : false); }
-      if (e.key === 'Escape' && o.noClose) { e.stopPropagation(); e.preventDefault(); }
+      if (e.key === 'Escape' && o.noClose) {
+        e.stopPropagation(); e.preventDefault();
+        if (o.escNo) { done(false); }                     // ερώτηση με ασφαλές «όχι»: ESC = όχι
+        return;
+      }
+      /* Enter πάνω σε ΚΟΥΜΠΙ = εκείνο το κουμπί (το κάνει ο browser), όχι πάντα το κύριο —
+         πριν, Enter με εστίαση στο «Όχι» πατούσε το «Ναι» (ξεκινούσε χρονόμετρο, 28/9/2026). */
+      if (e.key === 'Enter' && !inp && document.activeElement && document.activeElement.tagName === 'BUTTON'
+          && ovl.contains(document.activeElement)) { return; }
       if (e.key === 'Enter' && (!inp || document.activeElement === inp)) {
         if (o.rows && !(e.ctrlKey || e.metaKey)) { return; }   // πολυγραμμικό: Enter = νέα γραμμή
         e.preventDefault(); ok();
@@ -1999,7 +2055,8 @@ function cnpDialog(opts) {
     const th = ovl.querySelector('#cnpDlgTh');
     if (th) { th.onclick = () => done('third'); }
     // ΟΧΙ κλείσιμο με κλικ έξω — μόνο από τα κουμπιά ή ESC
-    setTimeout(() => (inp || ovl.querySelector('#cnpDlgOk')).focus(), 30);
+    /* safeFocus: η εστίαση ξεκινά στο ΑΣΦΑΛΕΣ κουμπί (όταν το κύριο κάνει κάτι μη αναστρέψιμο). */
+    setTimeout(() => (inp || (o.safeFocus && ovl.querySelector('#cnpDlgNo')) || ovl.querySelector('#cnpDlgOk')).focus(), 30);
   });
 }
 /**
@@ -2616,7 +2673,7 @@ function cnpTaskDraftPut(dr, draft) {
      «επανέφερε» παλιό κείμενο πάνω σε αποθηκευμένο. */
   const fd = dr.querySelector('#fDescr');
   if (fd && draft.descr !== null && draft.descr !== undefined && draft.descr !== fd.innerHTML) {
-    fd.innerHTML = draft.descr;
+    fd.innerHTML = cnpBalanced(draft.descr);
     fd.dataset.dirty = '1';
   }
 }
@@ -2806,7 +2863,7 @@ async function openTask(id, entryId, opts) {
                ζητούμενο — δύο «αποθηκεύσεις» στην ίδια καρτέλα, και έπρεπε να
                ξέρεις ποια σώζει τι. Το δεξί «Αποθήκευση» τα σώζει όλα, και το
                ζητούμενο μαζί. */
-            + `<div class="tk-brief-foot"><span class="mut" id="dBriefHint" style="font-size:11.5px">Αποθηκεύεται με το «Αποθήκευση» δεξιά.</span></div>`
+            + `<div class="tk-brief-foot"><span class="mut" id="dBriefHint" style="font-size:11.5px">Αποθηκεύεται αυτόματα καθώς γράφεις.</span></div>`
           : `<div class="tk-brief-ro">${d.descr && d.descr.trim() ? cnpBalanced(d.descr) : '<span class="mut">— Δεν έχει οριστεί ζητούμενο.</span>'}</div>`}
         <details class="tk-att" open><summary id="dFilesSum">${I.clip} Συνημμένα ζητουμένου<b data-attn></b></summary>
           <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
@@ -2943,20 +3000,36 @@ async function openTask(id, entryId, opts) {
           if (l.running) { g.running = true; } else { g.mins += l.mins; }
           g.items.push(l);
         });
-        const logRow = l => `<div class="tk-log">
-          <b>${l.running ? '▶ σε εξέλιξη' : fmtMin(l.mins)}</b>
-          ${l.running || !d.owner ? '' : `<button type="button" class="pill ${l.billable ? 'pill-warn' : 'pill-mut'} tk-billtog"
-            data-tbill="${l.id}" data-on="${l.billable ? 1 : 0}" style="font-size:9.5px"
-            title="Κλικ για αλλαγή — χρεώσιμο ή όχι">${l.billable ? 'χρέωση ' + fmtMin(l.charged || l.mins) : 'χωρίς χρέωση'}</button>`}
-          <span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${l.note ? esc(l.note) : ''}</span>
-          <span class="mut" style="margin-left:auto;flex:none">${tShort(l.at)}</span></div>`;
+        /* Ανάλυση ανά καταχώρηση σε στοιχισμένες στήλες (28/9/2026): ημερομηνία,
+           έναρξη–λήξη, διάρκεια, πηγή. Η χειροκίνητη καταχώρηση δεν έχει ώρα
+           έναρξης — δείχνουμε μόνο πότε καταχωρήθηκε, δεν επινοούμε ώρες. */
+        const hhmm = s => s ? String(s).slice(11, 16) : '';
+        const dmy = s => s ? String(s).slice(8, 10) + '/' + String(s).slice(5, 7) : '';
+        /* Χρέωση ΠΡΩΤΗ και ως σύμβολο (€ χρεώσιμο · – όχι), πηγή ως εικονίδιο: η
+           πλήρης λέξη υπάρχει στο tooltip, όχι στη στήλη — το πλαϊνό είναι στενό. */
+        const logRow = l => `<tr class="tk-lrow">
+          <td class="tk-lb">${!d.owner ? '<span class="tk-bill-s off" title="Χωρίς πελάτη — ο χρόνος δεν χρεώνεται πουθενά">–</span>'
+            : l.running ? '<span class="tk-bill-s off" title="Σε εξέλιξη — η χρέωση ορίζεται όταν σταματήσει">·</span>' : `<button type="button" class="tk-bill-s${l.billable ? ' on' : ''} tk-billtog"
+            data-tbill="${l.id}" data-on="${l.billable ? 1 : 0}"
+            title="${l.billable ? 'Χρεώσιμο — ' + fmtMin(l.charged || l.mins) : 'Χωρίς χρέωση'} · κλικ για αλλαγή">${l.billable ? '€' : '–'}</button>`}</td>
+          <td>${dmy(l.start || l.end || l.at)}</td>
+          <td class="tk-lt">${l.src === 'timer'
+            ? `${hhmm(l.start)}–${l.running ? '<span class="pill pill-ok" style="font-size:9px">τώρα</span>' : hhmm(l.end)}`
+            : `<span class="mut" title="Χειροκίνητη καταχώρηση — δεν υπάρχει ώρα έναρξης">— · ${hhmm(l.end)}</span>`}</td>
+          <td class="tk-ld"><b>${l.running ? '…' : fmtMin(l.mins)}</b></td>
+          <td><span class="tk-src ${l.src}" title="${l.src === 'timer' ? 'Μετρήθηκε από το χρονόμετρο' : 'Καταχωρήθηκε χειροκίνητα'}">${l.src === 'timer' ? '⏱' : '✎'}</span></td>
+        </tr>${l.note ? `<tr class="tk-lnote"><td></td><td colspan="4" class="mut">${esc(l.note)}</td></tr>` : ''}`;
         const rows = [...groups.values()].sort((a, b) => b.mins - a.mins).map(g => `<div class="tk-person">
           <button type="button" class="tk-person-h">
             <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
             <b>${esc(g.name)}</b>${g.running ? '<span class="pill pill-ok" style="font-size:9px">▶ τώρα</span>' : ''}
             <span class="mut" style="margin-left:auto">${fmtMin(g.mins)}${g.items.length > 1 ? ' · ' + g.items.length + '×' : ''}</span>
           </button>
-          <div class="tk-person-b" hidden>${g.items.map(logRow).join('')}</div>
+          <div class="tk-person-b" hidden>
+            ${(() => { const man = g.items.filter(l => l.src === 'manual' && !l.running).reduce((s, l) => s + l.mins, 0);
+              return `<div class="mut tk-psum">χρονόμετρο <b>${fmtMin(g.mins - man)}</b> · χειροκίνητα <b>${fmtMin(man)}</b></div>`; })()}
+            <table class="tk-ltab"><thead><tr><th title="€ χρεώσιμο · – χωρίς χρέωση">€</th><th>Ημ/νία</th><th>Έναρξη–Λήξη</th><th>Διάρκεια</th><th title="⏱ χρονόμετρο · ✎ χειροκίνητα">Πηγή</th></tr></thead>
+            <tbody>${g.items.map(logRow).join('')}</tbody></table></div>
         </div>`).join('');
         return `<div class="mut" style="font-size:10.5px;margin-top:8px">Κλικ σε χειριστή για ανάλυση ανά καταχώρηση — εκεί αλλάζεις και τη χρέωση.</div>
         <div style="margin-top:4px" id="tLogs">${rows}</div>`;
@@ -3006,7 +3079,7 @@ async function openTask(id, entryId, opts) {
             <details class="tk-offer-more"><summary class="mut" style="cursor:pointer;font-size:11px">ή διάλεξε από τις προσφορές του πελάτη / νέα / ζήτα από συνάδελφο</summary>
             <select class="inp" id="fOfferSel" title="Δέσε με υπάρχουσα προσφορά του πελάτη" style="margin-top:6px"><option value="">— δέσε με υπάρχουσα προσφορά… —</option></select>
             <div class="tk-offer-acts">
-              <button type="button" class="btn btn-sm btn-p" id="fOfferNew">${I.plus} Νέα προσφορά</button>
+              ${cnpCan('clients.offers.create') ? `<button type="button" class="btn btn-sm btn-p" id="fOfferNew">${I.plus} Νέα προσφορά</button>` : ''}
               <button type="button" class="btn btn-sm btn-o" id="fOfferAsk" title="Ζήτα από συνάδελφο να φτιάξει την προσφορά — θα ειδοποιηθεί και θα μείνει στις εκκρεμότητές του">📣 Ζήτα από συνάδελφο…</button>
             </div>
             ${d.offerReq ? `<div class="mut" style="font-size:11px;margin-top:5px">${d.offerReq.status === 'open' ? '⏳' : '✓'} Ζητήθηκε από <b>${esc(d.offerReq.by)}</b> προς <b>${esc(d.offerReq.to)}</b> · ${tShort(d.offerReq.at)}${d.offerReq.status === 'open' ? ' — εκκρεμεί' : ''}</div>` : ''}</details>`}
@@ -3753,7 +3826,7 @@ async function openTask(id, entryId, opts) {
         {icon: I.phone, label: 'Τηλεφωνικό κέντρο', on: () => window.CNP.newOfferFor({client: ownerId, name: ownerName, task: id, kind: 'pbx'})}]); }; }
     const ab = $('#fOfferAsk', dr); if (ab) { ab.onclick = e => { e.stopPropagation();
       const isSvc = a => /support team|\bbot\b/i.test(a.name || '') || String(a.name || '').trim() === 'Cloud On';
-      miniMenu(ab, (S.boot.admins || []).filter(a => a.id !== me.id && !isSvc(a)).map(a => ({label: a.name, on: async () => {
+      miniMenu(ab, (S.boot.admins || []).filter(a => a.id !== me.id && !isSvc(a) && a.offerMaker).map(a => ({label: a.name, on: async () => {
         const msg = await cnpDialog({title: '📣 Ζήτα προσφορά από τον ' + a.name, body: 'Θα του φτάσει ως αίτημα (καμπανάκι + «σε ζητούν») και θα μείνει εκκρεμές μέχρι να φτιάξει και να δέσει την προσφορά.',
           input: `Χρειάζεται προσφορά για «${(t.title || '').slice(0, 80)}»${ownerName ? ' — πελάτης ' + ownerName : ''}. Όταν τη φτιάξεις, δέσε την με την εργασία.`, rows: 4, max: 2000, ok: '📣 Στείλε', cancel: 'Άκυρο'});
         if (msg === null) { return; }
@@ -3803,8 +3876,10 @@ async function openTask(id, entryId, opts) {
       const bd = await api('board&project=' + d.project.id).catch(() => null);
       if (bd) { bd.columns.forEach(col => col.tasks.forEach(tt => add(tt.id, tt.title))); }
     } else if (t.dept) {
-      const dv = await api('dept_view&id=' + t.dept).catch(() => null);
-      if (dv) { dv.groups.forEach(g => g.tasks.forEach(tt => add(tt.id, tt.title))); }
+      /* Από τη ΛΙΣΤΑ (φίλτρο department), όχι από το dept_view: εκείνο είναι οθόνη διαχείρισης
+         και έδινε 403 στους χειριστές — η λίστα εξαρτήσεων έμενε άδεια (28/9/2026). */
+      const dv = await api('list&open=1&fd=' + t.dept).catch(() => null);
+      if (dv) { (dv.tasks || []).forEach(tt => add(tt.id, tt.title)); }
     }
   })();
   $('#depAdd', dr).onclick = async () => {
@@ -4110,6 +4185,7 @@ async function openTask(id, entryId, opts) {
     try { localStorage.setItem(askedKey, today()); } catch (e) {}
     const go2 = await cnpDialog({
       noClose: true,             // ο ✕ άφηνε την καρτέλα ξεκλείδωτη — τώρα δεν υπάρχει
+      escNo: true, safeFocus: true,   // ESC/Enter δεν ξεκινούν ΠΟΤΕ χρονόμετρο κατά λάθος
       title: '▶ Ξεκινάς τώρα αυτή την εργασία;',
       body: `«${t.title}»\n\nΑν ναι, ξεκινά ο χρόνος και μπορείς να δουλέψεις.\nΑν όχι, θα την ανοίξω μόνο για ανάγνωση.\n\nΑν τρέχει χρονόμετρο σε άλλη εργασία, θα σταματήσει.`,
       ok: '▶ Ναι, ξεκινάω', cancel: 'Όχι, μόνο θα δω'});
@@ -4313,6 +4389,7 @@ async function cnpAskClose(box) {
     ok: saveBtn ? 'Αποθήκευση' : 'Κλείσιμο χωρίς αποθήκευση',
     cancel: 'Συνέχεια επεξεργασίας',
     third: saveBtn ? 'Απόρριψη αλλαγών' : null,
+    safeFocus: !saveBtn,          // όταν το κύριο κουμπί ΠΕΤΑΕΙ τις αλλαγές, το Enter δεν το πατά
   });
   if (r === false || r === null) { return false; }          // Άκυρο → μένει ανοιχτό
   if (r === 'third' || !saveBtn) { kill(); return true; }   // Απόρριψη
@@ -5263,6 +5340,8 @@ function cnpCan(cap) {
   if ((me.caps || []).includes(cap)) { return true; }
   // Η Διαγραφή δίνεται ΜΟΝΟ ρητά — δεν κληρονομείται από την πρόσβαση στο κύκλωμα.
   if (cap.endsWith(".delete") || cap === "clients.offer_delete") { return false; }
+  // Ονομαστικές (π.χ. δημιουργία προσφοράς): μόνο ρητά — ίδιος κανόνας με τον server.
+  if ((me.explicitCaps || []).includes(cap)) { return false; }
   return (me.areas || []).includes(cap.includes(".") ? cap.split(".")[0] : cap);
 }
 
@@ -5288,7 +5367,8 @@ function cnpPalette() {
   if (document.getElementById('palOvl')) { return; }
   const ovl = document.createElement('div');
   ovl.className = 'ovl ovl-keep show'; ovl.id = 'palOvl'; ovl.style.zIndex = 260;
-  ovl.innerHTML = `<div class="pal-box" style="margin:10vh auto 0;max-width:560px" onclick="event.stopPropagation()">
+  /* data-cnp-clean: η αναζήτηση δεν είναι «αλλαγή» — αλλιώς το Esc ρωτούσε για μη αποθηκευμένα */
+  ovl.innerHTML = `<div class="pal-box" data-cnp-clean="1" style="margin:10vh auto 0;max-width:560px" onclick="event.stopPropagation()">
     <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;gap:9px;align-items:center">
       <span style="font-size:15px">⌘</span>
       <input class="inp" id="palQ" autocomplete="off" style="border:none;box-shadow:none;font-size:15px;padding:4px 0"
@@ -5308,16 +5388,16 @@ function cnpPalette() {
     {icon: I.checkSquare, title: 'Νέο task', kw: 'νεο task εργασια new', go: () => C.quickNew && C.quickNew()},
     {icon: I.sos || I.chat, title: 'Ζήτα βοήθεια / ρώτα συνάδελφο', kw: 'ρωτα βοηθεια αιτημα help', go: () => C.quickHelp && C.quickHelp()},
     {icon: I.users, title: 'Νέα σύσκεψη', kw: 'συσκεψη meeting ραντεβου', go: () => newMeeting()},
-    {icon: I.phone, title: 'Καταγραφή κλήσης', kw: 'κληση call τηλεφωνο', go: () => C.quickCall && C.quickCall()},
-    {icon: I.alert, title: 'Παράπονο πελάτη', kw: 'παραπονο complaint', go: () => C.quickCx && C.quickCx()},
-    {icon: I.target, title: 'Νέο lead', kw: 'lead ευκαιρια crm', go: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }},
+    cnpCan('clients.calls') ? {icon: I.phone, title: 'Καταγραφή κλήσης', kw: 'κληση call τηλεφωνο', go: () => C.quickCall && C.quickCall()} : null,
+    cnpCan('support.complaints.edit') ? {icon: I.alert, title: 'Παράπονο πελάτη', kw: 'παραπονο complaint', go: () => C.quickCx && C.quickCx()} : null,
+    cnpCan('clients.crm.edit') ? {icon: I.target, title: 'Νέο lead', kw: 'lead ευκαιρια crm', go: async () => { const d = await api('crm').catch(() => null); openLead(null, d || {stages: [], leads: []}); }} : null,
     {icon: I.stop, title: 'Σταμάτα τον χρόνο', kw: 'στοπ stop χρονος σταματα', go: async () => {
       const r = await api('timer_stop', {billable: false, note: ''}).catch(e => ({err: e.message}));
       if (r && r.err) { toast(r.err, true); return; }
       toast('Καταχωρήθηκε ' + fmtMin(r.mins)); if (window.R[S.view]) { window.R[S.view](); } }},
     {icon: I.list, title: 'Συντομεύσεις πληκτρολογίου', kw: 'συντομευσεις πληκτρολογιο keyboard shortcuts',
       go: () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'], ['e', 'ολοκλήρωσε'], ['r', 'απάντησε']])},
-  ];
+  ].filter(Boolean);
 
   const paint = () => {
     if (!items.length) {

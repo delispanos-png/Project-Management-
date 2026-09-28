@@ -229,7 +229,7 @@ async function openPrepaid(clientId, forceEdit) {
         <div style="flex:1"></div>
         <label class="mut" style="font-size:11.5px;display:flex;align-items:center;gap:4px">
           <input type="checkbox" id="ppAll"> όλα</label>
-        ${cnpCan('prepaid.offer') ? `<button class="btn btn-sm" id="ppMakeOffer">${I.doc} Δημιουργία προσφοράς</button>` : ''}
+        ${cnpCan('prepaid.offer') && cnpCan('clients.offers.create') ? `<button class="btn btn-sm" id="ppMakeOffer">${I.doc} Δημιουργία προσφοράς</button>` : ''}
       </div>
       <table class="tbl"><tbody>
         ${d.uncovered.map(u => `<tr>
@@ -750,7 +750,7 @@ const cxStat = (ic, n, l, col) => `<div class="su-stat"><div class="ic" style="b
 
 /* ───────── Γρήγορη καταχώρηση ───────── */
 function quickCx(pre) {
-  if (!cnpCan('support.complaints')) { toast('Δεν έχεις δικαίωμα καταχώρησης παραπόνου', true); return; }
+  if (!cnpCan('support.complaints.edit')) { toast('Δεν έχεις δικαίωμα καταχώρησης παραπόνου', true); return; }
   closeDrawer();
   const who = {id: 0, name: '', type: null};
   const ovl = document.createElement('div');

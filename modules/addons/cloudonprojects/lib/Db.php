@@ -2233,13 +2233,24 @@ class Db
                    τιμολόγηση), η εργασία ΕΞΑΦΑΝΙΖΟΤΑΝ: ο ανάδοχος δεν την είχε
                    πια ως δική του, ο νέος κάτοχος δεν την έβλεπε καθόλου, και
                    κανείς δεν την κρατούσε. Μετρήθηκαν 16 τέτοιες (22/09/2026). */
-                $q->where(function ($w) use ($vis, $aid) {
-                    if ($vis) {
-                        $w->whereIn('t.project_id', $vis)
-                          ->orWhere('t.assignee', $aid)
-                          ->orWhere('t.action_user', $aid);
-                    } else {
-                        $w->where('t.assignee', $aid)->orWhere('t.action_user', $aid);
+                /* ΙΔΙΟΙ ΚΑΝΟΝΕΣ ΜΕ ΤΟ canSeeTask (28/9/2026): ό,τι μπορείς να ανοίξεις
+                   πρέπει και να το βρίσκεις στη λίστα. Έλειπαν ο επιβλέπων, όποιος
+                   ρωτήθηκε, και οι εργασίες χωρίς έργο του department της ομάδας σου. */
+                $myDepts = Capsule::table('mod_cpm_team_depts as td')
+                    ->join('mod_cpm_team_members as m', 'm.team_id', '=', 'td.team_id')
+                    ->where('m.admin_id', $aid)->pluck('td.dept_id')->all();
+                $q->where(function ($w) use ($vis, $aid, $myDepts) {
+                    $w->where('t.assignee', $aid)
+                      ->orWhere('t.action_user', $aid)
+                      ->orWhere('t.created_by', $aid)
+                      ->orWhereIn('t.id', function ($s) use ($aid) {
+                          $s->select('task_id')->from('mod_cpm_help')->where('to_admin', $aid)->whereNotNull('task_id');
+                      });
+                    if ($vis) { $w->orWhereIn('t.project_id', $vis); }
+                    if ($myDepts) {
+                        $w->orWhere(function ($x) use ($myDepts) {
+                            $x->whereNull('t.project_id')->whereIn('t.dept_id', $myDepts);
+                        });
                     }
                 });
             }
@@ -2497,7 +2508,7 @@ class Db
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['admin_id']))   { $q->where('a.admin_id', (int) $f['admin_id']); }
         self::deptFilter($q, $f);
-        return $q->orderBy('a.id', 'desc')->limit(400)->get();
+        return $q->orderBy('a.id', 'desc')->limit(5000)->get();   // ήταν 400: μια εβδομάδα έχει ~1.800 — κοβόταν σιωπηλά (28/9/2026)
     }
 
     /** Εργασίες που ΟΛΟΚΛΗΡΩΘΗΚΑΝ στην περίοδο — το πιο καθαρό «τι παρέδωσε». */
@@ -2508,7 +2519,7 @@ class Db
             ->select('t.id', 't.title', 't.completed_at', 't.completed_by', 't.completed_note',
                 't.ticketid', 't.ticket_ref', 'p.name as project_name', 'p.color as project_color', 'p.clientid')
             ->whereNotNull('t.completed_at')
-            ->whereBetween('t.completed_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+            ->whereBetween('t.completed_at', [$from . ' 00:00:00', $to . ' 23:59:59'])->whereNotIn('t.status_id', Db::statusIds(['cancel']));
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['admin_id']))   { $q->where('t.completed_by', (int) $f['admin_id']); }
         self::deptFilter($q, $f);
@@ -3523,6 +3534,20 @@ class Db
         if ((int) $task->action_user === (int) $adminId) {
             return true;
         }
+        /* Ο ΕΠΙΒΛΕΠΩΝ (δημιουργός) βλέπει πάντα ό,τι επιβλέπει — ακόμη κι αν δεν είναι
+           μέλος του έργου και η μπάλα έχει φύγει. Το cnp_task_write_ok τον δεχόταν ήδη·
+           η ορατότητα όχι, οπότε μπορούσε να «γράφει» σε εργασία που δεν έβλεπε. */
+        if (!empty($task->created_by) && (int) $task->created_by === (int) $adminId) {
+            return true;
+        }
+        /* ΟΠΟΙΟΣ ΡΩΤΗΘΗΚΕ ΒΛΕΠΕΙ (28/9/2026). Ένα @Όνομα, ένα αίτημα προσφοράς ή ένα
+           «ρώτα τον Χ» πάνω σε εργασία σημαίνει «χρειάζομαι εσένα εδώ» — ίδια αρχή με
+           «η μπάλα δίνει ορατότητα». Πριν, ο Κωνσταντακόπουλος ρωτήθηκε στην #246, δεν
+           μπορούσε να την ανοίξει, και η απάντησή του δεν γραφόταν μέσα της. */
+        if (!empty($task->id) && Capsule::table('mod_cpm_help')->where('task_id', (int) $task->id)
+                ->where('to_admin', (int) $adminId)->exists()) {
+            return true;
+        }
         /* Εργασία χωρίς έργο ανήκει μόνο σε department: τη βλέπει όποιος είναι
            σε ομάδα που εξυπηρετεί αυτό το department (και οι full). Χωρίς αυτό
            οι εργασίες από tickets θα ήταν αόρατες σε όλους πλην αναδόχου. */
@@ -3847,14 +3872,16 @@ class Db
         $tasks = Capsule::table('mod_cpm_tasks as t')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->where('p.clientid', $uid)
-            ->select('t.id', 't.title', 't.created_at', 't.completed_at', 'p.name as pname')->get();
+            ->select('t.id', 't.title', 't.created_at', 't.completed_at', 't.status_id', 'p.name as pname')->get();
+        $cancelIds = self::statusIds(['cancel']);
         foreach ($tasks as $t) {
             if ($t->created_at >= $since) {
                 $ev[] = ['ts' => $t->created_at, 'type' => 'task', 'title' => 'Νέο task: ' . $t->title,
                          'meta' => $t->pname ?: 'Χωρίς έργο', 'link' => 'task:' . $t->id];
             }
             if ($t->completed_at && $t->completed_at >= $since) {
-                $ev[] = ['ts' => $t->completed_at, 'type' => 'task_done', 'title' => 'Ολοκληρώθηκε: ' . $t->title,
+                $ev[] = ['ts' => $t->completed_at, 'type' => 'task_done',
+                         'title' => (in_array((int) $t->status_id, $cancelIds, true) ? 'Ακυρώθηκε: ' : 'Ολοκληρώθηκε: ') . $t->title,
                          'meta' => $t->pname ?: 'Χωρίς έργο', 'link' => 'task:' . $t->id];
             }
         }
@@ -3985,7 +4012,7 @@ class Db
     public static function admins()
     {
         return Capsule::table('tbladmins')->where('disabled', 0)
-            ->orderBy('firstname')->get(['id', 'firstname', 'lastname']);
+            ->orderBy('firstname')->get(['id', 'firstname', 'lastname', 'username']);   // username: το cnp_is_bot το χρειάζεται
     }
 
     public static function adminName($id)
