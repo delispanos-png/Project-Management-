@@ -4930,3 +4930,11 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   #helpBtn,#sideTgl{display:none}
   .top-acts{gap:6px;flex:0 0 auto}
 }
+
+/* Συνεργάτες εργασίας (29/9/2026) */
+.tk-collabs{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
+.tk-collab{display:inline-flex;align-items:center;gap:3px;padding:1px 8px;border-radius:999px;background:var(--bg2,rgba(127,127,127,.12));font-weight:600;color:var(--ink)}
+.tk-collab button{border:0;background:none;cursor:pointer;color:var(--mut);font-size:14px;line-height:1;padding:0 0 0 2px}
+.tk-collab button:hover{color:var(--bad)}
+.tk-collab-add{border:1px dashed var(--line);background:none;border-radius:999px;padding:1px 8px;cursor:pointer;color:var(--acc,var(--ink));font-size:inherit}
+.tk-collab-add:hover{border-style:solid}
