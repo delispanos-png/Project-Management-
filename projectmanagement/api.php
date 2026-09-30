@@ -4376,6 +4376,16 @@ function cnp_task_write_ok($adminId, $isFull, $t)
 }
 
 /**
+ * Ποιος μετρά χρόνο σε μια εργασία: όποιος γράφει σε αυτήν ΚΑΙ οι συνεργάτες της.
+ * Ο συνεργάτης δεν αλλάζει πεδία ούτε κρατά τη μπάλα — δουλεύει μαζί και ο χρόνος
+ * του γράφεται στο δικό του όνομα (29/9/2026).
+ */
+function cnp_task_timer_ok($adminId, $isFull, $t)
+{
+    return cnp_task_write_ok($adminId, $isFull, $t) || ($t && Db::isCollab((int) $t->id, $adminId));
+}
+
+/**
  * Ενέργεια API → δυνατότητα. Με «α|β» όταν μια ενέργεια πατάει δικαιολογημένα
  * σε δύο δυνατότητες (φτάνει η μία). Ό,τι δεν είναι εδώ μένει ελεύθερο —
  * κανόνας: δεν μπαίνει ποτέ ενέργεια που καλείται από προσωπική οθόνη.
@@ -4649,6 +4659,8 @@ function cnp_open_actions()
         'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
         'quick_task',   // προσωπική εργασία για όλους· έργο/ανάθεση ελέγχονται μέσα στην ενέργεια
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
+        /* task_collab: κριτής το cnp_task_write_ok μέσα στην ενέργεια (όπως task_handoff). */
+        'task_collab',
         /* Οι ΔΙΚΕΣ ΣΟΥ κλήσεις και ο χαρακτηρισμός τους — προσωπική οθόνη.
            Ο server περιορίζει σε admin_id = εσύ. */
         'calls_pending', 'calls_label',
@@ -5365,6 +5377,15 @@ case 'task':
         'timerHere' => $running && (int) $running->task_id === (int) $t->id
             ? ['id' => (int) $running->id, 'since' => $running->started_at] : null,
         'timerElsewhere' => $running && (int) $running->task_id !== (int) $t->id ? (int) $running->task_id : null,
+        /* Συνεργάτες + ποιος ΑΛΛΟΣ μετρά χρόνο εδώ αυτή τη στιγμή. */
+        'collabs' => array_map(function ($cid) { return ['id' => $cid, 'name' => Db::adminName($cid)]; },
+            Db::collabIds($t->id)),
+        'canCollab' => cnp_task_write_ok($adminId, $FULL, $t),
+        'canTimer' => cnp_task_timer_ok($adminId, $FULL, $t),
+        'othersRunning' => array_map(function ($r) {
+            return ['id' => (int) $r->admin_id, 'name' => Db::adminName((int) $r->admin_id), 'since' => $r->started_at];
+        }, Capsule::table('mod_cpm_timelogs')->where('task_id', (int) $t->id)->where('running', 1)
+            ->where('admin_id', '!=', $adminId)->orderBy('started_at')->get(['admin_id', 'started_at'])->all()),
         /* 📄 Η δεμένη προσφορά (αν υπάρχει) και το τελευταίο αίτημα «φτιάξε προσφορά». */
         'offer' => (function () use ($t) {
             if (empty($t->offer_id)) { return null; }
@@ -7297,6 +7318,20 @@ case 'move_task':
             $lg9 = Db::timelog($run9->id);
             $stopped9 = ['id' => (int) $run9->id, 'mins' => $lg9 ? (int) $lg9->minutes : 0];
         }
+        /* Η εργασία ΚΛΕΙΣΕ (ολοκληρώθηκε/ακυρώθηκε): σταματά και ο χρόνος των
+           συνεργατών — αλλιώς θα έτρεχε σε κλειστή εργασία ώσπου να το προσέξουν. */
+        if (in_array((int) ($in['status'] ?? 0), Db::closedStatusIds(), true)) {
+            foreach (Capsule::table('mod_cpm_timelogs')->where('task_id', (int) $t->id)->where('running', 1)
+                ->where('admin_id', '!=', $adminId)->get(['id', 'admin_id']) as $rc) {
+                if (Db::stopTimer((int) $rc->id)) {
+                    Db::updateTimelog((int) $rc->id, ['note' => 'έκλεισε με το κλείσιμο της εργασίας']);
+                    Time::push((int) $rc->id);
+                    Db::pushNotification((int) $rc->admin_id, 'info',
+                        'Η εργασία έκλεισε — ο χρόνος σου σταμάτησε: ' . mb_substr((string) $t->title, 0, 80),
+                        '/project/#/task/' . (int) $t->id);
+                }
+            }
+        }
     }
     if ($ok && !$FULL) {
         $st = Db::status((int) $in['status']);
@@ -9109,8 +9144,8 @@ case 'timer_start':
     if (!$t || !Db::canSeeTask($adminId, $t)) {
         fail('task', 403);
     }
-    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
-        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    if (!cnp_task_timer_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται να είναι δική σου εργασία ή να σε προσθέσουν ως συνεργάτη', 403);
     }
     cnp_task_lock_guard($t);
     $r = Db::startTimer($tid, $adminId);
@@ -9179,7 +9214,7 @@ case 'time_add':
         out(['error' => 'Καταχωρείς ' . round($mins / 60, 1) . ' ώρες σε μία καταχώρηση. Είναι σωστό;', 'need' => 'confirm', 'mins' => $mins]);
     }
     if ($mins > 24 * 60 * 7) { fail('Πάνω από μία εβδομάδα σε μία καταχώρηση δεν γίνεται — σπάσε τον χρόνο σε ημέρες'); }
-    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+    if (!cnp_task_timer_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
@@ -9341,6 +9376,52 @@ case 'check_toggle':
     cnp_task_lock_guard(Db::task((int) $ci->task_id));
     $it = Db::toggleCheckItem((int) ($in['id'] ?? 0));
     out(['ok' => (bool) $it]);
+
+/* ---- Συνεργάτες εργασίας: δουλεύουν μαζί, ο καθένας με το δικό του χρονόμετρο ----
+   Προσθέτει/αφαιρεί όποιος γράφει στην εργασία. Ο ίδιος ο συνεργάτης μπορεί
+   μόνο να αποχωρήσει. Η μπάλα ΔΕΝ αλλάζει: μένει σε έναν (κανόνας μπάλας). */
+case 'task_collab':
+    $tid = (int) ($in['task'] ?? 0);
+    $who = (int) ($in['admin'] ?? 0);
+    $on = !empty($in['on']);
+    $ct = Db::task($tid);
+    if (!$ct || !$who || !Db::canSeeTask($adminId, $ct)) {
+        fail('task', 403);
+    }
+    $selfLeave = !$on && $who === $adminId;
+    if (!$selfLeave && !cnp_task_write_ok($adminId, $FULL, $ct)) {
+        fail('Συνεργάτες προσθέτει όποιος έχει την εργασία ή δικαίωμα «Board: επεξεργασία»', 403);
+    }
+    if ($on) {
+        cnp_task_lock_guard($ct);
+        $wa = Capsule::table('tbladmins')->where('id', $who)->where('disabled', 0)->first(['id']);
+        if (!$wa) { fail('Ο χρήστης δεν υπάρχει ή είναι ανενεργός'); }
+        $holderC = (int) ($ct->action_user ?: $ct->assignee);
+        if ($who === $holderC) { fail('Την εργασία την έχει ήδη — δεν χρειάζεται να γίνει συνεργάτης'); }
+        if (!Db::isCollab($tid, $who)) {
+            Capsule::table('mod_cpm_task_collabs')->insert(['task_id' => $tid, 'admin_id' => $who,
+                'added_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+            Db::logActivity($tid, $adminId, 'collab', 'Συνεργάτης: ' . Db::adminName($who));
+            if ($who !== $adminId) {
+                Db::pushNotification($who, 'action',
+                    Db::adminName($adminId) . ' σε πρόσθεσε συνεργάτη: ' . mb_substr((string) $ct->title, 0, 80),
+                    '/project/#/task/' . $tid);
+            }
+        }
+    } else {
+        /* Όποιος φεύγει, σταματά ο χρόνος του σε αυτή την εργασία — αλλιώς έτρεχε
+           σε εργασία που δεν τον αφορά πια. */
+        $runC = Db::runningTimer($who);
+        if ($runC && (int) $runC->task_id === $tid && !cnp_task_write_ok($who, Db::isFullAccess($who), $ct)) {
+            if (Db::stopTimer($runC->id)) {
+                Db::updateTimelog($runC->id, ['note' => 'έκλεισε με την αποχώρηση από συνεργάτης']);
+                Time::push($runC->id);
+            }
+        }
+        Capsule::table('mod_cpm_task_collabs')->where('task_id', $tid)->where('admin_id', $who)->delete();
+        Db::logActivity($tid, $adminId, 'collab', 'Αφαιρέθηκε συνεργάτης: ' . Db::adminName($who));
+    }
+    out(['ok' => true, 'collabs' => Db::collabIds($tid)]);
 
 case 'watch':
     $tid = (int) ($in['task'] ?? 0);
@@ -12847,7 +12928,7 @@ case 'task_delete':
     if ($ckIdsD && Capsule::schema()->hasTable('mod_cpm_check_react')) { Capsule::table('mod_cpm_check_react')->whereIn('check_id', $ckIdsD)->delete(); }
     foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
                  'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
-                 'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers'] as $tb) {
+                 'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers', 'mod_cpm_task_collabs'] as $tb) {
         if (Capsule::schema()->hasTable($tb)) { Capsule::table($tb)->where('task_id', $tid)->delete(); }
     }
     /* Εξαρτήσεις προς ΚΑΙ από την εργασία — αλλιώς άλλες εργασίες μένουν
@@ -12897,7 +12978,7 @@ case 'project_delete':
         fail('Το έργο έχει ' . count($tIds) . ' εργασίες', 409);
     }
     foreach (['mod_cpm_activity', 'mod_cpm_comments', 'mod_cpm_checklist', 'mod_cpm_timelogs',
-                 'mod_cpm_watchers', 'mod_cpm_deps', 'mod_cpm_task_deps', 'mod_cpm_ticket_idle'] as $tb) {
+                 'mod_cpm_watchers', 'mod_cpm_task_collabs', 'mod_cpm_deps', 'mod_cpm_task_deps', 'mod_cpm_ticket_idle'] as $tb) {
         if ($tIds && Capsule::schema()->hasTable($tb)) {
             $col = Capsule::schema()->hasColumn($tb, 'task_id') ? 'task_id'
                 : (Capsule::schema()->hasColumn($tb, 'tid') ? 'tid' : null);
@@ -14658,6 +14739,7 @@ case 'user_del':
     Capsule::table('mod_cpm_project_members')->where('admin_id', $uid)->delete();
     Capsule::table('mod_cpm_team_members')->where('admin_id', $uid)->delete();
     Capsule::table('mod_cpm_watchers')->where('admin_id', $uid)->delete();
+    if (Capsule::schema()->hasTable('mod_cpm_task_collabs')) { Capsule::table('mod_cpm_task_collabs')->where('admin_id', $uid)->delete(); }
     Capsule::table('mod_cpm_notifications')->where('admin_id', $uid)->delete();
     out(['ok' => true]);
 
@@ -14764,7 +14846,7 @@ case 'ticket_delete':
         }
         foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
                      'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
-                     'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers'] as $tb9) {
+                     'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers', 'mod_cpm_task_collabs'] as $tb9) {
             if (Capsule::schema()->hasTable($tb9)) { Capsule::table($tb9)->where('task_id', $tsk->id)->delete(); }
         }
         Capsule::table('mod_cpm_deps')->where('depends_on', $tsk->id)->delete();

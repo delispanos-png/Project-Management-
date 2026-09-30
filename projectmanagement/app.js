@@ -2813,6 +2813,9 @@ async function openTask(id, entryId, opts) {
         ${supId ? `<span class="tk-sup" title="Άνοιξε την εργασία και έχει την ευθύνη να την παρακολουθεί — ορίζεται αυτόματα από τον χρήστη">${I.eye} Επιβλέπων: <b>${esc(adminName(supId))}</b></span>` : ''}
         ${t.createdAt ? `<span class="tk-sup" title="Πότε άνοιξε η εργασία">${I.cal} Άνοιξε: <b>${dShort(t.createdAt)}</b></span>` : ''}
         ${t.ball ? `<span class="tk-sup tk-ball${t.ball === me.id ? ' me' : ''}" title="Η εργασία περιμένει ενέργεια από αυτόν — όσο την κρατά, της εμφανίζεται στη «Μέρα μου» του">${I.zap} Μπάλα: <b>${t.ball === me.id ? 'εσύ' : esc(adminName(t.ball))}</b></span>` : ''}
+        ${((d.collabs || []).length || (d.canCollab && !t.done)) ? `<span class="tk-sup tk-collabs" title="Δουλεύουν μαζί στην εργασία, ο καθένας με το δικό του χρονόμετρο — η μπάλα μένει σε έναν">${I.users} Συνεργάτες:
+          ${(d.collabs || []).map(c => `<span class="tk-collab">${esc(c.id === me.id ? 'εσύ' : c.name)}${(d.canCollab || c.id === me.id) && !t.done ? `<button type="button" data-collab-del="${c.id}" title="${c.id === me.id ? 'Αποχώρηση' : 'Αφαίρεση'}" aria-label="Αφαίρεση συνεργάτη">×</button>` : ''}</span>`).join('') || '<span class="mut">κανένας</span>'}
+          ${d.canCollab && !t.done ? `<button type="button" class="tk-collab-add" id="dCollabAdd" title="Πρόσθεσε συνάδελφο που δουλεύει μαζί σου σε αυτή την εργασία">+ Πρόσθεσε</button>` : ''}</span>` : ''}
         ${(d.path && d.path.length) ? `<span class="tk-crumb" title="Διαδρομή φακέλων">${
           d.path.map(p => `<a href="#/board/${p.id}" data-navclose>${esc(p.name)}</a>`).join('<span class="tk-crumb-sep">›</span>')
         }</span>` : ''}
@@ -2822,8 +2825,10 @@ async function openTask(id, entryId, opts) {
       <span class="tk-hdr-i" title="Καταγεγραμμένος χρόνος${t.est ? ' / εκτίμηση' : ''}">⏱ <b>${fmtMin(d.total)}</b>${t.est ? `<small>/ ~${fmtMin(t.est)}</small>` : ''}</span>
       ${billMins ? `<span class="tk-hdr-i ${t.billOk ? 'ok' : 'warn'}" title="${t.billOk ? 'Εγκρίθηκε από το λογιστήριο' : 'Χρεώσιμος χρόνος — χρειάζεται έγκριση λογιστηρίου πριν κλείσει'}">💶 <b>${fmtMin(billMins)}</b> ${t.billOk ? '✔' : '⏳'}</span>` : ''}
       ${d.timerHere ? `<span class="tk-hdr-i live">▶ <span class="timer-live" id="tLive" style="font-size:12.5px"></span></span><button class="btn btn-sm btn-danger" id="tStop">${I.stop} Stop</button>`
+        : d.canTimer === false ? ''
         : d.timerElsewhere ? `<span class="tk-hdr-i warn" title="Τρέχει χρονόμετρο σε άλλη εργασία">τρέχει αλλού</span><button class="btn btn-sm btn-ok" id="tStart">${I.play} Εδώ</button>`
         : `<button class="btn btn-sm btn-ok" id="tStart" title="Ξεκίνα χρονόμετρο σε αυτή την εργασία">${I.play} Start</button>`}
+      ${(d.othersRunning || []).map(o => `<span class="tk-hdr-i live" title="Μετρά χρόνο σε αυτή την εργασία από ${esc(String(o.since || '').slice(11, 16))}">▶ ${esc(o.name)} <small>από ${esc(String(o.since || '').slice(11, 16))}</small></span>`).join('')}
     </span>
     <button class="btn btn-sm ${d.watching ? 'btn-p' : 'btn-o'}" id="dWatch"
       title="${d.watching ? 'Την παρακολουθείς — ειδοποιήσεις σε κάθε αλλαγή. Κλικ για διακοπή.' : 'Παρακολούθηση: ειδοποίηση σε κάθε αλλαγή αυτής της εργασίας.'}"
@@ -3329,12 +3334,15 @@ async function openTask(id, entryId, opts) {
      ο server δεν προσφέρεται καν (12/9/2026). Κρύβουμε αντί να αφαιρούμε, ώστε
      οι handlers από κάτω να δένουν χωρίς σφάλμα. */
   const canWork = !!(me.full || cnpCan('projects.board.edit') || [t.assignee, t.creator, t.ball].includes(me.id));
+  /* Ο ΣΥΝΕΡΓΑΤΗΣ δεν αλλάζει την εργασία, αλλά μετρά τον δικό του χρόνο: κρατά
+     Start/Stop και τη χειροκίνητη καταχώρηση (29/9/2026). */
+  const canTime = canWork || !!d.canTimer;
   if (!canWork) {
-    ['#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#tStart', '#tStop', '#depAdd', '#dBillOk']
+    ['#dDone', '#dAsk', '#dAskDelay', '#dTitleEdit', '#depAdd', '#dBillOk'].concat(canTime ? [] : ['#tStart', '#tStop'])
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
     /* Σε καρτέλα μόνο-προβολής η ένδειξη «αποθηκεύεται μόνο του» θα ήταν ψέμα. */
     { const au = $('.tk-auto', dr); if (au) { au.style.display = 'none'; } }
-    $$('.tk-time-row, .tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
+    $$((canTime ? '' : '.tk-time-row, ') + '.tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
     /* Το πεδίο των ενεργειών κρύβεται — αλλά χωρίς εξήγηση μοιάζει με βλάβη. */
     const sl = $('#dCheck', dr);
     if (sl) {
@@ -3692,6 +3700,45 @@ async function openTask(id, entryId, opts) {
      έγινε, λέω τι χρειάζεται από τον επόμενο — και η εργασία φεύγει από τη
      μέρα μου και μπαίνει στη δική του. Χωρίς το «τι έγινε ως εδώ», ο επόμενος
      ξεκινά από το μηδέν και η παράδοση γίνεται μετακύλιση. */
+  /* ── Συνεργάτες: δουλεύουν μαζί, ο καθένας με το δικό του χρονόμετρο ── */
+  const cAdd = $('#dCollabAdd', dr); if (cAdd) cAdd.onclick = () => {
+    const skip = [me.id, t.ball || t.assignee].concat((d.collabs || []).map(c => c.id));
+    const cands = S.boot.admins.filter(a => !skip.includes(a.id) && !a.disabled);
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+    ovl.innerHTML = `<div class="pal-box" style="margin:12vh auto 0;max-width:460px" role="dialog" aria-label="Πρόσθεσε συνεργάτη">
+      <div style="padding:20px 22px 18px">
+        <b style="font-size:15.5px;color:var(--ink)">${I.users} Πρόσθεσε συνεργάτη</b>
+        <div class="mut" style="font-size:12px;margin-top:5px">Βλέπει την εργασία και μετρά τον δικό του χρόνο σε αυτήν. Η μπάλα δεν αλλάζει.</div>
+        <select class="inp" id="coTo" style="margin-top:14px"><option value="">— διάλεξε συνάδελφο —</option>
+          ${cands.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+        <div id="coErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:8px" hidden></div>
+        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+          <button class="btn btn-o" id="coNo">Άκυρο</button>
+          <button class="btn btn-p" id="coGo">Προσθήκη</button>
+        </div>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    setTimeout(() => $('#coTo', ovl).focus(), 40);
+    $('#coNo', ovl).onclick = () => ovl.remove();
+    $('#coGo', ovl).onclick = async () => {
+      const who = +$('#coTo', ovl).value || 0;
+      const err = $('#coErr', ovl);
+      if (!who) { err.hidden = false; err.textContent = 'Διάλεξε συνάδελφο.'; return; }
+      const r = await api('task_collab', {task: id, admin: who, on: 1}).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
+      if (r && r.err) { err.hidden = false; err.textContent = r.err; return; }
+      ovl.remove(); toast('Προστέθηκε συνεργάτης'); openTask(id);
+    };
+  };
+  $$('[data-collab-del]', dr).forEach(b => b.onclick = async () => {
+    const who = +b.dataset.collabDel;
+    if (!(await cnpConfirm(who === me.id ? 'Αποχωρείς από συνεργάτης αυτής της εργασίας;' : 'Αφαίρεση του συνεργάτη;',
+      {ok: 'Ναι', cancel: 'Όχι'}))) { return; }
+    const r = await api('task_collab', {task: id, admin: who, on: 0}).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast(who === me.id ? 'Αποχώρησες' : 'Αφαιρέθηκε'); openTask(id);
+  });
+
   const hnd = $('#dHand', dr); if (hnd) hnd.onclick = () => {
     const others = S.boot.admins.filter(a => a.id !== me.id);
     const ovl = document.createElement('div');
@@ -4203,7 +4250,7 @@ async function openTask(id, entryId, opts) {
     /* Η διαγραφή δεν χρειάζεται χρονόμετρο: όποιος έχει το δικαίωμα, σβήνει και από εδώ. */
     /* Η αλλαγή έργου είναι ΔΙΟΡΘΩΣΗ αρχειοθέτησης, όχι δουλειά πάνω στην εργασία:
        δεν έχει νόημα να ζητάει χρονόμετρο, όπως και η διαγραφή. */
-    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel,#dPjMove');
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel,#dPjMove,#dCollabAdd,[data-collab-del]');
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
     banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>

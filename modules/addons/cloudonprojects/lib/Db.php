@@ -557,6 +557,20 @@ class Db
             });
         }
 
+        /* Συνεργάτες εργασίας (29/9/2026): δουλεύουν ΜΑΖΙ με τον κάτοχο της μπάλας,
+           με δικό τους χρονόμετρο. Η μπάλα μένει σε έναν· ο συνεργάτης βλέπει την
+           εργασία και γράφει τον χρόνο του, που μετρά στο δικό του admin_id. */
+        if (!$s->hasTable('mod_cpm_task_collabs')) {
+            $s->create('mod_cpm_task_collabs', function ($t) {
+                $t->increments('id');
+                $t->integer('task_id')->unsigned()->index();
+                $t->integer('admin_id')->unsigned()->index();
+                $t->integer('added_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->unique(['task_id', 'admin_id']);
+            });
+        }
+
         if (!$s->hasTable('mod_cpm_reminders')) {
             $s->create('mod_cpm_reminders', function ($t) {
                 $t->increments('id');
@@ -2246,6 +2260,11 @@ class Db
                       ->orWhereIn('t.id', function ($s) use ($aid) {
                           $s->select('task_id')->from('mod_cpm_help')->where('to_admin', $aid)->whereNotNull('task_id');
                       });
+                    if (Capsule::schema()->hasTable('mod_cpm_task_collabs')) {
+                        $w->orWhereIn('t.id', function ($s) use ($aid) {
+                            $s->select('task_id')->from('mod_cpm_task_collabs')->where('admin_id', $aid);
+                        });
+                    }
                     if ($vis) { $w->orWhereIn('t.project_id', $vis); }
                     if ($myDepts) {
                         $w->orWhere(function ($x) use ($myDepts) {
@@ -3030,6 +3049,21 @@ class Db
     /* Watchers / Υπενθυμίσεις / Έξοδα / Snapshots                        */
     /* ------------------------------------------------------------------ */
 
+    /** Οι συνεργάτες μιας εργασίας (admin ids). */
+    public static function collabIds($taskId)
+    {
+        if (!Capsule::schema()->hasTable('mod_cpm_task_collabs')) {
+            return [];
+        }
+        return array_map('intval', Capsule::table('mod_cpm_task_collabs')
+            ->where('task_id', (int) $taskId)->orderBy('id')->pluck('admin_id')->all());
+    }
+
+    public static function isCollab($taskId, $adminId)
+    {
+        return in_array((int) $adminId, self::collabIds($taskId), true);
+    }
+
     public static function watcherIds($taskId)
     {
         return array_map('intval', Capsule::table('mod_cpm_watchers')
@@ -3546,6 +3580,10 @@ class Db
            μπορούσε να την ανοίξει, και η απάντησή του δεν γραφόταν μέσα της. */
         if (!empty($task->id) && Capsule::table('mod_cpm_help')->where('task_id', (int) $task->id)
                 ->where('to_admin', (int) $adminId)->exists()) {
+            return true;
+        }
+        /* Ο ΣΥΝΕΡΓΑΤΗΣ βλέπει την εργασία στην οποία δουλεύει μαζί με τον κάτοχο. */
+        if (!empty($task->id) && self::isCollab((int) $task->id, $adminId)) {
             return true;
         }
         /* Εργασία χωρίς έργο ανήκει μόνο σε department: τη βλέπει όποιος είναι
