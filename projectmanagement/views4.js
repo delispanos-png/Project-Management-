@@ -615,6 +615,9 @@ const LF_F = {
   mine: {label: 'Δικά μου', bool: 1},        // ανάθεση ή μπάλα — cnpIsMine
   proj: {label: 'Έργο', opts: d => [['', '— κάθε —']]
            .concat((d.projects || []).map(n => [n, n]))},
+  /* Πελάτης: από το έργο ή από το ticket που γέννησε την εργασία. */
+  client: {label: 'Πελάτης', opts: d => [['', '— κάθε —']]
+           .concat((d.clients || []).map(n => [n, n]))},
   created: {label: 'Δημιουργήθηκε', dateRange: 1},
   done: {label: 'Ολοκληρώθηκε', dateRange: 1},   // ενεργοποιεί κι αυτόματα «όλα» — βλ. load()
 };
@@ -1029,10 +1032,11 @@ R.list = async function () {
   const f = R.list._f = R.list._f || {open: 1, group: 'project', proj: '', q: '', fs: '', fa: '',
     mine: 1, closed: {}, shown: ['open', 'mine']};
   if (!f.shown) { f.shown = ['open']; }
+  if (f.client === undefined) { f.client = ''; }
   Object.keys(LF_F).forEach(k => { if (f[k] && !f.shown.includes(k)) { f.shown.push(k); } });
   const views = JSON.parse(localStorage.cnpViews || '[]');
   let D = {tasks: []};
-  const GROUPS = {project: 'Ανά project', status: 'Ανά στήλη', assignee: 'Ανά χειριστή', prio: 'Ανά προτεραιότητα', '': 'Χωρίς ομαδοποίηση'};
+  const GROUPS = {project: 'Ανά project', client: 'Ανά πελάτη', status: 'Ανά στήλη', assignee: 'Ανά χειριστή', prio: 'Ανά προτεραιότητα', '': 'Χωρίς ομαδοποίηση'};
   const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
   const prioName = p => ['Κανονική', 'Υψηλή', 'Κρίσιμη'][p] || 'Κανονική';
 
@@ -1094,7 +1098,7 @@ R.list = async function () {
     const q = f.q.trim();
     const hash = /^#\s*(\d+)$/.exec(q);
     if (hash) { return String(t.id) === hash[1]; }
-    const text = norm([t.title, t.pname, statusOf(t.status).title,
+    const text = norm([t.title, t.pname, t.clientName || '', statusOf(t.status).title,
       cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '',
       prioName(t.prio)].join(' ')).includes(norm(q));
     return /^\d+$/.test(q) ? (String(t.id) === q || text) : text;
@@ -1107,6 +1111,7 @@ R.list = async function () {
     paintBar();
     let list = D.tasks.filter(match);
     if (f.proj !== '') { list = list.filter(t => (t.pname || 'Χωρίς έργο') === f.proj); }
+    if (f.client) { list = list.filter(t => (t.clientName || 'Χωρίς πελάτη') === f.client); }
     /* Ο κανόνας της μπάλας, όχι σκέτος ανάδοχος: όταν η εργασία περιμένει άλλον,
        δεν είναι δική μου — είναι δική ΤΟΥ. Δες cnpIsMine στο app.js. */
     if (f.mine) list = list.filter(t => cnpIsMine(t));
@@ -1133,12 +1138,17 @@ R.list = async function () {
     }
     const keyOf = t => f.group === 'status' ? statusOf(t.status).title
       : f.group === 'assignee' ? (cnpHolder(t) ? adminName(cnpHolder(t)) : 'Χωρίς χειριστή')
-        : f.group === 'project' ? t.pname : prioName(t.prio);
+        : f.group === 'project' ? t.pname : f.group === 'client' ? (t.clientName || 'Χωρίς πελάτη') : prioName(t.prio);
     const colOf = t => f.group === 'status' ? statusOf(t.status).color
       : f.group === 'project' ? t.pcolor : f.group === 'prio' ? prioDot(t.prio) : '#8595ac';
     const groups = {};
     list.forEach(t => { const k = keyOf(t); (groups[k] = groups[k] || {col: colOf(t), rows: []}).rows.push(t); });
-    el.innerHTML = Object.entries(groups).map(([g, o]) => `
+    /* Ανά πελάτη: αλφαβητικά, και το «Χωρίς πελάτη» στο τέλος — αλλιώς η σειρά ήταν τυχαία. */
+    const gEntries = Object.entries(groups);
+    if (f.group === 'client') {
+      gEntries.sort(([a], [b]) => (a === 'Χωρίς πελάτη') - (b === 'Χωρίς πελάτη') || a.localeCompare(b, 'el'));
+    }
+    el.innerHTML = gEntries.map(([g, o]) => `
       <div class="card kb-group">
         <div class="card-h kb-ghead" data-lgrp="${esc(g)}">
           <span class="kb-gbar" style="background:${o.col}"></span>${esc(g)}
@@ -1158,11 +1168,13 @@ R.list = async function () {
     const box = $('#lfMore'); if (!box) { return; }
     const projs = [...new Set(D.tasks.map(t => t.pname || 'Χωρίς έργο'))]
       .sort((a, b) => a.localeCompare(b, 'el'));
-    const key = [f.shown.join('~'), projs.join('~'), f.open, f.mine, f.proj,
+    const clients = [...new Set(D.tasks.map(t => t.clientName || 'Χωρίς πελάτη'))]
+      .sort((a, b) => a.localeCompare(b, 'el'));
+    const key = [f.shown.join('~'), projs.join('~'), clients.join('~'), f.client, f.open, f.mine, f.proj,
       f.created_from, f.created_to, f.done_from, f.done_to].join('|');
     if (key === barKey) { return; }
     barKey = key;
-    box.innerHTML = f.shown.map(k => fOne(k, LF_F[k], f, {projects: projs})).join('')
+    box.innerHTML = f.shown.map(k => fOne(k, LF_F[k], f, {projects: projs, clients})).join('')
       + fAdd(LF_F, f.shown);
     fWire(f, LF_F, () => load());
   };

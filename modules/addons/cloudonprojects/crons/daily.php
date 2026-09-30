@@ -42,47 +42,12 @@ $log = function ($m) {
 $log(($dry ? '(DRY) ' : '') . 'CPM daily cron — ' . $today);
 
 /* ---- 1. Recurring tasks ---- */
-$due = Db::dueRecurring($today);
-$log('Recurring προς εκτέλεση: ' . count($due));
-foreach ($due as $r) {
-    // guard: αν το project αρχειοθετήθηκε, παράλειψη (χωρίς advance ώστε να φανεί αν επανέλθει)
-    $p = Db::project($r->project_id);
-    if (!$p || $p->status !== 'active') {
-        $log("  skip #{$r->id} «{$r->title}» — project ανενεργό");
-        continue;
-    }
-    $dueDate = $r->due_days > 0 ? date('Y-m-d', strtotime($today . ' +' . (int) $r->due_days . ' days')) : null;
-    $next = Db::nextRun($r->next_run, $r->freq, $r->every);
-    // αν το next_run έχει μείνει πολύ πίσω (π.χ. cron down), προχώρα μέχρι το μέλλον χωρίς να σωρεύσεις tasks
-    while ($next <= $today) {
-        $next = Db::nextRun($next, $r->freq, $r->every);
-    }
-    if ($dry) {
-        $log("  (dry) θα δημιουργούσε «{$r->title}» στο {$p->name}, due=" . ($dueDate ?: '—') . ", next={$next}");
-        continue;
-    }
-    $taskId = Db::saveTask(0, [
-        'project_id' => (int) $r->project_id,
-        'title'      => $r->title,
-        'descr'      => (string) $r->descr,
-        'status_id'  => Db::firstStatusId(),
-        'priority'   => (int) $r->priority,
-        'assignee'   => $r->assignee ? (int) $r->assignee : null,
-        'due_date'   => $dueDate,
-    ], null);
-    Db::logActivity($taskId, null, 'auto', 'Δημιουργήθηκε από επαναλαμβανόμενο πρόγραμμα #' . $r->id);
-    Db::saveRecurring($r->id, ['next_run' => $next, 'last_run' => $today]);
-    Notify::recurringCreated($taskId, $r->assignee);
-    $log("  ✓ task #$taskId «{$r->title}» ({$p->name}), next: {$next}");
-    if (function_exists('logActivity')) {
-        logActivity('CPM: recurring #' . $r->id . ' δημιούργησε task #' . $taskId . ' («' . $r->title . '»)');
-    }
-}
-
-/* ---- 1b. Snapshot προόδου projects (τάση στο portfolio) ---- */
-if (!$dry) {
-    $log('Snapshots: ' . Db::snapshotAll() . ' projects');
-}
+/* Ο μηχανισμός ζει στο lib/Recurring.php (30/9/2026): εργάσιμες, άτομα/ομάδα με
+   ανάληψη, άδειες, «μόνο η σημερινή μετράει». Το ίδιο τρέχει και από το API όταν
+   αποθηκεύεται κανόνας που οφείλει σήμερα. */
+require_once __DIR__ . '/../lib/Recurring.php';
+$log('Recurring: ' . Capsule::table('mod_cpm_recurring')->where('active', 1)->where('next_run', '<=', $today)->count() . ' προς εκτέλεση');
+\WHMCS\Module\Addon\CloudonProjects\Recurring::run($today, null, $log, $dry);
 
 /* ---- 2. Daily digest ---- */
 if ($dry) {

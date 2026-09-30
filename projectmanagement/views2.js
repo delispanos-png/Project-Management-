@@ -3833,38 +3833,175 @@ R.projects = async function () {
   $$('[data-arch]').forEach(b => b.onclick = async () => {
     await api('archive_project', {id: +b.dataset.arch}); R.projects();
   });
-  if ($('#prRec')) $('#prRec').onclick = async () => {
-    const rec = await api('recurring');
-    const freqL = {daily: 'ημέρες', weekly: 'εβδομάδες', monthly: 'μήνες', yearly: 'έτη'};
-    $('#prExtra').innerHTML = `<div class="card"><div class="card-h">${I.repeat} Επαναλαμβανόμενα tasks (συντηρήσεις)</div>
-      <div class="card-b" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line)">
-        <input class="inp" id="rcT" placeholder="Τίτλος" style="flex:1;min-width:150px">
-        <select class="inp" id="rcP" style="width:auto">${S.boot.projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
-        κάθε <input class="inp" id="rcE" type="number" value="1" min="1" style="width:60px">
-        <select class="inp" id="rcF" style="width:auto">${Object.entries(freqL).map(([k, v]) => `<option value="${k}" ${k === 'monthly' ? 'selected' : ''}>${v}</option>`).join('')}</select>
-        από <input class="inp" id="rcN" type="date" value="${today()}" style="width:auto">
-        <select class="inp" id="rcA" style="width:auto"><option value="">— χειριστής —</option>
-          ${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
-        <button class="btn btn-p btn-sm" id="rcGo">Προσθήκη</button></div>
-      ${rec.recurring.map(r => `<div class="trow" style="cursor:default">
-        <span class="dot" style="background:${r.pcolor}"></span>
-        <div style="flex:1"><b>${esc(r.title)}</b> <span class="mut">(${esc(r.pname)})</span>
-          <div class="mut" style="font-size:11px">κάθε ${r.every} ${freqL[r.freq]} · επόμενο: ${dShort(r.next)} · ${r.assignee ? esc(adminName(r.assignee)) : '—'}</div></div>
-        ${r.active ? '<span class="pill pill-ok">Ενεργό</span>' : '<span class="pill pill-mut">Ανενεργό</span>'}
-        <button class="btn btn-sm btn-o" data-rcDel="${r.id}">✕</button></div>`).join('') || '<div class="empty" style="padding:18px">Κανένα πρόγραμμα</div>'}
-    </div>`;
-    $('#rcGo').onclick = async () => {
-      if (!$('#rcT').value.trim()) return;
-      await api('save_recurring', {id: 0, title: $('#rcT').value.trim(), project: +$('#rcP').value,
-        every: +$('#rcE').value, freq: $('#rcF').value, next: $('#rcN').value,
-        assignee: +$('#rcA').value || 0, dueDays: 3, active: true});
-      toast('Προστέθηκε'); $('#prRec').click();
-    };
-    $$('[data-rcDel]').forEach(b => b.onclick = async () => {
-      await api('del_recurring', {id: +b.dataset.rcDel}); $('#prRec').click();
-    });
-  };
+  /* Οι επαναλαμβανόμενες έχουν πλέον δική τους οθόνη (30/9/2026). */
+  if ($('#prRec')) $('#prRec').onclick = () => go('recurring');
 };
+
+/* ═════════ ΕΠΑΝΑΛΑΜΒΑΝΟΜΕΝΕΣ ΕΡΓΑΣΙΕΣ ═════════
+   Ό,τι πρέπει να γίνεται κάθε εργάσιμη (ή εβδομάδα/μήνα) από συγκεκριμένους
+   ανθρώπους. Ένας → πάει κατευθείαν σε αυτόν. Πολλοί → ειδοποιούνται όλοι και ο
+   πρώτος που την αναλαμβάνει την παίρνει. Μόνο η σημερινή μετράει: η χθεσινή που
+   δεν έγινε κλείνει μόνη της ως «δεν έγινε» και φαίνεται στον ρυθμό 30 ημερών. */
+const REC_FREQ = {daily: 'Κάθε εργάσιμη', weekly: 'Εβδομαδιαία', monthly: 'Μηνιαία', yearly: 'Ετήσια'};
+const REC_DAY = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
+function recWhen(r) {
+  const tm = r.start ? ' · ' + r.start + (r.end ? '–' + r.end : '') : '';
+  const ev = r.every > 1 ? ' (κάθε ' + r.every + ')' : '';
+  if (r.freq === 'daily') { return 'Κάθε εργάσιμη' + (r.every > 1 ? ' (ανά ' + r.every + ')' : '') + tm; }
+  if (r.freq === 'weekly') { return 'Κάθε ' + REC_DAY[new Date(r.next + 'T12:00').getDay()] + ev + tm; }
+  if (r.freq === 'monthly') { return 'Κάθε μήνα στις ' + (+r.next.slice(8)) + ev + tm; }
+  return 'Κάθε χρόνο ' + dShort(r.next) + tm;
+}
+R.recurring = async function () {
+  setTop('Επαναλαμβανόμενες', 'τι πρέπει να γίνεται κάθε μέρα — και αν έγινε σήμερα');
+  const c = $('#content');
+  if (!cnpCan('projects.recurring')) { c.innerHTML = cnpDenied({message: 'Χρειάζεται «Έργα & υλοποιήσεις → Επαναλαμβανόμενες»'}); return; }
+  const st = R.recurring._st || (R.recurring._st = {q: '', mine: false, off: false});
+  cnpSkel(c, skel(3, 70));
+  const d = await api('recurring').catch(() => ({recurring: []}));
+  const me = S.boot.me.id;
+  const words = st.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const list = d.recurring.filter(r => (st.off || r.active)
+    && (!st.mine || r.people.includes(me))
+    && words.every(w => (r.title + ' ' + r.pname + ' ' + r.people.map(adminName).join(' ')).toLowerCase().includes(w)));
+  const act = list.filter(r => r.active);
+  const tDone = act.filter(r => r.today && r.today.done).length;
+  const tOpen = act.filter(r => r.today && !r.today.done && r.today.who).length;
+  const tFree = act.filter(r => r.today && !r.today.done && !r.today.who).length;
+  const s30 = act.reduce((a, r) => ({d: a.d + r.d30.done, m: a.m + r.d30.missed}), {d: 0, m: 0});
+  const pct = s30.d + s30.m ? Math.round(s30.d / (s30.d + s30.m) * 100) : null;
+  const tile = (n, l, col, tip) => `<div class="su-stat" title="${esc(tip)}"><div class="ic" style="background:${col}1a;color:${col}">${I.repeat}</div>
+    <div><div class="n">${n}</div><div class="l">${l}</div></div></div>`;
+  const todayPill = r => {
+    if (!r.active) { return '<span class="pill pill-mut">σε παύση</span>'; }
+    if (!r.today) { return '<span class="pill pill-mut" title="Δεν έχει εμφάνιση σήμερα">σήμερα —</span>'; }
+    if (r.today.done) { return `<span class="pill pill-ok" title="Ολοκληρώθηκε">✔ έγινε${r.today.who ? ' · ' + esc(adminIni(r.today.who)) : ''}</span>`; }
+    if (r.today.who) { return `<span class="pill pill-warn" title="Την έχει ο/η ${esc(adminName(r.today.who))}">⏳ ${esc(adminIni(r.today.who))}</span>`; }
+    return '<span class="pill pill-bad" title="Κανείς δεν την ανέλαβε ακόμη">🔓 αζήτητη</span>';
+  };
+  const ppl = r => r.people.slice(0, 5).map(a => `<span class="sup-w" title="${esc(adminName(a))}">${esc(adminIni(a))}</span>`).join('')
+    + (r.people.length > 5 ? `<span class="mut" style="font-size:11px">+${r.people.length - 5}</span>` : '');
+  const rate = r => r.d30.done + r.d30.missed
+    ? `<span class="mut" style="font-size:11.5px;white-space:nowrap" title="Τελευταίες 30 ημέρες: έγιναν ${r.d30.done}, δεν έγιναν ${r.d30.missed}">30ημ: <b style="color:${r.d30.missed ? 'var(--warn)' : 'var(--ok)'}">${r.d30.done}/${r.d30.done + r.d30.missed}</b></span>` : '';
+  c.innerHTML = `
+  <div class="fbar">
+    ${fChip('Αναζήτηση', `<input class="fchip-s" id="rcQ" value="${esc(st.q)}" placeholder="τίτλος, άνθρωπος, έργο…" style="width:220px">`, !!st.q, '')}
+    <button class="fchip fchip-b${st.mine ? ' on' : ''}" id="rcMine" title="Μόνο όσες καλύπτεις εσύ">Δικές μου</button>
+    <button class="fchip fchip-b${st.off ? ' on' : ''}" id="rcOff" title="Δείξε και όσες είναι σε παύση">+ σε παύση</button>
+    <span class="fbar-sp"></span>
+    <span class="fbar-note">${act.length} ενεργές</span>
+    <button class="fchip fchip-go" id="rcNew">${I.plus} Νέα επαναλαμβανόμενη</button>
+  </div>
+  <div class="cl-tiles">
+    ${tile(tDone, 'έγιναν σήμερα', 'var(--ok)', 'Σημερινές εμφανίσεις που ολοκληρώθηκαν')}
+    ${tile(tOpen, 'σε εξέλιξη', 'var(--warn)', 'Τις έχει κάποιος, δεν έκλεισαν ακόμη')}
+    ${tile(tFree, 'αζήτητες', tFree ? 'var(--bad)' : 'var(--mut)', 'Ομαδικές που δεν ανέλαβε κανείς ακόμη')}
+    ${tile(pct === null ? '—' : pct + '%', 'έγιναν (30 ημ.)', pct !== null && pct < 80 ? 'var(--warn)' : 'var(--ok)', 'Από όσες βγήκαν τις τελευταίες 30 ημέρες, πόσες έγιναν: ' + s30.d + ' έγιναν, ' + s30.m + ' δεν έγιναν')}
+  </div>
+  <div class="card"><div class="card-b" style="padding:0">
+    ${list.length ? list.map(r => `<div class="trow rc-row" data-rcrow="${r.id}" style="cursor:pointer${r.active ? '' : ';opacity:.6'}">
+      <span class="dot" style="background:${r.pcolor}"></span>
+      <div class="rc-main" style="flex:1;min-width:0"><b>${esc(r.title)}</b>
+        <div class="mut" style="font-size:11.5px">${esc(recWhen(r))} · ${r.pname ? esc(r.pname) : esc(((S.boot.depts || []).find(x => x.id === r.dept) || {}).name || '—')}${r.steps ? ' · ' + r.steps.split('\n').filter(x => x.trim()).length + ' βήματα' : ''}</div></div>
+      <span style="display:flex;gap:3px;align-items:center" title="${esc(r.people.map(adminName).join(', '))}">${ppl(r)}</span>
+      ${rate(r)}
+      ${todayPill(r)}
+      ${r.today ? `<button class="btn btn-sm btn-o" data-rctask="${r.today.id}" title="Άνοιξε τη σημερινή">Σήμερα</button>` : ''}
+    </div>`).join('')
+    : `<div class="empty">${I.repeat}<div>${d.recurring.length ? 'Καμία δεν ταιριάζει στα φίλτρα.' : 'Καμία επαναλαμβανόμενη ακόμη — πάτα «Νέα επαναλαμβανόμενη» για ό,τι πρέπει να γίνεται κάθε μέρα (π.χ. έλεγχος backups, ανασκόπηση tickets).'}</div></div>`}
+  </div></div>`;
+  cnpSearch('rcQ', v => { st.q = v; R.recurring(); });
+  $('#rcMine').onclick = () => { st.mine = !st.mine; R.recurring(); };
+  $('#rcOff').onclick = () => { st.off = !st.off; R.recurring(); };
+  $('#rcNew').onclick = () => openRecurring(null);
+  $$('[data-rctask]').forEach(b => b.onclick = e => { e.stopPropagation(); openTask(+b.dataset.rctask); });
+  $$('[data-rcrow]').forEach(x => x.onclick = () => openRecurring(d.recurring.find(r => r.id === +x.dataset.rcrow)));
+};
+function openRecurring(r) {
+  const isNew = !r;
+  r = r || {title: '', descr: '', steps: '', people: [], project: null, dept: null, freq: 'daily', every: 1,
+    next: today(), start: '09:00', end: '', prio: 0, active: true};
+  const admins = S.boot.admins.filter(a => !a.disabled);
+  const depts = (S.boot.depts || []).filter(x => !x.hidden);
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 320;
+  ovl.innerHTML = `<div class="pal-box" style="margin:5vh auto 0;max-width:620px;max-height:90vh;overflow:auto" role="dialog" aria-label="Επαναλαμβανόμενη εργασία">
+    <div style="padding:20px 22px 18px;display:flex;flex-direction:column;gap:10px">
+      <b style="font-size:15.5px;color:var(--ink)">${I.repeat} ${isNew ? 'Νέα επαναλαμβανόμενη' : 'Επαναλαμβανόμενη'}</b>
+      <label class="lbl">Τι πρέπει να γίνεται <span style="color:var(--bad)">*</span></label>
+      <input class="inp" id="rTitle" maxlength="200" value="${esc(r.title)}" placeholder="π.χ. Έλεγχος backups πελατών">
+      <label class="lbl">Βήματα <span class="mut" style="font-weight:400">— ένα ανά γραμμή· γίνονται οι ενέργειες της εργασίας</span></label>
+      <textarea class="inp" id="rSteps" rows="3" placeholder="Έλεγχος Veeam\nΈλεγχος Hetzner snapshots\nΣημείωση αποτυχιών">${esc(r.steps)}</textarea>
+      <label class="lbl">Ποιος την καλύπτει <span style="color:var(--bad)">*</span>
+        <span class="mut" style="font-weight:400">— ένας: πάει σε αυτόν · πολλοί: ειδοποιούνται όλοι, την παίρνει όποιος την αναλάβει πρώτος</span></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select class="inp" id="rDeptAdd" style="width:auto"><option value="">+ όλο το τμήμα…</option>
+          ${depts.map(x => `<option value="${x.id}">${esc(x.name)} (${(x.members || []).length})</option>`).join('')}</select>
+        <span class="mut" style="font-size:11.5px" id="rPplN"></span></div>
+      <div id="rPpl" style="display:flex;gap:6px;flex-wrap:wrap;max-height:130px;overflow:auto">
+        ${admins.map(a => `<label class="fchip fchip-b${r.people.includes(a.id) ? ' on' : ''}" style="cursor:pointer"><input type="checkbox" value="${a.id}" ${r.people.includes(a.id) ? 'checked' : ''} style="display:none">${esc(a.name)}</label>`).join('')}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="lbl">Συχνότητα</label>
+          <select class="inp" id="rFreq">${Object.entries(REC_FREQ).map(([k, v]) => `<option value="${k}" ${k === r.freq ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div><label class="lbl">Ανά <span class="mut" style="font-weight:400">(1 = κάθε φορά)</span></label>
+          <input class="inp" id="rEvery" type="number" min="1" max="52" value="${r.every}"></div>
+        <div><label class="lbl">Από <span class="mut" style="font-weight:400" id="rNextHint"></span></label>
+          <input class="inp" id="rNext" type="date" value="${esc(r.next)}"></div>
+        <div><label class="lbl">Ώρα <span class="mut" style="font-weight:400">— έναρξη · μέχρι</span></label>
+          <div style="display:flex;gap:6px"><input class="inp" id="rStart" type="time" value="${esc(r.start || '')}"><input class="inp" id="rEnd" type="time" value="${esc(r.end || '')}"></div></div>
+        <div><label class="lbl">Έργο <span class="mut" style="font-weight:400">— προαιρετικό</span></label>
+          <select class="inp" id="rProj"><option value="">— χωρίς έργο —</option>${S.boot.projects.map(p => `<option value="${p.id}" ${p.id === r.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Τμήμα <span class="mut" style="font-weight:400">— αν δεν έχει έργο</span></label>
+          <select class="inp" id="rDept"><option value="">—</option>${depts.map(x => `<option value="${x.id}" ${x.id === r.dept ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+        <div><label class="lbl">Προτεραιότητα</label>
+          <select class="inp" id="rPrio">${['Κανονική', 'Υψηλή', 'Επείγουσα'].map((v, i) => `<option value="${i}" ${i === r.prio ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <label style="display:flex;gap:7px;align-items:center;font-size:13px;margin-top:22px"><input type="checkbox" id="rActive" ${r.active ? 'checked' : ''}> Ενεργή</label>
+      </div>
+      <div id="rErr" class="mut" style="font-size:12px;color:var(--bad)" hidden></div>
+      <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:6px">
+        ${isNew ? '' : '<button class="btn btn-danger btn-sm" id="rDel" style="margin-right:auto">Διαγραφή κανόνα</button>'}
+        <button class="btn btn-o" id="rNo">Άκυρο</button>
+        <button class="btn btn-p" id="rGo">${isNew ? 'Δημιουργία' : 'Αποθήκευση'}</button>
+      </div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const q = s => ovl.querySelector(s);
+  const pplSync = () => {
+    ovl.querySelectorAll('#rPpl label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+    const n = ovl.querySelectorAll('#rPpl input:checked').length;
+    q('#rPplN').textContent = n === 0 ? '' : n === 1 ? '1 άτομο — πάει κατευθείαν σε αυτόν' : n + ' άτομα — την παίρνει όποιος την αναλάβει πρώτος';
+  };
+  ovl.querySelectorAll('#rPpl input').forEach(i => i.onchange = pplSync);
+  q('#rDeptAdd').onchange = () => {
+    const dp = depts.find(x => x.id === +q('#rDeptAdd').value);
+    (dp ? dp.members || [] : []).forEach(id => { const i = ovl.querySelector('#rPpl input[value="' + id + '"]'); if (i) { i.checked = true; } });
+    if (dp && !q('#rDept').value && !q('#rProj').value) { q('#rDept').value = String(dp.id); }
+    q('#rDeptAdd').value = ''; pplSync();
+  };
+  const hint = () => { const f = q('#rFreq').value, dt = q('#rNext').value;
+    q('#rNextHint').textContent = f === 'weekly' && dt ? '— κάθε ' + REC_DAY[new Date(dt + 'T12:00').getDay()] : f === 'daily' ? '— Σ/Κ & αργίες παραλείπονται' : ''; };
+  q('#rFreq').onchange = hint; q('#rNext').onchange = hint; hint(); pplSync();
+  setTimeout(() => q('#rTitle').focus(), 40);
+  q('#rNo').onclick = () => ovl.remove();
+  if (q('#rDel')) q('#rDel').onclick = async () => {
+    if (!(await cnpConfirm('Διαγραφή του κανόνα «' + r.title + '»;\n\nΔεν θα βγαίνουν νέες εργασίες. Όσες έχουν ήδη βγει μένουν, με τον χρόνο και το ιστορικό τους.\nΑν θέλεις απλώς να σταματήσει προσωρινά, ξετσέκαρε το «Ενεργή».',
+      {ok: I.trash + ' Διαγραφή', cancel: 'Άκυρο', danger: true}))) { return; }
+    await api('del_recurring', {id: r.id}); ovl.remove(); toast('Ο κανόνας διαγράφηκε'); R.recurring();
+  };
+  q('#rGo').onclick = async () => {
+    const people = [...ovl.querySelectorAll('#rPpl input:checked')].map(i => +i.value);
+    const b = q('#rGo'); b.disabled = true;
+    const res = await api('save_recurring', {id: r.id || 0, title: q('#rTitle').value.trim(), steps: q('#rSteps').value,
+      people, freq: q('#rFreq').value, every: +q('#rEvery').value || 1, next: q('#rNext').value,
+      start: q('#rStart').value, end: q('#rEnd').value, project: +q('#rProj').value || 0, dept: +q('#rDept').value || 0,
+      prio: +q('#rPrio').value, active: q('#rActive').checked, descr: r.descr || ''}).catch(e => ({err: (e && e.message) || 'Δεν αποθηκεύτηκε'}));
+    b.disabled = false;
+    if (res && res.err) { const er = q('#rErr'); er.hidden = false; er.textContent = res.err; return; }
+    ovl.remove();
+    toast(res.task ? 'Αποθηκεύτηκε — βγήκε και η σημερινή' : 'Αποθηκεύτηκε');
+    R.recurring();
+  };
+}
 
 /* ═════════ CRM ΕΠΙΣΚΟΠΗΣΗ (pipeline analytics) ═════════ */
 R.crmov = async function () {

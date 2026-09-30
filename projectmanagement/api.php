@@ -45,6 +45,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Report.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pharmacy.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Overrun.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Recurring.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PharmacyOneType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PbxType.php';
@@ -2578,6 +2579,44 @@ function cnp_meeting_now($adminId, $now = null)
  * Η κατάσταση ενός χειριστή τώρα.
  * manual = το δήλωσε ο ίδιος · until = πότε λήγει η δήλωση (0 = μέχρι να την αλλάξει)
  */
+/**
+ * ΜΠΗΚΕ / ΒΓΗΚΕ ΑΠΟ ΤΗ ΣΥΣΚΕΨΗ = ΑΛΛΑΖΕΙ ΑΜΕΣΩΣ Η ΚΑΤΑΣΤΑΣΗ (30/9/2026).
+ * Πριν, όποιος έφευγε από το Meet έμενε «Σε σύσκεψη» ως την προγραμματισμένη
+ * λήξη και μετά ρωτιόταν «βγήκες;». Τώρα η ίδια η αποχώρηση είναι η απάντηση
+ * (ίδιο αποτέλεσμα με το «Βγήκα» του event_outcome) και η επιστροφή στο
+ * δωμάτιο τον ξαναβάζει μέσα. Αφορά ΜΟΝΟ συμμετέχοντες με γραμμή RSVP και
+ * δωμάτια δεμένα σε γεγονός ημερολογίου.
+ */
+function cnp_meet_presence($adminId, $room, $inside)
+{
+    if ($adminId <= 0) { return; }
+    $win = pm_meet_window($room);
+    if (!$win) { return; }
+    $r = Capsule::table('mod_cpm_event_rsvp')->where('event_id', $win['id'])
+        ->where('kind', 'admin')->where('ref', $adminId)->first();
+    if (!$r) { return; }
+    $nowS = date('Y-m-d H:i:s');
+    if ($inside) {
+        if (empty($r->left_at) || $win['ended']) { return; }
+        $upd = ['left_at' => null, 'outcome' => null];
+        if (!empty($r->until_dt) && strtotime($r->until_dt) <= time()) { $upd['until_dt'] = null; }
+        Capsule::table('mod_cpm_event_rsvp')->where('id', $r->id)->update($upd);
+    } else {
+        if (!empty($r->left_at)) { return; }
+        Capsule::table('mod_cpm_event_rsvp')->where('id', $r->id)->update(['left_at' => $nowS,
+            'until_dt' => $nowS, 'outcome' => 'done', 'outcome_at' => $nowS]);
+        Capsule::table('mod_cpm_event_alerts')->where('event_id', $win['id'])
+            ->where('kind', 'over')->where('admin_id', $adminId)->delete();
+        if (!Capsule::table('mod_cpm_event_rsvp')->where('event_id', $win['id'])
+                ->where('status', 'accepted')->whereNull('left_at')->exists()) {
+            Capsule::table('mod_cpm_events')->where('id', $win['id'])->whereNull('outcome')
+                ->update(['outcome' => 'done', 'outcome_at' => $nowS, 'outcome_by' => $adminId]);
+        }
+    }
+    /* Το τηλέφωνο (3CX) ακολουθεί αμέσως — όχι στην επόμενη σάρωση. */
+    try { Pbx3cxPresence::sync($adminId, cnp_presence($adminId)); } catch (\Throwable $e) { }
+}
+
 function cnp_presence($adminId, $now = null)
 {
     $now = $now ?: time();
@@ -4518,7 +4557,7 @@ function cnp_action_cap($action)
         $add('projects.modules.delete', ['template_del', 'template_step_del']);
         $add('projects.depts', ['depts_load', 'dept_view']);
         $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
-        $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);
+        $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);   // ορισμός κανόνων· η ΑΝΑΛΗΨΗ (rec_claim) είναι προσωπική
         $add('projects.recurring|reports.triage', ['recurrent']);
         $add('finance.profit.edit|projects.portfolio.edit', ['add_expense', 'del_expense']);
 
@@ -4661,6 +4700,8 @@ function cnp_open_actions()
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
         /* task_collab: κριτής το cnp_task_write_ok μέσα στην ενέργεια (όπως task_handoff). */
         'task_collab',
+        /* rec_claim: ανάληψη ομαδικής επαναλαμβανόμενης — κριτής το Recurring::canClaim μέσα στην ενέργεια. */
+        'rec_claim',
         /* Οι ΔΙΚΕΣ ΣΟΥ κλήσεις και ο χαρακτηρισμός τους — προσωπική οθόνη.
            Ο server περιορίζει σε admin_id = εσύ. */
         'calls_pending', 'calls_label',
@@ -5381,7 +5422,9 @@ case 'task':
         'collabs' => array_map(function ($cid) { return ['id' => $cid, 'name' => Db::adminName($cid)]; },
             Db::collabIds($t->id)),
         'canCollab' => cnp_task_write_ok($adminId, $FULL, $t),
-        'canTimer' => cnp_task_timer_ok($adminId, $FULL, $t),
+        'canTimer' => cnp_task_timer_ok($adminId, $FULL, $t) || \WHMCS\Module\Addon\CloudonProjects\Recurring::canClaim($t, $adminId),
+        'canClaim' => \WHMCS\Module\Addon\CloudonProjects\Recurring::canClaim($t, $adminId),
+        'rec' => !empty($t->rec_id) ? ['id' => (int) $t->rec_id, 'date' => $t->rec_date, 'missed' => !empty($t->rec_missed)] : null,
         'othersRunning' => array_map(function ($r) {
             return ['id' => (int) $r->admin_id, 'name' => Db::adminName((int) $r->admin_id), 'since' => $r->started_at];
         }, Capsule::table('mod_cpm_timelogs')->where('task_id', (int) $t->id)->where('running', 1)
@@ -5964,7 +6007,16 @@ case 'myday':
             return strcmp($a['name'], $b['name']);
         });
     }
-    out(['tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
+    /* 🔁 Ομαδικές επαναλαμβανόμενες σήμερα που δεν τις ανέλαβε κανείς. */
+    $claimable = [];
+    try {
+        foreach (\WHMCS\Module\Addon\CloudonProjects\Recurring::claimable($adminId) as $cr) {
+            $claimable[] = ['id' => (int) $cr->id, 'title' => (string) $cr->title,
+                'at' => $cr->start_time ? substr((string) $cr->start_time, 0, 5) : '',
+                'n' => count(array_filter(explode(',', (string) $cr->people)))];
+        }
+    } catch (\Throwable $e) { }
+    out(['claimable' => $claimable, 'tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
         'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
         'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'team' => $teamNow, 'teamScope' => $teamScope,
         'supervising' => $supervising,
@@ -9144,6 +9196,11 @@ case 'timer_start':
     if (!$t || !Db::canSeeTask($adminId, $t)) {
         fail('task', 403);
     }
+    /* Ξεκινάς χρόνο σε ομαδική επαναλαμβανόμενη που δεν έχει κανείς = την αναλαμβάνεις. */
+    if (\WHMCS\Module\Addon\CloudonProjects\Recurring::canClaim($t, $adminId)
+        && \WHMCS\Module\Addon\CloudonProjects\Recurring::claim($t->id, $adminId)) {
+        $t = Db::task($tid);
+    }
     if (!cnp_task_timer_ok($adminId, $FULL, $t)) {
         fail('Χρειάζεται να είναι δική σου εργασία ή να σε προσθέσουν ως συνεργάτη', 403);
     }
@@ -9242,8 +9299,10 @@ case 'check_add':
        είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
     $isHtml = !empty($in['html']);
     $isCode = cnp_looks_like_code($title);
-    if (!$isCode && mb_strlen(trim(strip_tags($title))) > 6000) { fail('Πολύ μεγάλη ενέργεια (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 6.000). Βάλε το εκτενές κείμενο στο ζητούμενο ή σε συνημμένο, και εδώ την ουσία.'); }
-    $stored = $isCode ? cnp_code_block($title) : ($isHtml ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000));
+    /* Όριο 50.000 ορατοί χαρακτήρες (ήταν 6.000 — 30/9/2026: δεν χωρούσαν αναλυτικά μηνύματα).
+       Η στήλη είναι MEDIUMTEXT· το TEXT (64KB) θα έκοβε ελληνικό κείμενο γύρω στους 32.000. */
+    if (!$isCode && mb_strlen(trim(strip_tags($title))) > 50000) { fail('Πολύ μεγάλο μήνυμα (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 50.000). Βάλε το υπόλοιπο σε συνημμένο ή σε δεύτερο μήνυμα.'); }
+    $stored = $isCode ? cnp_code_block($title, 60000) : ($isHtml ? cnp_clean_html($title, 400000) : mb_substr($title, 0, 60000));
     $id = Db::addCheckItem($tid, $stored, $adminId);
     if ($isCode || $isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
     cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
@@ -9272,7 +9331,7 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     $isHtml2 = !empty($in['html']);
     $isCode2 = cnp_looks_like_code($title);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->update([
-        'title' => $isCode2 ? cnp_code_block($title) : ($isHtml2 ? cnp_clean_html($title, 20000) : mb_substr($title, 0, 8000)),
+        'title' => $isCode2 ? cnp_code_block($title, 60000) : ($isHtml2 ? cnp_clean_html($title, 400000) : mb_substr($title, 0, 60000)),
         'fmt' => ($isCode2 || $isHtml2) ? 'html' : ($ci->fmt ?? null),
     ]);
     /* Οι αναφορές @Όνομα μπορεί να μπήκαν στη ΔΙΟΡΘΩΣΗ, όχι στην αρχική γραφή. */
@@ -10689,6 +10748,7 @@ case 'list':
     $rows = Db::tasksFiltered($f);
     $mins = Db::minutesForTasks(array_map(function ($r) { return (int) $r->id; }, $rows->all()));
     $list = [];
+    $clLbl9 = [];
     foreach ($rows as $t) {
         $d = taskDto($t);
         $d['project'] = (int) $t->project_id;      // το χρειάζεται το φίλτρο/chips ανά project
@@ -10696,8 +10756,10 @@ case 'list':
         $d['pcolor'] = $t->project_color ?: '#8595ac';
         $d['mins'] = (int) ($mins[(int) $t->id] ?? 0);
         $d['creator'] = (int) $t->created_by;
-        $d['client'] = isset($t->clientid) && $t->clientid ? (int) $t->clientid : null;
-        $d['clientName'] = isset($t->clientid) && $t->clientid ? clientLabel($t->clientid) : '';
+        $cl9 = !empty($t->clientid) ? (int) $t->clientid : (!empty($t->tk_client) ? (int) $t->tk_client : 0);
+        $d['client'] = $cl9 ?: null;
+        /* clientLabel με μνήμη: ως 300 εργασίες, συχνά του ίδιου πελάτη. */
+        $d['clientName'] = $cl9 ? ($clLbl9[$cl9] ?? ($clLbl9[$cl9] = clientLabel($cl9))) : '';
         $list[] = $d;
     }
     out(['tasks' => $list]);
@@ -13001,32 +13063,85 @@ case 'project_delete':
     out(['ok' => true, 'tasks' => count($tIds)]);
 
 case 'recurring':
+    /* Κανόνες + πώς πήγε η σημερινή + ρυθμός 30 ημερών (έγινε / δεν έγινε). */
     $recs = [];
+    $todayR = date('Y-m-d');
+    $closedR = Db::closedStatusIds();
+    $doneR = Db::statusIds(['done']);
     foreach (Db::recurringAll() as $r) {
-        $recs[] = ['id' => (int) $r->id, 'title' => $r->title, 'project' => (int) $r->project_id,
-            'pname' => cnp_pn($r->project_name), 'pcolor' => $r->project_color ?: '#8595ac',
+        $inst = Capsule::table('mod_cpm_tasks')->where('rec_id', $r->id)->where('rec_date', $todayR)
+            ->first(['id', 'assignee', 'status_id', 'completed_by']);
+        $stat = Capsule::table('mod_cpm_tasks')->where('rec_id', $r->id)
+            ->where('rec_date', '>=', date('Y-m-d', strtotime('-30 days')))->where('rec_date', '<', $todayR)
+            ->selectRaw('SUM(status_id IN (' . implode(',', array_map('intval', $doneR)) . ')) d, SUM(rec_missed = 1) m, COUNT(*) n')->first();
+        $recs[] = ['id' => (int) $r->id, 'title' => $r->title, 'descr' => (string) $r->descr, 'steps' => (string) ($r->steps ?? ''),
+            'project' => $r->project_id ? (int) $r->project_id : null,
+            'pname' => $r->project_id ? cnp_pn($r->project_name) : '', 'pcolor' => $r->project_color ?: '#8595ac',
+            'dept' => $r->dept_id ? (int) $r->dept_id : null,
+            'people' => \WHMCS\Module\Addon\CloudonProjects\Recurring::people($r),
             'freq' => $r->freq, 'every' => (int) $r->every, 'next' => $r->next_run,
-            'dueDays' => (int) $r->due_days, 'assignee' => $r->assignee ? (int) $r->assignee : null,
-            'prio' => (int) $r->priority, 'active' => (bool) $r->active, 'last' => $r->last_run];
+            'start' => $r->start_time, 'end' => $r->end_time,
+            'prio' => (int) $r->priority, 'active' => (bool) $r->active, 'last' => $r->last_run,
+            'by' => $r->created_by ? (int) $r->created_by : null,
+            'today' => $inst ? ['id' => (int) $inst->id, 'who' => $inst->assignee ? (int) $inst->assignee : null,
+                'done' => in_array((int) $inst->status_id, $closedR, true)] : null,
+            'd30' => ['done' => (int) ($stat->d ?? 0), 'missed' => (int) ($stat->m ?? 0), 'n' => (int) ($stat->n ?? 0)]];
     }
     out(['recurring' => $recs]);
 
 case 'save_recurring':
-    $freq = in_array($in['freq'] ?? '', ['daily', 'weekly', 'monthly', 'yearly'], true) ? $in['freq'] : 'monthly';
-    Db::saveRecurring((int) ($in['id'] ?? 0), [
-        'project_id' => (int) ($in['project'] ?? 0),
-        'title' => mb_substr(trim($in['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
-        'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
+    $freq = in_array($in['freq'] ?? '', ['daily', 'weekly', 'monthly', 'yearly'], true) ? $in['freq'] : 'daily';
+    $ppl = array_values(array_unique(array_filter(array_map('intval', (array) ($in['people'] ?? [])))));
+    $ppl = array_values(array_filter($ppl, function ($a) { return Capsule::table('tbladmins')->where('id', $a)->where('disabled', 0)->exists(); }));
+    $titleR = mb_substr(trim((string) ($in['title'] ?? '')), 0, 200);
+    $pidR = (int) ($in['project'] ?? 0) ?: null;
+    $didR = (int) ($in['dept'] ?? 0) ?: null;
+    if ($titleR === '') { fail('Γράψε τι πρέπει να γίνεται'); }
+    if (!$ppl) { fail('Διάλεξε ποιος (ή ποιοι) την καλύπτει'); }
+    if (!$pidR && !$didR) { fail('Διάλεξε έργο ή τμήμα — αλλιώς η εργασία δεν ανήκει πουθενά'); }
+    if ($pidR && !Db::canSeeProject($adminId, $pidR)) { fail('Δεν έχεις πρόσβαση σε αυτό το έργο', 403); }
+    $tm = function ($v) { return preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) $v) ? (string) $v : null; };
+    $idR = (int) ($in['id'] ?? 0);
+    $nextR = preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['next'] ?? '') ? $in['next'] : date('Y-m-d');
+    $dataR = [
+        'project_id' => $pidR, 'dept_id' => $didR,
+        'title' => $titleR,
+        'descr' => cnp_clean_html($in['descr'] ?? '', 60000),
+        'steps' => mb_substr(trim((string) ($in['steps'] ?? '')), 0, 4000),
         'priority' => min(2, max(0, (int) ($in['prio'] ?? 0))),
-        'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
-        'freq' => $freq, 'every' => max(1, (int) ($in['every'] ?? 1)),
-        'next_run' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['next'] ?? '') ? $in['next'] : date('Y-m-d'),
-        'due_days' => max(0, (int) ($in['dueDays'] ?? 0)),
-        'active' => !empty($in['active']) ? 1 : 0]);
-    out(['ok' => true]);
+        'assignee' => count($ppl) === 1 ? $ppl[0] : null,
+        'people' => ',' . implode(',', $ppl) . ',',
+        'freq' => $freq, 'every' => max(1, min(52, (int) ($in['every'] ?? 1))),
+        'next_run' => $nextR,
+        'start_time' => $tm($in['start'] ?? ''), 'end_time' => $tm($in['end'] ?? ''),
+        'due_days' => 0,
+        'active' => !empty($in['active']) ? 1 : 0];
+    if (!$idR) { $dataR['created_by'] = $adminId; }
+    $idR = Db::saveRecurring($idR, $dataR);
+    /* Κανόνας που οφείλει ΣΗΜΕΡΑ γεννά αμέσως τη σημερινή — όχι αύριο στις 07:30. */
+    $madeR = null;
+    if ($dataR['active'] && $nextR <= date('Y-m-d')) {
+        $resR = \WHMCS\Module\Addon\CloudonProjects\Recurring::run(date('Y-m-d'), $idR);
+        $madeR = $resR[$idR] ?? null;
+    }
+    out(['ok' => true, 'id' => $idR, 'task' => $madeR]);
 
 case 'del_recurring':
+    /* Σβήνεται ο ΚΑΝΟΝΑΣ· οι εργασίες που έβγαλε μένουν (έχουν χρόνο και ιστορικό). */
     Db::deleteRecurring((int) ($in['id'] ?? 0));
+    out(['ok' => true]);
+
+/* Ανάληψη ομαδικής επαναλαμβανόμενης: κερδίζει ο πρώτος — έλεγχος μέσα στην ενέργεια. */
+case 'rec_claim':
+    $tcR = Db::task((int) ($in['task'] ?? 0));
+    if (!$tcR || !Db::canSeeTask($adminId, $tcR)) { fail('task', 403); }
+    if (!\WHMCS\Module\Addon\CloudonProjects\Recurring::canClaim($tcR, $adminId)) {
+        $whoR = (int) ($tcR->action_user ?: $tcR->assignee);
+        fail($whoR ? 'Την ανέλαβε ήδη ' . Db::adminName($whoR) : 'Δεν είναι ανοιχτή για σένα', 409);
+    }
+    if (!\WHMCS\Module\Addon\CloudonProjects\Recurring::claim($tcR->id, $adminId)) {
+        fail('Μόλις την ανέλαβε κάποιος άλλος', 409);
+    }
     out(['ok' => true]);
 
 /* ================= TICKET INBOX ================= */
@@ -15855,6 +15970,7 @@ case 'rtc_join':
     Capsule::table('mod_cpm_rtc_msgs')->where('created_at', '<', date('Y-m-d H:i:s', time() - 600))->delete();
     Capsule::table('mod_cpm_rtc_peers')->insert(['room' => $room, 'peer' => $peer, 'name' => $name,
         'admin_id' => $adminId > 0 ? $adminId : null, 'last_seen' => date('Y-m-d H:i:s')]);
+    try { cnp_meet_presence($adminId, $room, true); } catch (\Throwable $e) { }
     $roster = [];
     foreach (Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', '!=', $peer)->get() as $p9) {
         $roster[] = ['peer' => $p9->peer, 'name' => $p9->name];
@@ -15869,7 +15985,8 @@ case 'rtc_signal':
     /* «share» = «μοιράζομαι/σταμάτησα να μοιράζομαι οθόνη». Δεν είναι WebRTC
        σηματοδοσία, είναι πληροφορία διάταξης: χωρίς αυτήν ο παραλήπτης δεν έχει
        τρόπο να ξέρει ότι το βίντεο που λαμβάνει είναι οθόνη και όχι πρόσωπο. */
-    $kind = in_array($in['kind'] ?? '', ['offer', 'answer', 'ice', 'bye', 'share'], true) ? $in['kind'] : null;
+    /* «hand» = σήκωσα/κατέβασα χέρι (ή «κατέβασέ το» από συνάδελφο) — κι αυτό πληροφορία, όχι ροή. */
+    $kind = in_array($in['kind'] ?? '', ['offer', 'answer', 'ice', 'bye', 'share', 'hand'], true) ? $in['kind'] : null;
     if (!$kind || empty($in['peer']) || empty($in['to'])) {
         fail('input');
     }
@@ -15925,6 +16042,13 @@ case 'rtc_leave':
     $peer = preg_replace('/[^a-f0-9]/', '', $in['peer'] ?? '');
     if (!hash_equals(pm_rtc_key($room, $peer), (string) ($in['k'] ?? ''))) { fail('peer', 403); }
     Capsule::table('mod_cpm_rtc_peers')->where('room', $room)->where('peer', $peer)->delete();
+    /* «final» = ΠΡΑΓΜΑΤΙΚΗ αποχώρηση (κουμπί, κλείσιμο σελίδας). Η αυτόματη
+       επανασύνδεση φεύγει με τον παλιό peer ΧΩΡΙΣ final — δεν βγήκε κανείς.
+       Αν ο ίδιος είναι ακόμη μέσα από άλλη καρτέλα/συσκευή, μένει «σε σύσκεψη». */
+    if (!empty($in['final']) && $adminId > 0 && !Capsule::table('mod_cpm_rtc_peers')->where('room', $room)
+            ->where('admin_id', $adminId)->where('last_seen', '>', date('Y-m-d H:i:s', time() - 75))->exists()) {
+        try { cnp_meet_presence($adminId, $room, false); } catch (\Throwable $e) { }
+    }
     out(['ok' => true]);
 
 case 'meet_extend':                     // παράταση meeting από μέσα από την κλήση — ΜΟΝΟ αν χωράει

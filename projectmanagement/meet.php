@@ -102,8 +102,10 @@ h1 b{color:var(--brand)}
    σε ένα κελί 300px — δηλαδή αδιάβαστο. Εδώ η οθόνη πιάνει όλο τον χώρο και τα
    πρόσωπα μαζεύονται σε μια λωρίδα από κάτω. Και `contain` αντί για `cover`:
    μια οθόνη δεν κόβεται στις άκρες, εκεί είναι τα μενού. */
-#grid.presenting{grid-template-columns:1fr;grid-auto-rows:auto;grid-template-rows:1fr auto}
-#grid.presenting .tile.present{grid-column:1/-1}
+#grid.presenting{grid-template-columns:1fr;grid-auto-rows:1fr}
+/* ΔΥΟ+ ΟΘΟΝΕΣ ΤΑΥΤΟΧΡΟΝΑ (30/9/2026, όπως στο Discord): δίπλα-δίπλα· σε κινητό η μία κάτω από την άλλη. */
+#grid.presenting.multi{grid-template-columns:repeat(2,1fr)}
+@media (max-width:900px){ #grid.presenting.multi{grid-template-columns:1fr} }
 #grid.presenting .tile.present video{object-fit:contain;background:#000}
 #grid.presenting .tile:not(.present){display:none}
 #strip{display:none;gap:8px;padding:0 12px 12px;overflow-x:auto;flex:none}
@@ -133,6 +135,17 @@ h1 b{color:var(--brand)}
 }
 .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:var(--card);padding:10px 18px;border-radius:12px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:9}
 .bgb.on{background:var(--brand);color:#fff}
+/* ✋ Σηκωμένο χέρι: σήμα στο πλακίδιο + ουρά με σειρά, πάνω από το πλέγμα */
+.tile .hand{position:absolute;top:8px;left:8px;background:#f5b400;color:#1a1200;font-weight:800;font-size:13px;
+  padding:4px 10px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.4);display:none;align-items:center;gap:4px;border:0}
+.tile.raised .hand{display:inline-flex}
+.tile.raised{box-shadow:0 0 0 3px #f5b400 inset}
+button.hand{cursor:pointer}
+#handQ{display:none;align-items:center;gap:8px;flex-wrap:wrap;margin:0 12px;padding:8px 12px;border-radius:12px;
+  background:#f5b40022;border:1px solid #f5b40066;font-size:13px}
+#handQ.on{display:flex}
+#handQ b{color:#f5b400}
+#cHand.on{background:#f5b400;color:#1a1200}
 </style>
 </head>
 <body>
@@ -186,12 +199,14 @@ h1 b{color:var(--brand)}
     <?php endif; ?>
     <b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span><?= $win ? ' · <span id="endAt" title="Το meeting κλείνει αυτόματα στη λήξη">λήγει ' . date('H:i', $win['endTs']) . '</span>' : '' ?></div>
   <div id="endBanner" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9;background:#eba63c;color:#1a1200;font-weight:800;padding:10px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:15px"></div>
+  <div id="handQ" role="status" aria-live="polite"></div>
   <div id="grid"></div>
   <div id="strip"></div>
   <div id="bar">
     <button class="rbtn" id="cMic" title="Μικρόφωνο"></button>
     <button class="rbtn" id="cCam" title="Κάμερα"></button>
     <button class="rbtn" id="cShare" title="Διαμοιρασμός οθόνης"></button>
+    <button class="rbtn" id="cHand" title="Σήκωσε χέρι για να πάρεις τον λόγο" aria-pressed="false">✋</button>
     <button class="rbtn" id="cBg" title="Φόντο (κανονικό/θόλωμα/εικόνα)">✨</button>
     <button class="rbtn" id="cInv" title="Πρόσκληση συμμετέχοντα"></button>
     <button class="rbtn leave" id="cLeave" title="Αποχώρηση"></button>
@@ -251,9 +266,38 @@ const ICO = {
   camBig: '<svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#5b6b85" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/></svg>'
 };
 
+/* ΧΡΟΝΟΔΙΑΚΟΠΤΗΣ ΠΟΥ ΔΕΝ «ΚΟΙΜΑΤΑΙ» (30/9/2026).
+   Όταν ο χρήστης άλλαζε παράθυρο, ο browser πάγωνε το requestAnimationFrame και
+   έκοβε τα setInterval της σελίδας (έως 1/λεπτό μετά από 5΄). Αποτέλεσμα: με
+   θόλωμα/φόντο η κάμερά του ΠΑΓΩΝΕ για όλους τους άλλους, και η σηματοδοσία
+   καθυστερούσε. Οι timers ενός Worker δεν περιορίζονται έτσι — από εκεί
+   χτυπάει το ρολόι και για την επεξεργασία εικόνας και για το poll. */
+const ticker = (() => {
+  const subs = {};
+  let w = null;
+  try {
+    w = new Worker(URL.createObjectURL(new Blob([
+      'const t={};onmessage=e=>{const d=e.data;if(d.on){clearInterval(t[d.id]);t[d.id]=setInterval(()=>postMessage(d.id),d.ms)}else{clearInterval(t[d.id]);delete t[d.id]}}'
+    ], {type: 'text/javascript'})));
+    w.onmessage = e => { const f = subs[e.data]; if (f) { f(); } };
+  } catch (e) { w = null; }
+  const fallback = {};
+  return {
+    every(id, ms, fn) {
+      subs[id] = fn;
+      if (w) { w.postMessage({id, ms, on: true}); } else { clearInterval(fallback[id]); fallback[id] = setInterval(fn, ms); }
+    },
+    stop(id) {
+      delete subs[id];
+      if (w) { w.postMessage({id, on: false}); } else { clearInterval(fallback[id]); }
+    }
+  };
+})();
+
 let stream = null, camTrack = null, micOn = true, camOn = true, sharing = false;
 /* Ποιος μοιράζεται οθόνη τώρα (peer id) — καθορίζει τη διάταξη, όχι τις ροές. */
-let presenter = null;
+let presenter = null;            // ο πιο πρόσφατος (συμβατότητα)
+const presenters = new Set();    // ΟΛΟΙ όσοι μοιράζονται τώρα
 let rawStream = null, bgMode = 'none', bgImg = null, seg = null, segBusy = false, procRAF = 0;
 const procCanvas = document.createElement('canvas');
 const procCtx = procCanvas.getContext('2d');
@@ -331,20 +375,35 @@ function segInit() {
       procCtx.filter = 'none';
     }
     procCtx.restore();
-    segBusy = false;
+    segBusy = false; segAt = Date.now();
   });
   return seg;
 }
+/* ~20 καρέ/δευτ. από τον Worker: σταθερός ρυθμός και στο παρασκήνιο, και λιγότερο
+   φορτίο από τα 60 του rAF (που «έτρωγε» το main thread και έκανε τα βίντεο των
+   άλλων να κολλάνε σε όποιον είχε θόλωμα).
+   ΦΥΛΑΚΑΣ: αν η κατάτμηση κολλήσει (>1΄΄ χωρίς αποτέλεσμα), στέλνουμε ΟΛΟ το
+   καρέ θολό — η εικόνα κινείται, και το φόντο που διάλεξες να κρύψεις μένει κρυφό. */
+let segAt = 0, segSent = 0;
 function procLoop() {
-  procRAF = requestAnimationFrame(procLoop);
-  if (bgMode === 'none' || segBusy || rawVideo.readyState < 2) return;
-  segBusy = true;
-  segInit().send({image: rawVideo});
+  if (bgMode === 'none' || rawVideo.readyState < 2) return;
+  const now = Date.now();
+  if (segBusy && now - segSent > 1000) {
+    const w = procCanvas.width, h = procCanvas.height;
+    procCtx.save(); procCtx.filter = 'blur(22px)';
+    procCtx.drawImage(rawVideo, -16, -16, w + 32, h + 32);
+    procCtx.restore();
+    if (now - segSent > 3000) { segBusy = false; }   // ξαναδοκίμασε την κατάτμηση
+    return;
+  }
+  if (segBusy) return;
+  segBusy = true; segSent = now;
+  segInit().send({image: rawVideo}).catch(() => { segBusy = false; });
 }
 async function makeEffectiveTrack() {
   const raw = rawStream ? rawStream.getVideoTracks()[0] : null;
   if (bgMode === 'none' || !raw) {
-    cancelAnimationFrame(procRAF);
+    ticker.stop('proc');
     return raw;
   }
   const st = raw.getSettings();
@@ -352,9 +411,8 @@ async function makeEffectiveTrack() {
   procCanvas.height = st.height || 720;
   rawVideo.srcObject = new MediaStream([raw]);
   await rawVideo.play().catch(() => {});
-  cancelAnimationFrame(procRAF);
-  procLoop();
-  return procCanvas.captureStream(25).getVideoTracks()[0];
+  ticker.every('proc', 50, procLoop);
+  return procCanvas.captureStream(20).getVideoTracks()[0];
 }
 async function setBg(mode) {
   if (mode === 'brand') await makeBrandBg();
@@ -404,7 +462,8 @@ async function getStream() {
     rawStream = await navigator.mediaDevices.getUserMedia(IS_REMOTE
       ? {audio: mic ? {deviceId: {exact: mic}} : true}
       : {audio: mic ? {deviceId: {exact: mic}} : true,
-         video: cam ? {deviceId: {exact: cam}, width: {ideal: 1280}} : {width: {ideal: 1280}}});
+         video: Object.assign(cam ? {deviceId: {exact: cam}} : {},
+           {width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 24, max: 30}})});
   } catch (e) {
     try { rawStream = await navigator.mediaDevices.getUserMedia({audio: true}); camOn = false; }
     catch (e2) { rawStream = new MediaStream(); camOn = false; micOn = false; toast('Χωρίς πρόσβαση σε κάμερα/μικρόφωνο'); }
@@ -513,13 +572,40 @@ function addTile(peer, name, isMe) {
   t.querySelector('.nm').textContent = String(name == null ? '' : name) + (isMe ? ' (εσύ)' : '');
   /* Μπαίνει κάποιος ΕΝΩ τρέχει παρουσίαση: το πρόσωπό του πάει στη λωρίδα, όχι
      πάνω από την οθόνη που όλοι κοιτούν. */
-  $(presenter && presenter !== peer ? '#strip' : '#grid').appendChild(t);
+  $(presenters.size && !presenters.has(peer) ? '#strip' : '#grid').appendChild(t);
   return t.querySelector('video');
 }
 function updCnt() {
   /* Μετράμε ΣΥΝΔΕΔΕΜΕΝΟΥΣ (όχι ημιτελείς προσκλήσεις): 1 = μόνος σου. */
   const live = Object.values(pcs).filter(x => /connected|completed/.test(x.pc.iceConnectionState)).length;
   $('#cnt').textContent = (live + 1) + ' συμμετέχοντες';
+}
+/* ΠΟΙΟΤΗΤΑ ΑΝΑΛΟΓΑ ΜΕ ΤΟ ΠΛΗΘΟΣ (30/9/2026).
+   Η κλήση είναι mesh: ο καθένας ανεβάζει ΞΕΧΩΡΙΣΤΗ ροή σε κάθε άλλον. Με 1280px χωρίς
+   όριο, πέντε άτομα = πέντε ροές HD ανά άνθρωπο — η σύνδεση γέμιζε και τα βίντεο
+   «σταματούσαν και ξεκινούσαν». Τώρα κάθε ροή κάμερας έχει ταβάνι που πέφτει όσο
+   μεγαλώνει η ομάδα. Η ΟΘΟΝΗ παίρνει προτεραιότητα: περισσότερο bitrate και
+   «balanced», ώστε η κύλιση να μένει ομαλή χωρίς να θολώνει το κείμενο. */
+function tuneSenders() {
+  const n = Math.max(1, Object.keys(pcs).length);
+  const cam = n <= 1 ? 1500000 : n <= 3 ? 800000 : n <= 5 ? 500000 : 300000;
+  const scr = n <= 2 ? 2500000 : n <= 4 ? 1600000 : 1000000;
+  Object.values(pcs).forEach(({pc}) => {
+    pc.getSenders().forEach(sn => {
+      if (!sn.track || sn.track.kind !== 'video') return;
+      const p = sn.getParameters();
+      if (!p.encodings || !p.encodings.length) { p.encodings = [{}]; }
+      const e = p.encodings[0];
+      if (sharing) {
+        e.maxBitrate = scr; e.maxFramerate = 30; e.scaleResolutionDownBy = 1;
+        p.degradationPreference = 'balanced';
+      } else {
+        e.maxBitrate = cam; e.maxFramerate = 24; e.scaleResolutionDownBy = n >= 4 ? 1.5 : 1;
+        p.degradationPreference = 'balanced';
+      }
+      sn.setParameters(p).catch(() => {});
+    });
+  });
 }
 function newPc(peer, name) {
   const pc = new RTCPeerConnection(ICE);
@@ -539,7 +625,7 @@ function newPc(peer, name) {
     if (v.srcObject !== e.streams[0]) v.srcObject = e.streams[0];
     const w = document.getElementById('rWait'); if (w) w.remove();
   };
-  pc.onconnectionstatechange = updCnt;
+  pc.onconnectionstatechange = () => { updCnt(); if (pc.connectionState === 'connected') { tuneSenders(); } };
   pcs[peer] = {pc, name, at: Date.now()};
   updCnt();
   return pc;
@@ -552,6 +638,7 @@ async function callPeer(peer, name) {
   /* Αν ήδη μοιράζομαι, πες το και στον καινούριο — αλλιώς θα έβλεπε την οθόνη μου
      σε μικρό πλακίδιο, σαν να ήταν πρόσωπο. */
   if (sharing) { api('rtc_signal', {peer: me, to: peer, kind: 'share', payload: '1'}); }
+  if (hands[me]) { api('rtc_signal', {peer: me, to: peer, kind: 'hand', payload: String(hands[me])}); }
 }
 function myNameVal() { return $('#myName') ? ($('#myName').value.trim() || 'Επισκέπτης') : ''; }
 async function handleMsg(m) {
@@ -571,22 +658,37 @@ async function handleMsg(m) {
     const ans = await pc.createAnswer();
     await pc.setLocalDescription(ans);
     api('rtc_signal', {peer: me, to: m.from, kind: 'answer', payload: JSON.stringify(ans)});
+    /* Ο ΝΕΟΣ μας καλεί — εμείς του λέμε ότι μοιραζόμαστε / έχουμε σηκωμένο χέρι.
+       Πριν, όποιος έμπαινε ενώ έτρεχε παρουσίαση έβλεπε την οθόνη σαν πρόσωπο. */
+    if (sharing) { api('rtc_signal', {peer: me, to: m.from, kind: 'share', payload: '1'}); }
+    if (hands[me]) { api('rtc_signal', {peer: me, to: m.from, kind: 'hand', payload: String(hands[me])}); }
   } else if (m.kind === 'answer' && pcs[m.from]) {
     await pcs[m.from].pc.setRemoteDescription(JSON.parse(m.payload));
   } else if (m.kind === 'ice' && pcs[m.from]) {
     try { await pcs[m.from].pc.addIceCandidate(JSON.parse(m.payload)); } catch (e) {}
   } else if (m.kind === 'share') {
     /* Ο άλλος άρχισε ή σταμάτησε να μοιράζεται. Δεν πειράζουμε ροές — μόνο διάταξη. */
-    setPresenter(m.payload === '1' ? m.from : (presenter === m.from ? null : presenter));
+    setPresenter(m.from, m.payload === '1');
+  } else if (m.kind === 'hand') {
+    if (m.payload === 'down') { if (hands[me]) { setHand(false, true); } return; }   // σου το κατέβασε συνάδελφος
+    const was = !!hands[m.from];
+    if (m.payload === '0') { delete hands[m.from]; } else { hands[m.from] = +m.payload || Date.now(); }
+    renderHands();
+    if (!was && hands[m.from]) {
+      const nm = (pcs[m.from] && pcs[m.from].name) || 'Κάποιος';
+      toast('✋ ' + nm + ' σήκωσε χέρι'); beep(1);
+    }
   } else if (m.kind === 'bye') {
-    if (presenter === m.from) { setPresenter(null); }
+    if (presenters.has(m.from)) { setPresenter(m.from, false); }
     dropPeer(m.from);
   }
 }
 function dropPeer(peer) {
   if (pcs[peer]) { try { pcs[peer].pc.close(); } catch (e) {} delete pcs[peer]; }
   const t = $('#tile-' + peer); if (t) t.remove();
+  if (hands[peer]) { delete hands[peer]; renderHands(); }
   updCnt();
+  tuneSenders();
 }
 let pollFails = 0, rejoining = false;
 const seenAt = {};   // peer -> πότε πρωτοεμφανίστηκε στο roster χωρίς σύνδεση
@@ -703,34 +805,96 @@ $('#joinBtn').onclick = async () => {
   }
   updCnt();
   r.roster.forEach(p => callPeer(p.peer, p.name).catch(e => { console.warn('call failed', p, e); toast('Δεν έγινε σύνδεση με ' + p.name + ' — θα ξαναπροσπαθήσω'); }));
-  pollT = setInterval(poll, 1200);
+  ticker.every('poll', 1200, poll);
 };
 
 /* ═══ ΔΙΑΤΑΞΗ ΠΑΡΟΥΣΙΑΣΗΣ ═══
    Ποιος μοιράζεται τώρα. Όταν υπάρχει κάποιος, το πλακίδιό του πιάνει όλη την
    οθόνη και τα υπόλοιπα πάνε σε λωρίδα από κάτω. Αν μοιράζονται δύο, δείχνουμε
    τον πιο πρόσφατο — δύο «μεγάλες» οθόνες δεν χωράνε πουθενά. */
-function setPresenter(peer) {
-  presenter = peer;
+function setPresenter(peer, on) {
+  /* Παλιά κλήση setPresenter(null) = κανείς. */
+  if (peer === null) { presenters.clear(); }
+  else if (on === false) { presenters.delete(peer); }
+  else { presenters.add(peer); }
+  [...presenters].forEach(p => { if (!document.getElementById('tile-' + p)) { presenters.delete(p); } });
+  presenter = presenters.size ? [...presenters].pop() : null;
   const grid = $('#grid'), strip = $('#strip');
   document.querySelectorAll('.tile').forEach(t => t.classList.remove('present'));
-  if (!peer || !document.getElementById('tile-' + peer)) {
-    presenter = null;
-    grid.classList.remove('presenting');
+  if (!presenters.size) {
+    grid.classList.remove('presenting', 'multi');
     /* Τα πρόσωπα γυρίζουν στο πλέγμα. */
     [...strip.children].forEach(t => grid.appendChild(t));
     return;
   }
   grid.classList.add('presenting');
-  const big = document.getElementById('tile-' + peer);
-  big.classList.add('present');
-  grid.appendChild(big);
-  document.querySelectorAll('#grid .tile').forEach(t => { if (t !== big) { strip.appendChild(t); } });
+  grid.classList.toggle('multi', presenters.size > 1);
+  presenters.forEach(p => {
+    const big = document.getElementById('tile-' + p);
+    big.classList.add('present');
+    grid.appendChild(big);
+  });
+  document.querySelectorAll('#grid .tile').forEach(t => { if (!t.classList.contains('present')) { strip.appendChild(t); } });
 }
 window.setPresenter = setPresenter;   // για δοκιμές διάταξης χωρίς δεύτερο peer
 function announceShare(on) {
   Object.keys(pcs).forEach(p => api('rtc_signal', {peer: me, to: p, kind: 'share', payload: on ? '1' : '0'}));
 }
+
+/* ═══ ✋ ΣΗΚΩΜΑ ΧΕΡΙΟΥ ═══
+   Ζητάς τον λόγο χωρίς να διακόψεις. Όλοι βλέπουν το σήμα στο πλακίδιό σου και
+   την ουρά με τη σειρά (ποιος το σήκωσε πρώτος). Το κατεβάζεις εσύ — ή ένας
+   συνάδελφος από την ομάδα πατώντας το ✋ στο πλακίδιό σου, όταν σου δώσει τον λόγο. */
+const hands = {};   // peer -> πότε σήκωσε (ms)
+function nameOf(peer) {
+  if (peer === me) { return 'Εσύ'; }
+  const nm = document.querySelector('#tile-' + peer + ' .nm');
+  return (pcs[peer] && pcs[peer].name) || (nm ? nm.textContent : '…');
+}
+function renderHands() {
+  const order = Object.keys(hands).sort((a, b) => hands[a] - hands[b]);
+  document.querySelectorAll('.tile').forEach(t => {
+    const peer = t.id.replace('tile-', '');
+    let b = t.querySelector('.hand');
+    const idx = order.indexOf(peer);
+    t.classList.toggle('raised', idx >= 0);
+    if (idx < 0) { if (b) { b.remove(); } return; }
+    if (!b) {
+      const canLower = peer === me || !IS_GUEST;
+      b = document.createElement(canLower ? 'button' : 'span');
+      b.className = 'hand';
+      if (canLower) {
+        b.type = 'button';
+        b.title = peer === me ? 'Κατέβασε το χέρι σου' : 'Κατέβασέ του το χέρι (πήρε τον λόγο)';
+        b.onclick = () => { if (peer === me) { setHand(false); } else { api('rtc_signal', {peer: me, to: peer, kind: 'hand', payload: 'down'}); } };
+      }
+      t.appendChild(b);
+    }
+    b.textContent = '✋ ' + (idx + 1);
+  });
+  const q = $('#handQ');
+  if (!order.length) { q.classList.remove('on'); q.innerHTML = ''; return; }
+  q.classList.add('on');
+  q.innerHTML = '<b>✋ Ζητούν τον λόγο:</b> ';
+  order.forEach((p, i) => {
+    const s = document.createElement('span');
+    s.textContent = (i ? '· ' : '') + (i + 1) + '. ' + nameOf(p);
+    q.appendChild(s);
+  });
+}
+function setHand(on, byOther) {
+  if (!me) return;
+  if (on) { hands[me] = Date.now(); } else { delete hands[me]; }
+  const hb = $('#cHand');
+  hb.classList.toggle('on', !!on); hb.setAttribute('aria-pressed', on ? 'true' : 'false');
+  hb.title = on ? 'Κατέβασε το χέρι σου' : 'Σήκωσε χέρι για να πάρεις τον λόγο';
+  Object.keys(pcs).forEach(p => api('rtc_signal', {peer: me, to: p, kind: 'hand', payload: on ? String(hands[me]) : '0'}));
+  renderHands();
+  if (byOther) { toast('Σου έδωσαν τον λόγο — το χέρι σου κατέβηκε'); }
+  else { toast(on ? '✋ Σήκωσες χέρι — θα σου δώσουν τον λόγο' : 'Κατέβασες το χέρι'); }
+}
+$('#cHand').onclick = () => setHand(!hands[me]);
+if (IS_REMOTE) { $('#cHand').style.display = 'none'; }
 
 /* ─── In-call controls ─── */
 $('#cMic').onclick = () => { micOn = !micOn; applyToggles(); };
@@ -738,8 +902,9 @@ $('#cCam').onclick = () => { camOn = !camOn; applyToggles(); };
 $('#cShare').onclick = async () => {
   if (!sharing) {
     try {
-      const ds = await navigator.mediaDevices.getDisplayMedia({video: true});
+      const ds = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: {ideal: 30, max: 30}}, audio: false});
       const track = ds.getVideoTracks()[0];
+      try { track.contentHint = 'detail'; } catch (e) {}   // κείμενο ευανάγνωστο· η ομαλότητα από το «balanced»
       Object.values(pcs).forEach(({pc}) => {
         const sn = pc.getSenders().find(s => s.track && s.track.kind === 'video');
         if (sn) sn.replaceTrack(track);
@@ -748,7 +913,8 @@ $('#cShare').onclick = async () => {
       myV.srcObject = new MediaStream([track, ...stream.getAudioTracks()]);
       myV.classList.remove('mirror');
       sharing = true; $('#cShare').classList.add('off'); toast('Μοιράζεσαι την οθόνη σου 🖥');
-      announceShare(true); setPresenter(me);
+      tuneSenders();
+      announceShare(true); setPresenter(me, true);
       track.onended = stopShare;
     } catch (e) {}
   } else stopShare();
@@ -756,7 +922,8 @@ $('#cShare').onclick = async () => {
 function stopShare() {
   if (!sharing) return;
   sharing = false; $('#cShare').classList.remove('off');
-  announceShare(false); if (presenter === me) { setPresenter(null); }
+  setTimeout(tuneSenders, 300);
+  announceShare(false); setPresenter(me, false);
   Object.values(pcs).forEach(({pc}) => {
     const sn = pc.getSenders().find(s => s.track && s.track.kind === 'video');
     if (sn && camTrack) sn.replaceTrack(camTrack);
@@ -772,13 +939,13 @@ const BACK_URL = <?= json_encode($backUrl) ?>;
 const BACK_LABEL = <?= json_encode($backLabel) ?>;
 /** Τερματισμός σύνδεσης & απελευθέρωση κάμερας/μικροφώνου (χωρίς αλλαγή οθόνης). */
 function leaveCleanup() {
-  clearInterval(pollT);
+  ticker.stop('poll');
   if (me) {
     Object.keys(pcs).forEach(p => api('rtc_signal', {peer: me, to: p, kind: 'bye', payload: ''}));
-    api('rtc_leave', {peer: me});
+    api('rtc_leave', {peer: me, final: 1});   // final: πραγματική αποχώρηση → η κατάστασή σου αλλάζει αμέσως
   }
   Object.keys(pcs).forEach(dropPeer);
-  cancelAnimationFrame(procRAF);
+  ticker.stop('proc');
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (rawStream) rawStream.getTracks().forEach(t => t.stop());
   me = null;   // μη στείλεις δεύτερο leave στο beforeunload
@@ -861,7 +1028,8 @@ $('#cLeave').onclick = leave;
 window.addEventListener('pagehide', () => {
   if (!me) return;
   const url = API + '?a=rtc_leave' + (MT ? '&mt=' + encodeURIComponent(MT) : '');
-  try { navigator.sendBeacon(url, new Blob([JSON.stringify({room: ROOM, peer: me, k: myKey})], {type: 'application/json'})); } catch (e) {}
+  /* text/plain: τύπος που το sendBeacon στέλνει πάντα χωρίς αντιρρήσεις· ο server διαβάζει JSON από το σώμα. */
+  try { navigator.sendBeacon(url, new Blob([JSON.stringify({room: ROOM, peer: me, k: myKey, final: 1})], {type: 'text/plain;charset=UTF-8'})); } catch (e) {}
 });
 </script>
 </body>
