@@ -4938,3 +4938,9 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .tk-collab button:hover{color:var(--bad)}
 .tk-collab-add{border:1px dashed var(--line);background:none;border-radius:999px;padding:1px 8px;cursor:pointer;color:var(--acc,var(--ink));font-size:inherit}
 .tk-collab-add:hover{border-style:solid}
+
+/* Επαναλαμβανόμενες (30/9/2026): στο κινητό ο τίτλος παίρνει όλη τη γραμμή, τα σήματα από κάτω */
+@media (max-width:640px){
+  .rc-row{flex-wrap:wrap;row-gap:6px}
+  .rc-row .rc-main{flex:1 1 calc(100% - 24px) !important}
+}

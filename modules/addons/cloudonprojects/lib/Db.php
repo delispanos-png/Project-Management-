@@ -557,6 +557,35 @@ class Db
             });
         }
 
+        /* Μεγάλα μηνύματα στις εργασίες (30/9/2026): TEXT = 64KB ≈ 32.000 ελληνικοί χαρακτήρες. */
+        try {
+            Capsule::statement('ALTER TABLE mod_cpm_checklist MODIFY title MEDIUMTEXT');
+            Capsule::statement('ALTER TABLE mod_cpm_comments MODIFY comment MEDIUMTEXT');
+        } catch (\Throwable $e) { }
+
+        /* Επαναλαμβανόμενες (30/9/2026): άτομα, τμήμα, ώρες, βήματα· έργο προαιρετικό.
+           Κάθε εργασία ξέρει από ποιον κανόνα/ημέρα βγήκε και αν έμεινε «δεν έγινε». */
+        foreach (['people' => 'string', 'dept_id' => 'int', 'steps' => 'text', 'start_time' => 'time',
+                  'end_time' => 'time', 'created_by' => 'int'] as $rc => $rt) {
+            if (!$s->hasColumn('mod_cpm_recurring', $rc)) {
+                $s->table('mod_cpm_recurring', function ($t) use ($rc, $rt) {
+                    if ($rt === 'string') { $t->string($rc, 255)->default(''); }
+                    elseif ($rt === 'text') { $t->text($rc)->nullable(); }
+                    elseif ($rt === 'time') { $t->string($rc, 5)->nullable(); }
+                    else { $t->integer($rc)->unsigned()->nullable(); }
+                });
+            }
+        }
+        foreach (['rec_id' => 'int', 'rec_date' => 'date', 'rec_missed' => 'tiny'] as $rc => $rt) {
+            if (!$s->hasColumn('mod_cpm_tasks', $rc)) {
+                $s->table('mod_cpm_tasks', function ($t) use ($rc, $rt) {
+                    if ($rt === 'int') { $t->integer($rc)->unsigned()->nullable()->index(); }
+                    elseif ($rt === 'date') { $t->date($rc)->nullable(); }
+                    else { $t->tinyInteger($rc)->default(0); }
+                });
+            }
+        }
+
         /* Συνεργάτες εργασίας (29/9/2026): δουλεύουν ΜΑΖΙ με τον κάτοχο της μπάλας,
            με δικό τους χρονόμετρο. Η μπάλα μένει σε έναν· ο συνεργάτης βλέπει την
            εργασία και γράφει τον χρόνο του, που μετρά στο δικό του admin_id. */
@@ -2188,13 +2217,21 @@ class Db
     {
         $q = Capsule::table('mod_cpm_tasks as t')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-            ->select('t.*', 'p.name as project_name', 'p.color as project_color', 'p.clientid');
+            /* Ο πελάτης έρχεται από το έργο — κι αν δεν έχει έργο, από το ticket που τη γέννησε (30/9/2026). */
+            ->leftJoin('tbltickets as tk', 'tk.id', '=', 't.ticketid')
+            ->select('t.*', 'p.name as project_name', 'p.color as project_color', 'p.clientid', 'tk.userid as tk_client');
         if (!empty($f['id']))         { $q->where('t.id', (int) $f['id']); }   // αναζήτηση με #αριθμό
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['status_id']))  { $q->where('t.status_id', (int) $f['status_id']); }
         if (!empty($f['assignee']))   { $q->where('t.assignee', (int) $f['assignee']); }
         /* Ο πελάτης κρέμεται στο έργο· ο δημιουργός είναι αυτός που άνοιξε την εργασία. */
-        if (!empty($f['client']))     { $q->where('p.clientid', (int) $f['client']); }
+        if (!empty($f['client'])) {
+            $q->where(function ($w) use ($f) {
+                $w->where('p.clientid', (int) $f['client'])
+                  ->orWhere(function ($x) use ($f) { $x->where(function ($y) { $y->whereNull('p.clientid')->orWhere('p.clientid', 0); })
+                      ->where('tk.userid', (int) $f['client']); });
+            });
+        }
         if (!empty($f['creator']))    { $q->where('t.created_by', (int) $f['creator']); }
         if (!empty($f['product'])) {
             $q->where(function ($w) use ($f) {
@@ -2643,7 +2680,7 @@ class Db
     public static function recurringAll($onlyActive = false)
     {
         $q = Capsule::table('mod_cpm_recurring as r')
-            ->join('mod_cpm_projects as p', 'p.id', '=', 'r.project_id')
+            ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 'r.project_id')
             ->select('r.*', 'p.name as project_name', 'p.color as project_color')
             ->orderBy('r.next_run');
         if ($onlyActive) {
@@ -3580,6 +3617,13 @@ class Db
            μπορούσε να την ανοίξει, και η απάντησή του δεν γραφόταν μέσα της. */
         if (!empty($task->id) && Capsule::table('mod_cpm_help')->where('task_id', (int) $task->id)
                 ->where('to_admin', (int) $adminId)->exists()) {
+            return true;
+        }
+        /* Ομαδική επαναλαμβανόμενη που δεν την ανέλαβε ακόμη κανείς: τη βλέπουν
+           όλοι όσοι την καλύπτουν — αλλιώς δεν θα μπορούσαν να την αναλάβουν. */
+        if (!empty($task->rec_id) && empty($task->assignee) && empty($task->action_user)
+            && strpos((string) Capsule::table('mod_cpm_recurring')->where('id', (int) $task->rec_id)->value('people'),
+                ',' . (int) $adminId . ',') !== false) {
             return true;
         }
         /* Ο ΣΥΝΕΡΓΑΤΗΣ βλέπει την εργασία στην οποία δουλεύει μαζί με τον κάτοχο. */

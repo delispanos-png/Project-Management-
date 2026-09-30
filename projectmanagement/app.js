@@ -428,6 +428,7 @@ function renderShell() {
       ['list', I.list, 'Λίστα tasks', 'projects.board'],   /* ανοίγει στα δικά σου — δεν υπόσχεται «όλα» */
       ['gantt', I.gantt, 'Χρονοδιάγραμμα', 'projects.board'],
       ['scheduler', I.cal, 'Πρόγραμμα ομάδας', 'projects.board'],
+      ['recurring', I.repeat, 'Επαναλαμβανόμενες', 'projects.recurring'],   /* ό,τι γίνεται κάθε μέρα — ποιος, και αν έγινε σήμερα */
       ['templates', I.box, 'Modules', 'projects.modules'],
       ['units', I.tree, 'Departments', 'projects.depts'],
     ]],
@@ -2825,6 +2826,7 @@ async function openTask(id, entryId, opts) {
       <span class="tk-hdr-i" title="Καταγεγραμμένος χρόνος${t.est ? ' / εκτίμηση' : ''}">⏱ <b>${fmtMin(d.total)}</b>${t.est ? `<small>/ ~${fmtMin(t.est)}</small>` : ''}</span>
       ${billMins ? `<span class="tk-hdr-i ${t.billOk ? 'ok' : 'warn'}" title="${t.billOk ? 'Εγκρίθηκε από το λογιστήριο' : 'Χρεώσιμος χρόνος — χρειάζεται έγκριση λογιστηρίου πριν κλείσει'}">💶 <b>${fmtMin(billMins)}</b> ${t.billOk ? '✔' : '⏳'}</span>` : ''}
       ${d.timerHere ? `<span class="tk-hdr-i live">▶ <span class="timer-live" id="tLive" style="font-size:12.5px"></span></span><button class="btn btn-sm btn-danger" id="tStop">${I.stop} Stop</button>`
+        : d.canClaim ? `<button class="btn btn-sm btn-ok" id="tClaim" title="Επαναλαμβανόμενη ομάδας — ο πρώτος που την αναλαμβάνει την παίρνει">✋ Την αναλαμβάνω</button>`
         : d.canTimer === false ? ''
         : d.timerElsewhere ? `<span class="tk-hdr-i warn" title="Τρέχει χρονόμετρο σε άλλη εργασία">τρέχει αλλού</span><button class="btn btn-sm btn-ok" id="tStart">${I.play} Εδώ</button>`
         : `<button class="btn btn-sm btn-ok" id="tStart" title="Ξεκίνα χρονόμετρο σε αυτή την εργασία">${I.play} Start</button>`}
@@ -3815,6 +3817,11 @@ async function openTask(id, entryId, opts) {
     if (dr._saveNow) { await dr._saveNow(); }
     return dr.dataset.dirty !== '1';
   };
+  const tcl = $('#tClaim', dr); if (tcl) tcl.onclick = async () => {
+    const r = await api('rec_claim', {task: id}).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
+    if (r && r.err) { toast(r.err, true); } else { toast('Την ανέλαβες'); }
+    openTask(id);
+  };
   const ts = $('#tStart', dr); if (ts) ts.onclick = async () => { if (!(await saveFirst())) { return; } await api('timer_start', {task: id}); toast('Ο χρόνος μετράει'); openTask(id); };
   const tp = $('#tStop', dr); if (tp) tp.onclick = async () => {
     if (!(await saveFirst())) { return; }
@@ -4571,6 +4578,17 @@ async function vMyDay() {
       done: h.kind !== 'checkin' ? async () => { await api('help_done', {id: h.id}).catch(() => {}); } : null});
     if (h.taskId) { seenTask.add(h.taskId); }
   });
+  /* 🔁 Ομαδική επαναλαμβανόμενη που δεν ανέλαβε κανείς: ο πρώτος που πατά την παίρνει. */
+  (d.claimable || []).forEach(x => {
+    att.push({sev: 2, lvl: 'warn', ic: '🔁', why: 'ποιος την αναλαμβάνει;', title: x.title,
+      sub: (x.at ? 'σήμερα ' + x.at + ' · ' : 'σήμερα · ') + 'ανοιχτή για ' + x.n + ' άτομα',
+      act: '✋ Την αναλαμβάνω', on: async () => {
+        const r = await api('rec_claim', {task: x.id}).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
+        if (r && r.err) { toast(r.err, true); vMyDay(); return; }
+        toast('Την ανέλαβες'); openTask(x.id);
+      }, task: x.id});
+    seenTask.add(x.id);
+  });
   (pend.meetings || []).forEach(m => {
     att.push({sev: 3, lvl: 'info', ic: '📅', why: 'πρόσκληση', title: m.title, sub: (m.whenTxt || '') + (m.by ? ' · από ' + m.by : ''),
       act: '✔ Θα είμαι', on: async () => { await api('event_rsvp', {id: m.id, status: 'accepted'}).catch(() => {}); toast('✔ Δήλωσες συμμετοχή'); vMyDay(); },
@@ -4698,7 +4716,7 @@ async function vMyDay() {
     </div></div>`;
 
   const ATT_MAX = 6;
-  const attBody = att.length ? att.slice(0, ATT_MAX).map(attRow).join('') + (att.length > ATT_MAX ? `<div class="myd-more" data-attmore>${att.slice(ATT_MAX).map(attRow).join('')}</div><a class="myd-morelink" data-attmore-t>+ ${att.length - ATT_MAX} ακόμη…</a>` : '')
+  const attBody = att.length ? att.slice(0, ATT_MAX).map(attRow).join('') + (att.length > ATT_MAX ? `<div class="myd-more" data-attmore>${att.slice(ATT_MAX).map((a, i) => attRow(a, i + ATT_MAX)).join('')}</div><a class="myd-morelink" data-attmore-t>+ ${att.length - ATT_MAX} ακόμη…</a>` : '')
     : '<div class="myd-empty">✨ Τίποτα δεν σε περιμένει — καθαρό τραπέζι.</div>';
   const planBody = (evs.length ? `<div class="myd-grp">Συσκέψεις & ραντεβού</div>${evs.map(evRow).join('')}` : '')
     + (planTasks.length ? `<div class="myd-grp">Εργασίες</div>${planTasks.map(taskRow).join('')}` : '')

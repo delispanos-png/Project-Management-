@@ -209,7 +209,10 @@ class DayPlan
 
         /* ── Κανόνας 2 & 1 & 3 & 4: ανά ανοιχτή εργασία ── */
         foreach (Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $done)
-            ->get(['id', 'title', 'created_at', 'due_date', 'schedule_date', 'assignee', 'action_user', 'project_id', 'dept_id', 'estimate_minutes']) as $t) {
+            ->get(['id', 'title', 'created_at', 'due_date', 'schedule_date', 'assignee', 'action_user', 'project_id', 'dept_id', 'estimate_minutes', 'rec_id']) as $t) {
+            /* Επαναλαμβανόμενες: ζουν μία μέρα και έχουν δικό τους κύκλωμα (ανάληψη από
+               ομάδα, «δεν έγινε» αυτόματα). Κάρτες διαχείρισης γι' αυτές θα ήταν θόρυβος. */
+            if (!empty($t->rec_id)) { continue; }
 
             $pid = (int) $t->project_id;
             $pr = $pid && isset($projects[$pid]) ? $projects[$pid] : null;
