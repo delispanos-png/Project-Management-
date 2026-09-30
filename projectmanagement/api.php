@@ -8975,6 +8975,23 @@ case 'save_task':
     if (array_key_exists('ticket_ref', $in) && !$t->ticketid) {
         $ref = preg_replace('/[^0-9A-Za-z\/\-_.#]/u', '', trim((string) $in['ticket_ref']));
         $data['ticket_ref'] = $ref !== '' ? mb_substr($ref, 0, 40) : null;
+        /* ΕΝΑΣ ΑΡΙΘΜΟΣ TICKET = ΜΙΑ ΕΡΓΑΣΙΑ (30/9/2026). Αν υπάρχει ήδη σε άλλη εργασία
+           (ανοιχτή ή κλειστή), δεν γράφεται — ο χρήστης βλέπει πού είναι και πηγαίνει εκεί
+           αντί να ανοίξει δεύτερη για το ίδιο αίτημα. «#4821» και «4821» είναι το ίδιο. */
+        if ($data['ticket_ref'] !== null) {
+            $refN = ltrim($data['ticket_ref'], '#');
+            $dupR = Capsule::table('mod_cpm_tasks')->where('id', '<>', $tid)
+                ->where(function ($w) use ($refN) { $w->where('ticket_ref', $refN)->orWhere('ticket_ref', '#' . $refN); })
+                ->orderBy('id')->first(['id', 'title', 'status_id', 'assignee', 'action_user']);
+            if ($dupR) {
+                $dupDone = in_array((int) $dupR->status_id, Db::closedStatusIds(), true);
+                $dupWho = (int) ($dupR->action_user ?: $dupR->assignee);
+                out(['error' => 'Το ticket ' . $refN . ' υπάρχει ήδη στην εργασία #' . $dupR->id . ' «' . mb_substr((string) $dupR->title, 0, 80) . '»'
+                    . ($dupDone ? ' (κλειστή)' : ($dupWho ? ' — την έχει ' . Db::adminName($dupWho) : '')),
+                    'need' => 'dupref', 'ref' => $refN, 'prev' => (string) ($t->ticket_ref ?? ''),
+                    'dup' => ['id' => (int) $dupR->id, 'title' => (string) $dupR->title, 'done' => $dupDone]]);
+            }
+        }
     }
     $ballStopped = null;   // γεμίζει αν η παράδοση της μπάλας έκοψε χρονόμετρο
     if (array_key_exists('ball', $in)) {
@@ -9213,6 +9230,11 @@ case 'timer_start':
 
 case 'timer_stop':
     $running = Db::runningTimer($adminId);
+    /* Με «task»: σταμάτα ΜΟΝΟ αν τρέχει σε αυτή την εργασία (χρόνος σύνταξης νέας
+       εργασίας) — ποτέ χρονόμετρο άλλης εργασίας που ξεκίνησε στο μεταξύ. */
+    if (!empty($in['task']) && (!$running || (int) $running->task_id !== (int) $in['task'])) {
+        out(['ok' => true, 'mins' => 0, 'skipped' => true]);
+    }
     if (!$running) {
         fail('no timer');
     }
@@ -16411,7 +16433,7 @@ case 'chat_edit':                       // επεξεργασία δικού μ�
     if ((int) $mE->admin_id !== $adminId) { fail('Μπορείς να αλλάξεις μόνο δικά σου μηνύματα', 403); }
     if ($mE->filename) { fail('Μήνυμα με αρχείο/φωνητικό δεν επεξεργάζεται — σβήσ’ το και στείλε νέο'); }
     if (time() - strtotime($mE->created_at) > CNP_CHAT_EDIT) { fail('Η διόρθωση επιτρέπεται μόνο τα πρώτα 2΄ — μετά, σβήσ’ το και στείλε νέο'); }
-    $bodyE = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 4000);
+    $bodyE = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 20000);   // 20.000: επικολλημένο κείμενο με μορφή
     if ($bodyE === '') { fail('Κενό μήνυμα — αν θέλεις να το αφαιρέσεις, πάτα διαγραφή'); }
     if ($bodyE !== (string) $mE->body) {
         Capsule::table('mod_cpm_chat')->where('id', (int) $mE->id)->update(['body' => $bodyE, 'edited_at' => date('Y-m-d H:i:s')]);
@@ -16437,7 +16459,7 @@ case 'chat_send':
         fail('channel', 403);
     }
     /* utf8mb3: τα 4-byte emoji θα γίνονταν «????» — κόβονται πριν την αποθήκευση */
-    $body = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 4000);
+    $body = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 20000);   // 20.000: επικολλημένο κείμενο με μορφή
     $fn = null;
     $sz = null;
     $storageId = null;
