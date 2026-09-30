@@ -295,7 +295,8 @@ function quickNew() {
     close();
     toast(r.started ? '▶ Δημιουργήθηκε — ο χρόνος τρέχει' : 'Δημιουργήθηκε ✓');
     /* Ανοίγει ως ΠΡΟΧΕΙΡΟ: αν κλείσει με ✕ χωρίς αποθήκευση, ρωτά «να κρατηθεί;» — «Όχι» τη σβήνει. */
-    openTask(r.id, 0, {fresh: true});
+    /* «Κράτα το για μένα» = ρητά χωρίς χρονόμετρο. Όλα τα άλλα: ο χρόνος που τη γράφεις μετράει. */
+    openTask(r.id, 0, {fresh: true, setup: !r.started && !(opts && opts.noTimer)});
   };
   /* Ο τίτλος κρατιέται χωριστά: στο βήμα 2 το ίδιο πεδίο γίνεται αναζήτηση. */
   let subject = '';
@@ -310,7 +311,7 @@ function quickNew() {
       subject = inp.value.trim();
       const it = r.it;
       if (!it.need) {
-        create({}, {mine: true, start: it.k === 'mine'});
+        create({}, {mine: true, start: it.k === 'mine', noTimer: it.k === 'todo'});
         return;
       }
       /* «Εργασία σε έργο» ενώ είσαι μέσα σε έργο: δεν έχει νόημα δεύτερη ερώτηση
@@ -621,6 +622,59 @@ const LF_F = {
   created: {label: 'Δημιουργήθηκε', dateRange: 1},
   done: {label: 'Ολοκληρώθηκε', dateRange: 1},   // ενεργοποιεί κι αυτόματα «όλα» — βλ. load()
 };
+
+/* Μετατροπή επικολλημένου HTML σε ελαφριά σήμανση chat:
+   **έντονα** · _πλάγια_ · ~~διαγραμμένα~~ · `κώδικας` · ```μπλοκ``` · • λίστες · 1. αριθμημένες
+   · επικεφαλίδες ως έντονη γραμμή · σύνδεσμοι «κείμενο (url)» · πίνακες ως «α | β | γ». */
+function chatHtmlToMd(html) {
+  let doc;
+  try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch (e) { return ''; }
+  const BLOCK = /^(P|DIV|H[1-6]|LI|TR|BLOCKQUOTE|UL|OL|TABLE|SECTION|ARTICLE|HEADER|FOOTER|PRE)$/;
+  const styleOf = el => (el.getAttribute && el.getAttribute('style') || '').toLowerCase();
+  const isBold = el => {
+    const st = styleOf(el);
+    if (/font-weight\s*:\s*(normal|400|300|lighter)/.test(st)) { return false; }   // Google Docs: <b style="font-weight:normal">
+    return /^(B|STRONG)$/.test(el.tagName) || /font-weight\s*:\s*(bold|[6-9]00)/.test(st);
+  };
+  const isItal = el => /^(I|EM)$/.test(el.tagName) || /font-style\s*:\s*italic/.test(styleOf(el));
+  const isStrike = el => /^(S|DEL|STRIKE)$/.test(el.tagName) || /line-through/.test(styleOf(el));
+  const wrap = (t, m) => { const x = t.trim(); if (!x) { return t; } const pre = t.match(/^\s*/)[0], post = t.match(/\s*$/)[0]; return pre + m + x + m + post; };
+  const walk = (n, ctx) => {
+    if (n.nodeType === 3) { return ctx.pre ? n.nodeValue : n.nodeValue.replace(/\s+/g, ' '); }
+    if (n.nodeType !== 1) { return ''; }
+    const tg = n.tagName;
+    if (/^(SCRIPT|STYLE|HEAD|META|TITLE|IMG|SVG)$/.test(tg)) { return ''; }
+    if (tg === 'BR') { return '\n'; }
+    if (tg === 'PRE') { return '\n```\n' + n.textContent.replace(/\n$/, '') + '\n```\n'; }
+    if (tg === 'CODE') { return '`' + n.textContent + '`'; }
+    if (tg === 'UL' || tg === 'OL') {
+      let i = 0; const lvl = (ctx.lvl || 0);
+      return '\n' + [...n.children].filter(c => c.tagName === 'LI').map(li => {
+        i++;
+        const body = [...li.childNodes].map(c => walk(c, Object.assign({}, ctx, {lvl: lvl + 1}))).join('').replace(/^\s+|\s+$/g, '');
+        return '  '.repeat(lvl) + (tg === 'OL' ? i + '. ' : '• ') + body;
+      }).join('\n') + '\n';
+    }
+    if (tg === 'TABLE') {
+      return '\n' + [...n.querySelectorAll('tr')].map(tr => [...tr.children]
+        .map(td => [...td.childNodes].map(c => walk(c, ctx)).join('').replace(/\s+/g, ' ').trim()).join(' | ')).join('\n') + '\n';
+    }
+    let inner = [...n.childNodes].map(c => walk(c, ctx)).join('');
+    if (tg === 'A' && n.getAttribute('href') && /^(https?:|mailto:)/i.test(n.getAttribute('href'))) {
+      const href = n.getAttribute('href'), txt = inner.trim();
+      inner = !txt || txt === href || href.replace(/^mailto:/i, '') === txt ? href : txt + ' (' + href + ')';
+    }
+    if (/^H[1-6]$/.test(tg)) { return '\n' + wrap(inner.replace(/\*\*/g, ''), '**') + '\n'; }
+    if (isBold(n)) { inner = wrap(inner, '**'); }
+    if (isItal(n)) { inner = wrap(inner, '_'); }
+    if (isStrike(n)) { inner = wrap(inner, '~~'); }
+    return BLOCK.test(tg) ? '\n' + inner.replace(/^[ \t]+|[ \t]+$/g, '') + '\n' : inner;
+  };
+  let out = walk(doc.body, {});
+  out = out.replace(/\*\*\s*\*\*/g, '').replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n').replace(/^\n+|\s+$/g, '');
+  return out;
+}
 
 /* ═════════ 🗂 Κάρτες διαχείρισης — η ουρά αποφάσεων (22/9/2026) ═════════
    Δεν είναι dashboard. Κάθε κάρτα είναι ΜΙΑ ερώτηση με κουμπιά που εκτελούν επί τόπου:
@@ -2362,12 +2416,24 @@ R.chat = async function () {
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && rec && rec.state === 'recording') { recCancel = true; rec.stop(); } });
   window.addEventListener('blur', () => { if (rec && rec.state === 'recording') { recRelease(); } });
   $('#chIn').onpaste = e => {
-    const items = [...((e.clipboardData || {}).items || [])];
+    const cd = e.clipboardData || {};
+    const items = [...(cd.items || [])];
     let took = false;
     items.forEach(it => {
       if (it.kind === 'file') { took = addPend(it.getAsFile()) || took; }
     });
-    if (took) { e.preventDefault(); }
+    if (took) { e.preventDefault(); return; }
+    /* ΕΠΙΚΟΛΛΗΣΗ ΜΕ ΜΟΡΦΗ (30/9/2026): κείμενο από Word/Docs/email/web κρατά έντονα,
+       πλάγια, λίστες, επικεφαλίδες, συνδέσμους, κώδικα και πίνακες — ως ελαφριά
+       σήμανση που το chat εμφανίζει (cnpMsgHtml). Δεν αποθηκεύεται HTML. */
+    const html = cd.getData ? cd.getData('text/html') : '';
+    if (!html) { return; }
+    const md = chatHtmlToMd(html);
+    if (!md) { return; }
+    e.preventDefault();
+    const inp = $('#chIn');
+    inp.setRangeText(md, inp.selectionStart, inp.selectionEnd, 'end');
+    if (R.chat._growIn) { R.chat._growIn(); }
   };
   { /* σύρσιμο αρχείου πάνω στη συνομιλία — σε ΟΛΗ την περιοχή (header+μηνύματα+
        συνθέτης), όχι μόνο στη λεπτή μπάρα του συνθέτη: εκεί έπεφτε συνήθως το

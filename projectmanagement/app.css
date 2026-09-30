@@ -4944,3 +4944,7 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   .rc-row{flex-wrap:wrap;row-gap:6px}
   .rc-row .rc-main{flex:1 1 calc(100% - 24px) !important}
 }
+
+/* Chat: κώδικας από επικόλληση/σήμανση (30/9/2026) */
+.msg-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;background:rgba(127,127,127,.16);padding:1px 5px;border-radius:5px}
+.msg-pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;background:rgba(127,127,127,.14);padding:8px 10px;border-radius:8px;white-space:pre;overflow-x:auto;margin:4px 0;max-width:100%}

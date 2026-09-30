@@ -1832,8 +1832,17 @@ document.addEventListener('paste', e => {
 function cnpMsgHtml(text) {
   const raw = String(text || '');
   let h = esc(raw);
-  /* **έντονα** — έτσι τα στέλνει το «Στείλε εργασία» */
-  h = h.replace(/\*\*([^*\n]{1,200})\*\*/g, (m, x) => '<b>' + x + '</b>');
+  /* Κώδικας ΠΡΩΤΑ και σε «θήκες»: μέσα του δεν ισχύει καμία άλλη σήμανση ούτε σύνδεσμοι. */
+  const box = [];
+  const keep = html => '\u0000' + (box.push(html) - 1) + '\u0000';
+  h = h.replace(/```\n?([\s\S]*?)\n?```/g, (m, x) => keep('<pre class="msg-pre">' + x + '</pre>'));
+  h = h.replace(/`([^`\n]{1,500})`/g, (m, x) => keep('<code class="msg-code">' + x + '</code>'));
+  /* **έντονα** — έτσι τα στέλνει το «Στείλε εργασία» και η επικόλληση κειμένου με μορφή */
+  h = h.replace(/\*\*([^*\n]{1,300})\*\*/g, (m, x) => '<b>' + x + '</b>');
+  /* _πλάγια_ και ~~διαγραμμένα~~ — μόνο ανάμεσα σε κενά/στίξη, ώστε ονόματα αρχείων
+     (my_file_name) και διευθύνσεις να μένουν όπως είναι. */
+  h = h.replace(/(^|[\s(>])_([^_\n]{1,300}?)_(?=$|[\s).,!?:;<])/gm, (m, a, x) => a + '<i>' + x + '</i>');
+  h = h.replace(/~~([^~\n]{1,300})~~/g, (m, x) => '<s>' + x + '</s>');
   /* Σύνδεσμοι. Το esc έχει ήδη κάνει & → &amp;, γι' αυτό το βλέπουμε κι έτσι. */
   h = h.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]}"'])|(?:^|\s)(#\/\w+(?:\/\d+)?)/g, (m, url, hash) => {
     const pre = url ? '' : m.slice(0, m.length - hash.length);
@@ -1852,7 +1861,9 @@ function cnpMsgHtml(text) {
     }
     return pre + `<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\//, '')}</a>`;
   });
-  return h.replace(/\n/g, '<br>');
+  /* Εσοχή στην αρχή γραμμής (υπο-λίστες) — αλλιώς το HTML τη «μαζεύει». */
+  h = h.replace(/^( +)/gm, m => '&nbsp;'.repeat(m.length * 2));
+  return h.replace(/\n/g, '<br>').replace(/\u0000(\d+)\u0000/g, (m, i) => box[+i]);
 }
 /** Δένει τα εσωτερικά links ενός κόμβου ώστε να ανοίγουν ΜΕΣΑ στην εφαρμογή. */
 function cnpWireMsgLinks(root) {
@@ -2682,9 +2693,23 @@ function cnpTaskDraftPut(dr, draft) {
 async function openTask(id, entryId, opts) {
   opts = opts || {};
   const draft = cnpTaskDraftGrab(id);
-  const d = await api('task&id=' + id).catch(() => null);
+  let d = await api('task&id=' + id).catch(() => null);
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
+  /* ΧΡΟΝΟΣ ΣΥΝΤΑΞΗΣ (30/9/2026): όποιος γράφει μια νέα εργασία δουλεύει — και ο
+     χρόνος αυτός χανόταν (μετρήθηκαν εργασίες που γράφονταν 2–4΄ χωρίς χρονόμετρο).
+     Ξεκινά μόλις ανοίξει η νέα κάρτα· όταν κλείσει, αν η εργασία πάει σε άλλον,
+     σταματά μόνο του ως «σύνταξη εργασίας» (βλ. closeDrawer). */
+  if (opts.fresh && opts.setup && !d.timerHere && d.canTimer !== false) {
+    const prev = d.timerElsewhere || 0;   // έτρεχε χρόνος αλλού; ξαναξεκινά εκεί μετά τη σύνταξη
+    const st0 = await api('timer_start', {task: id}).catch(() => null);
+    if (st0) {
+      window._cnpSetup = {task: id, prev};
+      d = await api('task&id=' + id).catch(() => d);
+    }
+  }
+  window._cnpReopen = id;      // ξανασχεδίασμα της ΙΔΙΑΣ κάρτας δεν είναι κλείσιμο
   closeDrawer();
+  window._cnpReopen = 0;
   /* Το closeDrawer αφαιρεί την παλιά καρτέλα μετά από 300ms (animation). Στο ξανασχεδίασμα
      (Start/Stop/αποθήκευση) η νέα μπαίνει ΑΜΕΣΩΣ — και για 300ms υπήρχαν δύο #dX: το ✕ της
      νέας δενόταν στην παλιά και έμενε νεκρό («δεν με αφήνει να βγω»). Εδώ φεύγει τώρα. */
@@ -3441,6 +3466,16 @@ async function openTask(id, entryId, opts) {
           if (!again) { return; }
           extra = Object.assign(extra, again);
         }
+      } else if (r.data.need === 'dupref') {
+        /* Ο αριθμός ticket υπάρχει ήδη σε άλλη εργασία: δεν γράφεται. Γυρίζει το πεδίο
+           στην προηγούμενη τιμή και προσφέρεται η εργασία που τον έχει. */
+        const tk = $('#fTkRef', dr); if (tk) { tk.value = r.data.prev || ''; }
+        const goDup = await cnpDialog({title: '⚠ Το ticket υπάρχει ήδη', body: r.error
+          + '\n\nΈνα ticket αντιστοιχεί σε μία εργασία. Άνοιξε την υπάρχουσα αντί να φτιάξεις δεύτερη.',
+          ok: 'Άνοιξε #' + r.data.dup.id, cancel: 'Κλείσιμο', escNo: true, safeFocus: true});
+        dr.dataset.dirty = '';
+        if (goDup) { openTask(r.data.dup.id); }
+        return false;
       } else { break; }
       r = await api('save_task', payload(extra)).then(() => ({ok: true}))
         .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
@@ -4367,6 +4402,29 @@ function cnpTimerStoppedToast(taskId, mins) {
 
 function closeDrawer() {
   clearInterval(timerInt);
+  /* Χρόνος σύνταξης νέας εργασίας: κλείνει με την κάρτα — εκτός αν η εργασία είναι
+     δική σου (τότε δουλεύεις πάνω της και ο χρόνος συνεχίζει). */
+  const su = window._cnpSetup;
+  if (su && window._cnpReopen !== su.task) {
+    window._cnpSetup = null;
+    const asgEl = document.querySelector('.drawer #fAssignee');
+    const asg = asgEl ? (+asgEl.value || 0) : 0;
+    const meId = S.boot && S.boot.me && S.boot.me.id;
+    if (asg !== meId) {
+      api('timer_stop', {task: su.task, billable: false, note: 'σύνταξη εργασίας'})
+        .then(async r => {
+          if (!r || r.skipped) { return; }
+          let msg = 'Καταγράφηκαν ' + fmtMin(r.mins) + ' σύνταξης εργασίας';
+          /* Δούλευες σε άλλη εργασία πριν ανοίξεις τη νέα: ο χρόνος σου συνεχίζει εκεί. */
+          if (su.prev) {
+            const rs = await api('timer_start', {task: su.prev}).catch(() => null);
+            if (rs) { msg += ' · ο χρόνος σου συνεχίζει στην #' + su.prev; }
+          }
+          toast(msg);
+        })
+        .catch(() => {});
+    }
+  }
   /* Το κλείσιμο ΔΕΝ σταματά χρόνο — ο χειριστής συνεχίζει να δουλεύει αλλού. */
   /* ΟΧΙ `.ovl` σκέτο: αυτό έσβηνε ΚΑΘΕ overlay της σελίδας, και μαζί παράθυρα που δεν
      έχουν καμία σχέση με την κάρτα εργασίας — η γρήγορη απάντηση, η μέρα ενός ανθρώπου,
