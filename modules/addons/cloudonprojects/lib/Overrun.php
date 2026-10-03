@@ -150,11 +150,26 @@ class Overrun
         return ['planned' => $planned, 'elapsed' => $elapsed, 'over' => $over, 'pct' => round($pct, 1), 'level' => $lv, 'due' => $due];
     }
 
+    /** Καταστάσεις που εξαιρούνται από την υπέρβαση (ρύθμιση ανά στήλη, no_overrun). */
+    public static function exemptStatusIds()
+    {
+        static $ids = null;
+        if ($ids === null) {
+            try {
+                $ids = array_map('intval', Capsule::table('mod_cpm_statuses')->where('no_overrun', 1)->pluck('id')->all());
+            } catch (\Throwable $e) { $ids = []; }
+        }
+        return $ids;
+    }
+
     /** Και οι δύο άξονες μιας εργασίας — για την καρτέλα και τον cron. */
     public static function taskStatus($t, $now = null)
     {
         $now = $now ?: time();
         if (!empty($t->completed_at)) { return ['hours' => null, 'days' => null]; }
+        /* Σε εξαιρούμενη κατάσταση (π.χ. «Σε επόμενο update») δεν υπάρχει ένδειξη υπέρβασης·
+           μόλις φύγει από εκεί, ξαναϋπολογίζεται από τα ίδια δεδομένα. */
+        if (in_array((int) ($t->status_id ?? 0), self::exemptStatusIds(), true)) { return ['hours' => null, 'days' => null]; }
         $h = self::hoursAxis((int) ($t->estimate_minutes ?? 0), self::taskSpent((int) $t->id, $now));
         $d = self::daysAxis($t->start_date ?? null, $t->due_date ?? null, $t->created_at ?? null, strtotime('today', $now));
         return ['hours' => $h, 'days' => $d];

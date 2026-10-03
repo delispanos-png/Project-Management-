@@ -557,6 +557,26 @@ class Db
             });
         }
 
+        /* Chat μέσα στο Meet (2/10/2026): ανά δωμάτιο, μένει για όποιον μπει αργότερα. */
+        if (!$s->hasTable('mod_cpm_rtc_chat')) {
+            $s->create('mod_cpm_rtc_chat', function ($t) {
+                $t->increments('id');
+                $t->string('room', 40)->index();
+                $t->string('peer', 16);
+                $t->string('name', 60);
+                $t->integer('admin_id')->unsigned()->nullable();
+                $t->text('body');
+                $t->timestamp('created_at')->nullable();
+            });
+        }
+
+        /* Καταστάσεις που ΔΕΝ μετρούν για υπέρβαση εκτίμησης (2/10/2026): η εργασία περιμένει
+           κάτι εκτός του χειριστή (επόμενο update, testing). Ο χρόνος γράφεται κανονικά. */
+        if (!$s->hasColumn('mod_cpm_statuses', 'no_overrun')) {
+            $s->table('mod_cpm_statuses', function ($t) { $t->tinyInteger('no_overrun')->default(0); });
+            Capsule::table('mod_cpm_statuses')->whereIn('title', ['Σε επόμενο update', 'Δοκιμή-Testing'])->update(['no_overrun' => 1]);
+        }
+
         /* Μεγάλα μηνύματα στις εργασίες (30/9/2026): TEXT = 64KB ≈ 32.000 ελληνικοί χαρακτήρες. */
         try {
             Capsule::statement('ALTER TABLE mod_cpm_checklist MODIFY title MEDIUMTEXT');
