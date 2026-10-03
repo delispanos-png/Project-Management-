@@ -71,6 +71,14 @@ header('Cache-Control: no-store');
 
 function out($data)
 {
+    /* Απάντηση με σφάλμα μέσα σε ανοιχτό transaction (π.χ. task_reply) = τίποτα δεν
+       γράφτηκε: ρητό rollback, όχι «ελπίζουμε να το κάνει η σύνδεση όταν κλείσει». */
+    if (is_array($data) && isset($data['error'])) {
+        try {
+            $cx = Capsule::connection();
+            while ($cx->transactionLevel() > 0) { $cx->rollBack(); }
+        } catch (\Throwable $e) { }
+    }
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -4313,6 +4321,199 @@ function cnp_task_locked($t)
 
 /** Κόβει με 409 όταν η εργασία είναι κλειστή — με οδηγία, όχι σκέτο «όχι». */
 /**
+ * Αλλαγή κατάστασης εργασίας — ΟΛΟΙ οι κανόνες (κλείσιμο, λήξη, έξοδος από Backlog,
+ * χρονόμετρα, ειδοποιήσεις). Κοινή για move_task και task_reply (2/10/2026).
+ * Σφάλματα/ερωτήματα (need) απαντώνται με out()/fail() όπως πριν.
+ */
+function cnp_move_task_run(array $in, $adminId, $FULL)
+{
+    $t = Db::task((int) ($in['task'] ?? 0));
+    if (!$t || !Db::canSeeTask($adminId, $t)) {
+        fail('task', 403);
+    }
+    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    $stChk = Db::status((int) ($in['status'] ?? 0));
+    if (!$stChk) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα και δοκίμασε ξανά'); }
+    if ($stChk && $stChk->is_done) { cnp_close_guard($t, $adminId); }
+    /* ── Κλείσιμο: χωρίς ΛΗΞΗ (ημερομηνία ΚΑΙ ώρα) δεν κλείνει ─────────────
+       Η Λήξη είναι η απάντηση στο «πότε τελείωσε πραγματικά» — και τη δίνει ο
+       χειριστής, όχι αυτός που άνοιξε την εργασία. Αν την αφήσουμε κενή τη
+       στιγμή του κλεισίματος, δεν ξαναμπαίνει ποτέ: η εργασία φεύγει από τις
+       οθόνες και η πληροφορία χάνεται. Η ώρα μετράει το ίδιο με την ημέρα —
+       χωρίς αυτήν δεν ξέρουμε αν παραδόθηκε το πρωί ή στις έντεκα το βράδυ. */
+    if ($stChk && $stChk->is_done) {
+        $dD = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
+        $dT = preg_match('/^\d{2}:\d{2}$/', (string) ($in['dueT'] ?? '')) ? $in['dueT'] : null;
+        $curD = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
+        $curT = ($t->due_time && (string) $t->due_time !== '00:00:00') ? substr((string) $t->due_time, 0, 5) : null;
+        $finD = $dD ?: $curD;
+        $finT = $dT ?: $curT;
+        if (!$finD || !$finT) {
+            http_response_code(409);
+            out(['error' => 'Πριν κλείσει, συμπλήρωσε πότε τελείωσε — ημερομηνία ΚΑΙ ώρα λήξης.',
+                'need' => 'duetime', 'task' => (int) $t->id, 'status' => (int) $stChk->id,
+                'due' => $curD, 'dueT' => $curT]);
+        }
+        if ($dD || $dT) {
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)
+                ->update(['due_date' => $finD, 'due_time' => $finT . ':00']);
+            Db::logActivity($t->id, $adminId, 'edit', 'Λήξη κατά το κλείσιμο: ' . cnp_dgr($finD) . ' ' . $finT);
+        }
+    }
+
+    /* ── Έξοδος από το Backlog: χωρίς προθεσμία δεν ξεκινά ──────────────────
+       Το «πότε παραδίδεται» δεν μπορεί να απαντηθεί από τις αναφορές όταν 39
+       στις 48 εργασίες δεν έχουν ημερομηνία. Δεν το ζητάμε στη δημιουργία —
+       εκεί ενοχλεί και το Backlog είναι ακριβώς η λίστα του «κάποτε». Το ζητάμε
+       τη στιγμή που κάποιος την αναλαμβάνει, που είναι και η στιγμή που ξέρει
+       την απάντηση. */
+    $backlogId = cnp_backlog_status_id();
+    if ($stChk && empty($stChk->is_done) && $backlogId
+        && (int) $t->status_id === $backlogId && (int) $stChk->id !== $backlogId) {
+        /* ΒΓΑΙΝΕΙ ΑΠΟ ΤΟ BACKLOG = ΞΕΚΙΝΑΕΙ. Χωρίς ημερομηνία έναρξης η εργασία δεν
+           μπαίνει σε κανενός το «Πρόγραμμα σήμερα» — δουλεύεται, αλλά πουθενά δεν
+           φαίνεται ότι δουλεύεται. Δεν το ρωτάμε: η ίδια η κίνηση είναι η απάντηση,
+           και «σήμερα» είναι αλήθεια, όχι εικασία. Βρέθηκαν 4 που είχαν βγει χωρίς. */
+        if (empty($t->start_date)) {
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['start_date' => date('Y-m-d')]);
+            Db::logActivity($t->id, $adminId, 'edit', 'Έναρξη με τη μετακίνηση από το Backlog: ' . cnp_dgr(date('Y-m-d')));
+        }
+        $dueIn = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
+        if ($dueIn) {
+            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['due_date' => $dueIn]);
+            Db::logActivity($t->id, $adminId, 'edit', 'Προθεσμία κατά την έναρξη: ' . cnp_dgr($dueIn));
+        } elseif (empty($t->due_date)) {
+            http_response_code(409);
+            out(['error' => 'Βάλε προθεσμία πριν ξεκινήσει — χωρίς αυτήν κανείς δεν ξέρει πότε παραδίδεται.',
+                'need' => 'due', 'task' => (int) $t->id, 'status' => (int) $stChk->id]);
+        }
+    }
+
+    /* Πριν κλείσει, κράτα πού ήταν: το «Ξανάνοιγμα» πρέπει να τη γυρίζει ΕΚΕΙ. */
+    if ($stChk && !empty($stChk->is_done) && empty($t->completed_at)) {
+        Capsule::table('mod_cpm_tasks')->where('id', $t->id)
+            ->update(['prev_status_id' => (int) $t->status_id]);
+    }
+    $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId, (string) ($in['note'] ?? ''));
+    /* ── Προχώρησες την εργασία = τελείωσες ό,τι έκανες πάνω της ────────────
+       Ο χειριστής ξεκινά τον χρόνο και φεύγει να δουλέψει εκεί που πρέπει· δεν
+       κάθεται πάνω στην καρτέλα. Όταν γυρίσει και τη σπρώξει παρακάτω (Έλεγχος,
+       Προς τιμολόγηση, Ολοκληρώθηκε…), αυτό ΕΙΝΑΙ το «τελείωσα» — ακόμη κι αν
+       ξέχασε το Stop. Το «Backlog» και το «Σε εξέλιξη» ΔΕΝ το κόβουν: εκεί η
+       δουλειά αρχίζει, δεν τελειώνει. Γίνεται στον server, ώστε να ισχύει από
+       board, από καρτέλα, από κινητό — από παντού. */
+    $stopped9 = null;
+    if ($ok) {
+        $run9 = Db::runningTimer($adminId);
+        if ($run9 && (int) $run9->task_id === (int) $t->id && cnp_status_ends_work((int) ($in['status'] ?? 0))) {
+            $e9 = Db::stopTimer($run9->id);
+            if ($e9) {
+                Db::updateTimelog($run9->id, ['billable' => 0,
+                    'note' => 'έκλεισε με την αλλαγή κατάστασης']);
+                Time::push($run9->id);
+            }
+            $lg9 = Db::timelog($run9->id);
+            $stopped9 = ['id' => (int) $run9->id, 'mins' => $lg9 ? (int) $lg9->minutes : 0];
+        }
+        /* Η εργασία ΚΛΕΙΣΕ (ολοκληρώθηκε/ακυρώθηκε): σταματά και ο χρόνος των
+           συνεργατών — αλλιώς θα έτρεχε σε κλειστή εργασία ώσπου να το προσέξουν. */
+        if (in_array((int) ($in['status'] ?? 0), Db::closedStatusIds(), true)) {
+            foreach (Capsule::table('mod_cpm_timelogs')->where('task_id', (int) $t->id)->where('running', 1)
+                ->where('admin_id', '!=', $adminId)->get(['id', 'admin_id']) as $rc) {
+                if (Db::stopTimer((int) $rc->id)) {
+                    Db::updateTimelog((int) $rc->id, ['note' => 'έκλεισε με το κλείσιμο της εργασίας']);
+                    Time::push((int) $rc->id);
+                    Db::pushNotification((int) $rc->admin_id, 'info',
+                        'Η εργασία έκλεισε — ο χρόνος σου σταμάτησε: ' . mb_substr((string) $t->title, 0, 80),
+                        '/project/#/task/' . (int) $t->id);
+                }
+            }
+        }
+    }
+    if ($ok && !$FULL) {
+        $st = Db::status((int) $in['status']);
+        if ($st && $st->is_done) {
+            Notify::workDone($adminId, $t->title, '/project/#/task/' . (int) $t->id, (int) $t->id);
+        }
+    }
+    if ($ok) {
+        $stN = Db::status((int) $in['status']);
+        $noteTxt = trim((string) ($in['note'] ?? ''));
+        Notify::watchers($t->id, $adminId, $t->title . ' → ' . ($stN->title ?? '?')
+            . ($noteTxt !== '' ? ' — ' . mb_substr($noteTxt, 0, 200) : ''), null);
+    }
+    return ['ok' => (bool) $ok, 'timerStopped' => $stopped9, 'from' => (int) $t->status_id, 'title' => (string) $t->title];
+}
+
+/** Καταχώρηση μηνύματος/ενέργειας στη ροή της εργασίας — κοινή για check_add και task_reply. */
+function cnp_check_add_run(array $in, $adminId, $FULL)
+{
+    $tid = (int) ($in['task'] ?? 0);
+    $t = Db::task($tid);
+    $title = trim($in['title'] ?? '');
+    if (!$t || !Db::canSeeTask($adminId, $t) || $title === '') {
+        fail('input');
+    }
+    /* Όποιος εκτελεί την εργασία πρέπει να μπορεί να γράψει τι έκανε — αλλιώς το
+       «τι έγινε» το ξέρει μόνο αυτός. Ίδιος έλεγχος με το check_toggle. Και όποιος
+       ΡΩΤΗΘΗΚΕ εδώ (@mention) γράφει την απάντησή του. */
+    if (!cnp_task_write_ok($adminId, $FULL, $t) && !cnp_was_asked($adminId, $t->id)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    if (empty($in['_skipLock'])) { cnp_task_lock_guard($t); }
+    /* Πλούσιο κείμενο: εικόνες μέσα στη ροή, όχι συνημμένα δίπλα. Ο καθαριστής
+       είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
+    $isHtml = !empty($in['html']);
+    $isCode = cnp_looks_like_code($title);
+    /* Όριο 50.000 ορατοί χαρακτήρες (ήταν 6.000 — 30/9/2026: δεν χωρούσαν αναλυτικά μηνύματα).
+       Η στήλη είναι MEDIUMTEXT· το TEXT (64KB) θα έκοβε ελληνικό κείμενο γύρω στους 32.000. */
+    if (!$isCode && mb_strlen(trim(strip_tags($title))) > 50000) { fail('Πολύ μεγάλο μήνυμα (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 50.000). Βάλε το υπόλοιπο σε συνημμένο ή σε δεύτερο μήνυμα.'); }
+    $stored = $isCode ? cnp_code_block($title, 60000) : ($isHtml ? cnp_clean_html($title, 400000) : mb_substr($title, 0, 60000));
+    $id = Db::addCheckItem($tid, $stored, $adminId);
+    if ($isCode || $isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
+    cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
+    /* Έγραψα στην εργασία = απάντησα σε όποιον με ανέφερε εδώ. */
+    $ansM = Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)->get();
+    if (count($ansM)) {
+        Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)
+            ->update(['status' => 'done', 'answer' => 'ok', 'done_at' => date('Y-m-d H:i:s'), 'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
+        foreach ($ansM as $hm) {
+            Db::pushNotification((int) $hm->from_admin, 'info', '✅ ' . Db::adminName($adminId) . ' απάντησε στην εργασία «' . mb_substr((string) $t->title, 0, 60) . '»',
+                'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid . '/e/' . $id);
+        }
+    }
+    return $id;
+}
+
+/**
+ * Μπάλα σε άλλον: ειδοποίηση νέου κατόχου + σταμάτημα του δικού μου χρόνου αν την
+ * παραδίδω εγώ (ίδιοι κανόνες με save_task). Επιστρέφει ballStopped ή null.
+ */
+function cnp_ball_apply($t, $newBall, $adminId)
+{
+    $newBall = (int) $newBall ?: null;
+    Capsule::table('mod_cpm_tasks')->where('id', (int) $t->id)->update(['action_user' => $newBall, 'updated_at' => date('Y-m-d H:i:s')]);
+    if ($newBall && $newBall !== (int) $t->action_user && $newBall !== (int) $adminId) {
+        Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title, '/project/#/task/' . (int) $t->id);
+    }
+    $stopped = null;
+    if ((int) $t->action_user === (int) $adminId && $newBall && $newBall !== (int) $adminId) {
+        $runB = Db::runningTimer($adminId);
+        if ($runB && (int) $runB->task_id === (int) $t->id) {
+            if (Db::stopTimer($runB->id)) {
+                Db::updateTimelog($runB->id, ['note' => 'έκλεισε με την παράδοση της μπάλας']);
+                Time::push($runB->id);
+            }
+            $lgB = Db::timelog($runB->id);
+            $stopped = ['id' => (int) $runB->id, 'mins' => $lgB ? (int) $lgB->minutes : 0, 'to' => Db::adminName($newBall)];
+        }
+    }
+    return $stopped;
+}
+
+/**
  * Τι πρέπει να ισχύει για να ΚΛΕΙΣΕΙ μια εργασία: καμία εκκρεμής εξάρτηση, λίστα
  * παράδοσης τσεκαρισμένη, χρεώσιμος χρόνος εγκεκριμένος. Κοινό για κάθε δρόμο
  * κλεισίματος (move_task, κάρτα διαχείρισης) — πριν η κάρτα τα παρέκαμπτε όλα (28/9/2026).
@@ -4474,7 +4675,7 @@ function cnp_action_cap($action)
         /* ── Η ΟΜΑΔΑ (νέο κύκλωμα 12/9/2026) ── */
         $add('team.chat', ['chat_channels', 'chat_msgs', 'chat_send', 'chat_del', 'chat_edit', 'chat_react', 'chat_file', 'chat_status',
             'chat_group_save', 'chat_group_get', 'chat_group_del']);
-        $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll',
+        $add('team.voice', ['voice_presence', 'voice_call', 'rtc_join', 'rtc_signal', 'rtc_poll', 'rtc_chat',
             'rtc_leave', 'rtc_invite', 'meet_room', 'meet_extend']);
         $add('comms.book', ['book_list', 'book_get', 'book_fields', 'book_lookup']);
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import']);
@@ -4699,7 +4900,7 @@ function cnp_open_actions()
         'quick_task',   // προσωπική εργασία για όλους· έργο/ανάθεση ελέγχονται μέσα στην ενέργεια
         'check_toggle', 'check_add', 'check_edit', 'check_del', 'check_react', 'check_to_task', 'task_offer_request', 'time_bill', 'watch', 'remind',
         /* task_collab: κριτής το cnp_task_write_ok μέσα στην ενέργεια (όπως task_handoff). */
-        'task_collab',
+        'task_collab', 'task_reply',   // task_reply: κριτές canSeeTask/cnp_task_write_ok μέσα στην ενέργεια
         /* rec_claim: ανάληψη ομαδικής επαναλαμβανόμενης — κριτής το Recurring::canClaim μέσα στην ενέργεια. */
         'rec_claim',
         /* Οι ΔΙΚΕΣ ΣΟΥ κλήσεις και ο χαρακτηρισμός τους — προσωπική οθόνη.
@@ -4788,7 +4989,8 @@ case 'boot':
     $statuses = [];
     foreach (Db::statuses() as $s) {
         $statuses[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color, 'done' => (bool) $s->is_done,
-            'phase' => (string) ($s->phase ?? ''), 'cancel' => ($s->phase ?? '') === 'cancel'];
+            'phase' => (string) ($s->phase ?? ''), 'cancel' => ($s->phase ?? '') === 'cancel',
+            'noOverrun' => !empty($s->no_overrun)];
     }
     $types = [];
     foreach (Db::taskTypes() as $ty) {
@@ -7280,124 +7482,7 @@ case 'task_project':                     /* 📁 Αλλαγή έργου μια�
     out(['ok' => true, 'project' => $tpNew, 'name' => $nmOf($tpNew)]);
 
 case 'move_task':
-    $t = Db::task((int) ($in['task'] ?? 0));
-    if (!$t || !Db::canSeeTask($adminId, $t)) {
-        fail('task', 403);
-    }
-    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
-        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
-    }
-    $stChk = Db::status((int) ($in['status'] ?? 0));
-    if (!$stChk) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα και δοκίμασε ξανά'); }
-    if ($stChk && $stChk->is_done) { cnp_close_guard($t, $adminId); }
-    /* ── Κλείσιμο: χωρίς ΛΗΞΗ (ημερομηνία ΚΑΙ ώρα) δεν κλείνει ─────────────
-       Η Λήξη είναι η απάντηση στο «πότε τελείωσε πραγματικά» — και τη δίνει ο
-       χειριστής, όχι αυτός που άνοιξε την εργασία. Αν την αφήσουμε κενή τη
-       στιγμή του κλεισίματος, δεν ξαναμπαίνει ποτέ: η εργασία φεύγει από τις
-       οθόνες και η πληροφορία χάνεται. Η ώρα μετράει το ίδιο με την ημέρα —
-       χωρίς αυτήν δεν ξέρουμε αν παραδόθηκε το πρωί ή στις έντεκα το βράδυ. */
-    if ($stChk && $stChk->is_done) {
-        $dD = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
-        $dT = preg_match('/^\d{2}:\d{2}$/', (string) ($in['dueT'] ?? '')) ? $in['dueT'] : null;
-        $curD = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
-        $curT = ($t->due_time && (string) $t->due_time !== '00:00:00') ? substr((string) $t->due_time, 0, 5) : null;
-        $finD = $dD ?: $curD;
-        $finT = $dT ?: $curT;
-        if (!$finD || !$finT) {
-            http_response_code(409);
-            out(['error' => 'Πριν κλείσει, συμπλήρωσε πότε τελείωσε — ημερομηνία ΚΑΙ ώρα λήξης.',
-                'need' => 'duetime', 'task' => (int) $t->id, 'status' => (int) $stChk->id,
-                'due' => $curD, 'dueT' => $curT]);
-        }
-        if ($dD || $dT) {
-            Capsule::table('mod_cpm_tasks')->where('id', $t->id)
-                ->update(['due_date' => $finD, 'due_time' => $finT . ':00']);
-            Db::logActivity($t->id, $adminId, 'edit', 'Λήξη κατά το κλείσιμο: ' . cnp_dgr($finD) . ' ' . $finT);
-        }
-    }
-
-    /* ── Έξοδος από το Backlog: χωρίς προθεσμία δεν ξεκινά ──────────────────
-       Το «πότε παραδίδεται» δεν μπορεί να απαντηθεί από τις αναφορές όταν 39
-       στις 48 εργασίες δεν έχουν ημερομηνία. Δεν το ζητάμε στη δημιουργία —
-       εκεί ενοχλεί και το Backlog είναι ακριβώς η λίστα του «κάποτε». Το ζητάμε
-       τη στιγμή που κάποιος την αναλαμβάνει, που είναι και η στιγμή που ξέρει
-       την απάντηση. */
-    $backlogId = cnp_backlog_status_id();
-    if ($stChk && empty($stChk->is_done) && $backlogId
-        && (int) $t->status_id === $backlogId && (int) $stChk->id !== $backlogId) {
-        /* ΒΓΑΙΝΕΙ ΑΠΟ ΤΟ BACKLOG = ΞΕΚΙΝΑΕΙ. Χωρίς ημερομηνία έναρξης η εργασία δεν
-           μπαίνει σε κανενός το «Πρόγραμμα σήμερα» — δουλεύεται, αλλά πουθενά δεν
-           φαίνεται ότι δουλεύεται. Δεν το ρωτάμε: η ίδια η κίνηση είναι η απάντηση,
-           και «σήμερα» είναι αλήθεια, όχι εικασία. Βρέθηκαν 4 που είχαν βγει χωρίς. */
-        if (empty($t->start_date)) {
-            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['start_date' => date('Y-m-d')]);
-            Db::logActivity($t->id, $adminId, 'edit', 'Έναρξη με τη μετακίνηση από το Backlog: ' . cnp_dgr(date('Y-m-d')));
-        }
-        $dueIn = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
-        if ($dueIn) {
-            Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['due_date' => $dueIn]);
-            Db::logActivity($t->id, $adminId, 'edit', 'Προθεσμία κατά την έναρξη: ' . cnp_dgr($dueIn));
-        } elseif (empty($t->due_date)) {
-            http_response_code(409);
-            out(['error' => 'Βάλε προθεσμία πριν ξεκινήσει — χωρίς αυτήν κανείς δεν ξέρει πότε παραδίδεται.',
-                'need' => 'due', 'task' => (int) $t->id, 'status' => (int) $stChk->id]);
-        }
-    }
-
-    /* Πριν κλείσει, κράτα πού ήταν: το «Ξανάνοιγμα» πρέπει να τη γυρίζει ΕΚΕΙ. */
-    if ($stChk && !empty($stChk->is_done) && empty($t->completed_at)) {
-        Capsule::table('mod_cpm_tasks')->where('id', $t->id)
-            ->update(['prev_status_id' => (int) $t->status_id]);
-    }
-    $ok = Db::moveTask($t->id, (int) ($in['status'] ?? 0), $adminId, (string) ($in['note'] ?? ''));
-    /* ── Προχώρησες την εργασία = τελείωσες ό,τι έκανες πάνω της ────────────
-       Ο χειριστής ξεκινά τον χρόνο και φεύγει να δουλέψει εκεί που πρέπει· δεν
-       κάθεται πάνω στην καρτέλα. Όταν γυρίσει και τη σπρώξει παρακάτω (Έλεγχος,
-       Προς τιμολόγηση, Ολοκληρώθηκε…), αυτό ΕΙΝΑΙ το «τελείωσα» — ακόμη κι αν
-       ξέχασε το Stop. Το «Backlog» και το «Σε εξέλιξη» ΔΕΝ το κόβουν: εκεί η
-       δουλειά αρχίζει, δεν τελειώνει. Γίνεται στον server, ώστε να ισχύει από
-       board, από καρτέλα, από κινητό — από παντού. */
-    $stopped9 = null;
-    if ($ok) {
-        $run9 = Db::runningTimer($adminId);
-        if ($run9 && (int) $run9->task_id === (int) $t->id && cnp_status_ends_work((int) ($in['status'] ?? 0))) {
-            $e9 = Db::stopTimer($run9->id);
-            if ($e9) {
-                Db::updateTimelog($run9->id, ['billable' => 0,
-                    'note' => 'έκλεισε με την αλλαγή κατάστασης']);
-                Time::push($run9->id);
-            }
-            $lg9 = Db::timelog($run9->id);
-            $stopped9 = ['id' => (int) $run9->id, 'mins' => $lg9 ? (int) $lg9->minutes : 0];
-        }
-        /* Η εργασία ΚΛΕΙΣΕ (ολοκληρώθηκε/ακυρώθηκε): σταματά και ο χρόνος των
-           συνεργατών — αλλιώς θα έτρεχε σε κλειστή εργασία ώσπου να το προσέξουν. */
-        if (in_array((int) ($in['status'] ?? 0), Db::closedStatusIds(), true)) {
-            foreach (Capsule::table('mod_cpm_timelogs')->where('task_id', (int) $t->id)->where('running', 1)
-                ->where('admin_id', '!=', $adminId)->get(['id', 'admin_id']) as $rc) {
-                if (Db::stopTimer((int) $rc->id)) {
-                    Db::updateTimelog((int) $rc->id, ['note' => 'έκλεισε με το κλείσιμο της εργασίας']);
-                    Time::push((int) $rc->id);
-                    Db::pushNotification((int) $rc->admin_id, 'info',
-                        'Η εργασία έκλεισε — ο χρόνος σου σταμάτησε: ' . mb_substr((string) $t->title, 0, 80),
-                        '/project/#/task/' . (int) $t->id);
-                }
-            }
-        }
-    }
-    if ($ok && !$FULL) {
-        $st = Db::status((int) $in['status']);
-        if ($st && $st->is_done) {
-            Notify::workDone($adminId, $t->title, '/project/#/task/' . (int) $t->id, (int) $t->id);
-        }
-    }
-    if ($ok) {
-        $stN = Db::status((int) $in['status']);
-        $noteTxt = trim((string) ($in['note'] ?? ''));
-        Notify::watchers($t->id, $adminId, $t->title . ' → ' . ($stN->title ?? '?')
-            . ($noteTxt !== '' ? ' — ' . mb_substr($noteTxt, 0, 200) : ''), null);
-    }
-    out(['ok' => (bool) $ok, 'timerStopped' => $stopped9]);
+    out(cnp_move_task_run($in, $adminId, $FULL));
 
 case 'task_reopen':                      // «πατήθηκε κατά λάθος Ολοκλήρωση»
     $tR = Db::task((int) ($in['task'] ?? 0));
@@ -9304,41 +9389,63 @@ case 'time_add':
     out(['ok' => true, 'billBlocked' => !empty($in['billable']) && !$billAdd]);
 
 case 'check_add':
-    $tid = (int) ($in['task'] ?? 0);
-    $t = Db::task($tid);
-    $title = trim($in['title'] ?? '');
-    if (!$t || !Db::canSeeTask($adminId, $t) || $title === '') {
-        fail('input');
+    unset($in['_skipLock']);   // εσωτερική σημαία του task_reply — ποτέ από τον πελάτη
+    out(['ok' => true, 'id' => cnp_check_add_run($in, $adminId, $FULL)]);
+
+/* ── Απάντηση στη ροή + (προαιρετικά) μπάλα σε + νέα κατάσταση, ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ (2/10/2026) ──
+   Όλα ή τίποτα: transaction· αν κάποιος κανόνας της κατάστασης ζητήσει κάτι (λήξη,
+   προθεσμία) ή αρνηθεί, δεν γράφεται ούτε το μήνυμα ούτε η μπάλα. Κενά πεδία =
+   συμπεριφορά όπως σήμερα. Στο ιστορικό μία γραμμή: «Μπάλα: Α → Β · Κατάσταση: Χ → Υ». */
+case 'task_reply':
+    $tRp = Db::task((int) ($in['task'] ?? 0));
+    if (!$tRp || !Db::canSeeTask($adminId, $tRp)) { fail('task', 403); }
+    $ballRp = (int) ($in['ball'] ?? 0);
+    $stRp = (int) ($in['status'] ?? 0);
+    if ($ballRp === (int) $tRp->action_user) { $ballRp = 0; }
+    if ($stRp === (int) $tRp->status_id) { $stRp = 0; }
+    $msgRp = trim((string) ($in['title'] ?? ''));
+    $hasMsgRp = $msgRp !== '' && $msgRp !== '<br>';
+    if (!$hasMsgRp && !$ballRp && !$stRp) { fail('Γράψε μήνυμα ή διάλεξε μπάλα / κατάσταση'); }
+    if (($ballRp || $stRp) && !cnp_task_write_ok($adminId, $FULL, $tRp)) {
+        fail('Μπάλα και κατάσταση αλλάζει όποιος έχει την εργασία ή «Board: επεξεργασία»', 403);
     }
-    /* Όποιος εκτελεί την εργασία πρέπει να μπορεί να γράψει τι έκανε — αλλιώς το
-       «τι έγινε» το ξέρει μόνο αυτός. Ίδιος έλεγχος με το check_toggle. Και όποιος
-       ΡΩΤΗΘΗΚΕ εδώ (@mention) γράφει την απάντησή του. */
-    if (!cnp_task_write_ok($adminId, $FULL, $t) && !cnp_was_asked($adminId, $t->id)) {
-        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    if ($ballRp && !Capsule::table('tbladmins')->where('id', $ballRp)->where('disabled', 0)->exists()) {
+        fail('Ο χρήστης για τη μπάλα δεν υπάρχει ή είναι ανενεργός');
     }
-    cnp_task_lock_guard($t);
-    /* Πλούσιο κείμενο: εικόνες μέσα στη ροή, όχι συνημμένα δίπλα. Ο καθαριστής
-       είναι ο ίδιος με τη βάση γνώσης (allowlist ετικετών + σχημάτων). */
-    $isHtml = !empty($in['html']);
-    $isCode = cnp_looks_like_code($title);
-    /* Όριο 50.000 ορατοί χαρακτήρες (ήταν 6.000 — 30/9/2026: δεν χωρούσαν αναλυτικά μηνύματα).
-       Η στήλη είναι MEDIUMTEXT· το TEXT (64KB) θα έκοβε ελληνικό κείμενο γύρω στους 32.000. */
-    if (!$isCode && mb_strlen(trim(strip_tags($title))) > 50000) { fail('Πολύ μεγάλο μήνυμα (' . mb_strlen(trim(strip_tags($title))) . ' χαρακτήρες, όριο 50.000). Βάλε το υπόλοιπο σε συνημμένο ή σε δεύτερο μήνυμα.'); }
-    $stored = $isCode ? cnp_code_block($title, 60000) : ($isHtml ? cnp_clean_html($title, 400000) : mb_substr($title, 0, 60000));
-    $id = Db::addCheckItem($tid, $stored, $adminId);
-    if ($isCode || $isHtml) { Capsule::table('mod_cpm_checklist')->where('id', $id)->update(['fmt' => 'html']); }
-    cnp_notify_mentions($title, $tid, $adminId, 'ενέργεια');   // @Όνομα μέσα σε βήμα → ειδοποίηση
-    /* Έγραψα στην εργασία = απάντησα σε όποιον με ανέφερε εδώ. */
-    $ansM = Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)->get();
-    if (count($ansM)) {
-        Capsule::table('mod_cpm_help')->where('kind', 'mention')->where('status', 'open')->where('to_admin', $adminId)->where('task_id', $tid)
-            ->update(['status' => 'done', 'answer' => 'ok', 'done_at' => date('Y-m-d H:i:s'), 'seen_at' => Capsule::raw('COALESCE(seen_at, NOW())')]);
-        foreach ($ansM as $hm) {
-            Db::pushNotification((int) $hm->from_admin, 'info', '✅ ' . Db::adminName($adminId) . ' απάντησε στην εργασία «' . mb_substr((string) $t->title, 0, 60) . '»',
-                'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid . '/e/' . $id);
+    if ($stRp && !Db::status($stRp)) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα'); }
+    $fromBallRp = (int) ($tRp->action_user ?: 0);
+    $fromStRp = Db::status((int) $tRp->status_id);
+    Capsule::connection()->beginTransaction();
+    $resRp = ['ok' => true, 'id' => null, 'timerStopped' => null, 'ballStopped' => null];
+    $chgRp = [];
+    try {
+        /* Πρώτα η κατάσταση: έχει τους περισσότερους κανόνες, άρα αν κάτι λείπει
+           σταματάμε πριν γραφτεί οτιδήποτε άλλο. */
+        if ($stRp) {
+            $mvRp = cnp_move_task_run(['task' => (int) $tRp->id, 'status' => $stRp,
+                'due' => $in['due'] ?? null, 'dueT' => $in['dueT'] ?? null], $adminId, $FULL);
+            $resRp['timerStopped'] = $mvRp['timerStopped'];
+            $chgRp[] = 'Κατάσταση: ' . ($fromStRp ? $fromStRp->title : '—') . ' → ' . Db::status($stRp)->title;
         }
+        if ($ballRp) {
+            $resRp['ballStopped'] = cnp_ball_apply(Db::task((int) $tRp->id), $ballRp, $adminId);
+            array_unshift($chgRp, 'Μπάλα: ' . ($fromBallRp ? Db::adminName($fromBallRp) : '—') . ' → ' . Db::adminName($ballRp));
+        }
+        if ($hasMsgRp) {
+            /* Μετά από αλλαγή σε κλειστή κατάσταση η εργασία κλειδώνει — το μήνυμα όμως
+               ανήκει στην ίδια πράξη, οπότε γράφεται χωρίς τον έλεγχο κλειδώματος. */
+            $resRp['id'] = cnp_check_add_run(['task' => (int) $tRp->id, 'title' => $msgRp, 'html' => !empty($in['html']),
+                '_skipLock' => true], $adminId, $FULL);
+        }
+        if ($chgRp) {
+            Db::logActivity((int) $tRp->id, $adminId, 'edit', implode(' · ', $chgRp));
+        }
+        Capsule::connection()->commit();
+    } catch (\Throwable $eRp) {
+        try { Capsule::connection()->rollBack(); } catch (\Throwable $e2) { }
+        throw $eRp;
     }
-    out(['ok' => true, 'id' => $id]);
+    out($resRp);
 
 case 'check_edit':                       // διόρθωση βήματος (τυπογραφικό, συμπλήρωση, κομμένο κείμενο)
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
@@ -15178,7 +15285,8 @@ case 'settings_get':
     foreach (Db::statuses() as $s) {
         $cnt = Capsule::table('mod_cpm_tasks')->where('status_id', $s->id)->count();
         $sts[] = ['id' => (int) $s->id, 'title' => $s->title, 'color' => $s->color,
-            'done' => (bool) $s->is_done, 'phase' => (string) ($s->phase ?? 'wait'), 'sort' => (int) $s->sort, 'tasks' => $cnt];
+            'done' => (bool) $s->is_done, 'phase' => (string) ($s->phase ?? 'wait'), 'sort' => (int) $s->sort, 'tasks' => $cnt,
+            'noOverrun' => !empty($s->no_overrun)];
     }
     $phases = Db::PHASES;
     $types = [];
@@ -15322,6 +15430,7 @@ case 'status_save':
     $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 60) ?: 'Στήλη',
         'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $in['color'] ?? '') ? $in['color'] : '#8291a9',
         'phase' => $phase, 'is_done' => in_array($phase, ['done', 'cancel'], true) ? 1 : 0];
+    if (array_key_exists('noOverrun', $in)) { $data['no_overrun'] = !empty($in['noOverrun']) ? 1 : 0; }
     if ($sid) {
         Capsule::table('mod_cpm_statuses')->where('id', $sid)->update($data);
     } else {
@@ -15999,6 +16108,23 @@ case 'rtc_join':
     }
     out(['peer' => $peer, 'key' => pm_rtc_key($room, $peer), 'name' => $name, 'roster' => $roster]);
 
+/* 💬 Chat μέσα στο Meet: κειμενικά μηνύματα προς όλο το δωμάτιο. Ίδιο κλειδί
+   συμμετέχοντα με τη σηματοδοσία· επισκέπτες γράφουν με το όνομα που έδωσαν.
+   Αποθηκεύεται ανά δωμάτιο, ώστε όποιος μπαίνει αργότερα να βλέπει τι ειπώθηκε. */
+case 'rtc_chat':
+    $roomC = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
+    if ($roomC === '' || ($adminId <= 0 && $MEET_ROOM !== $roomC)) { fail('room', 403); }
+    $peerC = preg_replace('/[^a-f0-9]/', '', $in['peer'] ?? '');
+    if (!hash_equals(pm_rtc_key($roomC, $peerC), (string) ($in['k'] ?? ''))) { fail('peer', 403); }
+    /* utf8mb3: τα 4-byte emoji θα γίνονταν «????» — κόβονται πριν την αποθήκευση */
+    $bodyC = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 2000);
+    if ($bodyC === '') { fail('Κενό μήνυμα'); }
+    $nameC = $adminId > 0 ? Db::adminName($adminId)
+        : ((string) Capsule::table('mod_cpm_rtc_peers')->where('room', $roomC)->where('peer', $peerC)->value('name') ?: 'Επισκέπτης');
+    $idC = (int) Capsule::table('mod_cpm_rtc_chat')->insertGetId(['room' => $roomC, 'peer' => $peerC, 'name' => mb_substr($nameC, 0, 60),
+        'admin_id' => $adminId > 0 ? $adminId : null, 'body' => $bodyC, 'created_at' => date('Y-m-d H:i:s')]);
+    out(['ok' => true, 'id' => $idC]);
+
 case 'rtc_signal':
     $room = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
     if ($room === '' || ($adminId <= 0 && $MEET_ROOM !== $room)) {
@@ -16056,7 +16182,18 @@ case 'rtc_poll':
     $winP = pm_meet_window($room);
     $extP = null;
     if ($winP && $adminId > 0 && $winP['endTs'] - time() <= 360) { $extP = pm_meet_extend_check($winP, 15); }
-    out(['messages' => $msgs, 'roster' => $roster, 'restored' => $restored, 'now' => time(),
+    /* 💬 Chat δωματίου: νέα μηνύματα από το chat_after· στο πρώτο poll (0) τα τελευταία 60. */
+    $chatAfter = (int) ($_GET['chat_after'] ?? 0);
+    $chatQ = Capsule::table('mod_cpm_rtc_chat')->where('room', $room);
+    $chatRows = $chatAfter > 0
+        ? $chatQ->where('id', '>', $chatAfter)->orderBy('id')->limit(100)->get()
+        : $chatQ->orderBy('id', 'desc')->limit(60)->get()->reverse()->values();
+    $chat = [];
+    foreach ($chatRows as $c9) {
+        $chat[] = ['id' => (int) $c9->id, 'peer' => $c9->peer, 'name' => $c9->name, 'body' => $c9->body,
+            'at' => substr((string) $c9->created_at, 11, 5)];
+    }
+    out(['messages' => $msgs, 'chat' => $chat, 'roster' => $roster, 'restored' => $restored, 'now' => time(),
         'end' => $winP ? $winP['endTs'] * 1000 : 0, 'extendOk' => $extP ? $extP['ok'] : null, 'extendWhy' => $extP ? $extP['why'] : '']);
 
 case 'rtc_leave':

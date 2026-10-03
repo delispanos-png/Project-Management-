@@ -146,6 +146,29 @@ button.hand{cursor:pointer}
 #handQ.on{display:flex}
 #handQ b{color:#f5b400}
 #cHand.on{background:#f5b400;color:#1a1200}
+/* 💬 Chat δωματίου — πλαϊνό πάνελ */
+#chatPane{position:fixed;right:12px;top:58px;bottom:96px;width:340px;max-width:calc(100vw - 24px);z-index:8;
+  background:var(--card);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,.45);display:none;flex-direction:column;overflow:hidden}
+#chatPane.on{display:flex}
+#chatPane .ch-h{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);font-weight:800}
+#chatPane .ch-h button{margin-left:auto;background:none;border:0;color:var(--mut);font-size:18px;cursor:pointer}
+#chatList{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.cmsg{max-width:88%;align-self:flex-start;background:#ffffff12;border-radius:12px;padding:7px 10px;font-size:13.5px;line-height:1.4;word-wrap:break-word;white-space:pre-wrap}
+.cmsg.mine{align-self:flex-end;background:var(--brand);color:#fff}
+.cmsg .cm-h{font-size:11px;font-weight:700;opacity:.75;margin-bottom:2px;white-space:normal}
+.cmsg a{color:inherit;text-decoration:underline}
+.ch-empty{color:var(--mut);font-size:12.5px;text-align:center;margin:auto 0}
+#chatForm{display:flex;gap:7px;padding:10px;border-top:1px solid var(--line)}
+#chatIn{flex:1;resize:none;min-height:38px;max-height:120px;font-size:13.5px;padding:8px 11px;font-family:inherit}
+/* Ανοιχτό chat σε υπολογιστή: τα πλακίδια κάνουν χώρο αντί να κρύβονται από κάτω. */
+@media (min-width:900px){ body.chat-on #grid, body.chat-on #strip, body.chat-on #handQ{margin-right:352px} }
+#chatForm button{border:0;border-radius:10px;background:var(--brand);color:#fff;font-weight:700;padding:0 14px;cursor:pointer}
+#cChat{position:relative}
+#cChat .bdg{position:absolute;top:-3px;right:-3px;min-width:19px;height:19px;border-radius:10px;background:var(--bad);color:#fff;
+  font-size:11px;font-weight:800;display:none;align-items:center;justify-content:center;padding:0 5px}
+#cChat.unread .bdg{display:flex}
+#cChat.on{background:var(--brand)}
+@media (max-width:640px){ #chatPane{left:8px;right:8px;width:auto;top:50px;bottom:84px} }
 </style>
 </head>
 <body>
@@ -200,6 +223,11 @@ button.hand{cursor:pointer}
     <b style="color:var(--brand)">●</b> <b>CloudOn <?= $isRemote ? 'Remote Υποστήριξη' : 'Meet' ?></b> · δωμάτιο <?= htmlspecialchars($room) ?> · <span id="cnt"></span><?= $win ? ' · <span id="endAt" title="Το meeting κλείνει αυτόματα στη λήξη">λήγει ' . date('H:i', $win['endTs']) . '</span>' : '' ?></div>
   <div id="endBanner" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9;background:#eba63c;color:#1a1200;font-weight:800;padding:10px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:15px"></div>
   <div id="handQ" role="status" aria-live="polite"></div>
+  <div id="chatPane" role="complementary" aria-label="Chat συνάντησης">
+    <div class="ch-h">💬 Chat συνάντησης <button type="button" id="chatX" title="Κλείσιμο" aria-label="Κλείσιμο chat">×</button></div>
+    <div id="chatList"><div class="ch-empty" id="chatEmpty">Γράψε κάτι στην ομάδα — το βλέπουν όλοι όσοι είναι στη συνάντηση, και όσοι μπουν αργότερα.</div></div>
+    <form id="chatForm" autocomplete="off"><textarea class="inp" id="chatIn" rows="1" maxlength="2000" placeholder="Μήνυμα… (Enter στέλνει)"></textarea><button type="submit">Αποστολή</button></form>
+  </div>
   <div id="grid"></div>
   <div id="strip"></div>
   <div id="bar">
@@ -207,6 +235,7 @@ button.hand{cursor:pointer}
     <button class="rbtn" id="cCam" title="Κάμερα"></button>
     <button class="rbtn" id="cShare" title="Διαμοιρασμός οθόνης"></button>
     <button class="rbtn" id="cHand" title="Σήκωσε χέρι για να πάρεις τον λόγο" aria-pressed="false">✋</button>
+    <button class="rbtn" id="cChat" title="Chat συνάντησης" aria-pressed="false">💬<span class="bdg" id="chatBdg"></span></button>
     <button class="rbtn" id="cBg" title="Φόντο (κανονικό/θόλωμα/εικόνα)">✨</button>
     <button class="rbtn" id="cInv" title="Πρόσκληση συμμετέχοντα"></button>
     <button class="rbtn leave" id="cLeave" title="Αποχώρηση"></button>
@@ -697,7 +726,7 @@ async function poll() {
   if (!me || rejoining) return;
   let r;
   try {
-    r = await api('rtc_poll', null, '&room=' + ROOM + '&peer=' + me + '&k=' + myKey + '&after=' + lastMsg + '&name=' + encodeURIComponent(myNameVal()));
+    r = await api('rtc_poll', null, '&room=' + ROOM + '&peer=' + me + '&k=' + myKey + '&after=' + lastMsg + '&chat_after=' + lastChat + '&name=' + encodeURIComponent(myNameVal()));
     if (!r || !Array.isArray(r.messages)) { throw new Error(r && r.error ? r.error : 'bad'); }
   } catch (e) {
     /* Ο server δεν απαντά ή αρνείται: μετά από 4 συνεχόμενες αποτυχίες (~5΄΄) ξαναμπαίνουμε
@@ -712,6 +741,8 @@ async function poll() {
   if (r.end) { applyEnd(r.end, false); }
   if (r.extendOk !== null && r.extendOk !== undefined) { extendOk = r.extendOk; extendWhy = r.extendWhy || ''; }
   for (const m of r.messages) { lastMsg = Math.max(lastMsg, m.id); try { await handleMsg(m); } catch (e) {} }
+  /* Το πρώτο φόρτωμα είναι ΙΣΤΟΡΙΚΟ: φαίνεται, αλλά δεν μετρά ως αδιάβαστο ούτε βγάζει ειδοποίηση. */
+  { const hist = !chatLoaded; chatLoaded = true; (r.chat || []).forEach(m => addChat(Object.assign(m, {fresh: !hist}))); }
   const alive = new Set(r.roster.map(x => x.peer));
   const now = Date.now();
   Object.keys(pcs).forEach(p => {
@@ -745,7 +776,7 @@ async function rejoin(why) {
       const r = await api('rtc_join', {name: myNameVal()});
       if (r && r.ended) { endDone = true; rejoining = false; leaveCleanup(); showEnded(); return; }
       if (r && r.peer) {
-        me = r.peer; myKey = r.key || ''; lastMsg = 0; pollFails = 0;
+        me = r.peer; myKey = r.key || ''; lastMsg = 0; pollFails = 0; myPeers.add(me);
         if (oldTile) { oldTile.id = 'tile-' + me; }
         r.roster.forEach(p => callPeer(p.peer, p.name).catch(() => {}));
         rejoining = false; updCnt(); toast('✅ Ξανά μέσα');
@@ -780,7 +811,7 @@ $('#joinBtn').onclick = async () => {
   const r = await api('rtc_join', {name: myNameVal()});
   if (r && r.ended) { showEnded(); return; }
   if (!r.peer) { toast(r && r.error ? r.error : 'Σφάλμα σύνδεσης'); return; }
-  me = r.peer; myKey = r.key || '';
+  me = r.peer; myKey = r.key || ''; myPeers.add(me);
   $('#pre').style.display = 'none';
   $('#call').style.display = 'flex';
   const mv = addTile(me, r.name, true);
@@ -895,6 +926,60 @@ function setHand(on, byOther) {
 }
 $('#cHand').onclick = () => setHand(!hands[me]);
 if (IS_REMOTE) { $('#cHand').style.display = 'none'; }
+
+/* ═══ 💬 CHAT ΣΥΝΑΝΤΗΣΗΣ ═══
+   Κείμενο προς όλο το δωμάτιο, μέσα από το ίδιο poll. Πάντα ως ΚΕΙΜΕΝΟ (textContent):
+   ο επισκέπτης γράφει ό,τι θέλει, και ένα «μήνυμα» με κώδικα δεν πρέπει να τρέξει
+   στη σελίδα του υπαλλήλου. Οι σύνδεσμοι φτιάχνονται ως στοιχεία, όχι ως HTML. */
+let lastChat = 0, chatUnread = 0, chatLoaded = false;
+const myPeers = new Set();     // ο peer μου αλλάζει στην επανασύνδεση — τα δικά μου μένουν «δικά μου»
+const chatSeen = new Set();
+function chatOpen() { return $('#chatPane').classList.contains('on'); }
+function chatBadge() {
+  const b = $('#cChat');
+  b.classList.toggle('unread', chatUnread > 0);
+  $('#chatBdg').textContent = chatUnread > 9 ? '9+' : String(chatUnread);
+}
+function addChat(m) {
+  if (chatSeen.has(m.id)) { return; }
+  chatSeen.add(m.id); lastChat = Math.max(lastChat, m.id);
+  const list = $('#chatList'), empty = $('#chatEmpty'); if (empty) { empty.remove(); }
+  const mine = myPeers.has(m.peer);
+  const el = document.createElement('div'); el.className = 'cmsg' + (mine ? ' mine' : '');
+  const h = document.createElement('div'); h.className = 'cm-h'; h.textContent = (mine ? 'Εσύ' : m.name) + ' · ' + (m.at || '');
+  el.appendChild(h);
+  String(m.body || '').split(/(https?:\/\/[^\s<>"']+)/g).forEach((part, i) => {
+    if (i % 2) { const a = document.createElement('a'); a.href = part; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = part; el.appendChild(a); }
+    else if (part) { el.appendChild(document.createTextNode(part)); }
+  });
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.appendChild(el);
+  if (atBottom || mine) { list.scrollTop = list.scrollHeight; }
+  if (!mine && !chatOpen() && m.fresh !== false) {
+    chatUnread++; chatBadge();
+    toast('💬 ' + m.name + ': ' + String(m.body).slice(0, 80));
+  }
+}
+function toggleChat(on) {
+  const pane = $('#chatPane'), want = on === undefined ? !chatOpen() : on;
+  pane.classList.toggle('on', want);
+  document.body.classList.toggle('chat-on', want);
+  $('#cChat').classList.toggle('on', want); $('#cChat').setAttribute('aria-pressed', want ? 'true' : 'false');
+  if (want) { chatUnread = 0; chatBadge(); const l = $('#chatList'); l.scrollTop = l.scrollHeight; setTimeout(() => $('#chatIn').focus(), 30); }
+}
+$('#cChat').onclick = () => toggleChat();
+$('#chatX').onclick = () => toggleChat(false);
+async function sendChat() {
+  const inp = $('#chatIn'), body = inp.value.trim();
+  if (!body || !me) { return; }
+  inp.value = ''; inp.style.height = '';
+  const r = await api('rtc_chat', {peer: me, body}).catch(() => null);
+  if (!r || !r.ok) { inp.value = body; toast((r && r.error) || 'Δεν στάλθηκε — δοκίμασε ξανά'); return; }
+  addChat({id: r.id, peer: me, name: myNameVal() || 'Εσύ', body, at: new Date().toTimeString().slice(0, 5)});
+}
+$('#chatForm').onsubmit = e => { e.preventDefault(); sendChat(); };
+$('#chatIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } };
+$('#chatIn').oninput = e => { const t = e.target; t.style.height = ''; t.style.height = Math.min(120, t.scrollHeight) + 'px'; };
 
 /* ─── In-call controls ─── */
 $('#cMic').onclick = () => { micOn = !micOn; applyToggles(); };

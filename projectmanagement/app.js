@@ -2583,6 +2583,62 @@ function askImplDates(info, me) {
    board, dropdown της καρτέλας, «Ολοκλήρωση»). Αν ο server ζητήσει προθεσμία
    επειδή η εργασία φεύγει από το Backlog, τη ζητάμε εδώ και ξαναστέλνουμε —
    ο χειριστής δεν πρέπει να χάσει την κίνησή του για μια ημερομηνία. */
+/* «Πότε τελείωσε;» — κοινό για αλλαγή κατάστασης από board ΚΑΙ από απάντηση στη ροή. */
+const cnpAskDueTime = () => new Promise(resolve => {
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+  const now = new Date();
+  ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:460px" role="dialog">
+    <div style="padding:20px 22px 18px">
+      <b style="font-size:15.5px;color:var(--ink)">✔ Πότε τελείωσε;</b>
+      <div style="font-size:13px;color:var(--txt);margin-top:8px">Συμπλήρωσε τη λήξη για να κλείσει η εργασία.</div>
+      ${/* Προσυμπληρώνουμε ΤΩΡΑ, όχι την προγραμματισμένη λήξη: η ερώτηση είναι
+           «πότε τελείωσε», και η προγραμματισμένη μπορεί να είναι στο μέλλον —
+           θα κατέγραφε παράδοση που δεν έχει γίνει ακόμη. */''}
+      <div style="margin-top:14px"><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
+        <div class="dt2"><input type="date" class="inp" id="dtD" value="${today()}">
+          ${timeInput('dtT', String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))}</div></div>
+      <div id="dtErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:6px" hidden></div>
+      <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
+        <button class="btn btn-o" id="dtNo">Άκυρο</button>
+        <button class="btn btn-ok" id="dtGo">Ολοκλήρωση</button></div>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const fin = v => { ovl.remove(); resolve(v); };
+  $('#dtNo', ovl).onclick = () => fin(null);
+  $('#dtGo', ovl).onclick = () => {
+    const dd = $('#dtD', ovl).value, tt = $('#dtT', ovl).value, er = $('#dtErr', ovl);
+    if (!dd || !tt) { er.hidden = false; er.textContent = 'Χρειάζονται και η ημερομηνία και η ώρα.'; return; }
+    fin({due: dd, dueT: tt});
+  };
+  setTimeout(() => $('#dtT', ovl).focus(), 40);
+});
+
+
+/**
+ * Απάντηση στη ροή + μπάλα + κατάσταση με ΜΙΑ υποβολή (task_reply, όλα ή τίποτα).
+ * Αν η κατάσταση ζητήσει λήξη ή προθεσμία, ρωτά όπως το board και ξαναστέλνει.
+ */
+async function cnpTaskReply(id, payload) {
+  const send = extra => api('task_reply', Object.assign({task: id}, payload, extra || {}))
+    .then(r => ({ok: true, res: r}))
+    .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+  let r = await send(null);
+  if (!r.ok && r.data && r.data.need === 'duetime') {
+    const pick = await cnpAskDueTime();
+    if (!pick) { return {ok: false, cancelled: true}; }
+    r = await send(pick);
+  } else if (!r.ok && r.data && r.data.need === 'due') {
+    const d0 = new Date(); d0.setDate(d0.getDate() + 7);
+    const pick = await cnpDialog({title: 'Πότε παραδίδεται;',
+      body: r.error + '\n\nΜπαίνει ως προθεσμία της εργασίας — μπορείς να την αλλάξεις αργότερα.',
+      input: d0.toISOString().slice(0, 10), inputType: 'date', ok: 'Συνέχεια', cancel: 'Άκυρο'});
+    if (!pick) { return {ok: false, cancelled: true}; }
+    r = await send({due: pick});
+  }
+  return r;
+}
+
 async function cnpMoveTask(id, status, note) {
   const send = due => api('move_task', Object.assign({task: id, status, note: note || ''}, due ? {due} : {}))
     .then(r => {
@@ -2595,35 +2651,7 @@ async function cnpMoveTask(id, status, note) {
   /* ΤΟ ΚΛΕΙΣΙΜΟ ΘΕΛΕΙ ΛΗΞΗ: ΗΜΕΡΟΜΗΝΙΑ ΚΑΙ ΩΡΑ. Δεν είναι τυπικότητα — είναι η
      μόνη στιγμή που κάποιος ξέρει πότε τελείωσε πραγματικά. Μόλις κλείσει, η
      εργασία φεύγει από τις οθόνες και κανείς δεν ξαναγυρίζει να το συμπληρώσει. */
-  const askDueTime = () => new Promise(resolve => {
-    const ovl = document.createElement('div');
-    ovl.className = 'ovl show'; ovl.style.zIndex = 330;
-    const now = new Date();
-    ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:460px" role="dialog">
-      <div style="padding:20px 22px 18px">
-        <b style="font-size:15.5px;color:var(--ink)">✔ Πότε τελείωσε;</b>
-        <div style="font-size:13px;color:var(--txt);margin-top:8px">Συμπλήρωσε τη λήξη για να κλείσει η εργασία.</div>
-        ${/* Προσυμπληρώνουμε ΤΩΡΑ, όχι την προγραμματισμένη λήξη: η ερώτηση είναι
-             «πότε τελείωσε», και η προγραμματισμένη μπορεί να είναι στο μέλλον —
-             θα κατέγραφε παράδοση που δεν έχει γίνει ακόμη. */''}
-        <div style="margin-top:14px"><label class="lbl">Λήξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
-          <div class="dt2"><input type="date" class="inp" id="dtD" value="${today()}">
-            ${timeInput('dtT', String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))}</div></div>
-        <div id="dtErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:6px" hidden></div>
-        <div style="display:flex;gap:9px;margin-top:15px;justify-content:flex-end">
-          <button class="btn btn-o" id="dtNo">Άκυρο</button>
-          <button class="btn btn-ok" id="dtGo">Ολοκλήρωση</button></div>
-      </div></div>`;
-    document.body.appendChild(ovl);
-    const fin = v => { ovl.remove(); resolve(v); };
-    $('#dtNo', ovl).onclick = () => fin(null);
-    $('#dtGo', ovl).onclick = () => {
-      const dd = $('#dtD', ovl).value, tt = $('#dtT', ovl).value, er = $('#dtErr', ovl);
-      if (!dd || !tt) { er.hidden = false; er.textContent = 'Χρειάζονται και η ημερομηνία και η ώρα.'; return; }
-      fin({due: dd, dueT: tt});
-    };
-    setTimeout(() => $('#dtT', ovl).focus(), 40);
-  });
+  const askDueTime = cnpAskDueTime;
 
   let r = await send(null);
   if (!r.ok && r.data && r.data.need === 'duetime') {
@@ -2971,6 +2999,13 @@ async function openTask(id, entryId, opts) {
                κάτω. Shift+Enter για νέα γραμμή, όπως παντού. */''}
           <div class="act-foot">
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
+            ${/* ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ: μήνυμα + μπάλα σε + νέα κατάσταση (2/10/2026). Κενά = όπως πριν. */''}
+            ${d.canWrite && !t.done ? `<select class="inp act-sel" id="chkBall" title="Μπάλα σε — ποιος συνεχίζει μετά το μήνυμα (προαιρετικό)">
+                <option value="">⚡ Μπάλα: χωρίς αλλαγή</option>
+                ${S.boot.admins.filter(a => !a.disabled && a.id !== (t.ball || 0)).map(a => `<option value="${a.id}">⚡ ${esc(a.id === me.id ? 'Σε μένα' : a.name)}</option>`).join('')}</select>
+              <select class="inp act-sel" id="chkSt" title="Νέα κατάσταση μαζί με το μήνυμα (προαιρετικό)">
+                <option value="">◉ Κατάσταση: χωρίς αλλαγή</option>
+                ${(S.boot.statuses || []).filter(x => x.id !== t.status).map(x => `<option value="${x.id}">◉ ${esc(x.title)}</option>`).join('')}</select>` : ''}
             <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
             <span class="mut act-tip"><b>Enter</b> καταχωρεί · <b>Shift+Enter</b> νέα γραμμή</span>
             ${/* Στο κινητό το Enter είναι πλήκτρο νέας γραμμής — εκεί μένει κουμπί. */''}
@@ -2996,7 +3031,7 @@ async function openTask(id, entryId, opts) {
       <span class="mut" style="font-weight:600">${fmtMin(d.total)}${t.est ? ' / ~' + fmtMin(t.est) : ''}</span>
       ${d.timelogs.length > 3 ? `<span class="mut" style="margin-left:auto;font-size:11px">${d.timelogs.length} καταχωρήσεις</span>` : ''}</div>
     <div class="card-b">
-      ${t.est ? `<div class="bar" style="margin-bottom:9px"><span class="${d.total > t.est ? 'bad' : d.total > t.est * .8 ? 'warn' : 'ok'}" style="width:${Math.min(100, Math.round(d.total / t.est * 100))}%"></span></div>` : ''}
+      ${t.est ? `<div class="bar" style="margin-bottom:9px"><span class="${(statusOf(t.status) || {}).noOverrun ? 'ok' : d.total > t.est ? 'bad' : d.total > t.est * .8 ? 'warn' : 'ok'}" style="width:${Math.min(100, Math.round(d.total / t.est * 100))}%"></span></div>` : ''}
       <div class="tk-time-row">
         <input class="inp" id="tMins" type="number" min="1" placeholder="λεπτά">
         ${d.owner ? `<label class="tk-bill" title="Χρεώσιμος χρόνος προς τον πελάτη — χρειάζεται έγκριση λογιστηρίου.&#10;Η επιλογή ΜΕΝΕΙ στην εργασία: ό,τι ορίσεις εδώ ισχύει και την επόμενη φορά."><input type="checkbox" id="tBill" ${billOn ? 'checked' : ''}> ${I.coin} Χρεώσιμο</label>` : ''}
@@ -4076,11 +4111,29 @@ async function openTask(id, entryId, opts) {
       let busy = false;   // χωρίς κουμπί, ο φύλακας διπλής αποστολής ζει εδώ
       const submit = async () => {
         const html = ed.innerHTML.trim();
-        if (busy || !html || html === '<br>') { return; }
+        const hasMsg = !!html && html !== '<br>';
+        const ballSel = $('#chkBall', dr), stSel = $('#chkSt', dr);
+        const ballV = ballSel ? (+ballSel.value || 0) : 0, stV = stSel ? (+stSel.value || 0) : 0;
+        if (busy || (!hasMsg && !ballV && !stV)) { return; }
         busy = true; ed.setAttribute('aria-busy', '1');
-        const r = await api('check_add', {task: id, title: html, html: 1})
-          .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
-        if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
+        let r;
+        if (ballV || stV) {
+          /* Όλα μαζί, ατομικά: αν η κατάσταση θέλει κάτι και ακυρώσεις, δεν γράφεται τίποτα. */
+          const rr = await cnpTaskReply(id, {title: hasMsg ? html : '', html: 1, ball: ballV, status: stV});
+          if (!rr.ok) { busy = false; ed.removeAttribute('aria-busy'); if (!rr.cancelled) { toast(rr.error || 'Δεν καταχωρήθηκε', true); } return; }
+          r = {id: rr.res.id};
+          const msgs = [];
+          if (ballV) { msgs.push('μπάλα → ' + (ballV === me.id ? 'εσένα' : adminName(ballV))); }
+          if (stV) { msgs.push('κατάσταση → ' + (statusOf(stV) || {}).title); }
+          const stp = rr.res.ballStopped || rr.res.timerStopped;
+          toast('Καταχωρήθηκε · ' + msgs.join(' · ') + (stp ? ' · ο χρόνος σου σταμάτησε (' + fmtMin(stp.mins) + ')' : ''));
+          if (!r.id && pending.length) { toast('Τα αρχεία θέλουν μήνυμα για να επισυναφθούν', true); }
+        } else {
+          r = await api('check_add', {task: id, title: html, html: 1})
+            .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
+          if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
+        }
+        if (!r.id) { ed.innerHTML = ''; openTask(id); if (window.R && window.R[S.view]) { window.R[S.view](); } return; }
         for (const f of pending) { await actUpload(f, r.id); }
         /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
            επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
