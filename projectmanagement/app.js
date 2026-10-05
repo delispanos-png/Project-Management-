@@ -2012,7 +2012,94 @@ function cnpSearch(id, apply, ms = 280) {
  * στο κενό. Σε αυτή την περίπτωση η παλιά οθόνη μένει στη θέση της μέχρι να
  * είναι έτοιμη η καινούργια.
  */
-function cnpSkel(el, html) { if (el && !cnpSearch._on) { el.innerHTML = html; } }
+function cnpSkel(el, html) { if (el && !cnpSearch._on && !window._cnpSilent) { el.innerHTML = html; } }
+
+/* ═══ ΑΘΟΡΥΒΗ ΑΝΑΝΕΩΣΗ ΧΩΡΙΣ FLASH (5/10/2026) ═══
+   Η αυτόματη ανανέωση ξαναέγραφε ολόκληρη την οθόνη (σκελετός → περιεχόμενο): flash,
+   χαμένο scroll. Τώρα το νέο HTML «ταιριάζεται» πάνω στο υπάρχον: ίδια στοιχεία
+   μένουν (με το scroll και την κατάστασή τους), αλλάζει μόνο ό,τι διαφέρει. Κλειδί
+   ανά στοιχείο: id / data-task / data-key / data-lgrp — μια εργασία που άλλαξε
+   ενημερώνει μόνο τη δική της γραμμή. Πεδία που γράφει ο χρήστης δεν αγγίζονται. */
+function cnpMorphKey(n) {
+  if (n.nodeType !== 1) { return null; }
+  return n.id || n.getAttribute('data-task') && ('t' + n.getAttribute('data-task'))
+    || n.getAttribute('data-key') || n.getAttribute('data-lgrp') && ('g' + n.getAttribute('data-lgrp')) || null;
+}
+function cnpMorphNode(o, n) {
+  if (o.nodeType === 3 || o.nodeType === 8) { if (o.nodeValue !== n.nodeValue) { o.nodeValue = n.nodeValue; } return; }
+  /* Περιοχή που γεμίζει ΑΣΥΓΧΡΟΝΑ μετά το ζωγράφισμα: κρατά ό,τι δείχνει ώσπου να
+     έρθουν τα νέα της δεδομένα — αλλιώς θα αναβόσβηνε «φόρτωση…» σε κάθε ανανέωση. */
+  if (o.hasAttribute('data-async') && (o.childNodes.length || o.hidden !== n.hidden)) { return; }
+  const typing = o === document.activeElement || o.isContentEditable;
+  for (const a of [...o.attributes]) { if (!n.hasAttribute(a.name) && a.name !== 'style' && !(typing && a.name === 'contenteditable')) { o.removeAttribute(a.name); } }
+  for (const a of [...n.attributes]) {
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName) && a.name === 'value') { continue; }   // η τιμή που γράφει ο χρήστης μένει
+    if (o.getAttribute(a.name) !== a.value) { o.setAttribute(a.name, a.value); }
+  }
+  /* style: μόνο αν όντως άλλαξε στο νέο HTML (κρατά π.χ. display:none από σύμπτυξη ομάδας) */
+  if (!n.hasAttribute('style') && o.hasAttribute('style') && !o.dataset.keepStyle) { o.removeAttribute('style'); }
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName) || typing) { return; }
+  cnpMorphChildren(o, n);
+}
+function cnpMorphChildren(op, np) {
+  const olds = [...op.childNodes], keyed = new Map(), used = new Set();
+  olds.forEach(x => { const k = cnpMorphKey(x); if (k && !keyed.has(k)) { keyed.set(k, x); } });
+  let i = 0;
+  [...np.childNodes].forEach(nn => {
+    const k = cnpMorphKey(nn);
+    let m = null;
+    if (k) { m = keyed.get(k) || null; if (m && (m.nodeName !== nn.nodeName || used.has(m))) { m = null; } }
+    else { m = olds.find(x => !used.has(x) && !cnpMorphKey(x) && x.nodeType === nn.nodeType && x.nodeName === nn.nodeName) || null; }
+    const at = op.childNodes[i] || null;
+    if (m) {
+      used.add(m); cnpMorphNode(m, nn);
+      if (m !== at) { op.insertBefore(m, at); }
+    } else {
+      op.insertBefore(document.importNode(nn, true), at);
+    }
+    i++;
+  });
+  olds.forEach(x => { if (!used.has(x) && x.parentNode === op) { op.removeChild(x); } });
+}
+function cnpMorph(el, html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  cnpMorphChildren(el, tpl.content);
+}
+/**
+ * Αθόρυβη ανανέωση της τρέχουσας οθόνης. Δεν τρέχει όσο γράφεις ή έχεις ανοιχτό
+ * πάνελ/διάλογο (επιστρέφει false → ξαναδοκιμάζει στον επόμενο κύκλο). Σε σφάλμα
+ * σιωπηλά. Οθόνες χωρίς υποστήριξη morph δεν ξαναζωγραφίζονται αυτόματα.
+ */
+async function cnpSilentRefresh() {
+  const tag = ((document.activeElement || {}).tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || (document.activeElement || {}).isContentEditable) { return false; }
+  if (document.querySelector('.drawer, .ovl.show, .pal-box')) { return false; }
+  const view = S.view, R0 = window.R || {};
+  const run = view === 'list' && R0.list && R0.list._reload ? R0.list._reload
+    : (['board', 'myday'].includes(view) && R0[view]) ? R0[view] : null;
+  if (!run) { return true; }
+  const sx = window.scrollX, sy = window.scrollY;
+  window._cnpSilent = true;
+  try { await run(); } catch (e) { /* σιωπηλά — ξανά στον επόμενο κύκλο */ }
+  finally {
+    window._cnpSilent = false;
+    if (window.scrollX !== sx || window.scrollY !== sy) { window.scrollTo(sx, sy); }
+  }
+  return true;
+}
+/** Γράψε HTML σε στοιχείο: κανονικά αντικατάσταση· στην αθόρυβη ανανέωση morph — και τίποτα αν δεν άλλαξε. */
+function cnpPut(el, html) {
+  if (!el) { return; }
+  if (window._cnpSilent && el.dataset.cnpH !== undefined) {
+    if (el.dataset.cnpH === String(html.length) + ':' + cnpHash(html)) { return; }
+    cnpMorph(el, html);
+  } else {
+    el.innerHTML = html;
+  }
+  el.dataset.cnpH = String(html.length) + ':' + cnpHash(html);
+}
+function cnpHash(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) | 0; } return h; }
 
 function cnpDialog(opts) {
   return new Promise(resolve => {
@@ -2256,6 +2343,14 @@ Object.assign(window.R, {get board() { return vBoard; }, get myday() { return vM
 
 /* ───────── generic pointer drag&drop ───────── */
 function dnd(cardSel, colSel, onDrop, onClick) {
+  /* ΜΙΑ φορά ανά selector (5/10/2026): καλούνταν σε κάθε ανανέωση του board και κάθε
+     φορά πρόσθετε νέους document listeners — μετά από Ν ανανεώσεις, ένα σύρσιμο
+     έστελνε την ίδια αλλαγή Ν φορές. Τώρα στο ξανακάλεσμα αλλάζουν μόνο οι callbacks. */
+  window._cnpDnd = window._cnpDnd || {};
+  if (window._cnpDnd[cardSel]) { Object.assign(window._cnpDnd[cardSel], {colSel, onDrop, onClick}); return; }
+  const cb = window._cnpDnd[cardSel] = {colSel, onDrop, onClick};
+  onDrop = (...a) => cb.onDrop(...a);
+  onClick = cb.onClick ? (...a) => cb.onClick && cb.onClick(...a) : onClick;
   let down = null, ghost = null, dragEl = null;
   document.addEventListener('pointerdown', e => {
     const c = e.target.closest(cardSel); if (!c || e.button !== 0) return;
@@ -2341,12 +2436,12 @@ async function vBoard(arg) {
         βρίσκονται στα <a href="#/units">Departments</a> και στη <a href="#/list">Λίστα tasks</a>.</div></div>`;
     return;
   }
-  c.innerHTML = `<div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+  cnpPut(c, `<div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
     <select class="inp" id="projSel" style="max-width:340px">
       ${S.boot.projects.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`).join('')}
     </select><div style="flex:1"></div></div>
-    <div id="kbHead"></div>
-    <div class="kb" id="kb">${S.boot.statuses.map(() => '<div class="skel" style="flex:1;min-height:300px"></div>').join('')}</div>`;
+    <div id="kbHead" data-async></div>
+    <div class="kb" id="kb" data-async>${S.boot.statuses.map(() => '<div class="skel" style="flex:1;min-height:300px"></div>').join('')}</div>`);
   $('#projSel').onchange = e => { S.project = +e.target.value; vBoard(); };
   const d = await api('board&project=' + S.project);
   const kb = $('#kb'); if (!kb) return;
@@ -2356,18 +2451,20 @@ async function vBoard(arg) {
      οθόνη). Τώρα ΠΑΝΤΟΤΕ, και σε desktop (28/9/2026): με 13 καταστάσεις και στήλες
      ~280px χωράνε μόνο ~6 πριν χρειαστεί οριζόντιο scroll, χωρίς καμία ένδειξη ότι
      υπάρχουν κι άλλες — ο χρήστης έβλεπε 6/13 καταστάσεις νομίζοντας ότι είναι όλες. */
-  { const old = $('#kbMobNav'); if (old) old.remove(); }
+  /* Αθόρυβη ανανέωση: η μπάρα στηλών ενημερώνεται στη θέση της (όχι σβήσιμο/ξαναφτιάξιμο). */
+  let navOld = $('#kbMobNav');
+  if (navOld && !window._cnpSilent) { navOld.remove(); navOld = null; }
   {
-    const nav = document.createElement('div'); nav.id = 'kbMobNav'; nav.className = 'kb-mobnav';
-    nav.innerHTML = d.columns.map(col => { const st = statusOf(col.status); return `<button type="button" data-kbjump="${st.id}" style="--c:${st.color}">${esc(st.title)} <b>${col.tasks.length}</b></button>`; }).join('');
-    kb.before(nav);
+    const nav = navOld || document.createElement('div'); nav.id = 'kbMobNav'; nav.className = 'kb-mobnav';
+    cnpPut(nav, d.columns.map(col => { const st = statusOf(col.status); return `<button type="button" data-kbjump="${st.id}" style="--c:${st.color}">${esc(st.title)} <b>${col.tasks.length}</b></button>`; }).join(''));
+    if (!navOld) { kb.before(nav); }
     const jump = id => { const colEl = kb.querySelector('.kb-col[data-status="' + id + '"]'); if (!colEl) return; kb.scrollTo({left: colEl.offsetLeft - 8, behavior: 'smooth'}); nav.querySelectorAll('[data-kbjump]').forEach(b => b.classList.toggle('on', +b.dataset.kbjump === +id)); };
     nav.querySelectorAll('[data-kbjump]').forEach(b => b.onclick = () => jump(+b.dataset.kbjump));
     const firstFull = d.columns.find(c => c.tasks.length) || d.columns[0];
-    setTimeout(() => { if (firstFull) jump(statusOf(firstFull.status).id); }, 60);
-    kb.addEventListener('scroll', () => { let best = null, bd = 1e9; kb.querySelectorAll('.kb-col').forEach(c => { const dd = Math.abs(c.offsetLeft - kb.scrollLeft); if (dd < bd) { bd = dd; best = c; } }); if (best) nav.querySelectorAll('[data-kbjump]').forEach(b => b.classList.toggle('on', b.dataset.kbjump === best.dataset.status)); }, {passive: true});
+    if (!window._cnpSilent) { setTimeout(() => { if (firstFull) jump(statusOf(firstFull.status).id); }, 60); }   // η αθόρυβη ανανέωση δεν μετακινεί τη θέση σου
+    if (!kb._navWired) kb._navWired = 1, kb.addEventListener('scroll', () => { let best = null, bd = 1e9; kb.querySelectorAll('.kb-col').forEach(c => { const dd = Math.abs(c.offsetLeft - kb.scrollLeft); if (dd < bd) { bd = dd; best = c; } }); if (best) nav.querySelectorAll('[data-kbjump]').forEach(b => b.classList.toggle('on', b.dataset.kbjump === best.dataset.status)); }, {passive: true});
   }
-  kb.innerHTML = d.columns.map(col => {
+  const kbHtml = d.columns.map(col => {
     const st = statusOf(col.status);
     return `<div class="kb-col" data-status="${st.id}">
       <div class="kb-h" style="border-color:${st.color}">${esc(st.title)}<span class="kb-n">${col.tasks.length}</span></div>
@@ -2378,6 +2475,7 @@ async function vBoard(arg) {
           ${S.boot.depts.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>` : ''}</div>
     </div>`;
   }).join('');
+  cnpPut(kb, kbHtml);
   /* Νέα εργασία κατευθείαν στη στήλη. Το department το διαλέγεις εδώ: σε έργο
      πελάτη δεν υπάρχει τι να κληρονομήσει, οπότε αλλιώς θα έμενε αζήτητη. */
   $$('.kb-add', kb).forEach(box => {
@@ -2418,7 +2516,7 @@ function boardHead(m) {
       ${esc(u ? u.name : 'Χωρίς department')} <b>${x.done}/${x.total}</b>
       ${x.late ? `<span class="pill pill-bad" style="padding:0 5px">${x.late}</span>` : ''}</a>`;
   }).join('');
-  h.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="card-b" style="padding:11px 15px;display:flex;flex-direction:column;gap:9px">
+  cnpPut(h, `<div class="card" style="margin-bottom:14px"><div class="card-b" style="padding:11px 15px;display:flex;flex-direction:column;gap:9px">
     <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
       ${m.clientId
         ? `<a class="pill pill-info" href="#/client360/${m.clientId}" title="Καρτέλα πελάτη">${I.user} ${esc(m.client)}</a>`
@@ -2434,7 +2532,7 @@ function boardHead(m) {
          title="${esc(x.name)}: ${x.done}/${x.total} εργασίες — κλικ για να δεις μόνο αυτές">
         <i style="background:${x.color}">${I.box}</i>${esc(x.name)} <b>${x.done}/${x.total}</b></a>`).join('')}</div>` : ''}
     ${chips ? `<div class="us-strip">${chips}</div>` : ''}
-  </div></div>`;
+  </div></div>`);
   /* Ανάθεση προϊόντων από εδώ: το έργο είναι ανοιχτό, δεν χρειάζεται να πάει
      κανείς στη φόρμα επεξεργασίας για να δηλώσει τι παραδίδει. */
   const asg = $('#kbAssign', h);
@@ -2619,8 +2717,11 @@ const cnpAskDueTime = () => new Promise(resolve => {
  * Απάντηση στη ροή + μπάλα + κατάσταση με ΜΙΑ υποβολή (task_reply, όλα ή τίποτα).
  * Αν η κατάσταση ζητήσει λήξη ή προθεσμία, ρωτά όπως το board και ξαναστέλνει.
  */
-async function cnpTaskReply(id, payload) {
-  const send = extra => api('task_reply', Object.assign({task: id}, payload, extra || {}))
+async function cnpTaskReply(id, payload, action) {
+  /* action: 'task_reply' (ροή εργασίας) ή 'help_reply' (απάντηση σε αναφορά) — ίδιοι
+     κανόνες και ίδιες ερωτήσεις, ένας κώδικας. */
+  const base = action === 'help_reply' ? {} : {task: id};
+  const send = extra => api(action || 'task_reply', Object.assign(base, payload, extra || {}))
     .then(r => ({ok: true, res: r}))
     .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
   let r = await send(null);
@@ -2637,6 +2738,17 @@ async function cnpTaskReply(id, payload) {
     r = await send({due: pick});
   }
   return r;
+}
+
+/** Τα δύο προαιρετικά πεδία «Μπάλα σε» / «Νέα κατάσταση» — ίδια σε κάθε φόρμα απάντησης. */
+function cnpReplySelects(curBall, curStatus, prefix) {
+  const me = S.boot.me;
+  return `<select class="inp act-sel" id="${prefix}Ball" title="Μπάλα σε — ποιος συνεχίζει μετά την απάντηση (προαιρετικό)">
+      <option value="">⚡ Μπάλα: χωρίς αλλαγή</option>
+      ${S.boot.admins.filter(a => !a.disabled && a.id !== (curBall || 0)).map(a => `<option value="${a.id}">⚡ ${esc(a.id === me.id ? 'Σε μένα' : a.name)}</option>`).join('')}</select>
+    <select class="inp act-sel" id="${prefix}St" title="Νέα κατάσταση μαζί με την απάντηση (προαιρετικό)">
+      <option value="">◉ Κατάσταση: χωρίς αλλαγή</option>
+      ${(S.boot.statuses || []).filter(x => x.id !== curStatus).map(x => `<option value="${x.id}">◉ ${esc(x.title)}</option>`).join('')}</select>`;
 }
 
 async function cnpMoveTask(id, status, note) {
@@ -3000,12 +3112,7 @@ async function openTask(id, entryId, opts) {
           <div class="act-foot">
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
             ${/* ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ: μήνυμα + μπάλα σε + νέα κατάσταση (2/10/2026). Κενά = όπως πριν. */''}
-            ${d.canWrite && !t.done ? `<select class="inp act-sel" id="chkBall" title="Μπάλα σε — ποιος συνεχίζει μετά το μήνυμα (προαιρετικό)">
-                <option value="">⚡ Μπάλα: χωρίς αλλαγή</option>
-                ${S.boot.admins.filter(a => !a.disabled && a.id !== (t.ball || 0)).map(a => `<option value="${a.id}">⚡ ${esc(a.id === me.id ? 'Σε μένα' : a.name)}</option>`).join('')}</select>
-              <select class="inp act-sel" id="chkSt" title="Νέα κατάσταση μαζί με το μήνυμα (προαιρετικό)">
-                <option value="">◉ Κατάσταση: χωρίς αλλαγή</option>
-                ${(S.boot.statuses || []).filter(x => x.id !== t.status).map(x => `<option value="${x.id}">◉ ${esc(x.title)}</option>`).join('')}</select>` : ''}
+            ${d.canWrite && !t.done ? cnpReplySelects(t.ball, t.status, 'chk') : ''}
             <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
             <span class="mut act-tip"><b>Enter</b> καταχωρεί · <b>Shift+Enter</b> νέα γραμμή</span>
             ${/* Στο κινητό το Enter είναι πλήκτρο νέας γραμμής — εκεί μένει κουμπί. */''}
@@ -4836,7 +4943,7 @@ async function vMyDay() {
     /* ΤΑ ΤΗΛΕΦΩΝΑ ΕΙΝΑΙ ΜΕΡΟΣ ΤΗΣ ΜΕΡΑΣ, ΟΧΙ ΞΕΧΩΡΙΣΤΟ ΣΥΡΤΑΡΙ. Ο χρόνος που
        μίλησες μετράει ήδη στη μέρα σου· αν η καταγραφή του ζει σε άλλο κουτί,
        διαβάζεται σαν δεύτερη δουλειά αντί για την ίδια. Γεμίζει ασύγχρονα. */
-    + '<div class="myd-grp" id="mydCallsG" hidden>Τηλέφωνα χωρίς καταγραφή</div><div id="mydCalls"></div>'
+    + '<div class="myd-grp" id="mydCallsG" data-async hidden>Τηλέφωνα χωρίς καταγραφή</div><div id="mydCalls" data-async></div>'
     + (!evs.length && !planTasks.length && !(d.follows || []).length && !todos.length ? '<div class="myd-empty">🏖️ Καθαρή μέρα — τίποτα προγραμματισμένο. Πάρε κάτι από την ουρά ή το board.</div>' : '');
   const queue = d.queue || [];
   const queueBody = queue.length ? queue.slice(0, 6).map((q, i) => `<div class="myd-row q" data-qtk="${q.id}">
@@ -4913,15 +5020,15 @@ async function vMyDay() {
     /* ΑΚΥΡΩΣΕΙΣ. Το περιεχόμενο έρχεται μετά (δες mydCancels): δεν κρατάμε τη
        μέρα πίσω για ένα ερώτημα που αφορά λίγους. */
     cancels: () => sec('cancels', 'Ακυρώσεις υπηρεσιών', 'τι ζητήθηκε και αν έκλεισε', null,
-      '<div id="mydCn" class="mut" style="font-size:12.5px">φόρτωση…</div>', {ic: I.alert}),
+      '<div id="mydCn" data-async class="mut" style="font-size:12.5px">φόρτωση…</div>', {ic: I.alert}),
   };
   const put = col => mydCol(col).map(k => (BLK[k] ? BLK[k]() : '')).join('');
 
-  c.innerHTML = `<div class="myd-wrap">${hero}${put('bar')}
+  cnpPut(c, `<div class="myd-wrap">${hero}${put('bar')}
   <div class="myd-cols">
     <div class="myd-main">${put('main')}</div>
     <div class="myd-rail">${put('rail')}</div>
-  </div></div>`;
+  </div></div>`);
 
   /* ── δέσιμο ── */
   $$('#content .myd-h').forEach(h => h.onclick = e => { if (e.target.closest('a,button')) { return; } const s = h.closest('.myd-sec'); s.classList.toggle('closed'); setOpen(h.dataset.sect, !s.classList.contains('closed')); });
@@ -6162,6 +6269,12 @@ async function openRequestQuick(id, after) {
   if (!d || d.err) { box.innerHTML = `<div style="padding:24px" class="mut">${esc((d && d.err) || 'Δεν βρέθηκε το αίτημα.')}</div>`; return; }
   const q = d.req;
   const canReply = q.forMe || q.mine;
+  let tk = d.task;   // πού βρίσκεται ΤΩΡΑ η εργασία (μπάλα/κατάσταση) — ανανεώνεται αθόρυβα
+  const tkStrip = x => x ? `<span class="mut">Εργασία #${x.id}:</span>
+      <span class="ball${x.ball === S.boot.me.id ? ' me' : ''}" title="Ποιος την έχει τώρα">⚡ ${esc(x.ball ? (x.ball === S.boot.me.id ? 'εσύ' : x.ballName) : 'κανείς')}</span>
+      ${stPill(x.status)}
+      ${x.myTimer ? '<span class="tk-run" title="Τρέχει το χρονόμετρό σου εδώ — σταματά με την απάντηση">▶ ο χρόνος σου</span>' : ''}
+      <span class="qr-chg" id="qrChg" hidden></span>` : '';
   box.innerHTML = `
   <div class="qr-h">
     <span class="qr-ic">${esc(q.icon)}</span>
@@ -6175,8 +6288,10 @@ async function openRequestQuick(id, after) {
       <div class="qr-m-h">${esc(m.byName)}<span class="mut">${esc(tShort(m.at))}</span></div>
       <div class="qr-m-b">${esc(m.body)}</div></div>`).join('')}
   </div>
+  ${tk ? `<div class="qr-task" id="qrTask0">${tkStrip(tk)}</div>` : ''}
   ${canReply ? `<div class="qr-a">
     <textarea class="inp" id="qrTxt" rows="3" placeholder="Γράψε την απάντησή σου…  (Ctrl+Enter στέλνει)"></textarea>
+    ${tk && tk.canWrite && !tk.done && q.forMe ? `<div class="qr-sel" id="qrSel">${cnpReplySelects(tk.ball, tk.status, 'qr')}</div>` : ''}
     <div class="qr-btns">
       ${q.forMe && q.status === 'open' ? '<label class="mut qr-lbl"><input type="checkbox" id="qrKeep"> κράτα το ανοιχτό</label>' : ''}
       <span style="flex:1"></span>
@@ -6187,13 +6302,51 @@ async function openRequestQuick(id, after) {
   const bd = box.querySelector('#qrBody'); if (bd) { bd.scrollTop = bd.scrollHeight; }
   box.querySelector('.qr-x').onclick = close;
   const tx = box.querySelector('#qrTxt');
+  /* Αθόρυβη ανανέωση της κατάστασης της εργασίας όσο γράφεις: το κείμενο δεν αγγίζεται·
+     αν άλλαξε από άλλον, φαίνεται διακριτικά και οι επιλογές προσαρμόζονται. */
+  let qrPoll = null;
+  if (tk) {
+    qrPoll = setInterval(async () => {
+      if (!document.body.contains(box)) { clearInterval(qrPoll); return; }
+      if (document.hidden) { return; }
+      const nd = await api('request_get&id=' + id).catch(() => null);
+      if (!nd || !nd.task || nd.task.ver === tk.ver) { return; }
+      const old = tk; tk = nd.task;
+      const stripEl = box.querySelector('#qrTask0'); if (stripEl) { stripEl.innerHTML = tkStrip(tk); }
+      const chg = box.querySelector('#qrChg');
+      if (chg) {
+        const what = [];
+        if (old.ball !== tk.ball) { what.push('μπάλα → ' + (tk.ballName || 'κανείς')); }
+        if (old.status !== tk.status) { what.push('κατάσταση → ' + tk.statusTitle); }
+        chg.hidden = !what.length; chg.textContent = what.length ? '⟳ Άλλαξε μόλις: ' + what.join(' · ') : '';
+      }
+      const selBox = box.querySelector('#qrSel');
+      if (selBox) {
+        const bv = (box.querySelector('#qrBall') || {}).value || '', sv = (box.querySelector('#qrSt') || {}).value || '';
+        selBox.innerHTML = cnpReplySelects(tk.ball, tk.status, 'qr');
+        const nb = box.querySelector('#qrBall'), ns = box.querySelector('#qrSt');
+        if (nb && [...nb.options].some(o => o.value === bv)) { nb.value = bv; }
+        if (ns && [...ns.options].some(o => o.value === sv)) { ns.value = sv; }
+      }
+    }, 12000);
+  }
   const send = async () => {
     const body = (tx.value || '').trim();
     if (!body) { tx.focus(); return; }
     const keep = box.querySelector('#qrKeep');
-    const r = await api('help_reply', {id: q.id, body, keepOpen: keep && keep.checked ? 1 : 0}).catch(e => ({err: e.message}));
-    if (r && r.err) { toast(r.err, true); return; }
-    toast('✔ Στάλθηκε'); close(); if (after) { after(); }
+    const ballV = +((box.querySelector('#qrBall') || {}).value || 0), stV = +((box.querySelector('#qrSt') || {}).value || 0);
+    /* Απάντηση σε αναφορά για εργασία = τελείωσα ό,τι μου ζητήθηκε: σταματά ο δικός μου χρόνος εκεί. */
+    const rr = await cnpTaskReply(q.id, {id: q.id, body, keepOpen: keep && keep.checked ? 1 : 0,
+      ball: ballV, status: stV, stop: tk && q.forMe ? 1 : 0}, 'help_reply');
+    if (!rr.ok) { if (!rr.cancelled) { toast(rr.error || 'Δεν στάλθηκε', true); } return; }
+    const tr = rr.res && rr.res.task;
+    const bits = [];
+    if (ballV) { bits.push('μπάλα → ' + (ballV === S.boot.me.id ? 'εσένα' : adminName(ballV))); }
+    if (stV) { bits.push('κατάσταση → ' + (statusOf(stV) || {}).title); }
+    const stp = tr && (tr.ballStopped || tr.timerStopped);
+    if (stp) { bits.push('ο χρόνος σου σταμάτησε (' + fmtMin(stp.mins) + ')'); }
+    toast('✔ Στάλθηκε' + (bits.length ? ' · ' + bits.join(' · ') : ''));
+    clearInterval(qrPoll); close(); if (after) { after(); }
   };
   if (tx) { tx.focus(); tx.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } }; }
   { const b = box.querySelector('#qrSend'); if (b) { b.onclick = send; } }
@@ -6321,7 +6474,7 @@ window.CNP = {S, api, esc, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, pa
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
   openTicketQuick, openRequestQuick, cnpKeyNav, cnpKeyHelp, mydLayoutDialog,
   cnpMsgHtml, cnpWireMsgLinks, cnpSearch, cnpSkel,
-  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, cnpHolder, chatBeep, $, $$};
+  fChip, fSel, fBool, fOne, fAdd, fWire, cnpIsMine, cnpHolder, chatBeep, cnpPut, cnpMorph, cnpSilentRefresh, $, $$};
 
 /* ───────── init ───────── */
 (async function init() {
@@ -6470,15 +6623,14 @@ window.CNP = {S, api, esc, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, pa
       }
       if (lastV === null) { lastV = d.v; return; }
       if (d.v === lastV) return;
-      lastV = d.v;
-      const tag = (document.activeElement?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return;   // μην ενοχλείς ενώ γράφει
-      if (document.querySelector('.drawer')) return;        // ούτε με ανοιχτό πάνελ
-      if (['board', 'myday', 'list', 'crm', 'kpi', 'inbox'].includes(S.view) && window.R[S.view]) {
-        window.R[S.view]();
-      }
+      /* Κρυφή καρτέλα: δεν ξαναζωγραφίζουμε — μόλις ξαναφανεί, ανανεώνεται αμέσως (βλ. visibilitychange). */
+      if (document.hidden) { window._cnpStale = true; return; }
+      if (await cnpSilentRefresh()) { lastV = d.v; }
     } catch (e) {}
   }, 12000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && window._cnpStale) { cnpSilentRefresh().then(ok => { if (ok) { window._cnpStale = false; } }); }
+  });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') { return; }
     if (document.querySelector('.pal-box, .help-ovl, #miniMenu')) { return; }   // διάλογοι/μενού έχουν δικό τους Esc
