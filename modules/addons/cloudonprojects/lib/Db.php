@@ -557,6 +557,19 @@ class Db
             });
         }
 
+        /* Αποθηκευμένα views της Λίστας tasks (5/10/2026): config ως JSON με «v» (έκδοση). */
+        if (!$s->hasTable('mod_cpm_views')) {
+            $s->create('mod_cpm_views', function ($t) {
+                $t->increments('id');
+                $t->integer('owner_id')->unsigned()->index();
+                $t->string('name', 80);
+                $t->string('scope', 10)->default('mine');   // mine | public
+                $t->text('config');
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+            });
+        }
+
         /* Chat μέσα στο Meet (2/10/2026): ανά δωμάτιο, μένει για όποιον μπει αργότερα. */
         if (!$s->hasTable('mod_cpm_rtc_chat')) {
             $s->create('mod_cpm_rtc_chat', function ($t) {

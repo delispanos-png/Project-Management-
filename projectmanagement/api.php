@@ -4488,6 +4488,85 @@ function cnp_check_add_run(array $in, $adminId, $FULL)
 }
 
 /**
+ * Απάντηση + μπάλα + κατάσταση (+ σταμάτημα του δικού μου χρόνου), ΟΛΑ ή ΤΙΠΟΤΑ.
+ * Κοινή για τη ροή της εργασίας (task_reply) και την απάντηση σε αναφορά (help_reply),
+ * ώστε να μην υπάρχουν δύο εκδοχές των ίδιων κανόνων (5/10/2026).
+ */
+function cnp_task_reply_run(array $in, $adminId, $FULL)
+{
+    $tRp = Db::task((int) ($in['task'] ?? 0));
+    if (!$tRp || !Db::canSeeTask($adminId, $tRp)) { fail('task', 403); }
+    $ballRp = (int) ($in['ball'] ?? 0);
+    $stRp = (int) ($in['status'] ?? 0);
+    if ($ballRp === (int) $tRp->action_user) { $ballRp = 0; }
+    if ($stRp === (int) $tRp->status_id) { $stRp = 0; }
+    $msgRp = trim((string) ($in['title'] ?? ''));
+    $hasMsgRp = $msgRp !== '' && $msgRp !== '<br>';
+    if (!$hasMsgRp && !$ballRp && !$stRp && empty($in['stop'])) { fail('Γράψε μήνυμα ή διάλεξε μπάλα / κατάσταση'); }
+    if (($ballRp || $stRp) && !cnp_task_write_ok($adminId, $FULL, $tRp)) {
+        fail('Μπάλα και κατάσταση αλλάζει όποιος έχει την εργασία ή «Board: επεξεργασία»', 403);
+    }
+    if ($ballRp && !Capsule::table('tbladmins')->where('id', $ballRp)->where('disabled', 0)->exists()) {
+        fail('Ο χρήστης για τη μπάλα δεν υπάρχει ή είναι ανενεργός');
+    }
+    if ($stRp && !Db::status($stRp)) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα'); }
+    $fromBallRp = (int) ($tRp->action_user ?: 0);
+    $fromStRp = Db::status((int) $tRp->status_id);
+    Capsule::connection()->beginTransaction();
+    $resRp = ['ok' => true, 'id' => null, 'timerStopped' => null, 'ballStopped' => null];
+    $chgRp = [];
+    try {
+        /* Πρώτα η κατάσταση: έχει τους περισσότερους κανόνες, άρα αν κάτι λείπει
+           σταματάμε πριν γραφτεί οτιδήποτε άλλο. */
+        if ($stRp) {
+            $mvRp = cnp_move_task_run(['task' => (int) $tRp->id, 'status' => $stRp,
+                'due' => $in['due'] ?? null, 'dueT' => $in['dueT'] ?? null], $adminId, $FULL);
+            $resRp['timerStopped'] = $mvRp['timerStopped'];
+            $chgRp[] = 'Κατάσταση: ' . ($fromStRp ? $fromStRp->title : '—') . ' → ' . Db::status($stRp)->title;
+        }
+        if ($ballRp) {
+            $resRp['ballStopped'] = cnp_ball_apply(Db::task((int) $tRp->id), $ballRp, $adminId);
+            array_unshift($chgRp, 'Μπάλα: ' . ($fromBallRp ? Db::adminName($fromBallRp) : '—') . ' → ' . Db::adminName($ballRp));
+        }
+        /* Απάντηση σε αναφορά/αίτημα («stop»): τελείωσα ό,τι μου ζητήθηκε → σταματά ο
+           δικός μου χρόνος εδώ, μέσα στην ίδια πράξη (αν κάτι αποτύχει, δεν σταματά). */
+        if (!empty($in['stop']) && !$resRp['ballStopped'] && !$resRp['timerStopped']) {
+            $resRp['timerStopped'] = cnp_stop_my_timer_on((int) $tRp->id, $adminId, 'έκλεισε με την απάντηση');
+        }
+        if ($hasMsgRp) {
+            /* Μετά από αλλαγή σε κλειστή κατάσταση η εργασία κλειδώνει — το μήνυμα όμως
+               ανήκει στην ίδια πράξη, οπότε γράφεται χωρίς τον έλεγχο κλειδώματος. */
+            $resRp['id'] = cnp_check_add_run(['task' => (int) $tRp->id, 'title' => $msgRp, 'html' => !empty($in['html']),
+                '_skipLock' => true], $adminId, $FULL);
+        }
+        if ($chgRp) {
+            Db::logActivity((int) $tRp->id, $adminId, 'edit', implode(' · ', $chgRp));
+        }
+        Capsule::connection()->commit();
+    } catch (\Throwable $eRp) {
+        try { Capsule::connection()->rollBack(); } catch (\Throwable $e2) { }
+        throw $eRp;
+    }
+    return $resRp;
+}
+
+/**
+ * Σταματά ΜΟΝΟ το δικό μου χρονόμετρο και ΜΟΝΟ αν τρέχει σε αυτή την εργασία (5/10/2026).
+ * Κανένα αποτέλεσμα αν δεν τρέχει — ούτε σφάλμα ούτε κενή εγγραφή χρόνου.
+ */
+function cnp_stop_my_timer_on($taskId, $adminId, $note, $to = '')
+{
+    $run = Db::runningTimer($adminId);
+    if (!$run || (int) $run->task_id !== (int) $taskId) { return null; }
+    if (Db::stopTimer($run->id)) {
+        Db::updateTimelog($run->id, ['note' => $note]);
+        Time::push($run->id);
+    }
+    $lg = Db::timelog($run->id);
+    return ['id' => (int) $run->id, 'mins' => $lg ? (int) $lg->minutes : 0, 'to' => $to];
+}
+
+/**
  * Μπάλα σε άλλον: ειδοποίηση νέου κατόχου + σταμάτημα του δικού μου χρόνου αν την
  * παραδίδω εγώ (ίδιοι κανόνες με save_task). Επιστρέφει ballStopped ή null.
  */
@@ -4498,18 +4577,11 @@ function cnp_ball_apply($t, $newBall, $adminId)
     if ($newBall && $newBall !== (int) $t->action_user && $newBall !== (int) $adminId) {
         Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title, '/project/#/task/' . (int) $t->id);
     }
-    $stopped = null;
-    if ((int) $t->action_user === (int) $adminId && $newBall && $newBall !== (int) $adminId) {
-        $runB = Db::runningTimer($adminId);
-        if ($runB && (int) $runB->task_id === (int) $t->id) {
-            if (Db::stopTimer($runB->id)) {
-                Db::updateTimelog($runB->id, ['note' => 'έκλεισε με την παράδοση της μπάλας']);
-                Time::push($runB->id);
-            }
-            $lgB = Db::timelog($runB->id);
-            $stopped = ['id' => (int) $runB->id, 'mins' => $lgB ? (int) $lgB->minutes : 0, 'to' => Db::adminName($newBall)];
-        }
-    }
+    /* Δίνω την εργασία σε άλλον = τελείωσα το κομμάτι μου → σταματά ο ΔΙΚΟΣ μου χρόνος
+       εδώ. Όχι μόνο όταν η μπάλα ήταν ρητά δική μου: και ως ανάδοχος χωρίς μπάλα, ή ως
+       συνεργάτης, ο χρόνος έμενε να τρέχει μετά την επιστροφή (5/10/2026). */
+    $stopped = ($newBall && $newBall !== (int) $adminId)
+        ? cnp_stop_my_timer_on((int) $t->id, $adminId, 'έκλεισε με την παράδοση της μπάλας', Db::adminName($newBall)) : null;
     return $stopped;
 }
 
@@ -4749,7 +4821,8 @@ function cnp_action_cap($action)
         $add('projects.portfolio', ['portfolio', 'project_modules']);
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
-        $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler']);
+        $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler',
+            'views_list', 'view_save', 'view_del', 'view_default']);   // views της Λίστας: ιδιοκτησία ελέγχεται μέσα στις ενέργειες
         $add('projects.board.edit', ['task_project', 'gantt_move',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
@@ -9095,8 +9168,8 @@ case 'save_task':
 
            ΜΟΝΟ όταν φεύγει ΑΠΟ ΕΜΕΝΑ σε ΑΛΛΟΝ: αν πάρω εγώ την μπάλα, ή αν την
            αφήσω «σε κανέναν» για να την ξαναπιάσω, δεν σταματά τίποτα. */
-        $oldBall = (int) $t->action_user;
-        if ($oldBall === $adminId && $newBall && $newBall !== $adminId) {
+        /* (5/10/2026) Όχι μόνο όταν η μπάλα ήταν ρητά δική μου — βλ. cnp_ball_apply. */
+        if ($newBall && $newBall !== $adminId && $newBall !== (int) $t->action_user) {
             $runB = Db::runningTimer($adminId);
             if ($runB && (int) $runB->task_id === (int) $tid) {
                 if (Db::stopTimer($runB->id)) {
@@ -9397,55 +9470,7 @@ case 'check_add':
    προθεσμία) ή αρνηθεί, δεν γράφεται ούτε το μήνυμα ούτε η μπάλα. Κενά πεδία =
    συμπεριφορά όπως σήμερα. Στο ιστορικό μία γραμμή: «Μπάλα: Α → Β · Κατάσταση: Χ → Υ». */
 case 'task_reply':
-    $tRp = Db::task((int) ($in['task'] ?? 0));
-    if (!$tRp || !Db::canSeeTask($adminId, $tRp)) { fail('task', 403); }
-    $ballRp = (int) ($in['ball'] ?? 0);
-    $stRp = (int) ($in['status'] ?? 0);
-    if ($ballRp === (int) $tRp->action_user) { $ballRp = 0; }
-    if ($stRp === (int) $tRp->status_id) { $stRp = 0; }
-    $msgRp = trim((string) ($in['title'] ?? ''));
-    $hasMsgRp = $msgRp !== '' && $msgRp !== '<br>';
-    if (!$hasMsgRp && !$ballRp && !$stRp) { fail('Γράψε μήνυμα ή διάλεξε μπάλα / κατάσταση'); }
-    if (($ballRp || $stRp) && !cnp_task_write_ok($adminId, $FULL, $tRp)) {
-        fail('Μπάλα και κατάσταση αλλάζει όποιος έχει την εργασία ή «Board: επεξεργασία»', 403);
-    }
-    if ($ballRp && !Capsule::table('tbladmins')->where('id', $ballRp)->where('disabled', 0)->exists()) {
-        fail('Ο χρήστης για τη μπάλα δεν υπάρχει ή είναι ανενεργός');
-    }
-    if ($stRp && !Db::status($stRp)) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα'); }
-    $fromBallRp = (int) ($tRp->action_user ?: 0);
-    $fromStRp = Db::status((int) $tRp->status_id);
-    Capsule::connection()->beginTransaction();
-    $resRp = ['ok' => true, 'id' => null, 'timerStopped' => null, 'ballStopped' => null];
-    $chgRp = [];
-    try {
-        /* Πρώτα η κατάσταση: έχει τους περισσότερους κανόνες, άρα αν κάτι λείπει
-           σταματάμε πριν γραφτεί οτιδήποτε άλλο. */
-        if ($stRp) {
-            $mvRp = cnp_move_task_run(['task' => (int) $tRp->id, 'status' => $stRp,
-                'due' => $in['due'] ?? null, 'dueT' => $in['dueT'] ?? null], $adminId, $FULL);
-            $resRp['timerStopped'] = $mvRp['timerStopped'];
-            $chgRp[] = 'Κατάσταση: ' . ($fromStRp ? $fromStRp->title : '—') . ' → ' . Db::status($stRp)->title;
-        }
-        if ($ballRp) {
-            $resRp['ballStopped'] = cnp_ball_apply(Db::task((int) $tRp->id), $ballRp, $adminId);
-            array_unshift($chgRp, 'Μπάλα: ' . ($fromBallRp ? Db::adminName($fromBallRp) : '—') . ' → ' . Db::adminName($ballRp));
-        }
-        if ($hasMsgRp) {
-            /* Μετά από αλλαγή σε κλειστή κατάσταση η εργασία κλειδώνει — το μήνυμα όμως
-               ανήκει στην ίδια πράξη, οπότε γράφεται χωρίς τον έλεγχο κλειδώματος. */
-            $resRp['id'] = cnp_check_add_run(['task' => (int) $tRp->id, 'title' => $msgRp, 'html' => !empty($in['html']),
-                '_skipLock' => true], $adminId, $FULL);
-        }
-        if ($chgRp) {
-            Db::logActivity((int) $tRp->id, $adminId, 'edit', implode(' · ', $chgRp));
-        }
-        Capsule::connection()->commit();
-    } catch (\Throwable $eRp) {
-        try { Capsule::connection()->rollBack(); } catch (\Throwable $e2) { }
-        throw $eRp;
-    }
-    out($resRp);
+    out(cnp_task_reply_run($in, $adminId, $FULL));
 
 case 'check_edit':                       // διόρθωση βήματος (τυπογραφικό, συμπλήρωση, κομμένο κείμενο)
     $ci = Capsule::table('mod_cpm_checklist')->where('id', (int) ($in['id'] ?? 0))->first();
@@ -10017,13 +10042,29 @@ case 'request_get':                       // ένα αίτημα + όλη η α�
         $msgsR[] = ['id' => (int) $m->id, 'by' => (int) $m->admin_id, 'byName' => Db::adminName((int) $m->admin_id),
             'body' => (string) $m->body, 'at' => $m->created_at, 'mine' => (int) $m->admin_id === $adminId];
     }
-    out(['req' => cnp_request_dto($rq, $adminId), 'msgs' => $msgsR]);
+    /* Πού βρίσκεται ΤΩΡΑ η εργασία (μπάλα/κατάσταση) — για να απαντάς ξέροντας, και να
+       την περάσεις παρακάτω από εδώ, χωρίς να την ανοίξεις. */
+    $taskR = null;
+    if ((int) $rq->task_id && ($tq = Db::task((int) $rq->task_id)) && Db::canSeeTask($adminId, $tq)) {
+        $hq = (int) ($tq->action_user ?: $tq->assignee);
+        $sq = Db::status((int) $tq->status_id);
+        $runQ = Db::runningTimer($adminId);
+        $taskR = ['id' => (int) $tq->id, 'ball' => $hq ?: null, 'ballName' => $hq ? Db::adminName($hq) : '',
+            'status' => (int) $tq->status_id, 'statusTitle' => $sq ? $sq->title : '', 'statusColor' => $sq ? $sq->color : '#8595ac',
+            'done' => !empty($tq->completed_at), 'canWrite' => cnp_task_write_ok($adminId, $FULL, $tq),
+            'myTimer' => $runQ && (int) $runQ->task_id === (int) $tq->id,
+            'ver' => (string) ($tq->updated_at ?? '') . '|' . (int) $tq->status_id . '|' . (int) $tq->action_user];
+    }
+    out(['req' => cnp_request_dto($rq, $adminId), 'msgs' => $msgsR, 'task' => $taskR]);
 
 case 'help_reply':                        // απάντηση στο νήμα ενός αιτήματος
     $rr = Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))->first();
     if (!$rr || ((int) $rr->to_admin !== $adminId && (int) $rr->from_admin !== $adminId)) { fail('request', 404); }
     $bodyR = mb_substr(trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['body'] ?? ''))), 0, 2000);
     if ($bodyR === '') { fail('Γράψε την απάντησή σου'); }
+    /* ΟΛΑ ή ΤΙΠΟΤΑ (5/10/2026): η απάντηση και οι αλλαγές στην εργασία (μπάλα/κατάσταση/
+       χρόνος) γράφονται μαζί — αν η κατάσταση ζητήσει κάτι, δεν γράφεται ούτε η απάντηση. */
+    Capsule::connection()->beginTransaction();
     $midR = Capsule::table('mod_cpm_help_msgs')->insertGetId(['help_id' => (int) $rr->id, 'admin_id' => $adminId,
         'body' => $bodyR, 'created_at' => date('Y-m-d H:i:s')]);
     $otherR = (int) $rr->to_admin === $adminId ? (int) $rr->from_admin : (int) $rr->to_admin;
@@ -10054,7 +10095,16 @@ case 'help_reply':                        // απάντηση στο νήμα ε
             ->update(['state' => 'done', 'resolved_by' => $adminId, 'resolved_at' => date('Y-m-d H:i:s'),
                 'resolve_note' => 'απάντησε: ' . Db::adminName($adminId) . ' — ' . mb_substr($bodyR, 0, 140)]);
     }
-    out(['ok' => true, 'id' => $midR]);
+    /* Μπάλα σε / νέα κατάσταση / σταμάτημα χρόνου στην εργασία του αιτήματος — η ΙΔΙΑ
+       λογική με τη ροή της εργασίας (cnp_task_reply_run): δικαιώματα, κανόνες, ιστορικό. */
+    $taskResR = null;
+    if ((int) $rr->task_id && ((int) ($in['ball'] ?? 0) || (int) ($in['status'] ?? 0) || !empty($in['stop']))) {
+        $taskResR = cnp_task_reply_run(['task' => (int) $rr->task_id, 'title' => '',
+            'ball' => (int) ($in['ball'] ?? 0), 'status' => (int) ($in['status'] ?? 0), 'stop' => !empty($in['stop']),
+            'due' => $in['due'] ?? null, 'dueT' => $in['dueT'] ?? null], $adminId, $FULL);
+    }
+    Capsule::connection()->commit();
+    out(['ok' => true, 'id' => $midR, 'task' => $taskResR]);
 
 case 'request_reopen':                    // ξανάνοιγμα τακτοποιημένου αιτήματος
     $ro = Capsule::table('mod_cpm_help')->where('id', (int) ($in['id'] ?? 0))->first();
@@ -10874,10 +10924,15 @@ case 'list':
     if (!$FULL) {
         $f['restrict_admin'] = $adminId;
     }
-    $rows = Db::tasksFiltered($f);
+    $rows = Db::tasksFiltered($f, 1000);   // ήταν 300 (προεπιλογή): με «όλες» κοβόταν σιωπηλά
     $mins = Db::minutesForTasks(array_map(function ($r) { return (int) $r->id; }, $rows->all()));
     $list = [];
     $clLbl9 = [];
+    /* ▶ Ποιος τρέχει χρονόμετρο ΤΩΡΑ σε κάθε εργασία (μπορεί να είναι πάνω από ένας — συνεργάτες). */
+    $runL = [];
+    foreach (Capsule::table('mod_cpm_timelogs')->where('running', 1)->get(['task_id', 'admin_id', 'started_at']) as $rl) {
+        $runL[(int) $rl->task_id][] = ['id' => (int) $rl->admin_id, 'since' => (string) $rl->started_at];
+    }
     foreach ($rows as $t) {
         $d = taskDto($t);
         $d['project'] = (int) $t->project_id;      // το χρειάζεται το φίλτρο/chips ανά project
@@ -10889,6 +10944,7 @@ case 'list':
         $d['client'] = $cl9 ?: null;
         /* clientLabel με μνήμη: ως 300 εργασίες, συχνά του ίδιου πελάτη. */
         $d['clientName'] = $cl9 ? ($clLbl9[$cl9] ?? ($clLbl9[$cl9] = clientLabel($cl9))) : '';
+        $d['running'] = $runL[(int) $t->id] ?? [];
         $list[] = $d;
     }
     out(['tasks' => $list]);
@@ -13049,7 +13105,7 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
        οπότε ο χρόνος συνέχιζε να ανεβαίνει σε όποιον παρέδωσε ενώ πλέον τη δουλειά
        την είχε ο άλλος (εντοπίστηκε 28/9/2026). ΜΟΝΟ αν η μπάλα ήταν δική μου. */
     $ballStoppedH = null;
-    if ((int) $t->action_user === $adminId) {
+    if ($toH && (int) $toH !== $adminId) {   // (5/10/2026) όποιος παραδίδει, όχι μόνο ο ρητός κάτοχος της μπάλας
         $runH = Db::runningTimer($adminId);
         if ($runH && (int) $runH->task_id === (int) $t->id) {
             if (Db::stopTimer($runH->id)) {
@@ -16111,6 +16167,65 @@ case 'rtc_join':
 /* 💬 Chat μέσα στο Meet: κειμενικά μηνύματα προς όλο το δωμάτιο. Ίδιο κλειδί
    συμμετέχοντα με τη σηματοδοσία· επισκέπτες γράφουν με το όνομα που έδωσαν.
    Αποθηκεύεται ανά δωμάτιο, ώστε όποιος μπαίνει αργότερα να βλέπει τι ειπώθηκε. */
+/* ═══ VIEWS ΤΗΣ ΛΙΣΤΑΣ TASKS (5/10/2026) ═══
+   Προσωπικά (μόνο ο δημιουργός) ή δημόσια (όλοι τα βλέπουν/χρησιμοποιούν). Αλλάζει ή
+   σβήνει ΜΟΝΟ ο δημιουργός ή πλήρης διαχειριστής· οι άλλοι αντιγράφουν ως προσωπικό.
+   Το config είναι JSON με «v»: ό,τι άγνωστο (σβησμένη στήλη/κατάσταση) το αγνοεί η οθόνη. */
+case 'views_list':
+    $vw = ['mine' => [], 'public' => []];
+    foreach (Capsule::table('mod_cpm_views')->where(function ($w) use ($adminId) {
+        $w->where('owner_id', $adminId)->orWhere('scope', 'public');
+    })->orderBy('name')->get() as $v9) {
+        $row = ['id' => (int) $v9->id, 'name' => $v9->name, 'scope' => $v9->scope, 'owner' => (int) $v9->owner_id,
+            'ownerName' => Db::adminName((int) $v9->owner_id), 'config' => json_decode((string) $v9->config, true) ?: new \stdClass(),
+            'canEdit' => (int) $v9->owner_id === $adminId || $FULL, 'updated' => (string) $v9->updated_at];
+        if ((int) $v9->owner_id === $adminId) { $vw['mine'][] = $row; } else { $vw['public'][] = $row; }
+    }
+    $vw['default'] = (string) Db::pref($adminId, 'list_view_default', '');
+    out($vw);
+
+case 'view_save':
+    $vId = (int) ($in['id'] ?? 0);
+    $vName = mb_substr(trim(strip_tags((string) ($in['name'] ?? ''))), 0, 80);
+    $vScope = ($in['scope'] ?? '') === 'public' ? 'public' : 'mine';
+    $vCfg = is_array($in['config'] ?? null) ? $in['config'] : null;
+    if (!$vCfg) { fail('Λείπει η ρύθμιση του view'); }
+    $vCfg['v'] = (int) ($vCfg['v'] ?? 1);
+    $vJson = json_encode($vCfg, JSON_UNESCAPED_UNICODE);
+    if (strlen($vJson) > 20000) { fail('Πολύ μεγάλη ρύθμιση view'); }
+    if ($vId) {
+        $vRow = Capsule::table('mod_cpm_views')->where('id', $vId)->first();
+        if (!$vRow) { fail('Δεν βρέθηκε το view', 404); }
+        if ((int) $vRow->owner_id !== $adminId && !$FULL) { fail('Το view το αλλάζει μόνο ο δημιουργός του — αντέγραψέ το ως δικό σου', 403); }
+        $upd = ['config' => $vJson, 'updated_at' => date('Y-m-d H:i:s')];
+        if ($vName !== '') { $upd['name'] = $vName; }
+        if (array_key_exists('scope', $in)) { $upd['scope'] = $vScope; }
+        Capsule::table('mod_cpm_views')->where('id', $vId)->update($upd);
+    } else {
+        if ($vName === '') { fail('Δώσε όνομα στο view'); }
+        $vId = (int) Capsule::table('mod_cpm_views')->insertGetId(['owner_id' => $adminId, 'name' => $vName, 'scope' => $vScope,
+            'config' => $vJson, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+    }
+    out(['ok' => true, 'id' => $vId]);
+
+case 'view_del':
+    $vRow = Capsule::table('mod_cpm_views')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$vRow) { fail('Δεν βρέθηκε το view', 404); }
+    if ((int) $vRow->owner_id !== $adminId && !$FULL) { fail('Το view το σβήνει μόνο ο δημιουργός του', 403); }
+    Capsule::table('mod_cpm_views')->where('id', (int) $vRow->id)->delete();
+    if ((string) Db::pref($adminId, 'list_view_default', '') === 'v:' . (int) $vRow->id) { Db::setPref($adminId, 'list_view_default', ''); }
+    out(['ok' => true]);
+
+case 'view_default':                      // προεπιλεγμένο view ΓΙΑ ΜΕΝΑ: 'v:ID' | 'p:κλειδί' | ''
+    $vKey = (string) ($in['key'] ?? '');
+    if ($vKey !== '' && !preg_match('/^(v:\d+|p:[a-z_]{1,20})$/', $vKey)) { fail('input'); }
+    if (strpos($vKey, 'v:') === 0) {
+        $vRow = Capsule::table('mod_cpm_views')->where('id', (int) substr($vKey, 2))->first();
+        if (!$vRow || ((int) $vRow->owner_id !== $adminId && $vRow->scope !== 'public')) { fail('Δεν βρέθηκε το view', 404); }
+    }
+    Db::setPref($adminId, 'list_view_default', $vKey);
+    out(['ok' => true]);
+
 case 'rtc_chat':
     $roomC = preg_replace('/[^a-zA-Z0-9\-]/', '', $in['room'] ?? '');
     if ($roomC === '' || ($adminId <= 0 && $MEET_ROOM !== $roomC)) { fail('room', 403); }

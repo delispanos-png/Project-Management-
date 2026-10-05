@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
-const {S, api, esc, timeInput, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
+const {cnpPut, S, api, esc, timeInput, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
   cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpHolder, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
@@ -611,17 +611,7 @@ window.CNP.quickCall = quickCall;
 /* ═════════ Λίστα v2 — grouping + saved views ═════════ */
 /* Τα πρόσθετα φίλτρα της λίστας tasks. Το «μόνο ανοιχτά» ξεκινά ανοιχτό: είναι
    η προεπιλογή της οθόνης, οπότε πρέπει να ΦΑΙΝΕΤΑΙ ότι ισχύει. */
-const LF_F = {
-  open: {label: 'Ανοιχτά', bool: 1},
-  mine: {label: 'Δικά μου', bool: 1},        // ανάθεση ή μπάλα — cnpIsMine
-  proj: {label: 'Έργο', opts: d => [['', '— κάθε —']]
-           .concat((d.projects || []).map(n => [n, n]))},
-  /* Πελάτης: από το έργο ή από το ticket που γέννησε την εργασία. */
-  client: {label: 'Πελάτης', opts: d => [['', '— κάθε —']]
-           .concat((d.clients || []).map(n => [n, n]))},
-  created: {label: 'Δημιουργήθηκε', dateRange: 1},
-  done: {label: 'Ολοκληρώθηκε', dateRange: 1},   // ενεργοποιεί κι αυτόματα «όλα» — βλ. load()
-};
+/* (5/10/2026) Τα φίλτρα της Λίστας tasks ζουν πλέον στο LV_FIELDS / LV_OPS — βλ. R.list. */
 
 /* Μετατροπή επικολλημένου HTML σε ελαφριά σήμανση chat:
    **έντονα** · _πλάγια_ · ~~διαγραμμένα~~ · `κώδικας` · ```μπλοκ``` · • λίστες · 1. αριθμημένες
@@ -1073,234 +1063,542 @@ R.supervised = async function () {
   $('#svNew').onclick = () => window.CNP.quickNew && window.CNP.quickNew();
 };
 
+/* ═════════ ΛΙΣΤΑ TASKS — πλήρως παραμετροποιήσιμα views (5/10/2026) ═════════
+   Ένα view = ΦΙΛΤΡΑ (με τελεστή, AND μεταξύ τους) + ΟΜΑΔΟΠΟΙΗΣΗ σε όσα επίπεδα θέλεις
+   + ΤΑΞΙΝΟΜΗΣΗ με πολλά κριτήρια + ΣΤΗΛΕΣ με δική σου σειρά + ΕΜΦΑΝΙΣΗ (λίστα /
+   πίνακας / board, αναλυτική / συμπτυγμένη). Αποθηκεύεται στον server ως JSON με «v»·
+   ό,τι δεν αναγνωρίζεται πια (σβησμένη στήλη, κατάσταση) αγνοείται με ασφάλεια.
+   Προσωπικά ή δημόσια· προεπιλεγμένο ανά χρήστη· έτοιμα από την αρχή. */
+const LV_PRIO = ['Κανονική', 'Υψηλή', 'Κρίσιμη'];
+const LV_PCOL = ['#8595ac', '#eba63c', '#e2515f'];
+const lvStRank = id => { const i = (S.boot.statuses || []).findIndex(x => x.id === +id); return i < 0 ? 999 : i; };
+const LV_FIELDS = {
+  id:       {label: '#', kind: 'num', val: t => +t.id},
+  title:    {label: 'Τίτλος', kind: 'text', val: t => t.title || ''},
+  status:   {label: 'Κατάσταση', kind: 'enum', val: t => statusOf(t.status).title || '—', rank: t => lvStRank(t.status), color: t => statusOf(t.status).color},
+  prio:     {label: 'Προτεραιότητα', kind: 'enum', val: t => LV_PRIO[+t.prio || 0] || LV_PRIO[0], rank: t => -(+t.prio || 0), color: t => LV_PCOL[+t.prio || 0]},
+  client:   {label: 'Πελάτης', kind: 'enum', val: t => t.clientName || 'Χωρίς πελάτη', none: 'Χωρίς πελάτη'},
+  project:  {label: 'Project', kind: 'enum', val: t => t.pname || 'Χωρίς έργο', color: t => t.pcolor, none: 'Χωρίς έργο'},
+  holder:   {label: 'Χειριστής', kind: 'enum', val: t => cnpHolder(t) ? adminName(cnpHolder(t)) : 'Χωρίς χειριστή', none: 'Χωρίς χειριστή'},
+  assignee: {label: 'Ανάθεση', kind: 'enum', val: t => t.assignee ? adminName(t.assignee) : 'Χωρίς ανάθεση', none: 'Χωρίς ανάθεση'},
+  creator:  {label: 'Δημιουργός', kind: 'enum', val: t => t.creator ? adminName(t.creator) : '—'},
+  type:     {label: 'Τύπος', kind: 'enum', val: t => (typeOf(t.type) || {}).name || 'Χωρίς τύπο', none: 'Χωρίς τύπο'},
+  due:      {label: 'Λήξη', kind: 'date', val: t => t.due || ''},
+  created:  {label: 'Δημιουργήθηκε', kind: 'date', val: t => String(t.createdAt || '').slice(0, 10)},
+  done:     {label: 'Ολοκληρώθηκε', kind: 'date', val: t => String(t.doneAt || '').slice(0, 10)},
+  mins:     {label: 'Χρόνος', kind: 'num', val: t => +t.mins || 0},
+  running:  {label: '▶ Τρέχει τώρα', kind: 'bool', val: t => !!(t.running || []).length},
+  ticket:   {label: 'Από ticket', kind: 'bool', val: t => !!t.ticket},
+};
+const LV_GROUPABLE = ['status', 'prio', 'client', 'project', 'holder', 'assignee', 'creator', 'type', 'running', 'ticket'];
+const LV_COLS = ['id', 'title', 'running', 'holder', 'assignee', 'project', 'client', 'status', 'prio', 'type', 'due', 'created', 'done', 'mins', 'creator'];
+const LV_OPS = {
+  enum: [['in', 'ένα από'], ['nin', 'κανένα από']],
+  text: [['has', 'περιέχει'], ['nhas', 'δεν περιέχει']],
+  date: [['range', 'από–έως'], ['overdue', 'εκπρόθεσμη'], ['today', 'σήμερα'], ['week', 'τις επόμενες 7 ημέρες'], ['set', 'έχει τιμή'], ['empty', 'χωρίς τιμή']],
+  num:  [['gte', '≥'], ['lte', '≤']],
+  bool: [['is', 'είναι']],
+};
+const LV_DEF = {v: 1, open: 1, mine: 1, q: '', rules: [], groups: ['project'],
+  sort: [{f: 'prio', d: 'desc'}, {f: 'due', d: 'asc'}],
+  cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'due', 'mins'], display: 'list', density: 'detailed'};
+const LV_PRESETS = {
+  mine:     {name: 'Τα δικά μου', cfg: {}},
+  status:   {name: 'Ανά κατάσταση', cfg: {mine: 0, groups: ['status', 'prio']}},
+  client:   {name: 'Ανά πελάτη', cfg: {mine: 0, groups: ['client', 'status']}},
+  critical: {name: 'Κρίσιμα πρώτα', cfg: {mine: 0, groups: ['prio'], rules: [{f: 'prio', op: 'in', val: ['Κρίσιμη', 'Υψηλή']}]}},
+  running:  {name: 'Τρέχουν τώρα', cfg: {mine: 0, groups: ['holder'], rules: [{f: 'running', op: 'is', val: true}]}},
+};
+const lvClone = o => JSON.parse(JSON.stringify(o));
+/* Ασφαλές «καθάρισμα» μιας ρύθμισης: ό,τι άγνωστο πετιέται, ό,τι λείπει παίρνει προεπιλογή. */
+function lvNorm(c) {
+  const o = Object.assign(lvClone(LV_DEF), c || {});
+  o.v = 1;
+  o.groups = (Array.isArray(o.groups) ? o.groups : []).filter(g => LV_GROUPABLE.includes(g)).filter((g, i, a) => a.indexOf(g) === i);
+  o.sort = (Array.isArray(o.sort) ? o.sort : []).filter(x => x && LV_FIELDS[x.f]).map(x => ({f: x.f, d: x.d === 'desc' ? 'desc' : 'asc'}));
+  o.cols = (Array.isArray(o.cols) ? o.cols : []).filter(x => LV_COLS.includes(x)).filter((g, i, a) => a.indexOf(g) === i);
+  if (!o.cols.includes('title')) { o.cols.unshift('title'); }
+  o.rules = (Array.isArray(o.rules) ? o.rules : []).filter(r => r && LV_FIELDS[r.f] && (LV_OPS[LV_FIELDS[r.f].kind] || []).some(([k]) => k === r.op));
+  o.display = ['list', 'table', 'board'].includes(o.display) ? o.display : 'list';
+  o.density = o.density === 'compact' ? 'compact' : 'detailed';
+  o.open = o.open ? 1 : 0; o.mine = o.mine ? 1 : 0; o.q = String(o.q || '');
+  return o;
+}
+/* Παλιά views (localStorage, πριν τις 5/10/2026) → νέα ρύθμιση. */
+function lvFromOld(f) {
+  const g = x => ({assignee: 'holder'})[x] || x;
+  const c = {open: f.open ? 1 : 0, mine: f.mine ? 1 : 0, q: f.q || '', groups: [f.group, f.group2].filter(Boolean).map(g), rules: []};
+  if (f.proj) { c.rules.push({f: 'project', op: 'in', val: [f.proj]}); }
+  if (f.client) { c.rules.push({f: 'client', op: 'in', val: [f.client]}); }
+  if (f.prio !== undefined && f.prio !== '') { c.rules.push({f: 'prio', op: 'in', val: [LV_PRIO[+f.prio] || LV_PRIO[0]]}); }
+  if (f.running) { c.rules.push({f: 'running', op: 'is', val: true}); }
+  if (f.created_from || f.created_to) { c.rules.push({f: 'created', op: 'range', val: {from: f.created_from || '', to: f.created_to || ''}}); }
+  if (f.done_from || f.done_to) { c.rules.push({f: 'done', op: 'range', val: {from: f.done_from || '', to: f.done_to || ''}}); }
+  return lvNorm(c);
+}
+function lvTest(r, t) {
+  const F = LV_FIELDS[r.f], v = F.val(t);
+  switch (r.op) {
+    case 'in': return (r.val || []).includes(String(v));
+    case 'nin': return !(r.val || []).includes(String(v));
+    case 'has': return !r.val || String(v).toLowerCase().includes(String(r.val).toLowerCase());
+    case 'nhas': return !r.val || !String(v).toLowerCase().includes(String(r.val).toLowerCase());
+    case 'range': { const a = (r.val || {}).from, b = (r.val || {}).to; return !!v && (!a || v >= a) && (!b || v <= b); }
+    case 'overdue': return !!v && v < today() && !t.done;
+    case 'today': return v === today();
+    case 'week': { const d = new Date(); d.setDate(d.getDate() + 7); return !!v && v >= today() && v <= d.toISOString().slice(0, 10); }
+    case 'set': return !!v;
+    case 'empty': return !v;
+    case 'gte': return +v >= (+r.val || 0);
+    case 'lte': return +v <= (+r.val || 0);
+    case 'is': return !!v === !!r.val;
+  }
+  return true;
+}
+function lvRuleText(r) {
+  const F = LV_FIELDS[r.f]; const op = (LV_OPS[F.kind].find(([k]) => k === r.op) || [, ''])[1];
+  const v = r.op === 'in' || r.op === 'nin' ? (r.val || []).join(', ') || '—'
+    : r.op === 'range' ? [(r.val || {}).from ? dShort(r.val.from) : '…', (r.val || {}).to ? dShort(r.val.to) : '…'].join(' – ')
+    : r.op === 'is' ? (r.val ? 'ναι' : 'όχι')
+    : ['has', 'nhas', 'gte', 'lte'].includes(r.op) ? String(r.val || '') : '';
+  return F.label + ' ' + op + (v ? ' ' + v : '');
+}
+
 R.list = async function () {
-  setTop('Λίστα tasks', 'Τα δικά σου πρώτα — βγάλε το φίλτρο για όλη την ομάδα · g+l');
+  setTop('Λίστα tasks', 'Τα δικά σου πρώτα — άλλαξε view για όλη την ομάδα · g+l');
   const c = $('#content');
-  // ίδια δομή με τη Βιβλιοθήκη γνώσης: search + chips + ομαδοποίηση + φόρμα πίσω από κουμπί
-  /* ΑΝΟΙΓΕΙ ΣΤΑ ΔΙΚΑ ΣΟΥ (23/09/2026). Η ορατότητα ανά έργο είναι τόσο πλατιά που
-     πρακτικά όλοι είναι μέλη σε όλα τα έργα: η λίστα άνοιγε με 70 ανοιχτές
-     εργασίες όλης της εταιρείας, με κόκκινες ημερομηνίες δίπλα σε ονόματα άλλων.
-     Ο Βάκρινος διάβασε ως δική του καθυστέρηση εργασία που ούτε του είχε ανατεθεί
-     ούτε κρατούσε τη μπάλα της. Το φίλτρο υπήρχε — απλώς ήταν σβηστό και κρυμμένο.
-     Τώρα είναι αναμμένο και φαίνεται, με ✕ για να δεις τα πάντα με ένα κλικ. */
-  const f = R.list._f = R.list._f || {open: 1, group: 'project', proj: '', q: '', fs: '', fa: '',
-    mine: 1, closed: {}, shown: ['open', 'mine']};
-  if (!f.shown) { f.shown = ['open']; }
-  if (f.client === undefined) { f.client = ''; }
-  Object.keys(LF_F).forEach(k => { if (f[k] && !f.shown.includes(k)) { f.shown.push(k); } });
-  const views = JSON.parse(localStorage.cnpViews || '[]');
-  let D = {tasks: []};
-  const GROUPS = {project: 'Ανά project', client: 'Ανά πελάτη', status: 'Ανά στήλη', assignee: 'Ανά χειριστή', prio: 'Ανά προτεραιότητα', '': 'Χωρίς ομαδοποίηση'};
-  const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
-  const prioName = p => ['Κανονική', 'Υψηλή', 'Κρίσιμη'][p] || 'Κανονική';
+  /* Η κατάσταση ζει στο R.list ώστε η πλοήγηση μέσα στη συνεδρία να κρατά ό,τι έστησες. */
+  const st = R.list._st = R.list._st || {cfg: null, view: null, base: null, closed: new Set(), more: {}, views: {mine: [], public: [], default: ''}};
+  let D = R.list._D || {tasks: []};
 
-  c.innerHTML = `
-  ${/* Ήταν τρεις σειρές μέσα σε κάρτα: αναζήτηση, μετά chips έργων + ομαδοποίηση
-       + δύο κουτάκια, μετά τα αποθηκευμένα views. Τώρα μία γραμμή κατά
-       docs/UI-STANDARD.md· τα έργα έγιναν φίλτρο, τα views μένουν ξεχωριστά
-       γιατί ΔΕΝ είναι φίλτρα — είναι συντομεύσεις σε σύνολα φίλτρων. */''}
-  <div class="fbar">
-    ${fChip('Αναζήτηση', `<input class="fchip-s" id="lfQ" data-fk="q" value="${esc(f.q || '')}"
-      placeholder="τίτλο, project, χειριστή, #αριθμό…" style="width:180px">`, !!f.q, '')}
-    ${fChip('Ομαδοποίηση', fSel('group', Object.entries(GROUPS), f.group), false, '')}
-    <span id="lfMore"></span>
-    <span class="fbar-sp"></span>
-    <button class="fchip" id="lfSave" title="Αποθήκευση αυτών των φίλτρων ως view">${I.pin} Αποθήκευση view</button>
-    <button class="fchip" id="lfCsv">${I.download} CSV</button>
-    <button class="fchip fchip-go" id="lfNew">${I.plus} Νέο task</button>
-  </div>
-  ${views.length ? `<div class="fviews">${I.pin}
-    ${views.map((v, i) => `<span class="fview"><span data-view="${i}">${esc(v.name)}</span>
-      <b data-viewdel="${i}" title="Διαγραφή view">✕</b></span>`).join('')}</div>` : ''}
-  <div id="lRes"><div class="skel" style="height:220px"></div></div>`;
+  c.innerHTML = `<div id="lvRoot"><div id="lvTop"></div><div id="lRes"><div class="skel" style="height:220px"></div></div></div>`;
+  const root = $('#lvRoot');
 
-  /* ── γραμμή task (ίδιο ύφος με τις καταχωρήσεις γνώσης) ── */
-  const row = t => {
-    const stt = statusOf(t.status), over = t.due && t.due < today() && !t.done;
-    return `<div class="kb-item kb-trow" data-task="${t.id}">
-      <span class="kb-dot" style="background:${prioDot(t.prio)}" title="Προτεραιότητα: ${prioName(t.prio)}"></span>
-      <span class="tk-idc" title="Αριθμός εργασίας">#${t.id}</span>
-      <b>${esc(t.title)}</b>
-      ${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket — προτεραιότητα">${I.ticket} ticket</span>` : ''}
-      ${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά — προτεραιότητα">${I.doc} προσφορά</span>` : ''}
-      <span class="kb-sum-meta">
-        ${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα: περιμένει ενέργεια από ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : ''}
-        ${f.group !== 'project' ? `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname)}</span>` : ''}
-        ${t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : ''}
-        ${stPill(t.status)}
-        ${cnpHolder(t) ? `<span class="mut"${cnpHolder(t) !== +(t.assignee || 0) && t.assignee
-          ? ` title="ανάθεση: ${esc(adminName(t.assignee))}"` : ''}>${esc(adminName(cnpHolder(t)))}</span>`
-          : '<span class="mut">χωρίς χειριστή</span>'}
-        ${(f.created_from || f.created_to) && t.createdAt ? `<span class="mut" title="Δημιουργήθηκε">📅 ${dShort(t.createdAt.slice(0, 10))}</span>` : ''}
-        ${(f.done_from || f.done_to) && t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(t.doneAt.slice(0, 10))}</span>` : ''}
-        ${t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''}>${dShort(t.due)}</span>` : ''}
-        ${t.mins ? `<span class="mut">${fmtMin(t.mins)}</span>` : ''}
-      </span></div>`;
+  /* ── views: φόρτωμα, μετάβαση παλιών localStorage, προεπιλογή ── */
+  const loadViews = async () => {
+    st.views = await api('views_list').catch(() => st.views);
+    let old = [];
+    try { if (!localStorage.cnpViewsMigrated) { old = JSON.parse(localStorage.cnpViews || '[]'); } } catch (e) { old = []; }
+    if (old.length) {
+      for (const v of old) { await api('view_save', {name: String(v.name || 'View').slice(0, 80), scope: 'mine', config: lvFromOld(v.f || {})}).catch(() => null); }
+      try { localStorage.cnpViewsMigrated = '1'; } catch (e) {}
+      st.views = await api('views_list').catch(() => st.views);
+      toast('Τα αποθηκευμένα views σου μεταφέρθηκαν στον server — τα βλέπεις από κάθε υπολογιστή');
+    } else { try { localStorage.cnpViewsMigrated = '1'; } catch (e) {} }
   };
+  const allSaved = () => (st.views.mine || []).concat(st.views.public || []);
+  const openView = (kind, id) => {
+    if (kind === 'p') {
+      const p = LV_PRESETS[id] || LV_PRESETS.mine;
+      st.view = {kind: 'p', id: LV_PRESETS[id] ? id : 'mine', name: p.name, canEdit: false};
+      st.cfg = lvNorm(p.cfg);
+    } else {
+      const v = allSaved().find(x => x.id === +id);
+      if (!v) { return openView('p', 'mine'); }
+      st.view = {kind: 'v', id: v.id, name: v.name, canEdit: v.canEdit, scope: v.scope, owner: v.owner, ownerName: v.ownerName};
+      st.cfg = lvNorm(v.config);
+    }
+    st.base = JSON.stringify(st.cfg); st.more = {};
+  };
+  if (!st.cfg) {
+    await loadViews();
+    const dk = st.views.default || '';
+    if (dk.startsWith('v:')) { openView('v', dk.slice(2)); } else { openView('p', dk.startsWith('p:') ? dk.slice(2) : 'mine'); }
+  }
+  const cfg = () => st.cfg;
+  const modified = () => JSON.stringify(st.cfg) !== st.base;
 
+  /* ── δεδομένα ── */
   const norm = s => String(s || '').toLowerCase()
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
-  /* ΑΝΑΖΗΤΗΣΗ ΜΕ ΑΡΙΘΜΟ. Ο αριθμός είναι ο τρόπος που αναφερόμαστε σε μια
-     εργασία μεταξύ μας («δες το #105») — και ήταν ο μόνος που δεν έβρισκε.
-
-     «#105» θεωρείται ΡΗΤΑ αριθμός και ψάχνει ΜΟΝΟ ταυτότητα: αλλιώς ένα ticket
-     με τίτλο «[#105…]» θα γέμιζε το αποτέλεσμα. Σκέτο «105» ψάχνει και τα δύο,
-     γιατί δεν ξέρουμε αν εννοείς εργασία ή κείμενο. */
-  const match = t => {
-    if (!f.q) { return true; }
-    const q = f.q.trim();
-    const hash = /^#\s*(\d+)$/.exec(q);
-    if (hash) { return String(t.id) === hash[1]; }
+  /* «#105» = ΜΟΝΟ αριθμός εργασίας· σκέτο «105» ψάχνει και αριθμό και κείμενο. */
+  const matchQ = t => {
+    const q = (cfg().q || '').trim(); if (!q) { return true; }
+    const hash = /^#\s*(\d+)$/.exec(q); if (hash) { return String(t.id) === hash[1]; }
     const text = norm([t.title, t.pname, t.clientName || '', statusOf(t.status).title,
-      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '',
-      prioName(t.prio)].join(' ')).includes(norm(q));
+      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '', LV_PRIO[+t.prio || 0]].join(' ')).includes(norm(q));
     return /^\d+$/.test(q) ? (String(t.id) === q || text) : text;
   };
-
-  const render = () => {
-    /* ΠΡΩΤΑ η γραμμή. Ήταν στο τέλος, αλλά το render γυρίζει νωρίς όταν η λίστα
-       είναι άδεια — οπότε ακριβώς τη στιγμή που ένα φίλτρο έκοβε τα πάντα, το
-       κουμπάκι του δεν ανανεωνόταν και έδειχνε ανενεργό. */
-    paintBar();
-    let list = D.tasks.filter(match);
-    if (f.proj !== '') { list = list.filter(t => (t.pname || 'Χωρίς έργο') === f.proj); }
-    if (f.client) { list = list.filter(t => (t.clientName || 'Χωρίς πελάτη') === f.client); }
-    /* Ο κανόνας της μπάλας, όχι σκέτος ανάδοχος: όταν η εργασία περιμένει άλλον,
-       δεν είναι δική μου — είναι δική ΤΟΥ. Δες cnpIsMine στο app.js. */
-    if (f.mine) list = list.filter(t => cnpIsMine(t));
-
-    /* Τα έργα ομαδοποιούνται ανά ΟΝΟΜΑ, όχι ανά id: η ίδια γραμμή δουλειάς
-       («e-Commerce», «Marketplaces») υπάρχει ως ξεχωριστό έργο σε κάθε πελάτη,
-       και πέντε πανομοιότυπες επιλογές δεν είναι φίλτρο, είναι θόρυβος.
-       Ήταν σειρά από chips· τώρα είναι φίλτρο της γραμμής (βλ. paintBar). */
-
-    const el = $('#lRes');
-    if (!list.length) {
-      el.innerHTML = `<div class="card"><div class="empty" style="padding:40px">
-        <div class="big">${I.list}</div>
-        <b style="color:var(--ink);font-size:15px">${D.tasks.length ? 'Κανένα task με αυτά τα φίλτρα' : 'Καμία εργασία ακόμη'}</b>
-        <div class="mut" style="font-size:12.5px;margin-top:6px">${D.tasks.length ? 'Καθάρισε την αναζήτηση ή τα φίλτρα.' : 'Ξεκίνα προσθέτοντας το πρώτο task.'}</div>
-        <button class="btn btn-p" id="lfNew2" style="margin-top:14px">${I.plus} Νέο task</button></div></div>`;
-      bindRows();
-      return;
-    }
-    if (!f.group) {
-      el.innerHTML = `<div class="card kb-group"><div class="card-b kb-gbody">${list.map(row).join('')}</div></div>`;
-      bindRows();
-      return;
-    }
-    const keyOf = t => f.group === 'status' ? statusOf(t.status).title
-      : f.group === 'assignee' ? (cnpHolder(t) ? adminName(cnpHolder(t)) : 'Χωρίς χειριστή')
-        : f.group === 'project' ? t.pname : f.group === 'client' ? (t.clientName || 'Χωρίς πελάτη') : prioName(t.prio);
-    const colOf = t => f.group === 'status' ? statusOf(t.status).color
-      : f.group === 'project' ? t.pcolor : f.group === 'prio' ? prioDot(t.prio) : '#8595ac';
-    const groups = {};
-    list.forEach(t => { const k = keyOf(t); (groups[k] = groups[k] || {col: colOf(t), rows: []}).rows.push(t); });
-    /* Ανά πελάτη: αλφαβητικά, και το «Χωρίς πελάτη» στο τέλος — αλλιώς η σειρά ήταν τυχαία. */
-    const gEntries = Object.entries(groups);
-    if (f.group === 'client') {
-      gEntries.sort(([a], [b]) => (a === 'Χωρίς πελάτη') - (b === 'Χωρίς πελάτη') || a.localeCompare(b, 'el'));
-    }
-    el.innerHTML = gEntries.map(([g, o]) => `
-      <div class="card kb-group">
-        <div class="card-h kb-ghead" data-lgrp="${esc(g)}">
-          <span class="kb-gbar" style="background:${o.col}"></span>${esc(g)}
-          <span class="kb-n">${o.rows.length}</span><span style="flex:1"></span>
-          <span class="kb-gchev ${f.closed[g] ? '' : 'open'}">${I.chev}</span>
-        </div>
-        <div class="card-b kb-gbody" ${f.closed[g] ? 'style="display:none"' : ''}>${o.rows.map(row).join('')}</div>
-      </div>`).join('');
-    bindRows();
+  const filtered = () => D.tasks.filter(t => (!cfg().mine || cnpIsMine(t)) && matchQ(t) && cfg().rules.every(r => lvTest(r, t)));
+  const cmp = (a, b, f) => {
+    const F = LV_FIELDS[f];
+    if (F.rank) { return F.rank(a) - F.rank(b); }
+    const x = F.val(a), y = F.val(b);
+    if (F.kind === 'num' || F.kind === 'bool') { return (+x) - (+y); }
+    if (F.kind === 'date') { if (!x && !y) { return 0; } if (!x) { return 1; } if (!y) { return -1; } return x < y ? -1 : x > y ? 1 : 0; }
+    return String(x).localeCompare(String(y), 'el');
   };
-
-  /* Η ΛΙΣΤΑ ΕΡΓΩΝ ΕΡΧΕΤΑΙ ΜΕΤΑ ΤΗ ΓΡΑΜΜΗ. Ξαναχτίζουμε μόνο τα πρόσθετα
-     κουμπάκια, και μόνο όταν όντως άλλαξε κάτι μέσα τους — αλλιώς κάθε
-     πληκτρολόγηση στην αναζήτηση θα τα ξανάγραφε χωρίς λόγο. */
-  let barKey = '';
-  const paintBar = () => {
-    const box = $('#lfMore'); if (!box) { return; }
-    const projs = [...new Set(D.tasks.map(t => t.pname || 'Χωρίς έργο'))]
-      .sort((a, b) => a.localeCompare(b, 'el'));
-    const clients = [...new Set(D.tasks.map(t => t.clientName || 'Χωρίς πελάτη'))]
-      .sort((a, b) => a.localeCompare(b, 'el'));
-    const key = [f.shown.join('~'), projs.join('~'), clients.join('~'), f.client, f.open, f.mine, f.proj,
-      f.created_from, f.created_to, f.done_from, f.done_to].join('|');
-    if (key === barKey) { return; }
-    barKey = key;
-    box.innerHTML = f.shown.map(k => fOne(k, LF_F[k], f, {projects: projs, clients})).join('')
-      + fAdd(LF_F, f.shown);
-    fWire(f, LF_F, () => load());
-  };
-
-  const bindRows = () => {
-    $$('[data-task]').forEach(r => r.onclick = () => openTask(+r.dataset.task));
-    $$('.kb-ghead').forEach(h => h.onclick = () => {
-      const g = h.dataset.lgrp; f.closed[g] = !f.closed[g];
-      h.nextElementSibling.style.display = f.closed[g] ? 'none' : '';
-      h.querySelector('.kb-gchev').classList.toggle('open', !f.closed[g]);
-    });
-    const n2 = $('#lfNew2'); if (n2) n2.onclick = () => window.CNP.quickNew();
-    $$('[data-view]').forEach(b => b.onclick = () => {
-      const vf = Object.assign({}, views[+b.dataset.view].f);
-      /* Παλιές όψεις κρατούσαν id έργου· τώρα το φίλτρο είναι όνομα. Χωρίς αυτό
-         θα άνοιγαν άδειες. */
-      if (vf.proj !== '' && /^\d+$/.test(String(vf.proj))) {
-        const pr = (S.boot.projects || []).find(x => x.id === +vf.proj);
-        vf.proj = pr ? pr.name : '';
+  const sorted = list => {
+    const keys = cfg().sort.length ? cfg().sort : [{f: 'id', d: 'desc'}];
+    return list.slice().sort((a, b) => {
+      for (const k of keys) {
+        let r = cmp(a, b, k.f);
+        /* κενές ημερομηνίες πάντα στο τέλος, όποια κι αν είναι η κατεύθυνση */
+        if (LV_FIELDS[k.f].kind === 'date' && (!LV_FIELDS[k.f].val(a) || !LV_FIELDS[k.f].val(b))) { if (r) { return r; } continue; }
+        if (k.d === 'desc') { r = -r; }
+        if (r) { return r; }
       }
-      Object.assign(R.list._f, vf); R.list();
-    });
-    $$('[data-viewdel]').forEach(b => b.onclick = e => {
-      e.stopPropagation();
-      views.splice(+b.dataset.viewdel, 1);
-      localStorage.cnpViews = JSON.stringify(views); R.list();
+      return 0;
     });
   };
 
-  /* Η δημιουργία εργασίας γίνεται ΑΠΟ ΕΝΑ ΣΗΜΕΙΟ: «+ Νέο → Νέο task».
-     Εδώ υπήρχε δεύτερη, ξεχωριστή φόρμα με δικά της πεδία (project, κατάσταση,
-     χειριστής, προθεσμία…) — άλλη λογική από την υπόλοιπη εφαρμογή, που ρωτούσε
-     πράγματα πριν προλάβεις να γράψεις τι θέλεις. Αφαιρέθηκε. */
+  /* ── απόδοση ── */
+  const PAGE = 50;
+  const cell = (k, t) => {
+    const over = t.due && t.due < today() && !t.done;
+    switch (k) {
+      case 'id': return `<span class="tk-idc" title="Αριθμός εργασίας">#${t.id}</span>`;
+      case 'title': return `<b class="lv-ti">${esc(t.title)}</b>${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket">${I.ticket} ticket</span>` : ''}${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά">${I.doc} προσφορά</span>` : ''}`;
+      case 'running': return (t.running || []).map(r => `<span class="tk-run" title="Τρέχει χρονόμετρο τώρα: ${esc(adminName(r.id))} από ${esc(String(r.since).slice(11, 16))}">▶ ${esc(adminName(r.id).split(' ')[0])} <small>${esc(String(r.since).slice(11, 16))}</small></span>`).join('');
+      case 'holder': { const h = cnpHolder(t); return h ? `${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα">⚡${esc(adminIni(t.ball))}</span>` : ''}<span class="mut">${esc(adminName(h))}</span>` : '<span class="mut">χωρίς χειριστή</span>'; }
+      case 'assignee': return t.assignee ? `<span class="mut" title="Ανάθεση">${esc(adminName(t.assignee))}</span>` : '';
+      case 'project': return `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname || 'Χωρίς έργο')}</span>`;
+      case 'client': return t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : '';
+      case 'status': return stPill(t.status);
+      case 'prio': return `<span class="kb-tag" style="background:${LV_PCOL[+t.prio || 0]}1f;color:${LV_PCOL[+t.prio || 0]}">${LV_PRIO[+t.prio || 0]}</span>`;
+      case 'type': return t.type ? `<span class="kb-tag kb-tag-mut">${esc((typeOf(t.type) || {}).name || '')}</span>` : '';
+      case 'due': return t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''} title="Λήξη">${dShort(t.due)}</span>` : '';
+      case 'created': return t.createdAt ? `<span class="mut" title="Δημιουργήθηκε">📅 ${dShort(String(t.createdAt).slice(0, 10))}</span>` : '';
+      case 'done': return t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(String(t.doneAt).slice(0, 10))}</span>` : '';
+      case 'mins': return t.mins ? `<span class="mut" title="Καταγεγραμμένος χρόνος">${fmtMin(t.mins)}</span>` : '';
+      case 'creator': return t.creator ? `<span class="mut" title="Δημιουργός">από ${esc(adminName(t.creator).split(' ')[0])}</span>` : '';
+    }
+    return '';
+  };
+  const rowList = t => {
+    const cols = cfg().cols;
+    const lead = cols.filter(k => k === 'id' || k === 'title').map(k => cell(k, t)).join('');
+    const meta = cols.filter(k => k !== 'id' && k !== 'title').map(k => cell(k, t)).join('');
+    return `<div class="kb-item kb-trow" data-task="${t.id}">
+      <span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}" title="Προτεραιότητα: ${LV_PRIO[+t.prio || 0]}"></span>${lead}
+      <span class="kb-sum-meta">${meta}</span></div>`;
+  };
+  const sortMark = k => { const i = cfg().sort.findIndex(x => x.f === k); return i < 0 ? '' : `<span class="lv-sm">${cfg().sort[i].d === 'desc' ? '↓' : '↑'}${cfg().sort.length > 1 ? i + 1 : ''}</span>`; };
+  const tableHtml = rows => `<div class="lv-tw"><table class="lv-tbl"><thead><tr>${cfg().cols.map(k =>
+      `<th data-lvsort="${k}" title="Ταξινόμηση — κλικ ξανά για αντίστροφη">${esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(t => `<tr class="lv-tr" data-task="${t.id}">${cfg().cols.map(k => `<td class="lv-td-${k}">${cell(k, t)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const leaf = (rows, path) => {
+    const n = st.more[path] || PAGE, shown = rows.slice(0, n), rest = rows.length - shown.length;
+    const body = cfg().display === 'table' ? tableHtml(shown) : shown.map(rowList).join('');
+    return body + (rest > 0 ? `<button type="button" class="lv-more" data-lvmore="${esc(path)}">Δείξε ακόμη ${Math.min(rest, PAGE)} από ${rest}</button>` : '');
+  };
+  const runN = rows => rows.filter(t => (t.running || []).length).length;
+  const buckets = (rows, g) => {
+    const F = LV_FIELDS[g], m = new Map();
+    rows.forEach(t => { const k = F.kind === 'bool' ? (F.val(t) ? 'Ναι' : 'Όχι') : String(F.val(t)); if (!m.has(k)) { m.set(k, {col: F.color ? F.color(t) : '#8595ac', rank: F.rank ? F.rank(t) : 0, rows: []}); } m.get(k).rows.push(t); });
+    return [...m.entries()].sort(([a, x], [b, y]) => (x.rank - y.rank) || ((a === F.none) - (b === F.none)) || a.localeCompare(b, 'el'));
+  };
+  const groupsHtml = (rows, levels, path, depth) => {
+    if (!levels.length) { return leaf(rows, path || 'root'); }
+    const g = levels[0];
+    return buckets(rows, g).map(([k, o]) => {
+      const p = (path ? path + '|' : '') + g + '=' + k;
+      const closed = st.closed.has(p);
+      return `<div class="lv-g lv-d${Math.min(depth, 4)}" data-key="g:${esc(p)}">
+        <div class="card-h kb-ghead lv-gh" data-lgrp="${esc(p)}" style="--lvc:${esc(o.col)}">
+          <span class="kb-gbar" style="background:${esc(o.col)}"></span><span class="lv-gl">${esc(LV_FIELDS[g].label)}:</span> ${esc(k)}
+          <span class="kb-n">${o.rows.length}</span>${runN(o.rows) ? `<span class="tk-run" title="Τρέχουν τώρα">▶ ${runN(o.rows)}</span>` : ''}<span style="flex:1"></span>
+          <span class="kb-gchev ${closed ? '' : 'open'}">${I.chev}</span></div>
+        <div class="lv-gb" ${closed ? 'style="display:none"' : ''}>${closed ? '' : groupsHtml(o.rows, levels.slice(1), p, depth + 1)}</div></div>`;
+    }).join('');
+  };
+  const boardHtml = rows => `<div class="lv-board">${(S.boot.statuses || []).map(s => {
+      const col = rows.filter(t => +t.status === s.id);
+      if (!col.length && s.done) { return ''; }
+      return `<div class="lv-bcol" data-key="b:${s.id}"><div class="lv-bh" style="border-color:${s.color}">${esc(s.title)} <span class="kb-n">${col.length}</span></div>
+        ${col.slice(0, st.more['b' + s.id] || PAGE).map(t => `<div class="lv-card" data-task="${t.id}">
+          <div class="lv-card-t"><span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}"></span><span class="tk-idc">#${t.id}</span> ${esc(t.title)}</div>
+          <div class="lv-card-m">${['running', 'holder', 'client', 'due'].filter(k => cfg().cols.includes(k) || k === 'holder').map(k => cell(k, t)).join('')}</div></div>`).join('')}
+        ${col.length > (st.more['b' + s.id] || PAGE) ? `<button type="button" class="lv-more" data-lvmore="b${s.id}">Δείξε ακόμη</button>` : ''}</div>`;
+    }).join('')}</div>`;
 
-  // Το q ΔΕΝ πάει στον server: το tasksFiltered ψάχνει μόνο title/descr, οπότε αναζήτηση
-  // κατά χειριστή/project/κατάσταση θα γύριζε 0. Ό,τι αφορά κείμενο γίνεται client-side (match).
+  const renderRes = () => {
+    const el = $('#lRes'); if (!el) { return; }
+    const list = sorted(filtered());
+    if (!list.length) {
+      cnpPut(el, `<div class="card"><div class="empty" style="padding:40px"><div class="big">${I.list}</div>
+        <b style="color:var(--ink);font-size:15px">${D.tasks.length ? 'Καμία εργασία με αυτά τα φίλτρα' : 'Καμία εργασία ακόμη'}</b>
+        <div class="mut" style="font-size:12.5px;margin-top:6px">${D.tasks.length ? 'Βγάλε κάποιο φίλτρο ή άλλαξε view.' : 'Ξεκίνα με «Νέο task».'}</div></div></div>`);
+      return;
+    }
+    const cls = 'lv-res lv-' + cfg().display + (cfg().density === 'compact' ? ' lv-compact' : '');
+    if (cfg().display === 'board') { cnpPut(el, `<div class="${cls}">${boardHtml(list)}</div>`); return; }
+    const inner = cfg().groups.length ? groupsHtml(list, cfg().groups, '', 0) : `<div class="card kb-group"><div class="card-b kb-gbody">${leaf(list, 'root')}</div></div>`;
+    cnpPut(el, `<div class="${cls}">${cfg().groups.length ? `<div class="card lv-gwrap">${inner}</div>` : inner}</div>`);
+  };
+
+  const sumTxt = () => {
+    const c0 = cfg();
+    return [
+      c0.groups.length ? 'Ομαδοποίηση: ' + c0.groups.map(g => LV_FIELDS[g].label).join(' → ') : 'Χωρίς ομαδοποίηση',
+      c0.sort.length ? 'Ταξινόμηση: ' + c0.sort.map(x => LV_FIELDS[x.f].label + (x.d === 'desc' ? ' ↓' : ' ↑')).join(', ') : '',
+      'Στήλες: ' + c0.cols.length,
+      'Εμφάνιση: ' + ({list: 'λίστα', table: 'πίνακας', board: 'board'})[c0.display] + (c0.density === 'compact' ? ', συμπτυγμένη' : '')].filter(Boolean).join(' · ');
+  };
+  const renderTop = () => {
+    const v = st.view || {}, mod = modified();
+    const n = D.tasks.length ? filtered().length : 0;
+    cnpPut($('#lvTop'), `
+    <div class="fbar">
+      ${fChip('Αναζήτηση', `<input class="fchip-s" id="lfQ" value="${esc(cfg().q || '')}" placeholder="τίτλο, project, χειριστή, #αριθμό…" style="width:180px">`, !!cfg().q, '')}
+      <div class="lv-vsel"><button type="button" class="fchip lv-vbtn" id="lvViews" title="Αλλαγή view">${I.pin} <b>${esc(v.name || 'View')}</b>${v.scope === 'public' ? ' <span class="lv-pub" title="Δημόσιο">🌐</span>' : ''} ▾</button></div>
+      ${mod ? `<span class="lv-mod" title="Άλλαξες το view χωρίς να το αποθηκεύσεις">● τροποποιημένο</span>
+        ${v.kind === 'v' && v.canEdit ? '<button type="button" class="fchip" data-lvact="save">Αποθήκευση</button>' : ''}
+        <button type="button" class="fchip" data-lvact="saveas">Αποθήκευση ως νέο</button>
+        <button type="button" class="fchip" data-lvact="reset">Επαναφορά</button>` : ''}
+      <button type="button" class="fchip fchip-b${cfg().open ? ' on' : ''}" data-lvtog="open">${cfg().open ? '✓ ' : ''}Ανοιχτά</button>
+      <button type="button" class="fchip fchip-b${cfg().mine ? ' on' : ''}" data-lvtog="mine" title="Έχεις τη μπάλα — ή, αν δεν την κρατά κανείς, σου έχει ανατεθεί">${cfg().mine ? '✓ ' : ''}Δικά μου</button>
+      ${cfg().rules.map((r, i) => `<span class="fchip on lv-rchip" data-lvrule="${i}" title="Κλικ για αλλαγή">${esc(lvRuleText(r))}<span class="fchip-x" data-lvrx="${i}" title="Αφαίρεση">✕</span></span>`).join('')}
+      <button type="button" class="fchip" data-lvact="builder" title="Φίλτρα, ομαδοποίηση, ταξινόμηση, στήλες, εμφάνιση">⚙ Ρύθμιση view</button>
+      <span class="fbar-sp"></span>
+      <span class="fbar-note">${n} εργασίες</span>
+      <button class="fchip" data-lvact="csv">${I.download} CSV</button>
+      <button class="fchip fchip-go" data-lvact="new">${I.plus} Νέο task</button>
+    </div>
+    <div class="lv-sum" data-lvact="builder" title="Κλικ για ρύθμιση">${esc(sumTxt())}</div>`);
+  };
+  const render = () => { renderTop(); renderRes(); };
+
+  /* ── server: ό,τι ΔΕΝ γίνεται στον browser (ανοιχτά/κλειστά, εύρος δημιουργίας/ολοκλήρωσης) ── */
   const load = async () => {
-    /* Φίλτρο ολοκλήρωσης χωρίς νόημα κάτω από «μόνο ανοιχτά» — τα ολοκληρωμένα
-       είναι ήδη έξω από το αποτέλεσμα. Το ζητούμενο («βρες τι έκλεισε στις
-       Χ») υπονοεί αυτόματα «όλα», όχι δεύτερο κλικ πρώτα στο "Ανοιχτά". */
-    const wantDone = !!(f.done_from || f.done_to);
-    const qs = ['fs=' + encodeURIComponent(f.fs || ''), 'fa=' + encodeURIComponent(f.fa || ''),
-      'open=' + (wantDone ? 0 : (f.open ? 1 : 0)), 'mine=' + (f.mine ? 1 : 0),
-      'created_from=' + encodeURIComponent(f.created_from || ''), 'created_to=' + encodeURIComponent(f.created_to || ''),
-      'done_from=' + encodeURIComponent(f.done_from || ''), 'done_to=' + encodeURIComponent(f.done_to || '')].join('&');
-    D = await api('list&' + qs).catch(() => ({tasks: []}));
+    const rr = cfg().rules;
+    const cr = rr.find(r => r.f === 'created' && r.op === 'range'), dr = rr.find(r => r.f === 'done' && r.op === 'range');
+    const wantDone = !!dr || rr.some(r => r.f === 'done' && r.op !== 'empty');
+    const qs = ['open=' + (wantDone ? 0 : (cfg().open ? 1 : 0)), 'mine=0',
+      'created_from=' + encodeURIComponent(cr ? cr.val.from || '' : ''), 'created_to=' + encodeURIComponent(cr ? cr.val.to || '' : ''),
+      'done_from=' + encodeURIComponent(dr ? dr.val.from || '' : ''), 'done_to=' + encodeURIComponent(dr ? dr.val.to || '' : '')].join('&');
+    const nd = await api('list&' + qs).catch(() => null);
+    if (!nd) { if (window._cnpSilent) { return; } D = {tasks: []}; render(); return; }   // σιωπηλά στην αυτόματη ανανέωση
+    const sig = qs + '#' + JSON.stringify(nd.tasks);
+    if (window._cnpSilent && sig === R.list._sig) { return; }   // ίδια δεδομένα → καμία αλλαγή
+    R.list._sig = sig;
+    D = R.list._D = nd;
     render();
   };
+  R.list._reload = load;
+  let lastQs = '';
+  const apply = (refetch) => {
+    const rr = cfg().rules;
+    const key = cfg().open + '|' + JSON.stringify(rr.filter(r => r.f === 'created' || r.f === 'done'));
+    if (refetch || key !== lastQs) { lastQs = key; load(); } else { render(); }
+  };
 
-  cnpSearch('lfQ', v => { f.q = v; render(); }, 180);
-  $('[data-fk="group"]').onchange = e => { f.group = e.target.value; render(); };
-  $('#lfNew').onclick = () => window.CNP.quickNew();
-  $('#lfSave').onclick = async () => {
-    const name = await cnpPrompt('Όνομα view:', {title: I.pin + ' Αποθήκευση view', placeholder: 'π.χ. Bugs Τεχνικού', ok: 'Αποθήκευση'});
-    if (!name) { return; }
-    views.push({name, f: Object.assign({}, f, {closed: {}})});
-    localStorage.cnpViews = JSON.stringify(views);
-    toast('Το view αποθηκεύτηκε'); R.list();
+  /* ── μενού views ── */
+  const viewsMenu = btn => {
+    document.querySelectorAll('.lv-menu').forEach(x => x.remove());
+    const m = document.createElement('div'); m.className = 'lv-menu';
+    const dk = st.views.default || '';
+    const item = (key, name, sub, opts) => `<div class="lv-mi${st.view && (st.view.kind + ':' + st.view.id) === key ? ' cur' : ''}" data-lvopen="${esc(key)}">
+        <span class="lv-mn">${esc(name)}${sub ? ` <small class="mut">${esc(sub)}</small>` : ''}</span>
+        <button type="button" class="lv-mb${dk === key ? ' on' : ''}" data-lvdef="${esc(key)}" title="${dk === key ? 'Προεπιλογή σου — κλικ για αφαίρεση' : 'Κάν’ το προεπιλογή μου'}">${dk === key ? '★' : '☆'}</button>
+        ${opts && opts.copy ? `<button type="button" class="lv-mb" data-lvcopy="${esc(key)}" title="Αντιγραφή ως προσωπικό">⧉</button>` : ''}
+        ${opts && opts.del ? `<button type="button" class="lv-mb" data-lvdel="${esc(key)}" title="Διαγραφή">✕</button>` : ''}</div>`;
+    m.innerHTML = `<div class="lv-mh">Έτοιμα</div>${Object.entries(LV_PRESETS).map(([k, p]) => item('p:' + k, p.name)).join('')}
+      <div class="lv-mh">Τα views μου</div>${(st.views.mine || []).map(v => item('v:' + v.id, v.name, v.scope === 'public' ? '🌐 δημόσιο' : 'προσωπικό', {del: 1})).join('') || '<div class="lv-me mut">Κανένα ακόμη — στήσε ένα και «Αποθήκευση ως νέο».</div>'}
+      ${(st.views.public || []).length ? `<div class="lv-mh">Δημόσια της ομάδας</div>${st.views.public.map(v => item('v:' + v.id, v.name, 'από ' + v.ownerName, {copy: 1, del: v.canEdit})).join('')}` : ''}`;
+    document.body.appendChild(m);
+    const rc = btn.getBoundingClientRect();
+    m.style.top = (rc.bottom + 6 + window.scrollY) + 'px'; m.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 330)) + 'px';
+    const close = () => { m.remove(); document.removeEventListener('click', outside, true); };
+    const outside = e => { if (!m.contains(e.target) && e.target !== btn) { close(); } };
+    setTimeout(() => document.addEventListener('click', outside, true), 0);
+    m.onclick = async e => {
+      const def = e.target.closest('[data-lvdef]'), cp = e.target.closest('[data-lvcopy]'), del = e.target.closest('[data-lvdel]'), op = e.target.closest('[data-lvopen]');
+      if (def) {
+        e.stopPropagation(); const k = def.dataset.lvdef, nk = st.views.default === k ? '' : k;
+        await api('view_default', {key: nk}).catch(er => toast(er.message, true));
+        st.views.default = nk; toast(nk ? 'Θα ανοίγει αυτό το view' : 'Η προεπιλογή αφαιρέθηκε'); close(); viewsMenu(btn); return;
+      }
+      if (cp) {
+        e.stopPropagation(); const v = allSaved().find(x => x.id === +cp.dataset.lvcopy.slice(2)); if (!v) { return; }
+        const r = await api('view_save', {name: (v.name + ' (αντίγραφο)').slice(0, 80), scope: 'mine', config: v.config}).catch(er => ({err: er.message}));
+        if (r.err) { toast(r.err, true); return; }
+        await loadViews(); openView('v', r.id); close(); toast('Αντιγράφηκε ως προσωπικό'); apply(true); return;
+      }
+      if (del) {
+        e.stopPropagation(); const v = allSaved().find(x => x.id === +del.dataset.lvdel.slice(2)); if (!v) { return; }
+        if (!(await cnpConfirm('Διαγραφή του view «' + v.name + '»;' + (v.scope === 'public' ? '\n\nΕίναι δημόσιο — θα χαθεί και για τους συναδέλφους.' : ''), {ok: I.trash + ' Διαγραφή', danger: true}))) { return; }
+        const r = await api('view_del', {id: v.id}).catch(er => ({err: er.message}));
+        if (r.err) { toast(r.err, true); return; }
+        await loadViews(); if (st.view && st.view.kind === 'v' && st.view.id === v.id) { openView('p', 'mine'); apply(true); } else { renderTop(); }
+        close(); toast('Το view διαγράφηκε'); return;
+      }
+      if (op) {
+        if (modified() && !(await cnpConfirm('Έχεις αλλαγές στο τρέχον view που δεν αποθηκεύτηκαν. Να χαθούν;', {ok: 'Ναι, άλλαξε view', cancel: 'Όχι'}))) { return; }
+        const [kk, id] = op.dataset.lvopen.split(':'); openView(kk, id); close(); apply(true);
+      }
+    };
   };
-  $('#lfCsv').onclick = () => {
-    const esc2 = v => '"' + String(v == null ? '' : v).replaceAll('"', '""') + '"';
-    /* ΚΑΙ ΤΑ ΔΥΟ, σε χωριστές στήλες: «Χειριστής» είναι ποιος το κρατάει τώρα,
-       «Ανάθεση» ποιανού είναι στα χαρτιά. Σε εξαγωγή δεν διαλέγουμε — όποιος
-       ανοίξει το αρχείο μπορεί να θέλει το ένα ή το άλλο. */
-    const rows = [['Task', 'Project', 'Status', 'Χειριστής', 'Ανάθεση', 'Λήξη', 'Λεπτά'].map(esc2).join(';')];
-    D.tasks.filter(match).forEach(t => rows.push([t.title, t.pname, statusOf(t.status).title,
-      cnpHolder(t) ? adminName(cnpHolder(t)) : '',
-      t.assignee ? adminName(t.assignee) : '', t.due || '', t.mins || 0].map(esc2).join(';')));
-    const blob = new Blob(['﻿' + rows.join('\n')], {type: 'text/csv;charset=utf-8'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'tasks.csv'; a.click();
+  const saveAs = async () => {
+    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 330;
+    ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:440px" role="dialog"><div style="padding:20px 22px 18px">
+      <b style="font-size:15.5px;color:var(--ink)">${I.pin} Αποθήκευση ως νέο view</b>
+      <label class="lbl" style="margin-top:12px">Όνομα</label><input class="inp" id="lvsN" maxlength="80" value="${esc(st.view && st.view.kind === 'v' ? st.view.name + ' (2)' : '')}" placeholder="π.χ. Ανά κατάσταση → πελάτη">
+      <label class="lbl" style="margin-top:10px">Ποιος το βλέπει</label>
+      <select class="inp" id="lvsS"><option value="mine">Προσωπικό — μόνο εγώ</option><option value="public">Δημόσιο — όλη η ομάδα μπορεί να το ανοίξει</option></select>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:10px;font-size:12.5px"><input type="checkbox" id="lvsD"> Να ανοίγει αυτό από προεπιλογή</label>
+      <div id="lvsE" class="mut" style="color:var(--bad);font-size:12px;margin-top:6px" hidden></div>
+      <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:14px"><button class="btn btn-o" id="lvsNo">Άκυρο</button><button class="btn btn-p" id="lvsGo">Αποθήκευση</button></div></div></div>`;
+    document.body.appendChild(ovl);
+    setTimeout(() => $('#lvsN', ovl).focus(), 30);
+    $('#lvsNo', ovl).onclick = () => ovl.remove();
+    $('#lvsGo', ovl).onclick = async () => {
+      const name = $('#lvsN', ovl).value.trim();
+      if (!name) { const er = $('#lvsE', ovl); er.hidden = false; er.textContent = 'Δώσε όνομα.'; return; }
+      const r = await api('view_save', {name, scope: $('#lvsS', ovl).value, config: st.cfg}).catch(er => ({err: er.message}));
+      if (r.err) { const er = $('#lvsE', ovl); er.hidden = false; er.textContent = r.err; return; }
+      if ($('#lvsD', ovl).checked) { await api('view_default', {key: 'v:' + r.id}).catch(() => {}); }
+      ovl.remove(); await loadViews(); openView('v', r.id); toast('Το view αποθηκεύτηκε'); render();
+    };
   };
+
+  /* ── ρύθμιση view (φίλτρα / ομαδοποίηση / ταξινόμηση / στήλες / εμφάνιση) ── */
+  const builder = focusRule => {
+    document.querySelectorAll('.lv-bld').forEach(x => x.remove());
+    const ovl = document.createElement('div'); ovl.className = 'ovl show lv-bld'; ovl.style.zIndex = 320;
+    ovl.innerHTML = `<div class="pal-box lv-bbox" role="dialog" aria-label="Ρύθμιση view"><div class="lv-bhd"><b>⚙ Ρύθμιση view</b>
+      <span class="mut" style="font-size:12px">οι αλλαγές φαίνονται αμέσως πίσω — «Αποθήκευση» για να μείνουν</span><button class="btn btn-sm btn-o" id="lvbX">Κλείσιμο</button></div>
+      <div class="lv-bbody" id="lvbB"></div></div>`;
+    document.body.appendChild(ovl);
+    ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); renderTop(); } };
+    $('#lvbX', ovl).onclick = () => { ovl.remove(); renderTop(); };
+    const distinct = f => [...new Set(D.tasks.map(t => String(LV_FIELDS[f].val(t))))].sort((a, b) => a.localeCompare(b, 'el'));
+    const valEd = (r, i) => {
+      const F = LV_FIELDS[r.f];
+      if (r.op === 'in' || r.op === 'nin') {
+        /* Οι επιλεγμένες ΠΡΩΤΕΣ — αλλιώς χάνονταν κάτω από το scroll και δεν ήξερες τι φιλτράρεις. */
+        const opts = [...new Set((r.val || []).concat(distinct(r.f)))];
+        return `<div class="lv-multi">${opts.map(o => `<label class="lv-chk${(r.val || []).includes(o) ? ' on' : ''}"><input type="checkbox" data-rv="${i}" value="${esc(o)}" ${(r.val || []).includes(o) ? 'checked' : ''}>${esc(o)}</label>`).join('') || '<span class="mut">καμία τιμή</span>'}</div>`;
+      }
+      if (r.op === 'has' || r.op === 'nhas') { return `<input class="inp" data-rt="${i}" value="${esc(r.val || '')}" placeholder="κείμενο">`; }
+      if (r.op === 'range') { return `<input type="date" class="inp" data-rf="${i}" value="${esc((r.val || {}).from || '')}"> – <input type="date" class="inp" data-rto="${i}" value="${esc((r.val || {}).to || '')}">`; }
+      if (r.op === 'gte' || r.op === 'lte') { return `<input type="number" class="inp" data-rn="${i}" min="0" value="${esc(r.val || 0)}" style="width:90px"> λεπτά`; }
+      if (r.op === 'is') { return `<select class="inp" data-rb="${i}"><option value="1" ${r.val ? 'selected' : ''}>Ναι</option><option value="0" ${!r.val ? 'selected' : ''}>Όχι</option></select>`; }
+      return '';
+    };
+    const fieldOpts = sel => Object.entries(LV_FIELDS).filter(([k]) => k !== 'id').map(([k, F]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(F.label)}</option>`).join('');
+    const lvl = (arr, i, label, extra) => `<div class="lv-lvl" ${extra || ''}><span class="lv-ln">${i + 1}.</span>${label}
+      <button type="button" class="btn btn-sm btn-o" data-mv="-1" data-i="${i}" ${i ? '' : 'disabled'} title="Πιο πάνω">↑</button>
+      <button type="button" class="btn btn-sm btn-o" data-mv="1" data-i="${i}" ${i < arr.length - 1 ? '' : 'disabled'} title="Πιο κάτω">↓</button>
+      <button type="button" class="btn btn-sm btn-o" data-rm="${i}" title="Αφαίρεση">✕</button></div>`;
+    const paint = () => {
+      const c0 = cfg();
+      $('#lvbB', ovl).innerHTML = `
+      <section class="lv-sec" data-sec="rules"><h4>Φίλτρα <small class="mut">— ισχύουν ΟΛΑ μαζί</small></h4>
+        ${c0.rules.map((r, i) => `<div class="lv-rule${focusRule === i ? ' foc' : ''}">
+          <select class="inp" data-rf0="${i}">${fieldOpts(r.f)}</select>
+          <select class="inp" data-rop="${i}">${LV_OPS[LV_FIELDS[r.f].kind].map(([k, l]) => `<option value="${k}" ${k === r.op ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <div class="lv-rv">${valEd(r, i)}</div><button type="button" class="btn btn-sm btn-o" data-rdel="${i}" title="Αφαίρεση">✕</button></div>`).join('') || '<div class="mut lv-empty">Κανένα φίλτρο.</div>'}
+        <select class="inp lv-add" id="lvAddR"><option value="">+ Προσθήκη φίλτρου…</option>${fieldOpts('')}</select></section>
+      <section class="lv-sec" data-sec="groups"><h4>Ομαδοποίηση <small class="mut">— όσα επίπεδα θέλεις, με σειρά</small></h4>
+        <div data-list="groups">${c0.groups.map((g, i, a) => lvl(a, i, `<b>${esc(LV_FIELDS[g].label)}</b>`)).join('') || '<div class="mut lv-empty">Χωρίς ομαδοποίηση.</div>'}</div>
+        <select class="inp lv-add" id="lvAddG"><option value="">+ Προσθήκη επιπέδου…</option>${LV_GROUPABLE.filter(g => !c0.groups.includes(g)).map(g => `<option value="${g}">${esc(LV_FIELDS[g].label)}</option>`).join('')}</select></section>
+      <section class="lv-sec" data-sec="sort"><h4>Ταξινόμηση <small class="mut">— μέσα σε κάθε ομάδα, με σειρά προτεραιότητας</small></h4>
+        <div data-list="sort">${c0.sort.map((x, i, a) => lvl(a, i, `<b>${esc(LV_FIELDS[x.f].label)}</b>
+          <select class="inp lv-dir" data-sd="${i}"><option value="asc" ${x.d === 'asc' ? 'selected' : ''}>↑ αύξουσα</option><option value="desc" ${x.d === 'desc' ? 'selected' : ''}>↓ φθίνουσα</option></select>`)).join('') || '<div class="mut lv-empty">Προεπιλογή: νεότερες πρώτα.</div>'}</div>
+        <select class="inp lv-add" id="lvAddS"><option value="">+ Προσθήκη κριτηρίου…</option>${Object.entries(LV_FIELDS).filter(([k]) => !c0.sort.some(x => x.f === k)).map(([k, F]) => `<option value="${k}">${esc(F.label)}</option>`).join('')}</select></section>
+      <section class="lv-sec" data-sec="cols"><h4>Στήλες <small class="mut">— σύρε για σειρά, τσέκαρε για εμφάνιση</small></h4>
+        <div class="lv-cols" id="lvCols">${c0.cols.concat(LV_COLS.filter(k => !c0.cols.includes(k))).map(k => `<label class="lv-col${c0.cols.includes(k) ? ' on' : ''}" draggable="${c0.cols.includes(k) ? 'true' : 'false'}" data-col="${k}">
+          <span class="lv-grip" title="Σύρε">⠿</span><input type="checkbox" data-colon="${k}" ${c0.cols.includes(k) ? 'checked' : ''} ${k === 'title' ? 'disabled' : ''}> ${esc(LV_FIELDS[k].label)}</label>`).join('')}</div></section>
+      <section class="lv-sec" data-sec="display"><h4>Εμφάνιση</h4>
+        <div class="lv-seg">${[['list', 'Λίστα'], ['table', 'Πίνακας'], ['board', 'Board']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.display === k ? ' on' : ''}" data-disp="${k}">${l}</button>`).join('')}
+          <span style="width:14px"></span>${[['detailed', 'Αναλυτική'], ['compact', 'Συμπτυγμένη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.density === k ? ' on' : ''}" data-dens="${k}">${l}</button>`).join('')}</div>
+        ${c0.display === 'board' ? '<div class="mut" style="font-size:12px;margin-top:6px">Το board είναι πάντα ανά κατάσταση — η ομαδοποίηση εφαρμόζεται σε λίστα και πίνακα.</div>' : ''}</section>`;
+      wire();
+      if (focusRule !== undefined) { const fr = ovl.querySelector('.lv-rule.foc'); if (fr) { fr.scrollIntoView({block: 'center'}); } focusRule = undefined; }
+    };
+    const changed = (refetch) => { st.more = {}; paint(); apply(refetch); };
+    const move = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) { return; } [arr[i], arr[j]] = [arr[j], arr[i]]; };
+    const wire = () => {
+      const c0 = cfg(), q = s => ovl.querySelectorAll(s);
+      q('[data-rf0]').forEach(el => el.onchange = () => { const i = +el.dataset.rf0, f = el.value, op = LV_OPS[LV_FIELDS[f].kind][0][0];
+        c0.rules[i] = {f, op, val: op === 'in' ? [] : op === 'is' ? true : op === 'range' ? {from: '', to: ''} : ''}; changed(true); });
+      q('[data-rop]').forEach(el => el.onchange = () => { const r = c0.rules[+el.dataset.rop]; r.op = el.value;
+        r.val = ['in', 'nin'].includes(r.op) ? (Array.isArray(r.val) ? r.val : []) : r.op === 'range' ? {from: '', to: ''} : r.op === 'is' ? true : ['gte', 'lte'].includes(r.op) ? 0 : ['has', 'nhas'].includes(r.op) ? '' : null; changed(true); });
+      q('[data-rv]').forEach(el => el.onchange = () => { const r = c0.rules[+el.dataset.rv]; r.val = [...ovl.querySelectorAll(`[data-rv="${el.dataset.rv}"]:checked`)].map(x => x.value); el.parentNode.classList.toggle('on', el.checked); apply(); });
+      q('[data-rt]').forEach(el => { let tm; el.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { c0.rules[+el.dataset.rt].val = el.value; apply(); }, 250); }; });
+      q('[data-rf]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rf].val.from = el.value; apply(); });
+      q('[data-rto]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rto].val.to = el.value; apply(); });
+      q('[data-rn]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rn].val = Math.max(0, +el.value || 0); apply(); });
+      q('[data-rb]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rb].val = el.value === '1'; apply(); });
+      q('[data-rdel]').forEach(el => el.onclick = () => { c0.rules.splice(+el.dataset.rdel, 1); changed(true); });
+      { const a = ovl.querySelector('#lvAddR'); a.onchange = () => { const f = a.value; if (!f) { return; } const op = LV_OPS[LV_FIELDS[f].kind][0][0];
+        c0.rules.push({f, op, val: op === 'in' ? [] : op === 'is' ? true : op === 'range' ? {from: '', to: ''} : ''}); focusRule = c0.rules.length - 1; changed(true); }; }
+      { const a = ovl.querySelector('#lvAddG'); a.onchange = () => { if (a.value) { c0.groups.push(a.value); changed(); } }; }
+      { const a = ovl.querySelector('#lvAddS'); a.onchange = () => { if (a.value) { c0.sort.push({f: a.value, d: ['prio', 'mins', 'created', 'done'].includes(a.value) ? 'desc' : 'asc'}); changed(); } }; }
+      ['groups', 'sort'].forEach(kind => {
+        const box = ovl.querySelector(`[data-list="${kind}"]`); if (!box) { return; }
+        box.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { move(c0[kind], +b.dataset.i, +b.dataset.mv); changed(); });
+        box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { c0[kind].splice(+b.dataset.rm, 1); changed(); });
+      });
+      q('[data-sd]').forEach(el => el.onchange = () => { c0.sort[+el.dataset.sd].d = el.value; changed(); });
+      q('[data-colon]').forEach(el => el.onchange = () => { const k = el.dataset.colon;
+        if (el.checked) { if (!c0.cols.includes(k)) { c0.cols.push(k); } } else { c0.cols = c0.cols.filter(x => x !== k); } changed(); });
+      q('[data-disp]').forEach(el => el.onclick = () => { c0.display = el.dataset.disp; changed(); });
+      q('[data-dens]').forEach(el => el.onclick = () => { c0.density = el.dataset.dens; changed(); });
+      /* Στήλες: σύρσιμο για σειρά (HTML5 drag & drop) */
+      let drag = null;
+      q('.lv-col[draggable="true"]').forEach(el => {
+        el.ondragstart = e => { drag = el.dataset.col; e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); };
+        el.ondragend = () => { el.classList.remove('dragging'); };
+        el.ondragover = e => { if (drag) { e.preventDefault(); el.classList.add('over'); } };
+        el.ondragleave = () => el.classList.remove('over');
+        el.ondrop = e => { e.preventDefault(); el.classList.remove('over'); const to = el.dataset.col;
+          if (!drag || drag === to) { return; } const a = c0.cols.filter(x => x !== drag); a.splice(a.indexOf(to), 0, drag); c0.cols = a; drag = null; changed(); };
+      });
+    };
+    paint();
+  };
+
+  /* ── ένα σημείο για όλα τα κλικ της οθόνης (event delegation) ── */
+  root.onclick = async e => {
+    const tgl = e.target.closest('[data-lvtog]'), rx = e.target.closest('[data-lvrx]'), rc = e.target.closest('[data-lvrule]'),
+      act = e.target.closest('[data-lvact]'), more = e.target.closest('[data-lvmore]'), gh = e.target.closest('[data-lgrp]'),
+      srt = e.target.closest('[data-lvsort]'), row = e.target.closest('[data-task]');
+    if (e.target.closest('#lvViews')) { viewsMenu($('#lvViews')); return; }
+    if (tgl) { const k = tgl.dataset.lvtog; cfg()[k] = cfg()[k] ? 0 : 1; apply(k === 'open'); return; }
+    if (rx) { e.stopPropagation(); cfg().rules.splice(+rx.dataset.lvrx, 1); apply(true); return; }
+    if (rc) { builder(+rc.dataset.lvrule); return; }
+    if (act) {
+      const a = act.dataset.lvact;
+      if (a === 'builder') { builder(); }
+      else if (a === 'new') { window.CNP.quickNew(); }
+      else if (a === 'reset') { st.cfg = lvNorm(JSON.parse(st.base)); apply(true); }
+      else if (a === 'saveas') { saveAs(); }
+      else if (a === 'save') {
+        const r = await api('view_save', {id: st.view.id, config: st.cfg}).catch(er => ({err: er.message}));
+        if (r.err) { toast(r.err, true); return; }
+        await loadViews(); st.base = JSON.stringify(st.cfg); toast('Το view αποθηκεύτηκε'); renderTop();
+      } else if (a === 'csv') {
+        const esc2 = v => '"' + String(v == null ? '' : v).replaceAll('"', '""') + '"';
+        const cols = cfg().cols;
+        const rows = [cols.map(k => esc2(LV_FIELDS[k].label)).join(';')];
+        sorted(filtered()).forEach(t => rows.push(cols.map(k => {
+          const F = LV_FIELDS[k]; const v = F.val(t);
+          return esc2(k === 'running' ? (t.running || []).map(r => adminName(r.id)).join(', ') : F.kind === 'bool' ? (v ? 'Ναι' : '') : v);
+        }).join(';')));
+        const blob = new Blob(['﻿' + rows.join('\n')], {type: 'text/csv;charset=utf-8'});
+        const aa = document.createElement('a'); aa.href = URL.createObjectURL(blob); aa.download = 'tasks.csv'; aa.click();
+      }
+      return;
+    }
+    if (more) { const p = more.dataset.lvmore; st.more[p] = (st.more[p] || PAGE) + PAGE; renderRes(); return; }
+    if (srt) {
+      const k = srt.dataset.lvsort, cur = cfg().sort[0];
+      cfg().sort = [{f: k, d: cur && cur.f === k && cur.d === 'asc' ? 'desc' : 'asc'}].concat(cfg().sort.filter(x => x.f !== k));
+      render(); return;
+    }
+    if (gh) {
+      const p = gh.dataset.lgrp;
+      if (st.closed.has(p)) { st.closed.delete(p); } else { st.closed.add(p); }
+      renderRes(); return;
+    }
+    if (row) { openTask(+row.dataset.task); }
+  };
+  renderTop();
+  cnpSearch('lfQ', v => { cfg().q = v; renderRes(); renderTop(); }, 180);
+  lastQs = cfg().open + '|' + JSON.stringify(cfg().rules.filter(r => r.f === 'created' || r.f === 'done'));
   await load();
 };
 
