@@ -16193,16 +16193,34 @@ case 'view_save':
     $vCfg['v'] = (int) ($vCfg['v'] ?? 1);
     $vJson = json_encode($vCfg, JSON_UNESCAPED_UNICODE);
     if (strlen($vJson) > 20000) { fail('Πολύ μεγάλη ρύθμιση view'); }
+    /* Δημόσιο view = το βλέπει όλη η ομάδα: μόνο με «Board: επεξεργασία» (5/10/2026). */
+    $vCanPub = cnp_has_cap($adminId, $FULL, 'projects.board.edit');
+    /* Όχι δύο views με το ίδιο όνομα στην ίδια ενότητα (τα προσωπικά μου / τα δημόσια). */
+    $vDup = function ($name, $scope, $exceptId) use ($adminId) {
+        $q = Capsule::table('mod_cpm_views')->where('name', $name)->where('id', '<>', (int) $exceptId);
+        $q = $scope === 'public' ? $q->where('scope', 'public') : $q->where('scope', 'mine')->where('owner_id', $adminId);
+        return $q->exists();
+    };
     if ($vId) {
         $vRow = Capsule::table('mod_cpm_views')->where('id', $vId)->first();
         if (!$vRow) { fail('Δεν βρέθηκε το view', 404); }
         if ((int) $vRow->owner_id !== $adminId && !$FULL) { fail('Το view το αλλάζει μόνο ο δημιουργός του — αντέγραψέ το ως δικό σου', 403); }
         $upd = ['config' => $vJson, 'updated_at' => date('Y-m-d H:i:s')];
         if ($vName !== '') { $upd['name'] = $vName; }
-        if (array_key_exists('scope', $in)) { $upd['scope'] = $vScope; }
+        if (array_key_exists('scope', $in)) {
+            if ($vScope === 'public' && $vRow->scope !== 'public' && !$vCanPub) { fail('Δημόσια views φτιάχνει όποιος έχει «Board: επεξεργασία»', 403); }
+            $upd['scope'] = $vScope;
+        }
+        if ($vDup($upd['name'] ?? $vRow->name, $upd['scope'] ?? $vRow->scope, $vId)) {
+            fail('Υπάρχει ήδη view με αυτό το όνομα ' . (($upd['scope'] ?? $vRow->scope) === 'public' ? 'στα δημόσια' : 'στα δικά σου'), 409, ['field' => 'name']);
+        }
         Capsule::table('mod_cpm_views')->where('id', $vId)->update($upd);
     } else {
-        if ($vName === '') { fail('Δώσε όνομα στο view'); }
+        if ($vName === '') { fail('Δώσε όνομα στο view', 400, ['field' => 'name']); }
+        if ($vScope === 'public' && !$vCanPub) { fail('Δημόσια views φτιάχνει όποιος έχει «Board: επεξεργασία»', 403); }
+        if ($vDup($vName, $vScope, 0)) {
+            fail('Υπάρχει ήδη view με αυτό το όνομα ' . ($vScope === 'public' ? 'στα δημόσια' : 'στα δικά σου'), 409, ['field' => 'name']);
+        }
         $vId = (int) Capsule::table('mod_cpm_views')->insertGetId(['owner_id' => $adminId, 'name' => $vName, 'scope' => $vScope,
             'config' => $vJson, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
     }

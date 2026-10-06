@@ -5046,3 +5046,10 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .lv-empty{font-size:12.5px;padding:2px 0 6px}
 @media (max-width:640px){ .lv-bbox{margin:0;max-width:none;width:100%;max-height:100vh;border-radius:0} .lv-bcol{flex-basis:80vw} .lv-menu{width:calc(100vw - 16px)} }
 @media (max-width:640px){ .lv-d1 > .lv-gh{padding-left:16px} .lv-d2 > .lv-gh{padding-left:24px} .lv-d3 > .lv-gh, .lv-d4 > .lv-gh{padding-left:30px} .lv-gb{padding:0 6px} }
+/* dropdown views: σταθερό «+ Νέο view» στο κάτω μέρος (5/10/2026) */
+.lv-menu{padding-bottom:0}
+.lv-mf{position:sticky;bottom:0;display:flex;gap:6px;align-items:center;padding:8px 6px;margin-top:6px;background:var(--card);border-top:1px solid var(--line)}
+.lv-mnew{flex:1;border:0;border-radius:9px;background:var(--brand,#0090dd);color:#fff;font-weight:700;padding:8px 10px;cursor:pointer}
+.lv-mnew2{border:1px solid var(--line);border-radius:9px;background:none;color:var(--mut);padding:7px 10px;cursor:pointer;font-size:12px}
+.lv-bhd .lv-bsave{margin-left:auto}
+.lv-bhd .lv-bsave + .btn{margin-left:0}
