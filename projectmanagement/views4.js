@@ -1395,8 +1395,12 @@ R.list = async function () {
         ${opts && opts.copy ? `<button type="button" class="lv-mb" data-lvcopy="${esc(key)}" title="Αντιγραφή ως προσωπικό">⧉</button>` : ''}
         ${opts && opts.del ? `<button type="button" class="lv-mb" data-lvdel="${esc(key)}" title="Διαγραφή">✕</button>` : ''}</div>`;
     m.innerHTML = `<div class="lv-mh">Έτοιμα</div>${Object.entries(LV_PRESETS).map(([k, p]) => item('p:' + k, p.name)).join('')}
-      <div class="lv-mh">Τα views μου</div>${(st.views.mine || []).map(v => item('v:' + v.id, v.name, v.scope === 'public' ? '🌐 δημόσιο' : 'προσωπικό', {del: 1})).join('') || '<div class="lv-me mut">Κανένα ακόμη — στήσε ένα και «Αποθήκευση ως νέο».</div>'}
-      ${(st.views.public || []).length ? `<div class="lv-mh">Δημόσια της ομάδας</div>${st.views.public.map(v => item('v:' + v.id, v.name, 'από ' + v.ownerName, {copy: 1, del: v.canEdit})).join('')}` : ''}`;
+      <div class="lv-mh">Τα views μου</div>${(st.views.mine || []).map(v => item('v:' + v.id, v.name, v.scope === 'public' ? '🌐 δημόσιο' : 'προσωπικό', {del: 1})).join('')
+        || '<div class="lv-me"><button type="button" class="btn btn-sm btn-p" data-lvnew="cur">Δημιούργησε το πρώτο σου view</button><div class="mut" style="margin-top:5px">από ό,τι βλέπεις τώρα</div></div>'}
+      ${(st.views.public || []).length ? `<div class="lv-mh">Δημόσια της ομάδας</div>${st.views.public.map(v => item('v:' + v.id, v.name, 'από ' + v.ownerName, {copy: 1, del: v.canEdit})).join('')}` : ''}
+      <div class="lv-mf">
+        <button type="button" class="lv-mnew" data-lvnew="cur" title="Αποθήκευσε ό,τι βλέπεις τώρα (με τις αλλαγές) ως νέο view">+ Νέο view</button>
+        <button type="button" class="lv-mnew2" data-lvnew="blank" title="Ξεκίνα από τις βασικές ρυθμίσεις: χωρίς φίλτρα, με τις στήλες του συστήματος">νέο κενό</button></div>`;
     document.body.appendChild(m);
     const rc = btn.getBoundingClientRect();
     m.style.top = (rc.bottom + 6 + window.scrollY) + 'px'; m.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 330)) + 'px';
@@ -1404,6 +1408,8 @@ R.list = async function () {
     const outside = e => { if (!m.contains(e.target) && e.target !== btn) { close(); } };
     setTimeout(() => document.addEventListener('click', outside, true), 0);
     m.onclick = async e => {
+      const nw = e.target.closest('[data-lvnew]');
+      if (nw) { e.stopPropagation(); close(); saveAs({blank: nw.dataset.lvnew === 'blank'}); return; }
       const def = e.target.closest('[data-lvdef]'), cp = e.target.closest('[data-lvcopy]'), del = e.target.closest('[data-lvdel]'), op = e.target.closest('[data-lvopen]');
       if (def) {
         e.stopPropagation(); const k = def.dataset.lvdef, nk = st.views.default === k ? '' : k;
@@ -1430,27 +1436,55 @@ R.list = async function () {
       }
     };
   };
-  const saveAs = async () => {
-    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 330;
-    ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:440px" role="dialog"><div style="padding:20px 22px 18px">
-      <b style="font-size:15.5px;color:var(--ink)">${I.pin} Αποθήκευση ως νέο view</b>
-      <label class="lbl" style="margin-top:12px">Όνομα</label><input class="inp" id="lvsN" maxlength="80" value="${esc(st.view && st.view.kind === 'v' ? st.view.name + ' (2)' : '')}" placeholder="π.χ. Ανά κατάσταση → πελάτη">
-      <label class="lbl" style="margin-top:10px">Ποιος το βλέπει</label>
-      <select class="inp" id="lvsS"><option value="mine">Προσωπικό — μόνο εγώ</option><option value="public">Δημόσιο — όλη η ομάδα μπορεί να το ανοίξει</option></select>
-      <label style="display:flex;gap:7px;align-items:center;margin-top:10px;font-size:12.5px"><input type="checkbox" id="lvsD"> Να ανοίγει αυτό από προεπιλογή</label>
-      <div id="lvsE" class="mut" style="color:var(--bad);font-size:12px;margin-top:6px" hidden></div>
+  /* ΕΝΑΣ διάλογος «Αποθήκευση ως…» για όλα τα σημεία: dropdown («+ Νέο view»), ρύθμιση
+     view, κενό «Τα views μου», «Τροποποιημένο». Παίρνει ως βάση ό,τι βλέπεις ΤΩΡΑ (με τις
+     αλλαγές)· {blank:1} ξεκινά από τις βασικές ρυθμίσεις. Το προηγούμενο view μένει όπως
+     ήταν αποθηκευμένο. Enter = αποθήκευση, Esc = άκυρο, λάθη μέσα στον διάλογο. */
+  const saveAs = (opts) => {
+    opts = opts || {};
+    const canPub = cnpCan('projects.board.edit');
+    const cfgNew = opts.blank ? lvNorm({}) : lvClone(st.cfg);
+    const sugg = opts.blank ? 'Νέο view' : ((st.view && st.view.name ? st.view.name : 'View') + ' (αντίγραφο)').slice(0, 80);
+    document.querySelectorAll('.lv-saveas').forEach(x => x.remove());
+    const ovl = document.createElement('div'); ovl.className = 'ovl show lv-saveas'; ovl.style.zIndex = 340;
+    ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:440px" role="dialog" aria-label="Αποθήκευση ως νέο view"><div style="padding:20px 22px 18px">
+      <b style="font-size:15.5px;color:var(--ink)">${I.pin} ${opts.blank ? 'Νέο κενό view' : 'Αποθήκευση ως…'}</b>
+      <div class="mut" style="font-size:12px;margin-top:4px">${opts.blank ? 'Βασικές ρυθμίσεις: χωρίς φίλτρα, με τις στήλες του συστήματος.' : 'Με ό,τι βλέπεις τώρα — φίλτρα, ομαδοποίηση, ταξινόμηση, στήλες, εμφάνιση.'}</div>
+      <label class="lbl" style="margin-top:12px">Όνομα</label><input class="inp" id="lvsN" maxlength="80" value="${esc(sugg)}">
+      <div id="lvsE" class="mut" style="color:var(--bad);font-size:12px;margin-top:5px" hidden></div>
+      <label class="lbl" style="margin-top:10px">Ορατότητα</label>
+      <select class="inp" id="lvsS"><option value="mine" selected>Προσωπικό — μόνο εγώ</option>
+        <option value="public" ${canPub ? '' : 'disabled'}>Δημόσιο — όλη η ομάδα${canPub ? '' : ' (χρειάζεται «Board: επεξεργασία»)'}</option></select>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:10px;font-size:12.5px"><input type="checkbox" id="lvsD"> Ορισμός ως προεπιλεγμένο μου</label>
       <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:14px"><button class="btn btn-o" id="lvsNo">Άκυρο</button><button class="btn btn-p" id="lvsGo">Αποθήκευση</button></div></div></div>`;
     document.body.appendChild(ovl);
-    setTimeout(() => $('#lvsN', ovl).focus(), 30);
-    $('#lvsNo', ovl).onclick = () => ovl.remove();
-    $('#lvsGo', ovl).onclick = async () => {
-      const name = $('#lvsN', ovl).value.trim();
-      if (!name) { const er = $('#lvsE', ovl); er.hidden = false; er.textContent = 'Δώσε όνομα.'; return; }
-      const r = await api('view_save', {name, scope: $('#lvsS', ovl).value, config: st.cfg}).catch(er => ({err: er.message}));
-      if (r.err) { const er = $('#lvsE', ovl); er.hidden = false; er.textContent = r.err; return; }
+    const nameEl = $('#lvsN', ovl), errEl = $('#lvsE', ovl);
+    setTimeout(() => { nameEl.focus(); nameEl.select(); }, 30);
+    const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey, true); };
+    const showErr = m => { errEl.hidden = false; errEl.textContent = m; nameEl.focus(); nameEl.select(); };
+    const go = async () => {
+      const name = nameEl.value.trim(), scope = $('#lvsS', ovl).value;
+      if (!name) { showErr('Το όνομα δεν μπορεί να είναι κενό.'); return; }
+      /* Διπλότυπο στην ίδια ενότητα — έλεγχος και εδώ (άμεσο μήνυμα) και στον server. */
+      const pool = scope === 'public' ? allSaved().filter(v => v.scope === 'public') : (st.views.mine || []).filter(v => v.scope !== 'public');
+      if (pool.some(v => v.name.trim().toLowerCase() === name.toLowerCase())) { showErr('Υπάρχει ήδη view με αυτό το όνομα ' + (scope === 'public' ? 'στα δημόσια.' : 'στα δικά σου.')); return; }
+      const b = $('#lvsGo', ovl); b.disabled = true;
+      const r = await api('view_save', {name, scope, config: cfgNew}).catch(er => ({err: er.message}));
+      b.disabled = false;
+      if (r.err) { showErr(r.err); return; }
       if ($('#lvsD', ovl).checked) { await api('view_default', {key: 'v:' + r.id}).catch(() => {}); }
-      ovl.remove(); await loadViews(); openView('v', r.id); toast('Το view αποθηκεύτηκε'); render();
+      close(); await loadViews(); openView('v', r.id);   // ανοίγει το νέο, χωρίς «τροποποιημένο»
+      toast('Δημιουργήθηκε το view «' + name + '»'); apply(true);
     };
+    const onKey = e => {
+      if (!document.body.contains(ovl)) { document.removeEventListener('keydown', onKey, true); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (e.key === 'Enter' && e.target === nameEl) { e.preventDefault(); go(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    nameEl.oninput = () => { errEl.hidden = true; };
+    $('#lvsNo', ovl).onclick = close;
+    $('#lvsGo', ovl).onclick = go;
   };
 
   /* ── ρύθμιση view (φίλτρα / ομαδοποίηση / ταξινόμηση / στήλες / εμφάνιση) ── */
@@ -1458,11 +1492,13 @@ R.list = async function () {
     document.querySelectorAll('.lv-bld').forEach(x => x.remove());
     const ovl = document.createElement('div'); ovl.className = 'ovl show lv-bld'; ovl.style.zIndex = 320;
     ovl.innerHTML = `<div class="pal-box lv-bbox" role="dialog" aria-label="Ρύθμιση view"><div class="lv-bhd"><b>⚙ Ρύθμιση view</b>
-      <span class="mut" style="font-size:12px">οι αλλαγές φαίνονται αμέσως πίσω — «Αποθήκευση» για να μείνουν</span><button class="btn btn-sm btn-o" id="lvbX">Κλείσιμο</button></div>
+      <span class="mut" style="font-size:12px">οι αλλαγές φαίνονται αμέσως πίσω — «Αποθήκευση» για να μείνουν</span>
+      <button class="btn btn-sm btn-p lv-bsave" id="lvbSave" title="Νέο view με αυτές τις ρυθμίσεις">Αποθήκευση ως…</button><button class="btn btn-sm btn-o" id="lvbX">Κλείσιμο</button></div>
       <div class="lv-bbody" id="lvbB"></div></div>`;
     document.body.appendChild(ovl);
     ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); renderTop(); } };
     $('#lvbX', ovl).onclick = () => { ovl.remove(); renderTop(); };
+    $('#lvbSave', ovl).onclick = () => { ovl.remove(); renderTop(); saveAs(); };
     const distinct = f => [...new Set(D.tasks.map(t => String(LV_FIELDS[f].val(t))))].sort((a, b) => a.localeCompare(b, 'el'));
     const valEd = (r, i) => {
       const F = LV_FIELDS[r.f];
