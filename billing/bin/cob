@@ -1,0 +1,42 @@
+#!/usr/bin/env php
+<?php
+/**
+ * CloudOn Billing — εργαλείο γραμμής εντολών.
+ *   cob migrate        πίνακες cob_* (προσθετικό)
+ *   cob import [--dry] αντιγραφή WHMCS → cob (μόνο ανάγνωση από WHMCS)
+ *   cob verify         έλεγχος συμφωνίας — exit 0 μόνο αν δεν υπάρχει καμία διαφορά
+ */
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+require __DIR__ . '/../lib/Db.php';
+require __DIR__ . '/../lib/Schema.php';
+require __DIR__ . '/../lib/WhmcsImport.php';
+require __DIR__ . '/../lib/Verify.php';
+
+use CloudOn\Billing\Schema;
+use CloudOn\Billing\WhmcsImport;
+use CloudOn\Billing\Verify;
+
+$cmd = $argv[1] ?? '';
+$dry = in_array('--dry', $argv, true);
+
+switch ($cmd) {
+    case 'migrate':
+        $made = Schema::migrate();
+        echo $made ? 'Δημιουργήθηκαν: ' . implode(', ', $made) . "\n" : "Όλοι οι πίνακες υπάρχουν ήδη.\n";
+        exit(0);
+    case 'import':
+        Schema::migrate();
+        $t = microtime(true);
+        $stats = (new WhmcsImport($dry))->run();
+        echo ($dry ? '(ΔΟΚΙΜΗ — δεν γράφτηκε τίποτα) ' : '') . 'Αντιγραφή σε ' . round(microtime(true) - $t, 2) . "s\n";
+        foreach ($stats as $k => $v) { printf("  %-28s %6d\n", $k, $v); }
+        exit(0);
+    case 'verify':
+        $r = (new Verify())->run();
+        foreach ($r['rows'] as [$ok, $what, $w, $c]) { printf("%-9s %-42s WHMCS %-14s cob %s\n", $ok, $what, $w, $c); }
+        echo $r['diffs'] ? "\n✗ {$r['diffs']} διαφορές\n" : "\n✓ Καμία διαφορά — τα δεδομένα συμφωνούν πλήρως\n";
+        exit($r['diffs'] ? 1 : 0);
+    default:
+        fwrite(STDERR, "Χρήση: cob migrate | import [--dry] | verify\n");
+        exit(2);
+}
