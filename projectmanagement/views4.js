@@ -101,11 +101,16 @@ function quickNew() {
      hint: () => 'δική σου εργασία, χωρίς χρονόμετρο', need: null},
     {k: 'assign', ic: I.users, col: '#e0a020', title: 'Ανάθεσέ το σε συνάδελφο',
      hint: () => 'διάλεξε ποιον', need: 'mate'},
+    /* Εισαγωγή από GoodDay: τίτλος, ημερομηνίες και ΟΛΟ το ιστορικό μηνυμάτων (9/10/2026). */
+    {k: 'goodday', ic: I.link, col: '#5b6cff', title: 'Εισαγωγή από GoodDay',
+     hint: () => gdLooksLikeRef(inp.value) ? 'βρέθηκε σύνδεσμος GoodDay — φέρνει τίτλο, ημερομηνίες και όλο το ιστορικό'
+       : 'επικόλλησε εδώ τον σύνδεσμο της εργασίας GoodDay, ή διάλεξέ το για να τον δώσεις μετά', need: null},
   ];
   /* Τι ΔΕΝ γίνεται και γιατί — φαίνεται γκρι με τον λόγο, δεν εξαφανίζεται σιωπηλά (QA C3/A5).
      Εργασία σε έργο ή ανάθεση σε άλλον = «Board: επεξεργασία»· δική μου = για όλους. */
   const canBoard = cnpCan('projects.board.edit');
   const blocked = it => {
+    if (it.k === 'goodday') { return ''; }        // δικοί του κανόνες μέσα στον διάλογο (έργο/ανάθεση)
     if (!canBoard && (it.k === 'project' || it.k === 'assign' || it.k === 'call')) { return 'χρειάζεται «Board: επεξεργασία» — μπορείς μόνο δική σου εργασία'; }
     if (it.k === 'call' && scope !== 'client') { return 'μόνο σε «Έργο πελάτη»'; }
     if (it.k === 'call' && !clients.length) { return 'δεν υπάρχει έργο πελάτη για να δεθεί η κλήση — φτιάξε πρώτα έργο'; }
@@ -118,7 +123,11 @@ function quickNew() {
     }
     return '';
   };
-  const intentsFor = () => INTENTS.filter(x => x.k !== 'call' || scope === 'client');
+  const intentsFor = () => {
+    const l = INTENTS.filter(x => (x.k !== 'call' || scope === 'client') && (x.k !== 'goodday' || cnpCan('projects.goodday')));
+    /* Επικόλλησες σύνδεσμο GoodDay στον τίτλο → η εισαγωγή πάει πρώτη, ένα ⏎ αρκεί. */
+    return gdLooksLikeRef(inp && inp.value) ? l.filter(x => x.k === 'goodday').concat(l.filter(x => x.k !== 'goodday')) : l;
+  };
 
   const ovl = document.createElement('div');
   ovl.className = 'ovl show';
@@ -194,7 +203,7 @@ function quickNew() {
     rows = intentsFor().map(it => { const why = blocked(it);
       let sub = why || it.hint();
       /* Καμία έκπληξη: η γρήγορη πρόθεση λέει σε ΠΟΙΟ εσωτερικό έργο θα μπει. */
-      if (!why && scope === 'internal' && it.k !== 'project') { const t0 = internalTarget(); if (t0) { sub = 'στο «' + t0.name + '» · ' + sub; } }
+      if (!why && scope === 'internal' && it.k !== 'project' && it.k !== 'goodday') { const t0 = internalTarget(); if (t0) { sub = 'στο «' + t0.name + '» · ' + sub; } }
       return {label: it.title, sub, ic: it.ic, col: why ? '#8595ac' : it.col, dis: !!why, it}; });
     paint();
     inp.focus();
@@ -307,6 +316,7 @@ function quickNew() {
     if (!r) { return; }
     if (step === 'intent') {
       if (r.dis) { say(r.sub, true); return; }
+      if (r.it.k === 'goodday') { const v0 = inp.value.trim(); close(); gdImport(gdLooksLikeRef(v0) ? v0 : ''); return; }
       if (!inp.value.trim()) { say('Γράψε πρώτα τι πρέπει να γίνει', true); inp.focus(); return; }
       subject = inp.value.trim();
       const it = r.it;
@@ -341,18 +351,243 @@ function quickNew() {
       const on = listEl.querySelector('.qn-row.on'); if (on) { on.scrollIntoView({block: 'nearest'}); }
       return;
     }
-    if (e.key === 'Enter') { e.preventDefault(); run(); }
+    /* stopPropagation: το Enter ανήκει στη «Νέα εργασία» — αλλιώς, όταν η επιλογή κλείνει
+       αμέσως το παράθυρο (Εισαγωγή από GoodDay), το ίδιο πλήκτρο άνοιγε και τη γραμμή
+       που είχε επιλεγμένη η οθόνη από πίσω. */
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(); }
   };
   document.addEventListener('keydown', onKey, true);
 
   inp.oninput = () => {
     say('');
     if (step === 'pick') { filter = inp.value.trim(); buildPick(); }
+    else if (gdLooksLikeRef(inp.value) !== gdWas) { gdWas = !gdWas; const keep = inp.value; showIntents(); inp.value = keep; }
     else { rows = rows.map(r => Object.assign(r, {sub: r.dis ? r.sub : r.it.hint()})); paint(); }
   };
+  let gdWas = false;
   showIntents();
 }
 window.CNP.quickNew = quickNew;
+
+/* ═════════ ⇣ ΕΙΣΑΓΩΓΗ ΑΠΟ GOODDAY (9/10/2026) ═════════
+   Από τη «Νέα εργασία»: δίνεις σύνδεσμο/ID → ο server διαβάζει το GoodDay
+   (το token δεν φτάνει ποτέ εδώ) → βλέπεις τι θα έρθει → διαλέγεις έργο,
+   κατάσταση, ανάδοχο → «Δημιουργία». Τίποτα δεν γράφεται πριν πατήσεις το
+   κουμπί· αποτυχία ανάκτησης = καμία εργασία. Τα μηνύματα έρχονται ως
+   ιστορικό μόνο-ανάγνωσης, με τον αρχικό συγγραφέα και την αρχική ώρα. */
+const GD_REF = /^(https?:\/\/)?(www\.)?goodday\.work\/t\/[A-Za-z0-9_-]+\/?$/i;
+function gdLooksLikeRef(v) { return GD_REF.test(String(v || '').trim()); }
+
+function gdImport(ref) {
+  if (!cnpCan('projects.goodday')) { toast('Χρειάζεται το δικαίωμα «Εισαγωγή από GoodDay»', true); return; }
+  closeDrawer();
+  const me = S.boot.me;
+  const projects = S.boot.projects || [];
+  const depts = (S.boot.depts || []).filter(d => d.id);
+  const myDept = depts.find(d => (d.members || []).includes(me.id)) || depts[0] || null;
+  const admins = (S.boot.admins || []).filter(a => !/support team|\bbot\b/i.test(a.name) && String(a.name).trim() !== 'Cloud On');
+  const canBoard = cnpCan('projects.board.edit');
+  let pv = null;        // απάντηση προεπισκόπησης
+  let busy = false;
+
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.style.zIndex = (window.CNP.cnpTopZ ? window.CNP.cnpTopZ() : 300) + 10;
+  ovl.innerHTML = `<div class="pal-box gd-box" role="dialog" aria-label="Εισαγωγή από GoodDay" onclick="event.stopPropagation()">
+    <div class="gd-h"><b>⇣ Εισαγωγή από GoodDay</b>
+      <span class="mut">νέα εργασία με όλο το ιστορικό μηνυμάτων</span></div>
+    <div class="gd-ref">
+      <input class="inp" id="gdRef" placeholder="Σύνδεσμος εργασίας GoodDay (https://www.goodday.work/t/…) ή ID" autocomplete="off" spellcheck="false">
+      <button type="button" class="btn btn-p" id="gdGo">Ανάκτηση</button>
+    </div>
+    <div class="gd-msg" id="gdMsg" aria-live="polite"></div>
+    <div class="gd-body" id="gdBody"></div>
+    <div class="gd-foot" id="gdFoot" hidden>
+      <span class="mut" id="gdFootNote"></span><span style="flex:1"></span>
+      <button type="button" class="btn btn-o" id="gdCancel">Άκυρο</button>
+      <button type="button" class="btn btn-p" id="gdCreate">Δημιουργία εργασίας</button>
+    </div></div>`;
+  document.body.appendChild(ovl);
+  const $o = s => ovl.querySelector(s);
+  const refEl = $o('#gdRef'), msgEl = $o('#gdMsg'), bodyEl = $o('#gdBody'), footEl = $o('#gdFoot');
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => {
+    if (!document.body.contains(ovl)) { document.removeEventListener('keydown', onKey, true); return; }
+    /* Esc και ✕: τα χειρίζεται ο κοινός μηχανισμός των popup (ρωτά αν άλλαξες κάτι). */
+    if (e.key === 'Enter' && document.activeElement === refEl) { e.preventDefault(); fetchPv(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  $o('#gdCancel').onclick = close;
+  const say = (html, kind) => { msgEl.className = 'gd-msg' + (kind ? ' gd-' + kind : ''); msgEl.innerHTML = html || ''; };
+
+  const STATE = {matched: ['pill-ok', 'αντιστοιχίστηκε'], unknown: ['pill-warn', 'χωρίς συνάδελφο'],
+    ambiguous: ['pill-bad', 'διφορούμενο email'], no_email: ['pill-warn', 'χωρίς email'], lookup_failed: ['pill-bad', 'δεν διαβάστηκε']};
+  const FLAG = {fallback_plain: 'απλό κείμενο (το rich text δεν μετατράπηκε)', link_dropped: 'αφαιρέθηκε μη ασφαλής σύνδεσμος',
+    empty: 'κενή καταχώρηση', bad_date: 'μη αναγνώσιμη ώρα', rtf_no_root: 'άγνωστη μορφή rich text', no_id: 'χωρίς id στο GoodDay'};
+  const flagTxt = f => FLAG[f] || (f.indexOf('unknown_node:') === 0 ? 'άγνωστο στοιχείο «' + f.slice(13) + '» — κρατήθηκε το κείμενο' : f);
+  const person = p => !p ? '<span class="mut">—</span>'
+    : (p.admin ? `<b>${esc(p.adminName || p.name)}</b>` : `<b>${esc(p.name)}</b> <span class="pill pill-warn" title="${esc(p.email || '')}">GoodDay · χωρίς αντιστοίχιση</span>`);
+  const msgLine = m => {
+    const who = m.from ? (m.from.admin ? esc(m.from.adminName || m.from.name) : esc(m.from.name) + ' <span class="pill pill-warn">GoodDay</span>') : '<span class="mut">άγνωστος</span>';
+    const when = m.at ? esc(dFull(m.at) + ' ' + m.at.slice(11, 16)) : '<span class="mut">χωρίς ώρα</span>';
+    const flags = (m.flags || []).filter(f => f !== 'empty').map(f => `<span class="pill pill-mut">${esc(flagTxt(f))}</span>`).join(' ');
+    const att = m.attachments ? `<div class="mut gd-att">📎 ${m.attachments.length} συνημμένο(α) — μόνο τα στοιχεία τους, δεν κατεβαίνουν</div>` : '';
+    if (m.kind !== 'text') {
+      const what = m.kind === 'status' ? 'άλλαξε κατάσταση στο GoodDay' : (m.kind === 'time' ? 'κατέγραψε χρόνο στο GoodDay' : 'κενή καταχώρηση GoodDay');
+      return `<div class="gd-m gd-m-ev"><span>${who} · ${what}</span><span class="mut">${when}</span>${flags ? '<div>' + flags + '</div>' : ''}</div>`;
+    }
+    return `<div class="gd-m"><div class="gd-m-h">${who}${m.to ? ` <span class="mut">προς ${m.to.admin ? esc(m.to.adminName || m.to.name) : esc(m.to.name)}</span>` : ''}<span style="flex:1"></span><span class="mut">${when}</span></div>
+      <div class="gd-m-b">${window.CNP.cnpBalanced ? window.CNP.cnpBalanced(m.html || '') : esc(m.html || '')}</div>${flags ? '<div class="gd-m-f">' + flags + '</div>' : ''}${att}</div>`;
+  };
+
+  const projOpts = sel => {
+    const cl = projects.filter(p => p.client), inn = projects.filter(p => !p.client);
+    const o = p => `<option value="${p.id}"${p.id === sel ? ' selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
+    return `<option value="">— διάλεξε έργο —</option>
+      ${cl.length ? `<optgroup label="Έργα πελατών">${cl.map(o).join('')}</optgroup>` : ''}
+      ${inn.length ? `<optgroup label="Εσωτερικά / R&amp;D">${inn.map(o).join('')}</optgroup>` : ''}
+      ${myDept ? `<option value="dept">Χωρίς έργο — στο department «${esc(myDept.name)}»</option>` : ''}`;
+  };
+
+  const render = () => {
+    const d = pv, f = d.fields;
+    const ex = d.existing;
+    const al = !ex && d.already;      // ανοιγμένη ήδη με άλλο τρόπο (χειροκίνητη μεταφορά / ticket)
+    const textMsgs = d.messages.filter(m => m.kind === 'text');
+    const nEv = d.messages.length - textMsgs.length;
+    const ass = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
+    const curP = S.view === 'board' && S.project ? +S.project : 0;
+    bodyEl.innerHTML = `
+      ${ex ? `<div class="gd-ex">Αυτή η εργασία GoodDay έχει ήδη εισαχθεί ως <b>#${ex.task}</b> «${esc(ex.title)}». Δεν φτιάχνουμε δεύτερη.
+        <button type="button" class="btn btn-sm btn-p" id="gdOpenEx">Άνοιξέ την</button></div>` : ''}
+      ${al ? `<div class="gd-ex"><b>Δεν την ξαναπερνάμε.</b> ${esc(al.why)}
+        ${al.task ? '<button type="button" class="btn btn-sm btn-p" id="gdOpenAl">Άνοιξε την #' + al.task + '</button>' : ''}
+        ${al.ticket ? '<button type="button" class="btn btn-sm btn-o" id="gdOpenTk">Άνοιξε το ticket #' + esc(al.tid || al.ticket) + '</button>' : ''}</div>` : ''}
+      <div class="gd-grid">
+        <div class="gd-form">
+          <label class="gd-l">Τίτλος<input class="inp" id="gdT" maxlength="200" value="${esc(f.title)}"></label>
+          <label class="gd-l">Έργο<select class="inp" id="gdP">${projOpts(curP)}</select></label>
+          <label class="gd-l">Κατάσταση εδώ <span class="mut">(στο GoodDay: ${esc(d.sourceStatus.name || '—')})</span>
+            <select class="inp" id="gdS"><option value="">— διάλεξε κατάσταση —</option>
+            ${(S.boot.statuses || []).map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label>
+          <label class="gd-l">Ανάδοχος <span class="mut">(στο GoodDay: ${d.assignee ? esc(d.assignee.name) : '—'})</span>
+            <select class="inp" id="gdA"><option value="">— κανείς —</option>
+            ${admins.map(a => `<option value="${a.id}"${a.id === ass ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
+          <div class="gd-row3">
+            <label class="gd-l">Προθεσμία${f.due && f.due < today() ? ' <span class="pill pill-warn" title="Η προθεσμία του GoodDay έχει ήδη περάσει — η εργασία θα φανεί αμέσως εκπρόθεσμη. Άλλαξέ την ή άδειασέ την.">πέρασε</span>' : ''}<input class="inp" type="date" id="gdDue" value="${esc(f.due || '')}"></label>
+            <label class="gd-l">Έναρξη<input class="inp" type="date" id="gdStart" value="${esc(f.start || '')}"></label>
+            <label class="gd-l">Εκτίμηση (λεπτά)<input class="inp" id="gdEst" inputmode="numeric" value="${f.estimate !== null ? f.estimate : ''}"></label>
+          </div>
+          <label class="gd-l">Ζητούμενο <span class="mut">— το GoodDay δεν έχει ξεχωριστή περιγραφή· διάλεξε ρητά αν θέλεις ένα μήνυμα</span>
+            <select class="inp" id="gdD">
+              ${d.descr !== null ? '<option value="description">Η περιγραφή του GoodDay</option>' : ''}
+              <option value="none"${d.descr === null ? ' selected' : ''}>Κενό — τα μηνύματα μένουν στο ιστορικό</option>
+              ${textMsgs.map(m => `<option value="${esc(m.ext)}">Μήνυμα: ${esc(m.from ? (m.from.adminName || m.from.name) : '?')} · ${esc(m.at ? dShort(m.at.slice(0, 10)) : '')} — ${esc(String(m.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60))}</option>`).join('')}
+            </select></label>
+          <div class="gd-src">
+            <div><span class="mut">Πηγή</span> <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.url)}</a></div>
+            <div><span class="mut">Δημιουργήθηκε</span> ${d.created ? esc(dFull(d.created)) : '—'} από ${person(d.creator)}</div>
+            <div><span class="mut">Ώρες GoodDay</span> ${esc(d.srcTz)} → εμφανίζονται σε ώρα Ελλάδας</div>
+            ${d.unmapped.reportedTime ? `<div><span class="mut">Καταγεγραμμένος χρόνος στο GoodDay</span> ${esc(window.CNP.fmtMin ? window.CNP.fmtMin(+d.unmapped.reportedTime) : d.unmapped.reportedTime + '′')} <span class="mut">(κρατιέται ως πληροφορία — δεν γίνεται χρόνος εδώ)</span></div>` : ''}
+            ${d.unmapped.customFieldsData && Object.keys(d.unmapped.customFieldsData).length ? `<div><span class="mut">Προσαρμοσμένα πεδία GoodDay</span> ${Object.keys(d.unmapped.customFieldsData).length} — κρατιούνται ως έχουν, δεν αντιστοιχίζονται</div>` : ''}
+          </div>
+        </div>
+        <div class="gd-side">
+          <div class="gd-sec">Άνθρωποι <span class="mut">(με email)</span></div>
+          ${d.users.map(u => { const s = STATE[u.state] || ['pill-mut', u.state];
+            return `<div class="gd-u"><span><b>${esc(u.name || u.ext)}</b><br><span class="mut">${esc(u.email || 'χωρίς email')}</span></span>
+              <span class="pill ${s[0]}">${u.admin ? '→ ' + esc(adminName(u.admin)) : s[1]}</span></div>`; }).join('') || '<div class="mut">—</div>'}
+          ${d.warnings.length ? `<div class="gd-sec">Προειδοποιήσεις <b>${d.warnings.length}</b></div>
+            <ul class="gd-w">${d.warnings.map(w => `<li>${esc(w.message || (w.code === 'rtf' ? 'μήνυμα ' + w.message_id + ': ' + flagTxt(w.detail) : w.code))}</li>`).join('')}</ul>`
+            : '<div class="gd-sec">Προειδοποιήσεις</div><div class="mut" style="font-size:12px">Καμία.</div>'}
+        </div>
+      </div>
+      <div class="gd-sec">Ιστορικό μηνυμάτων <b>${textMsgs.length}</b> <span class="mut">+ ${nEv} συμβάντα (αλλαγές κατάστασης / χρόνου) · με χρονολογική σειρά</span></div>
+      <div class="gd-hist">${d.messages.map(msgLine).join('') || '<div class="mut">Κανένα μήνυμα.</div>'}</div>`;
+    footEl.hidden = false;
+    $o('#gdFootNote').textContent = (ex || al) ? '' : 'Τίποτα δεν δημιουργείται πριν πατήσεις «Δημιουργία».';
+    $o('#gdCreate').disabled = !!(ex || al);
+    const oe = $o('#gdOpenEx'); if (oe) { oe.onclick = () => { close(); openTask(ex.task); }; }
+    const oa = $o('#gdOpenAl'); if (oa) { oa.onclick = () => { close(); openTask(al.task); }; }
+    const ot = $o('#gdOpenTk'); if (ot) { ot.onclick = () => { close(); if (window.CNP.openTicketQuick) { window.CNP.openTicketQuick(al.ticket); } }; }
+    if (!canBoard) {
+      $o('#gdP').value = myDept ? 'dept' : '';
+      $o('#gdP').disabled = true;
+      $o('#gdA').value = String(me.id); $o('#gdA').disabled = true;
+      $o('#gdFootNote').textContent = 'Χωρίς «Board: επεξεργασία» η εργασία μπαίνει ως δική σου, χωρίς έργο.';
+    }
+    setTimeout(() => ($o('#gdP').disabled ? $o('#gdS') : $o('#gdP')).focus(), 30);
+  };
+
+  const fetchPv = async () => {
+    const ref = refEl.value.trim();
+    if (!ref) { say('Επικόλλησε τον σύνδεσμο της εργασίας από το GoodDay.', 'bad'); refEl.focus(); return; }
+    if (busy) { return; }
+    busy = true; pv = null; footEl.hidden = true; bodyEl.innerHTML = '';
+    say('<span class="gd-spin"></span> Ανάκτηση από το GoodDay… (εργασία, μηνύματα, χρήστες)', 'load');
+    $o('#gdGo').disabled = true;
+    try {
+      pv = await api('gd_import_preview', {ref});
+      say(`Ανακτήθηκε <b>${esc(pv.ext)}</b> στις ${esc(dFull(new Date().toISOString().slice(0, 19).replace('T', ' ')))} — έλεγξε και πάτα «Δημιουργία».`, 'ok');
+      render();
+    } catch (e) {
+      const dd = (e && e.data) || {};
+      say(esc(e.message) + (dd.retry ? ' <button type="button" class="btn btn-sm btn-o" id="gdRetry">Δοκίμασε ξανά</button>' : ''), 'bad');
+      const rb = $o('#gdRetry'); if (rb) { rb.onclick = fetchPv; }
+      if (dd.code === 'ref') { refEl.focus(); refEl.select(); }
+    } finally {
+      busy = false; $o('#gdGo').disabled = false;
+    }
+  };
+  $o('#gdGo').onclick = fetchPv;
+
+  $o('#gdCreate').onclick = async () => {
+    if (!pv || busy) { return; }
+    const pSel = $o('#gdP').value;
+    const body = {stage: pv.stage, title: $o('#gdT').value.trim(), status: +$o('#gdS').value || 0,
+      assignee: +$o('#gdA').value || 0, due: $o('#gdDue').value, start: $o('#gdStart').value,
+      estimate: $o('#gdEst').value.trim(), descr_from: $o('#gdD').value};
+    if (pSel === 'dept') { body.dept = myDept ? myDept.id : 0; } else { body.project = +pSel || 0; }
+    const mark = (id, m) => { const el = $o(id); if (el) { el.classList.add('gd-err'); el.focus(); } say(esc(m), 'bad'); };
+    $$('.gd-err', ovl).forEach(x => x.classList.remove('gd-err'));
+    if (!body.title) { mark('#gdT', 'Ο τίτλος είναι υποχρεωτικός'); return; }
+    if (!body.project && !body.dept) { mark('#gdP', 'Διάλεξε έργο'); return; }
+    if (!body.status) { mark('#gdS', 'Διάλεξε κατάσταση για τη νέα εργασία'); return; }
+    if (body.estimate && !/^\d+$/.test(body.estimate)) { mark('#gdEst', 'Η εκτίμηση είναι σε λεπτά (ακέραιος)'); return; }
+    if (body.project) { const p0 = projects.find(x => x.id === body.project); if (p0 && !p0.client) { body.internal = 1; } }
+    busy = true; $o('#gdCreate').disabled = true;
+    say('<span class="gd-spin"></span> Δημιουργία εργασίας και εισαγωγή ιστορικού…', 'load');
+    try {
+      const r = await api('gd_import_create', body);
+      close();
+      toast('Εισήχθη από GoodDay ✓');
+      openTask(r.id);
+    } catch (e) {
+      const dd = (e && e.data) || {};
+      busy = false; $o('#gdCreate').disabled = false;
+      if (dd.code === 'already') {
+        say(esc(e.message) + (dd.task ? ` <button type="button" class="btn btn-sm btn-p" id="gdOpen3">Άνοιξε την #${dd.task}</button>` : ''), 'bad');
+        $o('#gdCreate').disabled = true;
+        const o3 = $o('#gdOpen3'); if (o3) { o3.onclick = () => { close(); openTask(dd.task); }; }
+        return;
+      }
+      if (dd.code === 'exists' && dd.task) {
+        say(esc(e.message) + ` <button type="button" class="btn btn-sm btn-p" id="gdOpen2">Άνοιξέ την</button>`, 'bad');
+        $o('#gdCreate').disabled = true;
+        $o('#gdOpen2').onclick = () => { close(); openTask(dd.task); };
+        return;
+      }
+      if (dd.code === 'stage') { say(esc(e.message), 'bad'); footEl.hidden = true; refEl.focus(); return; }
+      const map = {title: '#gdT', project: '#gdP', status: '#gdS', assignee: '#gdA', due: '#gdDue', start: '#gdStart', estimate: '#gdEst', descr_from: '#gdD'};
+      if (dd.field && map[dd.field]) { mark(map[dd.field], e.message); return; }
+      say(esc(e.message) + (dd.retry ? ' — πάτα ξανά «Δημιουργία».' : ''), 'bad');
+    }
+  };
+
+  if (ref) { refEl.value = ref; fetchPv(); } else { setTimeout(() => refEl.focus(), 30); }
+}
+window.CNP.gdImport = gdImport;
+window.CNP.gdLooksLikeRef = gdLooksLikeRef;
 
 /* ═════════ ☎ Καταγραφή κλήσης (πλήκτρο τ / t με shift) ═════════
    Χτύπησε το τηλέφωνο, το έκλεισες. Σε δεκαπέντε δευτερόλεπτα μένει γραπτό

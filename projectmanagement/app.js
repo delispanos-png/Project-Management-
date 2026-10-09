@@ -161,7 +161,7 @@ document.documentElement.dataset.theme = S.theme;
    εκτελείται. Το <template> δεν τρέχει ποτέ κώδικα όσο το επεξεργαζόμαστε. */
 const CNP_OK_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'UL', 'OL', 'LI', 'A', 'BR', 'P', 'DIV', 'SPAN', 'H3', 'H4',
   'BLOCKQUOTE', 'CODE', 'PRE', 'IMG', 'FIGURE', 'FIGCAPTION', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'MARK']);
-const CNP_OK_ATTR = new Set(['href', 'src', 'alt', 'title', 'style', 'class', 'target', 'rel', 'colspan', 'rowspan', 'width', 'height', 'data-lang']);
+const CNP_OK_ATTR = new Set(['href', 'src', 'alt', 'title', 'style', 'class', 'target', 'rel', 'colspan', 'rowspan', 'width', 'height', 'data-lang', 'start']);
 const CNP_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'NOSCRIPT', 'TEMPLATE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'LINK', 'META', 'BASE']);
 function cnpScrubNode(root) {
   [...root.childNodes].forEach(n => {
@@ -183,6 +183,8 @@ function cnpScrubNode(root) {
         if (!safe) { n.setAttribute(a.name, '#'); }
       }
       if (an === 'style' && /expression|url\s*\(|javascript:|@import|behavior/i.test(a.value)) { n.removeAttribute(a.name); }
+      /* ίδιος κανόνας με τον server: «start» μόνο σε <ol>, μόνο ακέραιος */
+      if (an === 'start' && (tag !== 'OL' || !/^\d{1,4}$/.test(a.value))) { n.removeAttribute(a.name); }
     });
     cnpScrubNode(n);
   });
@@ -3061,7 +3063,10 @@ async function openTask(id, entryId, opts) {
       (d.check || []).forEach(it => items.push({k: 'post', at: it.at || '', it}));
       (d.comments || []).forEach(c => items.push({k: 'msg', at: c.at || '', c}));
       (d.activity || []).forEach(a => { if (!EV_SKIP[a.action]) { items.push({k: 'ev', at: a.at || '', a}); } });
-      items.sort((x, y) => String(x.at).localeCompare(String(y.at)));
+      /* Ιστορικό από GoodDay: μόνο-ανάγνωση, με τον ΑΡΧΙΚΟ συγγραφέα και ώρα. */
+      const gx = d.ext;
+      (gx ? gx.messages : []).forEach((m, i) => items.push({k: 'gd', at: m.at || gx.at || '', m, i}));
+      items.sort((x, y) => String(x.at).localeCompare(String(y.at)) || ((x.i || 0) - (y.i || 0)));
       const SHOW = 12, hidden = Math.max(0, items.length - SHOW);
       const files = list => (list || []).length ? `<div class="th-files">${list.map(f => `
         <a class="th-file" href="api.php?a=file_get&id=${f.id}" target="_blank" rel="noopener" title="${esc(f.name)}">
@@ -3071,8 +3076,27 @@ async function openTask(id, entryId, opts) {
       const ava = (aid, name) => aid
         ? `<span class="th-ava" style="background:${avaColor(aid)}" title="${esc(name || '')}">${esc(adminIni(aid) || String(name || '?').slice(0, 2).toUpperCase())}</span>`
         : `<span class="th-ava th-ava-sys" title="Βήμα εργασίας">${I.checkSquare}</span>`;
+      const GD_FLAG = {fallback_plain: 'απλό κείμενο', link_dropped: 'αφαιρέθηκε μη ασφαλής σύνδεσμος', bad_date: 'χωρίς αναγνώσιμη ώρα', rtf_no_root: 'άγνωστη μορφή κειμένου'};
+      const gdRow = (m, hide) => {
+        const tag = `<span class="th-gd" title="Από GoodDay${m.byId ? '' : ' — ' + esc(m.srcName + (m.srcEmail ? ' <' + m.srcEmail + '>' : '')) + ': χωρίς αντίστοιχο συνάδελφο'}">GoodDay${m.byId ? '' : ' · χωρίς αντιστοίχιση'}</span>`;
+        const av = m.byId ? ava(m.byId, m.by) : `<span class="th-ava th-ava-gd" title="${esc(m.srcName || '')}">${esc(String(m.srcName || '?').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span>`;
+        const when = m.at ? tShort(m.at) : 'χωρίς ώρα';
+        if (m.kind !== 'text') {
+          const what = m.kind === 'status' ? 'άλλαξε κατάσταση στο GoodDay' : (m.kind === 'time' ? 'κατέγραψε χρόνο στο GoodDay' : 'κενή καταχώρηση στο GoodDay');
+          return `<div class="th-item th-ev th-gdi${hide}">${av}<div class="th-main"><span class="th-evt"><b>${esc(m.by)}</b> ${what} ${tag}</span><span class="th-time">${esc(when)}</span></div></div>`;
+        }
+        const fl = (m.flags || []).filter(f => GD_FLAG[f] || f.indexOf('unknown_node:') === 0)
+          .map(f => `<span class="pill pill-mut">${esc(GD_FLAG[f] || 'άγνωστο στοιχείο — κρατήθηκε το κείμενο')}</span>`).join(' ');
+        return `<div class="th-item th-post th-gdi${hide}">${av}<div class="th-main">
+          <div class="th-head"><b>${esc(m.by)}</b>${tag}${m.toName ? `<span class="mut" style="font-size:11px">προς ${esc(m.toName)}</span>` : ''}<span class="th-time" title="GoodDay: ${esc(m.atSrc || '')}">${esc(when)}${m.editAt ? ' · διορθώθηκε' : ''}</span></div>
+          <div class="th-body">${cnpBalanced(m.html || '')}</div>
+          ${fl ? `<div class="th-gdf">${fl}</div>` : ''}
+          ${m.attachments && m.attachments.length ? `<div class="mut th-gdf">📎 ${m.attachments.map(a => esc(a.name)).join(', ')} <span>— συνημμένα στο GoodDay, δεν μεταφέρθηκαν</span></div>` : ''}
+        </div></div>`;
+      };
       const row = (x, i) => {
         const hide = i < hidden ? ' th-hid' : '';
+        if (x.k === 'gd') { return gdRow(x.m, hide); }
         if (x.k === 'ev') { const a = x.a; return `<div class="th-item th-ev${hide}">${ava(a.byId, a.by)}<div class="th-main"><span class="th-evt"><b>${esc(a.by)}</b> ${evText(a)}</span><span class="th-time">${tShort(a.at)}</span></div></div>`; }
         if (x.k === 'msg') { const c = x.c; return `<div class="th-item th-post th-legacy${hide}">${ava(c.byId, c.by)}<div class="th-main">
           <div class="th-head"><b>${esc(c.by)}</b><span class="mut" style="font-size:11px">μήνυμα${c.to && c.to > 0 ? ' προς ' + esc(adminName(c.to)) : ''}</span><span class="th-time">${tShort(c.at)}</span></div>
@@ -3099,6 +3123,10 @@ async function openTask(id, entryId, opts) {
       <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
       <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> καταχωρεί, <b>Shift+Enter</b> νέα γραμμή</span></div>
       <div class="card-b">
+        ${gx ? `<div class="th-gdbar">${I.link} Εισαγωγή από GoodDay <a href="${esc(gx.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(gx.ext)}</b></a>
+          ${gx.sourceStatus && gx.sourceStatus.name ? `· εκεί: <b>${esc(gx.sourceStatus.name)}</b>` : ''}
+          · ${gx.messages.filter(m => m.kind === 'text').length} μηνύματα ιστορικού · ${esc(gx.by)}, ${esc(tShort(gx.at))}
+          <span class="mut">— μόνο ανάγνωση, με αρχικό συντάκτη &amp; ώρα</span></div>` : ''}
         <div id="dCheck" class="th">
           ${hidden ? `<button type="button" class="th-more" id="thMore">${I.chev} ${hidden} παλαιότερα</button>` : ''}
           ${items.map(row).join('') || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
