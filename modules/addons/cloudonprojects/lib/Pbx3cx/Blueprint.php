@@ -619,6 +619,8 @@ TXT;
             $rule('Ελλάδα από 0030', '0030', '', $all, [], [self::obRoute($gr, 4), self::obRoute($alt, 4)]),
             $rule('Ελλάδα από +30', '+30', '', $all, [], [self::obRoute($gr, 3), self::obRoute($alt, 3)]),
             $rule('Παλιό πρόθεμα 01 → Sip1', '01', '', $all, [], [self::obRoute($gr, 2), self::obRoute($alt, 2)]),
+            /* ΔΟΚΙΜΗ 08/10/2026: 03 + αριθμός → ΜΟΝΟ η γραμμή sip.cloudon.gr, για να δούμε αν τα πλήκτρα (DTMF) περνούν από άλλον πάροχο. Αφαιρείται μετά. */
+            $rule('Δοκιμή 03 → sip.cloudon.gr', '03', '', $all, [], [self::obRoute($alt, 2)]),
             $rule('Διεθνή 00: μόνο ' . implode(' & ', self::OB_INTL_DNS), '00', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 0), self::obRoute($gr, 0)]),
             $rule('Διεθνή +: μόνο ' . implode(' & ', self::OB_INTL_DNS), '+', '', [], $dn(self::OB_INTL_DNS), [self::obRoute($alt, 1, '00'), self::obRoute($gr, 1, '00')]),
             /* 8ψήφιο = μόνο Κύπρος (κανένας ελληνικός αριθμός δεν έχει 8 ψηφία) — για ΟΛΟΥΣ (24/09: ο 212 καλούσε 99527138 και κοβόταν). */
