@@ -5053,3 +5053,59 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .lv-mnew2{border:1px solid var(--line);border-radius:9px;background:none;color:var(--mut);padding:7px 10px;cursor:pointer;font-size:12px}
 .lv-bhd .lv-bsave{margin-left:auto}
 .lv-bhd .lv-bsave + .btn{margin-left:0}
+
+/* ═══ Εισαγωγή από GoodDay (9/10/2026) ═══ */
+.gd-box{width:min(1020px,96vw);margin:4vh auto 0;max-height:92vh;display:flex;flex-direction:column}
+.gd-h{display:flex;align-items:baseline;gap:10px;padding:16px 52px 10px 20px;flex-wrap:wrap;font-size:15.5px;color:var(--ink)}
+.gd-h .mut{font-size:12px}
+.gd-ref{display:flex;gap:8px;padding:0 20px}
+.gd-ref .inp{flex:1;min-width:0}
+.gd-msg{padding:8px 20px 0;font-size:12.5px;min-height:18px;line-height:1.5}
+.gd-msg.gd-bad{color:var(--bad)}
+.gd-msg.gd-ok{color:var(--ok)}
+.gd-msg.gd-load{color:var(--mut)}
+.gd-msg .btn{margin-left:6px}
+.gd-spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--brand);border-radius:50%;vertical-align:-1px;animation:gdspin .8s linear infinite}
+@keyframes gdspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.gd-spin{animation:none}}
+.gd-body{overflow:auto;padding:4px 20px 12px;flex:1;min-height:0}
+.gd-ex{background:rgba(224,160,32,.12);border:1px solid rgba(224,160,32,.4);border-radius:10px;padding:10px 12px;font-size:13px;margin:8px 0;line-height:1.7}
+.gd-ex .btn{margin-left:8px}
+.gd-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:18px;margin-top:8px}
+.gd-form{display:flex;flex-direction:column;gap:10px}
+.gd-l{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--txt)}
+.gd-l .mut{font-weight:500}
+.gd-l .pill{align-self:flex-start;font-weight:700}
+.gd-foot .btn:disabled{opacity:.45;cursor:not-allowed}
+.gd-row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.gd-err{outline:2px solid var(--bad);outline-offset:1px}
+.gd-src{font-size:12px;display:flex;flex-direction:column;gap:3px;padding:9px 11px;border:1px dashed var(--line);border-radius:10px;color:var(--txt)}
+.gd-src a{color:var(--brand);word-break:break-all}
+.gd-side{display:flex;flex-direction:column;gap:6px;min-width:0}
+.gd-sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--mut);margin:12px 0 4px}
+.gd-side .gd-sec:first-child{margin-top:0}
+.gd-u{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--line)}
+.gd-u .pill{flex:none}
+.gd-w{margin:0;padding-left:18px;font-size:12px;color:var(--txt);display:flex;flex-direction:column;gap:3px}
+.gd-hist{border:1px solid var(--line);border-radius:10px;max-height:340px;overflow:auto;background:var(--bg2)}
+.gd-m{padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px;background:var(--card)}
+.gd-m-h{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-bottom:3px;flex-wrap:wrap}
+.gd-m-b{color:var(--txt);line-height:1.5;overflow-wrap:anywhere}
+.gd-m-b p{margin:0 0 4px}.gd-m-b ul,.gd-m-b ol{margin:2px 0 4px;padding-left:20px}
+.gd-m-f,.gd-att{margin-top:4px;font-size:11.5px}
+.gd-m-ev{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:var(--mut);padding:5px 12px;background:transparent;flex-wrap:wrap}
+.gd-foot{display:flex;align-items:center;gap:9px;padding:12px 20px;border-top:1px solid var(--line)}
+.gd-foot .mut{font-size:12px}
+@media (max-width:768px){
+  .gd-box{margin:0 auto;max-height:100vh;height:100vh;border-radius:0;width:100vw}
+  .gd-grid{grid-template-columns:1fr}
+  .gd-row3{grid-template-columns:1fr 1fr}
+  .gd-ref{padding:0 16px}.gd-body{padding:4px 16px 12px}.gd-foot{padding:10px 16px;flex-wrap:wrap}
+}
+/* στην καρτέλα εργασίας: το ιστορικό από GoodDay */
+.th-gd{font-size:10.5px;font-weight:700;color:#5b6cff;background:rgba(91,108,255,.1);border-radius:999px;padding:1px 7px;margin-left:4px}
+.th-ava-gd{background:rgba(91,108,255,.15);color:#5b6cff;font-size:10px;font-weight:700}
+.th-gdf{margin-top:4px;font-size:11.5px}
+.th-gdbar{font-size:12px;color:var(--txt);background:rgba(91,108,255,.07);border:1px solid rgba(91,108,255,.25);border-radius:9px;padding:7px 11px;margin-bottom:10px;line-height:1.6}
+.th-gdbar svg{width:13px;height:13px;vertical-align:-2px}
+.th-gdbar a{color:#5b6cff}

@@ -17,6 +17,8 @@ use WHMCS\Module\Addon\CloudonProjects\Storage;
 use WHMCS\Module\Addon\CloudonProjects\Cover;
 use WHMCS\Module\Addon\CloudonProjects\Report;
 use WHMCS\Module\Addon\CloudonProjects\Pharmacy;
+use WHMCS\Module\Addon\CloudonProjects\GoodDayImport;
+use WHMCS\Module\Addon\CloudonProjects\GoodDayError;
 use WHMCS\Module\Addon\CloudonProjects\Pbx;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxClient;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxSync;
@@ -46,6 +48,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pharmacy.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Overrun.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Recurring.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/GoodDayImport.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PharmacyOneType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PbxType.php';
@@ -688,7 +691,7 @@ function cnp_dom_scrub($html)
     if ($html === '' || strpos($html, '<') === false) { return $html; }
     static $tags = ['b', 'strong', 'i', 'em', 'u', 's', 'ul', 'ol', 'li', 'a', 'br', 'p', 'div', 'span', 'h3', 'h4',
         'blockquote', 'code', 'pre', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'mark'];
-    static $attrs = ['href', 'src', 'alt', 'title', 'style', 'class', 'target', 'rel', 'colspan', 'rowspan', 'width', 'height', 'data-lang'];
+    static $attrs = ['href', 'src', 'alt', 'title', 'style', 'class', 'target', 'rel', 'colspan', 'rowspan', 'width', 'height', 'data-lang', 'start'];
     $prev = libxml_use_internal_errors(true);
     $doc = new \DOMDocument();
     $ok = $doc->loadHTML('<?xml encoding="UTF-8"><html><body><div id="cnp-scrub">' . $html . '</div></body></html>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -721,6 +724,10 @@ function cnp_dom_scrub($html)
                     $safe = $u === '' || $u[0] === '#' || $u[0] === '/' || preg_match('#^(https?:|mailto:|tel:)#i', $u)
                         || !preg_match('/^[a-z0-9.+-]*:/i', $u);
                     if (!$safe) { $c->setAttribute($a->nodeName, '#'); }
+                }
+                /* «start» μόνο σε <ol> και μόνο ακέραιος (αριθμημένη λίστα που ξεκινά από 2 — εισαγωγή GoodDay). */
+                if ($an === 'start' && (strtolower($c->nodeName) !== 'ol' || !preg_match('/^\d{1,4}$/', (string) $a->nodeValue))) {
+                    $c->removeAttribute($a->nodeName); continue;
                 }
                 if ($an === 'style' && preg_match('/expression|url\s*\(|javascript:|@import|behavior/i', (string) $a->nodeValue)) {
                     $c->removeAttribute($a->nodeName);
@@ -2193,7 +2200,16 @@ function cnp_settings_keys()
         'team_roles', 'full_access_roles', 'ai_api_key', 'cv_ai_model',
         'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas', 'overrun_on', 'overrun_pct',
         'cards_on', 'cards_team', 'cards_esc_team', 'cards_age_days', 'cards_idle_days', 'cards_unassigned_days',
-        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix'];
+        'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix',
+        'goodday_token', 'goodday_tz'];
+}
+
+/** Token GoodDay (εισαγωγή εργασιών): κρυπτογραφημένο στη βάση, ΠΟΤΕ προς τον browser/logs. */
+function cnp_goodday_token()
+{
+    $b = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'goodday_token')->value('value') ?? '');
+    return $b === '' ? '' : cnp_vault_dec($b);
 }
           // 2΄ για διόρθωση δικού σου μηνύματος στο chat
 define('CNP_MEET_GONE', 3600);         // και μία ώρα εκτός εφαρμογής → δεν στέκει
@@ -3953,6 +3969,7 @@ function cnp_caps()
         'projects.depts'    => ['view',   'Departments', 'Φόρτος και εργασίες ανά τμήμα'],
         'projects.share'    => ['power',  'Κοινοποίηση σε πελάτη', 'Δημόσιος σύνδεσμος προόδου έργου', 'projects.portfolio'],
         'projects.recurring' => ['power', 'Επαναλαμβανόμενες εργασίες', 'Ορισμός εργασιών που ξαναγεννιούνται', 'projects.board'],
+        'projects.goodday'  => ['power',  'Εισαγωγή από GoodDay', 'Νέα εργασία από task του GoodDay, με όλο το ιστορικό μηνυμάτων', 'projects.board'],
 
         // ═══ Η ΟΜΑΔΑ (συνεννόηση & διαθεσιμότητα) ═══
         'team.chat'          => ['view',   'Chat', 'Εσωτερική συνομιλία ομάδας — ανάγνωση & αποστολή, ομάδες συνομιλίας'],
@@ -4832,6 +4849,7 @@ function cnp_action_cap($action)
         $add('projects.depts', ['depts_load', 'dept_view']);
         $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
         $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);   // ορισμός κανόνων· η ΑΝΑΛΗΨΗ (rec_claim) είναι προσωπική
+        $add('projects.goodday', ['gd_import_preview', 'gd_import_create']);   // + board.edit για έργο, ελέγχεται μέσα
         $add('projects.recurring|reports.triage', ['recurrent']);
         $add('finance.profit.edit|projects.portfolio.edit', ['add_expense', 'del_expense']);
 
@@ -5687,6 +5705,8 @@ case 'task':
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
+        /* Ιστορικό από GoodDay (μόνο-ανάγνωση, αρχικός συγγραφέας & ώρα) — όχι ο φάκελος. */
+        'ext' => GoodDayImport::forTask($t->id, function ($id) { return Db::adminName((int) $id); }),
         'check' => $check, 'activity' => $acts, 'ticket' => $ticket,
         'watching' => in_array($adminId, Db::watcherIds($t->id), true),
         'watchers' => count(Db::watcherIds($t->id)),
@@ -8996,6 +9016,103 @@ case 'quick_task':
         $started = true;
     }
     out(['ok' => true, 'id' => $tid, 'started' => $started]);
+
+/* ═══ ΕΙΣΑΓΩΓΗ ΑΠΟ GOODDAY (9/10/2026) ═══
+   Δύο βήματα: προεπισκόπηση (ανάκτηση + σχέδιο, ΧΩΡΙΣ εγγραφή εργασίας) και
+   δημιουργία (από την ίδια, αποθηκευμένη στον server, ανάκτηση — ο browser δεν
+   στέλνει δεδομένα πηγής, μόνο επιλογές). Δικαίωμα: projects.goodday (χάρτης) +
+   οι ίδιοι κανόνες με το quick_task για έργο/ανάθεση. */
+case 'gd_import_preview':
+    GoodDayImport::ensure();
+    try {
+        $gdEnv = GoodDayImport::retrieve((string) ($in['ref'] ?? ''), cnp_goodday_token());
+    } catch (\InvalidArgumentException $e) {
+        fail($e->getMessage(), 400, ['code' => 'ref']);
+    } catch (GoodDayError $e) {
+        fail($e->getMessage(), $e->status === -1 ? 409 : 502, $e->status === -1 ? ['code' => 'config'] : ['code' => 'retrieve', 'retry' => !in_array($e->status, [401, 403, 404], true)]);
+    }
+    $gdPlan = GoodDayImport::plan($gdEnv, function ($h) { return cnp_clean_html($h, 60000); },
+        function ($id) { return Db::adminName((int) $id); }, (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? ''));
+    $gdNonce = GoodDayImport::stagePut($adminId, $gdEnv);
+    $gdHere = GoodDayImport::alreadyHere($gdPlan['ext'], $gdEnv);
+    foreach ($gdHere['mentions'] as $gdMn) {
+        $gdPlan['warnings'][] = ['code' => 'mentioned_in_task', 'task' => $gdMn['task'],
+            'message' => 'Ο σύνδεσμος αυτού του task αναφέρεται σε ενέργεια της #' . $gdMn['task'] . ' «' . $gdMn['title'] . '» — έλεγξε ότι δεν είναι η ίδια δουλειά.'];
+    }
+    out(['ok' => true, 'stage' => $gdNonce, 'existing' => GoodDayImport::existing($gdPlan['ext']),
+        'already' => $gdHere['block']] + $gdPlan);
+
+case 'gd_import_create':
+    GoodDayImport::ensure();
+    $gdSt = GoodDayImport::stageGet($adminId, (string) ($in['stage'] ?? ''));
+    if (!$gdSt) { fail('Η προεπισκόπηση έληξε ή δεν βρέθηκε — πάτα ξανά «Ανάκτηση».', 410, ['code' => 'stage']); }
+    $gdEnv = $gdSt['env'];
+    $gdEx = GoodDayImport::existing((string) $gdEnv['external_task_id']);
+    if ($gdEx) {
+        fail('Αυτή η εργασία GoodDay έχει ήδη εισαχθεί ως #' . $gdEx['task'] . ' — δεν φτιάχνουμε δεύτερη.', 409, ['code' => 'exists', 'task' => $gdEx['task']]);
+    }
+    /* Ήδη ανοιγμένη εδώ με άλλο τρόπο (χειροκίνητη μεταφορά, ticket) → όχι δεύτερη. */
+    $gdHere = GoodDayImport::alreadyHere((string) $gdEnv['external_task_id'], $gdEnv)['block'];
+    if ($gdHere) {
+        fail($gdHere['why'] . ' Δεν την ξαναπερνάμε.', 409, ['code' => 'already', 'task' => $gdHere['task'], 'ticket' => $gdHere['ticket'] ?? null]);
+    }
+    $gdPlan = GoodDayImport::plan($gdEnv, function ($h) { return cnp_clean_html($h, 60000); },
+        function ($id) { return Db::adminName((int) $id); }, (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? ''));
+    /* Ίδιοι έλεγχοι με το quick_task — η εισαγωγή δεν είναι πλάγια πόρτα. */
+    $gdPid = (int) ($in['project'] ?? 0);
+    $gdDept = (int) ($in['dept'] ?? 0);
+    $gdTitle = trim((string) ($in['title'] ?? ''));
+    if ($gdTitle === '') { fail('Ο τίτλος είναι υποχρεωτικός', 400, ['field' => 'title']); }
+    if (mb_strlen($gdTitle) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($gdTitle) . ' χαρακτήρες — μέγιστο 200.', 400, ['field' => 'title']); }
+    if (!$gdPid && !$gdDept) { fail('Διάλεξε έργο (ή department)', 400, ['field' => 'project']); }
+    if ($gdPid && !Db::canSeeProject($adminId, $gdPid)) { fail('project', 403); }
+    $gdAss = (int) ($in['assignee'] ?? 0);
+    if ($gdAss && !Capsule::table('tbladmins')->where('id', $gdAss)->where('disabled', 0)->exists()) { fail('Ο ανάδοχος δεν είναι ενεργός χρήστης', 400, ['field' => 'assignee']); }
+    if (($gdPid || ($gdAss && $gdAss !== $adminId)) && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» για εργασία σε έργο ή ανάθεση σε συνάδελφο.', 403);
+    }
+    $gdSid = (int) ($in['status'] ?? 0);
+    if (!$gdSid || !Db::status($gdSid)) { fail('Διάλεξε κατάσταση για τη νέα εργασία', 400, ['field' => 'status']); }
+    $gdDate = function ($v, $f) { $v = trim((string) $v); if ($v === '') { return null; } $d = GoodDayImport::dateOnly($v); if (!$d || $d !== $v) { fail('Μη έγκυρη ημερομηνία', 400, ['field' => $f]); } return $d; };
+    $gdDue = $gdDate($in['due'] ?? '', 'due');
+    $gdStart = $gdDate($in['start'] ?? '', 'start');
+    $gdEst = trim((string) ($in['estimate'] ?? ''));
+    if ($gdEst !== '' && (!ctype_digit($gdEst) || (int) $gdEst > 1000000)) { fail('Η εκτίμηση είναι σε λεπτά (ακέραιος)', 400, ['field' => 'estimate']); }
+    /* Ζητούμενο: κενό, ή ρητά ΕΝΑ μήνυμα που διάλεξε ο χρήστης — ποτέ σιωπηλά το πρώτο. */
+    $gdDescr = null;
+    $gdPick = (string) ($in['descr_from'] ?? '');
+    if ($gdPick === 'description' && $gdPlan['descr'] !== null) { $gdDescr = $gdPlan['descr']; }
+    elseif ($gdPick !== '' && $gdPick !== 'none') {
+        foreach ($gdPlan['messages'] as $gm) { if ($gm['ext'] === $gdPick && $gm['html'] !== null) { $gdDescr = $gm['html']; break; } }
+        if ($gdDescr === null) { fail('Το μήνυμα που διάλεξες για ζητούμενο δεν βρέθηκε', 400, ['field' => 'descr_from']); }
+    }
+    $gdNew = ['project_id' => $gdPid ?: null, 'title' => GoodDayImport::txt($gdTitle, 200),
+        'status_id' => $gdSid, 'action_user' => null,
+        'internal' => !empty($in['internal']) ? 1 : 0,
+        'due_date' => $gdDue, 'start_date' => $gdStart,
+        'estimate_minutes' => $gdEst !== '' ? (int) $gdEst : null,
+        'descr' => $gdDescr];
+    if ($gdDept) { $gdNew['dept_id'] = $gdDept; }
+    if ($gdAss) { $gdNew['assignee'] = $gdAss; }
+    /* ΑΤΟΜΙΚΑ: εργασία + εισαγωγή + ιστορικό — ή τίποτα. Το UNIQUE της εισαγωγής
+       πιάνει και δύο ταυτόχρονα κλικ (δεύτερη εγγραφή → εξαίρεση → rollback). */
+    $gdCx = Capsule::connection();
+    $gdCx->beginTransaction();
+    try {
+        $gdTid = Db::saveTask(0, $gdNew, $adminId);
+        GoodDayImport::persist($gdTid, $adminId, $gdEnv, $gdPlan);
+        Db::logActivity($gdTid, $adminId, 'create', 'Εισαγωγή από GoodDay ' . $gdEnv['external_task_id']
+            . ' (' . count($gdPlan['messages']) . ' μηνύματα ιστορικού)');
+        $gdCx->commit();
+    } catch (\Throwable $e) {
+        while ($gdCx->transactionLevel() > 0) { $gdCx->rollBack(); }
+        $gdEx = GoodDayImport::existing((string) $gdEnv['external_task_id']);
+        if ($gdEx) { fail('Μόλις εισήχθη ως #' . $gdEx['task'] . ' — δεν φτιάχνουμε δεύτερη.', 409, ['code' => 'exists', 'task' => $gdEx['task']]); }
+        logActivity('CPM: αποτυχία εισαγωγής GoodDay ' . $gdEnv['external_task_id'] . ': ' . get_class($e));
+        fail('Η εισαγωγή απέτυχε — δεν δημιουργήθηκε τίποτα. Δοκίμασε ξανά.', 500, ['retry' => true]);
+    }
+    GoodDayImport::stageDrop((string) $in['stage']);
+    out(['ok' => true, 'id' => $gdTid]);
 
 case 'save_task':
     $tid = (int) ($in['task'] ?? 0);
@@ -15329,6 +15446,13 @@ case 'settings_get':
     foreach (['cards_age_days' => 'age', 'cards_idle_days' => 'idle', 'cards_unassigned_days' => 'unassign'] as $kT => $kD) {
         if ($vals[$kT] === '') { $vals[$kT] = (string) DayPlan::thresholds()[$kD]; }
     }
+    /* GoodDay: ούτε το κρυπτογραφημένο blob φεύγει — μόνο «υπάρχει» και 4 τελευταία. */
+    $gdTok9 = $vals['goodday_token'] !== '' ? cnp_goodday_token() : '';
+    $vals['goodday_token_set'] = $gdTok9 !== '' ? '1' : '';
+    $vals['goodday_token_tail'] = $gdTok9 !== '' ? mb_substr($gdTok9, -4) : '';
+    $vals['goodday_token'] = '';
+    unset($gdTok9);
+    if ($vals['goodday_tz'] === '') { $vals['goodday_tz'] = 'UTC'; }
     $vals['s3_secret_set'] = $vals['s3_secret'] !== '' ? '1' : '';   // δεν εκθέτουμε το secret
     $vals['s3_secret'] = '';
     /* Το AI key είναι μυστικό όπως κάθε άλλο: δεν φεύγει ποτέ προς τον browser.
@@ -15363,8 +15487,13 @@ case 'settings_save':
             continue;
         }
         // Κενό σε πεδίο μυστικού σημαίνει «μην αλλάξεις», όχι «σβήσε».
-        if (in_array($k, ['s3_secret', 'ai_api_key'], true) && trim((string) $v) === '') { continue; }
+        if (in_array($k, ['s3_secret', 'ai_api_key', 'goodday_token'], true) && trim((string) $v) === '') { continue; }
         $v = mb_substr(trim((string) $v), 0, 500);
+        if ($k === 'goodday_token') {
+            if (!preg_match('/^[\x21-\x7e]{8,300}$/', $v)) { fail('Το token GoodDay δεν μοιάζει έγκυρο (χωρίς κενά, 8+ χαρακτήρες).'); }
+            $v = cnp_vault_enc($v);
+        }
+        if ($k === 'goodday_tz') { $v = GoodDayImport::sourceTz($v); }
         $ex = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', $k);
         if ($ex->exists()) {
             $ex->update(['value' => $v]);

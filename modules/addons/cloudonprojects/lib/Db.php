@@ -2398,6 +2398,8 @@ class Db
 
     public static function deleteTask($id)
     {
+        /* Εισαγωγή GoodDay: φεύγει μαζί με την εργασία (ιστορικό + φάκελος) — ίδια διάρκεια ζωής. */
+        if (class_exists(__NAMESPACE__ . '\\GoodDayImport')) { GoodDayImport::forgetTask((int) $id); }
         Capsule::table('mod_cpm_comments')->where('task_id', (int) $id)->delete();
         Capsule::table('mod_cpm_activity')->where('task_id', (int) $id)->delete();
         // Τα timelogs σβήνονται μόνο από το CPM — ό,τι έχει ήδη περαστεί/χρεωθεί
