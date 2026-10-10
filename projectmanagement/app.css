@@ -5109,3 +5109,13 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
 .th-gdbar{font-size:12px;color:var(--txt);background:rgba(91,108,255,.07);border:1px solid rgba(91,108,255,.25);border-radius:9px;padding:7px 11px;margin-bottom:10px;line-height:1.6}
 .th-gdbar svg{width:13px;height:13px;vertical-align:-2px}
 .th-gdbar a{color:#5b6cff}
+
+.gd-sec-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.gd-chk{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:600;color:var(--txt);font-size:12px;display:inline-flex;gap:6px;align-items:center}
+.gd-subs{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:4px}
+.gd-sub{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto auto;gap:10px;align-items:center;padding:7px 12px;font-size:12.5px;border-bottom:1px solid var(--line)}
+.gd-sub:last-child{border-bottom:0}
+.gd-sub-t{min-width:0;overflow-wrap:anywhere}
+.gd-skip{opacity:.6}
+.th-gdbar .btn{margin:6px 6px 0 0}
+@media (max-width:768px){.gd-sub{grid-template-columns:1fr auto;}.gd-chk{margin-left:0}}
