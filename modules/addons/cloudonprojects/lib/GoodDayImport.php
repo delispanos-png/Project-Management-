@@ -33,6 +33,10 @@ class GoodDayImport
     const SCHEMA = '1.0';
     const LOCAL_TZ = 'Europe/Athens';
     const STAGE_TTL = 7200;             // προεπισκόπηση ισχύει 2 ώρες
+    const MAX_SUBS = 80;                // όριο υποεργασιών ανά εισαγωγή (προστασία από ατέρμονο δέντρο)
+
+    /** Χρήστες GoodDay που διαβάστηκαν ήδη σε αυτό το αίτημα — οι υποεργασίες έχουν τους ίδιους ανθρώπους. */
+    private static $userCache = [];
 
     /* ════════════════ Σχήμα ════════════════ */
 
@@ -202,7 +206,7 @@ class GoodDayImport
             $uid = (string) $uid;
             $idn = ['external_id' => $uid, 'name' => null, 'email' => null];
             try {
-                $u = self::get('/user/' . rawurlencode($uid), $token);
+                $u = self::$userCache[$uid] ?? (self::$userCache[$uid] = self::get('/user/' . rawurlencode($uid), $token));
                 if (!is_array($u) || (string) ($u['id'] ?? '') !== $uid) {
                     throw new GoodDayError('Μη αναμενόμενη απάντηση χρήστη GoodDay.', 0);
                 }
@@ -230,6 +234,113 @@ class GoodDayImport
             'users' => $users,
             'warnings' => $warnings,
         ];
+    }
+
+    /**
+     * Όλες οι υποεργασίες μιας εργασίας GoodDay (και οι δικές τους, αν έχουν), ΠΛΗΡΕΙΣ
+     * — εργασία + μηνύματα + χρήστες, ίδιος φάκελος με την κύρια. Εδώ υπάρχει ΕΝΑ επίπεδο
+     * υποεργασιών, οπότε το δέντρο ισιώνει κάτω από την κύρια (με σημείωση στον τίτλο του
+     * «γονιού» τους). Αποτυχία ανάκτησης έστω μίας = στοπ: δεν μεταφέρουμε μισή πληροφορία.
+     * @return array [['env' => φάκελος, 'via' => τίτλος ενδιάμεσης υποεργασίας|null], ...]
+     */
+    public static function retrieveSubtasks(array $parentEnv, $token)
+    {
+        $queue = [];
+        foreach ((array) ($parentEnv['task']['subtasks'] ?? []) as $sid) { $queue[] = [(string) $sid, null]; }
+        $seen = [(string) $parentEnv['external_task_id'] => 1];
+        $out = [];
+        while ($queue) {
+            [$sid, $via] = array_shift($queue);
+            if ($sid === '' || isset($seen[$sid])) { continue; }
+            $seen[$sid] = 1;
+            if (count($out) >= self::MAX_SUBS) {
+                throw new GoodDayError('Περισσότερες από ' . self::MAX_SUBS . ' υποεργασίες — δεν γίνεται εισαγωγή με τη μία. Πες μας να το δούμε.', 0);
+            }
+            try {
+                $env = self::retrieve($sid, $token);
+            } catch (GoodDayError $e) {
+                throw new GoodDayError('Υποεργασία ' . $sid . ': ' . $e->getMessage(), $e->status);
+            }
+            $out[] = ['env' => $env, 'via' => $via];
+            foreach ((array) ($env['task']['subtasks'] ?? []) as $sub2) {
+                $queue[] = [(string) $sub2, (string) ($env['task']['name'] ?? $sid)];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Κατάσταση υποεργασίας εδώ (απόφαση 9/10/2026): κλειστή στο GoodDay (momentClosed)
+     * → «Ολοκληρώθηκε» (ή «Ακυρωμένο» αν λέγεται cancel), αλλιώς η πρώτη κατάσταση.
+     * Επαληθευμένο: Completed ↔ systemStatus 5 + momentClosed· Not started ↔ 1 + null.
+     */
+    public static function subStatus(array $task)
+    {
+        $closed = !empty($task['momentClosed']);
+        $name = (string) ($task['status']['name'] ?? '');
+        if ($closed && preg_match('/cancel/i', $name)) {
+            $c = (int) Capsule::table('mod_cpm_statuses')->where('phase', 'cancel')->orderBy('sort')->value('id');
+            if ($c) { return ['id' => $c, 'closed' => true]; }
+        }
+        if ($closed) { return ['id' => Db::doneStatusId(), 'closed' => true]; }
+        return ['id' => Db::firstStatusId(), 'closed' => false];
+    }
+
+    /** Σύνοψη υποεργασίας για την προεπισκόπηση (χωρίς να γραφτεί τίποτα). */
+    public static function subSummary(array $sub, array $plan)
+    {
+        $env = $sub['env'];
+        $st = self::subStatus((array) $env['task']);
+        $ex = self::existing((string) $env['external_task_id']);
+        $al = $ex ? null : self::alreadyHere((string) $env['external_task_id'], $env)['block'];
+        $stRow = Db::status($st['id']);
+        return ['ext' => (string) $env['external_task_id'], 'title' => $plan['fields']['title'], 'via' => $sub['via'],
+            'srcStatus' => $plan['sourceStatus']['name'], 'status' => $stRow ? (string) $stRow->title : '', 'closed' => $st['closed'],
+            'assignee' => $plan['assignee'], 'msgs' => count(array_filter($plan['messages'], function ($m) { return $m['kind'] === 'text'; })),
+            'skip' => $ex ? 'έχει ήδη εισαχθεί ως #' . $ex['task'] : ($al ? $al['why'] : null),
+            'skipTask' => $ex ? $ex['task'] : ($al['task'] ?? null)];
+    }
+
+    /**
+     * Μία υποεργασία → υποεργασία της $parent εδώ, με το δικό της ιστορικό.
+     * Ήδη εισηγμένη / ήδη ανοιγμένη εδώ → παραλείπεται (δεν διπλασιάζουμε).
+     * Καλείται ΜΕΣΑ στο transaction του καλούντα.
+     * @return array ['id' => int] ή ['skipped' => λόγος]
+     */
+    public static function createChild($parent, array $sub, $adminId, callable $clean, callable $adminName, $tzSetting)
+    {
+        $env = $sub['env'];
+        $ext = (string) $env['external_task_id'];
+        if ($ex = self::existing($ext)) { return ['skipped' => 'έχει ήδη εισαχθεί ως #' . $ex['task'], 'ext' => $ext]; }
+        $al = self::alreadyHere($ext, $env)['block'];
+        if ($al) { return ['skipped' => $al['why'], 'ext' => $ext]; }
+        $plan = self::plan($env, $clean, $adminName, $tzSetting);
+        $st = self::subStatus((array) $env['task']);
+        $f = $plan['fields'];
+        $title = $f['title'] !== '' ? $f['title'] : 'Υποεργασία GoodDay ' . $ext;
+        $row = ['project_id' => $parent->project_id ?: null, 'dept_id' => $parent->dept_id ?: null,
+            'internal' => (int) $parent->internal, 'parent_id' => (int) $parent->id,
+            'title' => self::txt($title, 200), 'status_id' => $st['id'], 'action_user' => null,
+            'due_date' => $f['due'], 'start_date' => $f['start'], 'estimate_minutes' => $f['estimate']];
+        if ($plan['assignee'] && $plan['assignee']['admin']) { $row['assignee'] = (int) $plan['assignee']['admin']; }
+        if ($st['closed']) {
+            $row['completed_at'] = self::toLocal($env['task']['momentClosed'] ?? null, self::sourceTz($tzSetting)) ?: date('Y-m-d H:i:s');
+            $row['completed_by'] = (int) $adminId;
+            $row['completed_note'] = 'Ολοκληρώθηκε στο GoodDay (' . self::txt((string) ($env['task']['status']['name'] ?? ''), 60) . ')';
+        }
+        $tid = Db::saveTask(0, $row, $adminId);
+        $impId = self::persist($tid, $adminId, $env, $plan);
+        Db::logActivity($tid, $adminId, 'create', 'Εισαγωγή από GoodDay ' . $ext . ' ως υποεργασία της #' . (int) $parent->id
+            . ($sub['via'] ? ' (στο GoodDay ήταν κάτω από «' . self::txt($sub['via'], 80) . '»)' : '')
+            . ' · ' . count($plan['messages']) . ' μηνύματα ιστορικού');
+        return ['id' => $tid, 'ext' => $ext, 'imp' => $impId];
+    }
+
+    /** Όλες οι εισαγωγές μιας εργασίας ΚΑΙ των υποεργασιών της (για τα αρχεία). */
+    public static function importIdsOfTree($taskId)
+    {
+        $ids = array_merge([(int) $taskId], array_map('intval', Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $taskId)->pluck('id')->all()));
+        return array_map('intval', Capsule::table('mod_cpm_ext_imports')->whereIn('task_id', $ids)->pluck('id')->all());
     }
 
     /* ════════════════ Ώρες ════════════════ */
@@ -559,7 +670,7 @@ class GoodDayImport
         $t = $r->task_id ? Capsule::table('mod_cpm_tasks')->where('id', $r->task_id)->first(['id', 'title']) : null;
         if (!$t) {
             /* Η εργασία σβήστηκε μετά την εισαγωγή → η εισαγωγή δεν «κλειδώνει» πια τίποτα. */
-            Capsule::table('mod_cpm_ext_msgs')->where('import_id', $r->id)->delete();
+            self::forgetTask((int) $r->task_id);
             Capsule::table('mod_cpm_ext_imports')->where('id', $r->id)->delete();
             return null;
         }
@@ -634,13 +745,14 @@ class GoodDayImport
         return json_encode($v, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
     }
 
-    public static function stagePut($adminId, array $env)
+    public static function stagePut($adminId, array $env, array $subs = [])
     {
         self::ensure();
         Capsule::table('mod_cpm_ext_stage')->where('created_at', '<', date('Y-m-d H:i:s', time() - self::STAGE_TTL))->delete();
         $nonce = bin2hex(random_bytes(16));
         Capsule::table('mod_cpm_ext_stage')->insert(['nonce' => $nonce, 'admin_id' => (int) $adminId,
-            'ext_task_id' => (string) $env['external_task_id'], 'envelope' => self::json($env),
+            'ext_task_id' => (string) $env['external_task_id'],
+            'envelope' => self::json($subs ? ['__main' => $env, '__subs' => $subs] : $env),
             'created_at' => date('Y-m-d H:i:s')]);
         return $nonce;
     }
@@ -654,7 +766,9 @@ class GoodDayImport
             ->where('created_at', '>=', date('Y-m-d H:i:s', time() - self::STAGE_TTL))->first();
         if (!$r) { return null; }
         $env = json_decode((string) $r->envelope, true);
-        return is_array($env) ? ['row' => $r, 'env' => $env] : null;
+        if (!is_array($env)) { return null; }
+        if (isset($env['__main'])) { return ['row' => $r, 'env' => $env['__main'], 'subs' => (array) $env['__subs']]; }
+        return ['row' => $r, 'env' => $env, 'subs' => []];
     }
 
     public static function stageDrop($nonce)
@@ -703,6 +817,112 @@ class GoodDayImport
         return $impId;
     }
 
+    /* ════════════════ Συνημμένα αρχεία ════════════════ */
+
+    const MAX_FILE = 209715200;          // 200 MB ανά αρχείο
+
+    /** Μόνο https προς το S3 του GoodDay ή το ίδιο το GoodDay — καμία άλλη διεύθυνση δεν ανοίγεται από τον server. */
+    private static function fileUrlOk($u)
+    {
+        $p = parse_url((string) $u);
+        if (!$p || strtolower((string) ($p['scheme'] ?? '')) !== 'https' || isset($p['user']) || isset($p['port'])) { return false; }
+        $h = strtolower((string) ($p['host'] ?? ''));
+        return (bool) preg_match('/(^|\.)amazonaws\.com$|(^|\.)goodday\.work$/', $h);
+    }
+
+    /** Κατέβασμα με όριο μεγέθους, χωρίς redirect, χωρίς το token (το link είναι ήδη υπογεγραμμένο). */
+    private static function download($url)
+    {
+        if (!self::fileUrlOk($url)) { return [null, 'μη επιτρεπτή διεύθυνση']; }
+        $ch = curl_init($url);
+        $buf = '';
+        $too = false;
+        curl_setopt_array($ch, [
+            CURLOPT_FOLLOWLOCATION => false, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 180, CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_WRITEFUNCTION => function ($ch, $chunk) use (&$buf, &$too) {
+                $buf .= $chunk;
+                if (strlen($buf) > self::MAX_FILE) { $too = true; return 0; }
+                return strlen($chunk);
+            },
+        ]);
+        curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($too) { return [null, 'πάνω από 200 MB']; }
+        if ($code < 200 || $code >= 300) { return [null, $code === 403 ? 'έληξε το link' : 'HTTP ' . $code]; }
+        return [$buf, null];
+    }
+
+    /** Ποια αρχεία ενός μηνύματος έχουν ήδη αποθηκευτεί εδώ (κλειδί: fileId του GoodDay). */
+    private static function storedFileIds($msgRowId)
+    {
+        $ids = [];
+        foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'gdmsg')
+                     ->where('ref_id', (int) $msgRowId)->get(['meta']) as $r) {
+            $m = json_decode((string) $r->meta, true);
+            if (!empty($m['gdFileId'])) { $ids[(string) $m['gdFileId']] = 1; }
+        }
+        return $ids;
+    }
+
+    /**
+     * Κατεβάζει ΟΛΑ τα συνημμένα μιας εισαγωγής στη δική μας αποθήκευση (επαναλήψιμο: ό,τι
+     * υπάρχει ήδη δεν ξανακατεβαίνει). Αν δοθεί token, όταν ένα link έχει λήξει (ισχύει 7 ημέρες)
+     * ξαναδιαβάζουμε τα μηνύματα για φρέσκο link. Τρέχει ΜΕΤΑ το commit της εργασίας — η εργασία
+     * και το ιστορικό δεν εξαρτώνται από το αν κατέβηκε ένα αρχείο, αλλά ό,τι λείπει φαίνεται.
+     * @return array ['saved' => n, 'missing' => [[name, why], ...]]
+     */
+    public static function fetchFiles($importId, $adminId, $token = '')
+    {
+        if (function_exists('set_time_limit')) { @set_time_limit(600); }
+        $imp = Capsule::table('mod_cpm_ext_imports')->where('id', (int) $importId)->first();
+        if (!$imp) { return ['saved' => 0, 'missing' => []]; }
+        $fresh = null;                       // μηνύματα από ζωντανή ανάκτηση (μόνο αν χρειαστεί)
+        $saved = 0;
+        $missing = [];
+        foreach (Capsule::table('mod_cpm_ext_msgs')->where('import_id', $imp->id)->whereNotNull('attachments')->get() as $row) {
+            $atts = json_decode((string) $row->attachments, true);
+            if (!is_array($atts) || !$atts) { continue; }
+            $have = self::storedFileIds($row->id);
+            foreach ($atts as $a) {
+                if (!is_array($a)) { continue; }
+                $fid = (string) ($a['fileId'] ?? md5(json_encode($a)));
+                if (isset($have[$fid])) { continue; }
+                $name = self::txt((string) ($a['name'] ?? 'αρχείο'), 255) ?: 'αρχείο';
+                $url = (string) ($a['downloadUrl'] ?? '');
+                [$bytes, $why] = $url !== '' ? self::download($url) : [null, 'το GoodDay δεν δίνει link λήψης'];
+                if ($bytes === null && $token !== '' && $why !== 'πάνω από 200 MB') {
+                    if ($fresh === null) {
+                        $fresh = [];
+                        try {
+                            foreach ((array) self::get('/task/' . rawurlencode($imp->ext_task_id) . '/messages', $token) as $fm) {
+                                if (is_array($fm) && isset($fm['id'])) { $fresh[(string) $fm['id']] = $fm; }
+                            }
+                        } catch (\Throwable $e) { }
+                    }
+                    foreach ((array) ($fresh[$row->ext_msg_id]['attachments'] ?? []) as $fa) {
+                        if (is_array($fa) && (string) ($fa['fileId'] ?? '') === $fid && !empty($fa['downloadUrl'])) {
+                            [$bytes, $why] = self::download((string) $fa['downloadUrl']);
+                        }
+                    }
+                }
+                if ($bytes === null) { $missing[] = ['name' => $name, 'why' => $why ?: 'αποτυχία λήψης']; continue; }
+                $mime = (string) ($a['mime'] ?? '') ?: 'application/octet-stream';
+                try {
+                    Storage::store(['module' => 'task', 'ref_type' => 'gdmsg', 'ref_id' => (int) $row->id,
+                        'orig_name' => $name, 'mime' => $mime, 'contents' => $bytes, 'uploaded_by' => (int) $adminId,
+                        'meta' => ['source' => 'goodday', 'gdFileId' => $fid, 'gdMsg' => $row->ext_msg_id, 'gdTask' => $imp->ext_task_id]]);
+                    $saved++;
+                } catch (\Throwable $e) {
+                    $missing[] = ['name' => $name, 'why' => 'αποτυχία αποθήκευσης'];
+                }
+                unset($bytes);
+            }
+        }
+        return ['saved' => $saved, 'missing' => $missing];
+    }
+
     /** Για την καρτέλα εργασίας: εισαγωγή + ιστορικό (μόνο-ανάγνωση). Ποτέ ο φάκελος. */
     public static function forTask($taskId, callable $adminName)
     {
@@ -713,6 +933,15 @@ class GoodDayImport
         if (!$imp) { return null; }
         $meta = json_decode((string) $imp->meta, true) ?: [];
         $msgs = [];
+        $stored = [];
+        foreach (Capsule::table('mod_cpm_storage as f')->join('mod_cpm_ext_msgs as m', 'm.id', '=', 'f.ref_id')
+                     ->where('f.module', 'task')->where('f.ref_type', 'gdmsg')->where('m.import_id', $imp->id)
+                     ->orderBy('f.id')->get(['f.id', 'f.ref_id', 'f.orig_name', 'f.size', 'f.meta']) as $f) {
+            $fm = json_decode((string) $f->meta, true) ?: [];
+            $stored[(int) $f->ref_id][(string) ($fm['gdFileId'] ?? '')] = ['id' => (int) $f->id, 'name' => (string) $f->orig_name,
+                'size' => (int) $f->size, 'url' => 'api.php?a=file_get&id=' . (int) $f->id];
+        }
+        $missingN = 0;
         foreach (Capsule::table('mod_cpm_ext_msgs')->where('import_id', $imp->id)->orderBy('seq')->get() as $m) {
             $att = $m->attachments ? json_decode((string) $m->attachments, true) : null;
             $msgs[] = ['id' => (int) $m->id, 'ext' => $m->ext_msg_id, 'kind' => $m->kind,
@@ -723,13 +952,22 @@ class GoodDayImport
                 'at' => $m->at, 'atSrc' => $m->at_src, 'editAt' => $m->edit_at,
                 'statusExt' => $m->status_ext, 'html' => $m->html,
                 'flags' => $m->flags ? explode(',', $m->flags) : [],
-                'attachments' => is_array($att) ? array_values(array_map(function ($a) {
-                    /* Μόνο όνομα/μέγεθος για ένδειξη — ο σύνδεσμος του GoodDay ΔΕΝ ανοίγεται αυτόματα. */
-                    return is_array($a) ? ['name' => (string) ($a['name'] ?? $a['fileName'] ?? 'αρχείο'),
-                        'size' => isset($a['size']) && is_numeric($a['size']) ? (int) $a['size'] : null] : ['name' => 'αρχείο', 'size' => null];
+                /* Αρχείο που κατέβηκε → σύνδεσμος ΔΙΚΟΣ ΜΑΣ (file_get, έλεγχος πρόσβασης)· αλλιώς μένει ως «λείπει». */
+                'attachments' => is_array($att) ? array_values(array_map(function ($a) use ($stored, $m, &$missingN) {
+                    $a = is_array($a) ? $a : [];
+                    $fid = (string) ($a['fileId'] ?? md5(json_encode($a)));
+                    $got = $stored[(int) $m->id][$fid] ?? null;
+                    if (!$got) { $missingN++; }
+                    return $got ?: ['id' => 0, 'name' => (string) ($a['name'] ?? 'αρχείο'),
+                        'size' => isset($a['size']) && is_numeric($a['size']) ? (int) $a['size'] : null, 'url' => null];
                 }, $att)) : []];
         }
+        $subIds = array_values(array_filter(array_map('strval', (array) ($meta['unmapped']['subtasks'] ?? []))));
+        $subIn = $subIds ? Capsule::table('mod_cpm_ext_imports')->where('integration', self::INTEGRATION)
+            ->where('source', self::SOURCE)->whereIn('ext_task_id', $subIds)->count() : 0;
         return ['ext' => $imp->ext_task_id, 'url' => $imp->source_url, 'at' => $imp->created_at,
+            'subs' => ['total' => count($subIds), 'imported' => (int) $subIn],
+            'filesMissing' => $missingN,
             'by' => $imp->imported_by ? $adminName((int) $imp->imported_by) : '',
             'sourceStatus' => $meta['sourceStatus'] ?? null, 'srcTz' => $meta['srcTz'] ?? null,
             'warnings' => count(json_decode((string) $imp->warnings, true) ?: []),
@@ -741,6 +979,13 @@ class GoodDayImport
     {
         if (!Capsule::schema()->hasTable('mod_cpm_ext_imports')) { return; }
         foreach (Capsule::table('mod_cpm_ext_imports')->where('task_id', (int) $taskId)->pluck('id')->all() as $iid) {
+            /* Τα αρχεία των μηνυμάτων φεύγουν μαζί (αλλιώς μένουν ορφανά στην αποθήκευση). */
+            $mids = Capsule::table('mod_cpm_ext_msgs')->where('import_id', $iid)->pluck('id')->all();
+            if ($mids) {
+                foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'gdmsg')->whereIn('ref_id', $mids)->pluck('id')->all() as $fid) {
+                    try { Storage::delete((int) $fid); } catch (\Throwable $e) { }
+                }
+            }
             Capsule::table('mod_cpm_ext_msgs')->where('import_id', $iid)->delete();
             Capsule::table('mod_cpm_ext_imports')->where('id', $iid)->delete();
         }

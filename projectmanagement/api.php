@@ -3698,6 +3698,11 @@ function cnp_file_obj_ok($adminId, $FULL, $module, $refType, $refId, $write = fa
         elseif ($refType === 'check' && $refId && $createdAt !== null && (string) $createdAt < '2026-09-17 11:44:10') { $tid = $refId; }
         elseif ($refType === 'check' && $refId) { $tid = (int) Capsule::table('mod_cpm_checklist')->where('id', $refId)->value('task_id'); }
         elseif ($refType === 'comment' && $refId) { $tid = (int) Capsule::table('mod_cpm_comments')->where('id', $refId)->value('task_id'); }
+        /* Αρχεία μηνύματος GoodDay: τα βλέπει όποιος βλέπει την εργασία· δεν σβήνονται (ιστορικό). */
+        elseif ($refType === 'gdmsg' && $refId) {
+            if ($write) { return false; }
+            $tid = (int) Capsule::table('mod_cpm_ext_msgs')->where('id', $refId)->value('task_id');
+        }
         else { return true; }                                   // αδέσμευτο (rte / πριν δεθεί)
         if (!$tid) { return !$refId; }
         $t = Db::task($tid);
@@ -4849,7 +4854,7 @@ function cnp_action_cap($action)
         $add('projects.depts', ['depts_load', 'dept_view']);
         $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
         $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);   // ορισμός κανόνων· η ΑΝΑΛΗΨΗ (rec_claim) είναι προσωπική
-        $add('projects.goodday', ['gd_import_preview', 'gd_import_create']);   // + board.edit για έργο, ελέγχεται μέσα
+        $add('projects.goodday', ['gd_import_preview', 'gd_import_create', 'gd_import_subtasks', 'gd_import_files']);   // + board.edit για έργο, ελέγχεται μέσα
         $add('projects.recurring|reports.triage', ['recurrent']);
         $add('finance.profit.edit|projects.portfolio.edit', ['add_expense', 'del_expense']);
 
@@ -9026,6 +9031,8 @@ case 'gd_import_preview':
     GoodDayImport::ensure();
     try {
         $gdEnv = GoodDayImport::retrieve((string) ($in['ref'] ?? ''), cnp_goodday_token());
+        /* Οι υποεργασίες έρχονται ΜΑΖΙ (9/10/2026: «αλλιώς μεταφέραμε μισή πληροφορία»). */
+        $gdSubs = GoodDayImport::retrieveSubtasks($gdEnv, cnp_goodday_token());
     } catch (\InvalidArgumentException $e) {
         fail($e->getMessage(), 400, ['code' => 'ref']);
     } catch (GoodDayError $e) {
@@ -9033,14 +9040,20 @@ case 'gd_import_preview':
     }
     $gdPlan = GoodDayImport::plan($gdEnv, function ($h) { return cnp_clean_html($h, 60000); },
         function ($id) { return Db::adminName((int) $id); }, (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? ''));
-    $gdNonce = GoodDayImport::stagePut($adminId, $gdEnv);
+    $gdNonce = GoodDayImport::stagePut($adminId, $gdEnv, $gdSubs);
+    $gdSubList = [];
+    foreach ($gdSubs as $gdS) {
+        $gdSubList[] = GoodDayImport::subSummary($gdS, GoodDayImport::plan($gdS['env'], function ($h) { return cnp_clean_html($h, 60000); },
+            function ($id) { return Db::adminName((int) $id); }, (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? '')));
+    }
+    $gdPlan['warnings'] = array_values(array_filter($gdPlan['warnings'], function ($w) { return ($w['code'] ?? '') !== 'subtasks_not_imported'; }));
     $gdHere = GoodDayImport::alreadyHere($gdPlan['ext'], $gdEnv);
     foreach ($gdHere['mentions'] as $gdMn) {
         $gdPlan['warnings'][] = ['code' => 'mentioned_in_task', 'task' => $gdMn['task'],
             'message' => 'Ο σύνδεσμος αυτού του task αναφέρεται σε ενέργεια της #' . $gdMn['task'] . ' «' . $gdMn['title'] . '» — έλεγξε ότι δεν είναι η ίδια δουλειά.'];
     }
     out(['ok' => true, 'stage' => $gdNonce, 'existing' => GoodDayImport::existing($gdPlan['ext']),
-        'already' => $gdHere['block']] + $gdPlan);
+        'already' => $gdHere['block'], 'subtasks' => $gdSubList] + $gdPlan);
 
 case 'gd_import_create':
     GoodDayImport::ensure();
@@ -9103,6 +9116,16 @@ case 'gd_import_create':
         GoodDayImport::persist($gdTid, $adminId, $gdEnv, $gdPlan);
         Db::logActivity($gdTid, $adminId, 'create', 'Εισαγωγή από GoodDay ' . $gdEnv['external_task_id']
             . ' (' . count($gdPlan['messages']) . ' μηνύματα ιστορικού)');
+        /* Υποεργασίες: ΜΑΖΙ, εκτός αν ο χρήστης το έβγαλε ρητά (with_subs = 0). */
+        $gdSubRes = ['made' => 0, 'skipped' => []];
+        if (!array_key_exists('with_subs', $in) || !empty($in['with_subs'])) {
+            $gdParent = Db::task($gdTid);
+            foreach ($gdSt['subs'] as $gdS) {
+                $r9 = GoodDayImport::createChild($gdParent, $gdS, $adminId, function ($h) { return cnp_clean_html($h, 60000); },
+                    function ($id) { return Db::adminName((int) $id); }, (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? ''));
+                if (isset($r9['id'])) { $gdSubRes['made']++; } else { $gdSubRes['skipped'][] = $r9; }
+            }
+        }
         $gdCx->commit();
     } catch (\Throwable $e) {
         while ($gdCx->transactionLevel() > 0) { $gdCx->rollBack(); }
@@ -9112,7 +9135,64 @@ case 'gd_import_create':
         fail('Η εισαγωγή απέτυχε — δεν δημιουργήθηκε τίποτα. Δοκίμασε ξανά.', 500, ['retry' => true]);
     }
     GoodDayImport::stageDrop((string) $in['stage']);
-    out(['ok' => true, 'id' => $gdTid]);
+    /* Αρχεία: ΜΕΤΑ το commit (η εργασία δεν κρέμεται από ένα αργό κατέβασμα)· ό,τι λείπει φαίνεται στην καρτέλα. */
+    $gdFiles = ['saved' => 0, 'missing' => []];
+    foreach (GoodDayImport::importIdsOfTree($gdTid) as $gdIid) {
+        $r8 = GoodDayImport::fetchFiles($gdIid, $adminId, cnp_goodday_token());
+        $gdFiles['saved'] += $r8['saved']; $gdFiles['missing'] = array_merge($gdFiles['missing'], $r8['missing']);
+    }
+    out(['ok' => true, 'id' => $gdTid, 'subs' => $gdSubRes, 'files' => $gdFiles]);
+
+/* Υποεργασίες για εισαγωγή που έγινε ΧΩΡΙΣ αυτές (πριν τις 9/10/2026 βράδυ, ή με with_subs=0).
+   Ζωντανή ανάκτηση των ids που κρατήθηκαν στην εισαγωγή → υποεργασίες εδώ, ατομικά. */
+case 'gd_import_subtasks':
+    GoodDayImport::ensure();
+    $gdT = Db::task((int) ($in['task'] ?? 0));
+    if (!$gdT || !Db::canSeeTask($adminId, $gdT)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $gdT)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403); }
+    $gdImp = Capsule::table('mod_cpm_ext_imports')->where('task_id', (int) $gdT->id)->first();
+    if (!$gdImp) { fail('Η εργασία δεν ήρθε από GoodDay', 400); }
+    $gdEnv0 = json_decode((string) $gdImp->envelope, true);
+    if (!is_array($gdEnv0) || empty($gdEnv0['task']['subtasks'])) { out(['ok' => true, 'subs' => ['made' => 0, 'skipped' => []]]); }
+    try {
+        $gdSubs = GoodDayImport::retrieveSubtasks($gdEnv0, cnp_goodday_token());
+    } catch (GoodDayError $e) {
+        fail($e->getMessage() . ' — δεν μεταφέρθηκε καμία υποεργασία.', $e->status === -1 ? 409 : 502, ['retry' => $e->status !== -1]);
+    }
+    $gdCx = Capsule::connection();
+    $gdCx->beginTransaction();
+    try {
+        $gdSubRes = ['made' => 0, 'skipped' => []];
+        foreach ($gdSubs as $gdS) {
+            $r9 = GoodDayImport::createChild($gdT, $gdS, $adminId, function ($h) { return cnp_clean_html($h, 60000); },
+                function ($id) { return Db::adminName((int) $id); }, (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? ''));
+            if (isset($r9['id'])) { $gdSubRes['made']++; } else { $gdSubRes['skipped'][] = $r9; }
+        }
+        $gdCx->commit();
+    } catch (\Throwable $e) {
+        while ($gdCx->transactionLevel() > 0) { $gdCx->rollBack(); }
+        logActivity('CPM: αποτυχία υποεργασιών GoodDay για #' . (int) $gdT->id . ': ' . get_class($e));
+        fail('Η μεταφορά υποεργασιών απέτυχε — δεν γράφτηκε καμία. Δοκίμασε ξανά.', 500, ['retry' => true]);
+    }
+    $gdFiles = ['saved' => 0, 'missing' => []];
+    foreach (GoodDayImport::importIdsOfTree((int) $gdT->id) as $gdIid) {
+        $r8 = GoodDayImport::fetchFiles($gdIid, $adminId, cnp_goodday_token());
+        $gdFiles['saved'] += $r8['saved']; $gdFiles['missing'] = array_merge($gdFiles['missing'], $r8['missing']);
+    }
+    out(['ok' => true, 'subs' => $gdSubRes, 'files' => $gdFiles]);
+
+/* Αρχεία που δεν κατέβηκαν (link έληξε, δίκτυο) — ξανά, με φρέσκα links από το GoodDay. Επαναλήψιμο. */
+case 'gd_import_files':
+    GoodDayImport::ensure();
+    $gdT = Db::task((int) ($in['task'] ?? 0));
+    if (!$gdT || !Db::canSeeTask($adminId, $gdT)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $gdT)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403); }
+    $gdFiles = ['saved' => 0, 'missing' => []];
+    foreach (GoodDayImport::importIdsOfTree((int) $gdT->id) as $gdIid) {
+        $r8 = GoodDayImport::fetchFiles($gdIid, $adminId, cnp_goodday_token());
+        $gdFiles['saved'] += $r8['saved']; $gdFiles['missing'] = array_merge($gdFiles['missing'], $r8['missing']);
+    }
+    out(['ok' => true, 'files' => $gdFiles]);
 
 case 'save_task':
     $tid = (int) ($in['task'] ?? 0);
@@ -13301,6 +13381,7 @@ case 'task_delete':
     /* Οι υποεργασίες ΔΕΝ διαγράφονται μαζί: έχουν δικό τους χρόνο, συζήτηση και ανάδοχο.
        Απλώς παύουν να είναι παιδιά — αλλιώς μια διαγραφή γονιού θα έσβηνε δουλειά άλλων. */
     Capsule::table('mod_cpm_tasks')->where('parent_id', $tid)->update(['parent_id' => null]);
+    GoodDayImport::forgetTask($tid);      // εισαγωγή GoodDay + ιστορικό + αρχεία της
     Capsule::table('mod_cpm_tasks')->where('id', $tid)->delete();
 
     /* Πρόχειρο που ακυρώθηκε αμέσως (άνοιξε κατά λάθος, ✕ → «Όχι»): δεν είναι
@@ -15267,6 +15348,7 @@ case 'ticket_delete':
             if (Capsule::schema()->hasTable($tb9)) { Capsule::table($tb9)->where('task_id', $tsk->id)->delete(); }
         }
         Capsule::table('mod_cpm_deps')->where('depends_on', $tsk->id)->delete();
+        GoodDayImport::forgetTask((int) $tsk->id);
         Capsule::table('mod_cpm_tasks')->where('id', $tsk->id)->delete();
     } elseif ($tsk) {
         Capsule::table('mod_cpm_tasks')->where('id', $tsk->id)->update(['ticketid' => null]);

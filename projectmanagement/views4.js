@@ -431,7 +431,7 @@ function gdImport(ref) {
     const who = m.from ? (m.from.admin ? esc(m.from.adminName || m.from.name) : esc(m.from.name) + ' <span class="pill pill-warn">GoodDay</span>') : '<span class="mut">άγνωστος</span>';
     const when = m.at ? esc(dFull(m.at) + ' ' + m.at.slice(11, 16)) : '<span class="mut">χωρίς ώρα</span>';
     const flags = (m.flags || []).filter(f => f !== 'empty').map(f => `<span class="pill pill-mut">${esc(flagTxt(f))}</span>`).join(' ');
-    const att = m.attachments ? `<div class="mut gd-att">📎 ${m.attachments.length} συνημμένο(α) — μόνο τα στοιχεία τους, δεν κατεβαίνουν</div>` : '';
+    const att = m.attachments ? `<div class="mut gd-att">📎 ${m.attachments.map(a => esc(a.name || 'αρχείο') + (a.downloadUrl ? '' : ' <span class="pill pill-warn">χωρίς link στο GoodDay</span>')).join(', ')} — κατεβαίνουν μαζί</div>` : '';
     if (m.kind !== 'text') {
       const what = m.kind === 'status' ? 'άλλαξε κατάσταση στο GoodDay' : (m.kind === 'time' ? 'κατέγραψε χρόνο στο GoodDay' : 'κενή καταχώρηση GoodDay');
       return `<div class="gd-m gd-m-ev"><span>${who} · ${what}</span><span class="mut">${when}</span>${flags ? '<div>' + flags + '</div>' : ''}</div>`;
@@ -455,6 +455,7 @@ function gdImport(ref) {
     const al = !ex && d.already;      // ανοιγμένη ήδη με άλλο τρόπο (χειροκίνητη μεταφορά / ticket)
     const textMsgs = d.messages.filter(m => m.kind === 'text');
     const nEv = d.messages.length - textMsgs.length;
+    const nAtt = d.messages.reduce((n, m) => n + (m.attachments ? m.attachments.length : 0), 0);
     const ass = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
     const curP = S.view === 'board' && S.project ? +S.project : 0;
     bodyEl.innerHTML = `
@@ -502,6 +503,16 @@ function gdImport(ref) {
             : '<div class="gd-sec">Προειδοποιήσεις</div><div class="mut" style="font-size:12px">Καμία.</div>'}
         </div>
       </div>
+      ${(d.subtasks || []).length ? `<div class="gd-sec gd-sec-row"><span>Υποεργασίες <b>${d.subtasks.length}</b></span>
+          <label class="gd-chk"><input type="checkbox" id="gdSubs" checked> μαζί με τις υποεργασίες (καθεμία με το δικό της ιστορικό &amp; αρχεία)</label></div>
+        <div class="gd-subs">${d.subtasks.map(t => `<div class="gd-sub${t.skip ? ' gd-skip' : ''}">
+          <span class="gd-sub-t">${esc(t.title)}${t.via ? ` <span class="mut">↳ από «${esc(t.via)}»</span>` : ''}</span>
+          <span class="mut">${t.msgs} μην.</span>
+          <span>${t.assignee ? (t.assignee.admin ? esc(t.assignee.adminName) : esc(t.assignee.name) + ' <span class="pill pill-warn">GoodDay</span>') : '<span class="mut">—</span>'}</span>
+          <span class="mut">${esc(t.srcStatus || '')} →</span>
+          ${t.skip ? `<span class="pill pill-mut" title="${esc(t.skip)}">παραλείπεται — υπάρχει ήδη</span>` : `<span class="pill ${t.closed ? 'pill-ok' : 'pill-mut'}">${esc(t.status)}</span>`}
+        </div>`).join('')}</div>` : ''}
+      ${nAtt ? `<div class="gd-sec">Αρχεία <b>${nAtt}</b> <span class="mut">— κατεβαίνουν στη δική μας αποθήκευση, δεμένα στο μήνυμά τους</span></div>` : ''}
       <div class="gd-sec">Ιστορικό μηνυμάτων <b>${textMsgs.length}</b> <span class="mut">+ ${nEv} συμβάντα (αλλαγές κατάστασης / χρόνου) · με χρονολογική σειρά</span></div>
       <div class="gd-hist">${d.messages.map(msgLine).join('') || '<div class="mut">Κανένα μήνυμα.</div>'}</div>`;
     footEl.hidden = false;
@@ -524,7 +535,7 @@ function gdImport(ref) {
     if (!ref) { say('Επικόλλησε τον σύνδεσμο της εργασίας από το GoodDay.', 'bad'); refEl.focus(); return; }
     if (busy) { return; }
     busy = true; pv = null; footEl.hidden = true; bodyEl.innerHTML = '';
-    say('<span class="gd-spin"></span> Ανάκτηση από το GoodDay… (εργασία, μηνύματα, χρήστες)', 'load');
+    say('<span class="gd-spin"></span> Ανάκτηση από το GoodDay… (εργασία, υποεργασίες, μηνύματα, χρήστες)', 'load');
     $o('#gdGo').disabled = true;
     try {
       pv = await api('gd_import_preview', {ref});
@@ -546,7 +557,8 @@ function gdImport(ref) {
     const pSel = $o('#gdP').value;
     const body = {stage: pv.stage, title: $o('#gdT').value.trim(), status: +$o('#gdS').value || 0,
       assignee: +$o('#gdA').value || 0, due: $o('#gdDue').value, start: $o('#gdStart').value,
-      estimate: $o('#gdEst').value.trim(), descr_from: $o('#gdD').value};
+      estimate: $o('#gdEst').value.trim(), descr_from: $o('#gdD').value,
+      with_subs: $o('#gdSubs') ? ($o('#gdSubs').checked ? 1 : 0) : 1};
     if (pSel === 'dept') { body.dept = myDept ? myDept.id : 0; } else { body.project = +pSel || 0; }
     const mark = (id, m) => { const el = $o(id); if (el) { el.classList.add('gd-err'); el.focus(); } say(esc(m), 'bad'); };
     $$('.gd-err', ovl).forEach(x => x.classList.remove('gd-err'));
@@ -556,11 +568,13 @@ function gdImport(ref) {
     if (body.estimate && !/^\d+$/.test(body.estimate)) { mark('#gdEst', 'Η εκτίμηση είναι σε λεπτά (ακέραιος)'); return; }
     if (body.project) { const p0 = projects.find(x => x.id === body.project); if (p0 && !p0.client) { body.internal = 1; } }
     busy = true; $o('#gdCreate').disabled = true;
-    say('<span class="gd-spin"></span> Δημιουργία εργασίας και εισαγωγή ιστορικού…', 'load');
+    say('<span class="gd-spin"></span> Δημιουργία εργασίας, υποεργασιών, ιστορικού και κατέβασμα αρχείων… (μπορεί να πάρει λίγο)', 'load');
     try {
       const r = await api('gd_import_create', body);
       close();
-      toast('Εισήχθη από GoodDay ✓');
+      const fm = (r.files && r.files.missing) || [];
+      toast('Εισήχθη από GoodDay ✓' + (r.subs && r.subs.made ? ' · ' + r.subs.made + ' υποεργασίες' : '')
+        + (r.files && r.files.saved ? ' · ' + r.files.saved + ' αρχεία' : '') + (fm.length ? ' · ' + fm.length + ' αρχεία ΔΕΝ ήρθαν (δες την καρτέλα)' : ''), fm.length > 0);
       openTask(r.id);
     } catch (e) {
       const dd = (e && e.data) || {};

@@ -3091,7 +3091,8 @@ async function openTask(id, entryId, opts) {
           <div class="th-head"><b>${esc(m.by)}</b>${tag}${m.toName ? `<span class="mut" style="font-size:11px">προς ${esc(m.toName)}</span>` : ''}<span class="th-time" title="GoodDay: ${esc(m.atSrc || '')}">${esc(when)}${m.editAt ? ' · διορθώθηκε' : ''}</span></div>
           <div class="th-body">${cnpBalanced(m.html || '')}</div>
           ${fl ? `<div class="th-gdf">${fl}</div>` : ''}
-          ${m.attachments && m.attachments.length ? `<div class="mut th-gdf">📎 ${m.attachments.map(a => esc(a.name)).join(', ')} <span>— συνημμένα στο GoodDay, δεν μεταφέρθηκαν</span></div>` : ''}
+          ${m.attachments && m.attachments.length ? files(m.attachments.filter(a => a.id).map(a => ({id: a.id, name: a.name, sizeh: a.size ? (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(a.size / 1024)) + ' KB') : ''})))
+            + (m.attachments.some(a => !a.id) ? `<div class="th-gdf"><span class="pill pill-warn">δεν ήρθε</span> ${m.attachments.filter(a => !a.id).map(a => esc(a.name)).join(', ')}</div>` : '') : ''}
         </div></div>`;
       };
       const row = (x, i) => {
@@ -3126,7 +3127,9 @@ async function openTask(id, entryId, opts) {
         ${gx ? `<div class="th-gdbar">${I.link} Εισαγωγή από GoodDay <a href="${esc(gx.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(gx.ext)}</b></a>
           ${gx.sourceStatus && gx.sourceStatus.name ? `· εκεί: <b>${esc(gx.sourceStatus.name)}</b>` : ''}
           · ${gx.messages.filter(m => m.kind === 'text').length} μηνύματα ιστορικού · ${esc(gx.by)}, ${esc(tShort(gx.at))}
-          <span class="mut">— μόνο ανάγνωση, με αρχικό συντάκτη &amp; ώρα</span></div>` : ''}
+          <span class="mut">— μόνο ανάγνωση, με αρχικό συντάκτη &amp; ώρα</span>
+          ${gx.subs && gx.subs.total > gx.subs.imported && d.canWrite ? `<button type="button" class="btn btn-sm btn-p" id="gdSubsGo">Φέρε τις ${gx.subs.total - gx.subs.imported} υποεργασίες από GoodDay</button>` : ''}
+          ${gx.filesMissing && d.canWrite ? `<button type="button" class="btn btn-sm btn-o" id="gdFilesGo">Ξαναδοκίμασε ${gx.filesMissing} αρχεία που δεν ήρθαν</button>` : ''}</div>` : ''}
         <div id="dCheck" class="th">
           ${hidden ? `<button type="button" class="th-more" id="thMore">${I.chev} ${hidden} παλαιότερα</button>` : ''}
           ${items.map(row).join('') || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
@@ -3740,6 +3743,18 @@ async function openTask(id, entryId, opts) {
     toast('Ολοκληρώθηκε'); closeDrawer();
     if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); } else if (window.R && window.R[S.view]) { window.R[S.view](); }
   };
+  /* GoodDay: υποεργασίες / αρχεία που δεν ήρθαν με την αρχική εισαγωγή. */
+  const gdRun = async (btn, action, busyTxt) => {
+    btn.disabled = true; const t0 = btn.textContent; btn.textContent = busyTxt;
+    const r = await api(action, {task: id}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); btn.disabled = false; btn.textContent = t0; return; }
+    const fm = (r.files && r.files.missing) || [];
+    toast((r.subs ? r.subs.made + ' υποεργασίες' + (r.subs.skipped.length ? ' (' + r.subs.skipped.length + ' παραλείφθηκαν — υπήρχαν ήδη)' : '') + ' · ' : '')
+      + ((r.files && r.files.saved) || 0) + ' αρχεία' + (fm.length ? ' · ' + fm.length + ' δεν ήρθαν: ' + fm.map(x => x.name + ' (' + x.why + ')').join(', ') : ''), fm.length > 0);
+    openTask(id);
+  };
+  { const b = $('#gdSubsGo', dr); if (b) { b.onclick = () => gdRun(b, 'gd_import_subtasks', 'Μεταφορά υποεργασιών & αρχείων…'); } }
+  { const b = $('#gdFilesGo', dr); if (b) { b.onclick = () => gdRun(b, 'gd_import_files', 'Κατέβασμα αρχείων…'); } }
   const rop = $('#dReopen', dr); if (rop) rop.onclick = async () => {
     /* Ο server ξέρει πού ήταν πριν κλείσει — δεν τη ρίχνουμε στο Backlog. */
     const r = await api('task_reopen', {task: id}).catch(e => ({err: e.message}));
