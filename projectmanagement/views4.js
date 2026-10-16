@@ -423,7 +423,8 @@ function gdImport(ref) {
   const STATE = {matched: ['pill-ok', 'αντιστοιχίστηκε'], unknown: ['pill-warn', 'χωρίς συνάδελφο'],
     ambiguous: ['pill-bad', 'διφορούμενο email'], no_email: ['pill-warn', 'χωρίς email'], lookup_failed: ['pill-bad', 'δεν διαβάστηκε']};
   const FLAG = {fallback_plain: 'απλό κείμενο (το rich text δεν μετατράπηκε)', link_dropped: 'αφαιρέθηκε μη ασφαλής σύνδεσμος',
-    empty: 'κενή καταχώρηση', bad_date: 'μη αναγνώσιμη ώρα', rtf_no_root: 'άγνωστη μορφή rich text', no_id: 'χωρίς id στο GoodDay'};
+    empty: 'κενή καταχώρηση', bad_date: 'μη αναγνώσιμη ώρα', rtf_no_root: 'άγνωστη μορφή rich text', no_id: 'χωρίς id στο GoodDay',
+    draft_atomic: 'ενσωματωμένο αντικείμενο → σύνδεσμος', table_cell_unreadable: 'κελί πίνακα δεν διαβάστηκε'};
   const flagTxt = f => FLAG[f] || (f.indexOf('unknown_node:') === 0 ? 'άγνωστο στοιχείο «' + f.slice(13) + '» — κρατήθηκε το κείμενο' : f);
   const person = p => !p ? '<span class="mut">—</span>'
     : (p.admin ? `<b>${esc(p.adminName || p.name)}</b>` : `<b>${esc(p.name)}</b> <span class="pill pill-warn" title="${esc(p.email || '')}">GoodDay · χωρίς αντιστοίχιση</span>`);
@@ -456,7 +457,9 @@ function gdImport(ref) {
     const textMsgs = d.messages.filter(m => m.kind === 'text');
     const nEv = d.messages.length - textMsgs.length;
     const nAtt = d.messages.reduce((n, m) => n + (m.attachments ? m.attachments.length : 0), 0);
-    const ass = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
+    /* Πρόταση (16/10/2026): ο «Action required» του GoodDay → ανάδοχος ΚΑΙ μπάλα. Αλλιώς ο ανάδοχος του GoodDay. */
+    const arId = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
+    const ass = arId || (d.assignee && d.assignee.admin ? d.assignee.admin : 0);
     const curP = S.view === 'board' && S.project ? +S.project : 0;
     bodyEl.innerHTML = `
       ${ex ? `<div class="gd-ex">Αυτή η εργασία GoodDay έχει ήδη εισαχθεί ως <b>#${ex.task}</b> «${esc(ex.title)}». Δεν φτιάχνουμε δεύτερη.
@@ -471,9 +474,12 @@ function gdImport(ref) {
           <label class="gd-l">Κατάσταση εδώ <span class="mut">(στο GoodDay: ${esc(d.sourceStatus.name || '—')})</span>
             <select class="inp" id="gdS"><option value="">— διάλεξε κατάσταση —</option>
             ${(S.boot.statuses || []).map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label>
-          <label class="gd-l">Ανάδοχος <span class="mut">(στο GoodDay: ${d.assignee ? esc(d.assignee.name) : '—'})</span>
+          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay: ${d.assignee ? esc(d.assignee.name) : '—'}${d.actionRequired ? ' · Action required: ' + esc(d.actionRequired.name) : ''})</span>
             <select class="inp" id="gdA"><option value="">— κανείς —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ass ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
+          <label class="gd-l">Η μπάλα σε <span class="mut">(ποιος κινείται τώρα — προτείνεται ο Action required)</span>
+            <select class="inp" id="gdB"><option value="">— ο ανάδοχος —</option>
+            ${admins.map(a => `<option value="${a.id}"${a.id === arId ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
           <div class="gd-row3">
             <label class="gd-l">Προθεσμία${f.due && f.due < today() ? ' <span class="pill pill-warn" title="Η προθεσμία του GoodDay έχει ήδη περάσει — η εργασία θα φανεί αμέσως εκπρόθεσμη. Άλλαξέ την ή άδειασέ την.">πέρασε</span>' : ''}<input class="inp" type="date" id="gdDue" value="${esc(f.due || '')}"></label>
             <label class="gd-l">Έναρξη<input class="inp" type="date" id="gdStart" value="${esc(f.start || '')}"></label>
@@ -525,6 +531,7 @@ function gdImport(ref) {
       $o('#gdP').value = myDept ? 'dept' : '';
       $o('#gdP').disabled = true;
       $o('#gdA').value = String(me.id); $o('#gdA').disabled = true;
+      $o('#gdB').value = ''; $o('#gdB').disabled = true;
       $o('#gdFootNote').textContent = 'Χωρίς «Board: επεξεργασία» η εργασία μπαίνει ως δική σου, χωρίς έργο.';
     }
     setTimeout(() => ($o('#gdP').disabled ? $o('#gdS') : $o('#gdP')).focus(), 30);
@@ -556,7 +563,7 @@ function gdImport(ref) {
     if (!pv || busy) { return; }
     const pSel = $o('#gdP').value;
     const body = {stage: pv.stage, title: $o('#gdT').value.trim(), status: +$o('#gdS').value || 0,
-      assignee: +$o('#gdA').value || 0, due: $o('#gdDue').value, start: $o('#gdStart').value,
+      assignee: +$o('#gdA').value || 0, ball: +$o('#gdB').value || 0, due: $o('#gdDue').value, start: $o('#gdStart').value,
       estimate: $o('#gdEst').value.trim(), descr_from: $o('#gdD').value,
       with_subs: $o('#gdSubs') ? ($o('#gdSubs').checked ? 1 : 0) : 1};
     if (pSel === 'dept') { body.dept = myDept ? myDept.id : 0; } else { body.project = +pSel || 0; }
@@ -574,7 +581,8 @@ function gdImport(ref) {
       close();
       const fm = (r.files && r.files.missing) || [];
       toast('Εισήχθη από GoodDay ✓' + (r.subs && r.subs.made ? ' · ' + r.subs.made + ' υποεργασίες' : '')
-        + (r.files && r.files.saved ? ' · ' + r.files.saved + ' αρχεία' : '') + (fm.length ? ' · ' + fm.length + ' αρχεία ΔΕΝ ήρθαν (δες την καρτέλα)' : ''), fm.length > 0);
+        + (r.files && r.files.saved ? ' · ' + r.files.saved + ' αρχεία' : '') + (fm.length ? ' · ' + fm.length + ' αρχεία ΔΕΝ ήρθαν (δες την καρτέλα)' : '')
+        + (r.transfer && r.transfer !== 'ok' ? ' · ΔΕΝ σημειώθηκε TRANSFERRED στο GoodDay: ' + r.transfer : ''), fm.length > 0 || (r.transfer && r.transfer !== 'ok'));
       openTask(r.id);
     } catch (e) {
       const dd = (e && e.data) || {};
@@ -592,7 +600,7 @@ function gdImport(ref) {
         return;
       }
       if (dd.code === 'stage') { say(esc(e.message), 'bad'); footEl.hidden = true; refEl.focus(); return; }
-      const map = {title: '#gdT', project: '#gdP', status: '#gdS', assignee: '#gdA', due: '#gdDue', start: '#gdStart', estimate: '#gdEst', descr_from: '#gdD'};
+      const map = {title: '#gdT', project: '#gdP', status: '#gdS', assignee: '#gdA', ball: '#gdB', due: '#gdDue', start: '#gdStart', estimate: '#gdEst', descr_from: '#gdD'};
       if (dd.field && map[dd.field]) { mark(map[dd.field], e.message); return; }
       say(esc(e.message) + (dd.retry ? ' — πάτα ξανά «Δημιουργία».' : ''), 'bad');
     }

@@ -4854,7 +4854,7 @@ function cnp_action_cap($action)
         $add('projects.depts', ['depts_load', 'dept_view']);
         $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
         $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);   // ορισμός κανόνων· η ΑΝΑΛΗΨΗ (rec_claim) είναι προσωπική
-        $add('projects.goodday', ['gd_import_preview', 'gd_import_create', 'gd_import_subtasks', 'gd_import_files']);   // + board.edit για έργο, ελέγχεται μέσα
+        $add('projects.goodday', ['gd_import_preview', 'gd_import_create', 'gd_import_subtasks', 'gd_import_files', 'gd_import_resync']);   // + board.edit για έργο, ελέγχεται μέσα
         $add('projects.recurring|reports.triage', ['recurrent']);
         $add('finance.profit.edit|projects.portfolio.edit', ['add_expense', 'del_expense']);
 
@@ -9081,7 +9081,11 @@ case 'gd_import_create':
     if ($gdPid && !Db::canSeeProject($adminId, $gdPid)) { fail('project', 403); }
     $gdAss = (int) ($in['assignee'] ?? 0);
     if ($gdAss && !Capsule::table('tbladmins')->where('id', $gdAss)->where('disabled', 0)->exists()) { fail('Ο ανάδοχος δεν είναι ενεργός χρήστης', 400, ['field' => 'assignee']); }
-    if (($gdPid || ($gdAss && $gdAss !== $adminId)) && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) {
+    /* «Η μπάλα σε» (16/10/2026): προτείνεται ο «Action required» του GoodDay. Ίδιος με τον ανάδοχο = κενό (η μπάλα είναι ήδη εκεί). */
+    $gdBall = (int) ($in['ball'] ?? 0);
+    if ($gdBall && !Capsule::table('tbladmins')->where('id', $gdBall)->where('disabled', 0)->exists()) { fail('Η μπάλα πρέπει να πάει σε ενεργό χρήστη', 400, ['field' => 'ball']); }
+    if ($gdBall === $gdAss) { $gdBall = 0; }
+    if (($gdPid || ($gdAss && $gdAss !== $adminId) || ($gdBall && $gdBall !== $adminId)) && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» για εργασία σε έργο ή ανάθεση σε συνάδελφο.', 403);
     }
     $gdSid = (int) ($in['status'] ?? 0);
@@ -9100,7 +9104,7 @@ case 'gd_import_create':
         if ($gdDescr === null) { fail('Το μήνυμα που διάλεξες για ζητούμενο δεν βρέθηκε', 400, ['field' => 'descr_from']); }
     }
     $gdNew = ['project_id' => $gdPid ?: null, 'title' => GoodDayImport::txt($gdTitle, 200),
-        'status_id' => $gdSid, 'action_user' => null,
+        'status_id' => $gdSid, 'action_user' => $gdBall ?: null,
         'internal' => !empty($in['internal']) ? 1 : 0,
         'due_date' => $gdDue, 'start_date' => $gdStart,
         'estimate_minutes' => $gdEst !== '' ? (int) $gdEst : null,
@@ -9141,7 +9145,41 @@ case 'gd_import_create':
         $r8 = GoodDayImport::fetchFiles($gdIid, $adminId, cnp_goodday_token());
         $gdFiles['saved'] += $r8['saved']; $gdFiles['missing'] = array_merge($gdFiles['missing'], $r8['missing']);
     }
-    out(['ok' => true, 'id' => $gdTid, 'subs' => $gdSubRes, 'files' => $gdFiles]);
+    /* Στο GoodDay → «TRANSFERRED to CloudOn Projects» (κύρια + υποεργασίες). Αποτυχία δεν ακυρώνει τίποτα· φαίνεται στην καρτέλα. */
+    $gdTr = [];
+    foreach (GoodDayImport::importIdsOfTree($gdTid) as $gdIid) { $gdTr[] = GoodDayImport::markTransferred($gdIid, $adminId, cnp_goodday_token()); }
+    $gdTrBad = array_values(array_filter($gdTr, function ($x) { return $x !== 'ok'; }));
+    out(['ok' => true, 'id' => $gdTid, 'subs' => $gdSubRes, 'files' => $gdFiles,
+        'transfer' => $gdTrBad ? $gdTrBad[0] : 'ok']);
+
+/* «Ξανά από GoodDay» (16/10/2026): ξαναδιαβάζει όλη την εργασία και ενημερώνει την εισαγωγή
+   (ιστορικό, πεδία που δεν πειράχτηκαν εδώ, νέες υποεργασίες, αρχεία) + ξανά σήμανση TRANSFERRED.
+   Ανάκτηση που αποτυγχάνει = τίποτα δεν αλλάζει. */
+case 'gd_import_resync':
+    GoodDayImport::ensure();
+    $gdT = Db::task((int) ($in['task'] ?? 0));
+    if (!$gdT || !Db::canSeeTask($adminId, $gdT)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $gdT)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403); }
+    $gdTz = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? '');
+    try {
+        $gdRep = GoodDayImport::resync((int) $gdT->id, $adminId, cnp_goodday_token(), function ($h) { return cnp_clean_html($h, 60000); },
+            function ($id) { return Db::adminName((int) $id); }, $gdTz);
+    } catch (GoodDayError $e) {
+        if ($e->status === -2) { fail($e->getMessage(), 400); }
+        fail($e->getMessage() . ' — δεν άλλαξε τίποτα.', $e->status === -1 ? 409 : 502, ['retry' => !in_array($e->status, [-1, 401, 403, 404], true)]);
+    } catch (\Throwable $e) {
+        logActivity('CPM: αποτυχία «Ξανά από GoodDay» για #' . (int) $gdT->id . ': ' . get_class($e));
+        fail('Ο συγχρονισμός απέτυχε — δεν άλλαξε τίποτα. Δοκίμασε ξανά.', 500, ['retry' => true]);
+    }
+    $gdFiles = ['saved' => 0, 'missing' => []];
+    $gdTr = [];
+    foreach (GoodDayImport::importIdsOfTree((int) $gdT->id) as $gdIid) {
+        $r8 = GoodDayImport::fetchFiles($gdIid, $adminId, cnp_goodday_token());
+        $gdFiles['saved'] += $r8['saved']; $gdFiles['missing'] = array_merge($gdFiles['missing'], $r8['missing']);
+        $gdTr[] = GoodDayImport::markTransferred($gdIid, $adminId, cnp_goodday_token());
+    }
+    $gdTrBad = array_values(array_filter($gdTr, function ($x) { return $x !== 'ok'; }));
+    out(['ok' => true, 'report' => $gdRep, 'files' => $gdFiles, 'transfer' => $gdTrBad ? $gdTrBad[0] : 'ok']);
 
 /* Υποεργασίες για εισαγωγή που έγινε ΧΩΡΙΣ αυτές (πριν τις 9/10/2026 βράδυ, ή με with_subs=0).
    Ζωντανή ανάκτηση των ids που κρατήθηκαν στην εισαγωγή → υποεργασίες εδώ, ατομικά. */

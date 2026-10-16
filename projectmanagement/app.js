@@ -3076,7 +3076,7 @@ async function openTask(id, entryId, opts) {
       const ava = (aid, name) => aid
         ? `<span class="th-ava" style="background:${avaColor(aid)}" title="${esc(name || '')}">${esc(adminIni(aid) || String(name || '?').slice(0, 2).toUpperCase())}</span>`
         : `<span class="th-ava th-ava-sys" title="Βήμα εργασίας">${I.checkSquare}</span>`;
-      const GD_FLAG = {fallback_plain: 'απλό κείμενο', link_dropped: 'αφαιρέθηκε μη ασφαλής σύνδεσμος', bad_date: 'χωρίς αναγνώσιμη ώρα', rtf_no_root: 'άγνωστη μορφή κειμένου'};
+      const GD_FLAG = {fallback_plain: 'απλό κείμενο', link_dropped: 'αφαιρέθηκε μη ασφαλής σύνδεσμος', bad_date: 'χωρίς αναγνώσιμη ώρα', rtf_no_root: 'άγνωστη μορφή κειμένου', draft_atomic: 'ενσωματωμένο αντικείμενο → σύνδεσμος', gone_in_source: 'σβήστηκε στο GoodDay'};
       const gdRow = (m, hide) => {
         const tag = `<span class="th-gd" title="Από GoodDay${m.byId ? '' : ' — ' + esc(m.srcName + (m.srcEmail ? ' <' + m.srcEmail + '>' : '')) + ': χωρίς αντίστοιχο συνάδελφο'}">GoodDay${m.byId ? '' : ' · χωρίς αντιστοίχιση'}</span>`;
         const av = m.byId ? ava(m.byId, m.by) : `<span class="th-ava th-ava-gd" title="${esc(m.srcName || '')}">${esc(String(m.srcName || '?').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span>`;
@@ -3085,7 +3085,7 @@ async function openTask(id, entryId, opts) {
           const what = m.kind === 'status' ? 'άλλαξε κατάσταση στο GoodDay' : (m.kind === 'time' ? 'κατέγραψε χρόνο στο GoodDay' : 'κενή καταχώρηση στο GoodDay');
           return `<div class="th-item th-ev th-gdi${hide}">${av}<div class="th-main"><span class="th-evt"><b>${esc(m.by)}</b> ${what} ${tag}</span><span class="th-time">${esc(when)}</span></div></div>`;
         }
-        const fl = (m.flags || []).filter(f => GD_FLAG[f] || f.indexOf('unknown_node:') === 0)
+        const fl = (m.flags || []).filter(f => GD_FLAG[f] || f.indexOf('unknown_node:') === 0 || f.indexOf('unknown_block:') === 0)
           .map(f => `<span class="pill pill-mut">${esc(GD_FLAG[f] || 'άγνωστο στοιχείο — κρατήθηκε το κείμενο')}</span>`).join(' ');
         return `<div class="th-item th-post th-gdi${hide}">${av}<div class="th-main">
           <div class="th-head"><b>${esc(m.by)}</b>${tag}${m.toName ? `<span class="mut" style="font-size:11px">προς ${esc(m.toName)}</span>` : ''}<span class="th-time" title="GoodDay: ${esc(m.atSrc || '')}">${esc(when)}${m.editAt ? ' · διορθώθηκε' : ''}</span></div>
@@ -3127,7 +3127,10 @@ async function openTask(id, entryId, opts) {
         ${gx ? `<div class="th-gdbar">${I.link} Εισαγωγή από GoodDay <a href="${esc(gx.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(gx.ext)}</b></a>
           ${gx.sourceStatus && gx.sourceStatus.name ? `· εκεί: <b>${esc(gx.sourceStatus.name)}</b>` : ''}
           · ${gx.messages.filter(m => m.kind === 'text').length} μηνύματα ιστορικού · ${esc(gx.by)}, ${esc(tShort(gx.at))}
-          <span class="mut">— μόνο ανάγνωση, με αρχικό συντάκτη &amp; ώρα</span>
+          <span class="mut">— μόνο ανάγνωση, με αρχικό συντάκτη &amp; ώρα${gx.syncedAt ? ' · τελευταίος συγχρονισμός ' + esc(tShort(gx.syncedAt)) + (gx.syncedBy ? ' (' + esc(gx.syncedBy) + ')' : '') : ''}</span>
+          ${gx.transfer === 'ok' ? '<span class="pill pill-ok" title="Στο GoodDay σημειώθηκε TRANSFERRED to CloudOn Projects">TRANSFERRED ✓</span>'
+            : `<span class="pill pill-warn" title="${esc(gx.transfer || 'Η εργασία εισήχθη πριν μπει η σήμανση — πάτα «Ξανά από GoodDay»')}">GoodDay: όχι ακόμη TRANSFERRED</span>`}
+          ${d.canWrite ? '<button type="button" class="btn btn-sm btn-o" id="gdResyncGo" title="Ξαναδιαβάζει όλη την εργασία από το GoodDay: νέα μηνύματα, αρχεία, υποεργασίες· πεδία αλλάζουν μόνο αν δεν τα πείραξε κανείς εδώ">↻ Ξανά από GoodDay</button>' : ''}
           ${gx.subs && gx.subs.total > gx.subs.imported && d.canWrite ? `<button type="button" class="btn btn-sm btn-p" id="gdSubsGo">Φέρε τις ${gx.subs.total - gx.subs.imported} υποεργασίες από GoodDay</button>` : ''}
           ${gx.filesMissing && d.canWrite ? `<button type="button" class="btn btn-sm btn-o" id="gdFilesGo">Ξαναδοκίμασε ${gx.filesMissing} αρχεία που δεν ήρθαν</button>` : ''}</div>` : ''}
         <div id="dCheck" class="th">
@@ -3755,6 +3758,20 @@ async function openTask(id, entryId, opts) {
   };
   { const b = $('#gdSubsGo', dr); if (b) { b.onclick = () => gdRun(b, 'gd_import_subtasks', 'Μεταφορά υποεργασιών & αρχείων…'); } }
   { const b = $('#gdFilesGo', dr); if (b) { b.onclick = () => gdRun(b, 'gd_import_files', 'Κατέβασμα αρχείων…'); } }
+  { const b = $('#gdResyncGo', dr); if (b) { b.onclick = async () => {
+    b.disabled = true; const t0 = b.textContent; b.textContent = 'Ανάκτηση από GoodDay…';
+    const r = await api('gd_import_resync', {task: id}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); b.disabled = false; b.textContent = t0; return; }
+    const p = r.report || {}, fm = (r.files && r.files.missing) || [];
+    const F = {title: 'τίτλος', due: 'προθεσμία', start: 'έναρξη', estimate: 'εκτίμηση'};
+    toast('Ενημερώθηκε από GoodDay: ' + (p.new || 0) + ' νέα · ' + (p.updated || 0) + ' αλλαγμένα μηνύματα'
+      + ((p.changed || []).length ? ' · άλλαξαν: ' + p.changed.map(k => F[k] || k).join(', ') : '')
+      + ((p.kept || []).length ? ' · κρατήθηκαν τα δικά μας: ' + p.kept.map(k => F[k] || k).join(', ') : '')
+      + (p.subsNew ? ' · ' + p.subsNew + ' νέες υποεργασίες' : '')
+      + (r.files && r.files.saved ? ' · ' + r.files.saved + ' αρχεία' : '') + (fm.length ? ' · ' + fm.length + ' αρχεία δεν ήρθαν' : '')
+      + (r.transfer !== 'ok' ? ' · TRANSFERRED απέτυχε: ' + r.transfer : ''), fm.length > 0 || r.transfer !== 'ok');
+    openTask(id);
+  }; } }
   const rop = $('#dReopen', dr); if (rop) rop.onclick = async () => {
     /* Ο server ξέρει πού ήταν πριν κλείσει — δεν τη ρίχνουμε στο Backlog. */
     const r = await api('task_reopen', {task: id}).catch(e => ({err: e.message}));

@@ -4,7 +4,8 @@
  *
  * Μεταφορά σε PHP του goodday_reader.py (πακέτο του Νίκου): ίδιο «φάκελο» ανάκτησης
  * (schema_version, source, external_task_id, source_url, retrieved_at, task, messages,
- * users, warnings) — μόνο ΑΝΑΓΝΩΣΗ από το GoodDay, τίποτα δεν γράφεται εκεί.
+ * users, warnings). Από το GoodDay μόνο ΔΙΑΒΑΖΟΥΜΕ — με ΜΙΑ εξαίρεση (16/10/2026, απόφαση
+ * χρήστη): μετά την εισαγωγή η εργασία εκεί γίνεται «TRANSFERRED to CloudOn Projects».
  *
  * Κανόνες που δεν αλλάζουν χωρίς απόφαση:
  *  - Το token ζει ΜΟΝΟ στον server (κρυπτογραφημένο στις ρυθμίσεις). Δεν μπαίνει σε
@@ -61,6 +62,14 @@ class GoodDayImport
                 $t->timestamp('created_at')->nullable();
                 $t->unique(['integration', 'source', 'ext_task_id'], 'cpm_ext_imp_uq');
                 $t->index('task_id');
+            });
+        }
+        if (!$s->hasColumn('mod_cpm_ext_imports', 'synced_at')) {
+            $s->table('mod_cpm_ext_imports', function ($t) {
+                $t->timestamp('synced_at')->nullable();             // τελευταία «Ξανά από GoodDay»
+                $t->unsignedInteger('synced_by')->nullable();
+                $t->string('transfer', 255)->nullable();            // 'ok' | λόγος αποτυχίας σήμανσης TRANSFERRED
+                $t->timestamp('transfer_at')->nullable();
             });
         }
         if (!$s->hasTable('mod_cpm_ext_msgs')) {
@@ -133,11 +142,23 @@ class GoodDayImport
     /** GET με το token· σφάλματα ΧΩΡΙΣ το token και χωρίς σώμα απάντησης. */
     private static function get($path, $token)
     {
+        return self::req('GET', $path, $token);
+    }
+
+    /** Αίτημα προς το API (GET, ή PUT με JSON για τη σήμανση «TRANSFERRED»). */
+    private static function req($method, $path, $token, array $body = null)
+    {
         $ch = curl_init(self::BASE . $path);
+        $hdr = ['gd-api-token: ' . $token, 'Accept: application/json', 'User-Agent: CloudOnProjects-GoodDayImport/1.0'];
+        if ($method === 'GET') { curl_setopt($ch, CURLOPT_HTTPGET, true); }
+        else {
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body ?: new \stdClass(), JSON_UNESCAPED_UNICODE));
+            $hdr[] = 'Content-Type: application/json';
+        }
         curl_setopt_array($ch, [
-            CURLOPT_HTTPGET => true,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => ['gd-api-token: ' . $token, 'Accept: application/json', 'User-Agent: CloudOnProjects-GoodDayImport/1.0'],
+            CURLOPT_HTTPHEADER => $hdr,
             CURLOPT_FOLLOWLOCATION => false,                 // το token δεν ακολουθεί redirect
             CURLOPT_MAXREDIRS => 0,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
@@ -160,8 +181,9 @@ class GoodDayImport
                 429 => 'Το GoodDay περιορίζει τα αιτήματα — δοκίμασε ξανά σε λίγο.'];
             $where = preg_replace('#^/(task|user)/[^/]+#', '/$1/{id}', $path);   // διαδρομή χωρίς ids
             throw new GoodDayError(($hints[$code] ?? ($code >= 300 && $code < 400 ? 'Το GoodDay απάντησε με ανακατεύθυνση — δεν την ακολουθούμε.' : 'Αποτυχία αιτήματος.'))
-                . ' (GET ' . $where . ': HTTP ' . $code . ')', $code);
+                . ' (' . $method . ' ' . $where . ': HTTP ' . $code . ')', $code);
         }
+        if ($method !== 'GET') { return trim((string) $raw); }      // το PUT απαντά «OK», όχι JSON
         $j = json_decode((string) $raw, true);
         if ($j === null && json_last_error() !== JSON_ERROR_NONE) {
             throw new GoodDayError('Το GoodDay δεν επέστρεψε JSON.', $code);
@@ -322,7 +344,11 @@ class GoodDayImport
             'internal' => (int) $parent->internal, 'parent_id' => (int) $parent->id,
             'title' => self::txt($title, 200), 'status_id' => $st['id'], 'action_user' => null,
             'due_date' => $f['due'], 'start_date' => $f['start'], 'estimate_minutes' => $f['estimate']];
-        if ($plan['assignee'] && $plan['assignee']['admin']) { $row['assignee'] = (int) $plan['assignee']['admin']; }
+        /* Ανάθεση + μπάλα (16/10/2026): ο «Action required» του GoodDay είναι αυτός που πρέπει να κινηθεί. */
+        $ar = $plan['actionRequired'] && $plan['actionRequired']['admin'] ? (int) $plan['actionRequired']['admin'] : 0;
+        $as = $plan['assignee'] && $plan['assignee']['admin'] ? (int) $plan['assignee']['admin'] : 0;
+        if ($as || $ar) { $row['assignee'] = $as ?: $ar; }
+        if ($ar && $ar !== ($as ?: $ar) && !$st['closed']) { $row['action_user'] = $ar; }
         if ($st['closed']) {
             $row['completed_at'] = self::toLocal($env['task']['momentClosed'] ?? null, self::sourceTz($tzSetting)) ?: date('Y-m-d H:i:s');
             $row['completed_by'] = (int) $adminId;
@@ -427,6 +453,171 @@ class GoodDayImport
      * Επαληθευμένα στο πραγματικό δείγμα (6lyyHw): root, custom-paragraph, text
      * (format 0/1/16), linebreak, link, autolink, list (ol/ul, φωλιασμένες), listitem, mention.
      */
+    /**
+     * Το messageRTF του GoodDay έχει ΔΥΟ μορφές ανάλογα με την εποχή του μηνύματος:
+     *  - {"v":"lexical-1","content":{"root":…}}  (νεότερα, π.χ. 6lyyHw 2026)
+     *  - {"entityMap":{…},"blocks":[…]}          (Draft.js, παλιότερα, π.χ. mCGoRm 2023)
+     * Άγνωστη μορφή → null + προειδοποίηση, και το plan() πέφτει στο απλό «message».
+     */
+    public static function rtfToHtml($rtf, callable $mention, array &$warn)
+    {
+        if (!is_array($rtf)) { return null; }
+        if (isset($rtf['blocks']) && is_array($rtf['blocks'])) { return self::draftToHtml($rtf, $mention, $warn); }
+        return self::lexicalToHtml($rtf, $mention, $warn);
+    }
+
+    /**
+     * Draft.js → HTML. Μπλοκ: unstyled, header-*, blockquote, code-block, unordered/ordered-list-item
+     * (φωλιασμένα με depth), atomic. Μορφή κειμένου από inlineStyleRanges, σύνδεσμοι/αναφορές
+     * από entityRanges + entityMap. Οι θέσεις (offset/length) είναι σε μονάδες UTF-16, όπως
+     * οι δείκτες συμβολοσειρών της JS — όχι σε bytes ούτε σε χαρακτήρες της PHP.
+     */
+    private static function draftToHtml(array $rtf, callable $mention, array &$warn)
+    {
+        $ents = is_array($rtf['entityMap'] ?? null) ? $rtf['entityMap'] : [];
+        $out = '';
+        $stack = [];                      // ανοιχτές λίστες: [tag, liOpen]
+        $closeTo = function ($n) use (&$stack, &$out) {
+            while (count($stack) > $n) {
+                $top = array_pop($stack);
+                $out .= ($top[1] ? '</li>' : '') . '</' . $top[0] . '>';
+            }
+        };
+        foreach ($rtf['blocks'] as $b) {
+            if (!is_array($b)) { continue; }
+            $type = (string) ($b['type'] ?? 'unstyled');
+            $in = self::draftInline($b, $ents, $mention, $warn);
+            if ($type === 'unordered-list-item' || $type === 'ordered-list-item') {
+                $tag = $type === 'ordered-list-item' ? 'ol' : 'ul';
+                $d = max(0, min(10, (int) ($b['depth'] ?? 0)));
+                $closeTo($d + 1);
+                $k = count($stack) - 1;
+                if ($k === $d && $stack[$k][0] !== $tag) { $closeTo($d); }
+                $k = count($stack) - 1;
+                if ($k === $d && $stack[$k][1]) { $out .= '</li>'; $stack[$k][1] = false; }
+                while (count($stack) < $d + 1) {
+                    $k = count($stack) - 1;
+                    /* Εμφωλευμένη λίστα μπαίνει μέσα σε <li>· αν λείπει (πήδημα επιπέδου), ανοίγει κενό. */
+                    if ($k >= 0 && !$stack[$k][1]) { $out .= '<li>'; $stack[$k][1] = true; }
+                    $out .= '<' . $tag . '>';
+                    $stack[] = [$tag, false];
+                }
+                $out .= '<li>' . ($in === '' ? '<br>' : $in);
+                $stack[count($stack) - 1][1] = true;
+                continue;
+            }
+            $closeTo(0);
+            switch ($type) {
+                case 'unstyled':
+                case 'paragraph':
+                    $out .= '<p>' . ($in === '' ? '<br>' : $in) . '</p>';
+                    break;
+                case 'header-one': case 'header-two': case 'header-three':
+                    $out .= '<h3>' . $in . '</h3>';
+                    break;
+                case 'header-four': case 'header-five': case 'header-six':
+                    $out .= '<h4>' . $in . '</h4>';
+                    break;
+                case 'blockquote':
+                    $out .= '<blockquote>' . $in . '</blockquote>';
+                    break;
+                case 'code-block':
+                    $out .= '<pre>' . $in . '</pre>';
+                    break;
+                case 'atomic':
+                    /* Ενσωματωμένο αντικείμενο (συνήθως εικόνα) — δεν το κατεβάζουμε· μένει σύνδεσμος. */
+                    $warn[] = 'draft_atomic';
+                    if ($in !== '' && trim(strip_tags($in)) !== '') { $out .= '<p>' . $in . '</p>'; }
+                    break;
+                default:
+                    $warn[] = 'unknown_block:' . substr($type ?: '?', 0, 30);
+                    $out .= '<p>' . ($in === '' ? '<br>' : $in) . '</p>';
+            }
+        }
+        $closeTo(0);
+        return trim(strip_tags($out)) === '' && strpos($out, '<a ') === false ? null : $out;
+    }
+
+    /** Κείμενο ενός μπλοκ Draft.js με τα στυλ και τις οντότητές του, ως ασφαλές HTML. */
+    private static function draftInline(array $b, array $ents, callable $mention, array &$warn)
+    {
+        $text = (string) ($b['text'] ?? '');
+        if ($text === '') { return ''; }
+        $chars = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+        if ($chars === false) { $warn[] = 'draft_bad_utf8'; return self::e($text); }
+        /* Θέση UTF-16 κάθε χαρακτήρα (εκτός BMP = 2 μονάδες, π.χ. emoji). */
+        $pos = [];
+        $p = 0;
+        foreach ($chars as $i => $c) { $pos[$i] = $p; $p += strlen($c) === 4 ? 2 : 1; }
+        $n = count($chars);
+        $at = function ($off, $len) use ($pos, $n) {     // UTF-16 εύρος → δείκτες χαρακτήρων
+            $r = [];
+            for ($i = 0; $i < $n; $i++) { if ($pos[$i] >= $off && $pos[$i] < $off + $len) { $r[] = $i; } }
+            return $r;
+        };
+        $STY = ['BOLD' => 1, 'ITALIC' => 2, 'STRIKETHROUGH' => 4, 'UNDERLINE' => 8, 'CODE' => 16];
+        $mask = array_fill(0, $n, 0);
+        foreach ((array) ($b['inlineStyleRanges'] ?? []) as $r) {
+            if (!is_array($r)) { continue; }
+            $s = strtoupper((string) ($r['style'] ?? ''));
+            if (!isset($STY[$s])) { $warn[] = 'draft_style:' . substr($s, 0, 30); continue; }
+            foreach ($at((int) ($r['offset'] ?? 0), (int) ($r['length'] ?? 0)) as $i) { $mask[$i] |= $STY[$s]; }
+        }
+        $ent = array_fill(0, $n, null);
+        foreach ((array) ($b['entityRanges'] ?? []) as $r) {
+            if (!is_array($r) || !isset($r['key'])) { continue; }
+            foreach ($at((int) ($r['offset'] ?? 0), (int) ($r['length'] ?? 0)) as $i) { $ent[$i] = (string) $r['key']; }
+        }
+        $marks = function ($t, $f) {
+            if ($f & 16) { $t = '<code>' . $t . '</code>'; }
+            if ($f & 8) { $t = '<u>' . $t . '</u>'; }
+            if ($f & 4) { $t = '<s>' . $t . '</s>'; }
+            if ($f & 2) { $t = '<i>' . $t . '</i>'; }
+            if ($f & 1) { $t = '<b>' . $t . '</b>'; }
+            return $t;
+        };
+        $out = '';
+        $i = 0;
+        while ($i < $n) {
+            /* Πρώτα ομάδα ίδιας οντότητας (ένας σύνδεσμος = ένα <a>), μέσα της ομάδες ίδιου στυλ. */
+            $key = $ent[$i];
+            $j = $i;
+            while ($j < $n && $ent[$j] === $key) { $j++; }
+            $raw = implode('', array_slice($chars, $i, $j - $i));
+            $inner = '';
+            for ($k = $i; $k < $j;) {
+                $l = $k;
+                while ($l < $j && $mask[$l] === $mask[$k]) { $l++; }
+                $seg = str_replace("\n", '<br>', self::e(implode('', array_slice($chars, $k, $l - $k))));
+                $inner .= $marks($seg, $mask[$k]);
+                $k = $l;
+            }
+            $e = $key !== null && isset($ents[$key]) && is_array($ents[$key]) ? $ents[$key] : null;
+            if ($key !== null && $e === null) { $warn[] = 'draft_entity_missing'; }
+            $etype = $e ? strtoupper((string) ($e['type'] ?? '')) : '';
+            $data = $e && is_array($e['data'] ?? null) ? $e['data'] : [];
+            if ($etype === 'LINK' || $etype === 'IMAGE') {
+                $u = self::safeUrl($data['url'] ?? ($data['href'] ?? ($data['src'] ?? '')));
+                if ($u === null) { $warn[] = 'link_dropped'; $out .= $inner; }
+                else {
+                    $label = trim($raw) !== '' ? $inner : self::e($etype === 'IMAGE' ? '[εικόνα]' : $u);
+                    $out .= '<a href="' . self::e($u) . '">' . $label . '</a>';
+                }
+            } elseif ($etype === 'MENTION' || $etype === '@MENTION') {
+                $md = is_array($data['mention'] ?? null) ? $data['mention'] : $data;
+                $mid = (string) ($md['id'] ?? ($md['userId'] ?? ''));
+                $mname = (string) ($md['name'] ?? ltrim($raw, '@'));
+                $who = $mention($mid, $mname);
+                $out .= '<b>@' . self::e($who !== null ? $who : ($mname !== '' ? $mname : 'άγνωστος')) . '</b>';
+            } else {
+                if ($e) { $warn[] = 'draft_entity:' . substr($etype ?: '?', 0, 30); }
+                $out .= $inner;
+            }
+            $i = $j;
+        }
+        return $out;
+    }
+
     public static function lexicalToHtml($rtf, callable $mention, array &$warn)
     {
         if (!is_array($rtf)) { return null; }
@@ -517,11 +708,43 @@ class GoodDayImport
                 $mname = (string) ($md['name'] ?? ($md['data']['name'] ?? ($n['text'] ?? '')));
                 $who = $mention($mid, $mname);              // όνομα συναδέλφου αν αντιστοιχίστηκε, αλλιώς null
                 return '<b>@' . self::e($who !== null ? $who : ($mname !== '' ? $mname : 'άγνωστος')) . '</b>';
+            case 'tablesheet':
+                /* Πίνακας του GoodDay (βρέθηκε στο mCGoRm): rows[].cells[], και κάθε κελί κρατά
+                   το περιεχόμενό του ως ΞΕΧΩΡΙΣΤΟ έγγραφο Lexical σε συμβολοσειρά JSON (cells[].json). */
+                $rows = '';
+                foreach ((array) ($n['rows'] ?? []) as $r) {
+                    if (!is_array($r)) { continue; }
+                    $tr = '';
+                    foreach ((array) ($r['cells'] ?? []) as $c) {
+                        if (!is_array($c)) { continue; }
+                        $doc = is_string($c['json'] ?? null) ? json_decode($c['json'], true) : null;
+                        $in = is_array($doc['root'] ?? null) ? self::lexNode($doc['root'], $mention, $warn, $depth + 1) : '';
+                        if ($in === '' && isset($c['json']) && !is_array($doc)) { $warn[] = 'table_cell_unreadable'; }
+                        $cs = (int) ($c['colSpan'] ?? 1);
+                        $tag = ($c['type'] ?? '') === 'header' ? 'th' : 'td';
+                        $tr .= '<' . $tag . ($cs > 1 && $cs < 50 ? ' colspan="' . $cs . '"' : '') . '>' . $in . '</' . $tag . '>';
+                    }
+                    $rows .= '<tr>' . $tr . '</tr>';
+                }
+                return $rows === '' ? '' : '<table><tbody>' . $rows . '</tbody></table>';
+            case 'table':
+                return '<table><tbody>' . self::lexKids($n, $mention, $warn, $depth) . '</tbody></table>';
+            case 'tablerow':
+                return '<tr>' . self::lexKids($n, $mention, $warn, $depth) . '</tr>';
+            case 'tablecell':
+                $tag = !empty($n['headerState']) ? 'th' : 'td';
+                $cs = (int) ($n['colSpan'] ?? 1);
+                return '<' . $tag . ($cs > 1 && $cs < 50 ? ' colspan="' . $cs . '"' : '') . '>' . self::lexKids($n, $mention, $warn, $depth) . '</' . $tag . '>';
             default:
                 $warn[] = 'unknown_node:' . substr($type ?: '?', 0, 30);
                 if (!empty($n['children'])) { return self::lexKids($n, $mention, $warn, $depth); }
                 if (isset($n['text']) && is_string($n['text'])) { return self::e($n['text']); }
-                return '';
+                /* Χωρίς children/text: μάζεψε ό,τι αναγνώσιμο κείμενο κρύβεται μέσα (ποτέ σιωπηλή απώλεια). */
+                $bits = [];
+                array_walk_recursive($n, function ($v, $k) use (&$bits) {
+                    if ($k === 'text' && is_string($v) && trim($v) !== '') { $bits[] = $v; }
+                });
+                return $bits ? '<p>' . self::e(implode(' ', $bits)) . '</p>' : '';
         }
     }
 
@@ -571,7 +794,7 @@ class GoodDayImport
             $w = [];
             $html = null;
             if (!empty($m['messageRTF'])) {
-                $html = self::lexicalToHtml($m['messageRTF'], $mentionFn, $w);
+                $html = self::rtfToHtml($m['messageRTF'], $mentionFn, $w);
                 if ($html !== null) { $html = $clean($html); if (trim(strip_tags($html)) === '') { $html = null; } }
                 if ($html === null && trim((string) ($m['message'] ?? '')) !== '') { $flags[] = 'fallback_plain'; }
             }
@@ -817,6 +1040,189 @@ class GoodDayImport
         return $impId;
     }
 
+    /* ════════════════ Σήμανση στο GoodDay (16/10/2026) ════════════════
+       Μετά την εισαγωγή η εργασία στο GoodDay γίνεται «TRANSFERRED to CloudOn Projects»
+       (απόφαση χρήστη) — η ΜΟΝΗ εγγραφή που κάνουμε εκεί. Αποτυχία δεν ακυρώνει την
+       εισαγωγή: γράφεται στο transfer και ξαναδοκιμάζεται με «Ξανά από GoodDay». */
+
+    const TRANSFER_RX = '/transferred/i';
+    const BOT_EMAIL = 'support@cloudon.gr';   // ο λογαριασμός «WHMCS» του GoodDay — όχι πρόσωπο
+    const APP_TASK_URL = 'https://my.cloudon.gr/project/#/task/';
+
+    /** id της κατάστασης TRANSFERRED (κατά ΟΝΟΜΑ από GET /statuses — όχι σκληρό id). */
+    private static function transferStatusId($token)
+    {
+        static $id = false;
+        if ($id !== false) { return $id; }
+        $id = null;
+        foreach ((array) self::get('/statuses', $token) as $s) {
+            if (is_array($s) && preg_match(self::TRANSFER_RX, (string) ($s['name'] ?? '')) && !empty($s['id'])) { $id = (string) $s['id']; break; }
+        }
+        return $id;
+    }
+
+    /** Ποιος χρήστης του GoodDay κάνει την αλλαγή: ο ίδιος (ίδιο email), αλλιώς ο λογαριασμός WHMCS — ποτέ άλλος συνάδελφος. */
+    private static function actorId($adminId, $token)
+    {
+        $mine = strtolower(trim((string) Capsule::table('tbladmins')->where('id', (int) $adminId)->value('email')));
+        $bot = null;
+        foreach ((array) self::get('/users', $token) as $u) {
+            if (!is_array($u) || !empty($u['isDeleted']) || empty($u['id'])) { continue; }
+            $em = strtolower(trim((string) ($u['primaryEmail'] ?? '')));
+            if ($mine !== '' && $em === $mine) { return (string) $u['id']; }
+            if ($em === self::BOT_EMAIL) { $bot = (string) $u['id']; }
+        }
+        if ($bot) { return $bot; }
+        throw new GoodDayError('Δεν βρέθηκε χρήστης GoodDay με το email σου ούτε ο λογαριασμός ' . self::BOT_EMAIL . '.', 0);
+    }
+
+    /** @return string 'ok' ή ο λόγος αποτυχίας (γράφεται και στην εισαγωγή). */
+    public static function markTransferred($importId, $adminId, $token)
+    {
+        self::ensure();
+        $imp = Capsule::table('mod_cpm_ext_imports')->where('id', (int) $importId)->first();
+        if (!$imp) { return 'χωρίς εισαγωγή'; }
+        if ($imp->transfer === 'ok') { return 'ok'; }
+        $env = json_decode((string) $imp->envelope, true) ?: [];
+        try {
+            if (trim((string) $token) === '') { throw new GoodDayError('Δεν έχει οριστεί token GoodDay.', -1); }
+            if (!preg_match(self::TRANSFER_RX, (string) ($env['task']['status']['name'] ?? ''))) {
+                $sid = self::transferStatusId($token);
+                if (!$sid) { throw new GoodDayError('Δεν υπάρχει κατάσταση «TRANSFERRED…» στο GoodDay.', 0); }
+                $body = ['userId' => self::actorId($adminId, $token), 'statusId' => $sid,
+                    'message' => 'Μεταφέρθηκε στο #' . (int) $imp->task_id . ' του CloudOn Projects: ' . self::APP_TASK_URL . (int) $imp->task_id];
+                self::req('PUT', '/task/' . rawurlencode($imp->ext_task_id) . '/status', $token, $body);
+            }
+            $res = 'ok';
+        } catch (GoodDayError $e) {
+            $res = self::txt($e->getMessage(), 250);
+        }
+        Capsule::table('mod_cpm_ext_imports')->where('id', $imp->id)->update(['transfer' => $res, 'transfer_at' => date('Y-m-d H:i:s')]);
+        return $res;
+    }
+
+    /* ════════════════ «Ξανά από GoodDay» — επανασυγχρονισμός (16/10/2026) ════════════════
+       Ξαναδιαβάζει ΟΛΗ την εργασία (και τις υποεργασίες) και ενημερώνει την εισαγωγή:
+        - ιστορικό: νέα μηνύματα μπαίνουν, υπάρχοντα ξαναβγαίνουν (νέος μετατροπέας, διορθώσεις,
+          νέες αντιστοιχίσεις χρηστών). Μήνυμα που σβήστηκε στο GoodDay ΜΕΝΕΙ, σημειωμένο.
+        - πεδία (τίτλος, προθεσμία, έναρξη, εκτίμηση): αλλάζουν ΜΟΝΟ αν εδώ δεν τα πείραξε
+          κανείς (τιμή εδώ = τιμή της προηγούμενης ανάκτησης). Αλλιώς κερδίζει το δικό μας.
+        - νέες υποεργασίες → δημιουργούνται· υπάρχουσες → ίδιος κανόνας.
+       Κατάσταση/ανάθεση εδώ ΔΕΝ αλλάζουν (είναι δική μας απόφαση). */
+
+    /** Ενημερώνει ΜΙΑ εισαγωγή από φρέσκο φάκελο. Μέσα σε transaction του καλούντα. */
+    public static function applyFresh($imp, array $env, $adminId, callable $clean, callable $adminName, $tzSetting)
+    {
+        $old = json_decode((string) $imp->envelope, true) ?: [];
+        $oldPlan = $old ? self::plan($old, $clean, $adminName, $tzSetting) : null;
+        $plan = self::plan($env, $clean, $adminName, $tzSetting);
+        $task = Capsule::table('mod_cpm_tasks')->where('id', (int) $imp->task_id)->first();
+        $rep = ['task' => (int) $imp->task_id, 'changed' => [], 'kept' => [], 'new' => 0, 'updated' => 0, 'gone' => 0];
+        if (!$task) { return $rep; }
+        $cols = ['title' => 'title', 'due' => 'due_date', 'start' => 'start_date', 'estimate' => 'estimate_minutes'];
+        $norm = function ($v) { return $v === null || $v === '' ? '' : (string) $v; };
+        $upd = [];
+        foreach ($cols as $k => $col) {
+            $new = $plan['fields'][$k];
+            $was = $oldPlan ? $oldPlan['fields'][$k] : null;
+            if ($norm($new) === $norm($was)) { continue; }                  // δεν άλλαξε στο GoodDay
+            if ($k === 'title' && $norm($new) === '') { continue; }
+            $here = $col === 'due_date' || $col === 'start_date' ? self::dateOnly($task->$col) : $task->$col;
+            if ($norm($here) === $norm($was) || !$oldPlan) { $upd[$col] = $k === 'title' ? self::txt($new, 200) : $new; $rep['changed'][] = $k; }
+            else { $rep['kept'][] = $k; }                                    // το πείραξε κάποιος εδώ
+        }
+        if ($upd) { Db::saveTask((int) $task->id, $upd, $adminId); }
+
+        $have = [];
+        foreach (Capsule::table('mod_cpm_ext_msgs')->where('import_id', $imp->id)->get() as $r) { $have[$r->ext_msg_id] = $r; }
+        $seq = 0;
+        $seen = [];
+        foreach ($plan['messages'] as $m) {
+            $seen[$m['ext']] = 1;
+            $row = ['seq' => ++$seq, 'kind' => $m['kind'],
+                'author_ext' => $m['from'] ? self::txt($m['from']['ext'], 64) : null,
+                'author_name' => $m['from'] ? self::txt($m['from']['name'], 190) : null,
+                'author_email' => $m['from'] && $m['from']['email'] ? self::txt($m['from']['email'], 190) : null,
+                'admin_id' => $m['from'] && $m['from']['admin'] ? (int) $m['from']['admin'] : null,
+                'to_ext' => $m['to'] ? self::txt($m['to']['ext'], 64) : null,
+                'to_admin' => $m['to'] && $m['to']['admin'] ? (int) $m['to']['admin'] : null,
+                'at' => $m['at'], 'at_src' => $m['atSrc'] ? self::txt($m['atSrc'], 40) : null,
+                'edit_at' => $m['editAt'], 'edit_src' => $m['editSrc'] ? self::txt($m['editSrc'], 40) : null,
+                'status_ext' => $m['statusExt'] ? self::txt($m['statusExt'], 64) : null,
+                'html' => $m['html'], 'flags' => self::txt(implode(',', $m['flags']), 255) ?: null,
+                'attachments' => $m['attachments'] ? self::json($m['attachments']) : null];
+            if (isset($have[$m['ext']])) {
+                $h = $have[$m['ext']];
+                /* Τα downloadUrl είναι υπογεγραμμένα και αλλάζουν σε κάθε ανάκτηση — δεν μετρούν ως αλλαγή. */
+                $fids = function ($j) { return implode(',', array_map(function ($a) { return is_array($a) ? (string) ($a['fileId'] ?? '') : ''; }, (array) json_decode((string) $j, true))); };
+                if ((string) $h->html !== (string) $row['html'] || (string) $h->edit_src !== (string) $row['edit_src']
+                    || $fids($h->attachments) !== $fids($row['attachments']) || (string) $h->flags !== (string) $row['flags']) { $rep['updated']++; }
+                Capsule::table('mod_cpm_ext_msgs')->where('id', $h->id)->update($row);
+            } else {
+                Capsule::table('mod_cpm_ext_msgs')->insert($row + ['import_id' => (int) $imp->id, 'task_id' => (int) $imp->task_id, 'ext_msg_id' => $m['ext']]);
+                $rep['new']++;
+            }
+        }
+        foreach ($have as $ext => $h) {
+            if (isset($seen[$ext])) { continue; }
+            $fl = array_filter(explode(',', (string) $h->flags));
+            if (!in_array('gone_in_source', $fl, true)) { $fl[] = 'gone_in_source'; $rep['gone']++; }
+            Capsule::table('mod_cpm_ext_msgs')->where('id', $h->id)->update(['seq' => ++$seq, 'flags' => self::txt(implode(',', $fl), 255)]);
+        }
+        $meta = json_decode((string) $imp->meta, true) ?: [];
+        Capsule::table('mod_cpm_ext_imports')->where('id', $imp->id)->update([
+            'envelope' => self::json($env), 'source_url' => self::txt($env['source_url'] ?? '', 255),
+            'meta' => self::json(['sourceStatus' => $plan['sourceStatus'], 'srcTz' => $plan['srcTz'],
+                'unmapped' => $plan['unmapped'], 'users' => $plan['users'], 'assignee' => $plan['assignee'],
+                'actionRequired' => $plan['actionRequired'], 'creator' => $plan['creator'], 'created' => $plan['created']] + $meta),
+            'warnings' => self::json($plan['warnings']),
+            'synced_at' => date('Y-m-d H:i:s'), 'synced_by' => (int) $adminId]);
+        return $rep;
+    }
+
+    /**
+     * Ολόκληρος ο επανασυγχρονισμός μιας εργασίας μας που ήρθε από GoodDay.
+     * Πρώτα ΟΛΗ η ανάκτηση (αποτυχία = τίποτα δεν αλλάζει), μετά οι εγγραφές ατομικά.
+     * @return array αναφορά για την οθόνη
+     */
+    public static function resync($taskId, $adminId, $token, callable $clean, callable $adminName, $tzSetting)
+    {
+        self::ensure();
+        $imp = Capsule::table('mod_cpm_ext_imports')->where('task_id', (int) $taskId)->first();
+        if (!$imp) { throw new GoodDayError('Η εργασία δεν ήρθε από GoodDay.', -2); }
+        $env = self::retrieve($imp->ext_task_id, $token);
+        $subs = self::retrieveSubtasks($env, $token);
+        $cx = Capsule::connection();
+        $cx->beginTransaction();
+        try {
+            $rep = self::applyFresh($imp, $env, $adminId, $clean, $adminName, $tzSetting);
+            $rep['subsNew'] = 0; $rep['subsUpdated'] = 0; $rep['subsSkipped'] = [];
+            $parent = Db::task((int) $taskId);
+            foreach ($subs as $s) {
+                $ext = (string) $s['env']['external_task_id'];
+                $si = Capsule::table('mod_cpm_ext_imports')->where('integration', self::INTEGRATION)
+                    ->where('source', self::SOURCE)->where('ext_task_id', $ext)->first();
+                if ($si && $si->task_id && Capsule::table('mod_cpm_tasks')->where('id', $si->task_id)->exists()) {
+                    self::applyFresh($si, $s['env'], $adminId, $clean, $adminName, $tzSetting);
+                    $rep['subsUpdated']++;
+                    continue;
+                }
+                $r = self::createChild($parent, $s, $adminId, $clean, $adminName, $tzSetting);
+                if (isset($r['id'])) { $rep['subsNew']++; } else { $rep['subsSkipped'][] = $r; }
+            }
+            $cx->commit();
+        } catch (\Throwable $e) {
+            while ($cx->transactionLevel() > 0) { $cx->rollBack(); }
+            throw $e;
+        }
+        Db::logActivity((int) $taskId, $adminId, 'update', 'Ξανά από GoodDay ' . $imp->ext_task_id . ': '
+            . $rep['new'] . ' νέα / ' . $rep['updated'] . ' ενημερωμένα μηνύματα'
+            . ($rep['changed'] ? ' · άλλαξαν: ' . implode(', ', $rep['changed']) : '')
+            . ($rep['kept'] ? ' · κρατήθηκαν τα δικά μας: ' . implode(', ', $rep['kept']) : '')
+            . ($rep['subsNew'] ? ' · ' . $rep['subsNew'] . ' νέες υποεργασίες' : ''));
+        return $rep;
+    }
+
     /* ════════════════ Συνημμένα αρχεία ════════════════ */
 
     const MAX_FILE = 209715200;          // 200 MB ανά αρχείο
@@ -966,6 +1372,8 @@ class GoodDayImport
         $subIn = $subIds ? Capsule::table('mod_cpm_ext_imports')->where('integration', self::INTEGRATION)
             ->where('source', self::SOURCE)->whereIn('ext_task_id', $subIds)->count() : 0;
         return ['ext' => $imp->ext_task_id, 'url' => $imp->source_url, 'at' => $imp->created_at,
+            'syncedAt' => $imp->synced_at ?? null, 'syncedBy' => !empty($imp->synced_by) ? $adminName((int) $imp->synced_by) : null,
+            'transfer' => $imp->transfer ?? null, 'transferAt' => $imp->transfer_at ?? null,
             'subs' => ['total' => count($subIds), 'imported' => (int) $subIn],
             'filesMissing' => $missingN,
             'by' => $imp->imported_by ? $adminName((int) $imp->imported_by) : '',
