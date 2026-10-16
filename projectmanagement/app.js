@@ -3371,7 +3371,10 @@ document.addEventListener('dragstart', e => {
   const el = e.target.closest && e.target.closest('[data-sublink], tr.lv-tr[data-task], [data-task][draggable="true"]');
   if (!el) { return; }
   const tid = el.dataset.sublink || el.dataset.task;
-  if (tid) { e.dataTransfer.setData('text/x-cnp-task', '#' + tid); e.dataTransfer.setData('text/plain', '#' + tid); e.dataTransfer.effectAllowed = 'link'; }
+  if (tid) { e.dataTransfer.setData('text/x-cnp-task', '#' + tid); e.dataTransfer.setData('text/plain', '#' + tid);
+    /* linkMove: «link» για την περιοχή υποεργασιών της καρτέλας ΚΑΙ «move» για σύρσιμο στη λίστα (σε ομάδα / σε εργασία).
+       Με σκέτο 'link' ο browser απέρριπτε σιωπηλά κάθε drop στη λίστα (dropEffect 'move' ≠ επιτρεπτό). */
+    e.dataTransfer.effectAllowed = 'linkMove'; }
 });
 dnd('.tcard[data-task]', '.kb-col[data-status], .sub-drop[data-subparent]', async (card, col) => {
   /* Κάρτα του board πάνω στην περιοχή «σύρε εδώ» μιας ανοιχτής εργασίας → γίνεται υποεργασία της. */
