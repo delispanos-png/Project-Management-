@@ -4380,7 +4380,7 @@ R.profile = async function () {
       </div></div>
       <div class="card"><div class="card-h">${I.bell} Οι ειδοποιήσεις μου</div><div class="card-b">
         ${sw('notify_email', 'Ειδοποιήσεις email', 'Αναθέσεις, σχόλια, μπάλες, υπενθυμίσεις — το καμπανάκι μένει πάντα ενεργό')}
-        ${sw('digest', 'Πρωινό daily digest', 'Καθημερινό email 07:30 με εκπρόθεσμα & follow-ups')}
+        ${sw('digest', 'Πρωινή σύνοψη', 'ΕΝΑ email στις 08:00: ανοιχτές, εκπρόθεσμες, πάνω από εκτίμηση — δικές σου και της ομάδας σου')}
       </div></div>
       <div class="card"><div class="card-h">${I.shield} Τα δικαιώματά μου</div><div class="card-b">
         <div class="set-row"><b>Ρόλος</b><span class="pill pill-info">${esc(p.role)}</span></div>

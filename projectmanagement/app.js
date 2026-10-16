@@ -112,6 +112,8 @@ function cnpMatch(hay, q) {
 
 /* ΤΟΠΙΚΗ ημερομηνία (όχι toISOString = UTC: 00:00–03:00 ώρα Ελλάδας έδινε τη χθεσινή). */
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+/* Τοπική χρονοσφραγίδα «ΕΕΕΕ-ΜΜ-ΗΗ ΩΩ:ΛΛ:ΔΔ» — ίδια μορφή με τις ώρες του server, συγκρίνεται ως κείμενο. */
+const nowStamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return today() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); };
 
 const I = { // inline icons
   board: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="2"/><rect x="14" y="3" width="7" height="12" rx="2"/></svg>',
@@ -776,6 +778,13 @@ function setStatusUI(p) {
   dot.style.background = p.color || cnpStDef(p.status)[2];
   l.innerHTML = esc(p.label || cnpStDef(p.status)[1])
     + (p.manual ? '' : ' <span class="st-tag">auto</span>');
+  /* Σε σύσκεψη με σύνδεσμο → «🎥 Μπες» δίπλα στην κατάσταση, σε κάθε οθόνη (16/10/2026). */
+  { let jb = $('#statusJoin');
+    const j = p.status === 'meeting' && p.meeting && p.meeting.join;
+    if (j && b) {
+      if (!jb) { jb = document.createElement('a'); jb.id = 'statusJoin'; jb.className = 'btn btn-sm btn-p st-join'; jb.target = '_blank'; jb.rel = 'noopener'; b.after(jb); }
+      jb.href = j; jb.textContent = '🎥 Μπες'; jb.title = 'Μπες στη σύσκεψη: ' + (p.meeting.title || '');
+    } else if (jb) { jb.remove(); } }
   if (b) {
     b.title = (p.manual ? 'Το δήλωσες εσύ — αυτόματο: OFF' : 'Αυτόματο: ON — από τον παλμό της εφαρμογής')
       + (p.reason ? ' · ' + p.reason : '') + (p.untilTxt ? ' · ' + p.untilTxt : '');
@@ -1673,34 +1682,131 @@ function actTbHtml() {
     ${['#e2515f', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6'].map(c => `<button type="button" class="rte-b rte-col" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('')}
     <button type="button" class="rte-b rte-col" data-cmd="hiliteColor" data-arg="#fff3a3" title="Επισήμανση"><span style="background:#fff3a3;border:1px solid #e0c040"></span></button>
     <span class="rte-sep"></span>
-    ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
+    ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteM('emoji', '😀', 'Emoji')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
   </div></div>`;
 }
 
+/* ── Εργαλειοθήκη editor (16/10/2026): στυλ, χρώμα κειμένου/φόντου, 3 μεγέθη, στοίχιση,
+   λίστες + λίστα ελέγχου, παράθεση/κώδικας, ＋ (εικόνα, αρχείο, emoji, πίνακας, και
+   ΣΤΟΙΧΕΙΑ εργασίας: λίστα ελέγχου, υποεργασία, εξάρτηση, σύνδεσμος), αναίρεση/επανάληψη,
+   σύρσιμο αρχείων. Τα μενού είναι αναδυόμενα (.rte-pop) — τα κουμπιά τους είναι κι αυτά
+   .rte-b, οπότε περνούν από τον ίδιο χειριστή και ΔΕΝ χαλούν την επιλογή κειμένου. */
+const RTE_FG = ['#131f30', '#e2515f', '#e0552b', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6', '#8595ac'];
+const RTE_BG = ['#fff3a3', '#ffd6d6', '#ffe2c4', '#d4f3e1', '#d3eafb', '#e7dcfb', '#e5eaf1'];
+const RTE_EMOJI = '😀 😃 😄 😁 😅 😂 🙂 😉 😊 😍 🤔 😐 😕 😮 😢 😡 👍 👎 👏 🙏 💪 👀 👋 🤝 ✅ ❌ ⚠️ ❗ ❓ 💡 🔥 ⭐ 🎉 🚀 📌 📎 📅 ⏰ 📞 📧 💬 🔒 🔑 🛠️ 🐞 📈 📉 💶 🏁 ➡️ ⬅️ ⬆️ ⬇️'.split(' ');
+const _rteM = (name, label, title) => `<button type="button" class="rte-b rte-mb" data-cmd="__menu" data-arg="${name}" title="${title}" aria-haspopup="menu">${label}<span class="rte-car">▾</span></button>`;
+const RTE_MENUS = {
+  style: () => [['formatBlock', 'Κείμενο', 'p'], ['formatBlock', '<b style="font-size:15px">Επικεφαλίδα</b>', 'h3'], ['formatBlock', '<b>Υπότιτλος</b>', 'h4'],
+    ['formatBlock', '“ Παράθεση', 'blockquote'], ['__code', '&lt;/&gt; Κώδικας']].map(x => _rteB(x[0], x[1], '', x[2])).join(''),
+  fg: () => '<div class="rte-sw">' + RTE_FG.map(c => `<button type="button" class="rte-b rte-swb" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('') + '</div>',
+  bg: () => '<div class="rte-sw">' + RTE_BG.map(c => `<button type="button" class="rte-b rte-swb" data-cmd="hiliteColor" data-arg="${c}" title="Φόντο / ετικέτα"><span style="background:${c}"></span></button>`).join('')
+    + '<button type="button" class="rte-b rte-swb" data-cmd="hiliteColor" data-arg="transparent" title="Χωρίς φόντο"><span class="rte-sw0"></span></button></div>',
+  size: () => [['s', '<span style="font-size:12px">Μικρό</span>'], ['m', 'Κανονικό'], ['l', '<span style="font-size:17px">Μεγάλο</span>']].map(x => _rteB('__size', x[1], '', x[0])).join(''),
+  align: () => [['justifyLeft', '⯇ Αριστερά'], ['justifyCenter', '≡ Κέντρο'], ['justifyRight', 'Δεξιά ⯈'], ['justifyFull', '☰ Πλήρης']].map(x => _rteB(x[0], x[1], '')).join(''),
+  emoji: () => '<div class="rte-emo">' + RTE_EMOJI.map(e => `<button type="button" class="rte-b" data-cmd="insertText" data-arg="${e}">${e}</button>`).join('') + '</div>',
+  insert: ed => _rteB('__img', '🖼 Εικόνα', '') + _rteB('__file', '📎 Αρχείο', '') + _rteB('__menu', '😀 Emoji', '', 'emoji') + _rteB('__table', '▦ Πίνακας', '')
+    + '<div class="rte-pop-h">Στοιχεία εργασίας</div>' + _rteB('__check', '☑ Λίστα ελέγχου (to-do)', '')
+    + (ed && ed.dataset.task ? _rteB('__sub', '↳ Υποεργασία', '') + _rteB('__dep', '⛓ Εξάρτηση', '') : '')
+    + _rteB('__linkcard', '🔗 Σύνδεσμος', ''),
+};
 function rteHtml(id, value, placeholder, opts) {
   const o = opts || {};
   return `<div class="rte-wrap"${o.style ? ` style="${o.style}"` : ''}>
     <div class="rte-tb">
       <div class="rte-tools">
+        ${_rteB('undo', '↶', 'Αναίρεση (Ctrl+Z)')}${_rteB('redo', '↷', 'Επανάληψη (Ctrl+Y)')}
+        <span class="rte-sep"></span>
+        ${_rteM('style', 'Στυλ', 'Στυλ κειμένου')}
         ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}
         ${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}
         ${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
+        ${_rteB('strikeThrough', '<s>S</s>', 'Διαγράμμιση')}
+        ${_rteM('fg', '<span class="rte-a">A</span>', 'Χρώμα κειμένου')}
+        ${_rteM('bg', '<span class="rte-hl">A</span>', 'Φόντο / ετικέτα')}
+        ${_rteM('size', 'Aa', 'Μέγεθος γραμμάτων')}
         <span class="rte-sep"></span>
+        ${_rteM('align', '≡', 'Στοίχιση')}
         ${_rteB('insertUnorderedList', '&bull;&nbsp;<span class="rte-l">Λίστα</span>', 'Κουκκίδες')}
         ${_rteB('insertOrderedList', '1.&nbsp;<span class="rte-l">Λίστα</span>', 'Αρίθμηση')}
+        ${_rteB('__check', '☑', 'Λίστα ελέγχου')}
         <span class="rte-sep"></span>
-        ${_rteB('formatBlock', 'H', 'Επικεφαλίδα', 'h3')}
         ${_rteB('formatBlock', '&ldquo;&rdquo;', 'Παράθεση', 'blockquote')}
         ${_rteB('__code', '&lt;/&gt;', 'Κώδικας')}
-        <span class="rte-sep"></span>
         ${_rteB('__link', I.link, 'Σύνδεσμος')}
+        ${_rteM('insert', '＋', 'Εισαγωγή: εικόνα, αρχείο, emoji, πίνακας, στοιχεία εργασίας')}
         ${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
       </div>
       ${_rteB('__ai', I.sparkle + ' <span class="rte-ai-l">Έλεγχος</span>', 'Ορθογραφικός & συντακτικός έλεγχος με AI')}
     </div>
-    <div class="rte" id="${id}" contenteditable="true"${o.min ? ` style="min-height:${o.min}px"` : ''}
+    <div class="rte" id="${id}" contenteditable="true"${o.min ? ` style="min-height:${o.min}px"` : ''}${o.task ? ` data-task="${+o.task}"` : ''}
       data-ph="${esc(placeholder || '')}">${_rteSeed(value)}</div>
   </div>`;
+}
+/* Αναδυόμενο μενού της εργαλειοθήκης (ένα κάθε φορά). */
+let rtePop = null;
+function rteClosePop() { if (rtePop) { rtePop.remove(); rtePop = null; } }
+function rteOpenPop(btn, wrap, name) {
+  const ed = wrap.querySelector('.rte, .act-edit');
+  const r = btn.getBoundingClientRect();          // ΠΡΙΝ κλείσει το γονικό μενού (το κουμπί μπορεί να είναι μέσα του)
+  rteClosePop();
+  rtePop = document.createElement('div');
+  rtePop.className = 'rte-pop rte-pop-' + name;
+  rtePop._wrap = wrap;
+  rtePop.style.zIndex = cnpTopZ() + 20;
+  rtePop.innerHTML = RTE_MENUS[name](ed);
+  document.body.appendChild(rtePop);
+  const w = rtePop.offsetWidth, h = rtePop.offsetHeight;
+  rtePop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  rtePop.style.top = (r.bottom + h + 6 > innerHeight && r.top - h - 4 > 0 ? r.top - h - 4 : r.bottom + 4) + 'px';
+}
+document.addEventListener('mousedown', e => { if (rtePop && !rtePop.contains(e.target) && !(e.target.closest && e.target.closest('.rte-mb'))) { rteClosePop(); } }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && rtePop) { e.stopPropagation(); rteClosePop(); } }, true);
+/* Ανέβασμα αρχείου ΜΕΣΑ στο κείμενο: εικόνα → inline· άλλο → σύνδεσμος 📎. Σε εργασία το αρχείο
+   πάει και στα «Συνημμένα ζητουμένου» (ref_type task), ώστε να μη χάνεται αν σβηστεί ο σύνδεσμος. */
+async function cnpRteUpload(ed, file) {
+  if (/^image\//.test(file.type || '')) { return cnpPasteImage(ed, file); }
+  const sel = getSelection(), range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  toast('Ανέβασμα «' + file.name + '»…');
+  const fd = new FormData(), tid = +(ed.dataset.task || 0);
+  fd.append('module', 'task'); fd.append('ref_type', tid ? 'task' : 'rte'); fd.append('ref_id', String(tid)); fd.append('file', file);
+  const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json()).catch(() => null);
+  if (!r || !r.file) { toast((r && r.error) || 'Το αρχείο δεν ανέβηκε', true); return false; }
+  ed.focus();
+  if (range && ed.contains(range.startContainer)) { sel.removeAllRanges(); sel.addRange(range); }
+  document.execCommand('insertHTML', false, `<a href="api.php?a=file_get&id=${r.file.id}" class="rte-file">📎 ${esc(file.name)}</a>&nbsp;`);
+  if (window.CNP_markDirty) { window.CNP_markDirty(ed); }
+  return true;
+}
+/* Διαλέγεις εργασία (τίτλος ή #ID) — για το στοιχείο «Εξάρτηση». */
+function cnpPickTask(title, excludeId) {
+  return new Promise(resolve => {
+    const ovl = document.createElement('div');
+    ovl.className = 'ovl show'; ovl.style.zIndex = cnpTopZ() + 10;
+    ovl.innerHTML = `<div class="pal-box" style="margin:18vh auto 0;max-width:480px" role="dialog" data-cnp-dlg="1">
+      <div style="padding:18px 20px"><b style="font-size:15px;color:var(--ink)">${esc(title)}</b>
+        <input class="inp" id="ptQ" placeholder="Τίτλος ή #ID…" autocomplete="off" style="margin-top:10px;width:100%">
+        <div id="ptRes" class="pt-res"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-o" id="cnpDlgNo">Άκυρο</button></div></div></div>`;
+    document.body.appendChild(ovl);
+    const q = ovl.querySelector('#ptQ'), res = ovl.querySelector('#ptRes');
+    let hits = [], at = 0, seq = 0, tm = 0;
+    const done = v => { ovl.remove(); document.removeEventListener('keydown', key, true); resolve(v); };
+    const paint = () => { res.innerHTML = hits.map((h, i) => `<button type="button" class="sub-link-row${i === at ? ' on' : ''}" data-i="${i}"><span class="sub-link-dot" style="background:${esc(h.pcolor || '#8595ac')}"></span><span class="sub-link-t">${esc(h.title)}</span><span class="mut">${esc(h.pname || '')}</span></button>`).join('')
+      || (q.value.trim().length >= 2 ? '<div class="mut" style="padding:8px">Καμία εργασία</div>' : ''); };
+    q.oninput = () => { clearTimeout(tm); tm = setTimeout(async () => {
+      const v = q.value.trim(), my = ++seq; if (v.length < 2 && !/^#?\d+$/.test(v)) { hits = []; paint(); return; }
+      const r = await api('search&q=' + encodeURIComponent(v)).catch(() => ({tasks: []})); if (my !== seq) { return; }
+      hits = (r.tasks || []).filter(h => h.id !== excludeId).slice(0, 8); at = 0; paint(); }, 200); };
+    const key = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (hits.length) { at = (at + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length; paint(); } }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (hits[at]) { done(hits[at]); } }
+    };
+    document.addEventListener('keydown', key, true);
+    res.onmousedown = e => { const b = e.target.closest('[data-i]'); if (b) { e.preventDefault(); done(hits[+b.dataset.i]); } };
+    ovl.querySelector('#cnpDlgNo').onclick = () => done(null);
+    setTimeout(() => q.focus(), 30);
+  });
 }
 
 /**
@@ -1743,11 +1849,99 @@ document.addEventListener('click', e => {
   if (!b) { return; }
   e.preventDefault();
   /* Ο ίδιος μηχανισμός για τον πλήρη editor (.rte-wrap > .rte) και για τη σύνθεση ενέργειας (.act-composer > .act-edit). */
-  const wrap = b.closest('.rte-wrap, .act-composer');
+  const pop = b.closest('.rte-pop');
+  const wrap = b.closest('.rte-wrap, .act-composer') || (pop && pop._wrap);
   const ed = wrap ? wrap.querySelector('.rte, .act-edit') : null;
   if (!ed) { return; }
-  const cmd = b.dataset.cmd;
-  if (cmd === 'foreColor' || cmd === 'hiliteColor') { try { document.execCommand('styleWithCSS', false, true); } catch (e) {} }
+  const cmd = b.dataset.cmd, arg = b.dataset.arg || null;
+  if (cmd === '__menu') {
+    if (!pop && rtePop && rtePop._name === arg) { rteClosePop(); return; }
+    rteOpenPop(pop ? b : b, wrap, arg); rtePop._name = arg; return;
+  }
+  if (pop) { rteClosePop(); }
+  if (/^(foreColor|hiliteColor|justify)/.test(cmd)) { try { document.execCommand('styleWithCSS', false, true); } catch (e) {} }
+  const selNow = getSelection();
+  const saved = selNow.rangeCount && ed.contains(selNow.getRangeAt(0).startContainer) ? selNow.getRangeAt(0).cloneRange() : null;
+  const restore = () => { ed.focus(); if (saved) { const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(saved); } };
+  const dirty = () => { ed.dispatchEvent(new Event('input', {bubbles: true})); if (window.CNP_markDirty) { window.CNP_markDirty(ed); } };
+  if (cmd === '__size') {
+    if (!ed.contains(document.activeElement) && document.activeElement !== ed) { ed.focus(); }
+    try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
+    document.execCommand('fontSize', false, '7');
+    ed.querySelectorAll('font[size="7"]').forEach(f => {
+      const sp = document.createElement('span');
+      if (arg !== 'm') { sp.className = 'rte-fs-' + arg; }
+      sp.innerHTML = f.innerHTML;
+      sp.querySelectorAll('.rte-fs-s, .rte-fs-l').forEach(x => x.classList.remove('rte-fs-s', 'rte-fs-l'));
+      f.replaceWith(sp);
+    });
+    dirty(); return;
+  }
+  if (cmd === '__check') {
+    restore();
+    const inUl = () => { const n = getSelection().anchorNode; const el = n && (n.nodeType === 1 ? n : n.parentElement); return el ? el.closest('ul') : null; };
+    let ul = inUl();
+    if (ul && ed.contains(ul) && ul.classList.contains('rte-check')) { ul.classList.remove('rte-check'); dirty(); return; }
+    if (!ul || !ed.contains(ul)) { document.execCommand('insertUnorderedList'); ul = inUl(); }
+    if (ul && ed.contains(ul)) { ul.classList.add('rte-check'); }
+    dirty(); return;
+  }
+  if (cmd === '__table') {
+    cnpPrompt('Πίνακας — γραμμές × στήλες:', {input: '3x3', ok: 'Εισαγωγή'}).then(v => {
+      const m = String(v || '').match(/(\d+)\s*[x×χ*]\s*(\d+)/i); if (!m) { return; }
+      const R = Math.min(30, Math.max(1, +m[1])), C = Math.min(10, Math.max(1, +m[2]));
+      const row = tag => '<tr>' + Array.from({length: C}, () => `<${tag}><br></${tag}>`).join('') + '</tr>';
+      restore();
+      document.execCommand('insertHTML', false, `<table class="rte-tbl"><thead>${row('th')}</thead><tbody>${Array.from({length: Math.max(1, R - 1)}, () => row('td')).join('')}</tbody></table><p><br></p>`);
+      dirty();
+    });
+    return;
+  }
+  if (cmd === '__img' || cmd === '__file') {
+    const fi = document.createElement('input'); fi.type = 'file'; fi.multiple = true;
+    if (cmd === '__img') { fi.accept = 'image/*'; }
+    fi.onchange = async () => { restore(); for (const f of [...fi.files]) { await cnpRteUpload(ed, f); } dirty(); };
+    fi.click(); return;
+  }
+  if (cmd === '__linkcard') {
+    cnpPrompt('Σύνδεσμος (URL):', {ok: 'Επόμενο', placeholder: 'https://…'}).then(u => {
+      if (!u) { return; }
+      const url = /^(https?:|mailto:)/i.test(u) ? u : 'https://' + u;
+      cnpPrompt('Τίτλος συνδέσμου:', {input: url.replace(/^https?:\/\//, '').slice(0, 60), ok: 'Εισαγωγή'}).then(lbl => {
+        if (lbl === null) { return; }
+        restore();
+        document.execCommand('insertHTML', false, `<a href="${esc(url)}" class="rte-ref rte-ref-link">🔗 ${esc(lbl || url)}</a>&nbsp;`);
+        dirty();
+      });
+    });
+    return;
+  }
+  if (cmd === '__sub' || cmd === '__dep') {
+    const tid = +(ed.dataset.task || 0);
+    if (!tid) { toast('Διαθέσιμο μέσα σε εργασία', true); return; }
+    (async () => {
+      let chip = '';
+      if (cmd === '__sub') {
+        const tt = await cnpPrompt('Νέα υποεργασία — τι πρέπει να γίνει;', {ok: 'Δημιουργία', placeholder: 'Τίτλος υποεργασίας'});
+        if (!tt || !tt.trim()) { return; }
+        const r = await api('task_sub_add', {task: tid, title: tt.trim()}).catch(e => ({err: e.message}));
+        if (r.err) { toast(r.err, true); return; }
+        chip = `<a href="#/task/${+r.id}" class="rte-ref rte-ref-sub">↳ #${+r.id} ${esc(tt.trim())}</a>`;
+        toast('Δημιουργήθηκε υποεργασία #' + r.id);
+      } else {
+        const pk = await cnpPickTask('Εξάρτηση — ποια εργασία πρέπει να τελειώσει πρώτα;', tid);
+        if (!pk) { return; }
+        const r = await api('dep_add', {task: tid, on: pk.id}).catch(e => ({err: e.message}));
+        if (r.err) { toast(r.err, true); return; }
+        chip = `<a href="#/task/${+pk.id}" class="rte-ref rte-ref-dep">⛓ Περιμένει: ${esc(String(pk.title).replace(/^#\d+\s*/, '#' + pk.id + ' '))}</a>`;
+        toast('Προστέθηκε εξάρτηση');
+      }
+      restore();
+      document.execCommand('insertHTML', false, chip + '&nbsp;');
+      dirty();
+    })();
+    return;
+  }
   // αν χάθηκε η εστίαση (π.χ. tab/πρόγραμμα ανάγνωσης), επανέφερέ τη στον editor
   if (!ed.contains(document.activeElement) && document.activeElement !== ed) { ed.focus(); }
   if (cmd === '__ai') {
@@ -1782,6 +1976,44 @@ document.addEventListener('click', e => {
     return;
   }
   document.execCommand(cmd, false, b.dataset.arg || null);
+}, true);
+/* Σύνδεσμοι «#/task/N» (στοιχεία υποεργασίας/εξάρτησης στο κείμενο): ο router δεν ανοίγει
+   εργασίες από το hash — το κάνουμε εδώ. Μέσα σε editor μόνο με Ctrl/⌘+κλικ (αλλιώς γράφεις). */
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a[href^="#/task/"]');
+  if (!a) { return; }
+  const inEd = a.closest('[contenteditable="true"]');
+  if (inEd && !(e.ctrlKey || e.metaKey)) { e.preventDefault(); return; }
+  const m = a.getAttribute('href').match(/^#\/task\/(\d+)/);
+  if (m) { e.preventDefault(); e.stopPropagation(); openTask(+m[1]); }
+}, true);
+/* ☑ Λίστα ελέγχου: κλικ στο κουτάκι (αριστερά του στοιχείου) = έγινε / δεν έγινε. Μέσα στον editor
+   αποθηκεύεται με το autosave· στην ανάγνωση (χωρίς δικαίωμα επεξεργασίας) δεν αλλάζει. */
+document.addEventListener('click', e => {
+  const li = e.target.closest && e.target.closest('.rte ul.rte-check > li');
+  if (!li) { return; }
+  if (e.clientX - li.getBoundingClientRect().left > 24) { return; }
+  e.preventDefault();
+  li.classList.toggle('done');
+  const ed = li.closest('.rte');
+  ed.dispatchEvent(new Event('input', {bubbles: true}));
+  if (window.CNP_markDirty) { window.CNP_markDirty(ed); }
+});
+/* Σύρσιμο αρχείων ΜΕΣΑ στον editor: μπαίνουν εκεί που τα άφησες (εικόνα inline, άλλο ως 📎). */
+document.addEventListener('dragover', e => {
+  const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"]');
+  if (ed && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); ed.classList.add('rte-drop'); }
+}, true);
+document.addEventListener('dragleave', e => { const ed = e.target.closest && e.target.closest('.rte'); if (ed) { ed.classList.remove('rte-drop'); } }, true);
+document.addEventListener('drop', async e => {
+  const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"]');
+  if (!ed || !e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) { return; }
+  e.preventDefault(); e.stopPropagation(); ed.classList.remove('rte-drop');
+  ed.focus();
+  const rg = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+  if (rg && ed.contains(rg.startContainer)) { const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(rg); }
+  for (const f of [...e.dataTransfer.files]) { await cnpRteUpload(ed, f); }
+  ed.dispatchEvent(new Event('input', {bubbles: true}));
 }, true);
 /** ✨ Ορθογραφικός/συντακτικός έλεγχος του editor — δείχνει ΤΙ αλλάζει πριν εφαρμοστεί. */
 async function rteProof(ed, btn) {
@@ -2312,7 +2544,17 @@ function cnpDatesScan() {
   const fresh = document.querySelectorAll('input[type=date]:not([data-cnp-ds])');
   fresh.forEach(cnpDateSkin);
   document.querySelectorAll('select[data-combo]:not([data-cnp-cb])').forEach(cnpCombo);
+  /* (16/10/2026) ΚΑΘΕ μεγάλη λίστα (≥ CNP_COMBO_MIN επιλογές) γίνεται αυτόματα λίστα με αναζήτηση —
+     έργα, πελάτες, συνάδελφοι… όπου κι αν εμφανίζονται. Εξαίρεση: data-no-combo, multiple/size. */
+  document.querySelectorAll('select:not([data-cnp-cb]):not([multiple]):not([size]):not([data-no-combo]):not(.set-subsel):not(.act-sel)').forEach(s => {
+    if (s.options.length < CNP_COMBO_MIN || s.hidden || s.closest('.cb-pan')) { return; }
+    if (getComputedStyle(s).display === 'none') { return; }      // κρυμμένο σκόπιμα (π.χ. μόνο για κινητό)
+    cnpCombo(s);
+  });
+  /* κουμπί που έμεινε ορφανό (ο κώδικας αντικατέστησε μόνο το select) */
+  document.querySelectorAll('.cb-btn').forEach(b => { if (b._sel && !b._sel.isConnected) { b.remove(); } });
 }
+const CNP_COMBO_MIN = 10;
 
 /* ── Λίστα επιλογής με αναζήτηση (16/10/2026) ──────────────────────────────
    <select data-combo> → κουμπί + πάνελ με πεδίο αναζήτησης (χωρίς τόνους, και
@@ -2329,6 +2571,12 @@ function cnpCombo(sel) {
   if (sel.id) { btn.dataset.for = sel.id; }
   if (sel.title) { btn.title = sel.title; }
   btn.style.cssText = sel.style.cssText;
+  btn._sel = sel;
+  /* Ίδιο πλάτος με το select: όλο το κουτί αν το γέμιζε, αλλιώς το πλάτος του. */
+  if (!sel.style.width) {
+    const par = sel.parentElement, sw = sel.offsetWidth;
+    if (!sw || (par && sw >= par.clientWidth - 6)) { btn.style.width = '100%'; } else { btn.style.width = sw + 'px'; }
+  }
   sel.style.display = 'none';
   sel.after(btn);
   const label = () => {
@@ -3390,7 +3638,7 @@ async function openTask(id, entryId, opts) {
       ${canEditBrief ? '' : '<span class="pill pill-mut" style="margin-left:auto;flex:none" title="Το ορίζει μόνο ο δημιουργός της εργασίας">read-only</span>'}</div>
       <div class="card-b">
         ${canEditBrief
-          ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι… (@Όνομα = ειδοποίηση)', {min: 110})
+          ? rteHtml('fDescr', d.descr || '', 'Περιγραφή, βήματα, σύνδεσμοι… (@Όνομα = ειδοποίηση) · σύρε εδώ αρχεία', {min: 110, task: t.id})
             /* ΜΙΑ ΑΠΟΘΗΚΕΥΣΗ, ΣΤΑ ΔΕΞΙΑ. Εδώ υπήρχε δεύτερο κουμπί μόνο για το
                ζητούμενο — δύο «αποθηκεύσεις» στην ίδια καρτέλα, και έπρεπε να
                ξέρεις ποια σώζει τι. Το δεξί «Αποθήκευση» τα σώζει όλα, και το
@@ -5409,10 +5657,17 @@ async function vMyDay() {
     <span class="myd-a">${a.done ? `<button class="btn btn-sm btn-o" data-attdone="${i}" title="Τακτοποιήθηκε — φεύγει από εδώ">✓</button>` : ''}
       ${a.alt ? `<button class="btn btn-sm btn-o" data-attalt="${i}" title="${esc(a.altT || '')}">${a.alt}</button>` : ''}
       <button class="btn btn-sm btn-p" data-attgo="${i}">${esc(a.act)}</button></span></div>`;
+  /* 🎥 Σύνδεσμος συμμετοχής (16/10/2026): ενεργός 5΄ πριν την έναρξη και όσο κρατά — ο server
+     λέει πότε (joinOpen/joinFrom). Πριν από αυτό φαίνεται «από ΩΩ:ΛΛ», ώστε να ξέρεις ότι υπάρχει. */
+  const joinA = (e, cls, label) => `<a class="btn btn-sm ${cls}" href="${esc(e.join)}"${/^https?:/i.test(e.join) ? ' target="_blank" rel="noopener"' : ''}
+      onclick="event.stopPropagation()" style="flex:none" title="${esc(e.join)}">${label}</a>`;
+  const joinBtn = e => !e.join ? ''
+    : e.joinOpen ? joinA(e, 'btn-p', /^tel:/.test(e.join) ? '📞 Κάλεσε' : '🎥 Μπες')
+    : (!e.over && e.joinFrom > nowStamp()) ? `<span class="pill pill-mut" style="flex:none" title="Ο σύνδεσμος ανοίγει 5΄ πριν την έναρξη">🎥 από ${hm(e.joinFrom)}</span>` : '';
   const evRow = e => `<div class="myd-row ev${e.over ? ' past' : ''}${e.now ? ' now' : ''}" data-cal="${e.id}">
     <span class="myd-time">${e.allDay ? 'όλη μέρα' : hm(e.start) + '–' + hm(e.end)}</span>
     <span class="myd-t"><b>${esc(e.title)}</b><span class="mut"> · ${e.left ? 'βγήκες ' + hm(e.leftAt) + ' · ' : ''}${e.kind === 'appointment' ? 'ραντεβού' : e.kind === 'meeting' ? 'σύσκεψη' : esc(e.kind)}${e.clientName ? ' · ' + esc(e.clientName) : ''}${e.location && !/^https?:/i.test(e.location) ? ' · ' + esc(e.location) : ''}${e.mode ? ' · ' + esc(e.mode) : ''}</span></span>
-    ${e.location && /^https?:/i.test(e.location) ? `<a class="btn btn-sm btn-o" href="${esc(e.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="flex:none" title="${esc(e.location)}">🎥 Μπες</a>` : ''}
+    ${joinBtn(e)}
     ${/* «ΒΓΗΚΑ» ΟΣΟ ΤΡΕΧΕΙ, ΟΧΙ ΜΟΝΟ ΣΤΗΝ ΥΠΕΡΒΑΣΗ. Η σύσκεψη μπορεί να συνεχίζεται
          για τους υπόλοιπους κι εσύ να έχεις φύγει· μέχρι τώρα έπρεπε να περιμένεις
          να ξεπεράσει την ώρα της για να το δηλώσεις. Η απάντηση είναι ατομική:
@@ -5456,11 +5711,22 @@ async function vMyDay() {
   /* ── 1. Τώρα ── */
   const elapsed = since => { const s = Math.max(0, Math.floor((Date.now() - new Date(since.replace(' ', 'T')).getTime()) / 1000)); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}`; };
   const minsTo = e => Math.round((new Date(e.start.replace(' ', 'T')) - Date.now()) / 60000);
-  const hero = `<div class="myd-hero">
+  /* «Σε σύσκεψη» — η σύσκεψη που τρέχει ή ξεκινά σε ≤5΄, με τον σύνδεσμο ΕΔΩ, όχι στο email. */
+  const meetNow = evs.filter(e => e.joinOpen && e.join);
+  const meetBar = meetNow.length ? `<div class="myd-meet">${meetNow.map(e => {
+      const m = minsTo(e);
+      return `<div class="myd-meet-r"><span class="myd-meet-k">🎥 ${e.now ? 'Σε σύσκεψη' : (m <= 0 ? 'Ξεκινά τώρα' : 'Ξεκινά σε ' + m + '΄')}</span>
+        <b class="myd-meet-t" data-cal="${e.id}">${esc(e.title)}</b><span class="mut">${hm(e.start)}–${hm(e.end)}${e.people ? ' · ' + e.people + ' άτομα' : ''}</span>
+        ${joinA(e, 'btn-p', /^tel:/.test(e.join) ? '📞 Κάλεσε τώρα' : (e.isMeet ? '🎥 Μπες στη σύσκεψη' : '🎥 Άνοιξε τον σύνδεσμο'))}</div>`; }).join('')}</div>` : '';
+  /* Ο σύνδεσμος της επόμενης σύσκεψης «ανοίγει» μόνος του: ξαναζωγραφίζουμε τη στιγμή που μπαίνει στο 5λεπτο. */
+  clearTimeout(window._cnpMeetT);
+  { const nx = evs.filter(e => e.join && !e.joinOpen && !e.over && e.joinFrom > nowStamp()).map(e => new Date(e.joinFrom.replace(' ', 'T')) - Date.now()).sort((a, b) => a - b)[0];
+    if (nx && nx < 6 * 3600e3) { window._cnpMeetT = setTimeout(() => { if (S.view === 'myday') { vMyDay(); } }, nx + 1500); } }
+  const hero = meetBar + `<div class="myd-hero">
     <div class="myd-hero-l"><div class="myd-date">${esc(dayName)}</div>
       ${timer ? `<div class="myd-now live"><span class="myd-now-k">▶ Δουλεύεις τώρα</span><b data-mdtask="${timer.task}" class="myd-now-t">${esc(timer.title)}</b>
           <span class="myd-now-e" id="mdElapsed">${elapsed(timer.since)}</span><button class="btn btn-sm btn-danger" id="mdStop">${I.stop} Stop</button></div>`
-        : nowEv ? `<div class="myd-now"><span class="myd-now-k">📅 Τώρα</span><b class="myd-now-t" data-cal="${nowEv.id}">${esc(nowEv.title)}</b><span class="myd-now-e">έως ${hm(nowEv.end)}</span></div>`
+        : nowEv ? `<div class="myd-now"><span class="myd-now-k">📅 Τώρα</span><b class="myd-now-t" data-cal="${nowEv.id}">${esc(nowEv.title)}</b><span class="myd-now-e">έως ${hm(nowEv.end)}</span>${nowEv.join && nowEv.joinOpen ? joinA(nowEv, 'btn-p', '🎥 Μπες') : ''}</div>`
         : `<div class="myd-now idle"><span class="myd-now-k">Δεν τρέχει χρόνος</span><span class="mut">διάλεξε από το πρόγραμμα και πάτα ▶ — ο χρόνος που δεν ξεκινά, δεν καταγράφεται</span></div>`}
     </div>
     <button class="btn btn-p myd-next-b" id="mydNext" title="Πήγαινέ με στο επόμενο που πρέπει να πιάσω (n)">▶ Επόμενο</button>

@@ -53,8 +53,9 @@ $log('Recurring: ' . Capsule::table('mod_cpm_recurring')->where('active', 1)->wh
 if ($dry) {
     $log('(dry) παράλειψη digest');
 } else {
-    $sent = Notify::dailyDigest();
-    $log('Digest emails: ' . $sent);
+    /* (16/10/2026) Η σύνοψη φεύγει πια στις 08:00 από crons/digest.php (lib/Digest.php) —
+       ΜΙΑ ανά άνθρωπο, με τα δικά του και της ομάδας του. Εδώ δεν στέλνουμε τίποτα. */
+    $log('Digest: στις 08:00 (crons/digest.php)');
 }
 
 $log('Τέλος.');
@@ -170,7 +171,8 @@ try {
         if ($dry) { continue; }
 
         Db::pushNotification((int) $L->admin_id, 'pileup', mb_substr($msg, 0, 240), '/project/#/myteam');
-        try {
+        /* Email: μόνο στη σύνοψη των 08:00 (Digest — ενότητα ομάδας). */
+        if (false) try {
             $to = Notify::adminEmail((int) $L->admin_id);
             if ($to) {
                 Notify::sendTo($to, 'Συσσώρευση στην ομάδα «' . $L->name . '»',
@@ -220,7 +222,8 @@ try {
         $msg = count($list) . ' εργασίες επέστρεψαν σε εσένα: δεν έχουν έναρξη/λήξη, '
             . 'οπότε δεν μπορούν να μείνουν σε άλλον. Βάλε ημερομηνίες για να τις ξαναδώσεις.';
         Db::pushNotification($aid, 'action', mb_substr($msg, 0, 240), '/project/#/myday');
-        try {
+        /* Email: μόνο στη σύνοψη των 08:00 (οι εργασίες φαίνονται εκεί ως «χωρίς ημερομηνίες»). */
+        if (false) try {
             $to5 = Notify::adminEmail($aid);
             if ($to5) {
                 Notify::sendTo($to5, count($list) . ' εργασίες επέστρεψαν σε εσένα',
