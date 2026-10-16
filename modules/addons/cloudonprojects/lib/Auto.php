@@ -111,7 +111,7 @@ class Auto
                 break;
             case 'set_prio':
                 if ($taskId) {
-                    Db::saveTask($taskId, ['priority' => min(2, max(0, (int) $a->avalue))], null);
+                    Db::saveTask($taskId, ['priority' => min(4, max(-2, (int) $a->avalue))], null);
                 }
                 break;
             case 'notify':

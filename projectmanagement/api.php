@@ -5227,7 +5227,7 @@ case 'template_step_save':
         'off_due' => max(0, (int) ($in['offDue'] ?? 0)),
         'off_deadline' => ($in['offDeadline'] ?? '') !== '' ? max(0, (int) $in['offDeadline']) : null,
         'est_minutes' => (int) ($in['est'] ?? 0) ?: null,
-        'prio' => min(2, max(0, (int) ($in['prio'] ?? 0))),
+        'prio' => min(4, max(-2, (int) ($in['prio'] ?? 0))),
         'checks' => trim((string) ($in['checks'] ?? ''))];
     $sid = (int) ($in['id'] ?? 0);
     if ($sid) {
@@ -9629,7 +9629,7 @@ case 'save_task':
         $data['assignee'] = $newA;
     }
     if (array_key_exists('prio', $in)) {
-        $data['priority'] = min(2, max(0, (int) $in['prio']));
+        $data['priority'] = min(4, max(-2, (int) $in['prio']));
     }
     /* ── Επικυρώσεις (QA 18/9/2026) — ελέγχονται πάνω στις ΤΕΛΙΚΕΣ τιμές (νέες ή υπάρχουσες) ── */
     $eff = function ($k, $col) use ($data, $t) { return array_key_exists($k, $data) ? $data[$k] : ($t->$col ?? null); };
@@ -13695,7 +13695,7 @@ case 'save_recurring':
         'title' => $titleR,
         'descr' => cnp_clean_html($in['descr'] ?? '', 60000),
         'steps' => mb_substr(trim((string) ($in['steps'] ?? '')), 0, 4000),
-        'priority' => min(2, max(0, (int) ($in['prio'] ?? 0))),
+        'priority' => min(4, max(-2, (int) ($in['prio'] ?? 0))),
         'assignee' => count($ppl) === 1 ? $ppl[0] : null,
         'people' => ',' . implode(',', $ppl) . ',',
         'freq' => $freq, 'every' => max(1, min(52, (int) ($in['every'] ?? 1))),

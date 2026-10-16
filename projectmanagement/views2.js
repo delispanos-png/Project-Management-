@@ -3,7 +3,7 @@
 const {S, api, esc, timeInput, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, dFull, cnpSetDate, today, toast, setTop,
   adminName, adminIni, statusOf, stPill, stDot, typeOf, dnd, I, go, openTask, closeDrawer, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpDenied, cnpCan, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, $, $$, cnpHolder} = window.CNP;
 const R = window.R;
-const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p] || '#8595ac';
+const prioDot = p => window.CNP.cnpPrioColor(p);
 const skel = (n, h) => `<div class="grid g4">${`<div class="skel" style="height:${h || 90}px"></div>`.repeat(n)}</div>`;
 
 /* ═════════ ΟΜΑΔΙΚΟ ΗΜΕΡΟΛΟΓΙΟ ═════════ */
@@ -515,7 +515,7 @@ R.calendar = async function (arg) {
   };
   const tkChip = (t, date) => `<a class="ev ${t.done ? 'done' : date < today() ? 'over' : ''}"
       style="border-color:${t.color}" data-task="${t.id}" title="${esc(t.title + ' — ' + t.pname)}">
-      ${t.status ? stDot(t.status) : ''}${t.prio === 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`;
+      ${t.status ? stDot(t.status) : ''}${t.prio >= 2 ? '<b style="color:#e2515f">!</b> ' : ''}${esc(t.title)}</a>`;
 
   /* ── πλέγμα μήνα ── */
   const monthGrid = () => {
@@ -575,7 +575,7 @@ R.calendar = async function (arg) {
       ${allDay.length || tks.length ? `<div class="cd-top">
         ${allDay.map(ev => { const [ico, , col] = EV_KINDS[ev.kind] || EV_KINDS.other;
           return `<div class="cd-ev" data-agevent="${ev.id}" style="border-left-color:${col}"><b>${ico} ${esc(ev.title)}</b><span class="mut">Ολοήμερο${ev.attendees.length ? ' · ' + esc(ev.attendees.map(a => adminName(a)).join(', ')) : ''}</span></div>`; }).join('')}
-        ${tks.map(t => `<div class="cd-ev" data-agtask="${t.id}" style="border-left-color:${t.color}"><b>${t.prio === 2 ? '❗ ' : ''}${esc(t.title)}</b><span class="mut">Λήξη εργασίας · ${esc(t.pname || '—')}</span></div>`).join('')}
+        ${tks.map(t => `<div class="cd-ev" data-agtask="${t.id}" style="border-left-color:${t.color}"><b>${t.prio >= 2 ? '❗ ' : ''}${esc(t.title)}</b><span class="mut">Λήξη εργασίας · ${esc(t.pname || '—')}</span></div>`).join('')}
       </div>` : ''}
       <div class="cd-grid">${rows.join('')}</div></div>`;
   };
@@ -654,7 +654,7 @@ R.calendar = async function (arg) {
         const over = date < today() && !tk.done;
         body += `<div class="cal-ag-row" data-agtask="${tk.id}" style="border-left-color:${tk.color}">
           <div class="cal-ag-ic" style="background:${tk.color}20">${I.checkSquare || '✔'}</div>
-          <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio === 2 ? '❗ ' : ''}${esc(tk.title)}</b>
+          <div style="flex:1;min-width:0"><b style="${tk.done ? 'text-decoration:line-through;opacity:.6' : ''}">${tk.prio >= 2 ? '❗ ' : ''}${esc(tk.title)}</b>
             <div class="cal-ag-meta">${tk.status ? stPill(tk.status) + ' · ' : ''}Λήξη task · ${esc(tk.pname || '—')}${over ? ' · <span style="color:var(--bad);font-weight:700">εκπρόθεσμο</span>' : ''}</div></div></div>`;
       });
       box.innerHTML = `<div class="cal-agenda-h"><b>${dayNames[dtx.getDay()]} ${dtx.getDate()} ${MN[dtx.getMonth()]}</b>${MOBC ? '<span class="mut" style="font-size:11px">πάτα για άνοιγμα</span>' : ''}
@@ -3954,7 +3954,7 @@ function openRecurring(r) {
         <div><label class="lbl">Τμήμα <span class="mut" style="font-weight:400">— αν δεν έχει έργο</span></label>
           <select class="inp" id="rDept"><option value="">—</option>${depts.map(x => `<option value="${x.id}" ${x.id === r.dept ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Προτεραιότητα</label>
-          <select class="inp" id="rPrio">${['Κανονική', 'Υψηλή', 'Επείγουσα'].map((v, i) => `<option value="${i}" ${i === r.prio ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+          <select class="inp" id="rPrio">${[window.CNP.cnpPrioOpts(r.prio)].join('')}</select></div>
         <label style="display:flex;gap:7px;align-items:center;font-size:13px;margin-top:22px"><input type="checkbox" id="rActive" ${r.active ? 'checked' : ''}> Ενεργή</label>
       </div>
       <div id="rErr" class="mut" style="font-size:12px;color:var(--bad)" hidden></div>
