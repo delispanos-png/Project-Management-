@@ -4865,7 +4865,7 @@ function cnp_action_cap($action)
         $add('projects.depts', ['depts_load', 'dept_view']);
         $add('projects.share', ['share_save', 'share_info', 'share_revoke', 'share_reply']);
         $add('projects.recurring', ['recurring', 'save_recurring', 'del_recurring']);   // ορισμός κανόνων· η ΑΝΑΛΗΨΗ (rec_claim) είναι προσωπική
-        $add('projects.goodday', ['gd_import_preview', 'gd_import_create', 'gd_import_subtasks', 'gd_import_files', 'gd_import_resync']);   // + board.edit για έργο, ελέγχεται μέσα
+        $add('projects.goodday', ['gd_import_preview', 'gd_import_create', 'gd_import_subtasks', 'gd_import_files', 'gd_import_resync', 'gd_link_preview', 'gd_link_apply']);   // + board.edit για έργο, ελέγχεται μέσα
         $add('projects.recurring|reports.triage', ['recurrent']);
         $add('finance.profit.edit|projects.portfolio.edit', ['add_expense', 'del_expense']);
 
@@ -9271,6 +9271,126 @@ case 'gd_import_files':
         $gdFiles['saved'] += $r8['saved']; $gdFiles['missing'] = array_merge($gdFiles['missing'], $r8['missing']);
     }
     out(['ok' => true, 'files' => $gdFiles]);
+
+/* 🔗 ΣΥΝΔΕΣΗ ΥΠΑΡΧΟΥΣΑΣ ΕΡΓΑΣΙΑΣ ΜΕ GOODDAY (16/10/2026).
+   Για εργασίες που μεταφέρθηκαν χειροκίνητα: η εργασία ΜΑΣ μένει, «πλουτίζει» με το ιστορικό,
+   τα αρχεία και τις υποεργασίες του GoodDay, και με ΟΣΑ πεδία διαλέξεις στην προεπισκόπηση
+   (τίτλος, ζητούμενο αντικατάσταση/προσθήκη, ανάθεση, μπάλα, ημερομηνίες, εκτίμηση).
+   Δύο βήματα όπως η εισαγωγή: προεπισκόπηση (stage στον server) → εφαρμογή. */
+case 'gd_link_preview':
+case 'gd_link_apply':
+    GoodDayImport::ensure();
+    $glT = Db::task((int) ($in['task'] ?? 0));
+    if (!$glT || !Db::canSeeTask($adminId, $glT)) { fail('task', 404); }
+    if (!cnp_task_write_ok($adminId, $FULL, $glT)) { fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403); }
+    $glOwn = Capsule::table('mod_cpm_ext_imports')->where('task_id', (int) $glT->id)->first(['ext_task_id']);
+    if ($glOwn) { fail('Η εργασία είναι ήδη συνδεδεμένη με το GoodDay ' . $glOwn->ext_task_id . ' — χρησιμοποίησε «↻ Ξανά από GoodDay».', 409, ['code' => 'linked']); }
+    $glTz = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'goodday_tz')->value('value') ?? '');
+    $glClean = function ($h) { return cnp_clean_html($h, 60000); };
+    $glName = function ($id) { return Db::adminName((int) $id); };
+    if ($action === 'gd_link_preview') {
+        try {
+            $glEnv = GoodDayImport::retrieve((string) ($in['ref'] ?? ''), cnp_goodday_token());
+            $glSubs = GoodDayImport::retrieveSubtasks($glEnv, cnp_goodday_token());
+        } catch (\InvalidArgumentException $e) {
+            fail($e->getMessage(), 400, ['code' => 'ref']);
+        } catch (GoodDayError $e) {
+            fail($e->getMessage(), $e->status === -1 ? 409 : 502, $e->status === -1 ? ['code' => 'config'] : ['code' => 'retrieve', 'retry' => !in_array($e->status, [401, 403, 404], true)]);
+        }
+        $glEx = GoodDayImport::existing((string) $glEnv['external_task_id']);
+        if ($glEx) { fail('Αυτή η εργασία GoodDay είναι ήδη συνδεδεμένη με την #' . $glEx['task'] . ' «' . $glEx['title'] . '».', 409, ['code' => 'exists', 'task' => $glEx['task']]); }
+        $glPlan = GoodDayImport::plan($glEnv, $glClean, $glName, $glTz);
+        $glSubList = [];
+        foreach ($glSubs as $gS) { $glSubList[] = GoodDayImport::subSummary($gS, GoodDayImport::plan($gS['env'], $glClean, $glName, $glTz)); }
+        $glPlan['warnings'] = array_values(array_filter($glPlan['warnings'], function ($w) { return ($w['code'] ?? '') !== 'subtasks_not_imported'; }));
+        /* Το «ήδη ανοιγμένη εδώ» ΔΕΝ μπλοκάρει τη σύνδεση — συχνά δείχνει ακριβώς ΑΥΤΗ την εργασία. */
+        $glHere = GoodDayImport::alreadyHere($glPlan['ext'], $glEnv)['block'];
+        out(['ok' => true, 'stage' => GoodDayImport::stagePut($adminId, $glEnv, $glSubs), 'subtasks' => $glSubList,
+            'here' => $glHere ? ['why' => $glHere['why'], 'task' => $glHere['task'] ?? null, 'same' => (int) ($glHere['task'] ?? 0) === (int) $glT->id] : null,
+            'current' => ['id' => (int) $glT->id, 'title' => (string) $glT->title, 'descr' => (string) ($glT->descr ?? ''),
+                'assignee' => (int) $glT->assignee, 'ball' => (int) $glT->action_user,
+                'due' => GoodDayImport::dateOnly($glT->due_date), 'start' => GoodDayImport::dateOnly($glT->start_date),
+                'estimate' => $glT->estimate_minutes !== null ? (int) $glT->estimate_minutes : null]] + $glPlan);
+    }
+    /* ── εφαρμογή ── */
+    $glSt = GoodDayImport::stageGet($adminId, (string) ($in['stage'] ?? ''));
+    if (!$glSt) { fail('Η προεπισκόπηση έληξε — πάτα ξανά «Ανάκτηση».', 410, ['code' => 'stage']); }
+    $glEnv = $glSt['env'];
+    $glEx = GoodDayImport::existing((string) $glEnv['external_task_id']);
+    if ($glEx) { fail('Η εργασία GoodDay συνδέθηκε στο μεταξύ με την #' . $glEx['task'] . '.', 409, ['code' => 'exists', 'task' => $glEx['task']]); }
+    $glPlan = GoodDayImport::plan($glEnv, $glClean, $glName, $glTz);
+    $glA = (array) ($in['apply'] ?? []);
+    $glUpd = [];
+    $glWhat = [];
+    if (!empty($glA['title'])) {
+        $v = trim((string) ($in['title'] ?? ''));
+        if ($v === '' || mb_strlen($v) > 200) { fail('Ο τίτλος θέλει 1–200 χαρακτήρες', 400, ['field' => 'title']); }
+        $glUpd['title'] = GoodDayImport::txt($v, 200); $glWhat[] = 'τίτλος';
+    }
+    $glMode = (string) ($in['descr_mode'] ?? 'keep');
+    if ($glMode === 'replace' || $glMode === 'append') {
+        /* Ίδιος κανόνας με το save_task: το ζητούμενο το αλλάζει ο Full ή ο δημιουργός της εργασίας. */
+        if (!$FULL && (int) $glT->created_by !== $adminId) { fail('Το ζητούμενο το αλλάζει μόνο όποιος άνοιξε την εργασία (ή Full)', 403, ['field' => 'descr_from']); }
+        $pick = (string) ($in['descr_from'] ?? '');
+        $h = null;
+        if ($pick === 'description') { $h = $glPlan['descr']; }
+        else { foreach ($glPlan['messages'] as $gm) { if ($gm['ext'] === $pick) { $h = $gm['html']; break; } } }
+        if ($h === null) { fail('Διάλεξε ποιο μήνυμα του GoodDay γίνεται ζητούμενο', 400, ['field' => 'descr_from']); }
+        $glUpd['descr'] = $glMode === 'append' && trim(strip_tags((string) $glT->descr)) !== ''
+            ? cnp_clean_html((string) $glT->descr . '<p><br></p><p><b>Από GoodDay ' . htmlspecialchars((string) $glEnv['external_task_id'], ENT_QUOTES, 'UTF-8') . ':</b></p>' . $h, 60000)
+            : $h;
+        $glWhat[] = $glMode === 'append' ? 'ζητούμενο (προσθήκη)' : 'ζητούμενο';
+    }
+    foreach (['assignee' => 'assignee', 'ball' => 'action_user'] as $k => $col) {
+        if (empty($glA[$k])) { continue; }
+        $v = (int) ($in[$k] ?? 0);
+        if ($v && !Capsule::table('tbladmins')->where('id', $v)->where('disabled', 0)->exists()) { fail('Μη ενεργός χρήστης', 400, ['field' => $k]); }
+        if ($v && $v !== $adminId && !cnp_has_cap($adminId, $FULL, 'projects.board.edit')) { fail('Χρειάζεται «Board: επεξεργασία» για ανάθεση σε συνάδελφο', 403, ['field' => $k]); }
+        $glUpd[$col] = $v ?: null; $glWhat[] = $k === 'assignee' ? 'ανάθεση' : 'μπάλα';
+    }
+    foreach (['due' => 'due_date', 'start' => 'start_date'] as $k => $col) {
+        if (empty($glA[$k])) { continue; }
+        $v = trim((string) ($in[$k] ?? ''));
+        if ($v !== '' && GoodDayImport::dateOnly($v) !== $v) { fail('Μη έγκυρη ημερομηνία', 400, ['field' => $k]); }
+        $glUpd[$col] = $v ?: null; $glWhat[] = $k === 'due' ? 'λήξη' : 'έναρξη';
+    }
+    if (!empty($glA['estimate'])) {
+        $v = trim((string) ($in['estimate'] ?? ''));
+        if ($v !== '' && (!ctype_digit($v) || (int) $v > 1000000)) { fail('Η εκτίμηση είναι σε λεπτά (ακέραιος)', 400, ['field' => 'estimate']); }
+        $glUpd['estimate_minutes'] = $v === '' ? null : (int) $v; $glWhat[] = 'εκτίμηση';
+    }
+    if (isset($glUpd['assignee'], $glUpd['action_user']) && $glUpd['assignee'] === $glUpd['action_user']) { $glUpd['action_user'] = null; }
+    $glCx = Capsule::connection();
+    $glCx->beginTransaction();
+    try {
+        GoodDayImport::persist((int) $glT->id, $adminId, $glEnv, $glPlan);
+        if ($glUpd) { Db::saveTask((int) $glT->id, $glUpd, $adminId); }
+        Db::logActivity((int) $glT->id, $adminId, 'update', 'Σύνδεση με GoodDay ' . $glEnv['external_task_id'] . ' · ' . count($glPlan['messages'])
+            . ' μηνύματα ιστορικού' . ($glWhat ? ' · ενημερώθηκαν: ' . implode(', ', $glWhat) : ''));
+        $glSubRes = ['made' => 0, 'skipped' => []];
+        if (!empty($in['with_subs'])) {
+            $glP = Db::task((int) $glT->id);
+            foreach ($glSt['subs'] as $gS) {
+                $r9 = GoodDayImport::createChild($glP, $gS, $adminId, $glClean, $glName, $glTz);
+                if (isset($r9['id'])) { $glSubRes['made']++; } else { $glSubRes['skipped'][] = $r9; }
+            }
+        }
+        $glCx->commit();
+    } catch (\Throwable $e) {
+        while ($glCx->transactionLevel() > 0) { $glCx->rollBack(); }
+        logActivity('CPM: αποτυχία σύνδεσης GoodDay για #' . (int) $glT->id . ': ' . get_class($e));
+        fail('Η σύνδεση απέτυχε — δεν άλλαξε τίποτα. Δοκίμασε ξανά.', 500, ['retry' => true]);
+    }
+    GoodDayImport::stageDrop((string) $in['stage']);
+    $glFiles = ['saved' => 0, 'missing' => []];
+    $glTr = [];
+    foreach (GoodDayImport::importIdsOfTree((int) $glT->id) as $gIid) {
+        $r8 = GoodDayImport::fetchFiles($gIid, $adminId, cnp_goodday_token());
+        $glFiles['saved'] += $r8['saved']; $glFiles['missing'] = array_merge($glFiles['missing'], $r8['missing']);
+        $glTr[] = GoodDayImport::markTransferred($gIid, $adminId, cnp_goodday_token());
+    }
+    $glTrBad = array_values(array_filter($glTr, function ($x) { return $x !== 'ok'; }));
+    out(['ok' => true, 'id' => (int) $glT->id, 'updated' => $glWhat, 'subs' => $glSubRes, 'files' => $glFiles, 'transfer' => $glTrBad ? $glTrBad[0] : 'ok']);
 
 case 'save_task':
     $tid = (int) ($in['task'] ?? 0);

@@ -614,6 +614,139 @@ function gdImport(ref) {
   if (ref) { refEl.value = ref; fetchPv(); } else { setTimeout(() => refEl.focus(), 30); }
 }
 window.CNP.gdImport = gdImport;
+
+/* ═════════ 🔗 Σύνδεση ΥΠΑΡΧΟΥΣΑΣ εργασίας με GoodDay (16/10/2026) ═════════
+   Για εργασίες που ανοίχτηκαν εδώ με το χέρι: φέρνει ιστορικό, αρχεία, υποεργασίες, και —
+   ΜΟΝΟ όσα τσεκάρεις— τίτλο, ζητούμενο (αντικατάσταση ή προσθήκη), ανάθεση, μπάλα,
+   ημερομηνίες, εκτίμηση. Προτσεκαρισμένα είναι μόνο όσα εδώ είναι κενά. */
+function gdLink(taskId, opt) {
+  if (!cnpCan('projects.goodday')) { toast('Χρειάζεται το δικαίωμα «Εισαγωγή από GoodDay»', true); return; }
+  const o0 = opt || {};
+  const admins = (S.boot.admins || []).filter(a => !a.disabled && !/support team|\bbot\b/i.test(a.name) && String(a.name).trim() !== 'Cloud On');
+  let pv = null, busy = false;
+  const ovl = document.createElement('div');
+  ovl.className = 'ovl show';
+  ovl.style.zIndex = (window.CNP.cnpTopZ ? window.CNP.cnpTopZ() : 300) + 10;
+  ovl.innerHTML = `<div class="pal-box gd-box" role="dialog" aria-label="Σύνδεση με GoodDay" onclick="event.stopPropagation()">
+    <div class="gd-h"><b>🔗 Σύνδεση της #${taskId} με εργασία GoodDay</b>
+      <span class="mut">η εργασία μένει ίδια — προστίθενται ιστορικό, αρχεία, υποεργασίες και όσα πεδία διαλέξεις</span></div>
+    <div class="gd-ref"><input class="inp" id="glRef" placeholder="Σύνδεσμος εργασίας GoodDay (https://www.goodday.work/t/…) ή ID" autocomplete="off" spellcheck="false">
+      <button type="button" class="btn btn-p" id="glGo">Ανάκτηση</button></div>
+    <div class="gd-msg" id="glMsg" aria-live="polite"></div>
+    <div class="gd-body" id="glBody"></div>
+    <div class="gd-foot" id="glFoot" hidden><span class="mut" id="glNote">Τίποτα δεν αλλάζει πριν πατήσεις «Σύνδεση».</span><span style="flex:1"></span>
+      <button type="button" class="btn btn-o" id="glCancel">Άκυρο</button>
+      <button type="button" class="btn btn-p" id="glApply">🔗 Σύνδεση &amp; εφαρμογή</button></div></div>`;
+  document.body.appendChild(ovl);
+  const $o = s => ovl.querySelector(s);
+  const close = () => ovl.remove();
+  $o('#glCancel').onclick = close;
+  const say = (html, kind) => { const m = $o('#glMsg'); m.className = 'gd-msg' + (kind ? ' gd-' + kind : ''); m.innerHTML = html || ''; };
+  const nm = id => id ? esc(adminName(id)) : '<span class="mut">—</span>';
+  const strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const aOpts = sel => '<option value="">— κανείς —</option>' + admins.map(a => `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
+
+  const render = () => {
+    const d = pv, f = d.fields, c = d.current;
+    const textMsgs = d.messages.filter(m => m.kind === 'text');
+    const ar = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
+    const asg = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
+    const gAss = ar || asg, gBall = asg && asg !== gAss ? asg : 0;
+    const top = d.descr !== null ? 'description' : (d.topMsg || '');
+    const descrEmpty = !strip(c.descr);
+    const row = (k, label, cur, inp, on, note) => `<tr><td><input type="checkbox" data-gla="${k}"${on ? ' checked' : ''}></td>
+      <td><b>${label}</b>${note ? `<div class="mut" style="font-size:11px">${note}</div>` : ''}</td><td class="gl-cur">${cur}</td><td>${inp}</td></tr>`;
+    const nAtt = d.messages.reduce((n, m) => n + (m.attachments ? m.attachments.length : 0), 0);
+    $o('#glBody').innerHTML = `
+      ${d.here ? `<div class="gd-ex" style="${d.here.same ? 'border-color:var(--ok);background:#16a26a10' : ''}">${d.here.same ? '✓ ' : '⚠ '}${esc(d.here.why)}${d.here.same ? ' — είναι αυτή εδώ, σωστή σύνδεση.' : ''}</div>` : ''}
+      <div class="gl-src"><span class="mut">GoodDay</span> <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.url)}</a>
+        · εκεί: <b>${esc(d.sourceStatus.name || '—')}</b> · θα γίνει «TRANSFERRED to CloudOn Projects»</div>
+      <table class="gl-tbl"><thead><tr><th></th><th>Πεδίο</th><th>Τώρα εδώ</th><th>Από GoodDay (μπορείς να το αλλάξεις)</th></tr></thead><tbody>
+        ${row('title', 'Τίτλος', esc(c.title), `<input class="inp" id="glT" maxlength="200" value="${esc(f.title)}">`, false)}
+        <tr><td></td><td><b>Ζητούμενο</b>${o0.canBrief ? '' : '<div class="mut" style="font-size:11px">το αλλάζει μόνο ο δημιουργός / Full</div>'}</td>
+          <td class="gl-cur">${descrEmpty ? '<span class="mut">κενό</span>' : esc(strip(c.descr).slice(0, 90)) + (strip(c.descr).length > 90 ? '…' : '')}</td>
+          <td><select class="inp" id="glDm"${o0.canBrief ? '' : ' disabled'}>
+              <option value="keep"${descrEmpty ? '' : ' selected'}>Κράτα το δικό μας</option>
+              <option value="replace"${descrEmpty ? ' selected' : ''}>Αντικατάσταση με…</option>
+              <option value="append"${descrEmpty ? ' disabled' : ''}>Προσθήκη κάτω από το δικό μας…</option></select>
+            <select class="inp" id="glDf" data-combo style="margin-top:5px"${o0.canBrief ? '' : ' disabled'}>
+              ${d.descr !== null ? `<option value="description"${top === 'description' ? ' selected' : ''}>Η περιγραφή του GoodDay</option>` : ''}
+              ${textMsgs.map(m => `<option value="${esc(m.ext)}"${m.ext === top ? ' selected' : ''}>${m.ext === d.topMsg ? '★ ' : ''}${esc(m.from ? (m.from.adminName || m.from.name) : '?')} · ${esc(m.at ? dShort(m.at.slice(0, 10)) : '')} — ${esc(strip(m.html).slice(0, 60))}</option>`).join('')}</select></td></tr>
+        ${row('assignee', 'Ανάθεση', nm(c.assignee), `<select class="inp" id="glA" data-combo>${aOpts(gAss)}</select>`, !c.assignee && !!gAss, 'GoodDay: Action required')}
+        ${row('ball', 'Η μπάλα σε', c.ball ? nm(c.ball) : '<span class="mut">ο ανάδοχος</span>', `<select class="inp" id="glB" data-combo>${aOpts(gBall).replace('— κανείς —', '— ο ανάδοχος —')}</select>`, !c.ball && !!gBall, 'GoodDay: Assigned to')}
+        ${row('start', 'Έναρξη', c.start ? esc(dFull(c.start)) : '<span class="mut">—</span>', `<input class="inp" type="date" id="glS" value="${esc(f.start || '')}">`, !c.start && !!f.start)}
+        ${row('due', 'Λήξη', c.due ? esc(dFull(c.due)) : '<span class="mut">—</span>', `<input class="inp" type="date" id="glD" value="${esc(f.due || '')}">`, !c.due && !!f.due)}
+        ${row('estimate', 'Εκτίμηση (λεπτά)', c.estimate !== null ? esc(String(c.estimate)) : '<span class="mut">—</span>', `<input class="inp" id="glE" inputmode="numeric" value="${f.estimate !== null ? f.estimate : ''}">`, c.estimate === null && f.estimate !== null)}
+      </tbody></table>
+      <div class="gd-sec">Έρχονται πάντα</div>
+      <ul class="gl-adds"><li><b>${textMsgs.length}</b> μηνύματα ιστορικού (+ ${d.messages.length - textMsgs.length} συμβάντα) με αρχικό συντάκτη &amp; ώρα — μόνο ανάγνωση</li>
+        ${nAtt ? `<li><b>${nAtt}</b> αρχεία, δεμένα στο μήνυμά τους</li>` : ''}
+        <li>το ID του GoodDay μένει στην εργασία → μετά υπάρχει «↻ Ξανά από GoodDay»</li></ul>
+      ${(d.subtasks || []).length ? `<label class="gd-chk"><input type="checkbox" id="glSubs" checked> και οι <b>${d.subtasks.length}</b> υποεργασίες του GoodDay ως υποεργασίες εδώ
+        <span class="mut">(${d.subtasks.filter(x => x.skip).length ? d.subtasks.filter(x => x.skip).length + ' υπάρχουν ήδη — παραλείπονται' : 'καθεμία με ιστορικό & αρχεία'})</span></label>` : ''}
+      ${d.warnings.length ? `<div class="gd-sec">Προειδοποιήσεις <b>${d.warnings.length}</b></div><ul class="gd-w">${d.warnings.map(w => `<li>${esc(w.message || w.code)}</li>`).join('')}</ul>` : ''}`;
+    const sync = () => {
+      const m = $o('#glDm').value; const df = $o('#glDf');
+      if (df) { df.disabled = !o0.canBrief || m === 'keep'; }
+      $$('[data-gla]', ovl).forEach(cb => { const tr = cb.closest('tr'); tr.classList.toggle('gl-off', !cb.checked); });
+    };
+    $o('#glDm').onchange = sync;
+    $$('[data-gla]', ovl).forEach(cb => cb.onchange = sync);
+    /* αλλαγή τιμής = θέλεις να εφαρμοστεί */
+    [['glT', 'title'], ['glA', 'assignee'], ['glB', 'ball'], ['glS', 'start'], ['glD', 'due'], ['glE', 'estimate']].forEach(([i, k]) => {
+      const el = $o('#' + i); if (el) { el.addEventListener('change', () => { const cb = ovl.querySelector(`[data-gla="${k}"]`); if (cb) { cb.checked = true; sync(); } }); }
+    });
+    sync();
+    $o('#glFoot').hidden = false;
+  };
+  const fetchPv = async () => {
+    const ref = $o('#glRef').value.trim();
+    if (!ref) { say('Επικόλλησε τον σύνδεσμο της εργασίας από το GoodDay.', 'bad'); return; }
+    if (busy) { return; }
+    busy = true; $o('#glGo').disabled = true; $o('#glBody').innerHTML = ''; $o('#glFoot').hidden = true;
+    say('<span class="gd-spin"></span> Ανάκτηση από το GoodDay…', 'load');
+    try {
+      pv = await api('gd_link_preview', {task: taskId, ref});
+      say(`Ανακτήθηκε <b>${esc(pv.ext)}</b> — διάλεξε τι εφαρμόζεται και πάτα «Σύνδεση».`, 'ok');
+      render();
+    } catch (e) {
+      const dd = (e && e.data) || {};
+      say(esc(e.message) + (dd.task ? ` <button type="button" class="btn btn-sm btn-p" id="glOpen">Άνοιξε την #${dd.task}</button>` : '') + (dd.retry ? ' <button type="button" class="btn btn-sm btn-o" id="glRetry">Δοκίμασε ξανά</button>' : ''), 'bad');
+      const ob = $o('#glOpen'); if (ob) { ob.onclick = () => { close(); openTask(dd.task); }; }
+      const rb = $o('#glRetry'); if (rb) { rb.onclick = fetchPv; }
+    } finally { busy = false; $o('#glGo').disabled = false; }
+  };
+  $o('#glGo').onclick = fetchPv;
+  $o('#glRef').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fetchPv(); } });
+  $o('#glApply').onclick = async () => {
+    if (!pv || busy) { return; }
+    const apply = {}; $$('[data-gla]', ovl).forEach(cb => { apply[cb.dataset.gla] = cb.checked ? 1 : 0; });
+    const body = {task: taskId, stage: pv.stage, apply,
+      title: $o('#glT').value.trim(), assignee: +$o('#glA').value || 0, ball: +$o('#glB').value || 0,
+      start: $o('#glS').value, due: $o('#glD').value, estimate: $o('#glE').value.trim(),
+      descr_mode: o0.canBrief ? $o('#glDm').value : 'keep', descr_from: $o('#glDf') ? $o('#glDf').value : '',
+      with_subs: $o('#glSubs') && $o('#glSubs').checked ? 1 : 0};
+    if (apply.estimate && body.estimate && !/^\d+$/.test(body.estimate)) { say('Η εκτίμηση είναι σε λεπτά (ακέραιος)', 'bad'); return; }
+    busy = true; $o('#glApply').disabled = true;
+    say('<span class="gd-spin"></span> Σύνδεση: ιστορικό, υποεργασίες, αρχεία…', 'load');
+    try {
+      const r = await api('gd_link_apply', body);
+      close();
+      const fm = (r.files && r.files.missing) || [];
+      toast('Συνδέθηκε με GoodDay ✓' + (r.updated && r.updated.length ? ' · ' + r.updated.join(', ') : '')
+        + (r.subs && r.subs.made ? ' · ' + r.subs.made + ' υποεργασίες' : '') + (r.files && r.files.saved ? ' · ' + r.files.saved + ' αρχεία' : '')
+        + (fm.length ? ' · ' + fm.length + ' αρχεία δεν ήρθαν' : '') + (r.transfer !== 'ok' ? ' · TRANSFERRED απέτυχε: ' + r.transfer : ''), fm.length > 0 || r.transfer !== 'ok');
+      openTask(taskId);
+    } catch (e) {
+      busy = false; $o('#glApply').disabled = false;
+      const dd = (e && e.data) || {};
+      say(esc(e.message), 'bad');
+      if (dd.code === 'stage') { $o('#glFoot').hidden = true; }
+    }
+  };
+  setTimeout(() => $o('#glRef').focus(), 30);
+}
+window.CNP.gdLink = gdLink;
 window.CNP.gdLooksLikeRef = gdLooksLikeRef;
 
 /* ═════════ ☎ Καταγραφή κλήσης (πλήκτρο τ / t με shift) ═════════
