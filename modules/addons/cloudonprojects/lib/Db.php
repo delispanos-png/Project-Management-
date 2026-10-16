@@ -573,6 +573,10 @@ class Db
         if (!$s->hasColumn('mod_cpm_views', 'is_template')) {
             $s->table('mod_cpm_views', function ($t) { $t->tinyInteger('is_template')->default(0); });
         }
+        /* (16/10/2026) ο δημιουργός δίνει δικαίωμα αλλαγής σε συγκεκριμένους (",3,9,") */
+        if (!$s->hasColumn('mod_cpm_views', 'editors')) {
+            $s->table('mod_cpm_views', function ($t) { $t->string('editors', 255)->nullable(); });
+        }
 
         /* Chat μέσα στο Meet (2/10/2026): ανά δωμάτιο, μένει για όποιον μπει αργότερα. */
         if (!$s->hasTable('mod_cpm_rtc_chat')) {
@@ -3636,6 +3640,31 @@ class Db
     }
 
     /** Ορατό task: ορατό project Ή ανατεθειμένο στον ίδιο. */
+    /** Βάθος στο δέντρο υποεργασιών: 0 = κύρια, 1 = υποεργασία, 2 = υπο-υποεργασία. Μέγιστο 3 επίπεδα (16/10/2026). */
+    const SUB_LEVELS = 3;
+    public static function taskDepth($id)
+    {
+        $d = 0; $seen = [];
+        $p = (int) Capsule::table('mod_cpm_tasks')->where('id', (int) $id)->value('parent_id');
+        while ($p && !isset($seen[$p]) && $d < 10) { $seen[$p] = 1; $d++; $p = (int) Capsule::table('mod_cpm_tasks')->where('id', $p)->value('parent_id'); }
+        return $d;
+    }
+    /** Ύψος του υποδέντρου κάτω από την εργασία (0 = χωρίς υποεργασίες). */
+    public static function taskHeight($id, $guard = 0)
+    {
+        if ($guard > 10) { return 0; }
+        $h = 0;
+        foreach (Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $id)->pluck('id')->all() as $c) { $h = max($h, 1 + self::taskHeight((int) $c, $guard + 1)); }
+        return $h;
+    }
+    /** Είναι ο $maybeAncestor πρόγονος του $id; (για να μη γίνει κύκλος) */
+    public static function isAncestor($maybeAncestor, $id)
+    {
+        $p = (int) Capsule::table('mod_cpm_tasks')->where('id', (int) $id)->value('parent_id'); $n = 0;
+        while ($p && $n++ < 10) { if ($p === (int) $maybeAncestor) { return true; } $p = (int) Capsule::table('mod_cpm_tasks')->where('id', $p)->value('parent_id'); }
+        return false;
+    }
+
     /** Τα μέλη (ενεργά, εκτός από τον ίδιο) των ομάδων όπου ο $adminId είναι επικεφαλής. */
     public static function ledMemberIds($adminId)
     {

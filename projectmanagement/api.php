@@ -4855,7 +4855,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
         $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler',
-            'views_list', 'view_save', 'view_del', 'view_default', 'view_pin']);   // views της Λίστας: ιδιοκτησία ελέγχεται μέσα στις ενέργειες
+            'views_list', 'view_save', 'view_del', 'view_default', 'view_pin', 'view_ui']);   // views της Λίστας: ιδιοκτησία ελέγχεται μέσα στις ενέργειες
         $add('projects.board.edit', ['task_project', 'gantt_move',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
@@ -5000,7 +5000,7 @@ function cnp_open_actions()
            «Board: επεξεργασία»), όχι σκέτο cap — όποιος δουλεύει την εργασία τη σπάει σε
            κομμάτια και δηλώνει τι περιμένει, χωρίς να ζητά δικαίωμα διαχειριστή. */
         'task_sub_add', 'task_parent', 'dep_add', 'dep_del',
-        'task', 'task_delete', 'task_handoff', 'task_share',
+        'task', 'task_stamp', 'task_delete', 'task_handoff', 'task_share',
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
         'save_task', 'move_task', 'task_reopen', 'comment', 'timer_start', 'timer_stop', 'time_add',
@@ -5672,7 +5672,8 @@ case 'task':
         if ($pRow) { $parentOf = ['id' => (int) $pRow->id, 'title' => (string) $pRow->title]; }
     }
     $subsOf = [];
-    if (empty($t->parent_id)) {
+    $depthT = Db::taskDepth((int) $t->id);
+    if ($depthT < Db::SUB_LEVELS - 1) {
         $subMins = [];
         $subIds = array_map('intval', Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $t->id)->pluck('id')->all());
         if ($subIds) {
@@ -5718,7 +5719,8 @@ case 'task':
         'canDue' => $FULL || (int) ($t->action_user ?: $t->assignee) === 0 || (int) ($t->action_user ?: $t->assignee) === $adminId
             || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
         'canDeadline' => $FULL || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
-        'parentTask' => $parentOf, 'subs' => $subsOf,
+        'parentTask' => $parentOf, 'subs' => $subsOf, 'depth' => $depthT, 'subLevels' => Db::SUB_LEVELS,
+        'updatedAt' => (string) $t->updated_at,
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
         'comments' => $comments, 'timelogs' => $logs, 'total' => Db::taskMinutes($t->id),
@@ -7521,8 +7523,9 @@ case 'task_sub_add':                     /* ➕ Νέα υποεργασία κά
         fail('Δεν μπορείς να προσθέσεις υποεργασία εδώ — δεν είναι δική σου και δεν έχεις «Board: επεξεργασία»', 403);
     }
     cnp_task_lock_guard($saP);
-    if (!empty($saP->parent_id)) {
-        fail('Η εργασία είναι ήδη υποεργασία — κρατάμε ΕΝΑ επίπεδο ώστε να παρακολουθείται');
+    /* ΤΡΙΑ επίπεδα (16/10/2026): κύρια → υποεργασία → υπο-υποεργασία. */
+    if (Db::taskDepth((int) $saP->id) >= Db::SUB_LEVELS - 1) {
+        fail('Μέχρι ' . Db::SUB_LEVELS . ' επίπεδα υποεργασιών — αυτή είναι ήδη στο τελευταίο');
     }
     $saTitle = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['title'] ?? '')));
     if ($saTitle === '') { fail('Γράψε τι πρέπει να γίνει'); }
@@ -7564,9 +7567,10 @@ case 'task_parent':                      /* 🔗 Σύνδεση/αποσύνδε
         if (!$tpPar || !Db::canSeeTask($adminId, $tpPar)) { fail('Η γονική εργασία δεν βρέθηκε', 404); }
         if (!cnp_task_write_ok($adminId, $FULL, $tpPar)) { fail('Δεν μπορείς να αλλάξεις τη γονική εργασία #' . $tpPid, 403); }
         if ((int) $tpC->parent_id === $tpPid) { fail('Είναι ήδη υποεργασία της #' . $tpPid); }
-        if (!empty($tpPar->parent_id)) { fail('Ο γονιός είναι ήδη υποεργασία — κρατάμε ΕΝΑ επίπεδο'); }
-        if (Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $tpC->id)->exists()) {
-            fail('Αυτή η εργασία έχει ήδη δικές της υποεργασίες — δεν γίνεται και παιδί');
+        /* ΤΡΙΑ επίπεδα συνολικά (16/10/2026) και ποτέ κύκλος (γονιός κάτω από το ίδιο του το παιδί). */
+        if ($tpPid === (int) $tpC->id || Db::isAncestor((int) $tpC->id, $tpPid)) { fail('Δεν γίνεται: η #' . $tpPid . ' είναι ήδη κάτω από την #' . (int) $tpC->id); }
+        if (Db::taskDepth($tpPid) + 1 + Db::taskHeight((int) $tpC->id) > Db::SUB_LEVELS - 1) {
+            fail('Μέχρι ' . Db::SUB_LEVELS . ' επίπεδα υποεργασιών — με αυτή τη σύνδεση θα γίνονταν περισσότερα');
         }
         Capsule::table('mod_cpm_tasks')->where('id', (int) $tpC->id)
             ->update(['parent_id' => $tpPid, 'updated_at' => date('Y-m-d H:i:s')]);
@@ -11341,6 +11345,7 @@ case 'list':
         /* clientLabel με μνήμη: ως 300 εργασίες, συχνά του ίδιου πελάτη. */
         $d['clientName'] = $cl9 ? ($clLbl9[$cl9] ?? ($clLbl9[$cl9] = clientLabel($cl9))) : '';
         $d['running'] = $runL[(int) $t->id] ?? [];
+        $d['updatedAt'] = (string) $t->updated_at;      // για αθόρυβη ανανέωση: τα παλιότερα δεν «γυρίζουν» δική μου αλλαγή
         $list[] = $d;
     }
     out(['tasks' => $list]);
@@ -16604,17 +16609,46 @@ case 'views_list':
         $w->where('owner_id', $adminId)->orWhere('scope', 'public')
           ->orWhere(function ($x) use ($vwMates) { $x->where('scope', 'team')->whereIn('owner_id', $vwMates ?: [0]); });
     })->orderBy('name')->get() as $v9) {
+        $eds9 = array_values(array_filter(array_map('intval', explode(',', (string) ($v9->editors ?? '')))));
         $row = ['id' => (int) $v9->id, 'name' => $v9->name, 'scope' => $v9->scope, 'owner' => (int) $v9->owner_id,
             'ownerName' => Db::adminName((int) $v9->owner_id), 'config' => json_decode((string) $v9->config, true) ?: new \stdClass(),
             'template' => !empty($v9->is_template),
-            'canEdit' => (int) $v9->owner_id === $adminId || $FULL, 'updated' => (string) $v9->updated_at];
+            /* αλλάζει: ο δημιουργός, ο Full, ή όσους όρισε ο δημιουργός (editors) */
+            'canEdit' => (int) $v9->owner_id === $adminId || $FULL || in_array($adminId, $eds9, true),
+            'isOwner' => (int) $v9->owner_id === $adminId || $FULL,
+            'editors' => (int) $v9->owner_id === $adminId || $FULL ? $eds9 : [], 'updated' => (string) $v9->updated_at];
         if (!empty($v9->is_template)) { $vw['templates'][] = $row; }
         elseif ((int) $v9->owner_id === $adminId) { $vw['mine'][] = $row; } else { $vw['public'][] = $row; }
     }
     $vw['default'] = (string) Db::pref($adminId, 'list_view_default', '');
     $vw['team'] = Db::ledMemberIds($adminId);
     $vw['pins'] = json_decode((string) Db::pref($adminId, 'view_pins', '[]'), true) ?: [];
+    $vw['ui'] = json_decode((string) Db::pref($adminId, 'lv_ui', '{}'), true) ?: new \stdClass();
     out($vw);
+
+/* Τι έχεις ανοιχτό/κλειστό σε κάθε view (ομάδες + δέντρα υποεργασιών) — προσωπικό, ανά view (16/10/2026). */
+case 'view_ui':
+    $uKey = (string) ($in['key'] ?? '');
+    if (!preg_match('/^(v:\d+|p:[a-z_]{1,20})$/', $uKey)) { fail('input'); }
+    $uAll = json_decode((string) Db::pref($adminId, 'lv_ui', '{}'), true) ?: [];
+    $clean = function ($a, $max) { return array_slice(array_values(array_unique(array_map(function ($x) { return mb_substr((string) $x, 0, 300); }, is_array($a) ? $a : []))), 0, $max); };
+    $uAll[$uKey] = ['closed' => $clean($in['closed'] ?? [], 400), 'open' => array_slice(array_values(array_unique(array_map('intval', is_array($in['open'] ?? null) ? $in['open'] : []))), 0, 500),
+        'at' => time()];
+    if (count($uAll) > 60) { uasort($uAll, function ($a, $b) { return ($b['at'] ?? 0) <=> ($a['at'] ?? 0); }); $uAll = array_slice($uAll, 0, 60, true); }
+    $uJson = json_encode($uAll, JSON_UNESCAPED_UNICODE);
+    if (strlen($uJson) > 60000) { fail('Πολύ μεγάλη κατάσταση view'); }
+    Db::setPref($adminId, 'lv_ui', $uJson);
+    out(['ok' => true]);
+
+/* Ελαφρύ «άλλαξε η ανοιχτή εργασία;» για ζωντανή ανάκτηση της καρτέλας (16/10/2026). */
+case 'task_stamp':
+    $tsT = Db::task((int) ($_GET['id'] ?? 0));
+    if (!$tsT || !Db::canSeeTask($adminId, $tsT)) { fail('task', 404); }
+    $tsA = Capsule::table('mod_cpm_activity')->where('task_id', (int) $tsT->id)->orderBy('id', 'desc')->first(['id', 'admin_id', 'action', 'created_at']);
+    $tsC = (int) Capsule::table('mod_cpm_checklist')->where('task_id', (int) $tsT->id)->max('id');
+    out(['updatedAt' => (string) $tsT->updated_at, 'act' => $tsA ? (int) $tsA->id : 0, 'chk' => $tsC,
+        'by' => $tsA && $tsA->admin_id ? (int) $tsA->admin_id : 0, 'byName' => $tsA && $tsA->admin_id ? Db::adminName((int) $tsA->admin_id) : '',
+        'what' => $tsA ? (string) $tsA->action : '']);
 
 /* 📌 Καρφίτσωμα view στο μενού / στην αρχική με δικό σου όνομα (16/10/2026). Προσωπικό (pref). */
 case 'view_pin':
@@ -16655,9 +16689,20 @@ case 'view_save':
     if ($vId) {
         $vRow = Capsule::table('mod_cpm_views')->where('id', $vId)->first();
         if (!$vRow) { fail('Δεν βρέθηκε το view', 404); }
-        if ((int) $vRow->owner_id !== $adminId && !$FULL) { fail('Το view το αλλάζει μόνο ο δημιουργός του — αντέγραψέ το ως δικό σου', 403); }
+        $vEds = array_values(array_filter(array_map('intval', explode(',', (string) ($vRow->editors ?? '')))));
+        $vOwner = (int) $vRow->owner_id === $adminId || $FULL;
+        if (!$vOwner && !in_array($adminId, $vEds, true)) { fail('Το view το αλλάζει μόνο ο δημιουργός του (ή όποιον έχει ορίσει) — «Αποθήκευση ως νέο» για δικό σου', 403); }
         $upd = ['config' => $vJson, 'updated_at' => date('Y-m-d H:i:s')];
         if ($vName !== '') { $upd['name'] = $vName; }
+        /* Ορατότητα, πρότυπο, πρόσβαση: ΜΟΝΟ ο δημιουργός (ή Full). */
+        if (!$vOwner && (array_key_exists('scope', $in) || array_key_exists('template', $in) || array_key_exists('editors', $in))) {
+            fail('Ορατότητα και πρόσβαση τις αλλάζει μόνο ο δημιουργός του view', 403);
+        }
+        if (array_key_exists('editors', $in)) {
+            $edIn = array_values(array_unique(array_filter(array_map('intval', is_array($in['editors']) ? $in['editors'] : []))));
+            $edIn = array_values(array_filter($edIn, function ($x) use ($vRow) { return $x !== (int) $vRow->owner_id; }));
+            $upd['editors'] = $edIn ? ',' . implode(',', array_slice($edIn, 0, 40)) . ',' : null;
+        }
         if (array_key_exists('template', $in)) { $upd['is_template'] = $vTpl; }
         if (array_key_exists('scope', $in)) {
             if ($vScope === 'public' && $vRow->scope !== 'public' && !$vCanPub) { fail('Δημόσια views φτιάχνει όποιος έχει «Board: επεξεργασία»', 403); }

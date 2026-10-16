@@ -1006,8 +1006,10 @@ async function loadTopStats() {
   chips.push({k: 'needs', ic: I.sos || I.bell, n: d.needs || 0, lbl: 'σε ζητούν', col: '#e2515f', warn: 1});
   /* Εκκρεμείς εγκρίσεις χρέωσης — το chip βγαίνει μόνο σε όποιον τις δίνει. */
   if (d.billPend) { chips.push({k: 'billq', ic: I.coin, n: d.billPend, lbl: 'εγκρίσεις', col: '#e0a020', warn: 1}); }
-  box.innerHTML = chips.map(c => `<button class="pulse-chip${c.n && c.warn ? ' hot' : ''}${c.n ? '' : ' zero'}" data-pgo="${c.k}" title="${c.lbl}">
-    <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join('');
+  const sil = window._cnpSilent; window._cnpSilent = !!box.children.length;   // ήδη ζωγραφισμένο → morph + μετρητές που κυλούν
+  cnpPut(box, chips.map(c => `<button class="pulse-chip${c.n && c.warn ? ' hot' : ''}${c.n ? '' : ' zero'}" data-pgo="${c.k}" data-key="pc-${c.k}-${c.lbl}" title="${c.lbl}">
+    <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join(''));
+  window._cnpSilent = sil;
   $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => {
     if (b.dataset.pgo === 'billq') { billingQueue(); return; }
     if (b.dataset.pgo === 'needs') { const old = $('.pop'); if (old) { old.remove(); } go('requests'); return; }
@@ -2306,8 +2308,29 @@ function cnpMorphKey(n) {
   return n.id || n.getAttribute('data-task') && ('t' + n.getAttribute('data-task'))
     || n.getAttribute('data-key') || n.getAttribute('data-lgrp') && ('g' + n.getAttribute('data-lgrp')) || null;
 }
+/* Μετρητές που ΚΥΛΑΝΕ στη νέα τιμή (αντί να αλλάζουν απότομα) στην αθόρυβη ανανέωση. */
+const CNP_TWEEN = '.n, .kb-n, .myd-kpi-n, .bell-n, .myd-ring b, .fbar-note';
+function cnpTween(node, from, to, suffix) {
+  const t0 = performance.now(), dur = 650;
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    node.nodeValue = Math.round(from + (to - from) * e) + suffix;
+    if (k < 1 && node.isConnected) { requestAnimationFrame(step); }
+  };
+  requestAnimationFrame(step);
+}
+/* Ό,τι άλλαξε από άλλον: σύντομη, διακριτική επισήμανση. */
+function cnpFlash(el) { el.classList.remove('cnp-flash'); void el.offsetWidth; el.classList.add('cnp-flash'); setTimeout(() => el.classList.remove('cnp-flash'), 1700); }
 function cnpMorphNode(o, n) {
-  if (o.nodeType === 3 || o.nodeType === 8) { if (o.nodeValue !== n.nodeValue) { o.nodeValue = n.nodeValue; } return; }
+  if (o.nodeType === 3 || o.nodeType === 8) {
+    if (o.nodeValue !== n.nodeValue) {
+      const pe = o.parentElement, a = /^(\d+)(.*)$/.exec(String(o.nodeValue).trim()), b = /^(\d+)(.*)$/.exec(String(n.nodeValue).trim());
+      if (window._cnpSilent && o.nodeType === 3 && pe && pe.matches && pe.matches(CNP_TWEEN) && a && b && a[2] === b[2] && Math.abs(+b[1] - +a[1]) < 100000) {
+        cnpTween(o, +a[1], +b[1], b[2]);
+      } else { o.nodeValue = n.nodeValue; }
+    }
+    return;
+  }
   /* Περιοχή που γεμίζει ΑΣΥΓΧΡΟΝΑ μετά το ζωγράφισμα: κρατά ό,τι δείχνει ώσπου να
      έρθουν τα νέα της δεδομένα — αλλιώς θα αναβόσβηνε «φόρτωση…» σε κάθε ανανέωση. */
   if (o.hasAttribute('data-async') && (o.childNodes.length || o.hidden !== n.hidden)) { return; }
@@ -2333,10 +2356,16 @@ function cnpMorphChildren(op, np) {
     else { m = olds.find(x => !used.has(x) && !cnpMorphKey(x) && x.nodeType === nn.nodeType && x.nodeName === nn.nodeName) || null; }
     const at = op.childNodes[i] || null;
     if (m) {
-      used.add(m); cnpMorphNode(m, nn);
+      used.add(m);
+      /* εργασία (data-task) που άλλαξε στην αθόρυβη ανανέωση → σύντομη επισήμανση */
+      const flash = window._cnpSilent && k && k[0] === 't' && m.outerHTML !== nn.outerHTML;
+      cnpMorphNode(m, nn);
       if (m !== at) { op.insertBefore(m, at); }
+      if (flash) { cnpFlash(m); }
     } else {
-      op.insertBefore(document.importNode(nn, true), at);
+      const add = document.importNode(nn, true);
+      op.insertBefore(add, at);
+      if (window._cnpSilent && k && k[0] === 't' && add.classList) { cnpFlash(add); }
     }
     i++;
   });
@@ -2353,9 +2382,16 @@ function cnpMorph(el, html) {
  * σιωπηλά. Οθόνες χωρίς υποστήριξη morph δεν ξαναζωγραφίζονται αυτόματα.
  */
 async function cnpSilentRefresh() {
-  const tag = ((document.activeElement || {}).tagName || '').toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || (document.activeElement || {}).isContentEditable) { return false; }
-  if (document.querySelector('.drawer, .ovl.show, .pal-box')) { return false; }
+  /* (16/10/2026) Λιγότερο «δειλή»: ανανεώνει ΚΑΙ με ανοιχτή καρτέλα εργασίας (η οθόνη πίσω της
+     ενημερώνεται· η καρτέλα έχει δικό της έλεγχο — cnpDrawerLive). Δεν τρέχει μόνο όσο:
+     γράφεις κείμενο ΜΕΣΑ στην οθόνη, σέρνεις, ή είναι ανοιχτός διάλογος/αναδυόμενο. Το morph
+     κρατά scroll, focus και ό,τι πληκτρολογείς στα πεδία αναζήτησης. */
+  const ae = document.activeElement || {};
+  const inContent = ae.closest && ae.closest('#content');
+  if (inContent && (ae.tagName === 'TEXTAREA' || ae.isContentEditable)) { return false; }
+  if (window._cnpDragging) { return false; }
+  /* διάλογοι (.pal-box) και αναδυόμενα — η καρτέλα εργασίας (.drawer) ΔΕΝ μετράει εδώ */
+  if (document.querySelector('.ovl.show .pal-box, .cb-pan, .rte-pop, .lv-menu, .cnp-cal, .ment-box, .fv-ovl')) { return false; }
   const view = S.view, R0 = window.R || {};
   const run = view === 'list' && R0.list && R0.list._reload ? R0.list._reload
     : (['board', 'myday'].includes(view) && R0[view]) ? R0[view] : null;
@@ -2369,6 +2405,42 @@ async function cnpSilentRefresh() {
   }
   return true;
 }
+/* ── Ζωντανή ανοιχτή καρτέλα εργασίας (16/10/2026) ──────────────────────────────
+   Σε κάθε σφυγμό, αν είναι ανοιχτή καρτέλα, ελαφρύ «άλλαξε;» (task_stamp). Αν την άλλαξε ΑΛΛΟΣ:
+   • δεν γράφεις/δεν έχεις αλλαγές → ανανεώνεται αθόρυβα (ίδιο scroll, χωρίς animation)·
+   • αλλιώς διακριτική ειδοποίηση πάνω στην καρτέλα με «Φέρε τις αλλαγές» — τα πρόχειρά σου
+     (μήνυμα, ζητούμενο, χρόνος) κρατιούνται. Αληθινή σύγκρουση (άλλαξε το ζητούμενο που γράφεις)
+     λέγεται ρητά. Δικές μου αλλαγές απλώς ενημερώνουν τη σφραγίδα. */
+async function cnpDrawerLive() {
+  const dr = document.querySelector('.drawer.tk-modal.show');
+  if (!dr || !dr.dataset.task || window._cnpDrawerBusy) { return; }
+  const id = +dr.dataset.task;
+  const st0 = await api('task_stamp&id=' + id).catch(() => null);
+  if (!st0 || !document.body.contains(dr)) { return; }
+  const sig = st0.updatedAt + '|' + st0.act + '|' + st0.chk;
+  if (!dr.dataset.stamp) { dr.dataset.stamp = sig; return; }
+  if (dr.dataset.stamp === sig) { return; }
+  dr.dataset.stamp = sig;
+  if (!st0.by || st0.by === S.boot.me.id) { return; }          // δική μου αλλαγή — η καρτέλα ξαναζωγραφίστηκε ήδη
+  const ae = document.activeElement;
+  const typing = ae && dr.contains(ae) && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable);
+  const draft = cnpTaskDraftGrab(id) || {};
+  const hasDraft = !!(draft.chk || (dr.querySelector('#fDescr') || {}).dataset && dr.querySelector('#fDescr').dataset.dirty === '1');
+  const pop = document.querySelector('.cb-pan, .rte-pop, .ment-box, .cnp-cal, .ovl.show .pal-box');
+  const refresh = async () => { window._cnpDrawerBusy = true; try { await openTask(id, 0, {silent: true}); } finally { window._cnpDrawerBusy = false; }
+    const d2 = document.querySelector('.drawer.tk-modal.show'); if (d2) { d2.dataset.stamp = sig; } };
+  if (!typing && !hasDraft && !pop && dr.dataset.dirty !== '1') { await refresh(); return; }
+  /* ειδοποίηση — μία, ενημερώνεται αν ξανααλλάξει */
+  let bar = dr.querySelector('.tk-live');
+  if (!bar) { bar = document.createElement('div'); bar.className = 'tk-live'; dr.prepend(bar); }
+  const conflict = st0.what === 'edit' && dr.querySelector('#fDescr') && dr.querySelector('#fDescr').dataset.dirty === '1';
+  bar.innerHTML = `<span>🔄 ${esc(st0.byName || 'Συνάδελφος')} ενημέρωσε αυτή την εργασία μόλις τώρα${conflict ? ' — <b>επεξεργάζεσαι κι εσύ το ζητούμενο</b>: έλεγξε πριν αποθηκεύσεις' : ''}.</span>
+    <button type="button" class="btn btn-sm btn-o" data-livego>Φέρε τις αλλαγές</button><span class="mut">τα πρόχειρά σου κρατιούνται</span>
+    <button type="button" class="tk-live-x" data-livex title="Αργότερα">✕</button>`;
+  bar.querySelector('[data-livego]').onclick = refresh;
+  bar.querySelector('[data-livex]').onclick = () => bar.remove();
+}
+
 /** Γράψε HTML σε στοιχείο: κανονικά αντικατάσταση· στην αθόρυβη ανανέωση morph — και τίποτα αν δεν άλλαξε. */
 function cnpPut(el, html) {
   if (!el) { return; }
@@ -2911,6 +2983,7 @@ function cnpRenderPins() {
   });
 }
 function go(view, arg) {
+  if (view !== 'list') { document.querySelectorAll('.lv-side').forEach(x => x.remove()); document.body.classList.remove('lv-side-on'); }
   S.view = view;
   S.viewArg = arg ? String(arg) : '';
   location.hash = '#/' + view + (arg ? '/' + arg : '');
@@ -3470,6 +3543,8 @@ async function openTask(id, entryId, opts) {
       d = await api('task&id=' + id).catch(() => d);
     }
   }
+  /* (16/10/2026) ΑΘΟΡΥΒΗ ανανέωση ανοιχτής καρτέλας: ίδιο scroll μέσα της, χωρίς animation. */
+  const scrollKeep = opts.silent ? [...document.querySelectorAll('.drawer.tk-modal *')].filter(e => e.scrollTop > 0).map(e => [e.className, e.scrollTop]) : null;
   window._cnpReopen = id;      // ξανασχεδίασμα της ΙΔΙΑΣ κάρτας δεν είναι κλείσιμο
   closeDrawer();
   window._cnpReopen = 0;
@@ -3978,10 +4053,12 @@ async function openTask(id, entryId, opts) {
     ${/* ── Υποεργασίες ── Ό,τι σπάει σε κομμάτια που ανατίθενται και χρονομετρούνται
           ξεχωριστά. Διαφέρει από τα «ζητούμενα»: εκεί είναι λίστα ελέγχων, εδώ είναι
           κανονικές εργασίες με δικό τους ανάδοχο, ημερομηνία και χρόνο. */''}
+    ${/* (16/10/2026) ως 3 επίπεδα: μια υποεργασία δείχνει τον γονιό ΚΑΙ (αν χωράει) τις δικές της υποεργασίες */''}
     ${d.parentTask ? `<div class="card tk-side"><div class="card-b tk-parent">
         ${I.up || I.chev} Υποεργασία της
-        <a data-dgo="${d.parentTask.id}">${esc(d.parentTask.title)}</a></div></div>`
-      : `<div class="card tk-side"><div class="card-h">${I.list} Υποεργασίες
+        <a data-dgo="${d.parentTask.id}">${esc(d.parentTask.title)}</a></div></div>` : ''}
+    ${d.parentTask && (d.depth || 0) >= (d.subLevels || 3) - 1 ? ''
+      : `<div class="card tk-side"><div class="card-h">${I.list} Υποεργασίες${d.depth ? ` <span class="mut" style="font-size:11px;font-weight:600">— επίπεδο ${d.depth + 2} από ${d.subLevels || 3}</span>` : ''}
         ${(d.subs || []).length ? `<span class="kb-n" style="margin-left:auto">${(d.subs || []).filter(x => x.done).length}/${d.subs.length}</span>` : ''}</div>
       <div class="card-b" id="dSubs">
         ${(d.subs || []).length ? `<div class="sub-list">${d.subs.map(sb => `<div class="sub-row${sb.done ? ' done' : ''}" data-dgo="${sb.id}">
@@ -4118,7 +4195,14 @@ async function openTask(id, entryId, opts) {
       sync();
     }
   })();
-  requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  if (opts.silent) {
+    ovl.style.transition = dr.style.transition = 'none';
+    ovl.classList.add('show'); dr.classList.add('show');
+    if (scrollKeep) { scrollKeep.forEach(([cls, top]) => { const e = [...dr.querySelectorAll('*')].find(x => x.className === cls); if (e) { e.scrollTop = top; } }); }
+    requestAnimationFrame(() => { ovl.style.transition = dr.style.transition = ''; });
+  } else {
+    requestAnimationFrame(() => { ovl.classList.add('show'); dr.classList.add('show'); });
+  }
 
   { const ic = $('#fInternalChip', dr); if (ic) { ic.onclick = () => {
       const h = $('#fInternal', dr); const on = !(+h.value); h.value = on ? 1 : 0; ic.classList.toggle('on', on); markDirty(dr); }; } }
@@ -7302,7 +7386,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
@@ -7393,9 +7477,14 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
   window.addEventListener('focus', () => { if (cnpNewBuild) { cnpMaybeReload(); } });
   // realtime: version polling ανά 12" → σιωπηλό refresh όταν αλλάξει κάτι από συναδέλφους
   let lastV = null;
-  setInterval(async () => {
+  /* (16/10/2026) Ο σφυγμός είναι πια ΠΡΟΣΑΡΜΟΣΤΙΚΟΣ: 12″ με την καρτέλα ορατή, 60″ κρυφή (μόνο
+     παρουσία — καμία ανανέωση οθόνης), αμέσως όταν ξαναγυρίσεις, και σε σφάλμα αραιώνει
+     (24″, 48″… ως 2΄) κρατώντας στην οθόνη τα τελευταία καλά δεδομένα. */
+  const cnpTick = async () => {
     try {
       const d = await api('version' + (window._cnpChatSeen ? '&chatSince=' + window._cnpChatSeen : ''));
+      window._cnpTickErr = 0;
+      cnpDrawerLive();
       updateBell(d.unread + (d.pending || 0));
       /* το chip «σε ζητούν» ακολουθεί ζωντανά, χωρίς να ξαναφορτώνει όλα τα stats */
       { const nc = document.querySelector('#topPulse [data-pgo="needs"]');
@@ -7459,12 +7548,25 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
       if (d.v === lastV) return;
       /* Κρυφή καρτέλα: δεν ξαναζωγραφίζουμε — μόλις ξαναφανεί, ανανεώνεται αμέσως (βλ. visibilitychange). */
       if (document.hidden) { window._cnpStale = true; return; }
-      if (await cnpSilentRefresh()) { lastV = d.v; }
-    } catch (e) {}
-  }, 12000);
+      if (await cnpSilentRefresh()) { lastV = d.v; loadTopStats(); }
+    } catch (e) { window._cnpTickErr = (window._cnpTickErr || 0) + 1; }
+  };
+  let tickTm = 0, tickBusy = false;
+  const tickPlan = ms => { clearTimeout(tickTm); tickTm = setTimeout(tickRun, ms); };
+  const tickRun = async () => {
+    if (tickBusy) { return tickPlan(2000); }
+    tickBusy = true;
+    try { await cnpTick(); } finally { tickBusy = false; }
+    const n = window._cnpTickErr || 0;
+    tickPlan(n ? Math.min(120000, 12000 * Math.pow(2, n)) : (document.hidden ? 60000 : 12000));
+  };
+  tickPlan(12000);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && window._cnpStale) { cnpSilentRefresh().then(ok => { if (ok) { window._cnpStale = false; } }); }
+    if (document.hidden) { return; }
+    if (window._cnpStale) { cnpSilentRefresh().then(ok => { if (ok) { window._cnpStale = false; loadTopStats(); } }); }
+    tickPlan(400);                    // ξαναγύρισες → έλεγχος αμέσως
   });
+  window.addEventListener('focus', () => tickPlan(400));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') { return; }
     if (document.querySelector('.pal-box, .help-ovl, #miniMenu')) { return; }   // διάλογοι/μενού έχουν δικό τους Esc

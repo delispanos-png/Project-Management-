@@ -1531,7 +1531,7 @@ const LV_OPS = {
 const LV_DEF = {v: 1, open: 1, mine: 1, who: 'mine', users: [], q: '', rules: [], groups: ['project'],
   sort: [{f: 'prio', d: 'desc'}, {f: 'due', d: 'asc'}],
   cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'due', 'mins'], display: 'list', density: 'detailed',
-  color: 'prio', subs: 'flat'};
+  color: 'prio', subs: 'nest'};
 const LV_PRESETS = {
   mine:     {name: 'Τα δικά μου', cfg: {}},
   status:   {name: 'Ανά κατάσταση', cfg: {mine: 0, groups: ['status', 'prio']}},
@@ -1559,7 +1559,7 @@ function lvNorm(c) {
   o.users = (Array.isArray(o.users) ? o.users : []).map(Number).filter(Boolean);
   o.mine = o.who === 'mine' ? 1 : 0;
   o.color = ['none', 'prio', 'status', 'project', 'duebucket'].includes(o.color) ? o.color : 'prio';
-  o.subs = ['flat', 'nest', 'hide'].includes(o.subs) ? o.subs : 'flat';
+  o.subs = ['flat', 'nest', 'hide'].includes(o.subs) ? o.subs : 'nest';
   o.rules.forEach(r => { if (r.qk && !LV_QUICK.some(x => x.k === r.qk)) { delete r.qk; } });
   return o;
 }
@@ -1607,7 +1607,8 @@ R.list = async function (arg) {
   setTop('Λίστα tasks', 'Views: φίλτρα, ομάδες, ταξινόμηση, στήλες — δικά σου, της ομάδας ή δημόσια · g+l');
   const c = $('#content');
   /* Η κατάσταση ζει στο R.list ώστε η πλοήγηση μέσα στη συνεδρία να κρατά ό,τι έστησες. */
-  const st = R.list._st = R.list._st || {cfg: null, view: null, base: null, closed: new Set(), more: {}, views: {mine: [], public: [], templates: [], team: [], pins: [], default: ''}};
+  const st = R.list._st = R.list._st || {cfg: null, view: null, base: null, closed: new Set(), openSubs: new Set(), more: {}, views: {mine: [], public: [], templates: [], team: [], pins: [], ui: {}, default: ''}};
+  if (!st.openSubs) { st.openSubs = new Set(); }
   let D = R.list._D || {tasks: []};
 
   c.innerHTML = `<div id="lvRoot"><div id="lvTop"></div><div id="lRes"><div class="skel" style="height:220px"></div></div></div>`;
@@ -1638,6 +1639,20 @@ R.list = async function (arg) {
       st.cfg = lvNorm(v.config);
     }
     st.base = JSON.stringify(st.cfg); st.more = {};
+    /* Ό,τι είχες ανοιχτό/κλειστό σε ΑΥΤΟ το view (ομάδες, δέντρα υποεργασιών) — όπως το άφησες. */
+    const u = (st.views.ui || {})[(st.view.kind === 'v' ? 'v:' : 'p:') + st.view.id] || {};
+    st.closed = new Set(u.closed || []); st.openSubs = new Set((u.open || []).map(Number));
+  };
+  let uiTm = 0;
+  const saveUi = () => {
+    clearTimeout(uiTm);
+    uiTm = setTimeout(() => {
+      if (!st.view) { return; }
+      const key = (st.view.kind === 'v' ? 'v:' : 'p:') + st.view.id;
+      const val = {closed: [...st.closed], open: [...st.openSubs]};
+      st.views.ui = st.views.ui || {}; st.views.ui[key] = val;
+      api('view_ui', Object.assign({key}, val)).catch(() => {});
+    }, 700);
   };
   /* Σύνδεσμος/καρφίτσωμα: #/list/v12 (αποθηκευμένο) ή #/list/pteam (έτοιμο) → ανοίγει αυτό το view. */
   const am = /^v(\d+)$/.exec(arg || '') || /^p([a-z_]+)$/.exec(arg || '');
@@ -1736,28 +1751,39 @@ R.list = async function (arg) {
     const c0 = k === 'prio' ? LV_PCOL[+t.prio || 0] : k === 'status' ? (statusOf(t.status).color || '#8595ac') : k === 'project' ? (t.pcolor || '#8595ac') : lvDueB(t)[2];
     return c0;
   };
-  /* Υποεργασίες «κάτω από τη γονική»: όσες έχουν γονική ΜΕΣΑ στο ίδιο σύνολο μπαίνουν αμέσως μετά από αυτή. */
+  /* Δέντρο υποεργασιών (16/10/2026, όπως το GoodDay, ως 3 επίπεδα): κάθε γονική με ⊞/⊟ και πλήθος·
+     τα παιδιά φαίνονται κάτω της με εσοχή όταν την ανοίξεις. Παιδί χωρίς τη γονική του στο ίδιο
+     σύνολο (π.χ. άλλη ομάδα) εμφανίζεται κανονικά. Το τι είναι ανοιχτό θυμάται ανά view. */
   const nestRows = rows => {
     if (cfg().subs !== 'nest') { return rows; }
     const ids = new Set(rows.map(t => t.id)), kids = new Map(), top = [];
     rows.forEach(t => { if (t.parent && ids.has(t.parent)) { if (!kids.has(t.parent)) { kids.set(t.parent, []); } kids.get(t.parent).push(t); } else { top.push(t); } });
     const out = [];
-    top.forEach(t => { out.push(t); (kids.get(t.id) || []).forEach(k => out.push(Object.assign({}, k, {_sub: 1}))); });
+    const add = (t, lvl) => {
+      const ch = kids.get(t.id) || [], open = st.openSubs.has(t.id);
+      out.push(Object.assign({}, t, {_lvl: lvl, _sub: lvl > 0 ? 1 : 0, _kids: ch.length, _open: open}));
+      if (open && lvl < 2) { ch.forEach(c => add(c, lvl + 1)); }
+    };
+    top.forEach(t => add(t, 0));
     return out;
   };
+  const treeLead = t => `${t._lvl ? `<span class="lv-ind" style="width:${t._lvl * 18}px"></span>` : ''}${t._kids
+    ? `<button type="button" class="lv-tg" data-lvtg="${t.id}" title="${t._open ? 'Σύμπτυξη' : 'Ανάπτυξη'} υποεργασιών" aria-expanded="${t._open ? 'true' : 'false'}">${t._open ? '⊟' : '⊞'}</button>`
+    : (cfg().subs === 'nest' ? '<span class="lv-tg0"></span>' : '')}`;
+  const kidsBadge = t => t._kids ? `<span class="lv-subn" title="${t._kids} υποεργασίες">⛓ ${t._kids}</span>` : '';
   const rowList = t => {
     const cols = cfg().cols;
     const lead = cols.filter(k => k === 'id' || k === 'title').map(k => cell(k, t)).join('');
     const meta = cols.filter(k => k !== 'id' && k !== 'title').map(k => cell(k, t)).join('');
     const rc = rowColor(t);
-    return `<div class="kb-item kb-trow${t._sub ? ' lv-sub' : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>
-      ${t._sub ? '<span class="lv-subm" title="Υποεργασία">↳</span>' : ''}<span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}" title="Προτεραιότητα: ${LV_PRIO[+t.prio || 0]}"></span>${lead}
+    return `<div class="kb-item kb-trow${t._sub ? ' lv-sub' : ''}" data-task="${t.id}" draggable="true"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>
+      ${treeLead(t)}<span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}" title="Προτεραιότητα: ${LV_PRIO[+t.prio || 0]}"></span>${lead}${kidsBadge(t)}
       <span class="kb-sum-meta">${meta}</span></div>`;
   };
   const sortMark = k => { const i = cfg().sort.findIndex(x => x.f === k); return i < 0 ? '' : `<span class="lv-sm">${cfg().sort[i].d === 'desc' ? '↓' : '↑'}${cfg().sort.length > 1 ? i + 1 : ''}</span>`; };
   const theadHtml = () => `<thead><tr>${cfg().cols.map(k =>
       `<th data-lvsort="${k}" title="Ταξινόμηση — κλικ: μόνο με αυτή · Shift+κλικ: πρόσθεσέ τη ως επόμενο κριτήριο">${esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>`;
-  const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}" data-task="${t.id}" draggable="true"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map(k => `<td class="lv-td-${k}">${k === 'title' && t._sub ? '<span class="lv-subm">↳</span>' : ''}${cell(k, t)}</td>`).join('')}</tr>`; };
+  const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}" data-task="${t.id}" draggable="true"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map(k => `<td class="lv-td-${k}">${k === 'title' ? `<span class="lv-tcell">${treeLead(t)}${cell(k, t)}${kidsBadge(t)}</span>` : cell(k, t)}</td>`).join('')}</tr>`; };
   const tableHtml = rows => `<div class="lv-tw"><table class="lv-tbl">${theadHtml()}<tbody>${rows.map(trRow).join('')}</tbody></table></div>`;
   /* Πίνακας ΜΕ ομάδες (16/10/2026, όπως το GoodDay): ΕΝΑΣ πίνακας, μία κεφαλίδα, οι ομάδες ως
      γραμμές μέσα του (εσοχή ανά επίπεδο, χρώμα, πλήθος, σύμπτυξη) — οι στήλες ευθυγραμμίζονται. */
@@ -1865,7 +1891,7 @@ R.list = async function (arg) {
       <button type="button" class="fchip" data-lvact="builder" title="Φίλτρα, ομαδοποίηση, ταξινόμηση, στήλες, εμφάνιση">⚙ Ρύθμιση view</button>
       <span class="fbar-sp"></span>
       <span class="fbar-note">${n} εργασίες</span>
-      ${cfg().groups.length && cfg().display !== 'board' ? `<button class="fchip" data-lvact="collapse" title="Σύμπτυξη όλων των ομάδων">⊟</button><button class="fchip" data-lvact="expand" title="Ανάπτυξη όλων">⊞</button>` : ''}
+      ${cfg().display !== 'board' ? `<button class="fchip" data-lvact="collapse" title="Σύμπτυξη όλων — ομάδες και υποεργασίες">⊟</button><button class="fchip" data-lvact="expand" title="Ανάπτυξη όλων — ομάδες και υποεργασίες">⊞</button>` : ''}
       <button class="fchip${pinOf() ? ' on' : ''}" data-lvact="pin" title="${pinOf() ? 'Καρφιτσωμένο ως «' + esc(pinOf().label) + '» — κλικ για αλλαγή' : 'Καρφίτσωσε αυτό το view στο μενού ή στην αρχική'}">📌</button>
       <button class="fchip" data-lvact="csv">${I.download} CSV</button>
       <button class="fchip" data-lvact="pdf" title="Εκτύπωση / αποθήκευση ως PDF">PDF</button>
@@ -1886,6 +1912,16 @@ R.list = async function (arg) {
       'done_from=' + encodeURIComponent(dr ? dr.val.from || '' : ''), 'done_to=' + encodeURIComponent(dr ? dr.val.to || '' : '')].join('&');
     const nd = await api('list&' + qs).catch(() => null);
     if (!nd) { if (window._cnpSilent) { return; } D = {tasks: []}; render(); return; }   // σιωπηλά στην αυτόματη ανανέωση
+    /* ΔΙΚΕΣ ΜΟΥ αλλαγές που μόλις έγιναν (σύρσιμο): αν ο server στείλει παλιότερη εικόνα της
+       εργασίας (updatedAt πριν την αλλαγή μου), κρατάμε τη δική μου — να μη «γυρίσει» πίσω. */
+    const now0 = Date.now();
+    Object.keys(st.pending || {}).forEach(id => {
+      const pd = st.pending[id], t = nd.tasks.find(x => x.id === +id);
+      if (!t || now0 - pd.at > 60000) { delete st.pending[id]; return; }
+      const srvAt = t.updatedAt ? new Date(String(t.updatedAt).replace(' ', 'T')).getTime() : 0;
+      if (srvAt && srvAt >= pd.at - 1500) { delete st.pending[id]; return; }   // ο server έφτασε την αλλαγή μου
+      Object.assign(t, pd.fields);
+    });
     const sig = qs + '#' + JSON.stringify(nd.tasks);
     if (window._cnpSilent && sig === R.list._sig) { return; }   // ίδια δεδομένα → καμία αλλαγή
     R.list._sig = sig;
@@ -1963,7 +1999,7 @@ R.list = async function (arg) {
     opts = opts || {};
     const canPub = cnpCan('projects.board.edit');
     const cfgNew = opts.blank ? lvNorm({}) : lvClone(st.cfg);
-    const sugg = opts.blank ? 'Νέο view' : ((st.view && st.view.name ? st.view.name : 'View') + ' (αντίγραφο)').slice(0, 80);
+    const sugg = opts.blank ? 'Νέο view' : ((st.view && st.view.name ? st.view.name : 'View') + (st.view && st.view.kind === 'v' && st.view.canEdit ? ' (αντίγραφο)' : ' — δικό μου')).slice(0, 80);
     document.querySelectorAll('.lv-saveas').forEach(x => x.remove());
     const ovl = document.createElement('div'); ovl.className = 'ovl show lv-saveas'; ovl.style.zIndex = 340;
     ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:440px" role="dialog" aria-label="Αποθήκευση ως νέο view"><div style="padding:20px 22px 18px">
@@ -2000,7 +2036,8 @@ R.list = async function (arg) {
         if (pr && pr.pins) { S.boot.viewPins = pr.pins; if (window.CNP.cnpRenderPins) { window.CNP.cnpRenderPins(); } }
       }
       close(); await loadViews(); openView('v', r.id);   // ανοίγει το νέο, χωρίς «τροποποιημένο»
-      toast('Δημιουργήθηκε το view «' + name + '»'); apply(true);
+      toast('Δημιουργήθηκε το view «' + name + '» — αυτό βλέπεις τώρα'); apply(true);
+      if (typeof opts.after === 'function') { opts.after(); }
     };
     const onKey = e => {
       if (!document.body.contains(ovl)) { document.removeEventListener('keydown', onKey, true); return; }
@@ -2105,17 +2142,61 @@ R.list = async function (arg) {
   };
 
   /* ── ρύθμιση view (φίλτρα / ομαδοποίηση / ταξινόμηση / στήλες / εμφάνιση) ── */
+  /* ── ⚙ Ρύθμιση view ως ΠΛΑΪΝΟ ΠΑΝΕΛ (16/10/2026) ──────────────────────────
+     Δεξιά της λίστας, χωρίς να την κρύβει: κάθε αλλαγή φαίνεται αμέσως, ↶/↷ για να
+     γυρίσεις πίσω, και στο τέλος Αποθήκευση (αν μπορείς να το αλλάξεις) / Αποθήκευση ως
+     νέο (κλώνος με νέο όνομα που ανοίγει αμέσως) / Απόρριψη αλλαγών. */
   const builder = focusRule => {
-    document.querySelectorAll('.lv-bld').forEach(x => x.remove());
-    const ovl = document.createElement('div'); ovl.className = 'ovl show lv-bld'; ovl.style.zIndex = 320;
-    ovl.innerHTML = `<div class="pal-box lv-bbox" role="dialog" aria-label="Ρύθμιση view"><div class="lv-bhd"><b>⚙ Ρύθμιση view</b>
-      <span class="mut" style="font-size:12px">οι αλλαγές φαίνονται αμέσως πίσω — «Αποθήκευση» για να μείνουν</span>
-      <button class="btn btn-sm btn-p lv-bsave" id="lvbSave" title="Νέο view με αυτές τις ρυθμίσεις">Αποθήκευση ως…</button><button class="btn btn-sm btn-o" id="lvbX">Κλείσιμο</button></div>
-      <div class="lv-bbody" id="lvbB"></div></div>`;
+    const old = document.querySelector('.lv-side');
+    if (old && focusRule === undefined) { old._close(); return; }
+    if (old) { old.remove(); }
+    const ovl = document.createElement('aside'); ovl.className = 'lv-side'; ovl.setAttribute('aria-label', 'Ρύθμιση view');
+    ovl.innerHTML = `<div class="lv-sh"><b>⚙ Ρύθμιση view</b><span style="flex:1"></span>
+        <button type="button" class="btn btn-sm btn-o" id="lvbU" title="Αναίρεση (Ctrl+Z)">↶</button>
+        <button type="button" class="btn btn-sm btn-o" id="lvbR" title="Επανάληψη (Ctrl+Y)">↷</button>
+        <button type="button" class="btn btn-sm btn-o" id="lvbX" title="Κλείσιμο πάνελ (οι αλλαγές μένουν μέχρι να τις αποθηκεύσεις ή να τις απορρίψεις)">✕</button></div>
+      <div class="lv-sst" id="lvbSt"></div>
+      <div class="lv-bbody" id="lvbB"></div>
+      <div class="lv-sf" id="lvbF"></div>`;
     document.body.appendChild(ovl);
-    ovl.onclick = e => { if (e.target === ovl) { ovl.remove(); renderTop(); } };
-    $('#lvbX', ovl).onclick = () => { ovl.remove(); renderTop(); };
-    $('#lvbSave', ovl).onclick = () => { ovl.remove(); renderTop(); saveAs(); };
+    document.body.classList.add('lv-side-on');
+    const undo = [], redo = [];
+    let last = JSON.stringify(cfg());
+    const commit = () => { const now = JSON.stringify(cfg()); if (now !== last) { undo.push(last); if (undo.length > 80) { undo.shift(); } redo.length = 0; last = now; } };
+    const restoreCfg = j => { st.cfg = lvNorm(JSON.parse(j)); last = JSON.stringify(st.cfg); st.more = {}; paint(); apply(true); };
+    ovl._close = () => { ovl.remove(); document.body.classList.remove('lv-side-on'); document.removeEventListener('keydown', onKey, true); renderTop(); };
+    $('#lvbX', ovl).onclick = () => ovl._close();
+    $('#lvbU', ovl).onclick = () => { if (!undo.length) { return; } redo.push(JSON.stringify(cfg())); restoreCfg(undo.pop()); };
+    $('#lvbR', ovl).onclick = () => { if (!redo.length) { return; } undo.push(JSON.stringify(cfg())); restoreCfg(redo.pop()); };
+    const onKey = e => {
+      if (!document.body.contains(ovl)) { document.removeEventListener('keydown', onKey, true); return; }
+      const inField = /^(INPUT|TEXTAREA)$/.test((e.target || {}).tagName || '') || (e.target || {}).isContentEditable;
+      if (inField || !(e.ctrlKey || e.metaKey)) { return; }
+      if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); $('#lvbU', ovl).click(); }
+      else if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) { e.preventDefault(); $('#lvbR', ovl).click(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    /* κατάσταση + κουμπιά τέλους — ξαναζωγραφίζονται σε κάθε αλλαγή */
+    const foot = () => {
+      const v = st.view || {}, mod = modified(), saved = v.kind === 'v';
+      $('#lvbU', ovl).disabled = !undo.length; $('#lvbR', ovl).disabled = !redo.length;
+      $('#lvbSt', ovl).innerHTML = `<b>${esc(v.name || 'View')}</b> ${v.scope === 'public' ? '🌐' : v.scope === 'team' ? '👥' : ''}${v.template ? ' 📐' : ''}
+        ${mod ? '<span class="lv-mod">● αλλαγές χωρίς αποθήκευση</span>' : '<span class="mut">αποθηκευμένο</span>'}
+        ${saved && !v.canEdit ? `<div class="mut" style="font-size:11.5px;margin-top:3px">Του/της ${esc(v.ownerName || '')} — αλλάζεις ελεύθερα εδώ, κρατάς τις αλλαγές με «Αποθήκευση ως νέο».</div>` : ''}
+        ${!saved ? '<div class="mut" style="font-size:11.5px;margin-top:3px">Έτοιμο view — κράτα τις αλλαγές σου με «Αποθήκευση ως νέο».</div>' : ''}`;
+      $('#lvbF', ovl).innerHTML = `${saved && v.canEdit ? `<button type="button" class="btn btn-p" data-sf="save" ${mod ? '' : 'disabled'}>Αποθήκευση</button>` : ''}
+        <button type="button" class="btn ${saved && v.canEdit ? 'btn-o' : 'btn-p'}" data-sf="saveas">Αποθήκευση ως νέο…</button>
+        <button type="button" class="btn btn-o" data-sf="discard" ${mod ? '' : 'disabled'} title="Πίσω στο αποθηκευμένο">Απόρριψη</button>`;
+      ovl.querySelectorAll('[data-sf]').forEach(b => b.onclick = async () => {
+        const a = b.dataset.sf;
+        if (a === 'discard') { undo.length = 0; redo.length = 0; restoreCfg(st.base); renderTop(); return; }
+        if (a === 'saveas') { saveAs({after: () => { undo.length = 0; redo.length = 0; last = JSON.stringify(cfg()); paint(); }}); return; }
+        b.disabled = true;
+        const r = await api('view_save', {id: v.id, config: st.cfg}).catch(er => ({err: er.message}));
+        if (r.err) { toast(r.err, true); b.disabled = false; return; }
+        await loadViews(); st.base = JSON.stringify(st.cfg); toast('Το view αποθηκεύτηκε'); paint(); renderTop();
+      });
+    };
     const distinct = f => [...new Set(D.tasks.map(t => String(LV_FIELDS[f].val(t))))].sort((a, b) => a.localeCompare(b, 'el'));
     const valEd = (r, i) => {
       const F = LV_FIELDS[r.f];
@@ -2164,11 +2245,38 @@ R.list = async function (arg) {
           <span style="width:14px"></span>${[['detailed', 'Αναλυτική'], ['compact', 'Συμπτυγμένη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.density === k ? ' on' : ''}" data-dens="${k}">${l}</button>`).join('')}</div>
         ${c0.display === 'board' ? '<div class="mut" style="font-size:12px;margin-top:6px">Το board είναι πάντα ανά κατάσταση — η ομαδοποίηση εφαρμόζεται σε λίστα και πίνακα.</div>' : ''}
         <div class="lv-opt"><span class="lv-ol">Χρώμα γραμμής</span>${[['prio', 'Προτεραιότητα'], ['status', 'Κατάσταση'], ['project', 'Έργο'], ['duebucket', 'Προθεσμία'], ['none', 'Χωρίς']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.color === k ? ' on' : ''}" data-colr="${k}">${l}</button>`).join('')}</div>
-        <div class="lv-opt"><span class="lv-ol">Υποεργασίες</span>${[['flat', 'Όπως όλες'], ['nest', 'Κάτω από τη γονική'], ['hide', 'Απόκρυψη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.subs === k ? ' on' : ''}" data-subs="${k}">${l}</button>`).join('')}</div></section>`;
-      wire();
+        <div class="lv-opt"><span class="lv-ol">Υποεργασίες</span>${[['nest', 'Δέντρο (⊞ ανάπτυξη)'], ['flat', 'Όπως όλες'], ['hide', 'Απόκρυψη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.subs === k ? ' on' : ''}" data-subs="${k}">${l}</button>`).join('')}</div></section>
+      ${accessSec()}`;
+      wire(); foot();
       if (focusRule !== undefined) { const fr = ovl.querySelector('.lv-rule.foc'); if (fr) { fr.scrollIntoView({block: 'center'}); } focusRule = undefined; }
     };
-    const changed = (refetch) => { st.more = {}; paint(); apply(refetch); };
+    const changed = (refetch) => { commit(); st.more = {}; paint(); apply(refetch); };
+    const live = refetch => { commit(); foot(); apply(refetch); };
+    /* Πρόσβαση (μόνο ο δημιουργός): ορατότητα, πρότυπο, και ποιοι άλλοι μπορούν να το ΑΛΛΑΖΟΥΝ. */
+    const accessSec = () => {
+      const v = st.view || {};
+      if (v.kind !== 'v') { return ''; }
+      const sv = allSaved().find(x => x.id === v.id) || {};
+      if (!sv.isOwner) { return ''; }
+      const canPub = cnpCan('projects.board.edit');
+      const eds = new Set(sv.editors || []);
+      const people = (S.boot.admins || []).filter(a => !a.disabled && a.id !== sv.owner && !/support team|\bbot\b/i.test(a.name));
+      return `<section class="lv-sec" data-sec="access"><h4>Πρόσβαση <small class="mut">— αποθηκεύεται αμέσως</small></h4>
+        <div class="lv-seg">${[['mine', 'Προσωπικό'], ['team', 'Ομάδα'], ['public', 'Δημόσιο']].map(([k, l]) => `<button type="button" class="fchip fchip-b${sv.scope === k ? ' on' : ''}" data-acs="${k}"${k === 'public' && !canPub ? ' disabled title="Χρειάζεται «Board: επεξεργασία»"' : ''}>${l}</button>`).join('')}
+          <label class="lv-chk${sv.template ? ' on' : ''}" style="margin-left:6px"><input type="checkbox" data-actpl ${sv.template ? 'checked' : ''}>📐 Πρότυπο</label></div>
+        ${sv.scope !== 'mine' ? `<div class="mut" style="font-size:11.5px;margin:8px 0 4px">Μπορούν να το <b>αλλάζουν</b> (οι υπόλοιποι το ανοίγουν και το αντιγράφουν):</div>
+          <input class="inp" id="lvAcQ" placeholder="Αναζήτηση…" style="width:100%;margin-bottom:5px">
+          <div class="lv-multi lv-acl">${people.map(a => `<label class="lv-chk${eds.has(a.id) ? ' on' : ''}" data-nm="${esc(a.name)}"><input type="checkbox" data-aced="${a.id}" ${eds.has(a.id) ? 'checked' : ''}>${esc(a.name)}</label>`).join('')}</div>` : ''}</section>`;
+    };
+    const saveAccess = async patch => {
+      const v = st.view, sv = allSaved().find(x => x.id === v.id); if (!sv) { return; }
+      const body = Object.assign({id: v.id, config: JSON.parse(st.base)}, patch);
+      const r = await api('view_save', body).catch(er => ({err: er.message}));
+      if (r.err) { toast(r.err, true); return false; }
+      await loadViews();
+      const nv = allSaved().find(x => x.id === v.id); if (nv) { Object.assign(st.view, {scope: nv.scope, template: nv.template}); }
+      paint(); renderTop(); return true;
+    };
     const move = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) { return; } [arr[i], arr[j]] = [arr[j], arr[i]]; };
     const wire = () => {
       const c0 = cfg(), q = s => ovl.querySelectorAll(s);
@@ -2176,12 +2284,12 @@ R.list = async function (arg) {
         c0.rules[i] = {f, op, val: op === 'in' ? [] : op === 'is' ? true : op === 'range' ? {from: '', to: ''} : ''}; changed(true); });
       q('[data-rop]').forEach(el => el.onchange = () => { const r = c0.rules[+el.dataset.rop]; r.op = el.value;
         r.val = ['in', 'nin'].includes(r.op) ? (Array.isArray(r.val) ? r.val : []) : r.op === 'range' ? {from: '', to: ''} : r.op === 'is' ? true : ['gte', 'lte'].includes(r.op) ? 0 : ['has', 'nhas'].includes(r.op) ? '' : null; changed(true); });
-      q('[data-rv]').forEach(el => el.onchange = () => { const r = c0.rules[+el.dataset.rv]; r.val = [...ovl.querySelectorAll(`[data-rv="${el.dataset.rv}"]:checked`)].map(x => x.value); el.parentNode.classList.toggle('on', el.checked); apply(); });
-      q('[data-rt]').forEach(el => { let tm; el.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { c0.rules[+el.dataset.rt].val = el.value; apply(); }, 250); }; });
-      q('[data-rf]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rf].val.from = el.value; apply(); });
-      q('[data-rto]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rto].val.to = el.value; apply(); });
-      q('[data-rn]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rn].val = Math.max(0, +el.value || 0); apply(); });
-      q('[data-rb]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rb].val = el.value === '1'; apply(); });
+      q('[data-rv]').forEach(el => el.onchange = () => { const r = c0.rules[+el.dataset.rv]; r.val = [...ovl.querySelectorAll(`[data-rv="${el.dataset.rv}"]:checked`)].map(x => x.value); el.parentNode.classList.toggle('on', el.checked); live(); });
+      q('[data-rt]').forEach(el => { let tm; el.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { c0.rules[+el.dataset.rt].val = el.value; live(); }, 250); }; });
+      q('[data-rf]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rf].val.from = el.value; live(); });
+      q('[data-rto]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rto].val.to = el.value; live(); });
+      q('[data-rn]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rn].val = Math.max(0, +el.value || 0); live(); });
+      q('[data-rb]').forEach(el => el.onchange = () => { c0.rules[+el.dataset.rb].val = el.value === '1'; live(); });
       q('[data-rdel]').forEach(el => el.onclick = () => { c0.rules.splice(+el.dataset.rdel, 1); changed(true); });
       { const a = ovl.querySelector('#lvAddR'); a.onchange = () => { const f = a.value; if (!f) { return; } const op = LV_OPS[LV_FIELDS[f].kind][0][0];
         c0.rules.push({f, op, val: op === 'in' ? [] : op === 'is' ? true : op === 'range' ? {from: '', to: ''} : ''}); focusRule = c0.rules.length - 1; changed(true); }; }
@@ -2199,8 +2307,15 @@ R.list = async function (arg) {
       q('[data-colr]').forEach(el => el.onclick = () => { c0.color = el.dataset.colr; changed(); });
       q('[data-subs]').forEach(el => el.onclick = () => { c0.subs = el.dataset.subs; changed(); });
       q('[data-who2]').forEach(el => el.onclick = () => { if (el.disabled) { return; } c0.who = el.dataset.who2; c0.mine = c0.who === 'mine' ? 1 : 0; changed(); });
-      q('[data-wu]').forEach(el => el.onchange = () => { const u = new Set(c0.users || []); if (el.checked) { u.add(+el.dataset.wu); } else { u.delete(+el.dataset.wu); } c0.users = [...u]; el.parentNode.classList.toggle('on', el.checked); apply(); });
+      q('[data-wu]').forEach(el => el.onchange = () => { const u = new Set(c0.users || []); if (el.checked) { u.add(+el.dataset.wu); } else { u.delete(+el.dataset.wu); } c0.users = [...u]; el.parentNode.classList.toggle('on', el.checked); live(); });
       q('[data-dens]').forEach(el => el.onclick = () => { c0.density = el.dataset.dens; changed(); });
+      q('[data-acs]').forEach(el => el.onclick = () => { if (!el.disabled) { saveAccess({scope: el.dataset.acs}).then(ok => ok && toast('Ορατότητα: ' + el.textContent)); } });
+      q('[data-actpl]').forEach(el => el.onchange = () => { saveAccess({template: el.checked ? 1 : 0}); });
+      q('[data-aced]').forEach(el => el.onchange = () => {
+        const ids = [...ovl.querySelectorAll('[data-aced]:checked')].map(x => +x.dataset.aced);
+        saveAccess({editors: ids}).then(ok => ok && toast(ids.length ? 'Το αλλάζουν και: ' + ids.map(adminName).join(', ') : 'Το αλλάζεις μόνο εσύ'));
+      });
+      { const aq = ovl.querySelector('#lvAcQ'); if (aq) { aq.oninput = () => ovl.querySelectorAll('.lv-acl label').forEach(l => { l.hidden = !cnpMatch(l.dataset.nm, aq.value); }); } }
       /* Στήλες: σύρσιμο για σειρά (HTML5 drag & drop) */
       let drag = null;
       q('.lv-col[draggable="true"]').forEach(el => {
@@ -2231,8 +2346,10 @@ R.list = async function (arg) {
       else if (a === 'collapse' || a === 'expand') {
         const paths = []; const walk = (rows, lv, path) => { if (!lv.length) { return; } buckets(rows, lv[0]).forEach(([k, o]) => { const p = (path ? path + '|' : '') + lv[0] + '=' + k; paths.push(p); walk(o.rows, lv.slice(1), p); }); };
         walk(sorted(filtered()), cfg().groups, '');
-        if (a === 'collapse') { paths.forEach(p => st.closed.add(p)); } else { st.closed.clear(); }
-        renderRes();
+        /* ΟΛΑ: ομάδες ΚΑΙ δέντρα υποεργασιών */
+        if (a === 'collapse') { paths.forEach(p => st.closed.add(p)); st.openSubs.clear(); }
+        else { st.closed.clear(); const vis = filtered(); const ids = new Set(vis.map(t => t.id)); vis.forEach(t => { if (t.parent && ids.has(t.parent)) { st.openSubs.add(t.parent); } }); }
+        saveUi(); renderRes();
       }
       else if (a === 'pin') { pinDialog(); }
       else if (a === 'pdf') { printPdf(); }
@@ -2275,13 +2392,99 @@ R.list = async function (arg) {
       }
       render(); return;
     }
+    const tg = e.target.closest('[data-lvtg]');
+    if (tg) { e.stopPropagation(); const id = +tg.dataset.lvtg; if (st.openSubs.has(id)) { st.openSubs.delete(id); } else { st.openSubs.add(id); } saveUi(); renderRes(); return; }
     if (gh) {
       const p = gh.dataset.lgrp;
       if (st.closed.has(p)) { st.closed.delete(p); } else { st.closed.add(p); }
-      renderRes(); return;
+      saveUi(); renderRes(); return;
     }
     if (row) { openTask(+row.dataset.task); }
   };
+  /* ── ✋ Σύρσιμο εργασίας (16/10/2026) ───────────────────────────────────────
+     • σε ΓΡΑΜΜΗ ΟΜΑΔΑΣ (π.χ. «Κατάσταση: Έλεγχος»): ρωτά και αλλάζει ό,τι διαφέρει από την ομάδα
+       (σε εμφωλευμένη ομάδα, όλα τα επίπεδα της διαδρομής)·
+     • σε ΑΛΛΗ ΕΡΓΑΣΙΑ: ρωτά αν θα γίνει υποεργασία της.
+     Αισιόδοξα: η γραμμή αλλάζει αμέσως, μετά αθόρυβη ανανέωση από τον server. */
+  st.pending = st.pending || {};
+  const admins0 = () => (S.boot.admins || []);
+  const setter = (f, v) => {
+    const none = LV_FIELDS[f] && LV_FIELDS[f].none;
+    switch (f) {
+      case 'status': { const x = (S.boot.statuses || []).find(z => z.title === v); return x ? {kind: 'move', val: x.id, loc: {status: x.id}} : null; }
+      case 'prio': { const i = LV_PRIO.indexOf(v); return i < 0 ? null : {kind: 'save', key: 'prio', val: i, loc: {prio: i}}; }
+      case 'holder': case 'ball': { if (v === none) { return f === 'ball' ? {kind: 'save', key: 'ball', val: 0, loc: {ball: null}} : null; }
+        const a = admins0().find(z => z.name === v); return a ? {kind: 'save', key: 'ball', val: a.id, loc: {ball: a.id}} : null; }
+      case 'assignee': { if (v === none) { return {kind: 'save', key: 'assignee', val: 0, loc: {assignee: null}}; }
+        const a = admins0().find(z => z.name === v); return a ? {kind: 'save', key: 'assignee', val: a.id, loc: {assignee: a.id}} : null; }
+      case 'project': { if (v === none) { return {kind: 'project', val: 0, loc: {project: 0, pname: ''}}; }
+        const pj = (S.boot.projects || []).find(z => z.name === v); return pj ? {kind: 'project', val: pj.id, loc: {project: pj.id, pname: pj.name, pcolor: pj.color || '#8595ac'}} : null; }
+      case 'dept': { const dp = (S.boot.depts || []).find(z => z.name === v); return dp ? {kind: 'save', key: 'dept', val: dp.id, loc: {dept: dp.id}} : (v === none ? {kind: 'save', key: 'dept', val: 0, loc: {dept: null}} : null); }
+      case 'type': { const ty = (S.boot.types || []).find(z => z.name === v); return ty ? {kind: 'save', key: 'type', val: ty.id, loc: {type: ty.id}} : null; }
+    }
+    return null;
+  };
+  const silentReload = async () => { window._cnpSilent = true; try { await load(); } finally { window._cnpSilent = false; } };
+  let dragId = 0;
+  root.addEventListener('dragstart', e => {
+    const r = e.target.closest && e.target.closest('[data-task]'); if (!r) { return; }
+    dragId = +r.dataset.task; window._cnpDragging = true; r.classList.add('lv-dragging');
+  }, true);
+  const endDrag = () => { dragId = 0; window._cnpDragging = false; root.querySelectorAll('.lv-dragging, .lv-over').forEach(x => x.classList.remove('lv-dragging', 'lv-over')); };
+  root.addEventListener('dragend', endDrag, true);
+  root.addEventListener('dragover', e => {
+    if (!dragId) { return; }
+    const g = e.target.closest('[data-lgrp]'), r = e.target.closest('[data-task]');
+    const tgt = g || (r && +r.dataset.task !== dragId ? r : null);
+    root.querySelectorAll('.lv-over').forEach(x => { if (x !== tgt) { x.classList.remove('lv-over'); } });
+    if (!tgt) { return; }
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'; tgt.classList.add('lv-over');
+  });
+  root.addEventListener('drop', async e => {
+    if (!dragId) { return; }
+    const id = dragId, g = e.target.closest('[data-lgrp]'), r = e.target.closest('[data-task]');
+    e.preventDefault(); endDrag();
+    const t = D.tasks.find(x => x.id === id); if (!t) { return; }
+    if (g) {
+      const segs = g.dataset.lgrp.split('|').map(x => { const i = x.indexOf('='); return [x.slice(0, i), x.slice(i + 1)]; });
+      const ch = [], skip = [];
+      segs.forEach(([f, v]) => {
+        if (!LV_FIELDS[f] || String(LV_FIELDS[f].kind === 'bool' ? (LV_FIELDS[f].val(t) ? 'Ναι' : 'Όχι') : LV_FIELDS[f].val(t)) === v) { return; }
+        const op = setter(f, v); if (op) { ch.push(Object.assign({f, v}, op)); } else { skip.push(LV_FIELDS[f].label); }
+      });
+      if (!ch.length) { toast(skip.length ? 'Το «' + skip.join(', ') + '» δεν αλλάζει με σύρσιμο' : 'Η εργασία είναι ήδη εκεί'); return; }
+      const ok = await cnpConfirm(`Αλλαγή της #${t.id} «${t.title}»:\n\n${ch.map(c => '• ' + LV_FIELDS[c.f].label + ': ' + LV_FIELDS[c.f].val(t) + ' → ' + c.v).join('\n')}${skip.length ? '\n\n(δεν αλλάζει με σύρσιμο: ' + skip.join(', ') + ')' : ''}`,
+        {title: 'Αλλαγή με σύρσιμο', ok: 'Ναι, άλλαξέ το', cancel: 'Όχι'});
+      if (!ok) { return; }
+      /* αισιόδοξα: τοπικά τώρα */
+      const loc = Object.assign({}, ...ch.map(c => c.loc));
+      st.pending[id] = {at: Date.now(), fields: loc};
+      Object.assign(t, loc); renderRes(); renderTop();
+      let fail = '';
+      for (const c of ch) {
+        let rr;
+        if (c.kind === 'move') { rr = await window.CNP.cnpMoveTask(id, c.val, ''); if (!rr.ok) { fail = rr.cancelled ? 'ακυρώθηκε' : (rr.error || 'δεν επιτρέπεται'); } }
+        else if (c.kind === 'project') { rr = await api('task_project', {task: id, project: c.val}).catch(er => ({err: er.message})); if (rr.err) { fail = rr.err; } }
+        else { rr = await api('save_task', {task: id, [c.key]: c.val}).catch(er => ({err: er.message, data: er.data})); if (rr.err) { fail = rr.err; } }
+        if (fail) { break; }
+      }
+      if (fail) { delete st.pending[id]; toast('Δεν άλλαξε: ' + fail, true); }
+      else { toast('✓ #' + id + ': ' + ch.map(c => LV_FIELDS[c.f].label + ' → ' + c.v).join(' · ')); }
+      await silentReload();
+      return;
+    }
+    if (r && +r.dataset.task !== id) {
+      const pid = +r.dataset.task, p0 = D.tasks.find(x => x.id === pid);
+      if (t.parent === pid) { toast('Είναι ήδη υποεργασία της #' + pid); return; }
+      const ok = await cnpConfirm(`Να γίνει η #${id} «${t.title}» υποεργασία της #${pid} «${p0 ? p0.title : ''}»;`, {title: 'Υποεργασία με σύρσιμο', ok: 'Ναι', cancel: 'Όχι'});
+      if (!ok) { return; }
+      st.pending[id] = {at: Date.now(), fields: {parent: pid}};
+      Object.assign(t, {parent: pid}); st.openSubs.add(pid); saveUi(); renderRes();
+      const rr = await api('task_parent', {task: id, parent: pid}).catch(er => ({err: er.message}));
+      if (rr.err) { delete st.pending[id]; toast(rr.err, true); } else { toast('✓ Η #' + id + ' είναι τώρα υποεργασία της #' + pid); }
+      await silentReload();
+    }
+  });
   renderTop();
   cnpSearch('lfQ', v => { cfg().q = v; renderRes(); renderTop(); }, 180);
   lastQs = cfg().open + '|' + JSON.stringify(cfg().rules.filter(r => r.f === 'created' || r.f === 'done'));
