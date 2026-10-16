@@ -344,11 +344,16 @@ class GoodDayImport
             'internal' => (int) $parent->internal, 'parent_id' => (int) $parent->id,
             'title' => self::txt($title, 200), 'status_id' => $st['id'], 'action_user' => null,
             'due_date' => $f['due'], 'start_date' => $f['start'], 'estimate_minutes' => $f['estimate']];
-        /* Ανάθεση + μπάλα (16/10/2026): ο «Action required» του GoodDay είναι αυτός που πρέπει να κινηθεί. */
+        /* Χαρτογράφηση (16/10/2026): Action required → Ανάθεση · Assigned to → Μπάλα · πρώτο μήνυμα → Ζητούμενο. */
         $ar = $plan['actionRequired'] && $plan['actionRequired']['admin'] ? (int) $plan['actionRequired']['admin'] : 0;
         $as = $plan['assignee'] && $plan['assignee']['admin'] ? (int) $plan['assignee']['admin'] : 0;
-        if ($as || $ar) { $row['assignee'] = $as ?: $ar; }
-        if ($ar && $ar !== ($as ?: $ar) && !$st['closed']) { $row['action_user'] = $ar; }
+        if ($ar || $as) { $row['assignee'] = $ar ?: $as; }
+        if ($as && $as !== ($ar ?: $as) && !$st['closed']) { $row['action_user'] = $as; }
+        $descr = $plan['descr'];
+        if ($descr === null && $plan['topMsg'] !== null) {
+            foreach ($plan['messages'] as $m) { if ($m['ext'] === $plan['topMsg']) { $descr = $m['html']; break; } }
+        }
+        if ($descr !== null) { $row['descr'] = $descr; }
         if ($st['closed']) {
             $row['completed_at'] = self::toLocal($env['task']['momentClosed'] ?? null, self::sourceTz($tzSetting)) ?: date('Y-m-d H:i:s');
             $row['completed_by'] = (int) $adminId;
@@ -880,6 +885,8 @@ class GoodDayImport
             'descrSource' => isset($task['description']) && is_string($task['description']) ? 'description' : null,
             'descr' => isset($task['description']) && is_string($task['description']) ? $clean((string) self::plainToHtml($task['description'])) : null,
             'unmapped' => $unmapped, 'users' => array_values($umap),
+            /* Το «πάνω» μήνυμα του GoodDay = η περιγραφή της εργασίας (16/10/2026: → «Το ζητούμενο»). */
+            'topMsg' => (function () use ($msgs) { foreach ($msgs as $m) { if ($m['kind'] === 'text' && $m['html'] !== null) { return $m['ext']; } } return null; })(),
             'messages' => $msgs, 'warnings' => $warnings];
     }
 

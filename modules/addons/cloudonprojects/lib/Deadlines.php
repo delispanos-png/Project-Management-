@@ -148,7 +148,8 @@ class Deadlines
                         ($days < 0 ? '⛔ ' : '⏳ ') . $line, $url);
                     /* Email μόνο στην κλιμάκωση: ο υπεύθυνος πρέπει να το δει
                        ακόμη κι αν δεν ανοίξει την εφαρμογή σήμερα. */
-                    if ($level === 'over' && ($role === 'manager' || $role === 'lead')) {
+                    /* (16/10/2026) Το email της κλιμάκωσης μπαίνει πια στη σύνοψη των 08:00 (Digest). */
+                    if (false && $level === 'over' && ($role === 'manager' || $role === 'lead')) {
                         Notify::send((int) $adminId,
                             $subj,
                             '<p><b>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</b></p>'

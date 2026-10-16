@@ -457,9 +457,14 @@ function gdImport(ref) {
     const textMsgs = d.messages.filter(m => m.kind === 'text');
     const nEv = d.messages.length - textMsgs.length;
     const nAtt = d.messages.reduce((n, m) => n + (m.attachments ? m.attachments.length : 0), 0);
-    /* Πρόταση (16/10/2026): ο «Action required» του GoodDay → ανάδοχος ΚΑΙ μπάλα. Αλλιώς ο ανάδοχος του GoodDay. */
+    /* Χαρτογράφηση (16/10/2026, απόφαση χρήστη): Action required → Ανάθεση · Assigned to → Μπάλα.
+       Χωρίς Action required, ανάθεση = ο Assigned to. Μπάλα ίδια με την ανάθεση = «ο ανάδοχος». */
     const arId = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
-    const ass = arId || (d.assignee && d.assignee.admin ? d.assignee.admin : 0);
+    const asId = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
+    const ass = arId || asId;
+    const ballId = asId && asId !== ass ? asId : 0;
+    /* Ζητούμενο = το ΠΡΩΤΟ μήνυμα του GoodDay (αυτό που βλέπεις πάνω-πάνω ανοίγοντας την εργασία). */
+    const topMsg = d.descr !== null ? 'description' : (d.topMsg || 'none');
     const curP = S.view === 'board' && S.project ? +S.project : 0;
     bodyEl.innerHTML = `
       ${ex ? `<div class="gd-ex">Αυτή η εργασία GoodDay έχει ήδη εισαχθεί ως <b>#${ex.task}</b> «${esc(ex.title)}». Δεν φτιάχνουμε δεύτερη.
@@ -474,22 +479,22 @@ function gdImport(ref) {
           <label class="gd-l">Κατάσταση εδώ <span class="mut">(στο GoodDay: ${esc(d.sourceStatus.name || '—')})</span>
             <select class="inp" id="gdS" data-combo><option value="">— διάλεξε κατάσταση —</option>
             ${(S.boot.statuses || []).map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label>
-          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay: ${d.assignee ? esc(d.assignee.name) : '—'}${d.actionRequired ? ' · Action required: ' + esc(d.actionRequired.name) : ''})</span>
+          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay Action required: ${d.actionRequired ? esc(d.actionRequired.name) : '—'})</span>
             <select class="inp" id="gdA" data-combo><option value="">— κανείς —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ass ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
-          <label class="gd-l">Η μπάλα σε <span class="mut">(ποιος κινείται τώρα — προτείνεται ο Action required)</span>
+          <label class="gd-l">Η μπάλα σε <span class="mut">(στο GoodDay Assigned to: ${d.assignee ? esc(d.assignee.name) : '—'})</span>
             <select class="inp" id="gdB" data-combo><option value="">— ο ανάδοχος —</option>
-            ${admins.map(a => `<option value="${a.id}"${a.id === arId ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
+            ${admins.map(a => `<option value="${a.id}"${a.id === ballId ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
           <div class="gd-row3">
             <label class="gd-l">Προθεσμία${f.due && f.due < today() ? ' <span class="pill pill-warn" title="Η προθεσμία του GoodDay έχει ήδη περάσει — η εργασία θα φανεί αμέσως εκπρόθεσμη. Άλλαξέ την ή άδειασέ την.">πέρασε</span>' : ''}<input class="inp" type="date" id="gdDue" value="${esc(f.due || '')}"></label>
             <label class="gd-l">Έναρξη<input class="inp" type="date" id="gdStart" value="${esc(f.start || '')}"></label>
             <label class="gd-l">Εκτίμηση (λεπτά)<input class="inp" id="gdEst" inputmode="numeric" value="${f.estimate !== null ? f.estimate : ''}"></label>
           </div>
-          <label class="gd-l">Ζητούμενο <span class="mut">— το GoodDay δεν έχει ξεχωριστή περιγραφή· διάλεξε ρητά αν θέλεις ένα μήνυμα</span>
-            <select class="inp" id="gdD">
-              ${d.descr !== null ? '<option value="description">Η περιγραφή του GoodDay</option>' : ''}
-              <option value="none"${d.descr === null ? ' selected' : ''}>Κενό — τα μηνύματα μένουν στο ιστορικό</option>
-              ${textMsgs.map(m => `<option value="${esc(m.ext)}">Μήνυμα: ${esc(m.from ? (m.from.adminName || m.from.name) : '?')} · ${esc(m.at ? dShort(m.at.slice(0, 10)) : '')} — ${esc(String(m.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60))}</option>`).join('')}
+          <label class="gd-l">Ζητούμενο <span class="mut">— προεπιλογή: το πρώτο μήνυμα του GoodDay (η περιγραφή της εργασίας)· μπορείς να διαλέξεις άλλο</span>
+            <select class="inp" id="gdD" data-combo>
+              ${d.descr !== null ? `<option value="description"${topMsg === 'description' ? ' selected' : ''}>Η περιγραφή του GoodDay</option>` : ''}
+              <option value="none"${topMsg === 'none' ? ' selected' : ''}>Κενό — τα μηνύματα μένουν στο ιστορικό</option>
+              ${textMsgs.map(m => `<option value="${esc(m.ext)}"${m.ext === topMsg ? ' selected' : ''}>${m.ext === d.topMsg ? '★ ' : ''}Μήνυμα: ${esc(m.from ? (m.from.adminName || m.from.name) : '?')} · ${esc(m.at ? dShort(m.at.slice(0, 10)) : '')} — ${esc(String(m.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60))}</option>`).join('')}
             </select></label>
           <div class="gd-src">
             <div><span class="mut">Πηγή</span> <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.url)}</a></div>

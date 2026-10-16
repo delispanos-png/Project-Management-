@@ -640,7 +640,9 @@ function cnp_phone_norm($p)
 function cnp_clean_html($html, $max = 12000)
 {
     $html = (string) $html;
-    $html = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $html);          // 4-byte emoji → out
+    /* Emoji (4-byte): η σύνδεση της βάσης είναι utf8mb3 — ωμά γίνονται «????». ΔΕΝ τα πετάμε
+       πια (16/10/2026, εισαγωγή emoji στον editor): γίνονται αριθμητικές οντότητες &#…; στο
+       τέλος, ASCII-ασφαλείς, και ο browser τα δείχνει κανονικά. */
     // script/style/noscript ΜΑΖΙ με το περιεχόμενό τους — το strip_tags μόνο του αφαιρεί τα tags
     // και άφηνε τον κώδικα ως ορατό κείμενο (φαινόταν σε εισαγωγές από Confluence/WordPress).
     $html = preg_replace('#<(script|style|noscript|template)\b[^>]*>.*?</\1\s*>#is', ' ', $html);
@@ -670,12 +672,17 @@ function cnp_clean_html($html, $max = 12000)
         $keep = [];
         foreach (explode(';', trim($m[1], "\"'")) as $decl) {
             if (preg_match('/^\s*(color|background-color)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d\s,.%]+\)|[a-z]{3,20})\s*$/i', $decl, $d)) { $keep[] = strtolower($d[1]) . ':' . $d[2]; }
+            /* στοίχιση παραγράφου (editor, 16/10/2026) */
+            elseif (preg_match('/^\s*text-align\s*:\s*(left|center|right|justify|start|end)\s*$/i', $decl, $d)) { $keep[] = 'text-align:' . strtolower($d[1]); }
         }
         return $keep ? ' style="' . implode(';', $keep) . '"' : '';
     }, $html);
     // target=_blank + rel για ασφάλεια σε συνδέσμους
     $html = preg_replace('/<a\s+(?![^>]*\btarget=)/i', '<a target="_blank" rel="noopener noreferrer" ', $html);
-    return cnp_dom_scrub(cnp_balance_html(mb_substr(trim($html), 0, (int) $max)));
+    /* ...εκτός από συνδέσμους ΜΕΣΑ στην εφαρμογή (#/task/…): ανοίγουν στην ίδια καρτέλα. */
+    $html = preg_replace('/<a target="_blank" rel="noopener noreferrer" (href="#[^"]*")/i', '<a $1', $html);
+    $out = cnp_dom_scrub(cnp_balance_html(mb_substr(trim($html), 0, (int) $max)));
+    return preg_replace_callback('/[\x{10000}-\x{10FFFF}]/u', function ($c) { return '&#' . mb_ord($c[0], 'UTF-8') . ';'; }, $out);
 }
 
 /**
@@ -2712,8 +2719,11 @@ function cnp_presence($adminId, $now = null)
             $manual = true;                 // αποδέχτηκε την πρόσκληση — δική του πράξη
             $reason = $mt->title;
             $until = strtotime($mt->end_dt);
+            /* + σύνδεσμος συμμετοχής (16/10/2026): «Σε σύσκεψη» στην πάνω μπάρα → 🎥 Μπες. */
+            $mtLoc = trim((string) Capsule::table('mod_cpm_events')->where('id', (int) $mt->id)->value('location'));
             $meeting = ['id' => (int) $mt->id, 'title' => $mt->title, 'mode' => $mt->mode,
-                'scope' => $mt->scope, 'end' => $mt->end_dt];
+                'scope' => $mt->scope, 'end' => $mt->end_dt,
+                'join' => preg_match('#^https?://#i', $mtLoc) ? $mtLoc : ''];
         }
     }
 
@@ -6183,7 +6193,18 @@ case 'myday':
            υπόλοιπους — στο ΔΙΚΟ σου πρόγραμμα όμως δεν «τρέχει» πια, αλλιώς θα
            κοίταζες όλη μέρα μια γραμμή που δεν σε αφορά. */
         $leftE = $rowE && !empty($rowE->left_at);
+        /* ΣΥΝΔΕΣΜΟΣ ΣΥΜΜΕΤΟΧΗΣ (16/10/2026): ανοίγει 5΄ πριν την έναρξη και μένει όσο κρατά
+           (ως το δικό σου τέλος, αν παρατάθηκε). Σύνδεσμος = η «τοποθεσία» αν είναι URL (CloudOn
+           Meet, Google Meet, Teams…)· σε τηλεφωνική με αριθμό → tel:. Όχι αν βγήκες ή αρνήθηκες. */
+        $locE = trim((string) $e->location);
+        $joinE = preg_match('#^https?://#i', $locE) ? $locE
+            : (($e->mode === 'phone' && preg_match('/^\+?[\d\s\-()]{6,}$/', $locE)) ? 'tel:' . preg_replace('/[^\d+]/', '', $locE) : '');
+        $endE = strtotime((string) (($rowE && !empty($rowE->until_dt)) ? $rowE->until_dt : $e->end_dt));
+        $fromE = strtotime((string) $e->start_dt) - 300;
         $evToday[] = ['id' => (int) $e->id, 'kind' => $e->kind, 'title' => (string) $e->title, 'start' => $e->start_dt, 'end' => $e->end_dt,
+            'join' => $joinE && !$e->all_day ? $joinE : '', 'joinFrom' => date('Y-m-d H:i:s', $fromE),
+            'joinOpen' => $joinE !== '' && !$e->all_day && !$leftE && $rsE !== 'declined' && time() >= $fromE && time() <= $endE,
+            'isMeet' => (bool) preg_match('#/meet\.php\?room=#', $locE),
             'allDay' => (bool) $e->all_day, 'clientName' => $e->clientid ? clientLabel($e->clientid) : null, 'location' => (string) $e->location,
             'left' => $leftE, 'leftAt' => $leftE ? $rowE->left_at : null,
             'mode' => (string) $e->mode, 'rsvp' => $rsE ?: '', 'over' => $leftE || strtotime($e->end_dt) < time(),
