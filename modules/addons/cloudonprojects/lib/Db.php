@@ -2262,6 +2262,8 @@ class Db
             ->leftJoin('tbltickets as tk', 'tk.id', '=', 't.ticketid')
             ->select('t.*', 'p.name as project_name', 'p.color as project_color', 'p.clientid', 'tk.userid as tk_client');
         if (!empty($f['id']))         { $q->where('t.id', (int) $f['id']); }   // αναζήτηση με #αριθμό
+        /* υποεργασίες συγκεκριμένων γονικών (δέντρο στη Λίστα, 16/10/2026) */
+        if (!empty($f['parent_in']) && is_array($f['parent_in'])) { $q->whereIn('t.parent_id', array_map('intval', $f['parent_in'])); }
         if (!empty($f['project_id'])) { $q->where('t.project_id', (int) $f['project_id']); }
         if (!empty($f['status_id']))  { $q->where('t.status_id', (int) $f['status_id']); }
         if (!empty($f['assignee']))   { $q->where('t.assignee', (int) $f['assignee']); }

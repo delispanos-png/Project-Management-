@@ -1714,8 +1714,19 @@ R.list = async function (arg) {
     if (w === 'users') { const ids = cfg().users || []; return !ids.length || ids.includes(h) || ids.includes(+t.assignee); }
     return true;
   };
-  const filtered = () => D.tasks.filter(t => whoOk(t) && matchQ(t) && cfg().rules.every(r => lvTest(r, t))
-    && !(cfg().subs === 'hide' && t.parent));
+  /* Στο ΔΕΝΤΡΟ (16/10/2026): τα φίλτρα κρίνουν τις εργασίες· κάθε εργασία που περνά φέρνει ΜΑΖΙ της
+     όλες τις υποεργασίες της (και όσες ήρθαν μόνο λόγω γονικής — viaParent), όπως στο GoodDay. */
+  const filtered = () => {
+    const base = D.tasks.filter(t => !t.viaParent && whoOk(t) && matchQ(t) && cfg().rules.every(r => lvTest(r, t))
+      && !(cfg().subs === 'hide' && t.parent));
+    if (cfg().subs !== 'nest') { return base; }
+    const shown = new Set(base.map(t => t.id)), out = base.slice();
+    for (let lv = 0, more = true; more && lv < 4; lv++) {
+      more = false;
+      D.tasks.forEach(t => { if (!shown.has(t.id) && t.parent && shown.has(+t.parent)) { shown.add(t.id); out.push(t); more = true; } });
+    }
+    return out;
+  };
   const cmp = (a, b, f) => {
     const F = LV_FIELDS[f];
     if (F.rank) { return F.rank(a) - F.rank(b); }
@@ -1961,7 +1972,7 @@ R.list = async function (arg) {
     const rr = cfg().rules;
     const cr = rr.find(r => r.f === 'created' && r.op === 'range'), dr = rr.find(r => r.f === 'done' && r.op === 'range');
     const wantDone = !!dr || rr.some(r => r.f === 'done' && r.op !== 'empty');
-    const qs = ['open=' + (wantDone ? 0 : (cfg().open ? 1 : 0)), 'mine=0',
+    const qs = ['open=' + (wantDone ? 0 : (cfg().open ? 1 : 0)), 'mine=0', 'kids=' + (cfg().subs === 'nest' ? 1 : 0),
       'created_from=' + encodeURIComponent(cr ? cr.val.from || '' : ''), 'created_to=' + encodeURIComponent(cr ? cr.val.to || '' : ''),
       'done_from=' + encodeURIComponent(dr ? dr.val.from || '' : ''), 'done_to=' + encodeURIComponent(dr ? dr.val.to || '' : '')].join('&');
     const nd = await api('list&' + qs).catch(() => null);
@@ -1986,7 +1997,7 @@ R.list = async function (arg) {
   let lastQs = '';
   const apply = (refetch) => {
     const rr = cfg().rules;
-    const key = cfg().open + '|' + JSON.stringify(rr.filter(r => r.f === 'created' || r.f === 'done'));
+    const key = cfg().open + '|' + (cfg().subs === 'nest' ? 1 : 0) + '|' + JSON.stringify(rr.filter(r => r.f === 'created' || r.f === 'done'));
     if (refetch || key !== lastQs) { lastQs = key; load(); } else { render(); }
   };
 
@@ -2632,7 +2643,7 @@ R.list = async function (arg) {
   });
   renderTop();
   cnpSearch('lfQ', v => { cfg().q = v; renderRes(); renderTop(); }, 180);
-  lastQs = cfg().open + '|' + JSON.stringify(cfg().rules.filter(r => r.f === 'created' || r.f === 'done'));
+  lastQs = cfg().open + '|' + (cfg().subs === 'nest' ? 1 : 0) + '|' + JSON.stringify(cfg().rules.filter(r => r.f === 'created' || r.f === 'done'));
   await load();
 };
 

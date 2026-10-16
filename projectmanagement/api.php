@@ -11348,6 +11348,32 @@ case 'list':
         $d['updatedAt'] = (string) $t->updated_at;      // για αθόρυβη ανανέωση: τα παλιότερα δεν «γυρίζουν» δική μου αλλαγή
         $list[] = $d;
     }
+    /* ΔΕΝΤΡΟ (16/10/2026, όπως το GoodDay): με kids=1 έρχονται ΚΑΙ οι υποεργασίες των εργασιών που
+       βλέπεις (ως 2 επίπεδα κάτω), ακόμη κι αν δεν είναι «δικές σου» — ίδιος κανόνας με την καρτέλα
+       εργασίας, που δείχνει πάντα όλες τις υποεργασίες της. Σημαδεύονται viaParent: η οθόνη τις δείχνει
+       μόνο κάτω από τη γονική τους, δεν μετρούν ως αυτοτελείς εργασίες στα φίλτρα. */
+    if (!empty($_GET['kids']) && $list) {
+        $have = [];
+        foreach ($list as $d0) { $have[(int) $d0['id']] = true; }
+        $front = array_keys($have);
+        for ($lvK = 0; $lvK < 2 && $front && count($list) < 1500; $lvK++) {
+            $kRows = Db::tasksFiltered(['parent_in' => $front, 'open_only' => $f['open_only']], 600);
+            $front = [];
+            $kMins = Db::minutesForTasks(array_map(function ($r) { return (int) $r->id; }, $kRows->all()));
+            foreach ($kRows as $t) {
+                if (isset($have[(int) $t->id])) { continue; }
+                $have[(int) $t->id] = true; $front[] = (int) $t->id;
+                $d = taskDto($t);
+                $d['project'] = (int) $t->project_id; $d['pname'] = cnp_pn($t->project_name); $d['pcolor'] = $t->project_color ?: '#8595ac';
+                $d['mins'] = (int) ($kMins[(int) $t->id] ?? 0); $d['creator'] = (int) $t->created_by;
+                $cl9 = !empty($t->clientid) ? (int) $t->clientid : (!empty($t->tk_client) ? (int) $t->tk_client : 0);
+                $d['client'] = $cl9 ?: null; $d['clientName'] = $cl9 ? ($clLbl9[$cl9] ?? ($clLbl9[$cl9] = clientLabel($cl9))) : '';
+                $d['running'] = $runL[(int) $t->id] ?? []; $d['updatedAt'] = (string) $t->updated_at;
+                $d['viaParent'] = true;
+                $list[] = $d;
+            }
+        }
+    }
     out(['tasks' => $list]);
 
 case 'calendar':
