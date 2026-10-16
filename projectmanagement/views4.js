@@ -1537,7 +1537,7 @@ const LV_OPS = {
 };
 const LV_DEF = {v: 1, open: 1, mine: 1, who: 'mine', users: [], q: '', rules: [], groups: ['project'],
   sort: [{f: 'prio', d: 'desc'}, {f: 'due', d: 'asc'}],
-  cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'due', 'mins'], display: 'list', density: 'detailed',
+  cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'prio', 'due', 'mins'], display: 'table', density: 'detailed',
   color: 'prio', subs: 'nest', prioShow: 'both', typeShow: 'both', widths: {}};
 const LV_PRESETS = {
   mine:     {name: 'Τα δικά μου', cfg: {}},
@@ -1816,7 +1816,10 @@ R.list = async function (arg) {
   const colsHtml = () => `<colgroup>${cfg().cols.map(k => `<col data-c="${k}"${colW(k) ? ` style="width:${colW(k)}px"` : ''}>`).join('')}</colgroup>`;
   const tblMin = () => cfg().cols.reduce((a, k) => a + (k === 'title' ? 280 : colW(k)), 0);
   const theadHtml = () => `<thead><tr>${cfg().cols.map(k =>
-      `<th data-lvsort="${k}" class="lv-th-${k}" title="${esc(LV_FIELDS[k].label)} — κλικ: ταξινόμηση μόνο με αυτή · Shift+κλικ: ως επόμενο κριτήριο · σύρε το δεξί άκρο για πλάτος">${icoCol(k) ? (k === 'prio' ? '⚑' : '◆') : esc(LV_FIELDS[k].label)}${sortMark(k)}<span class="lv-rz" data-lvrz="${k}" title="Σύρε για πλάτος · διπλό κλικ: προεπιλογή"></span></th>`).join('')}</tr></thead>`;
+      `<th data-lvsort="${k}" data-thc="${k}" draggable="true" class="lv-th-${k}" title="${esc(LV_FIELDS[k].label)} — κλικ: ταξινόμηση μόνο με αυτή · Shift+κλικ: ως επόμενο κριτήριο · σύρε την κεφαλίδα για σειρά, το δεξί άκρο για πλάτος">${k === 'title' ? thTools() : ''}${icoCol(k) ? (k === 'prio' ? '⚑' : '◆') : esc(LV_FIELDS[k].label)}${sortMark(k)}<span class="lv-rz" data-lvrz="${k}" title="Σύρε για πλάτος · διπλό κλικ: προεπιλογή"></span></th>`).join('')}</tr></thead>`;
+  /* ⊟/⊞ για ΟΛΑ (ομάδες + υποεργασίες) μέσα στην κεφαλίδα, όπως στο GoodDay */
+  const thTools = () => (cfg().groups.length || cfg().subs === 'nest')
+    ? `<span class="lv-thx"><button type="button" data-lvact="collapse" title="Σύμπτυξη όλων — ομάδες και υποεργασίες">⊟</button><button type="button" data-lvact="expand" title="Ανάπτυξη όλων — ομάδες και υποεργασίες">⊞</button></span>` : '';
   const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map((k, i) => `<td class="lv-td-${k}">${i ? '' : LV_DH}${k === 'title' ? `<span class="lv-tcell">${treeLead(t)}${cell(k, t)}${kidsBadge(t)}</span>` : cell(k, t)}</td>`).join('')}</tr>`; };
   const tblOpen = extra => `<div class="lv-tw" data-keep-style="1"><table class="lv-tbl lv-fx${extra || ''}" style="min-width:${tblMin()}px">${colsHtml()}${theadHtml()}`;
   const tableHtml = rows => `${tblOpen()}<tbody>${rows.map(trRow).join('')}</tbody></table></div>`;
@@ -1930,6 +1933,7 @@ R.list = async function (arg) {
       <button type="button" class="fchip fchip-b on lv-who" data-lvact="who" title="Ποιανού εργασίες: δικές μου, της ομάδας μου, συγκεκριμένων ανθρώπων ή όλες όσες βλέπω">👥 ${esc(whoLbl())} ▾</button>
       ${cfg().rules.filter(r => !r.qk).map(r => { const i = cfg().rules.indexOf(r); return `<span class="fchip on lv-rchip" data-lvrule="${i}" title="Κλικ για αλλαγή">${esc(lvRuleText(r))}<span class="fchip-x" data-lvrx="${i}" title="Αφαίρεση">✕</span></span>`; }).join('')}
       <button type="button" class="fchip" data-lvact="builder" title="Φίλτρα, ομαδοποίηση, ταξινόμηση, στήλες, εμφάνιση">⚙ Ρύθμιση view</button>
+      <span class="lv-dsw" role="group" aria-label="Εμφάνιση">${[['list', '☰', 'Λίστα'], ['table', '▦', 'Πίνακας — στήλες με τίτλους, πλάτη, σειρά'], ['board', '▥', 'Board']].map(([k, ic, l]) => `<button type="button" class="fchip${cfg().display === k ? ' on' : ''}" data-lvdisp="${k}" title="${l}">${ic} ${l.split(' ')[0]}</button>`).join('')}</span>
       <span class="fbar-sp"></span>
       <span class="fbar-note">${n} εργασίες</span>
       ${cfg().display !== 'board' ? `<button class="fchip" data-lvact="collapse" title="Σύμπτυξη όλων — ομάδες και υποεργασίες">⊟</button><button class="fchip" data-lvact="expand" title="Ανάπτυξη όλων — ομάδες και υποεργασίες">⊞</button>` : ''}
@@ -2205,7 +2209,7 @@ R.list = async function (arg) {
     let last = JSON.stringify(cfg());
     const commit = () => { const now = JSON.stringify(cfg()); if (now !== last) { undo.push(last); if (undo.length > 80) { undo.shift(); } redo.length = 0; last = now; } };
     const restoreCfg = j => { st.cfg = lvNorm(JSON.parse(j)); last = JSON.stringify(st.cfg); st.more = {}; paint(); apply(true); };
-    ovl._ext = () => { commit(); foot(); };   // αλλαγή από έξω (π.χ. πλάτος στήλης)
+    ovl._ext = full => { commit(); if (full) { paint(); } else { foot(); } };   // αλλαγή από έξω (πλάτος/σειρά στήλης, εμφάνιση)
     ovl._close = () => { ovl.remove(); document.body.classList.remove('lv-side-on'); document.removeEventListener('keydown', onKey, true); renderTop(); };
     $('#lvbX', ovl).onclick = () => ovl._close();
     $('#lvbU', ovl).onclick = () => { if (!undo.length) { return; } redo.push(JSON.stringify(cfg())); restoreCfg(undo.pop()); };
@@ -2259,10 +2263,11 @@ R.list = async function (arg) {
       return '';
     };
     const fieldOpts = sel => Object.entries(LV_FIELDS).filter(([k]) => k !== 'id').map(([k, F]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(F.label)}</option>`).join('');
-    const lvl = (arr, i, label, extra) => `<div class="lv-lvl" ${extra || ''}><span class="lv-ln">${i + 1}.</span>${label}
-      <button type="button" class="btn btn-sm btn-o" data-mv="-1" data-i="${i}" ${i ? '' : 'disabled'} title="Πιο πάνω">↑</button>
-      <button type="button" class="btn btn-sm btn-o" data-mv="1" data-i="${i}" ${i < arr.length - 1 ? '' : 'disabled'} title="Πιο κάτω">↓</button>
-      <button type="button" class="btn btn-sm btn-o" data-rm="${i}" title="Αφαίρεση">✕</button></div>`;
+    /* (16/10/2026) Κάθε επίπεδο = γραμμή που ΣΕΡΝΕΙΣ για να αλλάξεις σειρά (προτεραιότητα) — μένει
+       στις επιλογές, αλλάζει μόνο θέση. kind: groups | sort | cols. */
+    const lvl = (arr, i, label, kind, tail, noRm) => `<div class="lv-lvl lv-dl" draggable="true" data-dl="${kind}" data-i="${i}">
+      <span class="lv-grip" title="Σύρε για σειρά">⠿</span><span class="lv-ln">${i + 1}.</span><span class="lv-lb">${label}</span>${tail || ''}
+      ${noRm ? '' : `<button type="button" class="btn btn-sm btn-o lv-x" data-rm="${i}" title="Αφαίρεση">✕</button>`}</div>`;
     const paint = () => {
       const c0 = cfg();
       const lead = (st.views.team || []).length > 0;
@@ -2279,15 +2284,15 @@ R.list = async function (arg) {
           <div class="lv-rv">${valEd(r, i)}</div><button type="button" class="btn btn-sm btn-o" data-rdel="${i}" title="Αφαίρεση">✕</button></div>`).join('') || '<div class="mut lv-empty">Κανένα φίλτρο.</div>'}
         <select class="inp lv-add" id="lvAddR"><option value="">+ Προσθήκη φίλτρου…</option>${fieldOpts('')}</select></section>
       <section class="lv-sec" data-sec="groups"><h4>Ομαδοποίηση <small class="mut">— όσα επίπεδα θέλεις, με σειρά</small></h4>
-        <div data-list="groups">${c0.groups.map((g, i, a) => lvl(a, i, `<b>${esc(LV_FIELDS[g].label)}</b>`)).join('') || '<div class="mut lv-empty">Χωρίς ομαδοποίηση.</div>'}</div>
+        <div data-list="groups">${c0.groups.map((g, i, a) => lvl(a, i, `<b>${esc(LV_FIELDS[g].label)}</b>`, 'groups')).join('') || '<div class="mut lv-empty">Χωρίς ομαδοποίηση.</div>'}</div>
         <select class="inp lv-add" id="lvAddG"><option value="">+ Προσθήκη επιπέδου…</option>${LV_GROUPABLE.filter(g => !c0.groups.includes(g)).map(g => `<option value="${g}">${esc(LV_FIELDS[g].label)}</option>`).join('')}</select></section>
-      <section class="lv-sec" data-sec="sort"><h4>Ταξινόμηση <small class="mut">— μέσα σε κάθε ομάδα, με σειρά προτεραιότητας</small></h4>
-        <div data-list="sort">${c0.sort.map((x, i, a) => lvl(a, i, `<b>${esc(LV_FIELDS[x.f].label)}</b>
-          <select class="inp lv-dir" data-sd="${i}"><option value="asc" ${x.d === 'asc' ? 'selected' : ''}>↑ αύξουσα</option><option value="desc" ${x.d === 'desc' ? 'selected' : ''}>↓ φθίνουσα</option></select>`)).join('') || '<div class="mut lv-empty">Προεπιλογή: νεότερες πρώτα.</div>'}</div>
+      <section class="lv-sec" data-sec="sort"><h4>Ταξινόμηση <small class="mut">— μέσα σε κάθε ομάδα· σύρε για σειρά προτεραιότητας</small></h4>
+        <div data-list="sort">${c0.sort.map((x, i, a) => lvl(a, i, `<b>${esc(LV_FIELDS[x.f].label)}</b>`, 'sort',
+          `<button type="button" class="btn btn-sm btn-o lv-dirb" data-sdt="${i}" title="Κλικ: αλλαγή κατεύθυνσης">${x.d === 'desc' ? '↓ φθίνουσα' : '↑ αύξουσα'}</button>`)).join('') || '<div class="mut lv-empty">Προεπιλογή: νεότερες πρώτα.</div>'}</div>
         <select class="inp lv-add" id="lvAddS"><option value="">+ Προσθήκη κριτηρίου…</option>${Object.entries(LV_FIELDS).filter(([k]) => !c0.sort.some(x => x.f === k)).map(([k, F]) => `<option value="${k}">${esc(F.label)}</option>`).join('')}</select></section>
-      <section class="lv-sec" data-sec="cols"><h4>Στήλες <small class="mut">— σύρε για σειρά, τσέκαρε για εμφάνιση</small></h4>
-        <div class="lv-cols" id="lvCols">${c0.cols.concat(LV_COLS.filter(k => !c0.cols.includes(k))).map(k => `<label class="lv-col${c0.cols.includes(k) ? ' on' : ''}" draggable="${c0.cols.includes(k) ? 'true' : 'false'}" data-col="${k}">
-          <span class="lv-grip" title="Σύρε">⠿</span><input type="checkbox" data-colon="${k}" ${c0.cols.includes(k) ? 'checked' : ''} ${k === 'title' ? 'disabled' : ''}> ${esc(LV_FIELDS[k].label)}</label>`).join('')}</div></section>
+      <section class="lv-sec" data-sec="cols"><h4>Στήλες <small class="mut">— σύρε για σειρά· ξετσέκαρε για απόκρυψη</small></h4>
+        <div data-list="cols" id="lvCols">${c0.cols.map((k, i, a) => lvl(a, i, `<label class="lv-cl"><input type="checkbox" data-colon="${k}" checked ${k === 'title' ? 'disabled title="Ο τίτλος φαίνεται πάντα"' : ''}> ${esc(LV_FIELDS[k].label)}</label>`, 'cols', '', true)).join('')}</div>
+        <div class="lv-cav"><span class="mut">Διαθέσιμες:</span>${LV_COLS.filter(k => !c0.cols.includes(k)).map(k => `<label class="lv-col"><input type="checkbox" data-colon="${k}"> ${esc(LV_FIELDS[k].label)}</label>`).join('') || '<span class="mut"> όλες εμφανίζονται</span>'}</div></section>
       <section class="lv-sec" data-sec="display"><h4>Εμφάνιση</h4>
         <div class="lv-seg">${[['list', 'Λίστα'], ['table', 'Πίνακας'], ['board', 'Board']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.display === k ? ' on' : ''}" data-disp="${k}">${l}</button>`).join('')}
           <span style="width:14px"></span>${[['detailed', 'Αναλυτική'], ['compact', 'Συμπτυγμένη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.density === k ? ' on' : ''}" data-dens="${k}">${l}</button>`).join('')}</div>
@@ -2349,10 +2354,24 @@ R.list = async function (arg) {
       { const a = ovl.querySelector('#lvAddS'); a.onchange = () => { if (a.value) { c0.sort.push({f: a.value, d: ['prio', 'mins', 'created', 'done'].includes(a.value) ? 'desc' : 'asc'}); changed(); } }; }
       ['groups', 'sort'].forEach(kind => {
         const box = ovl.querySelector(`[data-list="${kind}"]`); if (!box) { return; }
-        box.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { move(c0[kind], +b.dataset.i, +b.dataset.mv); changed(); });
         box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { c0[kind].splice(+b.dataset.rm, 1); changed(); });
       });
-      q('[data-sd]').forEach(el => el.onchange = () => { c0.sort[+el.dataset.sd].d = el.value; changed(); });
+      q('[data-sdt]').forEach(el => el.onclick = () => { const x = c0.sort[+el.dataset.sdt]; x.d = x.d === 'desc' ? 'asc' : 'desc'; changed(); });
+      /* σύρσιμο επιπέδου: πάνω/κάτω μισό της γραμμής-στόχου = πριν/μετά */
+      let dl = null;
+      const clr = () => q('.lv-dl').forEach(x => x.classList.remove('dragging', 'over-t', 'over-b'));
+      q('.lv-dl').forEach(el => {
+        el.ondragstart = e => { if (e.target.closest('button, input, select')) { e.preventDefault(); return; }
+          dl = {k: el.dataset.dl, i: +el.dataset.i}; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', el.dataset.dl); } catch (er) { /* */ } el.classList.add('dragging'); };
+        el.ondragend = () => { dl = null; clr(); };
+        el.ondragover = e => { if (!dl || dl.k !== el.dataset.dl) { return; } e.preventDefault(); e.stopPropagation();
+          const r = el.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+          q('.lv-dl').forEach(x => { if (x !== el) { x.classList.remove('over-t', 'over-b'); } }); el.classList.toggle('over-b', after); el.classList.toggle('over-t', !after); };
+        el.ondrop = e => { if (!dl || dl.k !== el.dataset.dl) { return; } e.preventDefault(); e.stopPropagation();
+          const arr = c0[dl.k], r = el.getBoundingClientRect(); let j = +el.dataset.i + (e.clientY > r.top + r.height / 2 ? 1 : 0);
+          const from = dl.i; dl = null; clr(); if (j > from) { j--; } if (j === from) { return; }
+          const [it] = arr.splice(from, 1); arr.splice(j, 0, it); changed(); };
+      });
       q('[data-colon]').forEach(el => el.onchange = () => { const k = el.dataset.colon;
         if (el.checked) { if (!c0.cols.includes(k)) { c0.cols.push(k); } } else { c0.cols = c0.cols.filter(x => x !== k); } changed(); });
       q('[data-disp]').forEach(el => el.onclick = () => { c0.display = el.dataset.disp; changed(); });
@@ -2370,16 +2389,6 @@ R.list = async function (arg) {
         saveAccess({editors: ids}).then(ok => ok && toast(ids.length ? 'Το αλλάζουν και: ' + ids.map(adminName).join(', ') : 'Το αλλάζεις μόνο εσύ'));
       });
       { const aq = ovl.querySelector('#lvAcQ'); if (aq) { aq.oninput = () => ovl.querySelectorAll('.lv-acl label').forEach(l => { l.hidden = !cnpMatch(l.dataset.nm, aq.value); }); } }
-      /* Στήλες: σύρσιμο για σειρά (HTML5 drag & drop) */
-      let drag = null;
-      q('.lv-col[draggable="true"]').forEach(el => {
-        el.ondragstart = e => { drag = el.dataset.col; e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); };
-        el.ondragend = () => { el.classList.remove('dragging'); };
-        el.ondragover = e => { if (drag) { e.preventDefault(); el.classList.add('over'); } };
-        el.ondragleave = () => el.classList.remove('over');
-        el.ondrop = e => { e.preventDefault(); el.classList.remove('over'); const to = el.dataset.col;
-          if (!drag || drag === to) { return; } const a = c0.cols.filter(x => x !== drag); a.splice(a.indexOf(to), 0, drag); c0.cols = a; drag = null; changed(); };
-      });
     };
     paint();
   };
@@ -2391,6 +2400,8 @@ R.list = async function (arg) {
       srt = e.target.closest('[data-lvsort]'), row = e.target.closest('[data-task]');
     if (e.target.closest('.lv-dh, .lv-rz') || Date.now() - (st.rzAt || 0) < 350) { return; }
     if (e.target.closest('#lvViews')) { viewsMenu($('#lvViews')); return; }
+    const dsw = e.target.closest('[data-lvdisp]');
+    if (dsw) { cfg().display = dsw.dataset.lvdisp; st.more = {}; render(); const sp = document.querySelector('.lv-side'); if (sp && sp._ext) { sp._ext(true); } return; }
     if (tgl) { const k = tgl.dataset.lvtog; cfg()[k] = cfg()[k] ? 0 : 1; apply(k === 'open'); return; }
     if (rx) { e.stopPropagation(); cfg().rules.splice(+rx.dataset.lvrx, 1); apply(true); return; }
     if (rc) { builder(+rc.dataset.lvrule); return; }
@@ -2512,6 +2523,19 @@ R.list = async function (arg) {
     };
     document.addEventListener('mousemove', mv, true); document.addEventListener('mouseup', up, true);
   }, true);
+  /* Σειρά στηλών με σύρσιμο της ΚΕΦΑΛΙΔΑΣ στον πίνακα (16/10/2026) */
+  let thDrag = '';
+  root.addEventListener('dragstart', e => { const th = e.target.closest && e.target.closest('th[data-thc]'); if (!th) { return; }
+    thDrag = th.dataset.thc; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', thDrag); } catch (er) { /* */ } th.classList.add('lv-thdrag'); });
+  root.addEventListener('dragover', e => { if (!thDrag) { return; } const th = e.target.closest('th[data-thc]'); root.querySelectorAll('.lv-thover-l, .lv-thover-r').forEach(x => x.classList.remove('lv-thover-l', 'lv-thover-r'));
+    if (!th || th.dataset.thc === thDrag) { return; } e.preventDefault(); const r = th.getBoundingClientRect(); th.classList.add(e.clientX > r.left + r.width / 2 ? 'lv-thover-r' : 'lv-thover-l'); });
+  root.addEventListener('dragend', () => { thDrag = ''; root.querySelectorAll('.lv-thdrag, .lv-thover-l, .lv-thover-r').forEach(x => x.classList.remove('lv-thdrag', 'lv-thover-l', 'lv-thover-r')); });
+  root.addEventListener('drop', e => { if (!thDrag) { return; } const th = e.target.closest('th[data-thc]'); const from = thDrag; thDrag = '';
+    root.querySelectorAll('.lv-thdrag, .lv-thover-l, .lv-thover-r').forEach(x => x.classList.remove('lv-thdrag', 'lv-thover-l', 'lv-thover-r'));
+    if (!th || th.dataset.thc === from) { return; } e.preventDefault();
+    const r = th.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2, a = cfg().cols.filter(x => x !== from);
+    a.splice(a.indexOf(th.dataset.thc) + (after ? 1 : 0), 0, from); cfg().cols = a; render();
+    const sp = document.querySelector('.lv-side'); if (sp && sp._ext) { sp._ext(true); } });
   root.addEventListener('dblclick', e => {
     const rz = e.target.closest('[data-lvrz]'); if (!rz) { return; }
     e.stopPropagation(); delete cfg().widths[rz.dataset.lvrz]; st.rzAt = Date.now(); renderTop(); renderRes();
