@@ -574,6 +574,7 @@ function renderShell() {
         <button class="mym-e" id="myMenuEdit" title="Διάλεξε τι θα βλέπεις εδώ" aria-label="Επεξεργασία του μενού μου">${I.edit}</button>
       </div>
       <nav class="snav">
+      <div class="snav-grp open snav-pins" id="snavPins" hidden></div>
       ${(() => {
         let openSet = null;
         if (localStorage.cnpNavOpen) { try { openSet = new Set(JSON.parse(localStorage.cnpNavOpen)); } catch (e) {} }
@@ -641,6 +642,7 @@ function renderShell() {
     })()}
   </div>`;
   $$('.sitem').forEach(b => b.onclick = () => { $('.shell').classList.remove('nav-open'); go(b.dataset.nav); });
+  cnpRenderPins();
   // ── mobile off-canvas menu ──
   {
     const _sh = $('.shell');
@@ -2892,6 +2894,22 @@ function cnpFbarMobile() {
   });
 }
 new MutationObserver(() => cnpFbarMobile()).observe(document.body, {childList: true, subtree: true});
+/* 📌 Καρφιτσωμένα views στο μενού (16/10/2026) — «#/list/v12» ανοίγει το συγκεκριμένο view. */
+function cnpPinArg(k) { return String(k || '').replace(':', ''); }
+function cnpRenderPins() {
+  const box = document.getElementById('snavPins'); if (!box) { return; }
+  const can = (S.boot.me && (S.boot.me.full || (S.boot.me.caps || []).includes('projects.board') || (S.boot.me.areas || []).includes('projects')));
+  const pins = (S.boot.viewPins || []).filter(p => p.menu);
+  box.hidden = !pins.length || !can;
+  box.innerHTML = pins.length ? `<button class="sgroup" data-grptoggle="📌 Τα views μου" title="Τα καρφιτσωμένα views σου — καρφίτσωμα από τη Λίστα tasks (📌)"><span class="sgroup-t">📌 Τα views μου</span></button>
+    <div class="snav-items">${pins.map(p => `<button class="sitem spin" data-nav="list" data-navarg="${esc(cnpPinArg(p.k))}" title="${esc(p.label)}">${I.list}<span>${esc(p.label)}</span></button>`).join('')}</div>` : '';
+  box.querySelectorAll('.spin').forEach(b => b.onclick = () => {
+    const sh = document.querySelector('.shell'); if (sh) { sh.classList.remove('nav-open'); }
+    if (S.view === 'list' && window.R && window.R.list) { S.viewArg = b.dataset.navarg; location.hash = '#/list/' + b.dataset.navarg; window.R.list(b.dataset.navarg); }
+    else { go('list', b.dataset.navarg); }
+    box.querySelectorAll('.spin').forEach(x => x.classList.toggle('on', x === b));
+  });
+}
 function go(view, arg) {
   S.view = view;
   S.viewArg = arg ? String(arg) : '';
@@ -5728,7 +5746,10 @@ async function vMyDay() {
   clearTimeout(window._cnpMeetT);
   { const nx = evs.filter(e => e.join && !e.joinOpen && !e.over && e.joinFrom > nowStamp()).map(e => new Date(e.joinFrom.replace(' ', 'T')) - Date.now()).sort((a, b) => a - b)[0];
     if (nx && nx < 6 * 3600e3) { window._cnpMeetT = setTimeout(() => { if (S.view === 'myday') { vMyDay(); } }, nx + 1500); } }
-  const hero = meetBar + `<div class="myd-hero">
+  /* 📌 Καρφιτσωμένα στην αρχική views — ένα κλικ για «Η ομάδα μου», «Κρίσιμα» κ.λπ. */
+  const homePins = (S.boot.viewPins || []).filter(p => p.home);
+  const pinBar = homePins.length ? `<div class="myd-pins">${homePins.map(p => `<button type="button" class="fchip myd-pin" data-mypin="${esc(cnpPinArg(p.k))}">📌 ${esc(p.label)}</button>`).join('')}</div>` : '';
+  const hero = meetBar + pinBar + `<div class="myd-hero">
     <div class="myd-hero-l"><div class="myd-date">${esc(dayName)}</div>
       ${timer ? `<div class="myd-now live"><span class="myd-now-k">▶ Δουλεύεις τώρα</span><b data-mdtask="${timer.task}" class="myd-now-t">${esc(timer.title)}</b>
           <span class="myd-now-e" id="mdElapsed">${elapsed(timer.since)}</span><button class="btn btn-sm btn-danger" id="mdStop">${I.stop} Stop</button></div>`
@@ -5852,6 +5873,7 @@ async function vMyDay() {
   $$('#content .myd-row.att').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } att[+r.dataset.atti].on(); });
   { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
+  $$('#content [data-mypin]').forEach(b => b.onclick = () => go('list', b.dataset.mypin));
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } go('calendar'); });
   $$('#content [data-evleft]').forEach(b => b.onclick = async e => {
     e.stopPropagation();
@@ -7280,7 +7302,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

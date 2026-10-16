@@ -5276,3 +5276,33 @@ ul.rte-check{text-align:left}
 @media (max-width:640px){.gl-tbl thead{display:none}.gl-tbl tr{display:grid;grid-template-columns:24px 1fr;gap:2px 6px;border-bottom:1px solid var(--line);padding:6px 0}
   .gl-tbl td{border:0;padding:2px}.gl-tbl td:nth-child(3),.gl-tbl td:nth-child(4){grid-column:2}}
 .gl-src{font-size:12.5px;margin-bottom:8px;line-height:1.6}
+/* ── Views εργασιών (16/10/2026) ── */
+.snav-pins .sitem.spin span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.myd-pins{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.myd-pin{font-weight:700}
+.lv-quick{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-2px 0 8px;font-size:12px}
+.lv-quick .fchip{font-size:11.5px;padding:3px 9px}
+.lv-who{font-weight:700}
+.lv-whom{width:310px}
+.lv-mi.dis{opacity:.45;cursor:not-allowed}
+.lv-whou{padding:6px 8px 8px}
+.lv-whou .inp{width:100%;margin-bottom:6px}
+.lv-whol{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.lv-chk.lv-me{font-weight:700;color:var(--brand)}
+.lv-opt{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.lv-ol{font-size:11.5px;font-weight:700;color:var(--mut);min-width:110px}
+.lv-sub{background:var(--bg2)}
+.lv-subm{color:var(--mut);margin:0 4px 0 10px;font-weight:700}
+.lv-prog{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.lv-prog s{display:block;width:52px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;text-decoration:none}
+.lv-prog s i{display:block;height:100%;border-radius:3px}
+.lv-prog b{font-size:11px;font-weight:700;color:var(--txt)}
+/* πίνακας με ομάδες ως γραμμές */
+.lv-tblg tr.lv-grow td{background:var(--bg2);border-top:1px solid var(--line);padding:7px 10px;cursor:pointer;font-size:12.5px}
+.lv-tblg tr.lv-grow.lv-d0 td{background:var(--hover);font-size:13px}
+.lv-tblg tr.lv-grow:hover td{filter:brightness(.98)}
+.lv-gi{display:inline-flex;align-items:center;gap:7px}
+.lv-gdot{width:10px;height:10px;border-radius:3px;flex:none}
+.lv-tblg .kb-gchev{display:inline-flex;transform:rotate(-90deg);transition:transform .15s}
+.lv-tblg .kb-gchev.open{transform:none}
+.lv-tblg tr.lv-mrow td{text-align:center}

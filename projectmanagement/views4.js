@@ -1484,9 +1484,43 @@ const LV_FIELDS = {
   mins:     {label: 'Χρόνος', kind: 'num', val: t => +t.mins || 0},
   running:  {label: '▶ Τρέχει τώρα', kind: 'bool', val: t => !!(t.running || []).length},
   ticket:   {label: 'Από ticket', kind: 'bool', val: t => !!t.ticket},
+  /* (16/10/2026) νέα πεδία — ίδια με τα «Έναρξη / Λήξη / Deadline / Εκτίμηση» της καρτέλας */
+  ball:     {label: 'Μπάλα', kind: 'enum', val: t => t.ball ? adminName(t.ball) : 'Χωρίς μπάλα', none: 'Χωρίς μπάλα'},
+  dept:     {label: 'Department', kind: 'enum', val: t => ((S.boot.depts || []).find(d => d.id === +t.dept) || {}).name || 'Χωρίς department', none: 'Χωρίς department'},
+  start:    {label: 'Έναρξη', kind: 'date', val: t => t.start ? String(t.start).slice(0, 10) : ''},
+  sched:    {label: 'Deadline', kind: 'date', val: t => t.sched ? String(t.sched).slice(0, 10) : ''},
+  est:      {label: 'Εκτίμηση', kind: 'num', val: t => +t.est || 0},
+  progress: {label: 'Πρόοδος %', kind: 'num', val: t => t.est ? Math.round((+t.mins || 0) / (+t.est) * 100) : 0},
+  overdue:  {label: 'Εκπρόθεσμη', kind: 'bool', val: t => !!(t.due && t.due < today() && !t.done)},
+  duebucket: {label: 'Πότε λήγει', kind: 'enum', val: t => lvDueB(t)[0], rank: t => lvDueB(t)[1], color: t => lvDueB(t)[2]},
+  parent:   {label: 'Γονική εργασία', kind: 'enum', val: t => t.parent ? '#' + t.parent : 'Χωρίς γονική', none: 'Χωρίς γονική'},
+  subtask:  {label: 'Είναι υποεργασία', kind: 'bool', val: t => !!t.parent},
 };
-const LV_GROUPABLE = ['status', 'prio', 'client', 'project', 'holder', 'assignee', 'creator', 'type', 'running', 'ticket'];
-const LV_COLS = ['id', 'title', 'running', 'holder', 'assignee', 'project', 'client', 'status', 'prio', 'type', 'due', 'created', 'done', 'mins', 'creator'];
+/* «Πότε λήγει» σε κουβάδες, με σειρά επείγοντος — για ομαδοποίηση όπως στο GoodDay. */
+function lvDueB(t) {
+  if (!t.due) { return ['Χωρίς λήξη', 9, '#8595ac']; }
+  const d = String(t.due).slice(0, 10), n = today();
+  if (t.done) { return ['Ολοκληρωμένες', 10, '#16a26a']; }
+  if (d < n) { return ['Εκπρόθεσμες', 0, '#e2515f']; }
+  if (d === n) { return ['Σήμερα', 1, '#e0552b']; }
+  const w = new Date(); w.setDate(w.getDate() + 7);
+  const wk = w.getFullYear() + '-' + String(w.getMonth() + 1).padStart(2, '0') + '-' + String(w.getDate()).padStart(2, '0');
+  if (d <= wk) { return ['Επόμενες 7 ημέρες', 2, '#eba63c']; }
+  return ['Αργότερα', 3, '#0090dd'];
+}
+const LV_GROUPABLE = ['status', 'prio', 'duebucket', 'client', 'project', 'holder', 'ball', 'assignee', 'creator', 'dept', 'type', 'parent', 'overdue', 'running', 'ticket'];
+const LV_COLS = ['id', 'title', 'running', 'holder', 'ball', 'assignee', 'project', 'client', 'dept', 'status', 'prio', 'type', 'start', 'due', 'sched', 'est', 'mins', 'progress', 'created', 'done', 'creator'];
+/* «Εγώ» σε φίλτρο προσώπου = όποιος ανοίγει το view (για πρότυπα που δουλεύουν για όλους). */
+const LV_ME = '@me';
+const LV_PERSON = ['holder', 'assignee', 'creator', 'ball'];
+/* Γρήγορα φίλτρα (ένα κλικ, όπως τα «Quick Filters» του GoodDay). */
+const LV_QUICK = [
+  {k: 'hi', label: '⚡ Υψηλή προτεραιότητα', rule: {f: 'prio', op: 'in', val: ['Κρίσιμη', 'Υψηλή']}},
+  {k: 'od', label: '⏰ Εκπρόθεσμες', rule: {f: 'due', op: 'overdue', val: null}},
+  {k: 'up', label: '📅 Επόμενες 7 ημέρες', rule: {f: 'due', op: 'week', val: null}},
+  {k: 'un', label: '👤 Χωρίς ανάθεση', rule: {f: 'assignee', op: 'in', val: ['Χωρίς ανάθεση']}},
+  {k: 'mb', label: '🎯 Η μπάλα σε μένα', rule: {f: 'ball', op: 'in', val: [LV_ME]}},
+];
 const LV_OPS = {
   enum: [['in', 'ένα από'], ['nin', 'κανένα από']],
   text: [['has', 'περιέχει'], ['nhas', 'δεν περιέχει']],
@@ -1494,15 +1528,18 @@ const LV_OPS = {
   num:  [['gte', '≥'], ['lte', '≤']],
   bool: [['is', 'είναι']],
 };
-const LV_DEF = {v: 1, open: 1, mine: 1, q: '', rules: [], groups: ['project'],
+const LV_DEF = {v: 1, open: 1, mine: 1, who: 'mine', users: [], q: '', rules: [], groups: ['project'],
   sort: [{f: 'prio', d: 'desc'}, {f: 'due', d: 'asc'}],
-  cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'due', 'mins'], display: 'list', density: 'detailed'};
+  cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'due', 'mins'], display: 'list', density: 'detailed',
+  color: 'prio', subs: 'flat'};
 const LV_PRESETS = {
   mine:     {name: 'Τα δικά μου', cfg: {}},
   status:   {name: 'Ανά κατάσταση', cfg: {mine: 0, groups: ['status', 'prio']}},
   client:   {name: 'Ανά πελάτη', cfg: {mine: 0, groups: ['client', 'status']}},
   critical: {name: 'Κρίσιμα πρώτα', cfg: {mine: 0, groups: ['prio'], rules: [{f: 'prio', op: 'in', val: ['Κρίσιμη', 'Υψηλή']}]}},
   running:  {name: 'Τρέχουν τώρα', cfg: {mine: 0, groups: ['holder'], rules: [{f: 'running', op: 'is', val: true}]}},
+  team:     {name: 'Η ομάδα μου', cfg: {who: 'team', groups: ['holder', 'status'], cols: ['id', 'title', 'holder', 'project', 'status', 'prio', 'due', 'est', 'mins', 'progress'], display: 'table'}, lead: 1},
+  deadlines: {name: 'Ανά προθεσμία', cfg: {groups: ['duebucket'], sort: [{f: 'due', d: 'asc'}, {f: 'prio', d: 'desc'}]}},
 };
 const lvClone = o => JSON.parse(JSON.stringify(o));
 /* Ασφαλές «καθάρισμα» μιας ρύθμισης: ό,τι άγνωστο πετιέται, ό,τι λείπει παίρνει προεπιλογή. */
@@ -1516,7 +1553,14 @@ function lvNorm(c) {
   o.rules = (Array.isArray(o.rules) ? o.rules : []).filter(r => r && LV_FIELDS[r.f] && (LV_OPS[LV_FIELDS[r.f].kind] || []).some(([k]) => k === r.op));
   o.display = ['list', 'table', 'board'].includes(o.display) ? o.display : 'list';
   o.density = o.density === 'compact' ? 'compact' : 'detailed';
-  o.open = o.open ? 1 : 0; o.mine = o.mine ? 1 : 0; o.q = String(o.q || '');
+  o.open = o.open ? 1 : 0; o.q = String(o.q || '');
+  /* «Ποιανού»: mine | team | users | all. Παλιά views είχαν μόνο το mine (1/0). */
+  if (!c || !['mine', 'team', 'users', 'all'].includes(c.who)) { o.who = c && 'mine' in c ? (c.mine ? 'mine' : 'all') : 'mine'; }
+  o.users = (Array.isArray(o.users) ? o.users : []).map(Number).filter(Boolean);
+  o.mine = o.who === 'mine' ? 1 : 0;
+  o.color = ['none', 'prio', 'status', 'project', 'duebucket'].includes(o.color) ? o.color : 'prio';
+  o.subs = ['flat', 'nest', 'hide'].includes(o.subs) ? o.subs : 'flat';
+  o.rules.forEach(r => { if (r.qk && !LV_QUICK.some(x => x.k === r.qk)) { delete r.qk; } });
   return o;
 }
 /* Παλιά views (localStorage, πριν τις 5/10/2026) → νέα ρύθμιση. */
@@ -1534,14 +1578,14 @@ function lvFromOld(f) {
 function lvTest(r, t) {
   const F = LV_FIELDS[r.f], v = F.val(t);
   switch (r.op) {
-    case 'in': return (r.val || []).includes(String(v));
-    case 'nin': return !(r.val || []).includes(String(v));
+    case 'in': return (r.val || []).some(x => x === LV_ME ? String(v) === adminName(S.boot.me.id) : x === String(v));
+    case 'nin': return !(r.val || []).some(x => x === LV_ME ? String(v) === adminName(S.boot.me.id) : x === String(v));
     case 'has': return !r.val || String(v).toLowerCase().includes(String(r.val).toLowerCase());
     case 'nhas': return !r.val || !String(v).toLowerCase().includes(String(r.val).toLowerCase());
     case 'range': { const a = (r.val || {}).from, b = (r.val || {}).to; return !!v && (!a || v >= a) && (!b || v <= b); }
     case 'overdue': return !!v && v < today() && !t.done;
     case 'today': return v === today();
-    case 'week': { const d = new Date(); d.setDate(d.getDate() + 7); return !!v && v >= today() && v <= d.toISOString().slice(0, 10); }
+    case 'week': { const d = new Date(); d.setDate(d.getDate() + 7); const wk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); return !!v && v >= today() && v <= wk; }
     case 'set': return !!v;
     case 'empty': return !v;
     case 'gte': return +v >= (+r.val || 0);
@@ -1552,18 +1596,18 @@ function lvTest(r, t) {
 }
 function lvRuleText(r) {
   const F = LV_FIELDS[r.f]; const op = (LV_OPS[F.kind].find(([k]) => k === r.op) || [, ''])[1];
-  const v = r.op === 'in' || r.op === 'nin' ? (r.val || []).join(', ') || '—'
+  const v = r.op === 'in' || r.op === 'nin' ? (r.val || []).map(x => x === LV_ME ? 'Εγώ' : x).join(', ') || '—'
     : r.op === 'range' ? [(r.val || {}).from ? dShort(r.val.from) : '…', (r.val || {}).to ? dShort(r.val.to) : '…'].join(' – ')
     : r.op === 'is' ? (r.val ? 'ναι' : 'όχι')
     : ['has', 'nhas', 'gte', 'lte'].includes(r.op) ? String(r.val || '') : '';
   return F.label + ' ' + op + (v ? ' ' + v : '');
 }
 
-R.list = async function () {
-  setTop('Λίστα tasks', 'Τα δικά σου πρώτα — άλλαξε view για όλη την ομάδα · g+l');
+R.list = async function (arg) {
+  setTop('Λίστα tasks', 'Views: φίλτρα, ομάδες, ταξινόμηση, στήλες — δικά σου, της ομάδας ή δημόσια · g+l');
   const c = $('#content');
   /* Η κατάσταση ζει στο R.list ώστε η πλοήγηση μέσα στη συνεδρία να κρατά ό,τι έστησες. */
-  const st = R.list._st = R.list._st || {cfg: null, view: null, base: null, closed: new Set(), more: {}, views: {mine: [], public: [], default: ''}};
+  const st = R.list._st = R.list._st || {cfg: null, view: null, base: null, closed: new Set(), more: {}, views: {mine: [], public: [], templates: [], team: [], pins: [], default: ''}};
   let D = R.list._D || {tasks: []};
 
   c.innerHTML = `<div id="lvRoot"><div id="lvTop"></div><div id="lRes"><div class="skel" style="height:220px"></div></div></div>`;
@@ -1581,7 +1625,7 @@ R.list = async function () {
       toast('Τα αποθηκευμένα views σου μεταφέρθηκαν στον server — τα βλέπεις από κάθε υπολογιστή');
     } else { try { localStorage.cnpViewsMigrated = '1'; } catch (e) {} }
   };
-  const allSaved = () => (st.views.mine || []).concat(st.views.public || []);
+  const allSaved = () => (st.views.mine || []).concat(st.views.public || [], st.views.templates || []);
   const openView = (kind, id) => {
     if (kind === 'p') {
       const p = LV_PRESETS[id] || LV_PRESETS.mine;
@@ -1590,15 +1634,21 @@ R.list = async function () {
     } else {
       const v = allSaved().find(x => x.id === +id);
       if (!v) { return openView('p', 'mine'); }
-      st.view = {kind: 'v', id: v.id, name: v.name, canEdit: v.canEdit, scope: v.scope, owner: v.owner, ownerName: v.ownerName};
+      st.view = {kind: 'v', id: v.id, name: v.name, canEdit: v.canEdit, scope: v.scope, owner: v.owner, ownerName: v.ownerName, template: v.template};
       st.cfg = lvNorm(v.config);
     }
     st.base = JSON.stringify(st.cfg); st.more = {};
   };
-  if (!st.cfg) {
+  /* Σύνδεσμος/καρφίτσωμα: #/list/v12 (αποθηκευμένο) ή #/list/pteam (έτοιμο) → ανοίγει αυτό το view. */
+  const am = /^v(\d+)$/.exec(arg || '') || /^p([a-z_]+)$/.exec(arg || '');
+  if (!st.cfg || am) {
     await loadViews();
-    const dk = st.views.default || '';
-    if (dk.startsWith('v:')) { openView('v', dk.slice(2)); } else { openView('p', dk.startsWith('p:') ? dk.slice(2) : 'mine'); }
+    if (am && arg[0] === 'v') { openView('v', am[1]); }
+    else if (am) { openView('p', am[1]); }
+    else {
+      const dk = st.views.default || '';
+      if (dk.startsWith('v:')) { openView('v', dk.slice(2)); } else { openView('p', dk.startsWith('p:') ? dk.slice(2) : 'mine'); }
+    }
   }
   const cfg = () => st.cfg;
   const modified = () => JSON.stringify(st.cfg) !== st.base;
@@ -1615,7 +1665,17 @@ R.list = async function () {
       cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '', LV_PRIO[+t.prio || 0]].join(' '), q);
     return /^\d+$/.test(q) ? (String(t.id) === q || text) : text;
   };
-  const filtered = () => D.tasks.filter(t => (!cfg().mine || cnpIsMine(t)) && matchQ(t) && cfg().rules.every(r => lvTest(r, t)));
+  /* «Ποιανού»: δικά μου (κανόνας μπάλας) · η ομάδα μου (μέλη ομάδων που διευθύνω + εγώ) ·
+     συγκεκριμένοι άνθρωποι · όλα όσα βλέπω. Ο server ήδη δίνει ΜΟΝΟ ό,τι επιτρέπεται να δω. */
+  const whoOk = t => {
+    const w = cfg().who, h = cnpHolder(t);
+    if (w === 'mine') { return cnpIsMine(t); }
+    if (w === 'team') { const ids = (st.views.team || []).concat([S.boot.me.id]); return ids.includes(h) || ids.includes(+t.assignee); }
+    if (w === 'users') { const ids = cfg().users || []; return !ids.length || ids.includes(h) || ids.includes(+t.assignee); }
+    return true;
+  };
+  const filtered = () => D.tasks.filter(t => whoOk(t) && matchQ(t) && cfg().rules.every(r => lvTest(r, t))
+    && !(cfg().subs === 'hide' && t.parent));
   const cmp = (a, b, f) => {
     const F = LV_FIELDS[f];
     if (F.rank) { return F.rank(a) - F.rank(b); }
@@ -1658,22 +1718,74 @@ R.list = async function () {
       case 'done': return t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(String(t.doneAt).slice(0, 10))}</span>` : '';
       case 'mins': return t.mins ? `<span class="mut" title="Καταγεγραμμένος χρόνος">${fmtMin(t.mins)}</span>` : '';
       case 'creator': return t.creator ? `<span class="mut" title="Δημιουργός">από ${esc(adminName(t.creator).split(' ')[0])}</span>` : '';
+      case 'ball': return t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα σε ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : '';
+      case 'dept': { const dn = LV_FIELDS.dept.val(t); return t.dept ? `<span class="kb-tag kb-tag-mut" title="Department">${esc(dn)}</span>` : ''; }
+      case 'start': return t.start ? `<span class="mut" title="Έναρξη">▸ ${dShort(String(t.start).slice(0, 10))}</span>` : '';
+      case 'sched': { const sd = t.sched ? String(t.sched).slice(0, 10) : ''; const sl = sd && sd < today() && !t.done;
+        return sd ? `<span class="${sl ? 'kb-tag' : 'mut'}" ${sl ? 'style="background:#e2515f18;color:#e2515f"' : ''} title="Deadline">⚑ ${dShort(sd)}</span>` : ''; }
+      case 'est': return t.est ? `<span class="mut" title="Εκτίμηση">⏱ ${fmtMin(+t.est)}</span>` : '';
+      case 'progress': { if (!t.est) { return ''; } const pc = LV_FIELDS.progress.val(t), cl = pc > 100 ? '#e2515f' : pc >= 80 ? '#eba63c' : '#16a26a';
+        return `<span class="lv-prog" title="Χρόνος ${fmtMin(+t.mins || 0)} από ${fmtMin(+t.est)}"><s><i style="width:${Math.min(100, pc)}%;background:${cl}"></i></s><b>${pc}%</b></span>`; }
     }
     return '';
+  };
+  /* Χρωματική κωδικοποίηση γραμμής (αριστερή μπάρα): προτεραιότητα / κατάσταση / έργο / προθεσμία. */
+  const rowColor = t => {
+    const k = cfg().color;
+    if (k === 'none') { return ''; }
+    const c0 = k === 'prio' ? LV_PCOL[+t.prio || 0] : k === 'status' ? (statusOf(t.status).color || '#8595ac') : k === 'project' ? (t.pcolor || '#8595ac') : lvDueB(t)[2];
+    return c0;
+  };
+  /* Υποεργασίες «κάτω από τη γονική»: όσες έχουν γονική ΜΕΣΑ στο ίδιο σύνολο μπαίνουν αμέσως μετά από αυτή. */
+  const nestRows = rows => {
+    if (cfg().subs !== 'nest') { return rows; }
+    const ids = new Set(rows.map(t => t.id)), kids = new Map(), top = [];
+    rows.forEach(t => { if (t.parent && ids.has(t.parent)) { if (!kids.has(t.parent)) { kids.set(t.parent, []); } kids.get(t.parent).push(t); } else { top.push(t); } });
+    const out = [];
+    top.forEach(t => { out.push(t); (kids.get(t.id) || []).forEach(k => out.push(Object.assign({}, k, {_sub: 1}))); });
+    return out;
   };
   const rowList = t => {
     const cols = cfg().cols;
     const lead = cols.filter(k => k === 'id' || k === 'title').map(k => cell(k, t)).join('');
     const meta = cols.filter(k => k !== 'id' && k !== 'title').map(k => cell(k, t)).join('');
-    return `<div class="kb-item kb-trow" data-task="${t.id}">
-      <span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}" title="Προτεραιότητα: ${LV_PRIO[+t.prio || 0]}"></span>${lead}
+    const rc = rowColor(t);
+    return `<div class="kb-item kb-trow${t._sub ? ' lv-sub' : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>
+      ${t._sub ? '<span class="lv-subm" title="Υποεργασία">↳</span>' : ''}<span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}" title="Προτεραιότητα: ${LV_PRIO[+t.prio || 0]}"></span>${lead}
       <span class="kb-sum-meta">${meta}</span></div>`;
   };
   const sortMark = k => { const i = cfg().sort.findIndex(x => x.f === k); return i < 0 ? '' : `<span class="lv-sm">${cfg().sort[i].d === 'desc' ? '↓' : '↑'}${cfg().sort.length > 1 ? i + 1 : ''}</span>`; };
-  const tableHtml = rows => `<div class="lv-tw"><table class="lv-tbl"><thead><tr>${cfg().cols.map(k =>
-      `<th data-lvsort="${k}" title="Ταξινόμηση — κλικ ξανά για αντίστροφη">${esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(t => `<tr class="lv-tr" data-task="${t.id}" draggable="true">${cfg().cols.map(k => `<td class="lv-td-${k}">${cell(k, t)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const theadHtml = () => `<thead><tr>${cfg().cols.map(k =>
+      `<th data-lvsort="${k}" title="Ταξινόμηση — κλικ: μόνο με αυτή · Shift+κλικ: πρόσθεσέ τη ως επόμενο κριτήριο">${esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>`;
+  const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}" data-task="${t.id}" draggable="true"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map(k => `<td class="lv-td-${k}">${k === 'title' && t._sub ? '<span class="lv-subm">↳</span>' : ''}${cell(k, t)}</td>`).join('')}</tr>`; };
+  const tableHtml = rows => `<div class="lv-tw"><table class="lv-tbl">${theadHtml()}<tbody>${rows.map(trRow).join('')}</tbody></table></div>`;
+  /* Πίνακας ΜΕ ομάδες (16/10/2026, όπως το GoodDay): ΕΝΑΣ πίνακας, μία κεφαλίδα, οι ομάδες ως
+     γραμμές μέσα του (εσοχή ανά επίπεδο, χρώμα, πλήθος, σύμπτυξη) — οι στήλες ευθυγραμμίζονται. */
+  const tableGrouped = list => {
+    const N = cfg().cols.length;
+    let body = '';
+    const walk = (rows, levels, path, depth) => {
+      if (!levels.length) {
+        const all = nestRows(rows), key = path || 'root', n = st.more[key] || PAGE;
+        body += all.slice(0, n).map(trRow).join('');
+        if (all.length > n) { body += `<tr class="lv-mrow" data-key="m:${esc(key)}"><td colspan="${N}"><button type="button" class="lv-more" data-lvmore="${esc(key)}">Δείξε ακόμη ${Math.min(all.length - n, PAGE)} από ${all.length - n}</button></td></tr>`; }
+        return;
+      }
+      const g = levels[0];
+      buckets(rows, g).forEach(([k, o]) => {
+        const p = (path ? path + '|' : '') + g + '=' + k, closed = st.closed.has(p);
+        body += `<tr class="lv-grow lv-d${Math.min(depth, 4)}" data-lgrp="${esc(p)}" data-key="g:${esc(p)}"><td colspan="${N}">
+          <span class="lv-gi" style="padding-left:${depth * 20}px"><span class="kb-gchev ${closed ? '' : 'open'}">${I.chev}</span>
+          <span class="lv-gdot" style="background:${esc(o.col)}"></span><span class="lv-gl">${esc(LV_FIELDS[g].label)}:</span> <b>${esc(k)}</b>
+          <span class="kb-n">${o.rows.length}</span>${runN(o.rows) ? `<span class="tk-run" title="Τρέχουν τώρα">▶ ${runN(o.rows)}</span>` : ''}</span></td></tr>`;
+        if (!closed) { walk(o.rows, levels.slice(1), p, depth + 1); }
+      });
+    };
+    walk(list, cfg().groups, '', 0);
+    return `<div class="lv-tw"><table class="lv-tbl lv-tblg">${theadHtml()}<tbody>${body}</tbody></table></div>`;
+  };
   const leaf = (rows, path) => {
+    rows = nestRows(rows);
     const n = st.more[path] || PAGE, shown = rows.slice(0, n), rest = rows.length - shown.length;
     const body = cfg().display === 'table' ? tableHtml(shown) : shown.map(rowList).join('');
     return body + (rest > 0 ? `<button type="button" class="lv-more" data-lvmore="${esc(path)}">Δείξε ακόμη ${Math.min(rest, PAGE)} από ${rest}</button>` : '');
@@ -1719,6 +1831,7 @@ R.list = async function () {
     }
     const cls = 'lv-res lv-' + cfg().display + (cfg().density === 'compact' ? ' lv-compact' : '');
     if (cfg().display === 'board') { cnpPut(el, `<div class="${cls}">${boardHtml(list)}</div>`); return; }
+    if (cfg().display === 'table' && cfg().groups.length) { cnpPut(el, `<div class="${cls}"><div class="card lv-gwrap">${tableGrouped(list)}</div></div>`); return; }
     const inner = cfg().groups.length ? groupsHtml(list, cfg().groups, '', 0) : `<div class="card kb-group"><div class="card-b kb-gbody">${leaf(list, 'root')}</div></div>`;
     cnpPut(el, `<div class="${cls}">${cfg().groups.length ? `<div class="card lv-gwrap">${inner}</div>` : inner}</div>`);
   };
@@ -1731,6 +1844,10 @@ R.list = async function () {
       'Στήλες: ' + c0.cols.length,
       'Εμφάνιση: ' + ({list: 'λίστα', table: 'πίνακας', board: 'board'})[c0.display] + (c0.density === 'compact' ? ', συμπτυγμένη' : '')].filter(Boolean).join(' · ');
   };
+  const whoLbl = () => ({mine: 'Δικά μου', team: 'Η ομάδα μου', all: 'Όλα όσα βλέπω'})[cfg().who]
+    || ((cfg().users || []).length ? (cfg().users.length === 1 ? adminName(cfg().users[0]) : cfg().users.length + ' άτομα') : 'Επιλεγμένοι');
+  const viewKey = () => st.view ? (st.view.kind === 'v' ? 'v:' + st.view.id : 'p:' + st.view.id) : '';
+  const pinOf = () => (st.views.pins || []).find(x => x.k === viewKey()) || null;
   const renderTop = () => {
     const v = st.view || {}, mod = modified();
     const n = D.tasks.length ? filtered().length : 0;
@@ -1743,14 +1860,18 @@ R.list = async function () {
         <button type="button" class="fchip" data-lvact="saveas">Αποθήκευση ως νέο</button>
         <button type="button" class="fchip" data-lvact="reset">Επαναφορά</button>` : ''}
       <button type="button" class="fchip fchip-b${cfg().open ? ' on' : ''}" data-lvtog="open">${cfg().open ? '✓ ' : ''}Ανοιχτά</button>
-      <button type="button" class="fchip fchip-b${cfg().mine ? ' on' : ''}" data-lvtog="mine" title="Έχεις τη μπάλα — ή, αν δεν την κρατά κανείς, σου έχει ανατεθεί">${cfg().mine ? '✓ ' : ''}Δικά μου</button>
-      ${cfg().rules.map((r, i) => `<span class="fchip on lv-rchip" data-lvrule="${i}" title="Κλικ για αλλαγή">${esc(lvRuleText(r))}<span class="fchip-x" data-lvrx="${i}" title="Αφαίρεση">✕</span></span>`).join('')}
+      <button type="button" class="fchip fchip-b on lv-who" data-lvact="who" title="Ποιανού εργασίες: δικές μου, της ομάδας μου, συγκεκριμένων ανθρώπων ή όλες όσες βλέπω">👥 ${esc(whoLbl())} ▾</button>
+      ${cfg().rules.filter(r => !r.qk).map(r => { const i = cfg().rules.indexOf(r); return `<span class="fchip on lv-rchip" data-lvrule="${i}" title="Κλικ για αλλαγή">${esc(lvRuleText(r))}<span class="fchip-x" data-lvrx="${i}" title="Αφαίρεση">✕</span></span>`; }).join('')}
       <button type="button" class="fchip" data-lvact="builder" title="Φίλτρα, ομαδοποίηση, ταξινόμηση, στήλες, εμφάνιση">⚙ Ρύθμιση view</button>
       <span class="fbar-sp"></span>
       <span class="fbar-note">${n} εργασίες</span>
+      ${cfg().groups.length && cfg().display !== 'board' ? `<button class="fchip" data-lvact="collapse" title="Σύμπτυξη όλων των ομάδων">⊟</button><button class="fchip" data-lvact="expand" title="Ανάπτυξη όλων">⊞</button>` : ''}
+      <button class="fchip${pinOf() ? ' on' : ''}" data-lvact="pin" title="${pinOf() ? 'Καρφιτσωμένο ως «' + esc(pinOf().label) + '» — κλικ για αλλαγή' : 'Καρφίτσωσε αυτό το view στο μενού ή στην αρχική'}">📌</button>
       <button class="fchip" data-lvact="csv">${I.download} CSV</button>
+      <button class="fchip" data-lvact="pdf" title="Εκτύπωση / αποθήκευση ως PDF">PDF</button>
       <button class="fchip fchip-go" data-lvact="new">${I.plus} Νέο task</button>
     </div>
+    <div class="lv-quick"><span class="mut">Γρήγορα:</span>${LV_QUICK.map(x => `<button type="button" class="fchip fchip-b${cfg().rules.some(r => r.qk === x.k) ? ' on' : ''}" data-lvq="${x.k}">${esc(x.label)}</button>`).join('')}</div>
     <div class="lv-sum" data-lvact="builder" title="Κλικ για ρύθμιση">${esc(sumTxt())}</div>`);
   };
   const render = () => { renderTop(); renderRes(); };
@@ -1789,10 +1910,13 @@ R.list = async function () {
         <button type="button" class="lv-mb${dk === key ? ' on' : ''}" data-lvdef="${esc(key)}" title="${dk === key ? 'Προεπιλογή σου — κλικ για αφαίρεση' : 'Κάν’ το προεπιλογή μου'}">${dk === key ? '★' : '☆'}</button>
         ${opts && opts.copy ? `<button type="button" class="lv-mb" data-lvcopy="${esc(key)}" title="Αντιγραφή ως προσωπικό">⧉</button>` : ''}
         ${opts && opts.del ? `<button type="button" class="lv-mb" data-lvdel="${esc(key)}" title="Διαγραφή">✕</button>` : ''}</div>`;
-    m.innerHTML = `<div class="lv-mh">Έτοιμα</div>${Object.entries(LV_PRESETS).map(([k, p]) => item('p:' + k, p.name)).join('')}
-      <div class="lv-mh">Τα views μου</div>${(st.views.mine || []).map(v => item('v:' + v.id, v.name, v.scope === 'public' ? '🌐 δημόσιο' : 'προσωπικό', {del: 1})).join('')
+    const scTxt = v => v.scope === 'public' ? '🌐 δημόσιο' : v.scope === 'team' ? '👥 ομάδα' : 'προσωπικό';
+    const pinMark = key => (st.views.pins || []).some(x => x.k === key) ? ' 📌' : '';
+    m.innerHTML = `<div class="lv-mh">Έτοιμα</div>${Object.entries(LV_PRESETS).filter(([, p]) => !p.lead || (st.views.team || []).length).map(([k, p]) => item('p:' + k, p.name + pinMark('p:' + k))).join('')}
+      <div class="lv-mh">Τα views μου</div>${(st.views.mine || []).map(v => item('v:' + v.id, v.name + pinMark('v:' + v.id), scTxt(v), {del: 1})).join('')
         || '<div class="lv-me"><button type="button" class="btn btn-sm btn-p" data-lvnew="cur">Δημιούργησε το πρώτο σου view</button><div class="mut" style="margin-top:5px">από ό,τι βλέπεις τώρα</div></div>'}
-      ${(st.views.public || []).length ? `<div class="lv-mh">Δημόσια της ομάδας</div>${st.views.public.map(v => item('v:' + v.id, v.name, 'από ' + v.ownerName, {copy: 1, del: v.canEdit})).join('')}` : ''}
+      ${(st.views.public || []).length ? `<div class="lv-mh">Κοινόχρηστα</div>${st.views.public.map(v => item('v:' + v.id, v.name + pinMark('v:' + v.id), scTxt(v) + ' · από ' + v.ownerName, {copy: 1, del: v.canEdit})).join('')}` : ''}
+      ${(st.views.templates || []).length ? `<div class="lv-mh">📐 Πρότυπα <small class="mut" style="text-transform:none;font-weight:400">— «Εγώ» = όποιος το ανοίγει</small></div>${st.views.templates.map(v => item('v:' + v.id, v.name, 'από ' + v.ownerName, {copy: 1, del: v.canEdit})).join('')}` : ''}
       <div class="lv-mf">
         <button type="button" class="lv-mnew" data-lvnew="cur" title="Αποθήκευσε ό,τι βλέπεις τώρα (με τις αλλαγές) ως νέο view">+ Νέο view</button>
         <button type="button" class="lv-mnew2" data-lvnew="blank" title="Ξεκίνα από τις βασικές ρυθμίσεις: χωρίς φίλτρα, με τις στήλες του συστήματος">νέο κενό</button></div>`;
@@ -1849,8 +1973,11 @@ R.list = async function () {
       <div id="lvsE" class="mut" style="color:var(--bad);font-size:12px;margin-top:5px" hidden></div>
       <label class="lbl" style="margin-top:10px">Ορατότητα</label>
       <select class="inp" id="lvsS"><option value="mine" selected>Προσωπικό — μόνο εγώ</option>
-        <option value="public" ${canPub ? '' : 'disabled'}>Δημόσιο — όλη η ομάδα${canPub ? '' : ' (χρειάζεται «Board: επεξεργασία»)'}</option></select>
-      <label style="display:flex;gap:7px;align-items:center;margin-top:10px;font-size:12.5px"><input type="checkbox" id="lvsD"> Ορισμός ως προεπιλεγμένο μου</label>
+        <option value="team">Ομάδα — όσοι είναι στις ομάδες μου</option>
+        <option value="public" ${canPub ? '' : 'disabled'}>Δημόσιο — όλοι${canPub ? '' : ' (χρειάζεται «Board: επεξεργασία»)'}</option></select>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:10px;font-size:12.5px"><input type="checkbox" id="lvsT" ${opts.template ? 'checked' : ''}> 📐 Ως πρότυπο — ο καθένας το εφαρμόζει στα δικά του (τα φίλτρα «Εγώ» γίνονται ο ίδιος)</label>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:6px;font-size:12.5px"><input type="checkbox" id="lvsD"> Ορισμός ως προεπιλεγμένο μου</label>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:6px;font-size:12.5px"><input type="checkbox" id="lvsP"> 📌 Καρφίτσωμα στο μενού μου</label>
       <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:14px"><button class="btn btn-o" id="lvsNo">Άκυρο</button><button class="btn btn-p" id="lvsGo">Αποθήκευση</button></div></div></div>`;
     document.body.appendChild(ovl);
     const nameEl = $('#lvsN', ovl), errEl = $('#lvsE', ovl);
@@ -1861,13 +1988,17 @@ R.list = async function () {
       const name = nameEl.value.trim(), scope = $('#lvsS', ovl).value;
       if (!name) { showErr('Το όνομα δεν μπορεί να είναι κενό.'); return; }
       /* Διπλότυπο στην ίδια ενότητα — έλεγχος και εδώ (άμεσο μήνυμα) και στον server. */
-      const pool = scope === 'public' ? allSaved().filter(v => v.scope === 'public') : (st.views.mine || []).filter(v => v.scope !== 'public');
+      const pool = scope === 'public' ? allSaved().filter(v => v.scope === 'public') : allSaved().filter(v => v.owner === S.boot.me.id && v.scope === scope);
       if (pool.some(v => v.name.trim().toLowerCase() === name.toLowerCase())) { showErr('Υπάρχει ήδη view με αυτό το όνομα ' + (scope === 'public' ? 'στα δημόσια.' : 'στα δικά σου.')); return; }
       const b = $('#lvsGo', ovl); b.disabled = true;
-      const r = await api('view_save', {name, scope, config: cfgNew}).catch(er => ({err: er.message}));
+      const r = await api('view_save', {name, scope, config: cfgNew, template: $('#lvsT', ovl).checked ? 1 : 0}).catch(er => ({err: er.message}));
       b.disabled = false;
       if (r.err) { showErr(r.err); return; }
       if ($('#lvsD', ovl).checked) { await api('view_default', {key: 'v:' + r.id}).catch(() => {}); }
+      if ($('#lvsP', ovl).checked) {
+        const pr = await api('view_pin', {key: 'v:' + r.id, label: name.slice(0, 40), menu: 1, home: 0}).catch(() => null);
+        if (pr && pr.pins) { S.boot.viewPins = pr.pins; if (window.CNP.cnpRenderPins) { window.CNP.cnpRenderPins(); } }
+      }
       close(); await loadViews(); openView('v', r.id);   // ανοίγει το νέο, χωρίς «τροποποιημένο»
       toast('Δημιουργήθηκε το view «' + name + '»'); apply(true);
     };
@@ -1880,6 +2011,97 @@ R.list = async function () {
     nameEl.oninput = () => { errEl.hidden = true; };
     $('#lvsNo', ovl).onclick = close;
     $('#lvsGo', ovl).onclick = go;
+  };
+
+  /* ── 👥 Ποιανού ── */
+  const whoMenu = btn => {
+    document.querySelectorAll('.lv-menu').forEach(x => x.remove());
+    const m = document.createElement('div'); m.className = 'lv-menu lv-whom';
+    const lead = (st.views.team || []).length > 0;
+    const people = (S.boot.admins || []).filter(a => !a.disabled && !/support team|\bbot\b/i.test(a.name));
+    const opt = (k, l, sub, dis) => `<div class="lv-mi${cfg().who === k ? ' cur' : ''}${dis ? ' dis' : ''}" data-who="${k}"${dis ? ' title="' + esc(dis) + '"' : ''}><span class="lv-mn">${l}${sub ? ` <small class="mut">${sub}</small>` : ''}</span></div>`;
+    m.innerHTML = `<div class="lv-mh">Ποιανού εργασίες</div>
+      ${opt('mine', 'Δικά μου', 'η μπάλα σε μένα — ή ανατεθειμένα χωρίς μπάλα')}
+      ${opt('team', 'Η ομάδα μου', lead ? (st.views.team.length + ' μέλη + εγώ') : 'μόνο για επικεφαλής ομάδας', lead ? '' : 'Δεν είσαι επικεφαλής ομάδας')}
+      ${opt('all', 'Όλα όσα βλέπω', 'ό,τι επιτρέπουν τα δικαιώματά μου')}
+      ${opt('users', 'Συγκεκριμένοι…', 'διάλεξε ανθρώπους')}
+      <div class="lv-whou"${cfg().who === 'users' ? '' : ' hidden'}><input class="inp" id="lvWhoQ" placeholder="Αναζήτηση (και greeklish)…">
+        <div class="lv-whol">${people.map(a => `<label class="lv-chk${(cfg().users || []).includes(a.id) ? ' on' : ''}" data-nm="${esc(a.name)}"><input type="checkbox" data-whou="${a.id}" ${(cfg().users || []).includes(a.id) ? 'checked' : ''}>${esc(a.name)}</label>`).join('')}</div></div>`;
+    document.body.appendChild(m);
+    const rc = btn.getBoundingClientRect();
+    m.style.top = (rc.bottom + 6 + window.scrollY) + 'px'; m.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 330)) + 'px';
+    const close = () => { m.remove(); document.removeEventListener('click', outside, true); };
+    const outside = e => { if (!m.contains(e.target) && e.target !== btn) { close(); } };
+    setTimeout(() => document.addEventListener('click', outside, true), 0);
+    const q = m.querySelector('#lvWhoQ');
+    if (q) { q.oninput = () => m.querySelectorAll('.lv-whol label').forEach(l => { l.hidden = !cnpMatch(l.dataset.nm, q.value); }); }
+    m.onclick = e => {
+      const w = e.target.closest('[data-who]');
+      if (w && !w.classList.contains('dis')) {
+        cfg().who = w.dataset.who; cfg().mine = cfg().who === 'mine' ? 1 : 0;
+        if (cfg().who === 'users') { m.querySelector('.lv-whou').hidden = false; m.querySelectorAll('[data-who]').forEach(x => x.classList.toggle('cur', x === w)); apply(); setTimeout(() => q && q.focus(), 0); return; }
+        close(); apply(); return;
+      }
+    };
+    m.onchange = e => {
+      const cb = e.target.closest('[data-whou]'); if (!cb) { return; }
+      const id = +cb.dataset.whou; const u = new Set(cfg().users || []);
+      if (cb.checked) { u.add(id); } else { u.delete(id); }
+      cfg().users = [...u]; cb.parentNode.classList.toggle('on', cb.checked); apply();
+    };
+  };
+  /* ── 📌 Καρφίτσωμα στο μενού / στην αρχική, με δικό σου όνομα ── */
+  const pinDialog = () => {
+    if (!st.view) { return; }
+    if (modified() && st.view.kind === 'v' && st.view.canEdit) { toast('Αποθήκευσε πρώτα τις αλλαγές — το καρφίτσωμα ανοίγει το αποθηκευμένο view', true); }
+    const cur = pinOf(), key = viewKey();
+    document.querySelectorAll('.lv-saveas').forEach(x => x.remove());
+    const ovl = document.createElement('div'); ovl.className = 'ovl show lv-saveas'; ovl.style.zIndex = 340;
+    ovl.innerHTML = `<div class="pal-box" style="margin:16vh auto 0;max-width:420px" role="dialog" data-cnp-dlg="1"><div style="padding:20px 22px 18px">
+      <b style="font-size:15.5px;color:var(--ink)">📌 Καρφίτσωμα view</b>
+      <div class="mut" style="font-size:12px;margin-top:4px">«${esc(st.view.name)}» — ανοίγει με ένα κλικ, πάντα με τις αποθηκευμένες ρυθμίσεις του.</div>
+      <label class="lbl" style="margin-top:12px">Όνομα στο μενού</label><input class="inp" id="lvpN" maxlength="40" value="${esc(cur ? cur.label : st.view.name)}">
+      <label style="display:flex;gap:7px;align-items:center;margin-top:10px;font-size:13px"><input type="checkbox" id="lvpM" ${!cur || cur.menu ? 'checked' : ''}> Στο μενού (Τα δικά μου → 📌 Τα views μου)</label>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:6px;font-size:13px"><input type="checkbox" id="lvpH" ${cur && cur.home ? 'checked' : ''}> Στην αρχική («Η μέρα μου»)</label>
+      <div id="lvpE" class="mut" style="color:var(--bad);font-size:12px;margin-top:5px" hidden></div>
+      <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:14px">${cur ? '<button class="btn btn-o" id="lvpX" style="color:var(--bad)">Ξεκαρφίτσωμα</button>' : ''}<span style="flex:1"></span>
+        <button class="btn btn-o" id="cnpDlgNo">Άκυρο</button><button class="btn btn-p" id="lvpGo">Καρφίτσωμα</button></div></div></div>`;
+    document.body.appendChild(ovl);
+    const close = () => ovl.remove();
+    const send = async (menu, home) => {
+      const r = await api('view_pin', {key, label: $('#lvpN', ovl).value.trim(), menu: menu ? 1 : 0, home: home ? 1 : 0}).catch(er => ({err: er.message}));
+      if (r.err) { const e2 = $('#lvpE', ovl); e2.hidden = false; e2.textContent = r.err; return; }
+      st.views.pins = r.pins; S.boot.viewPins = r.pins; close();
+      if (window.CNP.cnpRenderPins) { window.CNP.cnpRenderPins(); }
+      toast(menu || home ? '📌 Καρφιτσώθηκε' : 'Ξεκαρφιτσώθηκε'); renderTop();
+    };
+    $('#cnpDlgNo', ovl).onclick = close;
+    $('#lvpGo', ovl).onclick = () => send($('#lvpM', ovl).checked, $('#lvpH', ovl).checked);
+    { const x = $('#lvpX', ovl); if (x) { x.onclick = () => send(false, false); } }
+    setTimeout(() => { const n0 = $('#lvpN', ovl); n0.focus(); n0.select(); }, 30);
+  };
+  /* ── PDF: καθαρός πίνακας του view σε νέο παράθυρο → Εκτύπωση / Αποθήκευση ως PDF ── */
+  const printPdf = () => {
+    const cols = cfg().cols, list = sorted(filtered());
+    const txt = (k, t) => { const F = LV_FIELDS[k]; const v = F.val(t); if (k === 'running') { return (t.running || []).map(r => adminName(r.id)).join(', '); }
+      if (F.kind === 'bool') { return v ? 'Ναι' : ''; } if (F.kind === 'date') { return v ? dFull(v) : ''; } if (k === 'est' || k === 'mins') { return v ? fmtMin(v) : ''; } if (k === 'progress') { return t.est ? v + '%' : ''; } return v; };
+    const rowsHtml = rows => rows.map(t => `<tr>${cols.map(k => `<td>${esc(String(txt(k, t) == null ? '' : txt(k, t)))}</td>`).join('')}</tr>`).join('');
+    let body = '';
+    const head = `<tr>${cols.map(k => `<th>${esc(LV_FIELDS[k].label)}</th>`).join('')}</tr>`;
+    if (cfg().groups.length) {
+      const walk = (rows, lv, depth, label) => { if (!lv.length) { body += `<tr class="g"><td colspan="${cols.length}" style="padding-left:${depth * 10}px">${esc(label)} (${rows.length})</td></tr>` + rowsHtml(rows); return; }
+        buckets(rows, lv[0]).forEach(([k, o]) => walk(o.rows, lv.slice(1), depth + 1, (label ? label + ' › ' : '') + LV_FIELDS[lv[0]].label + ': ' + k)); };
+      walk(list, cfg().groups, 0, '');
+    } else { body = rowsHtml(list); }
+    const w = window.open('', '_blank');
+    if (!w) { toast('Ο browser μπλόκαρε το νέο παράθυρο — επίτρεψε τα αναδυόμενα', true); return; }
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc((st.view && st.view.name) || 'Εργασίες')}</title>
+      <style>body{font-family:Arial,sans-serif;font-size:11px;color:#131f30;margin:18px}h1{font-size:16px;margin:0 0 4px}.m{color:#8595ac;margin-bottom:10px}
+      table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #e5eaf1;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f4f7fb;font-size:10px;text-transform:uppercase}
+      tr.g td{background:#eef3f9;font-weight:700}@page{size:A4 landscape;margin:12mm}</style></head><body>
+      <h1>${esc((st.view && st.view.name) || 'Εργασίες')}</h1><div class="m">${esc(sumTxt())} · ${list.length} εργασίες · ${esc(dFull(today()))} · ${esc(S.boot.me.name)}</div>
+      <table><thead>${head}</thead><tbody>${body}</tbody></table><script>setTimeout(function(){window.print()},300)<\/script></body></html>`);
+    w.document.close();
   };
 
   /* ── ρύθμιση view (φίλτρα / ομαδοποίηση / ταξινόμηση / στήλες / εμφάνιση) ── */
@@ -1899,8 +2121,9 @@ R.list = async function () {
       const F = LV_FIELDS[r.f];
       if (r.op === 'in' || r.op === 'nin') {
         /* Οι επιλεγμένες ΠΡΩΤΕΣ — αλλιώς χάνονταν κάτω από το scroll και δεν ήξερες τι φιλτράρεις. */
-        const opts = [...new Set((r.val || []).concat(distinct(r.f)))];
-        return `<div class="lv-multi">${opts.map(o => `<label class="lv-chk${(r.val || []).includes(o) ? ' on' : ''}"><input type="checkbox" data-rv="${i}" value="${esc(o)}" ${(r.val || []).includes(o) ? 'checked' : ''}>${esc(o)}</label>`).join('') || '<span class="mut">καμία τιμή</span>'}</div>`;
+        const opts = [...new Set((LV_PERSON.includes(r.f) ? [LV_ME] : []).concat(r.val || [], distinct(r.f)))];
+        const lbl = o => o === LV_ME ? '★ Εγώ (όποιος ανοίγει το view)' : o;
+        return `<div class="lv-multi">${opts.map(o => `<label class="lv-chk${(r.val || []).includes(o) ? ' on' : ''}${o === LV_ME ? ' lv-me' : ''}"><input type="checkbox" data-rv="${i}" value="${esc(o)}" ${(r.val || []).includes(o) ? 'checked' : ''}>${esc(lbl(o))}</label>`).join('') || '<span class="mut">καμία τιμή</span>'}</div>`;
       }
       if (r.op === 'has' || r.op === 'nhas') { return `<input class="inp" data-rt="${i}" value="${esc(r.val || '')}" placeholder="κείμενο">`; }
       if (r.op === 'range') { return `<input type="date" class="inp" data-rf="${i}" value="${esc((r.val || {}).from || '')}"> – <input type="date" class="inp" data-rto="${i}" value="${esc((r.val || {}).to || '')}">`; }
@@ -1915,7 +2138,11 @@ R.list = async function () {
       <button type="button" class="btn btn-sm btn-o" data-rm="${i}" title="Αφαίρεση">✕</button></div>`;
     const paint = () => {
       const c0 = cfg();
+      const lead = (st.views.team || []).length > 0;
       $('#lvbB', ovl).innerHTML = `
+      <section class="lv-sec" data-sec="who"><h4>Ποιανού εργασίες <small class="mut">— πάντα μέσα σε ό,τι επιτρέπεται να βλέπεις</small></h4>
+        <div class="lv-seg">${[['mine', 'Δικά μου'], ['team', 'Η ομάδα μου'], ['all', 'Όλα όσα βλέπω'], ['users', 'Συγκεκριμένοι']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.who === k ? ' on' : ''}" data-who2="${k}"${k === 'team' && !lead ? ' disabled title="Μόνο για επικεφαλής ομάδας"' : ''}>${l}</button>`).join('')}</div>
+        ${c0.who === 'users' ? `<div class="lv-multi" style="margin-top:8px">${(S.boot.admins || []).filter(a => !a.disabled && !/support team|\bbot\b/i.test(a.name)).map(a => `<label class="lv-chk${(c0.users || []).includes(a.id) ? ' on' : ''}"><input type="checkbox" data-wu="${a.id}" ${(c0.users || []).includes(a.id) ? 'checked' : ''}>${esc(a.name)}</label>`).join('')}</div>` : ''}</section>
       <section class="lv-sec" data-sec="rules"><h4>Φίλτρα <small class="mut">— ισχύουν ΟΛΑ μαζί</small></h4>
         ${c0.rules.map((r, i) => `<div class="lv-rule${focusRule === i ? ' foc' : ''}">
           <select class="inp" data-rf0="${i}">${fieldOpts(r.f)}</select>
@@ -1935,7 +2162,9 @@ R.list = async function () {
       <section class="lv-sec" data-sec="display"><h4>Εμφάνιση</h4>
         <div class="lv-seg">${[['list', 'Λίστα'], ['table', 'Πίνακας'], ['board', 'Board']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.display === k ? ' on' : ''}" data-disp="${k}">${l}</button>`).join('')}
           <span style="width:14px"></span>${[['detailed', 'Αναλυτική'], ['compact', 'Συμπτυγμένη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.density === k ? ' on' : ''}" data-dens="${k}">${l}</button>`).join('')}</div>
-        ${c0.display === 'board' ? '<div class="mut" style="font-size:12px;margin-top:6px">Το board είναι πάντα ανά κατάσταση — η ομαδοποίηση εφαρμόζεται σε λίστα και πίνακα.</div>' : ''}</section>`;
+        ${c0.display === 'board' ? '<div class="mut" style="font-size:12px;margin-top:6px">Το board είναι πάντα ανά κατάσταση — η ομαδοποίηση εφαρμόζεται σε λίστα και πίνακα.</div>' : ''}
+        <div class="lv-opt"><span class="lv-ol">Χρώμα γραμμής</span>${[['prio', 'Προτεραιότητα'], ['status', 'Κατάσταση'], ['project', 'Έργο'], ['duebucket', 'Προθεσμία'], ['none', 'Χωρίς']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.color === k ? ' on' : ''}" data-colr="${k}">${l}</button>`).join('')}</div>
+        <div class="lv-opt"><span class="lv-ol">Υποεργασίες</span>${[['flat', 'Όπως όλες'], ['nest', 'Κάτω από τη γονική'], ['hide', 'Απόκρυψη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.subs === k ? ' on' : ''}" data-subs="${k}">${l}</button>`).join('')}</div></section>`;
       wire();
       if (focusRule !== undefined) { const fr = ovl.querySelector('.lv-rule.foc'); if (fr) { fr.scrollIntoView({block: 'center'}); } focusRule = undefined; }
     };
@@ -1967,6 +2196,10 @@ R.list = async function () {
       q('[data-colon]').forEach(el => el.onchange = () => { const k = el.dataset.colon;
         if (el.checked) { if (!c0.cols.includes(k)) { c0.cols.push(k); } } else { c0.cols = c0.cols.filter(x => x !== k); } changed(); });
       q('[data-disp]').forEach(el => el.onclick = () => { c0.display = el.dataset.disp; changed(); });
+      q('[data-colr]').forEach(el => el.onclick = () => { c0.color = el.dataset.colr; changed(); });
+      q('[data-subs]').forEach(el => el.onclick = () => { c0.subs = el.dataset.subs; changed(); });
+      q('[data-who2]').forEach(el => el.onclick = () => { if (el.disabled) { return; } c0.who = el.dataset.who2; c0.mine = c0.who === 'mine' ? 1 : 0; changed(); });
+      q('[data-wu]').forEach(el => el.onchange = () => { const u = new Set(c0.users || []); if (el.checked) { u.add(+el.dataset.wu); } else { u.delete(+el.dataset.wu); } c0.users = [...u]; el.parentNode.classList.toggle('on', el.checked); apply(); });
       q('[data-dens]').forEach(el => el.onclick = () => { c0.density = el.dataset.dens; changed(); });
       /* Στήλες: σύρσιμο για σειρά (HTML5 drag & drop) */
       let drag = null;
@@ -1994,6 +2227,15 @@ R.list = async function () {
     if (act) {
       const a = act.dataset.lvact;
       if (a === 'builder') { builder(); }
+      else if (a === 'who') { whoMenu(act); }
+      else if (a === 'collapse' || a === 'expand') {
+        const paths = []; const walk = (rows, lv, path) => { if (!lv.length) { return; } buckets(rows, lv[0]).forEach(([k, o]) => { const p = (path ? path + '|' : '') + lv[0] + '=' + k; paths.push(p); walk(o.rows, lv.slice(1), p); }); };
+        walk(sorted(filtered()), cfg().groups, '');
+        if (a === 'collapse') { paths.forEach(p => st.closed.add(p)); } else { st.closed.clear(); }
+        renderRes();
+      }
+      else if (a === 'pin') { pinDialog(); }
+      else if (a === 'pdf') { printPdf(); }
       else if (a === 'new') { window.CNP.quickNew(); }
       else if (a === 'reset') { st.cfg = lvNorm(JSON.parse(st.base)); apply(true); }
       else if (a === 'saveas') { saveAs(); }
@@ -2014,10 +2256,23 @@ R.list = async function () {
       }
       return;
     }
+    const qk = e.target.closest('[data-lvq]');
+    if (qk) {
+      const k = qk.dataset.lvq, i = cfg().rules.findIndex(r => r.qk === k);
+      if (i >= 0) { cfg().rules.splice(i, 1); } else { cfg().rules.push(Object.assign(lvClone(LV_QUICK.find(x => x.k === k).rule), {qk: k})); }
+      apply(); return;
+    }
     if (more) { const p = more.dataset.lvmore; st.more[p] = (st.more[p] || PAGE) + PAGE; renderRes(); return; }
     if (srt) {
-      const k = srt.dataset.lvsort, cur = cfg().sort[0];
-      cfg().sort = [{f: k, d: cur && cur.f === k && cur.d === 'asc' ? 'desc' : 'asc'}].concat(cfg().sort.filter(x => x.f !== k));
+      const k = srt.dataset.lvsort;
+      if (e.shiftKey) {
+        /* Shift+κλικ: πολλαπλή ταξινόμηση — προσθέτει / αντιστρέφει / (3ο κλικ) βγάζει το κριτήριο */
+        const i = cfg().sort.findIndex(x => x.f === k);
+        if (i < 0) { cfg().sort.push({f: k, d: 'asc'}); } else if (cfg().sort[i].d === 'asc') { cfg().sort[i].d = 'desc'; } else { cfg().sort.splice(i, 1); }
+      } else {
+        const cur = cfg().sort[0];
+        cfg().sort = [{f: k, d: cur && cur.f === k && cur.d === 'asc' ? 'desc' : 'asc'}].concat(cfg().sort.filter(x => x.f !== k));
+      }
       render(); return;
     }
     if (gh) {
