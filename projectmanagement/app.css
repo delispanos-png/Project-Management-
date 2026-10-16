@@ -5335,7 +5335,7 @@ body.lv-side-on #content{padding-right:402px;transition:padding .15s}
 .lv-dragging{opacity:.45}
 .lv-over{outline:2px dashed var(--brand);outline-offset:-2px;background:var(--brand-soft)!important}
 tr.lv-grow.lv-over td,.lv-gh.lv-over{background:var(--brand-soft)!important}
-.kb-trow[draggable="true"]{cursor:grab}
+.kb-trow[draggable="true"]{cursor:grabbing}
 /* ζωντανές αλλαγές: επισήμανση + ειδοποίηση στην καρτέλα (16/10/2026) */
 @keyframes cnpFlash{0%{background:rgba(0,144,221,.16)}100%{background:transparent}}
 .cnp-flash{animation:cnpFlash 1.6s ease-out}
@@ -5349,7 +5349,29 @@ tr.cnp-flash td{animation:cnpFlash 1.6s ease-out}
 .cnp-tyi,.cnp-pri{display:inline-flex;align-items:center;gap:5px;line-height:1;vertical-align:middle;white-space:nowrap}
 .cnp-ic{flex:none;display:block}
 .cnp-icl{font-size:12px;font-weight:600;color:var(--txt)}
-.lv-ico-only .lv-td-prio,.lv-ico-only .lv-td-type{width:34px;text-align:center}
+.cnp-prt{font-weight:600;font-size:12.5px}
+.lv-tbl .lv-td-prio,.lv-tbl .lv-td-type{white-space:nowrap}
+/* (16/10/2026) πίνακας: σταθερά πλάτη (colgroup, αλλάζουν με σύρσιμο), κεφαλίδα & ομάδες καρφωμένες */
+.lv-tw{overflow:auto;position:relative;overscroll-behavior:contain}
+.lv-tbl.lv-fx{table-layout:fixed}
+.lv-tbl.lv-fx td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv-tbl.lv-fx td.lv-td-title{white-space:normal}
+.lv-tbl thead th{position:sticky;top:0;z-index:4;background:var(--card);border-bottom:0;box-shadow:inset 0 -1px 0 var(--line);overflow:hidden;text-overflow:ellipsis}
+.lv-tblg tr.lv-grow>td{position:sticky;z-index:3;top:var(--lv-thh,33px);background:linear-gradient(var(--bg2),var(--bg2)),var(--card)}
+.lv-tblg tr.lv-grow.lv-d0>td{background:linear-gradient(var(--hover),var(--hover)),var(--card)}
+.lv-tblg tr.lv-grow.lv-d1>td{top:calc(var(--lv-thh,33px) + var(--lv-grh,32px))}
+.lv-tblg tr.lv-grow.lv-d2>td{top:calc(var(--lv-thh,33px) + 2 * var(--lv-grh,32px))}
+.lv-tblg tr.lv-grow.lv-d3>td{top:calc(var(--lv-thh,33px) + 3 * var(--lv-grh,32px))}
+.lv-tblg tr.lv-grow.lv-d4>td{top:calc(var(--lv-thh,33px) + 4 * var(--lv-grh,32px))}
+.lv-rz{position:absolute;top:0;right:0;bottom:0;width:7px;cursor:col-resize;z-index:5}
+.lv-rz:hover,body.lv-rzing .lv-rz:hover{background:var(--brand-soft,rgba(0,144,221,.2));box-shadow:inset -2px 0 0 var(--brand,#0090dd)}
+body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!important}
+.lv-tbl th{position:sticky}
+/* λαβή συρσίματος: μόνο αυτή σέρνει — η υπόλοιπη γραμμή = κλικ για άνοιγμα */
+.lv-dh{display:inline-flex;align-items:center;justify-content:center;width:12px;margin:0 4px 0 -4px;color:var(--mut);opacity:.25;cursor:grab;user-select:none;font-size:13px;line-height:1;flex:none;vertical-align:middle}
+.lv-tr:hover .lv-dh,.kb-trow:hover .lv-dh{opacity:.9}
+.lv-dh:active{cursor:grabbing}
+.kb-trow{cursor:pointer}
 .lv-gl-ic{display:inline-flex;margin-right:2px}
 /* επιλογή εικονιδίου τύπου (Ρυθμίσεις → Τύποι tasks) */
 .ty-icb{min-width:38px;justify-content:center}

@@ -138,11 +138,14 @@ function cpm_is_full()
     return $v;
 }
 
+/* Προτεραιότητα — ίδια 7 επίπεδα με το /project/ (CNP_PRIO στο app.js), από το πιο επείγον. */
+const CPM_PRIO = [4 => 'Έκτακτη', 3 => 'Μπλοκάρει', 2 => 'Κρίσιμη', 1 => 'Υψηλή', 0 => 'Κανονική', -1 => 'Χαμηλή', -2 => 'Πολύ χαμηλή'];
+
 function cpm_prio_badge($p)
 {
-    return [0 => '<span class="label label-default">Κανονική</span>',
-            1 => '<span class="label label-warning">Υψηλή</span>',
-            2 => '<span class="label label-danger">Κρίσιμη</span>'][$p] ?? '';
+    $p = (int) $p;
+    $cls = $p >= 2 ? 'danger' : ($p === 1 ? 'warning' : ($p < 0 ? 'info' : 'default'));
+    return isset(CPM_PRIO[$p]) ? '<span class="label label-' . $cls . '">' . CPM_PRIO[$p] . '</span>' : '';
 }
 
 function cpm_client_label($clientid)
@@ -359,7 +362,7 @@ function cloudonprojects_output($vars)
                 'title'      => mb_substr(trim($_POST['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
                 'descr'      => mb_substr(trim($_POST['descr'] ?? ''), 0, 60000),
                 'status_id'  => (int) ($_POST['status_id'] ?? Db::firstStatusId()),
-                'priority'   => min(2, max(0, (int) ($_POST['priority'] ?? 0))),
+                'priority'   => min(4, max(-2, (int) ($_POST['priority'] ?? 0))),
                 'assignee'   => (int) ($_POST['assignee'] ?? 0) ?: null,
                 'ticketid'   => (int) ($_POST['ticketid'] ?? 0) ?: null,
                 'due_date'   => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['due_date'] ?? '') ? $_POST['due_date'] : null,
@@ -471,7 +474,7 @@ function cloudonprojects_output($vars)
                 'project_id' => (int) ($_POST['project_id'] ?? 0),
                 'title'      => mb_substr(trim($_POST['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
                 'descr'      => mb_substr(trim($_POST['descr'] ?? ''), 0, 60000),
-                'priority'   => min(2, max(0, (int) ($_POST['priority'] ?? 0))),
+                'priority'   => min(4, max(-2, (int) ($_POST['priority'] ?? 0))),
                 'assignee'   => (int) ($_POST['assignee'] ?? 0) ?: null,
                 'freq'       => $freq,
                 'every'      => max(1, (int) ($_POST['every'] ?? 1)),
@@ -1770,7 +1773,7 @@ function cpm_tab_board($link, $adminId)
             . ' <span class="cnp-col-n">' . count($cards) . '</span></div>';
         echo '<div class="cnp-cards">';
         foreach ($cards as $t) {
-            $prioC = [0 => '#8291a9', 1 => '#e0a020', 2 => '#d92d3a'][$t->priority] ?? '#8291a9';
+            $prioC = [0 => '#8291a9', 1 => '#e0a020', 2 => '#d92d3a'][min(2, max(0, (int) $t->priority))] ?? '#8291a9';
             $ini = '';
             if ($t->assignee) {
                 $nm = Db::adminName($t->assignee);
@@ -2033,7 +2036,7 @@ function cpm_recurring_section($link)
     }
     echo '</select> ';
     echo '<select name="priority" class="form-control input-sm">';
-    foreach ([0 => 'Κανονική', 1 => 'Υψηλή', 2 => 'Κρίσιμη'] as $k => $v) {
+    foreach (CPM_PRIO as $k => $v) {
         echo '<option value="' . $k . '"' . (((int) ($er->priority ?? 0)) === $k ? ' selected' : '') . '>' . $v . '</option>';
     }
     echo '</select> ';
@@ -2151,7 +2154,7 @@ function cpm_my_dashboard($link, $aid)
     if (count($planned)) {
         echo '<div class="panel panel-info"><div class="panel-heading" style="padding:6px 12px"><b><i class="fas fa-calendar-day"></i> Το πλάνο μου σήμερα</b></div><div class="panel-body" style="padding:8px 12px">';
         foreach ($planned as $pt) {
-            $prioC = [0 => '#8291a9', 1 => '#e0a020', 2 => '#d92d3a'][$pt->priority] ?? '#8291a9';
+            $prioC = [0 => '#8291a9', 1 => '#e0a020', 2 => '#d92d3a'][min(2, max(0, (int) $pt->priority))] ?? '#8291a9';
             echo '<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px dashed #eef2f7">'
                 . '<span class="cnp-dot" style="background:' . $prioC . '"></span>'
                 . '<a href="' . $link . '&tab=task&id=' . (int) $pt->id . '" style="flex:1"><b>' . cpm_e($pt->title) . '</b></a>'
@@ -2259,7 +2262,7 @@ function cpm_tab_list($link, $mineAdminId = 0)
         echo '</select> ';
     }
     echo '<select name="fr" class="form-control"><option value="">— προτερ/τα —</option>';
-    foreach ([0 => 'Κανονική', 1 => 'Υψηλή', 2 => 'Κρίσιμη'] as $k => $v) {
+    foreach (CPM_PRIO as $k => $v) {
         echo '<option value="' . $k . '"' . ($f['priority'] !== '' && (int) $f['priority'] === $k ? ' selected' : '') . '>' . $v . '</option>';
     }
     echo '</select> ';
@@ -2358,7 +2361,7 @@ function cpm_tab_task($link, $adminId)
     echo '</select></div></div>';
     $lockChar = !cpm_is_full() && $t; // χαρακτηρισμός: μόνο από διαχειριστή
     echo '<div class="form-group"><label class="col-sm-3 control-label">Προτεραιότητα</label><div class="col-sm-9"><select name="priority" class="form-control"' . ($lockChar ? ' disabled' : '') . '>';
-    foreach ([0 => 'Κανονική', 1 => 'Υψηλή', 2 => 'Κρίσιμη'] as $k => $v) {
+    foreach (CPM_PRIO as $k => $v) {
         echo '<option value="' . $k . '"' . (((int) ($t->priority ?? 0)) === $k ? ' selected' : '') . '>' . $v . '</option>';
     }
     echo '</select>' . ($lockChar ? '<small class="text-muted"><i class="fas fa-lock"></i> Ορίζεται από τον διαχειριστή που αναθέτει</small>' : '') . '</div></div>';
@@ -2595,7 +2598,7 @@ function cpm_tab_calendar($link)
             echo '<a class="' . $cls . '" style="border-color:' . cpm_e($t->project_color ?: '#8595ac') . '" '
                 . 'href="' . $link . '&tab=task&id=' . (int) $t->id . '" '
                 . 'title="' . cpm_e($t->title . ' — ' . ($t->project_name ?: 'Χωρίς έργο') . ($t->assignee ? ' · ' . Db::adminName($t->assignee) : '')) . '">'
-                . ((int) $t->priority === 2 ? '<b style="color:#d92d3a">!</b> ' : ((int) $t->priority === 1 ? '<b style="color:#e0a020">!</b> ' : ''))
+                . ((int) $t->priority >= 2 ? '<b style="color:#d92d3a">!</b> ' : ((int) $t->priority === 1 ? '<b style="color:#e0a020">!</b> ' : ''))
                 . cpm_e($t->title) . '</a>';
         }
         echo '</td>';

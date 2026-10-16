@@ -144,19 +144,36 @@ const CNP_TYPE_ICONS = {
 };
 const CNP_TYPE_FALLBACK = '<path d="M12 3 21 12 12 21 3 12z"/>';
 function cnpTypeIcon(type, opts) {
-  const o = opts || {};
+  const o = opts || {}, show = o.show || (o.label ? 'both' : 'icon');
   const ty = type && typeof type === 'object' ? type : ((S.boot && S.boot.types) || []).find(x => x.id === +type);
   if (!ty) { return o.empty === undefined ? '' : o.empty; }
   const ic = CNP_TYPE_ICONS[ty.icon] || [ty.name, CNP_TYPE_FALLBACK];
-  return `<span class="cnp-tyi" style="color:${esc(ty.color || '#8595ac')}" title="${esc(ty.name)}">${CNP_SVG(ic[1])}${o.label ? `<span class="cnp-icl">${esc(ty.name)}</span>` : ''}</span>`;
+  if (show === 'text') { return `<span class="cnp-tyi cnp-prt" title="Τύπος: ${esc(ty.name)}">${esc(ty.name)}</span>`; }
+  return `<span class="cnp-tyi" style="color:${esc(ty.color || '#8595ac')}" title="${esc(ty.name)}">${CNP_SVG(ic[1])}${show === 'both' ? `<span class="cnp-icl">${esc(ty.name)}</span>` : ''}</span>`;
 }
-/* Προτεραιότητα 0 κανονική · 1 υψηλή · 2 κρίσιμη — ίδια χρώματα με τις λίστες. */
-const CNP_PRIO = [['Κανονική', '#8595ac', '<path d="M5 10h14M5 14h14"/>'],
-  ['Υψηλή', '#eba63c', '<path d="m6 13 6-6 6 6M6 19l6-6 6 6"/>'],
-  ['Κρίσιμη', '#e2515f', '<path d="M12 3 2 20h20zM12 10v4M12 17.5v.01"/>']];
+/* ΠΡΟΤΕΡΑΙΟΤΗΤΑ — 7 επίπεδα (16/10/2026, όπως το παλιό εργαλείο). Τιμή στη βάση (signed tinyint):
+   4 Έκτακτη · 3 Μπλοκάρει · 2 Κρίσιμη · 1 Υψηλή · 0 Κανονική · −1 Χαμηλή · −2 Πολύ χαμηλή.
+   Οι παλιές τιμές 0/1/2 κρατούν το νόημά τους. Η ΜΟΝΗ λίστα — επιλογές, χρώματα, εικονίδια, φίλτρα. */
+const CNP_PRIO = [
+  [4, 'Έκτακτη', '#e2515f', '<path d="M12 3 2 20h20zM12 10v4M12 17.5v.01"/>'],
+  [3, 'Μπλοκάρει', '#e2515f', '<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>'],
+  [2, 'Κρίσιμη', '#e8743b', '<path d="m6 10 6-5 6 5M6 15l6-5 6 5M6 20l6-5 6 5"/>'],
+  [1, 'Υψηλή', '#eba63c', '<path d="m6 12 6-5 6 5M6 18l6-5 6 5"/>'],
+  [0, 'Κανονική', '#8595ac', '<circle cx="12" cy="12" r="3.2"/>'],
+  [-1, 'Χαμηλή', '#3b9be0', '<path d="m6 9.5 6 5 6-5"/>'],
+  [-2, 'Πολύ χαμηλή', '#3b9be0', '<path d="m6 4 6 5 6-5M6 9.5l6 5 6-5M6 15l6 5 6-5"/>']];
+const CNP_PRIO_MIN = -2, CNP_PRIO_MAX = 4;
+const cnpPrio = p => CNP_PRIO.find(x => x[0] === (+p || 0)) || CNP_PRIO[4];
+const cnpPrioName = p => cnpPrio(p)[1];
+const cnpPrioColor = p => cnpPrio(p)[2];
+/* <option> για κάθε <select> προτεραιότητας — από το πιο επείγον στο λιγότερο */
+const cnpPrioOpts = sel => CNP_PRIO.map(x => `<option value="${x[0]}" ${x[0] === (+sel || 0) ? 'selected' : ''}>${x[1]}</option>`).join('');
+/* show: 'both' (εικονίδιο + όνομα) · 'icon' (όνομα μόνο στο hover) · 'text' (μόνο όνομα, χρωματιστό).
+   Παλιό API: {label: true|false}. */
 function cnpPrioIcon(p, opts) {
-  const o = opts || {}, x = CNP_PRIO[+p || 0] || CNP_PRIO[0];
-  return `<span class="cnp-pri" style="color:${x[1]}" title="Προτεραιότητα: ${x[0]}">${CNP_SVG(x[2], ' stroke-width="2.4"')}${o.label ? `<span class="cnp-icl">${x[0]}</span>` : ''}</span>`;
+  const o = opts || {}, x = cnpPrio(p), show = o.show || (o.label ? 'both' : 'icon');
+  if (show === 'text') { return `<span class="cnp-pri cnp-prt" style="color:${x[2]}" title="Προτεραιότητα: ${x[1]}">${x[1]}</span>`; }
+  return `<span class="cnp-pri" style="color:${x[2]}" title="Προτεραιότητα: ${x[1]}">${CNP_SVG(x[3], ' stroke-width="2.4"')}${show === 'both' ? `<span class="cnp-icl">${x[1]}</span>` : ''}</span>`;
 }
 
 /* ΤΟΠΙΚΗ ημερομηνία (όχι toISOString = UTC: 00:00–03:00 ώρα Ελλάδας έδινε τη χθεσινή). */
@@ -2490,10 +2507,12 @@ async function cnpDrawerLive() {
   bar.querySelector('[data-livex]').onclick = () => bar.remove();
 }
 
-/** Γράψε HTML σε στοιχείο: κανονικά αντικατάσταση· στην αθόρυβη ανανέωση morph — και τίποτα αν δεν άλλαξε. */
-function cnpPut(el, html) {
+/** Γράψε HTML σε στοιχείο: κανονικά αντικατάσταση· στην αθόρυβη ανανέωση morph — και τίποτα αν δεν άλλαξε.
+ *  opts.morph: morph ΚΑΙ σε αλλαγές του ίδιου του χρήστη (χωρίς αναβόσβημα· η επισήμανση «άλλαξε»
+ *  γίνεται μόνο στην αθόρυβη ανανέωση, για αλλαγές άλλων). */
+function cnpPut(el, html, opts) {
   if (!el) { return; }
-  if (window._cnpSilent && el.dataset.cnpH !== undefined) {
+  if ((window._cnpSilent || (opts && opts.morph)) && el.dataset.cnpH !== undefined) {
     if (el.dataset.cnpH === String(html.length) + ':' + cnpHash(html)) { return; }
     cnpMorph(el, html);
   } else {
@@ -4009,7 +4028,7 @@ async function openTask(id, entryId, opts) {
           <div class="mut" style="font-size:11px;margin-top:3px">Όσο την κρατάς, η εργασία μένει στη «Μέρα μου» σου.</div></div>
         <div><label class="lbl">Προτεραιότητα</label>
           <select class="inp" id="fPrio">
-            ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((p, i) => `<option value="${i}" ${i === t.prio ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+            ${cnpPrioOpts(t.prio)}</select></div>
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Department</label>
@@ -5833,13 +5852,13 @@ async function vMyDay() {
     ${e.now && e.kind !== 'leave' ? `<button class="btn btn-sm btn-o" data-evleft="${e.id}" style="flex:none"
       title="Βγήκα — φεύγει από το πρόγραμμά μου και ελευθερώνεται η κατάστασή μου· οι υπόλοιποι συνεχίζουν">Βγήκα</button>` : ''}
     ${e.now ? '<span class="pill pill-ok" style="flex:none">τώρα</span>' : e.rsvp === 'accepted' ? '<span class="pill pill-mut" style="flex:none" title="Δήλωσες συμμετοχή">✔</span>' : e.rsvp === '' && !e.over ? '<span class="pill pill-warn" style="flex:none" title="Δεν απάντησες στην πρόσκληση">αναπάντητη</span>' : ''}</div>`;
-  const prioDot = p => ['#8595ac', '#eba63c', '#e2515f'][p || 0];
+  const prioDot = p => cnpPrioColor(p);
   /* Η ένδειξη «⚡ μπάλα» ξεχωρίζει μόνο όταν ΔΕΝ την έχουν όλες — αλλιώς είναι επανάληψη σε κάθε γραμμή. */
   const ballAll = planTasks.length > 1 && planTasks.every(t => t.ball === me.id);
   const taskRow = t => { const here = timer && timer.task === t.id; return `<div class="myd-row task${here ? ' live' : ''}" data-mdtask="${t.id}">
     <button class="myd-play${here ? ' on' : ''}" data-mdplay="${t.id}" title="${here ? 'Τρέχει ο χρόνος εδώ — πάτα για στοπ' : 'Ξεκίνα τον χρόνο σε αυτή'}">${here ? I.stop : I.play}</button>
     <span class="myd-t"><b>${esc(t.title)}</b><span class="mut"> · <span class="dot" style="background:${t.pcolor || '#8595ac'};width:7px;height:7px;display:inline-block;border-radius:50%"></span> ${esc(t.pname || 'Χωρίς έργο')}${t.est ? ' · ⏱ ' + fmtMin(t.est) : ''}</span></span>
-    ${t.prio ? `<span class="dot" style="background:${prioDot(t.prio)};flex:none" title="Προτεραιότητα"></span>` : ''}
+    ${t.prio > 0 ? `<span class="dot" style="background:${prioDot(t.prio)};flex:none" title="Προτεραιότητα: ${cnpPrioName(t.prio)}"></span>` : ''}
     ${/* Η ΚΑΤΑΣΤΑΣΗ ΦΑΙΝΕΤΑΙ ΚΑΙ ΕΔΩ. Το πρόγραμμα της ημέρας έδειχνε τι θα κάνεις,
          όχι σε τι σημείο είναι: «Backlog» και «Έλεγχος» έμοιαζαν ίδια γραμμή, ενώ
          η μία θέλει ξεκίνημα και η άλλη μια ματιά. Ίδιο χρώμα και ίδιο όνομα με
@@ -7435,7 +7454,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

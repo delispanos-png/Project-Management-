@@ -96,7 +96,7 @@ R.gantt = async function () {
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span></div>
         ${cols(dur(t.start, t.end), fmtDates(t.start, t.end))}
         <div class="g-cells" style="width:${nDays * CELL}px">${bgCells}
-          <div class="g-bar ${t.prio === 2 ? 'crit' : t.prio === 1 ? 'high' : ''}" data-task="${t.id}"
+          <div class="g-bar ${t.prio >= 2 ? 'crit' : t.prio === 1 ? 'high' : ''}" data-task="${t.id}"
             data-start="${t.start}" data-end="${t.end}"
             style="left:${l}px;width:${w}px;background:${t.color}"><span class="g-handle"></span></div>
           <div class="g-after" style="left:${l + w + 8}px">
@@ -152,7 +152,7 @@ R.gantt = async function () {
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span></div>
             ${cols(dur(t.start, t.end), fmtDates(t.start, t.end))}
             <div class="g-cells" style="width:${nDays * CELL}px">${bgCells}
-              <div class="g-bar ${t.prio === 2 ? 'crit' : t.prio === 1 ? 'high' : ''}" data-task="${t.id}"
+              <div class="g-bar ${t.prio >= 2 ? 'crit' : t.prio === 1 ? 'high' : ''}" data-task="${t.id}"
                 data-start="${t.start}" data-end="${t.end}"
                 style="left:${l}px;width:${w}px;background:${t.color}"><span class="g-handle"></span></div>
               <div class="g-after" style="left:${l + w + 8}px">${esc(t.pname)}</div>
@@ -893,7 +893,7 @@ R.unit = async function (id) {
   cnpSkel(c, '<div class="skel" style="height:300px"></div>');
   const d = await api('dept_view&id=' + (+id || 0));
   setTop(d.dept.name, `${d.open} ανοιχτές εργασίες`);
-  const prioT = ['', '⬆', '🔥'];
+  const prioT = p => p >= 2 ? '🔥' : p === 1 ? '⬆' : '';
   const grp = g => `<div class="card">
     <div class="card-h" style="gap:8px">
       <span class="dot" style="background:${g.color || d.dept.color};width:10px;height:10px"></span>
@@ -906,7 +906,7 @@ R.unit = async function (id) {
     </div>
     <table class="tbl"><tbody>
       ${g.tasks.map(t => `<tr>
-        <td><a href="javascript:" data-task="${t.id}" style="font-weight:600">${prioT[t.prio] || ''} ${esc(t.title)}</a>
+        <td><a href="javascript:" data-task="${t.id}" style="font-weight:600">${prioT(t.prio)} ${esc(t.title)}</a>
           ${t.ticket ? `<a class="pill pill-mut" href="#/inbox/${t.ticket}" title="Από ticket">${I.ticket}</a>` : ''}</td>
         <td style="width:120px"><span class="pill pill-mut">${esc(t.status)}</span></td>
         <td style="width:130px">${esc(t.assignee || '—')}</td>
@@ -1109,7 +1109,7 @@ function openStep(tplId, s2, d) {
       <div><label class="lbl">Προτεινόμενος υπεύθυνος</label><select class="inp" id="sA"><option value="">— κανείς —</option>
         ${d.admins.map(x => `<option value="${x.id}" ${x.id === s2.assignee ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
       <div><label class="lbl">Προτεραιότητα</label><select class="inp" id="sP">
-        ${['Κανονική', 'Υψηλή', 'Κρίσιμη'].map((x, i) => `<option value="${i}" ${i === s2.prio ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        ${window.CNP.cnpPrioOpts(s2.prio)}</select></div>
       <div><label class="lbl">Εκτίμηση (λεπτά)</label><input class="inp" id="sE" type="number" min="0" value="${s2.est ?? ''}"></div>
     </div>
     <div class="mut" style="font-size:11.5px;margin-top:12px">Χρονισμός σε <b>ημέρες από την έναρξη</b> του έργου — έτσι το πρότυπο δουλεύει σε οποιαδήποτε ημερομηνία.</div>
