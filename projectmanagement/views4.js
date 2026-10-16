@@ -2,7 +2,7 @@
 'use strict';
 const {cnpPut, S, api, esc, timeInput, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
-  cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpHolder, cnpSearch, cnpSkel, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
+  cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpHolder, cnpSearch, cnpSkel, cnpMatch, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
 
 /* ═════════ Keyboard shortcuts ═════════ */
@@ -241,7 +241,7 @@ function quickNew() {
       /* Το έργο που κοιτάς τώρα πάει πρώτο — τις περισσότερες φορές αυτό θέλεις. */
       if (curProject && !q && list.some(p => p.id === curProject.id)) { list = [curProject].concat(list.filter(p => p.id !== curProject.id)); }
       rows = list
-        .filter(p => !q || norm(p.name).includes(q) || norm(p.clientName).includes(q))
+        .filter(p => !q || cnpMatch((p.name || '') + ' ' + (p.clientName || ''), filter))
         .slice(0, 60)
         .map(p => ({label: p.name, sub: p.clientName || 'εσωτερικό / R&D', ic: I.folder, col: p.color || '#0090dd',
           tag: (curProject && p.id === curProject.id && !q) ? 'εδώ είσαι' : '',
@@ -251,12 +251,12 @@ function quickNew() {
         /* Με πολλά έργα δεν μαντεύουμε — ρωτάμε. Ένα «θα μπει στο 3CX» επειδή
            ήταν πρώτο αλφαβητικά είναι χειρότερο από μια ερώτηση. */
         rows = pickedClient.projects
-          .filter(pr => !q || norm(pr.name).includes(q))
+          .filter(pr => !q || cnpMatch(pr.name, filter))
           .map(pr => ({label: pr.name, sub: pickedClient.name, ic: I.folder, col: pr.color || '#0090dd',
             go: {project: pr.id, client: pickedClient.name}}));
       } else {
         rows = clients
-          .filter(c => !q || norm(c.name).includes(q))
+          .filter(c => !q || cnpMatch(c.name, filter))
           .slice(0, 60)
           .map(c => ({label: c.name, ic: I.building, col: '#16a26a',
             sub: c.projects.length === 1 ? 'έργο: ' + c.projects[0].name
@@ -266,7 +266,7 @@ function quickNew() {
       }
     } else {
       rows = mates
-        .filter(a => !q || norm(a.name).includes(q))
+        .filter(a => !q || cnpMatch(a.name, filter))
         .slice(0, 60)
         .map(a => ({label: a.name, ic: I.user, col: '#e0a020', go: {assignee: a.id}}));
     }
@@ -470,15 +470,15 @@ function gdImport(ref) {
       <div class="gd-grid">
         <div class="gd-form">
           <label class="gd-l">Τίτλος<input class="inp" id="gdT" maxlength="200" value="${esc(f.title)}"></label>
-          <label class="gd-l">Έργο<select class="inp" id="gdP">${projOpts(curP)}</select></label>
+          <label class="gd-l">Έργο<select class="inp" id="gdP" data-combo>${projOpts(curP)}</select></label>
           <label class="gd-l">Κατάσταση εδώ <span class="mut">(στο GoodDay: ${esc(d.sourceStatus.name || '—')})</span>
-            <select class="inp" id="gdS"><option value="">— διάλεξε κατάσταση —</option>
+            <select class="inp" id="gdS" data-combo><option value="">— διάλεξε κατάσταση —</option>
             ${(S.boot.statuses || []).map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label>
           <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay: ${d.assignee ? esc(d.assignee.name) : '—'}${d.actionRequired ? ' · Action required: ' + esc(d.actionRequired.name) : ''})</span>
-            <select class="inp" id="gdA"><option value="">— κανείς —</option>
+            <select class="inp" id="gdA" data-combo><option value="">— κανείς —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ass ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
           <label class="gd-l">Η μπάλα σε <span class="mut">(ποιος κινείται τώρα — προτείνεται ο Action required)</span>
-            <select class="inp" id="gdB"><option value="">— ο ανάδοχος —</option>
+            <select class="inp" id="gdB" data-combo><option value="">— ο ανάδοχος —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === arId ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
           <div class="gd-row3">
             <label class="gd-l">Προθεσμία${f.due && f.due < today() ? ' <span class="pill pill-warn" title="Η προθεσμία του GoodDay έχει ήδη περάσει — η εργασία θα φανεί αμέσως εκπρόθεσμη. Άλλαξέ την ή άδειασέ την.">πέρασε</span>' : ''}<input class="inp" type="date" id="gdDue" value="${esc(f.due || '')}"></label>
@@ -1304,8 +1304,8 @@ R.supervised = async function () {
       </span></div>`; };
   const render = () => {
     const el = $('#svRes');
-    const list = d.tasks.filter(t => !f.q || norm([t.title, t.pname, t.clientName, statusOf(t.status).title,
-      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : ''].join(' ')).includes(norm(f.q)));
+    const list = d.tasks.filter(t => !f.q || cnpMatch([t.title, t.pname, t.clientName, statusOf(t.status).title,
+      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : ''].join(' '), f.q));
     if (!list.length) { el.innerHTML = `<div class="card"><div class="empty" style="padding:40px"><div class="big">${I.eye}</div><b style="color:var(--ink);font-size:15px">${d.tasks.length ? 'Τίποτα με αυτά τα φίλτρα' : (f.which === 'done' ? 'Καμία ολοκληρωμένη ακόμη' : 'Δεν έχεις ανοίξει εργασίες που να εκκρεμούν')}</b></div></div>`; return; }
     /* ΑΝΑ ΧΕΙΡΙΣΤΗ = ανά αυτόν που ΚΡΑΤΑΕΙ την εργασία, όχι ανά ανάθεση. */
     const keyOf = t => f.group === 'assignee' ? (cnpHolder(t) ? adminName(cnpHolder(t)) : 'Χωρίς χειριστή') : f.group === 'status' ? statusOf(t.status).title : (t.pname || 'Χωρίς έργο');
@@ -1473,8 +1473,8 @@ R.list = async function () {
   const matchQ = t => {
     const q = (cfg().q || '').trim(); if (!q) { return true; }
     const hash = /^#\s*(\d+)$/.exec(q); if (hash) { return String(t.id) === hash[1]; }
-    const text = norm([t.title, t.pname, t.clientName || '', statusOf(t.status).title,
-      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '', LV_PRIO[+t.prio || 0]].join(' ')).includes(norm(q));
+    const text = cnpMatch([t.title, t.pname, t.clientName || '', statusOf(t.status).title,
+      cnpHolder(t) ? adminName(cnpHolder(t)) : '', t.assignee ? adminName(t.assignee) : '', LV_PRIO[+t.prio || 0]].join(' '), q);
     return /^\d+$/.test(q) ? (String(t.id) === q || text) : text;
   };
   const filtered = () => D.tasks.filter(t => (!cfg().mine || cnpIsMine(t)) && matchQ(t) && cfg().rules.every(r => lvTest(r, t)));
@@ -1534,7 +1534,7 @@ R.list = async function () {
   const sortMark = k => { const i = cfg().sort.findIndex(x => x.f === k); return i < 0 ? '' : `<span class="lv-sm">${cfg().sort[i].d === 'desc' ? '↓' : '↑'}${cfg().sort.length > 1 ? i + 1 : ''}</span>`; };
   const tableHtml = rows => `<div class="lv-tw"><table class="lv-tbl"><thead><tr>${cfg().cols.map(k =>
       `<th data-lvsort="${k}" title="Ταξινόμηση — κλικ ξανά για αντίστροφη">${esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(t => `<tr class="lv-tr" data-task="${t.id}">${cfg().cols.map(k => `<td class="lv-td-${k}">${cell(k, t)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    <tbody>${rows.map(t => `<tr class="lv-tr" data-task="${t.id}" draggable="true">${cfg().cols.map(k => `<td class="lv-td-${k}">${cell(k, t)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   const leaf = (rows, path) => {
     const n = st.more[path] || PAGE, shown = rows.slice(0, n), rest = rows.length - shown.length;
     const body = cfg().display === 'table' ? tableHtml(shown) : shown.map(rowList).join('');
@@ -4346,19 +4346,30 @@ function cnpAttachments(host, opts) {
   const setProg = (pct, label) => { const p = host.querySelector('#cnpaProg'); if (!p) return; if (pct == null) { p.style.display = 'none'; return; } p.style.display = 'block'; p.innerHTML = `<div style="font-size:11.5px;color:var(--mut);margin-bottom:4px">${esc(label || '')} — ${pct}%</div><div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--brand);transition:width .2s"></div></div>`; };
   const renderList = () => {
     const box = host.querySelector('#cnpaList'); if (!box) return;
+    /* Προβολή χωρίς λήψη (data-fview → cnpViewFile)· ομάδα = αυτή η λίστα, για ←/→. */
+    const grp = 'att-' + (opts.module || '') + '-' + (opts.refType || '') + '-' + (opts.refId || 0);
+    const fv = f => `data-fview="${esc(f.url)}" data-fname="${esc(f.name)}" data-fmime="${esc(f.mime || '')}" data-fgroup="${grp}"`;
+    /* Εργασίες: σβήνει ΜΟΝΟ όποιος το ανέβασε (ο server το επιβάλλει — εδώ απλώς δεν δείχνουμε κουμπί που θα αποτύχει). */
+    const canDel = f => opts.canDelete !== false && (opts.module !== 'task' || (f.by ? f.by === S.boot.me.id : !!S.boot.me.full));
     box.innerHTML = files.length ? files.map(f => {
+      const viewable = window.cnpFileKind && window.cnpFileKind(f.name, f.mime) !== 'other';
       const prev = f.kind === 'video' ? `<video src="${f.url}" controls preload="metadata" style="width:100%;max-height:280px;border-radius:8px;background:#000;margin-top:7px"></video>`
-        : f.kind === 'image' ? `<img src="${f.url}" loading="lazy" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:7px;display:block">` : '';
+        : f.kind === 'image' ? `<img src="${f.url}" loading="lazy" ${fv(f)} alt="${esc(f.name)}" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:7px;display:block">` : '';
       return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px">
         <div style="display:flex;gap:9px;align-items:center">
           <span style="font-size:18px">${kindIco(f.kind)}</span>
-          <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</div>
-            <div class="mut" style="font-size:11px">${fmtBytes(f.size)}${f.driver === 's3' ? ' · ☁️ cloud' : ''}</div></div>
+          <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"${viewable ? ' ' + fv(f) + ' title="Προβολή"' : ''}>${esc(f.name)}</div>
+            <div class="mut" style="font-size:11px">${fmtBytes(f.size)}${f.driver === 's3' ? ' · ☁️ cloud' : ''}${f.by && opts.module === 'task' ? ' · ' + esc(adminName(f.by)) : ''}</div></div>
+          ${viewable ? `<button type="button" class="btn btn-o btn-sm" ${fv(f)} title="Προβολή χωρίς λήψη">👁</button>` : ''}
           <a class="btn btn-o btn-sm" href="${f.url}&dl=1" title="Λήψη">${I.download}</a>
-          ${opts.canDelete !== false ? `<button class="btn btn-o btn-sm" data-fdel="${f.id}" style="color:var(--bad)" title="Διαγραφή">${I.trash}</button>` : ''}
+          ${canDel(f) ? `<button class="btn btn-o btn-sm" data-fdel="${f.id}" style="color:var(--bad)" title="Διαγραφή (μόνο όποιος το ανέβασε)">${I.trash}</button>` : ''}
         </div>${prev}</div>`;
     }).join('') : '<div class="mut" style="font-size:12px">Κανένα συνημμένο ακόμη.</div>';
-    box.querySelectorAll('[data-fdel]').forEach(b => b.onclick = async () => { if (!await cnpConfirm('Διαγραφή αρχείου;', {danger: true})) return; await api('file_delete', {id: +b.dataset.fdel}); files = files.filter(x => x.id != b.dataset.fdel); renderList(); toast('Διαγράφηκε'); });
+    box.querySelectorAll('[data-fdel]').forEach(b => b.onclick = async () => {
+      if (!await cnpConfirm('Διαγραφή αρχείου;', {danger: true})) return;
+      try { await api('file_delete', {id: +b.dataset.fdel}); } catch (e) { toast((e && e.message) || 'Δεν διαγράφηκε', true); return; }
+      files = files.filter(x => x.id != b.dataset.fdel); renderList(); toast('Διαγράφηκε');
+    });
     /* Ο καλών μαθαίνει πόσα αρχεία υπάρχουν — αλλιώς ένα κλειστό «Συνημμένα» δεν
        προδίδει τίποτα και το αρχείο μένει αόρατο (δες task #120). */
     if (typeof opts.onCount === 'function') { try { opts.onCount(files.length); } catch (e) { /* η οθόνη δεν πέφτει για ένα μετρητή */ } }

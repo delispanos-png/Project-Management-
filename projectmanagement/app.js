@@ -63,7 +63,55 @@ const dFull = d => {
   const p2 = n => String(n).padStart(2, '0');
   return `${p2(t.getDate())}/${p2(t.getMonth() + 1)}/${t.getFullYear()}`;
 };
-const today = () => new Date().toISOString().slice(0, 10);
+/* ── Αναζήτηση: χωρίς τόνους + Greeklish (16/10/2026) ──────────────────────
+   cnpFold: πεζά, χωρίς τόνους/διαλυτικά, ς→σ.
+   cnpMatch(κείμενο, ερώτημα): ταιριάζει αν το ερώτημα υπάρχει (χωρίς τόνους) Ή αν
+   είναι Greeklish που «διαβάζεται» σαν το ελληνικό κείμενο: «giannis» → Γιάννης,
+   «ilias»/«hlias» → Ηλίας, «xristos»/«christos» → Χρήστος, «8ess» → Θεσσ…
+   Κάθε λατινικό γράμμα/δίψηφο γίνεται σύνολο ελληνικών επιλογών (regex). */
+const cnpFold = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ς/g, 'σ');
+const CNP_GL = [
+  ['th', 'θ'], ['ps', 'ψ'], ['ks', 'ξ'], ['ch', 'χ'], ['kh', 'χ'], ['ou', '(?:ου|υ)'], ['mp', '(?:μπ|β)'], ['nt', '(?:ντ|δ)'],
+  ['ev', '(?:ευ|εβ)'], ['ef', '(?:ευ|εφ)'], ['av', '(?:αυ|αβ)'], ['af', '(?:αυ|αφ)'], ['ng', '(?:γγ|γκ|νγ)'],
+  ['gk', '(?:γκ|γγ)'], ['gg', '(?:γγ|γκ)'], ['ai', '(?:αι|ε)'], ['ei', '(?:ει|ι)'], ['oi', '(?:οι|ι)'], ['ui', '(?:υι|ι)'],
+  ['a', 'α'], ['b', '(?:β|μπ)'], ['c', '(?:κ|σ|τσ)'], ['d', '(?:δ|ντ)'], ['e', '(?:ε|αι|η)'], ['f', 'φ'], ['g', '(?:γ|γκ)'],
+  ['h', '(?:η|χ)'], ['i', '(?:ι|η|υ|ει|οι)'], ['j', '(?:τζ|γ)'], ['k', '(?:κ|χ)'], ['l', 'λ'], ['m', 'μ'], ['n', 'ν'],
+  ['o', '(?:ο|ω)'], ['p', 'π'], ['q', 'κ'], ['r', 'ρ'], ['s', 'σ'], ['t', 'τ'], ['u', '(?:ου|υ)'], ['v', 'β'], ['w', '(?:ω|ου)'],
+  ['x', '(?:ξ|χ)'], ['y', '(?:υ|ι|η)'], ['z', 'ζ'], ['8', 'θ'], ['3', 'ξ'], ['9', 'θ']];
+const cnpGlCache = new Map();
+function cnpGlRegex(q) {
+  if (cnpGlCache.has(q)) { return cnpGlCache.get(q); }
+  let re = null;
+  if (/[a-z]/.test(q) && !/[^a-z0-9 .\-_']/.test(q)) {
+    let out = '', i = 0;
+    while (i < q.length) {
+      const hit = CNP_GL.find(([l]) => q.startsWith(l, i));
+      if (hit) { out += hit[1]; i += hit[0].length; continue; }
+      out += q[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); i++;
+    }
+    try { re = new RegExp(out); } catch (e) { re = null; }
+  }
+  if (cnpGlCache.size > 300) { cnpGlCache.clear(); }
+  cnpGlCache.set(q, re);
+  return re;
+}
+function cnpMatch(hay, q) {
+  const fq = cnpFold(q).trim();
+  if (!fq) { return true; }
+  const fh = cnpFold(hay);
+  if (fh.includes(fq)) { return true; }
+  /* Πολλές λέξεις: όλες πρέπει να ταιριάζουν (με οποιαδήποτε σειρά). */
+  const words = fq.split(/\s+/).filter(Boolean);
+  /* Greeklish συχνά χάνει τα διπλά γράμματα («gianis» = Γιάννης): δοκιμάζουμε και με «μονά». */
+  const fh1 = fh.replace(/([^\s])\1+/g, '$1');
+  return words.every(w => fh.includes(w) || (() => {
+    const re = cnpGlRegex(w), re1 = cnpGlRegex(w.replace(/([^\s])\1+/g, '$1'));
+    return !!((re && re.test(fh)) || (re1 && re1.test(fh1)));
+  })());
+}
+
+/* ΤΟΠΙΚΗ ημερομηνία (όχι toISOString = UTC: 00:00–03:00 ώρα Ελλάδας έδινε τη χθεσινή). */
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 
 const I = { // inline icons
   board: '<svg width="16" height="16" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="2"/><rect x="14" y="3" width="7" height="12" rx="2"/></svg>',
@@ -2122,7 +2170,7 @@ function cnpDialog(opts) {
         ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap;max-height:46vh;overflow:auto">${cnpSafeMarkup(o.body)}</div>` : ''}
         ${o.input !== null ? (o.rows
           ? `<textarea class="inp" id="cnpDlgIn" rows="${+o.rows}" maxlength="${+o.max || 2000}" placeholder="${esc(o.placeholder || '')}" style="margin-top:12px;width:100%;resize:vertical">${esc(o.input || '')}</textarea>`
-          : `<input class="inp" type="${o.inputType || 'text'}" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}" style="margin-top:12px">`) : ''}
+          : `<div style="margin-top:12px"><input class="inp" type="${o.inputType || 'text'}" id="cnpDlgIn" placeholder="${esc(o.placeholder || '')}" value="${esc(o.input || '')}"${o.min ? ` min="${esc(o.min)}"` : ''}></div>`) : ''}
         ${o.hint ? `<div class="mut" style="font-size:11.5px;margin-top:7px">${o.hint}</div>` : ''}
         <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
           ${o.cancel === null ? '' : `<button class="btn btn-o" id="cnpDlgNo">${o.cancel}</button>`}
@@ -2132,7 +2180,7 @@ function cnpDialog(opts) {
       </div></div>`;
     document.body.appendChild(ovl);
     const inp = ovl.querySelector('#cnpDlgIn');
-    const done = v => { ovl.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const done = v => { if (cnpCalBox) { cnpCalClose(); } ovl.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
     const ok = () => done(o.input !== null ? (inp ? inp.value : '') : true);
     const onKey = e => {
       if (e.key === 'Escape' && !o.noClose) { e.stopPropagation(); done(o.input !== null ? null : false); }
@@ -2158,6 +2206,10 @@ function cnpDialog(opts) {
     // ΟΧΙ κλείσιμο με κλικ έξω — μόνο από τα κουμπιά ή ESC
     /* safeFocus: η εστίαση ξεκινά στο ΑΣΦΑΛΕΣ κουμπί (όταν το κύριο κάνει κάτι μη αναστρέψιμο). */
     setTimeout(() => (inp || (o.safeFocus && ovl.querySelector('#cnpDlgNo')) || ovl.querySelector('#cnpDlgOk')).focus(), 30);
+    /* Ερώτηση ημερομηνίας: το ημερολόγιο ανοίγει αμέσως (ένα κλικ λιγότερο). */
+    if (inp && o.inputType === 'date' && CNP_CAL_FINE) {
+      setTimeout(() => { cnpDatesScan(); if (document.body.contains(inp)) { cnpCalOpen(inp); } }, 60);
+    }
   });
 }
 /**
@@ -2258,8 +2310,112 @@ function cnpDateSkin(inp) {
    βρόχο. Γι' αυτό εδώ γίνεται ΜΟΝΟ ντύσιμο των καινούριων πεδίων. */
 function cnpDatesScan() {
   const fresh = document.querySelectorAll('input[type=date]:not([data-cnp-ds])');
-  if (!fresh.length) { return; }
   fresh.forEach(cnpDateSkin);
+  document.querySelectorAll('select[data-combo]:not([data-cnp-cb])').forEach(cnpCombo);
+}
+
+/* ── Λίστα επιλογής με αναζήτηση (16/10/2026) ──────────────────────────────
+   <select data-combo> → κουμπί + πάνελ με πεδίο αναζήτησης (χωρίς τόνους, και
+   Greeklish μέσω cnpMatch), ↑/↓/Enter/Esc, ομάδες (optgroup) ως επικεφαλίδες.
+   Το ίδιο το <select> ΜΕΝΕΙ (κρυφό) — .value, 'change', disabled δουλεύουν όπως
+   πριν, οπότε κανένας άλλος κώδικας δεν αλλάζει. */
+function cnpCombo(sel) {
+  if (sel.dataset.cnpCb) { return; }
+  sel.dataset.cnpCb = '1';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = (sel.className || 'inp') + ' cb-btn';
+  btn.setAttribute('aria-haspopup', 'listbox');
+  if (sel.id) { btn.dataset.for = sel.id; }
+  if (sel.title) { btn.title = sel.title; }
+  btn.style.cssText = sel.style.cssText;
+  sel.style.display = 'none';
+  sel.after(btn);
+  const label = () => {
+    const o = sel.options[sel.selectedIndex];
+    btn.innerHTML = `<span class="cb-l${!o || !o.value ? ' cb-ph' : ''}">${esc(o ? o.textContent : '—')}</span><span class="cb-car">▾</span>`;
+    btn.disabled = sel.disabled;
+  };
+  /* Ο κώδικας αλλάζει τιμή και προγραμματιστικά (sel.value = …) χωρίς event — το πιάνουμε. */
+  const P = HTMLSelectElement.prototype;
+  for (const k of ['value', 'selectedIndex']) {
+    const d0 = Object.getOwnPropertyDescriptor(P, k);
+    Object.defineProperty(sel, k, {configurable: true, get() { return d0.get.call(this); }, set(v) { d0.set.call(this, v); label(); }});
+  }
+  sel.addEventListener('change', label);
+  new MutationObserver(label).observe(sel, {attributes: true, attributeFilter: ['disabled'], childList: true, subtree: true});
+  let box = null;
+  const close = () => { if (box) { box.remove(); box = null; document.removeEventListener('mousedown', away, true); } };
+  const away = e => { if (box && !box.contains(e.target) && e.target !== btn && !btn.contains(e.target)) { close(); } };
+  const open = () => {
+    if (box) { close(); return; }
+    if (sel.disabled) { return; }
+    box = document.createElement('div');
+    box.className = 'cb-pan';
+    box.style.zIndex = cnpTopZ() + 20;
+    box.innerHTML = `<input class="inp cb-q" placeholder="Αναζήτηση… (και greeklish)" autocomplete="off"><div class="cb-list" role="listbox"></div>`;
+    document.body.appendChild(box);
+    const q = box.querySelector('.cb-q'), list = box.querySelector('.cb-list');
+    const items = [];
+    [...sel.children].forEach(ch => {
+      if (ch.tagName === 'OPTGROUP') { [...ch.children].forEach(o => items.push({o, g: ch.label})); }
+      else { items.push({o: ch, g: ''}); }
+    });
+    let shown = [], at = 0;
+    const paint = () => {
+      const v = q.value;
+      shown = items.filter(x => !x.o.disabled && !x.o.hidden && (!v || cnpMatch(x.o.textContent + ' ' + x.g, v)));
+      at = Math.max(0, shown.findIndex(x => x.o.selected));
+      if (v) { at = 0; }
+      let g = null, h = '';
+      shown.forEach((x, i) => {
+        if (x.g !== g) { g = x.g; if (g) { h += `<div class="cb-g">${esc(g)}</div>`; } }
+        h += `<button type="button" class="cb-o${i === at ? ' on' : ''}${x.o.selected ? ' sel' : ''}" data-i="${i}" role="option">${esc(x.o.textContent)}</button>`;
+      });
+      list.innerHTML = h || '<div class="cb-none">Τίποτα — δοκίμασε άλλη λέξη</div>';
+      const on = list.querySelector('.cb-o.on'); if (on) { on.scrollIntoView({block: 'nearest'}); }
+    };
+    const pick = i => {
+      const x = shown[i]; if (!x) { return; }
+      sel.value = x.o.value;
+      sel.dispatchEvent(new Event('input', {bubbles: true}));
+      sel.dispatchEvent(new Event('change', {bubbles: true}));
+      close(); btn.focus();
+    };
+    const mv = dlt => {
+      const bs = [...list.querySelectorAll('.cb-o')]; if (!bs.length) { return; }
+      at = (at + dlt + bs.length) % bs.length;
+      bs.forEach((b, i) => b.classList.toggle('on', i === at)); bs[at].scrollIntoView({block: 'nearest'});
+    };
+    q.onkeydown = e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mv(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); mv(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); pick(at); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); btn.focus(); }
+      else if (e.key === 'Tab') { close(); }
+    };
+    q.oninput = paint;
+    list.onmousedown = e => { const b = e.target.closest('[data-i]'); if (b) { e.preventDefault(); pick(+b.dataset.i); } };
+    paint();
+    const r = btn.getBoundingClientRect(), w = Math.max(r.width, 240);
+    box.style.width = Math.min(w, innerWidth - 16) + 'px';
+    box.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+    const bh = box.offsetHeight;
+    box.style.top = (r.bottom + bh + 6 > innerHeight && r.top - bh - 4 > 0 ? r.top - bh - 4 : r.bottom + 4) + 'px';
+    setTimeout(() => document.addEventListener('mousedown', away, true), 0);
+    q.focus();
+  };
+  btn.onclick = open;
+  btn.onkeydown = e => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      /* πληκτρολόγηση πάνω στο κουμπί = ξεκίνα αναζήτηση με αυτό το γράμμα */
+      e.preventDefault(); open(); const qq = box && box.querySelector('.cb-q'); if (qq) { qq.value = e.key; qq.dispatchEvent(new Event('input')); }
+    }
+  };
+  /* Το focus() του κώδικα στο select (π.χ. «διάλεξε έργο») πάει στο κουμπί. */
+  sel.focus = () => btn.focus();
+  label();
 }
 let cnpDsQueued = false;
 new MutationObserver(() => {
@@ -2276,6 +2432,191 @@ function cnpSetDate(inp, iso) {
   if (!inp) { return; }
   inp.value = iso || '';
   inp.dispatchEvent(new Event('change'));
+}
+
+/* ── Προβολή αρχείου χωρίς λήψη (16/10/2026) ──────────────────────────────
+   Εικόνα / PDF / βίντεο / ήχος ανοίγουν σε παράθυρο πάνω από την εργασία, με
+   ←/→ ανάμεσα στα αρχεία της ίδιας ομάδας (data-fgroup). Ό,τι δεν προβάλλεται
+   (docx, zip…) δείχνει όνομα + «Λήψη». Το file_get κάνει ήδη τον έλεγχο πρόσβασης
+   και σερβίρει inline μόνο ασφαλείς τύπους (όχι SVG/HTML). */
+function cnpFileKind(name, mime) {
+  const m = String(mime || '').toLowerCase(), x = (String(name || '').split('.').pop() || '').toLowerCase();
+  if (/^image\/(png|jpe?g|gif|webp|bmp|avif)$/.test(m) || /^(png|jpe?g|gif|webp|bmp|avif)$/.test(x)) { return 'image'; }
+  if (m === 'application/pdf' || x === 'pdf') { return 'pdf'; }
+  if (/^video\//.test(m) || /^(mp4|webm|mov|m4v|ogv)$/.test(x)) { return 'video'; }
+  if (/^audio\//.test(m) || /^(mp3|wav|ogg|m4a|oga)$/.test(x)) { return 'audio'; }
+  return 'other';
+}
+function cnpViewFile(list, idx) {
+  if (!list || !list.length) { return; }
+  let i = Math.max(0, Math.min(idx || 0, list.length - 1));
+  const ovl = document.createElement('div');
+  ovl.className = 'fv-ovl';
+  ovl.style.zIndex = cnpTopZ() + 30;
+  const close = () => { ovl.remove(); document.removeEventListener('keydown', key, true); };
+  const draw = () => {
+    const f = list[i], k = cnpFileKind(f.name, f.mime), u = f.url;
+    const dl = u + (u.indexOf('?') >= 0 ? '&' : '?') + 'dl=1';
+    const body = k === 'image' ? `<img src="${esc(u)}" alt="${esc(f.name)}">`
+      : k === 'pdf' ? `<iframe src="${esc(u)}" title="${esc(f.name)}"></iframe>`
+      : k === 'video' ? `<video src="${esc(u)}" controls autoplay></video>`
+      : k === 'audio' ? `<audio src="${esc(u)}" controls autoplay></audio>`
+      : `<div class="fv-none">📎 <b>${esc(f.name)}</b><div class="mut">Αυτός ο τύπος αρχείου δεν προβάλλεται εδώ.</div><a class="btn btn-p" href="${esc(dl)}">${I.download} Λήψη</a></div>`;
+    ovl.innerHTML = `<div class="fv-bar"><b class="fv-name" title="${esc(f.name)}">${esc(f.name)}</b>
+        ${list.length > 1 ? `<span class="mut">${i + 1} / ${list.length}</span>` : ''}<span style="flex:1"></span>
+        <a class="btn btn-sm btn-o" href="${esc(u)}" target="_blank" rel="noopener" title="Άνοιγμα σε νέα καρτέλα">↗</a>
+        <a class="btn btn-sm btn-o" href="${esc(dl)}" title="Λήψη">${I.download}</a>
+        <button type="button" class="btn btn-sm btn-o" data-fvx title="Κλείσιμο (Esc)">✕</button></div>
+      <div class="fv-stage" data-fvstage>${list.length > 1 ? '<button type="button" class="fv-nav fv-prev" data-fvn="-1" aria-label="Προηγούμενο">‹</button>' : ''}
+        <div class="fv-body fv-${k}">${body}</div>
+        ${list.length > 1 ? '<button type="button" class="fv-nav fv-next" data-fvn="1" aria-label="Επόμενο">›</button>' : ''}</div>`;
+  };
+  const key = e => {
+    if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); }
+    else if (e.key === 'ArrowRight' && list.length > 1) { e.preventDefault(); i = (i + 1) % list.length; draw(); }
+    else if (e.key === 'ArrowLeft' && list.length > 1) { e.preventDefault(); i = (i - 1 + list.length) % list.length; draw(); }
+  };
+  ovl.addEventListener('click', e => {
+    if (e.target.closest('[data-fvx]') || e.target.matches('[data-fvstage]')) { close(); return; }
+    const n = e.target.closest('[data-fvn]'); if (n) { i = (i + +n.dataset.fvn + list.length) % list.length; draw(); }
+  });
+  document.addEventListener('keydown', key, true);
+  draw();
+  document.body.appendChild(ovl);
+}
+/* Οποιοδήποτε στοιχείο με data-fview="url" ανοίγει την προβολή· τα αδέρφια με το ίδιο
+   data-fgroup γίνονται η σειρά ←/→. Και εικόνες μέσα σε κείμενο (επικολλημένες). */
+window.cnpFileKind = cnpFileKind;
+window.cnpViewFile = cnpViewFile;
+document.addEventListener('click', async e => {
+  /* ✕ σε συνημμένο της συζήτησης — μόνο στον αποστολέα (και ο server το ελέγχει). */
+  const xd = e.target.closest && e.target.closest('[data-thfdel]');
+  if (xd) {
+    e.preventDefault(); e.stopPropagation();
+    if (!await cnpConfirm('Διαγραφή αρχείου;', {danger: true})) { return; }
+    try { await api('file_delete', {id: +xd.dataset.thfdel}); } catch (er) { toast((er && er.message) || 'Δεν διαγράφηκε', true); return; }
+    const w = xd.closest('.th-file-w'); if (w) { w.remove(); }
+    toast('Διαγράφηκε');
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) { return; }
+  let el = e.target.closest && e.target.closest('[data-fview]');
+  if (!el) {
+    const img = e.target.closest && e.target.closest('.th-body img, .act-body img, .rte-view img, .tk-descr img');
+    if (img && /a=file_get/.test(img.getAttribute('src') || '')) {
+      e.preventDefault();
+      cnpViewFile([{url: img.getAttribute('src'), name: img.getAttribute('alt') || 'εικόνα', mime: 'image/png'}], 0);
+    }
+    return;
+  }
+  if (cnpFileKind(el.dataset.fname, el.dataset.fmime) === 'other') { return; }   // μη προβλέψιμο → κανονική λήψη/άνοιγμα
+  e.preventDefault();
+  const g = el.dataset.fgroup;
+  const all = g ? [...document.querySelectorAll('[data-fview][data-fgroup="' + CSS.escape(g) + '"]')] : [el];
+  const seen = new Set(), list = [];
+  let at = 0;
+  all.forEach(x => {
+    if (seen.has(x.dataset.fview)) { if (x === el) { at = list.findIndex(y => y.url === x.dataset.fview); } return; }
+    seen.add(x.dataset.fview);
+    if (x === el) { at = list.length; }
+    list.push({url: x.dataset.fview, name: x.dataset.fname || '', mime: x.dataset.fmime || ''});
+  });
+  cnpViewFile(list, at);
+});
+
+/* ── Ημερολόγιο (16/10/2026) ───────────────────────────────────────────────
+   Σε υπολογιστή (ποντίκι) το ημερολόγιο του browser βγαίνει στη γλώσσα του
+   browser (mm/dd/yyyy) και ανοιχτόχρωμο στο σκούρο θέμα. Το αντικαθιστούμε με
+   δικό μας: ηη/μμ/εεεε, Δευτέρα πρώτη, «Σήμερα», πληκτρολόγηση. Το input μένει
+   ΤΟ ΙΔΙΟ (τιμή ISO, ίδια events) — κανένας άλλος κώδικας δεν αλλάζει.
+   Στο κινητό μένει η ρόδα του συστήματος (είναι καλύτερη εκεί). */
+const CNP_CAL_FINE = window.matchMedia && matchMedia('(pointer: fine)').matches;
+const cnpIsoLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+/* «ηη/μμ/εεεε» (και 1/2/26, 01.02.2026, 1-2-2026) → ISO ή null */
+function cnpParseDmy(s) {
+  const m = String(s || '').trim().match(/^(\d{1,2})[\/.\-\s](\d{1,2})[\/.\-\s](\d{2}|\d{4})$/);
+  if (!m) { return null; }
+  const y = m[3].length === 2 ? 2000 + +m[3] : +m[3], mo = +m[2], d = +m[1];
+  const dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? cnpIsoLocal(dt) : null;
+}
+let cnpCalBox = null;
+function cnpCalClose() { if (cnpCalBox) { cnpCalBox._done && cnpCalBox._done(); cnpCalBox.remove(); cnpCalBox = null; } }
+function cnpCalOpen(inp) {
+  cnpCalClose();
+  const MON = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'];
+  const box = document.createElement('div');
+  box.className = 'cnp-cal';
+  box.style.zIndex = cnpTopZ() + 20;
+  const pick = iso => {
+    if (iso && inp.min && iso < inp.min) { return; }
+    if (iso && inp.max && iso > inp.max) { return; }
+    inp.value = iso || '';
+    inp.dispatchEvent(new Event('input', {bubbles: true}));
+    inp.dispatchEvent(new Event('change', {bubbles: true}));
+    cnpCalClose(); inp.focus();
+  };
+  const now = cnpIsoLocal(new Date());
+  let view = new Date(((inp.value || now) + 'T12:00:00'));
+  const draw = () => {
+    const y = view.getFullYear(), mo = view.getMonth();
+    const first = new Date(y, mo, 1), off = (first.getDay() + 6) % 7, days = new Date(y, mo + 1, 0).getDate();
+    let cells = '';
+    for (let i = 0; i < off; i++) { cells += '<span></span>'; }
+    for (let d = 1; d <= days; d++) {
+      const iso = cnpIsoLocal(new Date(y, mo, d));
+      const out = (inp.min && iso < inp.min) || (inp.max && iso > inp.max);
+      cells += `<button type="button" data-d="${iso}" class="${iso === inp.value ? 'on' : ''}${iso === now ? ' now' : ''}"${out ? ' disabled' : ''}>${d}</button>`;
+    }
+    box.innerHTML = `<div class="cnp-cal-h"><button type="button" data-m="-1" aria-label="Προηγούμενος μήνας">‹</button>
+        <b>${MON[mo]} ${y}</b><button type="button" data-m="1" aria-label="Επόμενος μήνας">›</button></div>
+      <input class="inp cnp-cal-in" placeholder="ηη/μμ/εεεε" value="${inp.value ? dFull(inp.value) : ''}" aria-label="Ημερομηνία (ηη/μμ/εεεε)">
+      <div class="cnp-cal-w">${['Δε', 'Τρ', 'Τε', 'Πε', 'Πα', 'Σα', 'Κυ'].map(x => `<span>${x}</span>`).join('')}</div>
+      <div class="cnp-cal-g">${cells}</div>
+      <div class="cnp-cal-f"><button type="button" class="btn btn-sm btn-o" data-t="today">Σήμερα</button>
+        ${inp.required ? '' : '<button type="button" class="btn btn-sm btn-o" data-t="clear">Καθαρισμός</button>'}</div>`;
+    const ti = box.querySelector('.cnp-cal-in');
+    ti.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const v = cnpParseDmy(ti.value); if (v) { pick(v); } else { ti.classList.add('gd-err'); } }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cnpCalClose(); inp.focus(); }
+    };
+    ti.oninput = () => { const v = cnpParseDmy(ti.value); ti.classList.remove('gd-err'); if (v) { view = new Date(v + 'T12:00:00'); const keep = ti.value; draw(); const t2 = box.querySelector('.cnp-cal-in'); t2.value = keep; t2.focus(); } };
+  };
+  box.addEventListener('mousedown', e => { if (!e.target.closest('input')) { e.preventDefault(); } });
+  box.addEventListener('click', e => {
+    const m = e.target.closest('[data-m]'); if (m) { view = new Date(view.getFullYear(), view.getMonth() + +m.dataset.m, 1, 12); draw(); return; }
+    const d = e.target.closest('[data-d]'); if (d && !d.disabled) { pick(d.dataset.d); return; }
+    const t = e.target.closest('[data-t]'); if (t) { pick(t.dataset.t === 'today' ? now : ''); }
+  });
+  draw();
+  document.body.appendChild(box);
+  const r = inp.getBoundingClientRect(), bh = box.offsetHeight, bw = box.offsetWidth;
+  box.style.left = Math.max(8, Math.min(r.left, innerWidth - bw - 8)) + 'px';
+  box.style.top = (r.bottom + bh + 8 > innerHeight && r.top - bh - 6 > 0 ? r.top - bh - 6 : r.bottom + 6) + 'px';
+  const away = e => { if (!box.contains(e.target) && e.target !== inp) { cnpCalClose(); } };
+  const esc = e => { if (e.key === 'Escape' && cnpCalBox) { e.stopPropagation(); e.preventDefault(); cnpCalClose(); inp.focus(); } };
+  setTimeout(() => document.addEventListener('mousedown', away, true), 0);
+  document.addEventListener('keydown', esc, true);
+  box._done = () => { document.removeEventListener('mousedown', away, true); document.removeEventListener('keydown', esc, true); };
+  cnpCalBox = box;
+  setTimeout(() => { const ti = box.querySelector('.cnp-cal-in'); if (ti) { ti.focus(); ti.select(); } }, 0);
+}
+if (CNP_CAL_FINE) {
+  document.addEventListener('click', e => {
+    const inp = e.target.closest && e.target.closest('.cnp-dw > input[type=date]');
+    if (!inp || inp.disabled || inp.readOnly) { return; }
+    e.preventDefault(); cnpCalOpen(inp);
+  }, true);
+  document.addEventListener('keydown', e => {
+    const inp = e.target;
+    if (!inp || !inp.matches || !inp.matches('.cnp-dw > input[type=date]') || inp.disabled || inp.readOnly) { return; }
+    if (e.key === 'Enter' && e.target.closest('[data-cnp-dlg]')) { return; }        // στον διάλογο το Enter = «Συνέχεια»
+    if (e.key === ' ' || e.key === 'ArrowDown' || e.key === 'Enter' || /^\d$/.test(e.key)) {
+      e.preventDefault(); cnpCalOpen(inp);
+      if (/^\d$/.test(e.key)) { setTimeout(() => { const ti = cnpCalBox && cnpCalBox.querySelector('.cnp-cal-in'); if (ti) { ti.value = e.key; } }, 1); }
+    }
+  }, true);
+  document.documentElement.classList.add('cnp-cal-fine');
 }
 
 function setTop(t, sub) {
@@ -2580,7 +2921,26 @@ function cardHtml(t) {
 /* Οι κάρτες προσφορών δανείζονται τα ίδια class (.tcard/.kb-col) για την εμφάνιση,
    και το delegation του dnd είναι καθολικό: χωρίς αυτό το φίλτρο, ένα κλικ σε προσφορά
    ζητούσε task «NaN» και ένα σύρσιμο θα καλούσε move_task για ανύπαρκτη εργασία. */
-dnd('.tcard[data-task]', '.kb-col[data-status]', async (card, col) => {
+/* Υπάρχουσα εργασία → υποεργασία της parent (αναζήτηση, σύρσιμο από board/λίστα/σύνδεσμο). */
+async function cnpLinkSub(parent, child) {
+  if (!parent || !child) { return; }
+  if (parent === child) { toast('Μια εργασία δεν γίνεται υποεργασία του εαυτού της', true); return; }
+  const r = await api('task_parent', {task: child, parent}).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
+  if (r && r.err) { toast(r.err, true); return; }
+  toast('Η #' + child + ' έγινε υποεργασία');
+  openTask(parent);
+  if (S.view === 'board' && typeof vBoard === 'function') { vBoard(); }
+}
+/* Γραμμές λίστας / κάρτες: σύρσιμο με τον browser κουβαλά «#id» (για την περιοχή υποεργασιών). */
+document.addEventListener('dragstart', e => {
+  const el = e.target.closest && e.target.closest('[data-sublink], tr.lv-tr[data-task], [data-task][draggable="true"]');
+  if (!el) { return; }
+  const tid = el.dataset.sublink || el.dataset.task;
+  if (tid) { e.dataTransfer.setData('text/x-cnp-task', '#' + tid); e.dataTransfer.setData('text/plain', '#' + tid); e.dataTransfer.effectAllowed = 'link'; }
+});
+dnd('.tcard[data-task]', '.kb-col[data-status], .sub-drop[data-subparent]', async (card, col) => {
+  /* Κάρτα του board πάνω στην περιοχή «σύρε εδώ» μιας ανοιχτής εργασίας → γίνεται υποεργασία της. */
+  if (col.matches('.sub-drop')) { cnpLinkSub(+col.dataset.subparent, +card.dataset.task); return; }
   const st = +col.dataset.status;
   let note = '';
   if (S.boot.statuses.find(x => x.id === st && x.done)) {
@@ -2639,8 +2999,8 @@ function askBusy(info) {
 function askImplDates(info, me) {
   return new Promise(resolve => {
     const d0 = (info.start || today());
-    const d1 = new Date(); d1.setDate(d1.getDate() + 7);
-    const dEnd = info.due || d1.toISOString().slice(0, 10);
+    /* Προεπιλογή: σήμερα (τοπική ώρα — το toISOString έδινε UTC). */
+    const dEnd = info.due || today();
     const ovl = document.createElement('div');
     ovl.className = 'ovl show'; ovl.style.zIndex = 330;
     ovl.innerHTML = `<div class="pal-box" style="margin:14vh auto 0;max-width:520px" role="dialog">
@@ -2732,10 +3092,9 @@ async function cnpTaskReply(id, payload, action) {
     if (!pick) { return {ok: false, cancelled: true}; }
     r = await send(pick);
   } else if (!r.ok && r.data && r.data.need === 'due') {
-    const d0 = new Date(); d0.setDate(d0.getDate() + 7);
     const pick = await cnpDialog({title: 'Πότε παραδίδεται;',
       body: r.error + '\n\nΜπαίνει ως προθεσμία της εργασίας — μπορείς να την αλλάξεις αργότερα.',
-      input: d0.toISOString().slice(0, 10), inputType: 'date', ok: 'Συνέχεια', cancel: 'Άκυρο'});
+      input: today(), inputType: 'date', min: today(), ok: 'Συνέχεια', cancel: 'Άκυρο'});
     if (!pick) { return {ok: false, cancelled: true}; }
     r = await send({due: pick});
   }
@@ -2777,11 +3136,10 @@ async function cnpMoveTask(id, status, note) {
     return r;
   }
   if (!r.ok && r.data && r.data.need === 'due') {
-    const d = new Date(); d.setDate(d.getDate() + 7);
     const pick = await cnpDialog({
       title: 'Πότε παραδίδεται;',
       body: r.error + '\n\nΜπαίνει ως προθεσμία της εργασίας — μπορείς να την αλλάξεις αργότερα.',
-      input: d.toISOString().slice(0, 10), inputType: 'date',
+      input: today(), inputType: 'date', min: today(),
       ok: 'Ξεκίνα την', cancel: 'Άκυρο'});
     if (pick === null || !pick) { return {ok: false, cancelled: true}; }
     r = await send(pick);
@@ -3068,9 +3426,17 @@ async function openTask(id, entryId, opts) {
       (gx ? gx.messages : []).forEach((m, i) => items.push({k: 'gd', at: m.at || gx.at || '', m, i}));
       items.sort((x, y) => String(x.at).localeCompare(String(y.at)) || ((x.i || 0) - (y.i || 0)));
       const SHOW = 12, hidden = Math.max(0, items.length - SHOW);
-      const files = list => (list || []).length ? `<div class="th-files">${list.map(f => `
-        <a class="th-file" href="api.php?a=file_get&id=${f.id}" target="_blank" rel="noopener" title="${esc(f.name)}">
-          <span class="th-file-ic">${I.fileText || I.clip}</span><span class="th-file-n">${esc(f.name)}</span>${f.sizeh ? `<span class="mut">${esc(f.sizeh)}</span>` : ''}</a>`).join('')}</div>` : '';
+      /* Συνημμένα συζήτησης (16/10/2026): εικόνες ως μικρογραφίες, προβολή χωρίς λήψη
+         (←/→ σε όλα τα αρχεία της εργασίας), ✕ μόνο σε όποιον το ανέβασε. */
+      const files = list => (list || []).length ? `<div class="th-files">${list.map(f => {
+        const u = f.url || (f.id ? 'api.php?a=file_get&id=' + f.id : '');
+        if (!u) { return `<span class="th-file th-file-miss" title="Δεν ήρθε από το GoodDay"><span class="th-file-ic">${I.fileText || I.clip}</span><span class="th-file-n">${esc(f.name)}</span></span>`; }
+        const k = cnpFileKind(f.name, f.mime);
+        const fv = k !== 'other' ? ` data-fview="${esc(u)}" data-fname="${esc(f.name)}" data-fmime="${esc(f.mime || '')}" data-fgroup="th-${id}"` : '';
+        const del = f.by && f.by === me.id ? `<button type="button" class="th-file-x" data-thfdel="${f.id}" title="Διαγραφή (μόνο όποιος το ανέβασε)">✕</button>` : '';
+        return `<span class="th-file-w">${k === 'image' ? `<img class="th-thumb" src="${esc(u)}" loading="lazy" alt="${esc(f.name)}"${fv}>` : ''}<a class="th-file" href="${esc(u)}" target="_blank" rel="noopener" title="${esc(f.name)}"${fv}>
+          <span class="th-file-ic">${I.fileText || I.clip}</span><span class="th-file-n">${esc(f.name)}</span>${f.sizeh ? `<span class="mut">${esc(f.sizeh)}</span>` : ''}</a>${del}</span>`;
+      }).join('')}</div>` : '';
       const groupReacts = rs => { const g = {}; (rs || []).forEach(r => { (g[r.code] = g[r.code] || {code: r.code, n: 0, who: [], mine: false}); g[r.code].n++; g[r.code].who.push(r.by); if (r.byId === me.id) { g[r.code].mine = true; } }); return Object.values(g); };
       /* Χωρίς συγγραφέα (βήμα από module ή παλιά εγγραφή): ουδέτερο avatar, όχι «?». */
       const ava = (aid, name) => aid
@@ -3247,9 +3613,9 @@ async function openTask(id, entryId, opts) {
     <div class="card tk-side"><div class="card-b">
       <div class="frow tk-frow">
         <div><label class="lbl">Ανάθεση <span class="mut" style="font-weight:400">— ποιος την εκτελεί</span></label>
-          <select class="inp" id="fAssignee">${admOpts(t.assignee, t.dept)}</select></div>
+          <select class="inp" id="fAssignee" data-combo>${admOpts(t.assignee, t.dept)}</select></div>
         <div><label class="lbl">${I.zap} Μπάλα <span class="mut" style="font-weight:400">— ποιος δρα τώρα</span></label>
-          <select class="inp" id="fBall"><option value="">— σε κανέναν —</option>
+          <select class="inp" id="fBall" data-combo><option value="">— σε κανέναν —</option>
           ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === t.ball ? 'selected' : ''}>${esc(a.name)}${a.id === me.id ? ' (εσύ)' : ''}</option>`).join('')}</select>
           <div class="mut" style="font-size:11px;margin-top:3px">Όσο την κρατάς, η εργασία μένει στη «Μέρα μου» σου.</div></div>
         <div><label class="lbl">Προτεραιότητα</label>
@@ -3258,7 +3624,7 @@ async function openTask(id, entryId, opts) {
         <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Department</label>
-          <select class="inp" id="fDept"><option value="">— χωρίς department —</option>
+          <select class="inp" id="fDept" data-combo><option value="">— χωρίς department —</option>
           ${(d.depts || []).map(u => `<option value="${u.id}" ${u.id === t.dept ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Έναρξη <span class="mut" style="font-weight:400">— ημ/νία &amp; ώρα</span></label>
           <div class="dt2"><input type="date" class="inp" id="fStart" value="${t.start || ''}">
@@ -3359,14 +3725,19 @@ async function openTask(id, entryId, opts) {
             ${sb.assignee ? `<span class="sub-a" title="${esc(sb.assigneeName)}">${esc(adminIni(sb.assignee))}</span>` : ''}
             ${sb.due ? `<span class="pill ${sb.late ? 'pill-bad' : 'pill-mut'}">${esc(dShort(sb.due))}</span>` : ''}
             ${sb.mins ? `<span class="mut sub-m">${esc(fmtMin(sb.mins))}</span>` : ''}
+            ${d.canWrite ? `<button type="button" class="sub-x" data-subunlink="${sb.id}" title="Αποσύνδεση — η εργασία μένει, απλώς δεν είναι πια υποεργασία">✕</button>` : ''}
           </div>`).join('')}</div>`
           : '<div class="mut" style="font-size:12px;padding:4px 0">Καμία υποεργασία — σπάσε τη δουλειά σε κομμάτια που ανατίθενται ξεχωριστά.</div>'}
         ${d.canWrite ? `<div class="sub-add">
           <input class="inp" id="subT" placeholder="Νέα υποεργασία… (Enter)" maxlength="200" style="flex:1;font-size:12px;padding:6px 8px">
-          <select class="inp" id="subA" style="width:132px;font-size:12px;padding:6px 8px">
+          <select class="inp" id="subA" data-combo style="width:132px;font-size:12px;padding:6px 8px">
             <option value="">— ανάδοχος —</option>
-            ${(S.boot.admins || []).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
-          <button class="btn btn-sm btn-o" id="subAdd">+</button></div>` : ''}
+            ${(S.boot.admins || []).filter(a => !a.disabled).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+          <button class="btn btn-sm btn-o" id="subAdd" title="Νέα υποεργασία">+</button></div>
+        <div class="sub-link">
+          <input class="inp" id="subLinkQ" placeholder="🔗 Σύνδεση υπάρχουσας: τίτλος ή #ID…" autocomplete="off" style="font-size:12px;padding:6px 8px">
+          <div class="sub-link-res" id="subLinkRes" hidden></div></div>
+        <div class="sub-drop" data-subparent="${t.id}" id="subDrop">⇣ Σύρε εδώ μια εργασία (από το board, τη λίστα ή σύνδεσμο) για να γίνει υποεργασία</div>` : ''}
       </div></div>`}
 
     <div class="card tk-side"><div class="card-h">${I.link} Εξαρτήσεις <span class="mut" style="font-weight:600;font-size:11px">— πρέπει να τελειώσουν πρώτα</span></div>
@@ -3376,7 +3747,7 @@ async function openTask(id, entryId, opts) {
         <a style="flex:1;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" data-dgo="${dp.id}">${esc(dp.title)}</a>
         <button class="btn btn-sm btn-o" data-ddel="${dp.depId}">✕</button></div>`).join('')}
       <div style="display:flex;gap:7px;margin-top:6px">
-        <select class="inp" id="depSel" style="flex:1;font-size:12px;padding:6px 8px"><option value="">— διάλεξε task που μας μπλοκάρει —</option></select>
+        <select class="inp" id="depSel" data-combo style="flex:1;font-size:12px;padding:6px 8px"><option value="">— διάλεξε task που μας μπλοκάρει —</option></select>
         <button class="btn btn-sm btn-o" id="depAdd">+</button></div>
     </div></div>
 
@@ -3847,24 +4218,82 @@ async function openTask(id, entryId, opts) {
     };
     if (sa) { sa.onclick = addSub; }
     if (st) { st.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addSub(); } }; } }
+  /* 🔗 Σύνδεση ΥΠΑΡΧΟΥΣΑΣ (16/10/2026): αναζήτηση με τίτλο ή #ID, ή σύρσιμο στην περιοχή. */
+  { const q = $('#subLinkQ', dr), res = $('#subLinkRes', dr), drop = $('#subDrop', dr);
+    const subIds = new Set((d.subs || []).map(x => x.id));
+    let seq = 0, tmr = 0, hits = [];
+    const paintRes = () => {
+      res.hidden = !hits.length && !q.value.trim();
+      res.innerHTML = hits.length ? hits.map((h, i) => `<button type="button" class="sub-link-row${i === 0 ? ' on' : ''}" data-sublink="${h.id}" draggable="true">
+          <span class="sub-link-dot" style="background:${esc(h.pcolor || '#8595ac')}"></span>
+          <span class="sub-link-t">${esc(h.title)}</span>${h.pname ? `<span class="mut">${esc(h.pname)}</span>` : ''}</button>`).join('')
+        : (q.value.trim().length >= 2 ? '<div class="mut" style="padding:7px 9px;font-size:12px">Καμία εργασία</div>' : '');
+    };
+    const search = async () => {
+      const v = q.value.trim(), my = ++seq;
+      if (v.length < 2 && !/^#?\d+$/.test(v)) { hits = []; paintRes(); return; }
+      const r = await api('search&q=' + encodeURIComponent(v)).catch(() => ({tasks: []}));
+      if (my !== seq) { return; }
+      hits = (r.tasks || []).filter(h => h.id !== id && !subIds.has(h.id)).slice(0, 8);
+      paintRes();
+    };
+    if (q) {
+      q.oninput = () => { clearTimeout(tmr); tmr = setTimeout(search, 220); };
+      q.onkeydown = e => {
+        const rows = [...res.querySelectorAll('.sub-link-row')];
+        let i = rows.findIndex(r => r.classList.contains('on'));
+        if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && rows.length) {
+          e.preventDefault(); if (rows[i]) { rows[i].classList.remove('on'); }
+          i = (i + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length; rows[i].classList.add('on');
+        } else if (e.key === 'Enter' && rows.length) { e.preventDefault(); cnpLinkSub(id, +rows[Math.max(0, i)].dataset.sublink); }
+        else if (e.key === 'Escape') { e.stopPropagation(); q.value = ''; hits = []; paintRes(); res.hidden = true; }
+      };
+      res.onmousedown = e => { const b = e.target.closest('[data-sublink]'); if (b) { e.preventDefault(); cnpLinkSub(id, +b.dataset.sublink); } };
+      q.onblur = () => setTimeout(() => { res.hidden = true; }, 150);
+      q.onfocus = () => { if (hits.length) { res.hidden = false; } };
+    }
+    if (drop) {
+      const on = v => drop.classList.toggle('over', v);
+      drop.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'link'; on(true); });
+      drop.addEventListener('dragleave', () => on(false));
+      drop.addEventListener('drop', e => {
+        e.preventDefault(); on(false);
+        const raw = (e.dataTransfer.getData('text/x-cnp-task') || e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '').trim();
+        const m = raw.match(/#\/task\/(\d+)/) || raw.match(/^#?(\d{1,9})(?:\s|$)/) || raw.match(/[?&]task=(\d+)/);
+        if (!m) { toast('Σύρε εργασία (κάρτα, γραμμή λίστας ή σύνδεσμο εργασίας)', true); return; }
+        cnpLinkSub(id, +m[1]);
+      });
+    }
+    $$('[data-subunlink]', dr).forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      if (!await cnpConfirm('Αποσύνδεση της υποεργασίας; Η εργασία μένει ως έχει, απλώς δεν κρέμεται πια από εδώ.')) { return; }
+      const r = await api('task_parent', {task: +b.dataset.subunlink, parent: 0}).catch(er => ({err: er.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast('Αποσυνδέθηκε'); openTask(id);
+    });
+  }
 
   { const mv = $('#dPjMove', dr); if (mv) { mv.onclick = async () => {
       if (!S.boot.projects.length) { await cnpRefreshProjects(); }
       const cur = d.project.none ? 0 : +d.project.id;
       const mine = S.boot.projects.filter(p => p.client), inter = S.boot.projects.filter(p => !p.client);
       const opt = p => `<option value="${p.id}"${p.id === cur ? ' selected' : ''}>${esc(p.name)}${p.clientName ? ' — ' + esc(p.clientName) : ''}</option>`;
-      const html = `<select class="inp" id="pjMoveSel" style="width:100%">
+      const html = `<select class="inp" id="pjMoveSel" data-combo style="width:100%">
         <option value="0"${cur ? '' : ' selected'}>— Χωρίς έργο (μόνο department) —</option>
         ${inter.length ? `<optgroup label="Εσωτερικά / R&D">${inter.map(opt).join('')}</optgroup>` : ''}
         ${mine.length ? `<optgroup label="Έργα πελατών">${mine.map(opt).join('')}</optgroup>` : ''}
       </select>`;
       /* Το cnpDialog δέχεται HTML στο `body` — δεν υπάρχει ξεχωριστό πεδίο για μαρκάρισμα. */
-      const ok = await cnpDialog({title: 'Σε ποιο έργο ανήκει;',
+      const dlg = cnpDialog({title: 'Σε ποιο έργο ανήκει;',
         body: `<div style="margin-bottom:10px">${d.project.none ? 'Τώρα δεν ανήκει πουθενά.' : 'Τώρα: <b>' + esc(d.project.name) + '</b>'}
           Ο χρόνος, η συζήτηση και το ιστορικό μένουν — αλλάζει μόνο πού κρέμεται.</div>${html}`,
         ok: 'Μετακίνηση', cancel: 'Άκυρο'});
-      if (!ok) { return; }
+      /* Κράτα το στοιχείο ΤΩΡΑ: ο διάλογος το βγάζει από τη σελίδα πριν επιστρέψει,
+         οπότε ένα getElementById μετά έβρισκε null και η μετακίνηση δεν γινόταν ποτέ. */
       const sel = document.getElementById('pjMoveSel');
+      if (sel) { cnpCombo(sel); }
+      const ok = await dlg;
+      if (!ok) { return; }
       const pid = sel ? +sel.value : cur;
       if (pid === cur) { return; }
       const r = await api('task_project', {task: id, project: pid}).catch(e => ({err: e.message}));
@@ -4218,46 +4647,84 @@ async function openTask(id, entryId, opts) {
     });
     /* @όνομα: λίστα συναδέλφων επί τόπου. Η ειδοποίηση φεύγει από τον server
        μόλις αποθηκευτεί — εδώ απλώς βοηθάμε να γραφτεί σωστά το όνομα. */
-    el.addEventListener('keyup', e => {
-      if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(e.key)) { return; }
-      const sel = window.getSelection();
-      if (!sel || !sel.focusNode) { return; }
-      const txt = (sel.focusNode.textContent || '').slice(0, sel.focusOffset);
-      const m = /@([\p{L}\p{N}_.\-]*)$/u.exec(txt);
-      closeMentions();
-      if (!m) { return; }
-      const q = m[1].toLowerCase();
-      const hits = S.boot.admins.filter(a => a.id !== me.id
-        && (!q || a.name.toLowerCase().includes(q))).slice(0, 6);
-      if (!hits.length) { return; }
-      openMentions(el, hits, m[1].length);
+    /* (16/10/2026) Πλήκτρα της λίστας: ↑/↓ μετακινούν, Enter/Tab διαλέγουν, Esc κλείνει.
+       Καταγράφεται ΠΡΙΝ από το Enter της καταχώρησης (ίδιο στοιχείο, πρώτος listener). */
+    el.addEventListener('keydown', e => {
+      if (!mentBox || mentBox._el !== el) { return; }
+      const rows = [...mentBox.querySelectorAll('.ment-row')];
+      let i = rows.findIndex(r => r.classList.contains('on'));
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (rows[i]) { rows[i].classList.remove('on'); }
+        i = (i + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+        rows[i].classList.add('on'); rows[i].scrollIntoView({block: 'nearest'});
+      } else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        pickMention(rows[Math.max(0, i)]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault(); e.stopImmediatePropagation(); closeMentions();
+      }
     });
-    el.addEventListener('blur', () => setTimeout(closeMentions, 180));
+    el.addEventListener('keyup', e => {
+      if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab', 'Shift'].includes(e.key)) { return; }
+      const sel = window.getSelection();
+      /* Μόνο μέσα σε κείμενο: αν η εστίαση είναι σε στοιχείο (π.χ. μετά από <br>), το
+         focusOffset είναι θέση παιδιού, όχι χαρακτήρα. */
+      if (!sel || !sel.focusNode || sel.focusNode.nodeType !== 3 || !el.contains(sel.focusNode)) { closeMentions(); return; }
+      const txt = (sel.focusNode.textContent || '').slice(0, sel.focusOffset);
+      const m = /(?:^|[\s( ])@([\p{L}\p{N}_.\-]*(?: [\p{L}]*)?)$/u.exec(txt);
+      if (!m) { closeMentions(); return; }
+      const q = m[1];
+      const hits = S.boot.admins.filter(a => a.id !== me.id && !a.disabled && !a.bot
+        && (!q || cnpMatch(a.name, q))).slice(0, 8);
+      if (!hits.length) { closeMentions(); return; }
+      openMentions(el, hits, q.length);
+    });
+    el.addEventListener('blur', () => setTimeout(() => { if (mentBox && mentBox._el === el) { closeMentions(); } }, 180));
   };
   let mentBox = null;
   const closeMentions = () => { if (mentBox) { mentBox.remove(); mentBox = null; } };
+  /* Επιλογή: το «@ερώτημα» φεύγει και μπαίνει ΚΟΥΚΚΙΔΑ αναφοράς (span.ment, μη
+     επεξεργάσιμη) + κενό. Ο server βρίσκει το πρόσωπο από το κείμενο «@Ονοματεπώνυμο». */
+  const pickMention = b => {
+    if (!b || !mentBox) { return; }
+    const el = mentBox._el, typedLen = mentBox._len;
+    const s2 = window.getSelection();
+    if (s2 && s2.rangeCount) {
+      const r2 = s2.getRangeAt(0);
+      if (r2.endContainer.nodeType === 3) { r2.setStart(r2.endContainer, Math.max(0, r2.endOffset - typedLen - 1)); }
+      r2.deleteContents();
+      const chip = document.createElement('span');
+      chip.className = 'ment';
+      chip.setAttribute('contenteditable', 'false');
+      chip.dataset.mid = b.dataset.mid;
+      chip.textContent = '@' + b.dataset.m;
+      const sp = document.createTextNode(' ');
+      r2.insertNode(sp); r2.insertNode(chip);
+      const r3 = document.createRange(); r3.setStartAfter(sp); r3.collapse(true);
+      s2.removeAllRanges(); s2.addRange(r3);
+    }
+    closeMentions(); markDirty(el); el.focus();
+  };
   const openMentions = (el, hits, typedLen) => {
+    const keep = mentBox && mentBox._el === el ? +(mentBox.querySelector('.ment-row.on') || {dataset: {}}).dataset.mid : 0;
+    closeMentions();
     const sel = window.getSelection();
     const rect = sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : el.getBoundingClientRect();
     mentBox = document.createElement('div');
     mentBox.className = 'ment-box';
-    mentBox.style.top = (rect.bottom + 4) + 'px';
-    mentBox.style.left = Math.max(8, rect.left) + 'px';
+    mentBox._el = el; mentBox._len = typedLen;
+    const on = Math.max(0, hits.findIndex(a => a.id === keep));
     mentBox.innerHTML = hits.map((a, i) =>
-      `<button type="button" class="ment-row${i === 0 ? ' on' : ''}" data-m="${esc(a.name)}">
-        <span class="ment-av">${esc(adminIni(a.id) || '?')}</span>${esc(a.name)}</button>`).join('');
+      `<button type="button" class="ment-row${i === on ? ' on' : ''}" data-m="${esc(a.name)}" data-mid="${a.id}">
+        <span class="ment-av">${esc(adminIni(a.id) || '?')}</span>${esc(a.name)}</button>`).join('')
+      + '<div class="ment-hint">↑↓ επιλογή · Enter ή Tab · Esc</div>';
     document.body.appendChild(mentBox);
-    mentBox.querySelectorAll('[data-m]').forEach(b => b.onmousedown = ev => {
-      ev.preventDefault();
-      const s2 = window.getSelection();
-      if (s2 && s2.rangeCount) {
-        const r2 = s2.getRangeAt(0);
-        r2.setStart(r2.endContainer, Math.max(0, r2.endOffset - typedLen));
-        r2.deleteContents();
-      }
-      document.execCommand('insertText', false, b.dataset.m + ' ');
-      closeMentions(); markDirty(el);
-    });
+    /* μέσα στην οθόνη: αν δεν χωρά από κάτω, πάνω από τον κέρσορα */
+    const bh = mentBox.offsetHeight, bw = mentBox.offsetWidth;
+    mentBox.style.top = (rect.bottom + 4 + bh > innerHeight ? Math.max(8, rect.top - bh - 4) : rect.bottom + 4) + 'px';
+    mentBox.style.left = Math.max(8, Math.min(rect.left, innerWidth - bw - 8)) + 'px';
+    mentBox.querySelectorAll('[data-m]').forEach(b => b.onmousedown = ev => { ev.preventDefault(); pickMention(b); });
   };
 
   /* ── νέα ενέργεια ── */
@@ -4760,6 +5227,9 @@ new MutationObserver(ms => {
 // 3) ESC → ελεγχόμενο κλείσιμο του πιο πρόσφατου popup
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') { return; }
+  /* Ανοιχτό πτυσσόμενο πάνω από την καρτέλα (λίστα με αναζήτηση, ημερολόγιο, προβολή
+     αρχείου, @αναφορές, αναζήτηση υποεργασίας): το Esc κλείνει ΕΚΕΙΝΟ, όχι την καρτέλα. */
+  if (document.querySelector('.cb-pan, .cnp-cal, .fv-ovl, .ment-box, .sub-link-res:not([hidden])')) { return; }
   const boxes = document.querySelectorAll('.pal-box, .drawer');
   if (!boxes.length) { return; }
   const top = boxes[boxes.length - 1];
@@ -4852,7 +5322,7 @@ async function vMyDay() {
     const k = hkLbl[h.kind] || hkLbl.help;
     att.push({sev: h.kind === 'help' || h.kind === 'voice' ? 1 : 3, lvl: h.kind === 'help' ? 'bad' : 'warn', ic: k[0], why: k[1],
       title: h.from, sub: (h.message || '').slice(0, 110) + (h.taskTitle ? ' · ' + h.taskTitle : ''), when: h.at,
-      act: 'Άνοιξε', on: () => openRequestQuick(h.id, vMyDay),
+      act: 'Άνοιξε', on: () => openRequestQuick(h.id, vMyDay), info: h.taskId || 0,
       done: h.kind !== 'checkin' ? async () => { await api('help_done', {id: h.id}).catch(() => {}); } : null});
     if (h.taskId) { seenTask.add(h.taskId); }
   });
@@ -4922,10 +5392,20 @@ async function vMyDay() {
   /* Το κλειδί ΔΕΝ είναι η θέση: μετά από κάθε ενέργεια η λίστα ξαναχτίζεται και το «a0»
      θα σήμαινε άλλο πράγμα — το «Επόμενο» θα ξαναπρότεινε ό,τι μόλις πέρασες. */
   const attKey = a => (a.task ? 't' + a.task : 'w' + String(a.title || '').slice(0, 40));
+  /* (16/10/2026) Κάθε εργασία στη λίστα δείχνει κατάσταση · προθεσμία · ποιος την έβαλε (επιβλέπων). */
+  const TI = d.taskInfo || {};
+  const attMeta = a => {
+    const ti = TI[a.task || a.info];
+    if (!ti) { return ''; }
+    const late = ti.due && ti.due < TODAY;
+    return `<span class="myd-meta">${ti.status ? stPill(ti.status) : ''}
+      <span class="myd-mi${late ? ' late' : ''}" title="Προθεσμία">📅 ${ti.due ? esc(dFull(ti.due)) : '<span class="mut">χωρίς προθεσμία</span>'}</span>
+      ${ti.by ? `<span class="myd-mi" title="Εισαγωγή / επιβλέπων">👤 ${esc(adminName(ti.by))}</span>` : ''}</span>`;
+  };
   const attRow = (a, i) => `<div class="myd-row att ${a.lvl}" data-atti="${i}" data-attk="${esc(attKey(a))}">
     <span class="myd-ic" style="color:${colL[a.lvl]}">${a.ic}</span>
     <span class="myd-why" style="color:${colL[a.lvl]};background:${colL[a.lvl]}18">${esc(a.why)}</span>
-    <span class="myd-t"><b>${esc(a.title)}</b>${a.sub ? `<span class="mut"> · ${esc(a.sub)}</span>` : ''}</span>
+    <span class="myd-t"><b>${esc(a.title)}</b>${a.sub ? `<span class="mut"> · ${esc(a.sub)}</span>` : ''}${attMeta(a)}</span>
     <span class="myd-a">${a.done ? `<button class="btn btn-sm btn-o" data-attdone="${i}" title="Τακτοποιήθηκε — φεύγει από εδώ">✓</button>` : ''}
       ${a.alt ? `<button class="btn btn-sm btn-o" data-attalt="${i}" title="${esc(a.altT || '')}">${a.alt}</button>` : ''}
       <button class="btn btn-sm btn-p" data-attgo="${i}">${esc(a.act)}</button></span></div>`;
@@ -6528,7 +7008,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

@@ -3900,6 +3900,7 @@ function cnp_file_row($rec)
     $rec = (array) $rec;
     return ['id' => (int) $rec['id'], 'name' => $rec['orig_name'], 'mime' => $rec['mime'], 'size' => (int) $rec['size'],
         'kind' => $rec['kind'], 'driver' => $rec['driver'], 'createdAt' => $rec['created_at'],
+        'by' => (int) ($rec['uploaded_by'] ?? 0),          // ποιος το ανέβασε — μόνο αυτός το σβήνει (εργασίες)
         'url' => 'api.php?a=file_get&id=' . (int) $rec['id']];
 }
 
@@ -4402,14 +4403,14 @@ function cnp_move_task_run(array $in, $adminId, $FULL)
             Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['start_date' => date('Y-m-d')]);
             Db::logActivity($t->id, $adminId, 'edit', 'Έναρξη με τη μετακίνηση από το Backlog: ' . cnp_dgr(date('Y-m-d')));
         }
+        /* (16/10/2026) Η προθεσμία ΔΕΝ ζητείται πια σε κάθε αλλαγή κατάστασης: έβγαινε
+           και όταν επέστρεφες μια εργασία για «Έλεγχο». Ζητείται εκεί που έχει νόημα —
+           στην ΑΝΑΘΕΣΗ, από αυτόν που αναθέτει (need:'dates' στο save_task / handoff).
+           Αν σταλεί προθεσμία εδώ, απλώς κρατιέται. */
         $dueIn = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
         if ($dueIn) {
             Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update(['due_date' => $dueIn]);
             Db::logActivity($t->id, $adminId, 'edit', 'Προθεσμία κατά την έναρξη: ' . cnp_dgr($dueIn));
-        } elseif (empty($t->due_date)) {
-            http_response_code(409);
-            out(['error' => 'Βάλε προθεσμία πριν ξεκινήσει — χωρίς αυτήν κανείς δεν ξέρει πότε παραδίδεται.',
-                'need' => 'due', 'task' => (int) $t->id, 'status' => (int) $stChk->id]);
         }
     }
 
@@ -6316,11 +6317,27 @@ case 'myday':
                 'n' => count(array_filter(explode(',', (string) $cr->people)))];
         }
     } catch (\Throwable $e) { }
+    /* «Θέλουν εσένα» (16/10/2026): για κάθε εργασία της λίστας κατάσταση, προθεσμία και
+       ποιος την έβαλε / επιβλέπει (created_by — βλ. task-card: επιβλέπων = δημιουργός).
+       ΕΝΑ ερώτημα για όλες, όχι ένα ανά γραμμή. */
+    $pendNow = cnp_pending_for($adminId, $FULL);
+    $tiIds = [];
+    foreach ((array) ($pendNow['help'] ?? []) as $ph) { if (!empty($ph['taskId'])) { $tiIds[(int) $ph['taskId']] = 1; } }
+    foreach ($claimable as $cr) { $tiIds[(int) $cr['id']] = 1; }
+    foreach ($dl as $dx) { if (($dx['kind'] ?? '') === 'task' && !empty($dx['id'])) { $tiIds[(int) $dx['id']] = 1; } }
+    foreach ($plan as $px) { if (!empty($px['id'])) { $tiIds[(int) $px['id']] = 1; } }
+    $taskInfo = [];
+    if ($tiIds) {
+        foreach (Capsule::table('mod_cpm_tasks')->whereIn('id', array_keys($tiIds))->get(['id', 'status_id', 'due_date', 'created_by']) as $ti) {
+            $taskInfo[(int) $ti->id] = ['status' => (int) $ti->status_id, 'due' => $ti->due_date ? substr((string) $ti->due_date, 0, 10) : null,
+                'by' => $ti->created_by ? (int) $ti->created_by : 0];
+        }
+    }
     out(['claimable' => $claimable, 'tickets' => $myTickets, 'plan' => $plan, 'balls' => $balls, 'follows' => $follows, 'coach' => $coach,
         'queue' => $queue, 'deadlines' => $dl, 'waiting' => $waiting,
         'events' => $evToday, 'timer' => $timerNow, 'doneToday' => $doneToday, 'team' => $teamNow, 'teamScope' => $teamScope,
-        'supervising' => $supervising,
-        'pending' => cnp_pending_for($adminId, $FULL),
+        'supervising' => $supervising, 'taskInfo' => (object) $taskInfo,
+        'pending' => $pendNow,
         'notifs' => $notifs, 'stats' => ['tickets' => count($myTickets),
             'nearSla' => count(array_filter($myTickets, function ($t) { return $t['slaDue'] && strtotime($t['slaDue']) < strtotime('+24 hours'); })),
             'tasks' => $myOpen, 'dueToday' => $dueToday, 'minsToday' => $minsToday],
@@ -7523,6 +7540,8 @@ case 'task_parent':                      /* 🔗 Σύνδεση/αποσύνδε
         if ($tpPid === (int) $tpC->id) { fail('Μια εργασία δεν γίνεται υποεργασία του εαυτού της'); }
         $tpPar = Db::task($tpPid);
         if (!$tpPar || !Db::canSeeTask($adminId, $tpPar)) { fail('Η γονική εργασία δεν βρέθηκε', 404); }
+        if (!cnp_task_write_ok($adminId, $FULL, $tpPar)) { fail('Δεν μπορείς να αλλάξεις τη γονική εργασία #' . $tpPid, 403); }
+        if ((int) $tpC->parent_id === $tpPid) { fail('Είναι ήδη υποεργασία της #' . $tpPid); }
         if (!empty($tpPar->parent_id)) { fail('Ο γονιός είναι ήδη υποεργασία — κρατάμε ΕΝΑ επίπεδο'); }
         if (Capsule::table('mod_cpm_tasks')->where('parent_id', (int) $tpC->id)->exists()) {
             fail('Αυτή η εργασία έχει ήδη δικές της υποεργασίες — δεν γίνεται και παιδί');
@@ -15717,6 +15736,18 @@ case 'file_delete':
     if (!cnp_file_authz($adminId, $FULL, $rec['module'])) { fail('forbidden', 403); }
     if (!cnp_file_obj_ok($adminId, $FULL, $rec['module'], $rec['ref_type'] ?? '', $rec['ref_id'] ?? 0, true, $rec['created_at'] ?? null)
         && (int) ($rec['uploaded_by'] ?? 0) !== $adminId) { fail('forbidden', 403); }
+    /* ΕΡΓΑΣΙΕΣ (16/10/2026): συνημμένο σβήνει ΑΠΟΚΛΕΙΣΤΙΚΑ όποιος το ανέβασε — στο ζητούμενο
+       και στη συζήτηση. Παλιά αρχεία χωρίς καταγεγραμμένο αποστολέα: μόνο Full. Τα αρχεία
+       του GoodDay (ιστορικό μόνο-ανάγνωσης) δεν σβήνονται από εδώ. */
+    if ($rec['module'] === 'task') {
+        $upBy = (int) ($rec['uploaded_by'] ?? 0);
+        if (($rec['ref_type'] ?? '') === 'gdmsg') { fail('Τα αρχεία από GoodDay είναι μέρος του ιστορικού — δεν σβήνονται.', 403); }
+        if ($upBy ? $upBy !== $adminId : !$FULL) {
+            fail('Μόνο όποιος ανέβασε το αρχείο μπορεί να το διαγράψει' . ($upBy ? ' (' . Db::adminName($upBy) . ')' : ''), 403);
+        }
+        Storage::delete($rec['id']);
+        out(['ok' => true]);
+    }
     /* Διαγράφει: ο ίδιος που το ανέβασε, ή Full, ή όποιος γράφει στην ΙΔΙΑ την εργασία
        (όχι πλέον «Board: επεξεργασία» γενικά — έσβηνε και αρχεία chat/βιογραφικών). */
     if (!$FULL && (int) ($rec['uploaded_by'] ?? 0) !== $adminId
