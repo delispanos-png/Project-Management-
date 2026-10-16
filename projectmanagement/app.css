@@ -5411,3 +5411,8 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .lv-dsw .fchip{border-radius:0;margin:0}
 .lv-dsw .fchip:first-child{border-radius:999px 0 0 999px}
 .lv-dsw .fchip:last-child{border-radius:0 999px 999px 0}
+/* ερώτηση πολλών επιλογών (cnpChoice) */
+.cnp-ch-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.cnp-ch{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:9px 13px;height:auto;white-space:normal}
+.cnp-ch-l{font-weight:700}
+.cnp-ch-h{font-size:11.5px;opacity:.75;font-weight:400;margin-top:2px}
