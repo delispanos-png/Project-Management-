@@ -1676,14 +1676,9 @@ function _rteSeed(v) {
    νέου μηνύματος — οπότε όταν πήγαινες να ΔΙΟΡΘΩΣΕΙΣ ένα καταχωρημένο, έχανες
    έντονα, χρώματα και κουκκίδες. Ίδιο πεδίο, άλλες δυνατότητες. */
 function actTbHtml() {
-  return `<div class="act-tb rte-tb"><div class="rte-tools">
-    ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
-    <span class="rte-sep"></span>
-    ${['#e2515f', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6'].map(c => `<button type="button" class="rte-b rte-col" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('')}
-    <button type="button" class="rte-b rte-col" data-cmd="hiliteColor" data-arg="#fff3a3" title="Επισήμανση"><span style="background:#fff3a3;border:1px solid #e0c040"></span></button>
-    <span class="rte-sep"></span>
-    ${_rteB('insertUnorderedList', '&bull;', 'Κουκκίδες')}${_rteM('emoji', '😀', 'Emoji')}${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
-  </div></div>`;
+  /* (16/10/2026) ΙΔΙΑ εργαλειοθήκη με το ζητούμενο — ↶↷, στυλ, χρώματα, μεγέθη, στοίχιση, λίστες,
+     λίστα ελέγχου, παράθεση/κώδικας, ＋ (εικόνα/αρχείο/emoji/πίνακας/στοιχεία εργασίας). */
+  return `<div class="act-tb rte-tb"><div class="rte-tools">${rteToolsHtml()}</div></div>`;
 }
 
 /* ── Εργαλειοθήκη editor (16/10/2026): στυλ, χρώμα κειμένου/φόντου, 3 μεγέθη, στοίχιση,
@@ -1709,12 +1704,9 @@ const RTE_MENUS = {
     + (ed && ed.dataset.task ? _rteB('__sub', '↳ Υποεργασία', '') + _rteB('__dep', '⛓ Εξάρτηση', '') : '')
     + _rteB('__linkcard', '🔗 Σύνδεσμος', ''),
 };
-function rteHtml(id, value, placeholder, opts) {
-  const o = opts || {};
-  return `<div class="rte-wrap"${o.style ? ` style="${o.style}"` : ''}>
-    <div class="rte-tb">
-      <div class="rte-tools">
-        ${_rteB('undo', '↶', 'Αναίρεση (Ctrl+Z)')}${_rteB('redo', '↷', 'Επανάληψη (Ctrl+Y)')}
+/* Τα εργαλεία — ΜΙΑ πηγή για όλους τους editors εργασίας (ζητούμενο, νέα ενέργεια, διόρθωση ενέργειας). */
+function rteToolsHtml() {
+  return `${_rteB('undo', '↶', 'Αναίρεση (Ctrl+Z)')}${_rteB('redo', '↷', 'Επανάληψη (Ctrl+Y)')}
         <span class="rte-sep"></span>
         ${_rteM('style', 'Στυλ', 'Στυλ κειμένου')}
         ${_rteB('bold', '<b>B</b>', 'Έντονα (Ctrl+B)')}
@@ -1734,8 +1726,13 @@ function rteHtml(id, value, placeholder, opts) {
         ${_rteB('__code', '&lt;/&gt;', 'Κώδικας')}
         ${_rteB('__link', I.link, 'Σύνδεσμος')}
         ${_rteM('insert', '＋', 'Εισαγωγή: εικόνα, αρχείο, emoji, πίνακας, στοιχεία εργασίας')}
-        ${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}
-      </div>
+        ${_rteB('removeFormat', '✕', 'Καθαρισμός μορφοποίησης')}`;
+}
+function rteHtml(id, value, placeholder, opts) {
+  const o = opts || {};
+  return `<div class="rte-wrap"${o.style ? ` style="${o.style}"` : ''}>
+    <div class="rte-tb">
+      <div class="rte-tools">${rteToolsHtml()}</div>
       ${_rteB('__ai', I.sparkle + ' <span class="rte-ai-l">Έλεγχος</span>', 'Ορθογραφικός & συντακτικός έλεγχος με AI')}
     </div>
     <div class="rte" id="${id}" contenteditable="true"${o.min ? ` style="min-height:${o.min}px"` : ''}${o.task ? ` data-task="${+o.task}"` : ''}
@@ -1990,23 +1987,23 @@ document.addEventListener('click', e => {
 /* ☑ Λίστα ελέγχου: κλικ στο κουτάκι (αριστερά του στοιχείου) = έγινε / δεν έγινε. Μέσα στον editor
    αποθηκεύεται με το autosave· στην ανάγνωση (χωρίς δικαίωμα επεξεργασίας) δεν αλλάζει. */
 document.addEventListener('click', e => {
-  const li = e.target.closest && e.target.closest('.rte ul.rte-check > li');
+  const li = e.target.closest && e.target.closest('.rte ul.rte-check > li, .act-edit[contenteditable="true"] ul.rte-check > li');
   if (!li) { return; }
   if (e.clientX - li.getBoundingClientRect().left > 24) { return; }
   e.preventDefault();
   li.classList.toggle('done');
-  const ed = li.closest('.rte');
+  const ed = li.closest('.rte, .act-edit');
   ed.dispatchEvent(new Event('input', {bubbles: true}));
   if (window.CNP_markDirty) { window.CNP_markDirty(ed); }
 });
 /* Σύρσιμο αρχείων ΜΕΣΑ στον editor: μπαίνουν εκεί που τα άφησες (εικόνα inline, άλλο ως 📎). */
 document.addEventListener('dragover', e => {
-  const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"]');
+  const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"], .act-edit[contenteditable="true"]');
   if (ed && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); ed.classList.add('rte-drop'); }
 }, true);
-document.addEventListener('dragleave', e => { const ed = e.target.closest && e.target.closest('.rte'); if (ed) { ed.classList.remove('rte-drop'); } }, true);
+document.addEventListener('dragleave', e => { const ed = e.target.closest && e.target.closest('.rte, .act-edit'); if (ed) { ed.classList.remove('rte-drop'); } }, true);
 document.addEventListener('drop', async e => {
-  const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"]');
+  const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"], .act-edit[contenteditable="true"]');
   if (!ed || !e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) { return; }
   e.preventDefault(); e.stopPropagation(); ed.classList.remove('rte-drop');
   ed.focus();
@@ -3738,6 +3735,8 @@ async function openTask(id, entryId, opts) {
       <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
       <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> καταχωρεί, <b>Shift+Enter</b> νέα γραμμή</span></div>
       <div class="card-b">
+        ${!gx && d.canWrite && cnpCan('projects.goodday') ? `<div class="th-gdlink"><button type="button" class="btn btn-sm btn-o" id="gdLinkGo">🔗 Σύνδεση με εργασία GoodDay</button>
+          <span class="mut">αν η εργασία μεταφέρθηκε με το χέρι — φέρνει ιστορικό, αρχεία, υποεργασίες και όσα πεδία διαλέξεις</span></div>` : ''}
         ${gx ? `<div class="th-gdbar">${I.link} Εισαγωγή από GoodDay <a href="${esc(gx.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(gx.ext)}</b></a>
           ${gx.sourceStatus && gx.sourceStatus.name ? `· εκεί: <b>${esc(gx.sourceStatus.name)}</b>` : ''}
           · ${gx.messages.filter(m => m.kind === 'text').length} μηνύματα ιστορικού · ${esc(gx.by)}, ${esc(tShort(gx.at))}
@@ -3753,7 +3752,7 @@ async function openTask(id, entryId, opts) {
         </div>
         <div class="act-composer">
           ${actTbHtml()}
-          <div class="act-edit" id="chkNew" contenteditable="true" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
+          <div class="act-edit" id="chkNew" contenteditable="true" data-task="${t.id}" data-ph="Τι έκανες ή τι πρέπει να γίνει… · @όνομα για να ειδοποιήσεις · επικόλλησε εικόνα με Ctrl+V"></div>
           ${/* ΚΑΤΑΧΩΡΕΙ ΤΟ ENTER. Το κουμπί ήταν μια τρίτη κίνηση για κάτι που
                γράφεις σαν μήνυμα — και κρατούσε ύψος που έσπρωχνε τη συζήτηση
                κάτω. Shift+Enter για νέα γραμμή, όπως παντού. */''}
@@ -4377,6 +4376,7 @@ async function openTask(id, entryId, opts) {
   };
   { const b = $('#gdSubsGo', dr); if (b) { b.onclick = () => gdRun(b, 'gd_import_subtasks', 'Μεταφορά υποεργασιών & αρχείων…'); } }
   { const b = $('#gdFilesGo', dr); if (b) { b.onclick = () => gdRun(b, 'gd_import_files', 'Κατέβασμα αρχείων…'); } }
+  { const b = $('#gdLinkGo', dr); if (b) { b.onclick = () => window.CNP.gdLink && window.CNP.gdLink(id, {canBrief: canEditBrief}); } }
   { const b = $('#gdResyncGo', dr); if (b) { b.onclick = async () => {
     b.disabled = true; const t0 = b.textContent; b.textContent = 'Ανάκτηση από GoodDay…';
     const r = await api('gd_import_resync', {task: id}).catch(e => ({err: e.message}));
@@ -5031,6 +5031,10 @@ async function openTask(id, entryId, opts) {
         if (e.key !== 'Enter') { return; }
         if (document.querySelector('.ment-box')) { return; }
         if (e.shiftKey) { return; }
+        /* Μέσα σε λίστα, κώδικα, παράθεση ή πίνακα το Enter είναι νέα γραμμή/στοιχείο — η καταχώρηση
+           γίνεται με Ctrl+Enter (ή με το κουμπί). Αλλιώς μια λίστα δεν θα γραφόταν ποτέ. */
+        const nd = getSelection().anchorNode, inB = nd && (nd.nodeType === 1 ? nd : nd.parentElement);
+        if (inB && inB.closest('li, pre, blockquote, td, th') && ed.contains(inB) && !(e.ctrlKey || e.metaKey)) { return; }
         e.preventDefault();
         submit();
       });
@@ -5054,6 +5058,7 @@ async function openTask(id, entryId, opts) {
     wrap.appendChild(body);
     body.contentEditable = 'true';
     body.classList.add('act-edit');
+    body.dataset.task = String(id);          // ＋ υποεργασία/εξάρτηση και εδώ
     wireEditor(body);
     body.focus();
     const bar = document.createElement('div');
@@ -5227,7 +5232,8 @@ async function openTask(id, entryId, opts) {
     /* Η διαγραφή δεν χρειάζεται χρονόμετρο: όποιος έχει το δικαίωμα, σβήνει και από εδώ. */
     /* Η αλλαγή έργου είναι ΔΙΟΡΘΩΣΗ αρχειοθέτησης, όχι δουλειά πάνω στην εργασία:
        δεν έχει νόημα να ζητάει χρονόμετρο, όπως και η διαγραφή. */
-    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel,#dPjMove,#dCollabAdd,[data-collab-del]');
+    /* Αρχειοθέτηση χωρίς χρονόμετρο: αλλαγή έργου, σύνδεση/συγχρονισμός GoodDay (16/10/2026). */
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel,#dPjMove,#dCollabAdd,[data-collab-del],#gdLinkGo,#gdResyncGo,#gdFilesGo,#gdSubsGo');
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
     banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>
