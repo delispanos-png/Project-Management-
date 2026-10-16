@@ -569,6 +569,10 @@ class Db
                 $t->timestamp('updated_at')->nullable();
             });
         }
+        /* (16/10/2026) πρότυπα views + κοινή χρήση με την ομάδα (scope 'team'). */
+        if (!$s->hasColumn('mod_cpm_views', 'is_template')) {
+            $s->table('mod_cpm_views', function ($t) { $t->tinyInteger('is_template')->default(0); });
+        }
 
         /* Chat μέσα στο Meet (2/10/2026): ανά δωμάτιο, μένει για όποιον μπει αργότερα. */
         if (!$s->hasTable('mod_cpm_rtc_chat')) {
@@ -2336,6 +2340,9 @@ class Db
                         });
                     }
                     if ($vis) { $w->orWhereIn('t.project_id', $vis); }
+                    /* επικεφαλής ομάδας → εργασίες των μελών του (ίδιο με canSeeTask) */
+                    $led = self::ledMemberIds($aid);
+                    if ($led) { $w->orWhereIn('t.assignee', $led)->orWhereIn('t.action_user', $led); }
                     if ($myDepts) {
                         $w->orWhere(function ($x) use ($myDepts) {
                             $x->whereNull('t.project_id')->whereIn('t.dept_id', $myDepts);
@@ -3629,6 +3636,20 @@ class Db
     }
 
     /** Ορατό task: ορατό project Ή ανατεθειμένο στον ίδιο. */
+    /** Τα μέλη (ενεργά, εκτός από τον ίδιο) των ομάδων όπου ο $adminId είναι επικεφαλής. */
+    public static function ledMemberIds($adminId)
+    {
+        static $memo = [];
+        $adminId = (int) $adminId;
+        if (isset($memo[$adminId])) { return $memo[$adminId]; }
+        if (!Capsule::schema()->hasTable('mod_cpm_team_members')) { return $memo[$adminId] = []; }
+        $teams = Capsule::table('mod_cpm_team_members')->where('admin_id', $adminId)->where('is_leader', 1)->pluck('team_id')->all();
+        if (!$teams) { return $memo[$adminId] = []; }
+        $ids = array_map('intval', Capsule::table('mod_cpm_team_members as m')->join('tbladmins as a', 'a.id', '=', 'm.admin_id')
+            ->whereIn('m.team_id', $teams)->where('a.disabled', 0)->where('m.admin_id', '<>', $adminId)->pluck('m.admin_id')->all());
+        return $memo[$adminId] = array_values(array_unique($ids));
+    }
+
     public static function canSeeTask($adminId, $task)
     {
         if (!$task) {
@@ -3663,6 +3684,12 @@ class Db
         }
         /* Ο ΣΥΝΕΡΓΑΤΗΣ βλέπει την εργασία στην οποία δουλεύει μαζί με τον κάτοχο. */
         if (!empty($task->id) && self::isCollab((int) $task->id, $adminId)) {
+            return true;
+        }
+        /* Ο ΕΠΙΚΕΦΑΛΗΣ ΟΜΑΔΑΣ βλέπει τις εργασίες των μελών της ομάδας του (16/10/2026 — views
+           «η ομάδα μου»). Ίδιος κανόνας και στη λίστα (tasksFiltered), ώστε ό,τι ανοίγει να βρίσκεται. */
+        $led = self::ledMemberIds($adminId);
+        if ($led && (in_array((int) $task->assignee, $led, true) || in_array((int) $task->action_user, $led, true))) {
             return true;
         }
         /* Εργασία χωρίς έργο ανήκει μόνο σε department: τη βλέπει όποιος είναι

@@ -4855,7 +4855,7 @@ function cnp_action_cap($action)
         $add('projects.portfolio.edit', ['save_project', 'archive_project', 'project_pm_notes']);
         $add('projects.portfolio.delete', ['project_delete']);
         $add('projects.board', ['board', 'list', 'gantt', 'ptodos', 'scheduler',
-            'views_list', 'view_save', 'view_del', 'view_default']);   // views της Λίστας: ιδιοκτησία ελέγχεται μέσα στις ενέργειες
+            'views_list', 'view_save', 'view_del', 'view_default', 'view_pin']);   // views της Λίστας: ιδιοκτησία ελέγχεται μέσα στις ενέργειες
         $add('projects.board.edit', ['task_project', 'gantt_move',
             'ptodo_add', 'ptodo_del', 'ptodo_toggle']);
         $add('projects.modules', ['templates']);
@@ -5104,7 +5104,8 @@ case 'boot':
         $types[] = ['id' => (int) $ty->id, 'name' => $ty->name, 'icon' => $ty->icon, 'color' => $ty->color,
             'req' => ['assignee' => (bool) $ty->req_assignee, 'due' => (bool) $ty->req_due, 'est' => (bool) $ty->req_estimate]];
     }
-    out(['me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
+    out(['viewPins' => json_decode((string) Db::pref($adminId, 'view_pins', '[]'), true) ?: [],
+        'me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
             'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
             /* Οι αναλυτικές δυνατότητες: το μενού κρύβει πια ΣΤΟΙΧΕΙΑ, όχι μόνο ενότητες. */
             'caps' => cnp_admin_caps($adminId, $FULL),
@@ -16593,22 +16594,51 @@ case 'rtc_join':
    σβήνει ΜΟΝΟ ο δημιουργός ή πλήρης διαχειριστής· οι άλλοι αντιγράφουν ως προσωπικό.
    Το config είναι JSON με «v»: ό,τι άγνωστο (σβησμένη στήλη/κατάσταση) το αγνοεί η οθόνη. */
 case 'views_list':
-    $vw = ['mine' => [], 'public' => []];
-    foreach (Capsule::table('mod_cpm_views')->where(function ($w) use ($adminId) {
-        $w->where('owner_id', $adminId)->orWhere('scope', 'public');
+    /* (16/10/2026) + κοινή χρήση «ομάδα» (το βλέπουν όσοι είναι σε κοινή ομάδα με τον δημιουργό),
+       πρότυπα (is_template), καρφιτσώματα, και η ομάδα που διευθύνω (για το «Η ομάδα μου»). */
+    $vwMates = Capsule::schema()->hasTable('mod_cpm_team_members')
+        ? array_map('intval', Capsule::table('mod_cpm_team_members')->whereIn('team_id',
+            Capsule::table('mod_cpm_team_members')->where('admin_id', $adminId)->pluck('team_id')->all() ?: [0])->pluck('admin_id')->all()) : [];
+    $vw = ['mine' => [], 'public' => [], 'templates' => []];
+    foreach (Capsule::table('mod_cpm_views')->where(function ($w) use ($adminId, $vwMates) {
+        $w->where('owner_id', $adminId)->orWhere('scope', 'public')
+          ->orWhere(function ($x) use ($vwMates) { $x->where('scope', 'team')->whereIn('owner_id', $vwMates ?: [0]); });
     })->orderBy('name')->get() as $v9) {
         $row = ['id' => (int) $v9->id, 'name' => $v9->name, 'scope' => $v9->scope, 'owner' => (int) $v9->owner_id,
             'ownerName' => Db::adminName((int) $v9->owner_id), 'config' => json_decode((string) $v9->config, true) ?: new \stdClass(),
+            'template' => !empty($v9->is_template),
             'canEdit' => (int) $v9->owner_id === $adminId || $FULL, 'updated' => (string) $v9->updated_at];
-        if ((int) $v9->owner_id === $adminId) { $vw['mine'][] = $row; } else { $vw['public'][] = $row; }
+        if (!empty($v9->is_template)) { $vw['templates'][] = $row; }
+        elseif ((int) $v9->owner_id === $adminId) { $vw['mine'][] = $row; } else { $vw['public'][] = $row; }
     }
     $vw['default'] = (string) Db::pref($adminId, 'list_view_default', '');
+    $vw['team'] = Db::ledMemberIds($adminId);
+    $vw['pins'] = json_decode((string) Db::pref($adminId, 'view_pins', '[]'), true) ?: [];
     out($vw);
+
+/* 📌 Καρφίτσωμα view στο μενού / στην αρχική με δικό σου όνομα (16/10/2026). Προσωπικό (pref). */
+case 'view_pin':
+    $pKey = (string) ($in['key'] ?? '');
+    if (!preg_match('/^(v:\d+|p:[a-z_]{1,20})$/', $pKey)) { fail('input'); }
+    if (strpos($pKey, 'v:') === 0 && !Capsule::table('mod_cpm_views')->where('id', (int) substr($pKey, 2))->exists()) { fail('Δεν βρέθηκε το view', 404); }
+    $pins = json_decode((string) Db::pref($adminId, 'view_pins', '[]'), true) ?: [];
+    $pins = array_values(array_filter($pins, function ($x) use ($pKey) { return is_array($x) && ($x['k'] ?? '') !== $pKey; }));
+    $pMenu = !empty($in['menu']); $pHome = !empty($in['home']);
+    if ($pMenu || $pHome) {
+        $pLabel = mb_substr(trim(strip_tags((string) ($in['label'] ?? ''))), 0, 40);
+        if ($pLabel === '') { fail('Δώσε όνομα για το καρφίτσωμα', 400, ['field' => 'label']); }
+        $pLabel = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $pLabel);
+        $pins[] = ['k' => $pKey, 'label' => $pLabel, 'menu' => $pMenu ? 1 : 0, 'home' => $pHome ? 1 : 0];
+    }
+    if (count($pins) > 20) { fail('Μέχρι 20 καρφιτσωμένα views'); }
+    Db::setPref($adminId, 'view_pins', json_encode($pins, JSON_UNESCAPED_UNICODE));
+    out(['ok' => true, 'pins' => $pins]);
 
 case 'view_save':
     $vId = (int) ($in['id'] ?? 0);
     $vName = mb_substr(trim(strip_tags((string) ($in['name'] ?? ''))), 0, 80);
-    $vScope = ($in['scope'] ?? '') === 'public' ? 'public' : 'mine';
+    $vScope = in_array(($in['scope'] ?? ''), ['public', 'team'], true) ? $in['scope'] : 'mine';
+    $vTpl = !empty($in['template']) ? 1 : 0;
     $vCfg = is_array($in['config'] ?? null) ? $in['config'] : null;
     if (!$vCfg) { fail('Λείπει η ρύθμιση του view'); }
     $vCfg['v'] = (int) ($vCfg['v'] ?? 1);
@@ -16619,7 +16649,7 @@ case 'view_save':
     /* Όχι δύο views με το ίδιο όνομα στην ίδια ενότητα (τα προσωπικά μου / τα δημόσια). */
     $vDup = function ($name, $scope, $exceptId) use ($adminId) {
         $q = Capsule::table('mod_cpm_views')->where('name', $name)->where('id', '<>', (int) $exceptId);
-        $q = $scope === 'public' ? $q->where('scope', 'public') : $q->where('scope', 'mine')->where('owner_id', $adminId);
+        $q = $scope === 'public' ? $q->where('scope', 'public') : $q->where('scope', $scope)->where('owner_id', $adminId);
         return $q->exists();
     };
     if ($vId) {
@@ -16628,6 +16658,7 @@ case 'view_save':
         if ((int) $vRow->owner_id !== $adminId && !$FULL) { fail('Το view το αλλάζει μόνο ο δημιουργός του — αντέγραψέ το ως δικό σου', 403); }
         $upd = ['config' => $vJson, 'updated_at' => date('Y-m-d H:i:s')];
         if ($vName !== '') { $upd['name'] = $vName; }
+        if (array_key_exists('template', $in)) { $upd['is_template'] = $vTpl; }
         if (array_key_exists('scope', $in)) {
             if ($vScope === 'public' && $vRow->scope !== 'public' && !$vCanPub) { fail('Δημόσια views φτιάχνει όποιος έχει «Board: επεξεργασία»', 403); }
             $upd['scope'] = $vScope;
@@ -16643,7 +16674,7 @@ case 'view_save':
             fail('Υπάρχει ήδη view με αυτό το όνομα ' . ($vScope === 'public' ? 'στα δημόσια' : 'στα δικά σου'), 409, ['field' => 'name']);
         }
         $vId = (int) Capsule::table('mod_cpm_views')->insertGetId(['owner_id' => $adminId, 'name' => $vName, 'scope' => $vScope,
-            'config' => $vJson, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+            'is_template' => $vTpl, 'config' => $vJson, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
     }
     out(['ok' => true, 'id' => $vId]);
 
@@ -16660,7 +16691,7 @@ case 'view_default':                      // προεπιλεγμένο view Γ�
     if ($vKey !== '' && !preg_match('/^(v:\d+|p:[a-z_]{1,20})$/', $vKey)) { fail('input'); }
     if (strpos($vKey, 'v:') === 0) {
         $vRow = Capsule::table('mod_cpm_views')->where('id', (int) substr($vKey, 2))->first();
-        if (!$vRow || ((int) $vRow->owner_id !== $adminId && $vRow->scope !== 'public')) { fail('Δεν βρέθηκε το view', 404); }
+        if (!$vRow || ((int) $vRow->owner_id !== $adminId && $vRow->scope === 'mine')) { fail('Δεν βρέθηκε το view', 404); }
     }
     Db::setPref($adminId, 'list_view_default', $vKey);
     out(['ok' => true]);
