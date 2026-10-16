@@ -5386,3 +5386,28 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .cb-ic0{display:inline-block;width:15px;margin-right:8px;flex:none}
 .cb-nq .cb-q{position:absolute;opacity:0;height:0;width:0;padding:0;border:0;pointer-events:none}
 .lv-chk .cnp-pri,.lv-chk .cnp-tyi{margin-right:5px}
+/* (16/10/2026) πάνελ view: επίπεδα & στήλες ως γραμμές που σέρνονται */
+.lv-side .lv-dl{flex-wrap:nowrap;gap:6px;padding:5px 6px;border:1px solid var(--line);border-radius:9px;background:var(--card);cursor:grab;margin-bottom:5px}
+.lv-side .lv-dl:hover{border-color:color-mix(in srgb,var(--brand,#0090dd) 45%,var(--line))}
+.lv-side .lv-dl .lv-lb{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv-side .lv-dl .lv-lb b{min-width:0}
+.lv-side .lv-dl.dragging{opacity:.4}
+.lv-side .lv-dl.over-t{box-shadow:0 -3px 0 var(--brand,#0090dd)}
+.lv-side .lv-dl.over-b{box-shadow:0 3px 0 var(--brand,#0090dd)}
+.lv-side .lv-grip{cursor:grab;font-size:14px;padding:0 2px}
+.lv-dirb{white-space:nowrap}
+.lv-cl{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.lv-cav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.lv-cav .lv-col{opacity:.75;cursor:pointer}
+/* κεφαλίδα πίνακα: σύρσιμο για σειρά, ⊟/⊞ */
+.lv-tbl th[draggable="true"]{cursor:pointer}
+.lv-tbl th.lv-thdrag{opacity:.45}
+.lv-tbl th.lv-thover-l{box-shadow:inset 3px 0 0 var(--brand,#0090dd),inset 0 -1px 0 var(--line)}
+.lv-tbl th.lv-thover-r{box-shadow:inset -3px 0 0 var(--brand,#0090dd),inset 0 -1px 0 var(--line)}
+.lv-thx{display:inline-flex;gap:2px;margin-right:8px;vertical-align:middle}
+.lv-thx button{border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:6px;width:22px;height:20px;line-height:1;cursor:pointer;padding:0;font-size:12px}
+.lv-thx button:hover{color:var(--ink);border-color:var(--brand,#0090dd)}
+.lv-dsw{display:inline-flex;gap:0}
+.lv-dsw .fchip{border-radius:0;margin:0}
+.lv-dsw .fchip:first-child{border-radius:999px 0 0 999px}
+.lv-dsw .fchip:last-child{border-radius:0 999px 999px 0}
