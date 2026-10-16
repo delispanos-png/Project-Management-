@@ -110,6 +110,55 @@ function cnpMatch(hay, q) {
   })());
 }
 
+/* ── Εικονίδια προτεραιότητας & τύπου εργασίας (16/10/2026) ───────────────────
+   Οι τύποι κρατούν στη βάση όνομα εικονιδίου «fa-…» (από το παλιό admin) + χρώμα· εδώ
+   ζωγραφίζονται ως inline SVG στο χρώμα του τύπου. Άγνωστο όνομα → ◆. Με title = το όνομα,
+   ώστε σε «μόνο εικονίδιο» το όνομα φαίνεται στο πέρασμα του ποντικιού. */
+const CNP_SVG = (d, extra) => `<svg class="cnp-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${extra || ''}>${d}</svg>`;
+const CNP_TYPE_ICONS = {
+  'fa-tasks': ['Εργασία', '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>'],
+  'fa-bug': ['Bug', '<rect x="8" y="6" width="8" height="14" rx="4"/><path d="M12 6V3M8 10H4M8 14H3M8 18H4M16 10h4M16 14h5M16 18h4M9 3l1.5 3M15 3l-1.5 3"/>'],
+  'fa-briefcase': ['Επίσκεψη', '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18"/>'],
+  'fa-truck': ['Onsite', '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>'],
+  'fa-bolt': ['Νέα δυνατότητα', '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'],
+  'fa-lightbulb': ['Ιδέα', '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.7 1 2.5h6c0-.8.2-1.7 1-2.5A6 6 0 0 0 12 3z"/>'],
+  'fa-life-ring': ['Υποστήριξη', '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6M14.8 14.8l3.6 3.6M18.4 5.6l-3.6 3.6M9.2 14.8l-3.6 3.6"/>'],
+  'fa-flask': ['Δοκιμή / testing', '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3M7.5 15h9"/>'],
+  'fa-clock': ['Αναμονή', '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'],
+  'fa-pause': ['Παύση', '<circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/>'],
+  'fa-user-clock': ['Αναμονή πελάτη', '<circle cx="9" cy="8" r="4"/><path d="M3 21v-1a6 6 0 0 1 9-5.2"/><circle cx="17.5" cy="17.5" r="4"/><path d="M17.5 15.5v2l1.3 1"/>'],
+  'fa-file-signature': ['Προσφορά', '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 17c1.5-2 2.5-2 3 0s1.5 2 3 0"/>'],
+  'fa-rocket': ['Υλοποίηση', '<path d="M5 15c-1.5 1.3-2 5-2 5s3.7-.5 5-2M9 15l-3-3c1-4 5-9 12-9 0 7-5 11-9 12z"/><circle cx="14.5" cy="9.5" r="1.5"/>'],
+  'fa-sync': ['Update', '<path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4"/>'],
+  'fa-code': ['Ανάπτυξη', '<path d="m8 8-5 4 5 4M16 8l5 4-5 4M14 4l-4 16"/>'],
+  'fa-wrench': ['Συντήρηση', '<path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-3-3 8-8-1.3-1.3a4 4 0 0 1-5-5L13 2z"/>'],
+  'fa-phone': ['Κλήση', '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2z"/>'],
+  'fa-envelope': ['Email', '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'],
+  'fa-shopping-cart': ['Αγορά', '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L22 7H6"/>'],
+  'fa-calendar': ['Ραντεβού', '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'],
+  'fa-shield-alt': ['Ασφάλεια', '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>'],
+  'fa-graduation-cap': ['Εκπαίδευση', '<path d="m22 9-10-5L2 9l10 5 10-5zM6 11v5c3 2 9 2 12 0v-5"/>'],
+  'fa-flag': ['Ορόσημο', '<path d="M4 22V4M4 4h13l-2 4 2 4H4"/>'],
+  'fa-star': ['Σημαντικό', '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/>'],
+  'fa-comments': ['Συζήτηση', '<path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-5.2A8 8 0 1 1 21 12z"/>'],
+};
+const CNP_TYPE_FALLBACK = '<path d="M12 3 21 12 12 21 3 12z"/>';
+function cnpTypeIcon(type, opts) {
+  const o = opts || {};
+  const ty = type && typeof type === 'object' ? type : ((S.boot && S.boot.types) || []).find(x => x.id === +type);
+  if (!ty) { return o.empty === undefined ? '' : o.empty; }
+  const ic = CNP_TYPE_ICONS[ty.icon] || [ty.name, CNP_TYPE_FALLBACK];
+  return `<span class="cnp-tyi" style="color:${esc(ty.color || '#8595ac')}" title="${esc(ty.name)}">${CNP_SVG(ic[1])}${o.label ? `<span class="cnp-icl">${esc(ty.name)}</span>` : ''}</span>`;
+}
+/* Προτεραιότητα 0 κανονική · 1 υψηλή · 2 κρίσιμη — ίδια χρώματα με τις λίστες. */
+const CNP_PRIO = [['Κανονική', '#8595ac', '<path d="M5 10h14M5 14h14"/>'],
+  ['Υψηλή', '#eba63c', '<path d="m6 13 6-6 6 6M6 19l6-6 6 6"/>'],
+  ['Κρίσιμη', '#e2515f', '<path d="M12 3 2 20h20zM12 10v4M12 17.5v.01"/>']];
+function cnpPrioIcon(p, opts) {
+  const o = opts || {}, x = CNP_PRIO[+p || 0] || CNP_PRIO[0];
+  return `<span class="cnp-pri" style="color:${x[1]}" title="Προτεραιότητα: ${x[0]}">${CNP_SVG(x[2], ' stroke-width="2.4"')}${o.label ? `<span class="cnp-icl">${x[0]}</span>` : ''}</span>`;
+}
+
 /* ΤΟΠΙΚΗ ημερομηνία (όχι toISOString = UTC: 00:00–03:00 ώρα Ελλάδας έδινε τη χθεσινή). */
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 /* Τοπική χρονοσφραγίδα «ΕΕΕΕ-ΜΜ-ΗΗ ΩΩ:ΛΛ:ΔΔ» — ίδια μορφή με τις ώρες του server, συγκρίνεται ως κείμενο. */
@@ -3230,9 +3279,9 @@ function cardHtml(t) {
   const ty = t.type ? typeOf(t.type) : null;
   const over = t.due && t.due < today() && !t.done;
   return `<div class="tcard ${over ? 'overdue' : ''}" data-task="${t.id}" data-module="${t.module || 0}">
-    <div class="tcard-t">${ty ? `<i class="fas ${ty.icon}" style="color:${ty.color};margin-right:4px"></i>` : ''}${esc(t.title)}</div>
+    <div class="tcard-t">${ty ? cnpTypeIcon(ty) + ' ' : ''}${esc(t.title)}</div>
     <div class="tcard-m">
-      <span class="dot" style="background:${['#8595ac', '#eba63c', '#e2515f'][t.prio]}"></span>
+      ${/* (16/10/2026) το «fas fa-…» δεν φαινόταν ποτέ (δεν φορτώνεται FontAwesome) — τώρα inline SVG */''}${cnpPrioIcon(t.prio)}
       <span class="tk-idc" title="Αριθμός εργασίας">#${t.id}</span>
       ${(t.ticket || t.ticketRef)
         ? `<span class="tk-flag tk-flag-tk" title="Από ticket — προτεραιότητα στην ανάθεση">${I.ticket} ${
@@ -7386,7 +7435,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

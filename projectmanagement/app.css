@@ -5345,3 +5345,15 @@ tr.cnp-flash td{animation:cnpFlash 1.6s ease-out}
 .tk-live .mut{font-size:11.5px}
 .tk-live-x{margin-left:auto;border:0;background:none;color:var(--mut);cursor:pointer;font-size:12px}
 @media (prefers-reduced-motion:reduce){.cnp-flash,tr.cnp-flash td{animation:none}}
+/* εικονίδια προτεραιότητας / τύπου */
+.cnp-tyi,.cnp-pri{display:inline-flex;align-items:center;gap:5px;line-height:1;vertical-align:middle;white-space:nowrap}
+.cnp-ic{flex:none;display:block}
+.cnp-icl{font-size:12px;font-weight:600;color:var(--txt)}
+.lv-ico-only .lv-td-prio,.lv-ico-only .lv-td-type{width:34px;text-align:center}
+.lv-gl-ic{display:inline-flex;margin-right:2px}
+/* επιλογή εικονιδίου τύπου (Ρυθμίσεις → Τύποι tasks) */
+.ty-icb{min-width:38px;justify-content:center}
+.ty-pop{position:fixed;z-index:10050;display:grid;grid-template-columns:repeat(6,34px);gap:4px;padding:8px;background:var(--card,#fff);border:1px solid var(--line,#dfe3ea);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.ty-pi{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:8px;background:none;cursor:pointer;padding:0}
+.ty-pi:hover{background:var(--hover,rgba(0,0,0,.05))}
+.ty-pi.on{border-color:var(--accent,#3b82f6);background:var(--hover,rgba(59,130,246,.08))}

@@ -1531,7 +1531,7 @@ const LV_OPS = {
 const LV_DEF = {v: 1, open: 1, mine: 1, who: 'mine', users: [], q: '', rules: [], groups: ['project'],
   sort: [{f: 'prio', d: 'desc'}, {f: 'due', d: 'asc'}],
   cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'due', 'mins'], display: 'list', density: 'detailed',
-  color: 'prio', subs: 'nest'};
+  color: 'prio', subs: 'nest', icons: 'both'};
 const LV_PRESETS = {
   mine:     {name: 'Τα δικά μου', cfg: {}},
   status:   {name: 'Ανά κατάσταση', cfg: {mine: 0, groups: ['status', 'prio']}},
@@ -1560,6 +1560,7 @@ function lvNorm(c) {
   o.mine = o.who === 'mine' ? 1 : 0;
   o.color = ['none', 'prio', 'status', 'project', 'duebucket'].includes(o.color) ? o.color : 'prio';
   o.subs = ['flat', 'nest', 'hide'].includes(o.subs) ? o.subs : 'nest';
+  o.icons = o.icons === 'icon' ? 'icon' : 'both';      // προτεραιότητα & τύπος: εικονίδιο + κείμενο | μόνο εικονίδιο
   o.rules.forEach(r => { if (r.qk && !LV_QUICK.some(x => x.k === r.qk)) { delete r.qk; } });
   return o;
 }
@@ -1726,8 +1727,9 @@ R.list = async function (arg) {
       case 'project': return `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname || 'Χωρίς έργο')}</span>`;
       case 'client': return t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : '';
       case 'status': return stPill(t.status);
-      case 'prio': return `<span class="kb-tag" style="background:${LV_PCOL[+t.prio || 0]}1f;color:${LV_PCOL[+t.prio || 0]}">${LV_PRIO[+t.prio || 0]}</span>`;
-      case 'type': return t.type ? `<span class="kb-tag kb-tag-mut">${esc((typeOf(t.type) || {}).name || '')}</span>` : '';
+      /* (16/10/2026) εικονίδιο + όνομα, ή «μόνο εικονίδιο» (το όνομα στο hover) για περισσότερο χώρο */
+      case 'prio': return window.CNP.cnpPrioIcon(t.prio, {label: cfg().icons !== 'icon'});
+      case 'type': return t.type ? window.CNP.cnpTypeIcon(t.type, {label: cfg().icons !== 'icon'}) : '';
       case 'due': return t.due ? `<span class="${over ? 'kb-tag' : 'mut'}" ${over ? 'style="background:#e2515f18;color:#e2515f"' : ''} title="Λήξη">${dShort(t.due)}</span>` : '';
       case 'created': return t.createdAt ? `<span class="mut" title="Δημιουργήθηκε">📅 ${dShort(String(t.createdAt).slice(0, 10))}</span>` : '';
       case 'done': return t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(String(t.doneAt).slice(0, 10))}</span>` : '';
@@ -1777,12 +1779,13 @@ R.list = async function (arg) {
     const meta = cols.filter(k => k !== 'id' && k !== 'title').map(k => cell(k, t)).join('');
     const rc = rowColor(t);
     return `<div class="kb-item kb-trow${t._sub ? ' lv-sub' : ''}" data-task="${t.id}" draggable="true"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>
-      ${treeLead(t)}<span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}" title="Προτεραιότητα: ${LV_PRIO[+t.prio || 0]}"></span>${lead}${kidsBadge(t)}
+      ${treeLead(t)}${cfg().cols.includes('prio') ? '' : window.CNP.cnpPrioIcon(t.prio)}${lead}${kidsBadge(t)}
       <span class="kb-sum-meta">${meta}</span></div>`;
   };
   const sortMark = k => { const i = cfg().sort.findIndex(x => x.f === k); return i < 0 ? '' : `<span class="lv-sm">${cfg().sort[i].d === 'desc' ? '↓' : '↑'}${cfg().sort.length > 1 ? i + 1 : ''}</span>`; };
+  const icoCol = k => cfg().icons === 'icon' && (k === 'prio' || k === 'type');
   const theadHtml = () => `<thead><tr>${cfg().cols.map(k =>
-      `<th data-lvsort="${k}" title="Ταξινόμηση — κλικ: μόνο με αυτή · Shift+κλικ: πρόσθεσέ τη ως επόμενο κριτήριο">${esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>`;
+      `<th data-lvsort="${k}" class="lv-th-${k}" title="${esc(LV_FIELDS[k].label)} — κλικ: ταξινόμηση μόνο με αυτή · Shift+κλικ: ως επόμενο κριτήριο">${icoCol(k) ? (k === 'prio' ? '⚑' : '◆') : esc(LV_FIELDS[k].label)}${sortMark(k)}</th>`).join('')}</tr></thead>`;
   const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}" data-task="${t.id}" draggable="true"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map(k => `<td class="lv-td-${k}">${k === 'title' ? `<span class="lv-tcell">${treeLead(t)}${cell(k, t)}${kidsBadge(t)}</span>` : cell(k, t)}</td>`).join('')}</tr>`; };
   const tableHtml = rows => `<div class="lv-tw"><table class="lv-tbl">${theadHtml()}<tbody>${rows.map(trRow).join('')}</tbody></table></div>`;
   /* Πίνακας ΜΕ ομάδες (16/10/2026, όπως το GoodDay): ΕΝΑΣ πίνακας, μία κεφαλίδα, οι ομάδες ως
@@ -1802,7 +1805,7 @@ R.list = async function (arg) {
         const p = (path ? path + '|' : '') + g + '=' + k, closed = st.closed.has(p);
         body += `<tr class="lv-grow lv-d${Math.min(depth, 4)}" data-lgrp="${esc(p)}" data-key="g:${esc(p)}"><td colspan="${N}">
           <span class="lv-gi" style="padding-left:${depth * 20}px"><span class="kb-gchev ${closed ? '' : 'open'}">${I.chev}</span>
-          <span class="lv-gdot" style="background:${esc(o.col)}"></span><span class="lv-gl">${esc(LV_FIELDS[g].label)}:</span> <b>${esc(k)}</b>
+          <span class="lv-gdot" style="background:${esc(o.col)}"></span><span class="lv-gl">${esc(LV_FIELDS[g].label)}:</span> ${grpIcon(g, o)}<b>${esc(k)}</b>
           <span class="kb-n">${o.rows.length}</span>${runN(o.rows) ? `<span class="tk-run" title="Τρέχουν τώρα">▶ ${runN(o.rows)}</span>` : ''}</span></td></tr>`;
         if (!closed) { walk(o.rows, levels.slice(1), p, depth + 1); }
       });
@@ -1817,6 +1820,11 @@ R.list = async function (arg) {
     return body + (rest > 0 ? `<button type="button" class="lv-more" data-lvmore="${esc(path)}">Δείξε ακόμη ${Math.min(rest, PAGE)} από ${rest}</button>` : '');
   };
   const runN = rows => rows.filter(t => (t.running || []).length).length;
+  /* εικονίδιο στη γραμμή ομάδας όταν η ομαδοποίηση είναι ανά προτεραιότητα ή τύπο */
+  const grpIcon = (g, o) => { const t0 = (o.rows || [])[0]; if (!t0) { return ''; }
+    if (g === 'prio') { return `<span class="lv-gl-ic">${window.CNP.cnpPrioIcon(t0.prio)}</span>`; }
+    if (g === 'type' && t0.type) { return `<span class="lv-gl-ic">${window.CNP.cnpTypeIcon(t0.type)}</span>`; }
+    return ''; };
   const buckets = (rows, g) => {
     const F = LV_FIELDS[g], m = new Map();
     rows.forEach(t => { const k = F.kind === 'bool' ? (F.val(t) ? 'Ναι' : 'Όχι') : String(F.val(t)); if (!m.has(k)) { m.set(k, {col: F.color ? F.color(t) : '#8595ac', rank: F.rank ? F.rank(t) : 0, rows: []}); } m.get(k).rows.push(t); });
@@ -1830,7 +1838,7 @@ R.list = async function (arg) {
       const closed = st.closed.has(p);
       return `<div class="lv-g lv-d${Math.min(depth, 4)}" data-key="g:${esc(p)}">
         <div class="card-h kb-ghead lv-gh" data-lgrp="${esc(p)}" style="--lvc:${esc(o.col)}">
-          <span class="kb-gbar" style="background:${esc(o.col)}"></span><span class="lv-gl">${esc(LV_FIELDS[g].label)}:</span> ${esc(k)}
+          <span class="kb-gbar" style="background:${esc(o.col)}"></span><span class="lv-gl">${esc(LV_FIELDS[g].label)}:</span> ${grpIcon(g, o)}${esc(k)}
           <span class="kb-n">${o.rows.length}</span>${runN(o.rows) ? `<span class="tk-run" title="Τρέχουν τώρα">▶ ${runN(o.rows)}</span>` : ''}<span style="flex:1"></span>
           <span class="kb-gchev ${closed ? '' : 'open'}">${I.chev}</span></div>
         <div class="lv-gb" ${closed ? 'style="display:none"' : ''}>${closed ? '' : groupsHtml(o.rows, levels.slice(1), p, depth + 1)}</div></div>`;
@@ -1841,7 +1849,7 @@ R.list = async function (arg) {
       if (!col.length && s.done) { return ''; }
       return `<div class="lv-bcol" data-key="b:${s.id}"><div class="lv-bh" style="border-color:${s.color}">${esc(s.title)} <span class="kb-n">${col.length}</span></div>
         ${col.slice(0, st.more['b' + s.id] || PAGE).map(t => `<div class="lv-card" data-task="${t.id}">
-          <div class="lv-card-t"><span class="kb-dot" style="background:${LV_PCOL[+t.prio || 0]}"></span><span class="tk-idc">#${t.id}</span> ${esc(t.title)}</div>
+          <div class="lv-card-t">${window.CNP.cnpPrioIcon(t.prio)}${t.type ? window.CNP.cnpTypeIcon(t.type) : ''}<span class="tk-idc">#${t.id}</span> ${esc(t.title)}</div>
           <div class="lv-card-m">${['running', 'holder', 'client', 'due'].filter(k => cfg().cols.includes(k) || k === 'holder').map(k => cell(k, t)).join('')}</div></div>`).join('')}
         ${col.length > (st.more['b' + s.id] || PAGE) ? `<button type="button" class="lv-more" data-lvmore="b${s.id}">Δείξε ακόμη</button>` : ''}</div>`;
     }).join('')}</div>`;
@@ -1855,7 +1863,7 @@ R.list = async function (arg) {
         <div class="mut" style="font-size:12.5px;margin-top:6px">${D.tasks.length ? 'Βγάλε κάποιο φίλτρο ή άλλαξε view.' : 'Ξεκίνα με «Νέο task».'}</div></div></div>`);
       return;
     }
-    const cls = 'lv-res lv-' + cfg().display + (cfg().density === 'compact' ? ' lv-compact' : '');
+    const cls = 'lv-res lv-' + cfg().display + (cfg().density === 'compact' ? ' lv-compact' : '') + (cfg().icons === 'icon' ? ' lv-ico-only' : '');
     if (cfg().display === 'board') { cnpPut(el, `<div class="${cls}">${boardHtml(list)}</div>`); return; }
     if (cfg().display === 'table' && cfg().groups.length) { cnpPut(el, `<div class="${cls}"><div class="card lv-gwrap">${tableGrouped(list)}</div></div>`); return; }
     const inner = cfg().groups.length ? groupsHtml(list, cfg().groups, '', 0) : `<div class="card kb-group"><div class="card-b kb-gbody">${leaf(list, 'root')}</div></div>`;
@@ -2245,6 +2253,7 @@ R.list = async function (arg) {
           <span style="width:14px"></span>${[['detailed', 'Αναλυτική'], ['compact', 'Συμπτυγμένη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.density === k ? ' on' : ''}" data-dens="${k}">${l}</button>`).join('')}</div>
         ${c0.display === 'board' ? '<div class="mut" style="font-size:12px;margin-top:6px">Το board είναι πάντα ανά κατάσταση — η ομαδοποίηση εφαρμόζεται σε λίστα και πίνακα.</div>' : ''}
         <div class="lv-opt"><span class="lv-ol">Χρώμα γραμμής</span>${[['prio', 'Προτεραιότητα'], ['status', 'Κατάσταση'], ['project', 'Έργο'], ['duebucket', 'Προθεσμία'], ['none', 'Χωρίς']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.color === k ? ' on' : ''}" data-colr="${k}">${l}</button>`).join('')}</div>
+        <div class="lv-opt"><span class="lv-ol">Προτεραιότητα & τύπος</span>${[['both', 'Εικονίδιο + όνομα'], ['icon', 'Μόνο εικονίδιο']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.icons === k ? ' on' : ''}" data-icons="${k}">${l}</button>`).join('')}</div>
         <div class="lv-opt"><span class="lv-ol">Υποεργασίες</span>${[['nest', 'Δέντρο (⊞ ανάπτυξη)'], ['flat', 'Όπως όλες'], ['hide', 'Απόκρυψη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.subs === k ? ' on' : ''}" data-subs="${k}">${l}</button>`).join('')}</div></section>
       ${accessSec()}`;
       wire(); foot();
@@ -2306,6 +2315,7 @@ R.list = async function (arg) {
       q('[data-disp]').forEach(el => el.onclick = () => { c0.display = el.dataset.disp; changed(); });
       q('[data-colr]').forEach(el => el.onclick = () => { c0.color = el.dataset.colr; changed(); });
       q('[data-subs]').forEach(el => el.onclick = () => { c0.subs = el.dataset.subs; changed(); });
+      q('[data-icons]').forEach(el => el.onclick = () => { c0.icons = el.dataset.icons; changed(); });
       q('[data-who2]').forEach(el => el.onclick = () => { if (el.disabled) { return; } c0.who = el.dataset.who2; c0.mine = c0.who === 'mine' ? 1 : 0; changed(); });
       q('[data-wu]').forEach(el => el.onchange = () => { const u = new Set(c0.users || []); if (el.checked) { u.add(+el.dataset.wu); } else { u.delete(+el.dataset.wu); } c0.users = [...u]; el.parentNode.classList.toggle('on', el.checked); live(); });
       q('[data-dens]').forEach(el => el.onclick = () => { c0.density = el.dataset.dens; changed(); });
