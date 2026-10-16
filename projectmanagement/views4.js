@@ -1860,9 +1860,17 @@ R.list = async function (arg) {
     if (g === 'prio') { return `<span class="lv-gl-ic">${window.CNP.cnpPrioIcon(t0.prio)}</span>`; }
     if (g === 'type' && t0.type) { return `<span class="lv-gl-ic">${window.CNP.cnpTypeIcon(t0.type)}</span>`; }
     return ''; };
+  /* (16/10/2026) Στο δέντρο, η υποεργασία μπαίνει στην ομάδα της ΚΟΡΥΦΑΙΑΣ γονικής της (αν φαίνεται κι
+     εκείνη) — αλλιώς με άλλη κατάσταση/χειριστή θα έμενε σε άλλη ομάδα, μακριά από τη γονική. */
+  const rootOf = new Map();
+  const setRoots = list => {
+    rootOf.clear(); if (cfg().subs !== 'nest') { return; }
+    const by = new Map(list.map(t => [t.id, t]));
+    list.forEach(t => { let r = t, n = 0; while (r.parent && by.has(+r.parent) && n++ < 5) { r = by.get(+r.parent); } if (r !== t) { rootOf.set(t.id, r); } });
+  };
   const buckets = (rows, g) => {
     const F = LV_FIELDS[g], m = new Map();
-    rows.forEach(t => { const k = F.kind === 'bool' ? (F.val(t) ? 'Ναι' : 'Όχι') : String(F.val(t)); if (!m.has(k)) { m.set(k, {col: F.color ? F.color(t) : '#8595ac', rank: F.rank ? F.rank(t) : 0, rows: []}); } m.get(k).rows.push(t); });
+    rows.forEach(t0 => { const t = rootOf.get(t0.id) || t0; const k = F.kind === 'bool' ? (F.val(t) ? 'Ναι' : 'Όχι') : String(F.val(t)); if (!m.has(k)) { m.set(k, {col: F.color ? F.color(t) : '#8595ac', rank: F.rank ? F.rank(t) : 0, rows: []}); } m.get(k).rows.push(t0); });
     return [...m.entries()].sort(([a, x], [b, y]) => (x.rank - y.rank) || ((a === F.none) - (b === F.none)) || a.localeCompare(b, 'el'));
   };
   const groupsHtml = (rows, levels, path, depth) => {
@@ -1892,6 +1900,7 @@ R.list = async function (arg) {
   const renderRes = () => {
     const el = $('#lRes'); if (!el) { return; }
     const list = sorted(filtered());
+    setRoots(list);
     if (!list.length) {
       put(el, `<div class="card"><div class="empty" style="padding:40px"><div class="big">${I.list}</div>
         <b style="color:var(--ink);font-size:15px">${D.tasks.length ? 'Καμία εργασία με αυτά τα φίλτρα' : 'Καμία εργασία ακόμη'}</b>
@@ -2491,6 +2500,25 @@ R.list = async function (arg) {
     return null;
   };
   const silentReload = async () => { window._cnpSilent = true; try { await load(); } finally { window._cnpSilent = false; } };
+  /* αισιόδοξη τοπική αλλαγή: φαίνεται ΑΜΕΣΩΣ, και ο server δεν τη «γυρνά πίσω» αν απαντήσει με παλιότερη εικόνα */
+  const local = (t, fields) => { st.pending[t.id] = {at: Date.now(), fields: Object.assign({}, (st.pending[t.id] || {}).fields, fields)}; Object.assign(t, fields); };
+  /* (16/10/2026) Γονική & υποεργασία με ΔΙΑΦΟΡΕΤΙΚΗ κατάσταση → ρώτα ποια κρατάμε. */
+  const askStatusSync = async (child, parent) => {
+    if (!child || !parent || +child.status === +parent.status) { return; }
+    const X = statusOf(parent.status).title || '—', Y = statusOf(child.status).title || '—';
+    const k = await window.CNP.cnpChoice({title: 'Διαφορετική κατάσταση',
+      body: `Η υποεργασία #${child.id} είναι «${Y}», ενώ η γονική #${parent.id} είναι «${X}».`,
+      choices: [{k: 'parent', label: `Κράτα την κατάσταση της γονικής (${X})`, hint: `η υποεργασία #${child.id} γίνεται «${X}»`, primary: 1},
+        {k: 'child', label: `Κράτα την κατάσταση της υποεργασίας (${Y})`, hint: `η γονική #${parent.id} γίνεται «${Y}»`},
+        {k: 'keep', label: 'Άφησέ τες διαφορετικές', hint: 'καμία αλλαγή κατάστασης'}], esc: 'keep'});
+    if (k !== 'parent' && k !== 'child') { return; }
+    const tgt = k === 'parent' ? child : parent, val = +(k === 'parent' ? parent.status : child.status), old = tgt.status;
+    local(tgt, {status: val}); renderRes(); renderTop();
+    const rr = await window.CNP.cnpMoveTask(tgt.id, val, '');
+    if (!rr.ok) { delete st.pending[tgt.id]; tgt.status = old; renderRes(); renderTop();
+      toast('Η κατάσταση της #' + tgt.id + ' δεν άλλαξε: ' + (rr.cancelled ? 'ακυρώθηκε' : (rr.error || 'δεν επιτρέπεται')), true); }
+    else { toast('✓ #' + tgt.id + ' → ' + statusOf(val).title); }
+  };
   let dragId = 0;
   root.addEventListener('dragstart', e => {
     const r = e.target.closest && e.target.closest('[data-task]'); if (!r) { return; }
@@ -2566,10 +2594,10 @@ R.list = async function (arg) {
       const ok = await cnpConfirm(`Αλλαγή της #${t.id} «${t.title}»:\n\n${ch.map(c => '• ' + LV_FIELDS[c.f].label + ': ' + LV_FIELDS[c.f].val(t) + ' → ' + c.v).join('\n')}${skip.length ? '\n\n(δεν αλλάζει με σύρσιμο: ' + skip.join(', ') + ')' : ''}`,
         {title: 'Αλλαγή με σύρσιμο', ok: 'Ναι, άλλαξέ το', cancel: 'Όχι'});
       if (!ok) { return; }
-      /* αισιόδοξα: τοπικά τώρα */
-      const loc = Object.assign({}, ...ch.map(c => c.loc));
-      st.pending[id] = {at: Date.now(), fields: loc};
-      Object.assign(t, loc); renderRes(); renderTop();
+      /* αισιόδοξα: τοπικά ΤΩΡΑ — η εργασία πάει αμέσως στη νέα ομάδα */
+      const loc = Object.assign({}, ...ch.map(c => c.loc)), before = {};
+      Object.keys(loc).forEach(k => { before[k] = t[k]; });
+      local(t, loc); renderRes(); renderTop();
       let fail = '';
       for (const c of ch) {
         let rr;
@@ -2578,8 +2606,12 @@ R.list = async function (arg) {
         else { rr = await api('save_task', {task: id, [c.key]: c.val}).catch(er => ({err: er.message, data: er.data})); if (rr.err) { fail = rr.err; } }
         if (fail) { break; }
       }
-      if (fail) { delete st.pending[id]; toast('Δεν άλλαξε: ' + fail, true); }
-      else { toast('✓ #' + id + ': ' + ch.map(c => LV_FIELDS[c.f].label + ' → ' + c.v).join(' · ')); }
+      if (fail) { delete st.pending[id]; Object.assign(t, before); renderRes(); renderTop(); toast('Δεν άλλαξε: ' + fail, true); }
+      else {
+        toast('✓ #' + id + ': ' + ch.map(c => LV_FIELDS[c.f].label + ' → ' + c.v).join(' · '));
+        /* άλλαξε κατάσταση υποεργασίας → διαφέρει πια από τη γονική; */
+        if (ch.some(c => c.f === 'status') && t.parent) { await askStatusSync(t, D.tasks.find(x => x.id === +t.parent)); }
+      }
       await silentReload();
       return;
     }
@@ -2588,10 +2620,13 @@ R.list = async function (arg) {
       if (t.parent === pid) { toast('Είναι ήδη υποεργασία της #' + pid); return; }
       const ok = await cnpConfirm(`Να γίνει η #${id} «${t.title}» υποεργασία της #${pid} «${p0 ? p0.title : ''}»;`, {title: 'Υποεργασία με σύρσιμο', ok: 'Ναι', cancel: 'Όχι'});
       if (!ok) { return; }
-      st.pending[id] = {at: Date.now(), fields: {parent: pid}};
-      Object.assign(t, {parent: pid}); st.openSubs.add(pid); saveUi(); renderRes();
+      /* ΑΜΕΣΩΣ κάτω από τη γονική (ανοιχτή) — ο server ενημερώνεται στο παρασκήνιο */
+      const oldP = t.parent || null;
+      local(t, {parent: pid}); st.openSubs.add(pid); saveUi(); renderRes();
       const rr = await api('task_parent', {task: id, parent: pid}).catch(er => ({err: er.message}));
-      if (rr.err) { delete st.pending[id]; toast(rr.err, true); } else { toast('✓ Η #' + id + ' είναι τώρα υποεργασία της #' + pid); }
+      if (rr.err) { delete st.pending[id]; t.parent = oldP; renderRes(); toast(rr.err, true); await silentReload(); return; }
+      toast('✓ Η #' + id + ' είναι τώρα υποεργασία της #' + pid);
+      await askStatusSync(t, p0);
       await silentReload();
     }
   });

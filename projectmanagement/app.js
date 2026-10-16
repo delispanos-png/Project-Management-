@@ -2583,6 +2583,30 @@ function cnpDialog(opts) {
     }
   });
 }
+/* Ερώτηση με ΠΟΛΛΕΣ επιλογές (16/10/2026): μία στήλη κουμπιών, το καθένα με εξήγηση από κάτω.
+   choices: [{k, label, hint, primary}] → επιστρέφει το k ή opts.esc (προεπιλογή null) με ESC. */
+function cnpChoice(opts) {
+  return new Promise(resolve => {
+    const o = Object.assign({title: '', body: '', choices: [], esc: null}, opts);
+    const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = cnpTopZ() + 10;
+    /* δικό του ✕ (= ESC) — αλλιώς ο γενικός παρατηρητής βάζει ✕ που κλείνει χωρίς απάντηση */
+    ovl.innerHTML = `<div class="pal-box cnp-choice" style="margin:20vh auto 0;max-width:460px;position:relative" role="dialog" data-cnp-dlg="1">
+      <button type="button" class="pal-x" data-chx title="Κλείσιμο">✕</button>
+      <div style="padding:20px 22px 18px">
+        ${o.title ? `<b style="font-size:15.5px;color:var(--ink)">${cnpSafeMarkup(o.title)}</b>` : ''}
+        ${o.body ? `<div style="font-size:13px;color:var(--txt);margin-top:8px;white-space:pre-wrap">${cnpSafeMarkup(o.body)}</div>` : ''}
+        <div class="cnp-ch-list">${o.choices.map((c, i) => `<button type="button" class="btn ${c.primary ? 'btn-p' : 'btn-o'} cnp-ch" data-ch="${i}">
+          <span class="cnp-ch-l">${cnpSafeMarkup(c.label)}</span>${c.hint ? `<span class="cnp-ch-h">${cnpSafeMarkup(c.hint)}</span>` : ''}</button>`).join('')}</div>
+      </div></div>`;
+    document.body.appendChild(ovl);
+    const done = v => { ovl.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); done(o.esc); } };
+    document.addEventListener('keydown', onKey, true);
+    ovl.querySelectorAll('[data-ch]').forEach(b => b.onclick = () => done(o.choices[+b.dataset.ch].k));
+    ovl.querySelector('[data-chx]').onclick = () => done(o.esc);
+    setTimeout(() => { const f = ovl.querySelector('.cnp-ch.btn-p') || ovl.querySelector('.cnp-ch'); if (f) { f.focus(); } }, 30);
+  });
+}
 /**
  * Ο ΚΑΝΟΝΑΣ ΤΗΣ ΜΠΑΛΑΣ — δίδυμο του `cnp_scope_mine` του server.
  *
@@ -7461,7 +7485,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, startRemote,
+window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
