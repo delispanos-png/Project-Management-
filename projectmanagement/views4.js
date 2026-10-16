@@ -1516,7 +1516,9 @@ function lvDueB(t) {
   return ['Αργότερα', 3, '#0090dd'];
 }
 const LV_GROUPABLE = ['status', 'prio', 'duebucket', 'client', 'project', 'holder', 'ball', 'assignee', 'creator', 'dept', 'type', 'parent', 'overdue', 'running', 'ticket'];
-const LV_COLS = ['id', 'title', 'running', 'holder', 'ball', 'assignee', 'project', 'client', 'dept', 'status', 'prio', 'type', 'start', 'due', 'sched', 'est', 'mins', 'progress', 'created', 'done', 'creator'];
+/* «Τρέχει τώρα» ΔΕΝ είναι στήλη (16/10/2026): δείχνεται πάντα ως μικρό ζωντανό σήμα πριν τον τίτλο (lvRun).
+   Μένει ως φίλτρο/ομαδοποίηση· παλιά views που την είχαν στις στήλες απλώς τη χάνουν (lvNorm). */
+const LV_COLS = ['id', 'title', 'holder', 'ball', 'assignee', 'project', 'client', 'dept', 'status', 'prio', 'type', 'start', 'due', 'sched', 'est', 'mins', 'progress', 'created', 'done', 'creator'];
 /* «Εγώ» σε φίλτρο προσώπου = όποιος ανοίγει το view (για πρότυπα που δουλεύουν για όλους). */
 const LV_ME = '@me';
 const LV_PERSON = ['holder', 'assignee', 'creator', 'ball'];
@@ -1537,7 +1539,7 @@ const LV_OPS = {
 };
 const LV_DEF = {v: 1, open: 1, mine: 1, who: 'mine', users: [], q: '', rules: [], groups: ['project'],
   sort: [{f: 'prio', d: 'desc'}, {f: 'due', d: 'asc'}],
-  cols: ['id', 'title', 'running', 'holder', 'project', 'client', 'status', 'prio', 'due', 'mins'], display: 'table', density: 'detailed',
+  cols: ['id', 'title', 'holder', 'project', 'client', 'status', 'prio', 'due', 'mins'], display: 'table', density: 'detailed',
   color: 'prio', subs: 'nest', prioShow: 'both', typeShow: 'both', widths: {}};
 const LV_PRESETS = {
   mine:     {name: 'Τα δικά μου', cfg: {}},
@@ -1626,6 +1628,12 @@ function lvFit() {
   const gr = tw.querySelector('tr.lv-grow'); if (gr) { tw.style.setProperty('--lv-grh', gr.offsetHeight + 'px'); }
 }
 if (!window._lvFitBound) { window._lvFitBound = 1; window.addEventListener('resize', () => lvFit()); }
+/* ▶ Τρέχει χρονόμετρο ΤΩΡΑ: παλλόμενη πράσινη κουκκίδα + αρχικά (ως 2, μετά +N) — όνομα & ώρα στο hover. */
+function lvRun(t) {
+  const rs = t.running || []; if (!rs.length) { return ''; }
+  const tip = 'Τρέχει χρονόμετρο τώρα: ' + rs.map(r => adminName(r.id) + ' από ' + String(r.since).slice(11, 16)).join(' · ');
+  return `<span class="lv-run" title="${esc(tip)}"><i></i>${rs.slice(0, 2).map(r => esc(adminIni(r.id))).join(' ')}${rs.length > 2 ? ' +' + (rs.length - 2) : ''}</span>`;
+}
 const LV_DH = '<span class="lv-dh" title="Σύρε: σε γραμμή ομάδας για αλλαγή τιμής ή πάνω σε άλλη εργασία για υποεργασία">⠿</span>';
 
 R.list = async function (arg) {
@@ -1758,7 +1766,7 @@ R.list = async function (arg) {
     const over = t.due && t.due < today() && !t.done;
     switch (k) {
       case 'id': return `<span class="tk-idc" title="Αριθμός εργασίας">#${t.id}</span>`;
-      case 'title': return `<b class="lv-ti">${esc(t.title)}</b>${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket">${I.ticket} ticket</span>` : ''}${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά">${I.doc} προσφορά</span>` : ''}`;
+      case 'title': return `${lvRun(t)}<b class="lv-ti">${esc(t.title)}</b>${t.ticket ? `<span class="tk-flag tk-flag-tk" title="Από ticket">${I.ticket} ticket</span>` : ''}${t.isOffer ? `<span class="tk-flag tk-flag-of" title="Αφορά προσφορά">${I.doc} προσφορά</span>` : ''}`;
       case 'running': return (t.running || []).map(r => `<span class="tk-run" title="Τρέχει χρονόμετρο τώρα: ${esc(adminName(r.id))} από ${esc(String(r.since).slice(11, 16))}">▶ ${esc(adminName(r.id).split(' ')[0])} <small>${esc(String(r.since).slice(11, 16))}</small></span>`).join('');
       case 'holder': { const h = cnpHolder(t); return h ? `${t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα">⚡${esc(adminIni(t.ball))}</span>` : ''}<span class="mut">${esc(adminName(h))}</span>` : '<span class="mut">χωρίς χειριστή</span>'; }
       case 'assignee': return t.assignee ? `<span class="mut" title="Ανάθεση">${esc(adminName(t.assignee))}</span>` : '';
@@ -1772,7 +1780,7 @@ R.list = async function (arg) {
       case 'created': return t.createdAt ? `<span class="mut" title="Δημιουργήθηκε">📅 ${dShort(String(t.createdAt).slice(0, 10))}</span>` : '';
       case 'done': return t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(String(t.doneAt).slice(0, 10))}</span>` : '';
       case 'mins': return t.mins ? `<span class="mut" title="Καταγεγραμμένος χρόνος">${fmtMin(t.mins)}</span>` : '';
-      case 'creator': return t.creator ? `<span class="mut" title="Δημιουργός">από ${esc(adminName(t.creator).split(' ')[0])}</span>` : '';
+      case 'creator': return t.creator ? `<span class="mut" title="Δημιουργός: ${esc(adminName(t.creator))}">${esc(adminName(t.creator))}</span>` : '';
       case 'ball': return t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα σε ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : '';
       case 'dept': { const dn = LV_FIELDS.dept.val(t); return t.dept ? `<span class="kb-tag kb-tag-mut" title="Department">${esc(dn)}</span>` : ''; }
       case 'start': return t.start ? `<span class="mut" title="Έναρξη">▸ ${dShort(String(t.start).slice(0, 10))}</span>` : '';
@@ -1903,8 +1911,8 @@ R.list = async function (arg) {
       if (!col.length && s.done) { return ''; }
       return `<div class="lv-bcol" data-key="b:${s.id}"><div class="lv-bh" style="border-color:${s.color}">${esc(s.title)} <span class="kb-n">${col.length}</span></div>
         ${col.slice(0, st.more['b' + s.id] || PAGE).map(t => `<div class="lv-card" data-task="${t.id}">
-          <div class="lv-card-t">${window.CNP.cnpPrioIcon(t.prio)}${t.type ? window.CNP.cnpTypeIcon(t.type) : ''}<span class="tk-idc">#${t.id}</span> ${esc(t.title)}</div>
-          <div class="lv-card-m">${['running', 'holder', 'client', 'due'].filter(k => cfg().cols.includes(k) || k === 'holder').map(k => cell(k, t)).join('')}</div></div>`).join('')}
+          <div class="lv-card-t">${lvRun(t)}${window.CNP.cnpPrioIcon(t.prio)}${t.type ? window.CNP.cnpTypeIcon(t.type) : ''}<span class="tk-idc">#${t.id}</span> ${esc(t.title)}</div>
+          <div class="lv-card-m">${['holder', 'client', 'due'].filter(k => cfg().cols.includes(k) || k === 'holder').map(k => cell(k, t)).join('')}</div></div>`).join('')}
         ${col.length > (st.more['b' + s.id] || PAGE) ? `<button type="button" class="lv-more" data-lvmore="b${s.id}">Δείξε ακόμη</button>` : ''}</div>`;
     }).join('')}</div>`;
 

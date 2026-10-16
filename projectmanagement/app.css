@@ -5416,3 +5416,8 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .cnp-ch{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:9px 13px;height:auto;white-space:normal}
 .cnp-ch-l{font-weight:700}
 .cnp-ch-h{font-size:11.5px;opacity:.75;font-weight:400;margin-top:2px}
+/* ▶ τρέχει τώρα — μικρό ζωντανό σήμα πριν τον τίτλο (όχι στήλη) */
+.lv-run{display:inline-flex;align-items:center;gap:4px;margin-right:6px;padding:0 6px 0 5px;height:18px;border-radius:999px;background:#16a26a1c;color:#16a26a;font-size:10.5px;font-weight:800;letter-spacing:.02em;vertical-align:middle;flex:none;white-space:nowrap}
+.lv-run i{width:7px;height:7px;border-radius:50%;background:#16a26a;box-shadow:0 0 0 0 #16a26a80;animation:lvRun 1.6s ease-out infinite}
+@keyframes lvRun{0%{box-shadow:0 0 0 0 #16a26a80}70%{box-shadow:0 0 0 6px #16a26a00}100%{box-shadow:0 0 0 0 #16a26a00}}
+@media (prefers-reduced-motion:reduce){.lv-run i{animation:none}}
