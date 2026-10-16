@@ -3954,7 +3954,7 @@ function openRecurring(r) {
         <div><label class="lbl">Τμήμα <span class="mut" style="font-weight:400">— αν δεν έχει έργο</span></label>
           <select class="inp" id="rDept"><option value="">—</option>${depts.map(x => `<option value="${x.id}" ${x.id === r.dept ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Προτεραιότητα</label>
-          <select class="inp" id="rPrio">${[window.CNP.cnpPrioOpts(r.prio)].join('')}</select></div>
+          <select class="inp" id="rPrio" data-combo data-ic="prio">${[window.CNP.cnpPrioOpts(r.prio)].join('')}</select></div>
         <label style="display:flex;gap:7px;align-items:center;font-size:13px;margin-top:22px"><input type="checkbox" id="rActive" ${r.active ? 'checked' : ''}> Ενεργή</label>
       </div>
       <div id="rErr" class="mut" style="font-size:12px;color:var(--bad)" hidden></div>

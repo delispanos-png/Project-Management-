@@ -2246,7 +2246,11 @@ R.list = async function (arg) {
         /* Οι επιλεγμένες ΠΡΩΤΕΣ — αλλιώς χάνονταν κάτω από το scroll και δεν ήξερες τι φιλτράρεις. */
         const opts = [...new Set((LV_PERSON.includes(r.f) ? [LV_ME] : []).concat(r.val || [], distinct(r.f)))];
         const lbl = o => o === LV_ME ? '★ Εγώ (όποιος ανοίγει το view)' : o;
-        return `<div class="lv-multi">${opts.map(o => `<label class="lv-chk${(r.val || []).includes(o) ? ' on' : ''}${o === LV_ME ? ' lv-me' : ''}"><input type="checkbox" data-rv="${i}" value="${esc(o)}" ${(r.val || []).includes(o) ? 'checked' : ''}>${esc(lbl(o))}</label>`).join('') || '<span class="mut">καμία τιμή</span>'}</div>`;
+        const ic = o => { if (r.f === 'prio') { const x = window.CNP.CNP_PRIO.find(z => z[1] === o); return x ? window.CNP.cnpPrioIcon(x[0]) : ''; }
+          if (r.f === 'type') { const ty = (S.boot.types || []).find(z => z.name === o); return ty ? window.CNP.cnpTypeIcon(ty) : ''; } return ''; };
+        /* προτεραιότητα: ΟΛΑ τα επίπεδα με τη σειρά τους, όχι μόνο όσα τυχαίνει να υπάρχουν τώρα */
+        const opts2 = r.f === 'prio' ? [...new Set((r.val || []).concat(window.CNP.CNP_PRIO.map(z => z[1])))].sort((a, b) => window.CNP.CNP_PRIO.findIndex(z => z[1] === a) - window.CNP.CNP_PRIO.findIndex(z => z[1] === b)) : opts;
+        return `<div class="lv-multi">${opts2.map(o => `<label class="lv-chk${(r.val || []).includes(o) ? ' on' : ''}${o === LV_ME ? ' lv-me' : ''}"><input type="checkbox" data-rv="${i}" value="${esc(o)}" ${(r.val || []).includes(o) ? 'checked' : ''}>${ic(o)}${esc(lbl(o))}</label>`).join('') || '<span class="mut">καμία τιμή</span>'}</div>`;
       }
       if (r.op === 'has' || r.op === 'nhas') { return `<input class="inp" data-rt="${i}" value="${esc(r.val || '')}" placeholder="κείμενο">`; }
       if (r.op === 'range') { return `<input type="date" class="inp" data-rf="${i}" value="${esc((r.val || {}).from || '')}"> – <input type="date" class="inp" data-rto="${i}" value="${esc((r.val || {}).to || '')}">`; }
