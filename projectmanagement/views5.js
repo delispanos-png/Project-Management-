@@ -1108,7 +1108,7 @@ function openStep(tplId, s2, d) {
         ${d.depts.map(x => `<option value="${x.id}" ${x.id === s2.dept ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
       <div><label class="lbl">Προτεινόμενος υπεύθυνος</label><select class="inp" id="sA"><option value="">— κανείς —</option>
         ${d.admins.map(x => `<option value="${x.id}" ${x.id === s2.assignee ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
-      <div><label class="lbl">Προτεραιότητα</label><select class="inp" id="sP">
+      <div><label class="lbl">Προτεραιότητα</label><select class="inp" id="sP" data-combo data-ic="prio">
         ${window.CNP.cnpPrioOpts(s2.prio)}</select></div>
       <div><label class="lbl">Εκτίμηση (λεπτά)</label><input class="inp" id="sE" type="number" min="0" value="${s2.est ?? ''}"></div>
     </div>

@@ -5379,3 +5379,10 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .ty-pi{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:8px;background:none;cursor:pointer;padding:0}
 .ty-pi:hover{background:var(--hover,rgba(0,0,0,.05))}
 .ty-pi.on{border-color:var(--accent,#3b82f6);background:var(--hover,rgba(59,130,246,.08))}
+/* (16/10/2026) λίστες επιλογής με εικονίδια (προτεραιότητα / τύπος) */
+.cb-l .cnp-pri,.cb-l .cnp-tyi,.cb-o .cnp-pri,.cb-o .cnp-tyi{margin-right:8px;flex:none}
+.cb-icl .cb-o{display:flex;align-items:center}
+.cb-btn .cb-l{display:inline-flex;align-items:center;min-width:0}
+.cb-ic0{display:inline-block;width:15px;margin-right:8px;flex:none}
+.cb-nq .cb-q{position:absolute;opacity:0;height:0;width:0;padding:0;border:0;pointer-events:none}
+.lv-chk .cnp-pri,.lv-chk .cnp-tyi{margin-right:5px}

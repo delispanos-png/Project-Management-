@@ -155,13 +155,13 @@ function cnpTypeIcon(type, opts) {
    4 Έκτακτη · 3 Μπλοκάρει · 2 Κρίσιμη · 1 Υψηλή · 0 Κανονική · −1 Χαμηλή · −2 Πολύ χαμηλή.
    Οι παλιές τιμές 0/1/2 κρατούν το νόημά τους. Η ΜΟΝΗ λίστα — επιλογές, χρώματα, εικονίδια, φίλτρα. */
 const CNP_PRIO = [
-  [4, 'Έκτακτη', '#e2515f', '<path d="M12 3 2 20h20zM12 10v4M12 17.5v.01"/>'],
-  [3, 'Μπλοκάρει', '#e2515f', '<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>'],
-  [2, 'Κρίσιμη', '#e8743b', '<path d="m6 10 6-5 6 5M6 15l6-5 6 5M6 20l6-5 6 5"/>'],
-  [1, 'Υψηλή', '#eba63c', '<path d="m6 12 6-5 6 5M6 18l6-5 6 5"/>'],
-  [0, 'Κανονική', '#8595ac', '<circle cx="12" cy="12" r="3.2"/>'],
-  [-1, 'Χαμηλή', '#3b9be0', '<path d="m6 9.5 6 5 6-5"/>'],
-  [-2, 'Πολύ χαμηλή', '#3b9be0', '<path d="m6 4 6 5 6-5M6 9.5l6 5 6-5M6 15l6 5 6-5"/>']];
+  [4, 'Έκτακτη', '#e5484d', '<path d="M10.3 4.3 2.7 17.5a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 16.9v.01"/>'],
+  [3, 'Μπλοκάρει', '#e5484d', '<circle cx="12" cy="12" r="8.6"/><path d="m5.9 5.9 12.2 12.2"/>'],
+  [2, 'Κρίσιμη', '#f0763c', '<path d="m4.5 9.6 7.5-4.6 7.5 4.6M4.5 14.1 12 9.5l7.5 4.6M4.5 18.6 12 14l7.5 4.6"/>'],
+  [1, 'Υψηλή', '#f2994a', '<path d="m4.5 12.1 7.5-4.6 7.5 4.6M4.5 16.6 12 12l7.5 4.6"/>'],
+  [0, 'Κανονική', '#8b95a7', '<circle cx="12" cy="12" r="2.7"/>'],
+  [-1, 'Χαμηλή', '#4a9fe8', '<path d="m4.5 9.7 7.5 4.6 7.5-4.6"/>'],
+  [-2, 'Πολύ χαμηλή', '#4a9fe8', '<path d="m4.5 5.4 7.5 4.6 7.5-4.6M4.5 9.9l7.5 4.6 7.5-4.6M4.5 14.4 12 19l7.5-4.6"/>']];
 const CNP_PRIO_MIN = -2, CNP_PRIO_MAX = 4;
 const cnpPrio = p => CNP_PRIO.find(x => x[0] === (+p || 0)) || CNP_PRIO[4];
 const cnpPrioName = p => cnpPrio(p)[1];
@@ -173,7 +173,7 @@ const cnpPrioOpts = sel => CNP_PRIO.map(x => `<option value="${x[0]}" ${x[0] ===
 function cnpPrioIcon(p, opts) {
   const o = opts || {}, x = cnpPrio(p), show = o.show || (o.label ? 'both' : 'icon');
   if (show === 'text') { return `<span class="cnp-pri cnp-prt" style="color:${x[2]}" title="Προτεραιότητα: ${x[1]}">${x[1]}</span>`; }
-  return `<span class="cnp-pri" style="color:${x[2]}" title="Προτεραιότητα: ${x[1]}">${CNP_SVG(x[3], ' stroke-width="2.4"')}${show === 'both' ? `<span class="cnp-icl">${x[1]}</span>` : ''}</span>`;
+  return `<span class="cnp-pri" style="color:${x[2]}" title="Προτεραιότητα: ${x[1]}">${CNP_SVG(x[3], ' stroke-width="2"')}${show === 'both' ? `<span class="cnp-icl">${x[1]}</span>` : ''}</span>`;
 }
 
 /* ΤΟΠΙΚΗ ημερομηνία (όχι toISOString = UTC: 00:00–03:00 ώρα Ελλάδας έδινε τη χθεσινή). */
@@ -2718,9 +2718,16 @@ function cnpCombo(sel) {
   }
   sel.style.display = 'none';
   sel.after(btn);
+  /* (16/10/2026) data-ic="prio" | "type": εικονίδιο δίπλα σε κάθε επιλογή και στην επιλεγμένη */
+  const icOf = o => {
+    const k = sel.dataset.ic; if (!k || !o) { return ''; }
+    if (k === 'prio') { return cnpPrioIcon(o.value, {show: 'icon'}); }
+    if (k === 'type') { return o.value ? cnpTypeIcon(+o.value, {show: 'icon', empty: '<span class="cb-ic0"></span>'}) : '<span class="cb-ic0"></span>'; }
+    return '';
+  };
   const label = () => {
     const o = sel.options[sel.selectedIndex];
-    btn.innerHTML = `<span class="cb-l${!o || !o.value ? ' cb-ph' : ''}">${esc(o ? o.textContent : '—')}</span><span class="cb-car">▾</span>`;
+    btn.innerHTML = `<span class="cb-l${!o || !o.value ? ' cb-ph' : ''}">${icOf(o)}${esc(o ? o.textContent : '—')}</span><span class="cb-car">▾</span>`;
     btn.disabled = sel.disabled;
   };
   /* Ο κώδικας αλλάζει τιμή και προγραμματιστικά (sel.value = …) χωρίς event — το πιάνουμε. */
@@ -2738,7 +2745,7 @@ function cnpCombo(sel) {
     if (box) { close(); return; }
     if (sel.disabled) { return; }
     box = document.createElement('div');
-    box.className = 'cb-pan';
+    box.className = 'cb-pan' + (sel.dataset.ic ? ' cb-icl' : '') + (sel.dataset.ic && sel.options.length < CNP_COMBO_MIN ? ' cb-nq' : '');
     box.style.zIndex = cnpTopZ() + 20;
     box.innerHTML = `<input class="inp cb-q" placeholder="Αναζήτηση… (και greeklish)" autocomplete="off"><div class="cb-list" role="listbox"></div>`;
     document.body.appendChild(box);
@@ -2757,7 +2764,7 @@ function cnpCombo(sel) {
       let g = null, h = '';
       shown.forEach((x, i) => {
         if (x.g !== g) { g = x.g; if (g) { h += `<div class="cb-g">${esc(g)}</div>`; } }
-        h += `<button type="button" class="cb-o${i === at ? ' on' : ''}${x.o.selected ? ' sel' : ''}" data-i="${i}" role="option">${esc(x.o.textContent)}</button>`;
+        h += `<button type="button" class="cb-o${i === at ? ' on' : ''}${x.o.selected ? ' sel' : ''}" data-i="${i}" role="option">${icOf(x.o)}${esc(x.o.textContent)}</button>`;
       });
       list.innerHTML = h || '<div class="cb-none">Τίποτα — δοκίμασε άλλη λέξη</div>';
       const on = list.querySelector('.cb-o.on'); if (on) { on.scrollIntoView({block: 'nearest'}); }
@@ -4027,9 +4034,9 @@ async function openTask(id, entryId, opts) {
           ${S.boot.admins.map(a => `<option value="${a.id}" ${a.id === t.ball ? 'selected' : ''}>${esc(a.name)}${a.id === me.id ? ' (εσύ)' : ''}</option>`).join('')}</select>
           <div class="mut" style="font-size:11px;margin-top:3px">Όσο την κρατάς, η εργασία μένει στη «Μέρα μου» σου.</div></div>
         <div><label class="lbl">Προτεραιότητα</label>
-          <select class="inp" id="fPrio">
+          <select class="inp" id="fPrio" data-combo data-ic="prio">
             ${cnpPrioOpts(t.prio)}</select></div>
-        <div><label class="lbl">Τύπος</label><select class="inp" id="fType"><option value="">— γενικό —</option>
+        <div><label class="lbl">Τύπος</label><select class="inp" id="fType" data-combo data-ic="type"><option value="">— γενικό —</option>
           ${S.boot.types.map(ty => `<option value="${ty.id}" ${ty.id === t.type ? 'selected' : ''}>${esc(ty.name)}</option>`).join('')}</select></div>
         <div><label class="lbl">Department</label>
           <select class="inp" id="fDept" data-combo><option value="">— χωρίς department —</option>
