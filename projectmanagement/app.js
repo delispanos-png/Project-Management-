@@ -1150,10 +1150,31 @@ async function billingQueue() {
     loadTopStats();
   });
 }
+/* ═══ ΠΑΝΩ ΜΕΝΟΥ: ΚΛΕΙΝΟΥΝ ΜΕ ΚΛΙΚ ΕΞΩ (19/10/2026) ══════════════════════════════
+   «Τι να προσέξεις», «Ειδοποιήσεις», «+ Νέο» (miniMenu): ΟΠΟΙΟ κλικ γίνει έξω τους τα κλείνει.
+   Πριν: το ένα δεν έκλεινε ποτέ, τα άλλα άκουγαν 'click' στο document — και κάθε handler με
+   stopPropagation (γραμμές λίστας, καρτέλα εργασίας, κουμπιά) το έκοβε, οπότε έμεναν ανοιχτά
+   πάνω από τη νέα οθόνη. Τώρα: pointerdown στη φάση capture (δεν κόβεται από κανέναν), αλλαγή
+   οθόνης (hashchange) και Esc. Το κουμπί που τα άνοιξε εξαιρείται — εκείνο κάνει το toggle. */
+const CNP_TOP_POPS = '.pop, #miniMenu';
+function cnpTopPopsClose() { document.querySelectorAll(CNP_TOP_POPS).forEach(p => p.remove()); }
+document.addEventListener('pointerdown', e => {
+  document.querySelectorAll(CNP_TOP_POPS).forEach(p => {
+    if (p.contains(e.target)) { return; }
+    const owner = p.id === 'miniMenu' ? p._anchor : p.closest('.bell-wrap');
+    if (owner && owner.contains(e.target)) { return; }
+    p.remove();
+  });
+}, true);
+window.addEventListener('hashchange', cnpTopPopsClose);
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !document.querySelector(CNP_TOP_POPS)) { return; }
+  e.stopPropagation(); e.preventDefault(); cnpTopPopsClose();      // μόνο το μενού — όχι και η καρτέλα από κάτω
+}, true);
 function miniMenu(anchor, items) {
-  const ex = $('#miniMenu'); if (ex) { ex.remove(); }
+  const ex = $('#miniMenu'); if (ex) { const same = ex._anchor === anchor; ex.remove(); if (same) { return; } }   // 2ο κλικ στο ίδιο κουμπί = κλείσιμο
   const r = anchor.getBoundingClientRect();
-  const m = document.createElement('div'); m.id = 'miniMenu'; m.className = 'mini-menu';
+  const m = document.createElement('div'); m.id = 'miniMenu'; m.className = 'mini-menu'; m._anchor = anchor;
   m.style.top = (r.bottom + 6) + 'px'; m.style.right = (window.innerWidth - r.right) + 'px';
   m.innerHTML = items.map((it, i) => `<button class="mini-row" data-i="${i}">${it.dot ? `<span class="dot" style="background:${it.dot}"></span>` : (it.icon || '')}<span>${esc(it.label)}</span></button>`).join('');
   document.body.appendChild(m);
@@ -1399,7 +1420,7 @@ async function toggleBell() {
     (d.items.length ? d.items.map(n => `<a class="nrow ${n.read ? '' : 'unread'}" data-id="${n.id}" data-url="${esc(n.url || '')}">
       <span>${esc(n.title)}</span><span class="tm">${tShort(n.at)}</span></a>`).join('')
     : '<div class="empty" style="padding:22px">Καμία ειδοποίηση</div>');
-  $('.bell-wrap').appendChild(pop);
+  ($('#bellBtn').parentElement || $('.bell-wrap')).appendChild(pop);   // στο ΔΙΚΟ του κουτί (πριν: στο πρώτο .bell-wrap = του «Τι να προσέξεις»)
   const pe = pop.querySelector('#pushEnable'); if (pe) { pe.onclick = e => { e.preventDefault(); e.stopPropagation(); cnpPushEnable(); }; }
   /* Εκκρεμότητες: ξανάνοιγμα του ίδιου popup (με απάντηση), τακτοποίηση, RSVP επί τόπου. */
   pop.querySelectorAll('[data-hopen]').forEach(b => b.onclick = e => {
