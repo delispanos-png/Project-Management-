@@ -4496,7 +4496,8 @@ async function openTask(id, entryId, opts) {
         if (goDup) { openTask(r.data.dup.id); }
         return false;
       } else { break; }
-      r = await api('save_task', payload(extra)).then(() => ({ok: true}))
+      /* κρατά και την απάντηση (ballStopped) — πριν χανόταν στον 2ο γύρο */
+      r = await api('save_task', payload(extra)).then(d => ({ok: true, res: d}))
         .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
     }
     if (r.ok && extra.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
@@ -4509,9 +4510,18 @@ async function openTask(id, entryId, opts) {
     if (bs) {
       toast('Ο χρόνος σου σταμάτησε — ' + fmtMin(bs.mins) + ' · η μπάλα πήγε στον/στην ' + bs.to);
     }
+    /* (19/10/2026) Το σταμάτημα πρέπει να ΦΑΙΝΕΤΑΙ αμέσως: η καρτέλα (▶/Stop, κλείδωμα αφού η μπάλα
+       έφυγε) και η οθόνη από πίσω (σήμα «τρέχει», «Τώρα» στη Μέρα μου) ξαναζωγραφίζονται αθόρυβα.
+       Πριν έμεναν να δείχνουν χρόνο που μετράει μέχρι να κάνεις ανανέωση. Τα πρόχειρα κρατιούνται. */
+    if (bs && !opts.close) {
+      setTimeout(async () => {
+        if (document.querySelector('.drawer.tk-modal.show[data-task="' + id + '"]')) { await openTask(id, 0, {silent: true}); }
+        cnpSilentRefresh();
+      }, 0);
+    }
     if (!opts.close) { return true; }
     if (!bs) { toast('Αποθηκεύτηκε'); }
-    closeDrawer(); if (S.view === 'board') vBoard(); if (S.view === 'myday') vMyDay();
+    closeDrawer(); if (S.view === 'board') vBoard(); else if (S.view === 'myday') vMyDay(); else if (bs) { cnpSilentRefresh(); }
     return true;
   };
   dr._saveNow = () => saveFields({close: false, composer: false});
