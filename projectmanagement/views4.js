@@ -3262,12 +3262,14 @@ function chWireVoice(root) {
     bar.onclick = e => { const d = dur(); if (!d) { return; } const r = bar.getBoundingClientRect(); a.currentTime = Math.max(0, Math.min(d, (e.clientX - r.left) / r.width * d)); };
   });
 }
-R.chat = async function () {
+R.chat = async function (arg) {
   /* Φρουρός κυκλώματος «Η ομάδα» (12/9/2026): ό,τι κόβει ο server, δεν ανοίγει καν. */
   if (!cnpCan('team.chat')) { setTop('Chat'); $('#content').innerHTML = cnpDenied({message: 'Η συνομιλία της ομάδας δίνεται από το κύκλωμα «Η ομάδα → Chat»'}); return; }
   setTop('Chat', 'Εσωτερική επικοινωνία ομάδας — με αρχεία');
   const c = $('#content');
   const st = R.chat._st = R.chat._st || {ch: 'team', lastId: 0};
+  /* #/chat/d2-5 · #/chat/g12 · #/chat/team (από ειδοποίηση, κάρτα μηνύματος, κουμπί chat): ΑΥΤΗ η συνομιλία. */
+  if (typeof arg === 'string' && /^(team|g\d+|d\d+-\d+)$/.test(arg) && arg !== st.ch) { st.ch = arg; st.lastId = 0; st.mobileConv = true; }
   clearInterval(R.chat._t);
   clearInterval(R.chat._vt);
   clearInterval(R.chat._p);   // ο σφυγμός παρουσίας — αλλιώς διπλασιάζεται σε κάθε επαναφόρτωση
@@ -3366,7 +3368,10 @@ R.chat = async function () {
 
   $$('.ch-row[data-ch]').forEach(r => r.onclick = e => {
     if (e.target.closest('[data-gdel]')) return;
-    st.ch = r.dataset.ch; st.lastId = 0; st.mobileConv = true; R.chat();   // mobile: άνοιξε τη συνομιλία full-screen
+    st.ch = r.dataset.ch; st.lastId = 0; st.mobileConv = true;
+    /* η διεύθυνση δείχνει τη συνομιλία (#/chat/d2-5) — ανανέωση/σύνδεσμος ανοίγει ΑΥΤΗ, όχι την προηγούμενη */
+    try { history.replaceState(null, '', '#/chat/' + st.ch); S.viewArg = st.ch; } catch (er) { /* */ }
+    R.chat();   // mobile: άνοιξε τη συνομιλία full-screen
   });
   document.body.classList.toggle('detail-open', !!st.mobileConv);
   { const bk = $('#chBack'); if (bk) bk.onclick = () => { st.mobileConv = false; const cw = $('.chat'); if (cw) cw.classList.remove('conv-open'); document.body.classList.remove('detail-open'); }; }

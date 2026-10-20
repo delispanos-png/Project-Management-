@@ -766,7 +766,7 @@ function renderShell() {
   $('#bellBtn').onclick = toggleBell;
   const hb = $('#helpBtn'); if (hb) hb.onclick = () => window.CNP.openHelp && window.CNP.openHelp(S.view);
   { const ab = $('#attnBtn'); if (ab) { ab.onclick = e => { e.stopPropagation(); toggleAttn(); }; } }
-  { const cb = $('#chatBtn'); if (cb) { cb.onclick = () => { stopChatTitle(); go('chat'); }; } }
+  { const cb = $('#chatBtn'); if (cb) { cb.onclick = () => { stopChatTitle(); go('chat', window._cnpChatUnreadCh || ''); }; } }   // αδιάβαστο → σε εκείνη τη συνομιλία
   const pb = $('#palBtn'); if (pb) pb.onclick = () => window.CNP.palette && window.CNP.palette();
   // ── Πάνω μενού: «+ Νέο» quick-create ──
   $('#newBtn').onclick = e => {
@@ -1253,7 +1253,7 @@ function chatPop(m) {
   requestAnimationFrame(() => el.classList.add('show'));
   const kill = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 220); };
   el.querySelector('.cp-x').onclick = kill;
-  el.querySelector('.btn').onclick = () => { kill(); stopChatTitle(); go('chat'); };
+  el.querySelector('.btn').onclick = () => { kill(); stopChatTitle(); go('chat', m.channel || ''); };   // στη ΣΥΓΚΕΚΡΙΜΕΝΗ συνομιλία (πριν: στο τελευταίο κανάλι, συνήθως «# Ομάδα»)
   setTimeout(kill, 14000);
   chatBeep();
   if (!chatTitleTimer) {
@@ -1461,11 +1461,11 @@ async function toggleBell() {
        πατάς την ειδοποίηση και δεν βρίσκεις τίποτα. */
     const m = url && (url.match(/tab=task&id=(\d+)/) || url.match(/\/project\/#\/task\/(\d+)/));
     const mt = url && url.match(/supporttickets\.php\?action=view&id=(\d+)/);
-    const hv = url && url.match(/\/project(?:management)?\/#\/(\w+)/);
+    const hv = url && url.match(/\/project(?:management)?\/#\/(\w+)(?:\/([\w-]+))?/);
     if (m) { pop.remove(); openTask(+m[1]); }
     else if (mt) { pop.remove(); go('inbox', +mt[1]); }
     else if (/^https?:\/\//.test(url || '') && !hv) { pop.remove(); window.open(url, '_blank'); }   // π.χ. link meeting
-    else if (hv) { pop.remove(); go(hv[1]); }                                                        // εσωτερικά views
+    else if (hv) { pop.remove(); go(hv[1], hv[2] || ''); }                                                        // εσωτερικά views
     else if (url && S.boot.me.full) window.open('/cloudonadminpanel/' + url, '_blank');
   };
   setTimeout(() => document.addEventListener('click', function h(e) {
@@ -7544,7 +7544,7 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
   /* Η παράμετρος ΔΕΝ είναι πάντα αριθμός: η «Κίνηση πελάτη» λέει αν μιλάμε για
      πελάτη WHMCS ή για καρτέλα καταλόγου (c212 / b447). Με μόνο ψηφία, ο
      σύνδεσμος έχανε το όρισμα και άνοιγε άδεια οθόνη. */
-  const m = location.hash.match(/^#\/(\w+)(?:\/(\w+))?/);
+  const m = location.hash.match(/^#\/(\w+)(?:\/([\w-]+))?/);
   if (m && m[1] === 'task' && m[2]) {          // deep-link από email/παλιά URLs
     const em0 = location.hash.match(/\/e\/(\d+)/);   // …/e/45 = συγκεκριμένη ενέργεια
     go('myday');
@@ -7553,7 +7553,7 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
     go(m ? m[1] : 'myday', m ? m[2] : undefined);
   }
   window.addEventListener('hashchange', () => {
-    const h = location.hash.match(/^#\/(\w+)(?:\/(\w+))?/);
+    const h = location.hash.match(/^#\/(\w+)(?:\/([\w-]+))?/);
     if (!h) { return; }
     /* «task» δεν είναι οθόνη — είναι καρτέλα. Χωρίς αυτό, ένα #/task/119 από
        ειδοποίηση ή μήνυμα δεν άνοιγε τίποτα μέχρι να κάνεις refresh. */
@@ -7626,6 +7626,7 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
          κάρτα με τον αποστολέα και το κείμενο, με ήχο και αναβοσβήνει ο τίτλος
          της καρτέλας — ώστε να το δεις ακόμη κι αν κοιτάς άλλο παράθυρο.
          Όταν ΕΙΣΑΙ στο chat δεν χρειάζεται: το βλέπεις ήδη. */
+      window._cnpChatUnreadCh = Array.isArray(d.chatNew) && d.chatNew.length ? d.chatNew[d.chatNew.length - 1].channel : '';
       if (Array.isArray(d.chatNew) && d.chatNew.length) {
         /* ΜΟΝΟ ΤΑ ΟΝΤΩΣ ΚΑΙΝΟΥΡΓΙΑ. Ο server στέλνει ό,τι δεν έχεις διαβάσει,
            άρα το ίδιο αδιάβαστο μήνυμα ξαναέρχεται σε κάθε σφυγμό. Χωρίς αυτό,
