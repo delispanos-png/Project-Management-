@@ -11381,6 +11381,20 @@ case 'list':
             }
         }
     }
+    /* Πόσες υποεργασίες έχει ΣΥΝΟΛΙΚΑ κάθε εργασία (και πόσες ολοκληρωμένες) — το «⛓ N» φαίνεται σωστά
+       κι όταν το «Ανοιχτά» κρύβει τις κλειστές (20/10/2026). Ένα GROUP BY για όλη τη λίστα. */
+    if ($list) {
+        $kIds = array_map(function ($x) { return (int) $x['id']; }, $list);
+        $kCnt = [];
+        foreach (array_chunk($kIds, 900) as $kc) {
+            foreach (Capsule::table('mod_cpm_tasks')->whereIn('parent_id', $kc)
+                ->selectRaw('parent_id, COUNT(*) n, SUM(completed_at IS NOT NULL) d')->groupBy('parent_id')->get() as $kr) {
+                $kCnt[(int) $kr->parent_id] = [(int) $kr->n, (int) $kr->d];
+            }
+        }
+        foreach ($list as &$kd) { if (isset($kCnt[(int) $kd['id']])) { $kd['kidsN'] = $kCnt[(int) $kd['id']][0]; $kd['kidsDone'] = $kCnt[(int) $kd['id']][1]; } }
+        unset($kd);
+    }
     out(['tasks' => $list]);
 
 case 'calendar':

@@ -1577,7 +1577,9 @@ function lvNorm(c) {
   o.users = (Array.isArray(o.users) ? o.users : []).map(Number).filter(Boolean);
   o.mine = o.who === 'mine' ? 1 : 0;
   o.color = ['none', 'prio', 'status', 'project', 'duebucket'].includes(o.color) ? o.color : 'prio';
-  o.subs = ['flat', 'nest', 'hide'].includes(o.subs) ? o.subs : 'nest';
+  /* (20/10/2026) Υποεργασίες ΠΑΝΤΑ ως δέντρο κάτω από τη γονική (⊞ + πλήθος, κλειστό από προεπιλογή) —
+     τα παλιά «Όπως όλες»/«Απόκρυψη» δεν υπάρχουν πια· αποθηκευμένα views περνούν αυτόματα στο δέντρο. */
+  o.subs = 'nest';
   /* Προτεραιότητα / τύπος: εικονίδιο | κείμενο | και τα δύο — χωριστά (παλιό κοινό «icons»). */
   const legacyShow = c && c.icons === 'icon' ? 'icon' : 'both'; delete o.icons;
   o.prioShow = LV_SHOW.includes(o.prioShow) ? o.prioShow : legacyShow;
@@ -1827,7 +1829,13 @@ R.list = async function (arg) {
   const treeLead = t => `${t._lvl ? `<span class="lv-ind" style="width:${t._lvl * 18}px"></span>` : ''}${t._kids
     ? `<button type="button" class="lv-tg" data-lvtg="${t.id}" title="${t._open ? 'Σύμπτυξη' : 'Ανάπτυξη'} υποεργασιών" aria-expanded="${t._open ? 'true' : 'false'}">${t._open ? '⊟' : '⊞'}</button>`
     : (cfg().subs === 'nest' ? '<span class="lv-tg0"></span>' : '')}`;
-  const kidsBadge = t => t._kids ? `<span class="lv-subn" title="${t._kids} υποεργασίες">⛓ ${t._kids}</span>` : '';
+  /* ⛓ N = όσες φαίνονται κάτω της· «+K ✔» = ολοκληρωμένες που κρύβει το «Ανοιχτά» (σύνολο από τον server). */
+  const kidsBadge = t => {
+    const all = +t.kidsN || 0, shown = t._kids || 0, hid = Math.max(0, all - shown);
+    if (!all && !shown) { return ''; }
+    const tip = `${shown} υποεργασίες εδώ` + (all ? ` · σύνολο ${all} (${+t.kidsDone || 0} ολοκληρωμένες)` : '') + (hid ? ` · ${hid} δεν φαίνονται (κλειστές / εκτός φίλτρου)` : '');
+    return `<span class="lv-subn${shown ? '' : ' lv-subn0'}" title="${tip}">⛓ ${shown || all}${shown && hid ? ` <small>+${hid} ✔</small>` : (!shown ? ' ✔' : '')}</span>`;
+  };
   const rowList = t => {
     const cols = cfg().cols;
     const lead = cols.filter(k => k === 'id' || k === 'title').map(k => cell(k, t)).join('');
@@ -2337,7 +2345,7 @@ R.list = async function (arg) {
         <div class="lv-opt"><span class="lv-ol">Χρώμα γραμμής</span>${[['prio', 'Προτεραιότητα'], ['status', 'Κατάσταση'], ['project', 'Έργο'], ['duebucket', 'Προθεσμία'], ['none', 'Χωρίς']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.color === k ? ' on' : ''}" data-colr="${k}">${l}</button>`).join('')}</div>
         ${[['prioShow', 'Προτεραιότητα'], ['typeShow', 'Τύπος']].map(([f, l]) => `<div class="lv-opt"><span class="lv-ol">${l}</span>${[['icon', 'Εικονίδιο'], ['text', 'Κείμενο'], ['both', 'Εικονίδιο + κείμενο']].map(([m, ml]) => `<button type="button" class="fchip fchip-b${c0[f] === m ? ' on' : ''}" data-show="${f}:${m}"${m === 'icon' ? ' title="Στενή στήλη — το όνομα φαίνεται με το ποντίκι"' : ''}>${ml}</button>`).join('')}</div>`).join('')}
         ${Object.keys(c0.widths).length ? `<div class="lv-opt"><span class="lv-ol">Πλάτη στηλών</span><button type="button" class="fchip" data-wreset>↺ Προεπιλογή</button></div>` : ''}
-        <div class="lv-opt"><span class="lv-ol">Υποεργασίες</span>${[['nest', 'Δέντρο (⊞ ανάπτυξη)'], ['flat', 'Όπως όλες'], ['hide', 'Απόκρυψη']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.subs === k ? ' on' : ''}" data-subs="${k}">${l}</button>`).join('')}</div></section>
+        <div class="lv-opt"><span class="lv-ol">Υποεργασίες</span><span class="mut" style="font-size:12px">πάντα κάτω από τη γονική τους — ⊞ για ανάπτυξη, με πλήθος</span></div></section>
       ${accessSec()}`;
       wire(); foot();
       bb.scrollTop = sc;
@@ -2413,7 +2421,6 @@ R.list = async function (arg) {
         if (el.checked) { if (!c0.cols.includes(k)) { c0.cols.push(k); } } else { c0.cols = c0.cols.filter(x => x !== k); } changed(); });
       q('[data-disp]').forEach(el => el.onclick = () => { c0.display = el.dataset.disp; changed(); });
       q('[data-colr]').forEach(el => el.onclick = () => { c0.color = el.dataset.colr; changed(); });
-      q('[data-subs]').forEach(el => el.onclick = () => { c0.subs = el.dataset.subs; changed(); });
       q('[data-show]').forEach(el => el.onclick = () => { const [f, m] = el.dataset.show.split(':'); c0[f] = m; delete c0.widths[f === 'prioShow' ? 'prio' : 'type']; changed(); });
       q('[data-wreset]').forEach(el => el.onclick = () => { c0.widths = {}; changed(); });
       q('[data-who2]').forEach(el => el.onclick = () => { if (el.disabled) { return; } c0.who = el.dataset.who2; c0.mine = c0.who === 'mine' ? 1 : 0; changed(); });
