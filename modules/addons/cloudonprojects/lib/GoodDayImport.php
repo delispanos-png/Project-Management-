@@ -344,15 +344,15 @@ class GoodDayImport
             'internal' => (int) $parent->internal, 'parent_id' => (int) $parent->id,
             'title' => self::txt($title, 200), 'status_id' => $st['id'], 'action_user' => null,
             'due_date' => $f['due'], 'start_date' => $f['start'], 'estimate_minutes' => $f['estimate']];
-        /* Χαρτογράφηση (16/10/2026): Action required → Ανάθεση · Assigned to → Μπάλα · πρώτο μήνυμα → Ζητούμενο. */
+        /* Χαρτογράφηση (20/10/2026, απόφαση χρήστη): Assigned to → Ανάθεση · Action required → Μπάλα · πρώτο μήνυμα → Ζητούμενο. */
         $ar = $plan['actionRequired'] && $plan['actionRequired']['admin'] ? (int) $plan['actionRequired']['admin'] : 0;
         $as = $plan['assignee'] && $plan['assignee']['admin'] ? (int) $plan['assignee']['admin'] : 0;
-        /* Ανάθεση = ο Assigned to ΜΟΝΟ όταν το GoodDay δεν έχει Action required καθόλου — όχι όταν έχει
-           αλλά δεν βρέθηκε συνάδελφος (τότε θα έπαιρνε λάθος άνθρωπο, 20/10/2026). */
-        $arSet = !empty($plan['actionRequired']);
-        $asg = $ar ?: ($arSet ? 0 : $as);
+        /* Ανάθεση = ο Action required ΜΟΝΟ όταν το GoodDay δεν έχει Assigned to καθόλου — όχι όταν έχει
+           αλλά δεν βρέθηκε συνάδελφος (τότε θα έπαιρνε λάθος άνθρωπο). Μπάλα ίδια με ανάθεση = «ο ανάδοχος». */
+        $asSet = !empty($plan['assignee']);
+        $asg = $as ?: ($asSet ? 0 : $ar);
         if ($asg) { $row['assignee'] = $asg; }
-        if ($as && $as !== $asg && !$st['closed']) { $row['action_user'] = $as; }
+        if ($ar && $ar !== $asg && !$st['closed']) { $row['action_user'] = $ar; }
         if ($f['prio'] !== null) { $row['priority'] = $f['prio']; }
         $descr = $plan['descr'];
         if ($descr === null && $plan['topMsg'] !== null) {
