@@ -9156,6 +9156,9 @@ case 'gd_import_create':
         'descr' => $gdDescr];
     if ($gdDept) { $gdNew['dept_id'] = $gdDept; }
     if ($gdAss) { $gdNew['assignee'] = $gdAss; }
+    /* προτεραιότητα: ό,τι διάλεξε στη φόρμα, αλλιώς του GoodDay (20/10/2026) */
+    $gdPr = isset($in['prio']) && $in['prio'] !== '' ? (int) $in['prio'] : $gdPlan['fields']['prio'];
+    if ($gdPr !== null) { $gdNew['priority'] = min(4, max(-2, (int) $gdPr)); }
     /* ΑΤΟΜΙΚΑ: εργασία + εισαγωγή + ιστορικό — ή τίποτα. Το UNIQUE της εισαγωγής
        πιάνει και δύο ταυτόχρονα κλικ (δεύτερη εγγραφή → εξαίρεση → rollback). */
     $gdCx = Capsule::connection();
@@ -9315,7 +9318,8 @@ case 'gd_link_apply':
             'current' => ['id' => (int) $glT->id, 'title' => (string) $glT->title, 'descr' => (string) ($glT->descr ?? ''),
                 'assignee' => (int) $glT->assignee, 'ball' => (int) $glT->action_user,
                 'due' => GoodDayImport::dateOnly($glT->due_date), 'start' => GoodDayImport::dateOnly($glT->start_date),
-                'estimate' => $glT->estimate_minutes !== null ? (int) $glT->estimate_minutes : null]] + $glPlan);
+                'estimate' => $glT->estimate_minutes !== null ? (int) $glT->estimate_minutes : null,
+                'prio' => (int) $glT->priority]] + $glPlan);
     }
     /* ── εφαρμογή ── */
     $glSt = GoodDayImport::stageGet($adminId, (string) ($in['stage'] ?? ''));
@@ -9363,6 +9367,9 @@ case 'gd_link_apply':
         $v = trim((string) ($in['estimate'] ?? ''));
         if ($v !== '' && (!ctype_digit($v) || (int) $v > 1000000)) { fail('Η εκτίμηση είναι σε λεπτά (ακέραιος)', 400, ['field' => 'estimate']); }
         $glUpd['estimate_minutes'] = $v === '' ? null : (int) $v; $glWhat[] = 'εκτίμηση';
+    }
+    if (!empty($glA['prio']) && isset($in['prio']) && $in['prio'] !== '') {
+        $glUpd['priority'] = min(4, max(-2, (int) $in['prio'])); $glWhat[] = 'προτεραιότητα';
     }
     if (isset($glUpd['assignee'], $glUpd['action_user']) && $glUpd['assignee'] === $glUpd['action_user']) { $glUpd['action_user'] = null; }
     $glCx = Capsule::connection();

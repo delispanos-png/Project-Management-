@@ -461,8 +461,11 @@ function gdImport(ref) {
        Χωρίς Action required, ανάθεση = ο Assigned to. Μπάλα ίδια με την ανάθεση = «ο ανάδοχος». */
     const arId = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
     const asId = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
-    const ass = arId || asId;
+    /* (20/10/2026) ο Assigned to γίνεται ανάθεση ΜΟΝΟ όταν το GoodDay δεν έχει καθόλου Action required —
+       όχι όταν έχει αλλά δεν βρέθηκε ο συνάδελφος (τότε το διαλέγεις εσύ). */
+    const ass = arId || (d.actionRequired ? 0 : asId);
     const ballId = asId && asId !== ass ? asId : 0;
+    const gdWho = u => u ? esc(u.name) + (u.admin ? (u.state === 'matched_name' ? ' <span class="pill pill-mut" title="Ταυτίστηκε με το όνομα — το email εδώ διαφέρει">με όνομα</span>' : '') : ' <span class="pill pill-warn" title="Δεν βρέθηκε συνάδελφος — διάλεξε">χωρίς αντιστοίχιση</span>') : '—';
     /* Ζητούμενο = το ΠΡΩΤΟ μήνυμα του GoodDay (αυτό που βλέπεις πάνω-πάνω ανοίγοντας την εργασία). */
     const topMsg = d.descr !== null ? 'description' : (d.topMsg || 'none');
     const curP = S.view === 'board' && S.project ? +S.project : 0;
@@ -479,12 +482,14 @@ function gdImport(ref) {
           <label class="gd-l">Κατάσταση εδώ <span class="mut">(στο GoodDay: ${esc(d.sourceStatus.name || '—')})</span>
             <select class="inp" id="gdS" data-combo><option value="">— διάλεξε κατάσταση —</option>
             ${(S.boot.statuses || []).map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label>
-          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay Action required: ${d.actionRequired ? esc(d.actionRequired.name) : '—'})</span>
+          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay Action required: ${gdWho(d.actionRequired)})</span>
             <select class="inp" id="gdA" data-combo><option value="">— κανείς —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ass ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
-          <label class="gd-l">Η μπάλα σε <span class="mut">(στο GoodDay Assigned to: ${d.assignee ? esc(d.assignee.name) : '—'})</span>
+          <label class="gd-l">Η μπάλα σε <span class="mut">(στο GoodDay Assigned to: ${gdWho(d.assignee)})</span>
             <select class="inp" id="gdB" data-combo><option value="">— ο ανάδοχος —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ballId ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
+          <label class="gd-l">Προτεραιότητα <span class="mut">(από το GoodDay${f.prio !== null && f.prio !== undefined ? '' : ': —'})</span>
+            <select class="inp" id="gdPr" data-combo data-ic="prio">${window.CNP.cnpPrioOpts(f.prio !== null && f.prio !== undefined ? f.prio : 0)}</select></label>
           <div class="gd-row3">
             <label class="gd-l">Προθεσμία${f.due && f.due < today() ? ' <span class="pill pill-warn" title="Η προθεσμία του GoodDay έχει ήδη περάσει — η εργασία θα φανεί αμέσως εκπρόθεσμη. Άλλαξέ την ή άδειασέ την.">πέρασε</span>' : ''}<input class="inp" type="date" id="gdDue" value="${esc(f.due || '')}"></label>
             <label class="gd-l">Έναρξη<input class="inp" type="date" id="gdStart" value="${esc(f.start || '')}"></label>
@@ -569,7 +574,7 @@ function gdImport(ref) {
     const pSel = $o('#gdP').value;
     const body = {stage: pv.stage, title: $o('#gdT').value.trim(), status: +$o('#gdS').value || 0,
       assignee: +$o('#gdA').value || 0, ball: +$o('#gdB').value || 0, due: $o('#gdDue').value, start: $o('#gdStart').value,
-      estimate: $o('#gdEst').value.trim(), descr_from: $o('#gdD').value,
+      estimate: $o('#gdEst').value.trim(), descr_from: $o('#gdD').value, prio: $o('#gdPr') ? $o('#gdPr').value : '',
       with_subs: $o('#gdSubs') ? ($o('#gdSubs').checked ? 1 : 0) : 1};
     if (pSel === 'dept') { body.dept = myDept ? myDept.id : 0; } else { body.project = +pSel || 0; }
     const mark = (id, m) => { const el = $o(id); if (el) { el.classList.add('gd-err'); el.focus(); } say(esc(m), 'bad'); };
@@ -651,14 +656,17 @@ function gdLink(taskId, opt) {
     const textMsgs = d.messages.filter(m => m.kind === 'text');
     const ar = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
     const asg = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
-    const gAss = ar || asg, gBall = asg && asg !== gAss ? asg : 0;
+    /* ίδιος κανόνας με την εισαγωγή: Action required → Ανάθεση, Assigned to → Μπάλα (20/10/2026) */
+    const gAss = ar || (d.actionRequired ? 0 : asg), gBall = asg && asg !== gAss ? asg : 0;
+    const gdWho = u => u ? esc(u.name) + (u.admin ? (u.state === 'matched_name' ? ' · με όνομα' : '') : ' · <b style="color:var(--warn,#b45309)">δεν βρέθηκε — διάλεξε</b>') : '—';
+    const gPr = f.prio !== null && f.prio !== undefined ? f.prio : null;
     const top = d.descr !== null ? 'description' : (d.topMsg || '');
     const descrEmpty = !strip(c.descr);
     const row = (k, label, cur, inp, on, note) => `<tr><td><input type="checkbox" data-gla="${k}"${on ? ' checked' : ''}></td>
       <td><b>${label}</b>${note ? `<div class="mut" style="font-size:11px">${note}</div>` : ''}</td><td class="gl-cur">${cur}</td><td>${inp}</td></tr>`;
     const nAtt = d.messages.reduce((n, m) => n + (m.attachments ? m.attachments.length : 0), 0);
     $o('#glBody').innerHTML = `
-      ${d.here ? `<div class="gd-ex" style="${d.here.same ? 'border-color:var(--ok);background:#16a26a10' : ''}">${d.here.same ? '✓ ' : '⚠ '}${esc(d.here.why)}${d.here.same ? ' — είναι αυτή εδώ, σωστή σύνδεση.' : ''}</div>` : ''}
+      ${d.here ? `<div class="gd-ex" style="${d.here.same ? 'border-color:var(--ok);background:#16a26a10' : ''}">${d.here.same ? '✓ ' : '⚠ '}${esc(d.here.why)}${d.here.same ? ' — είναι αυτή εδώ, σωστή σύνδεση.' : (!d.here.task ? '<div class="mut" style="margin-top:4px">Αν τη μετέφερες με το χέρι σε <b>αυτή</b> την εργασία, προχώρα — η σύνδεση τις δένει και φέρνει το ιστορικό εδώ.</div>' : '')}</div>` : ''}
       <div class="gl-src"><span class="mut">GoodDay</span> <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.url)}</a>
         · εκεί: <b>${esc(d.sourceStatus.name || '—')}</b> · θα γίνει «TRANSFERRED to CloudOn Projects»</div>
       <table class="gl-tbl"><thead><tr><th></th><th>Πεδίο</th><th>Τώρα εδώ</th><th>Από GoodDay (μπορείς να το αλλάξεις)</th></tr></thead><tbody>
@@ -672,8 +680,9 @@ function gdLink(taskId, opt) {
             <select class="inp" id="glDf" data-combo style="margin-top:5px"${o0.canBrief ? '' : ' disabled'}>
               ${d.descr !== null ? `<option value="description"${top === 'description' ? ' selected' : ''}>Η περιγραφή του GoodDay</option>` : ''}
               ${textMsgs.map(m => `<option value="${esc(m.ext)}"${m.ext === top ? ' selected' : ''}>${m.ext === d.topMsg ? '★ ' : ''}${esc(m.from ? (m.from.adminName || m.from.name) : '?')} · ${esc(m.at ? dShort(m.at.slice(0, 10)) : '')} — ${esc(strip(m.html).slice(0, 60))}</option>`).join('')}</select></td></tr>
-        ${row('assignee', 'Ανάθεση', nm(c.assignee), `<select class="inp" id="glA" data-combo>${aOpts(gAss)}</select>`, !c.assignee && !!gAss, 'GoodDay: Action required')}
-        ${row('ball', 'Η μπάλα σε', c.ball ? nm(c.ball) : '<span class="mut">ο ανάδοχος</span>', `<select class="inp" id="glB" data-combo>${aOpts(gBall).replace('— κανείς —', '— ο ανάδοχος —')}</select>`, !c.ball && !!gBall, 'GoodDay: Assigned to')}
+        ${row('assignee', 'Ανάθεση', nm(c.assignee), `<select class="inp" id="glA" data-combo>${aOpts(gAss)}</select>`, !!gAss && gAss !== c.assignee, 'GoodDay Action required: ' + gdWho(d.actionRequired))}
+        ${row('ball', 'Η μπάλα σε', c.ball ? nm(c.ball) : '<span class="mut">ο ανάδοχος</span>', `<select class="inp" id="glB" data-combo>${aOpts(gBall).replace('— κανείς —', '— ο ανάδοχος —')}</select>`, !!gBall && gBall !== c.ball, 'GoodDay Assigned to: ' + gdWho(d.assignee))}
+        ${row('prio', 'Προτεραιότητα', window.CNP.cnpPrioIcon(c.prio || 0, {show: 'both'}), `<select class="inp" id="glPr" data-combo data-ic="prio">${window.CNP.cnpPrioOpts(gPr !== null ? gPr : (c.prio || 0))}</select>`, gPr !== null && gPr !== (c.prio || 0), gPr !== null ? 'GoodDay: ' + esc(window.CNP.cnpPrioName(gPr)) : 'GoodDay: —')}
         ${row('start', 'Έναρξη', c.start ? esc(dFull(c.start)) : '<span class="mut">—</span>', `<input class="inp" type="date" id="glS" value="${esc(f.start || '')}">`, !c.start && !!f.start)}
         ${row('due', 'Λήξη', c.due ? esc(dFull(c.due)) : '<span class="mut">—</span>', `<input class="inp" type="date" id="glD" value="${esc(f.due || '')}">`, !c.due && !!f.due)}
         ${row('estimate', 'Εκτίμηση (λεπτά)', c.estimate !== null ? esc(String(c.estimate)) : '<span class="mut">—</span>', `<input class="inp" id="glE" inputmode="numeric" value="${f.estimate !== null ? f.estimate : ''}">`, c.estimate === null && f.estimate !== null)}
@@ -693,7 +702,7 @@ function gdLink(taskId, opt) {
     $o('#glDm').onchange = sync;
     $$('[data-gla]', ovl).forEach(cb => cb.onchange = sync);
     /* αλλαγή τιμής = θέλεις να εφαρμοστεί */
-    [['glT', 'title'], ['glA', 'assignee'], ['glB', 'ball'], ['glS', 'start'], ['glD', 'due'], ['glE', 'estimate']].forEach(([i, k]) => {
+    [['glT', 'title'], ['glA', 'assignee'], ['glB', 'ball'], ['glPr', 'prio'], ['glS', 'start'], ['glD', 'due'], ['glE', 'estimate']].forEach(([i, k]) => {
       const el = $o('#' + i); if (el) { el.addEventListener('change', () => { const cb = ovl.querySelector(`[data-gla="${k}"]`); if (cb) { cb.checked = true; sync(); } }); }
     });
     sync();
@@ -724,7 +733,7 @@ function gdLink(taskId, opt) {
     const body = {task: taskId, stage: pv.stage, apply,
       title: $o('#glT').value.trim(), assignee: +$o('#glA').value || 0, ball: +$o('#glB').value || 0,
       start: $o('#glS').value, due: $o('#glD').value, estimate: $o('#glE').value.trim(),
-      descr_mode: o0.canBrief ? $o('#glDm').value : 'keep', descr_from: $o('#glDf') ? $o('#glDf').value : '',
+      descr_mode: o0.canBrief ? $o('#glDm').value : 'keep', descr_from: $o('#glDf') ? $o('#glDf').value : '', prio: $o('#glPr') ? $o('#glPr').value : '',
       with_subs: $o('#glSubs') && $o('#glSubs').checked ? 1 : 0};
     if (apply.estimate && body.estimate && !/^\d+$/.test(body.estimate)) { say('Η εκτίμηση είναι σε λεπτά (ακέραιος)', 'bad'); return; }
     busy = true; $o('#glApply').disabled = true;

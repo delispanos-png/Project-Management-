@@ -347,8 +347,13 @@ class GoodDayImport
         /* Χαρτογράφηση (16/10/2026): Action required → Ανάθεση · Assigned to → Μπάλα · πρώτο μήνυμα → Ζητούμενο. */
         $ar = $plan['actionRequired'] && $plan['actionRequired']['admin'] ? (int) $plan['actionRequired']['admin'] : 0;
         $as = $plan['assignee'] && $plan['assignee']['admin'] ? (int) $plan['assignee']['admin'] : 0;
-        if ($ar || $as) { $row['assignee'] = $ar ?: $as; }
-        if ($as && $as !== ($ar ?: $as) && !$st['closed']) { $row['action_user'] = $as; }
+        /* Ανάθεση = ο Assigned to ΜΟΝΟ όταν το GoodDay δεν έχει Action required καθόλου — όχι όταν έχει
+           αλλά δεν βρέθηκε συνάδελφος (τότε θα έπαιρνε λάθος άνθρωπο, 20/10/2026). */
+        $arSet = !empty($plan['actionRequired']);
+        $asg = $ar ?: ($arSet ? 0 : $as);
+        if ($asg) { $row['assignee'] = $asg; }
+        if ($as && $as !== $asg && !$st['closed']) { $row['action_user'] = $as; }
+        if ($f['prio'] !== null) { $row['priority'] = $f['prio']; }
         $descr = $plan['descr'];
         if ($descr === null && $plan['topMsg'] !== null) {
             foreach ($plan['messages'] as $m) { if ($m['ext'] === $plan['topMsg']) { $descr = $m['html']; break; } }
@@ -417,10 +422,12 @@ class GoodDayImport
      */
     public static function matchUsers(array $users, array $warnings)
     {
-        $byEmail = [];
+        $byEmail = []; $byName = [];
         foreach (Capsule::table('tbladmins')->where('disabled', 0)->get(['id', 'email', 'firstname', 'lastname']) as $a) {
             $k = mb_strtolower(trim((string) $a->email));
             if ($k !== '') { $byEmail[$k][] = (int) $a->id; }
+            $nk = self::nameKey($a->firstname . ' ' . $a->lastname);
+            if ($nk !== '') { $byName[$nk][] = (int) $a->id; }
         }
         $failed = [];
         foreach ($warnings as $w) {
@@ -441,9 +448,42 @@ class GoodDayImport
                 if (count($hits) === 1) { $r['admin'] = $hits[0]; $r['state'] = 'matched'; }
                 elseif (count($hits) > 1) { $r['state'] = 'ambiguous'; }
             }
+            /* (20/10/2026) Δεύτερη ευκαιρία: ΟΝΟΜΑ — ίδιες λέξεις σε όποια σειρά («Konstantakopoulos Nikos» =
+               «Nikos Konstantakopoulos»), χωρίς τόνους/πεζά-κεφαλαία· ΜΟΝΟ αν ταιριάζει ακριβώς ΕΝΑΣ ενεργός.
+               Λόγος: λογαριασμοί εδώ με άλλο/πρόχειρο email (π.χ. dup@…) έχαναν ανάθεση & μπάλα. */
+            if (!$r['admin'] && in_array($r['state'], ['unknown', 'no_email'], true) && $r['name']) {
+                $nh = $byName[self::nameKey($r['name'])] ?? [];
+                if (count($nh) === 1) { $r['admin'] = $nh[0]; $r['state'] = 'matched_name'; }
+            }
             $out[$uid] = $r;
         }
         return $out;
+    }
+
+    /** Κλειδί ονόματος: πεζά, χωρίς τόνους, λέξεις ταξινομημένες (η σειρά ονόματος/επωνύμου δεν μετρά). */
+    public static function nameKey($name)
+    {
+        $n = mb_strtolower(trim((string) $name));
+        if (class_exists('\Normalizer')) { $n = preg_replace('/\p{Mn}+/u', '', \Normalizer::normalize($n, \Normalizer::FORM_D)); }
+        $w = array_values(array_filter(preg_split('/[^\p{L}\p{N}]+/u', $n)));
+        if (count($w) < 2) { return ''; }       // ένα σκέτο όνομα είναι πολύ αδύναμο για ταύτιση
+        sort($w);
+        return implode(' ', $w);
+    }
+
+    /** Προτεραιότητα GoodDay → δική μας (−2…4). Κλίμακα GoodDay: Lowest 1 · Low 3 · Normal 5 · High 7 ·
+     *  Highest 9 · Blocker 50 · Emergency 100 (ενδιάμεσες τιμές στρογγυλεύουν προς τα κάτω). */
+    public static function prioFrom($v)
+    {
+        if (!is_numeric($v)) { return null; }
+        $v = (int) $v;
+        if ($v >= 100) { return 4; }
+        if ($v >= 50) { return 3; }
+        if ($v >= 9) { return 2; }
+        if ($v >= 7) { return 1; }
+        if ($v >= 5) { return 0; }
+        if ($v >= 3) { return -1; }
+        return $v >= 1 ? -2 : null;
     }
 
     /* ════════════════ Rich text (Lexical του GoodDay) → δικό μας HTML ════════════════ */
@@ -842,6 +882,8 @@ class GoodDayImport
             'start' => self::dateOnly($task['startDate'] ?? null),
             /* estimate του GoodDay = λεπτά (επαληθευμένο: 660 ↔ «Εκτίμηση υλοποίησης 11 ώρες» στο 6lyyHw). */
             'estimate' => is_numeric($est) && $est >= 0 && $est <= 1000000 ? (int) $est : null,
+            /* (20/10/2026) προτεραιότητα GoodDay → τα 7 δικά μας επίπεδα */
+            'prio' => self::prioFrom($task['priority'] ?? null),
         ];
         $unmapped = [
             'endDate' => $task['endDate'] ?? null, 'scheduleDate' => $task['scheduleDate'] ?? null,
@@ -855,6 +897,12 @@ class GoodDayImport
         $warnings = [];
         foreach ((array) ($env['warnings'] ?? []) as $w) { $warnings[] = $w; }
         foreach ($umap as $u) {
+            if ($u['state'] === 'matched_name') {
+                $warnings[] = ['code' => 'user_matched_name', 'user_id' => $u['ext'], 'level' => 'info',
+                    'message' => ($u['name'] ?: $u['ext']) . ($u['email'] ? ' <' . $u['email'] . '>' : '')
+                        . ' — ταυτίστηκε με το ΟΝΟΜΑ (το email του λογαριασμού εδώ είναι διαφορετικό· καλό είναι να διορθωθεί)'];
+                continue;
+            }
             if ($u['state'] !== 'matched') {
                 $warnings[] = ['code' => 'user_' . $u['state'], 'user_id' => $u['ext'],
                     'message' => ($u['name'] ?: $u['ext']) . ($u['email'] ? ' <' . $u['email'] . '>' : '') . ' — '
@@ -1126,7 +1174,7 @@ class GoodDayImport
         $task = Capsule::table('mod_cpm_tasks')->where('id', (int) $imp->task_id)->first();
         $rep = ['task' => (int) $imp->task_id, 'changed' => [], 'kept' => [], 'new' => 0, 'updated' => 0, 'gone' => 0];
         if (!$task) { return $rep; }
-        $cols = ['title' => 'title', 'due' => 'due_date', 'start' => 'start_date', 'estimate' => 'estimate_minutes'];
+        $cols = ['title' => 'title', 'due' => 'due_date', 'start' => 'start_date', 'estimate' => 'estimate_minutes', 'prio' => 'priority'];
         $norm = function ($v) { return $v === null || $v === '' ? '' : (string) $v; };
         $upd = [];
         foreach ($cols as $k => $col) {
@@ -1134,6 +1182,7 @@ class GoodDayImport
             $was = $oldPlan ? $oldPlan['fields'][$k] : null;
             if ($norm($new) === $norm($was)) { continue; }                  // δεν άλλαξε στο GoodDay
             if ($k === 'title' && $norm($new) === '') { continue; }
+            if ($k === 'prio' && $new === null) { continue; }               // η στήλη δεν δέχεται κενό
             $here = $col === 'due_date' || $col === 'start_date' ? self::dateOnly($task->$col) : $task->$col;
             if ($norm($here) === $norm($was) || !$oldPlan) { $upd[$col] = $k === 'title' ? self::txt($new, 200) : $new; $rep['changed'][] = $k; }
             else { $rep['kept'][] = $k; }                                    // το πείραξε κάποιος εδώ
