@@ -5421,3 +5421,5 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .lv-run i{width:7px;height:7px;border-radius:50%;background:#16a26a;box-shadow:0 0 0 0 #16a26a80;animation:lvRun 1.6s ease-out infinite}
 @keyframes lvRun{0%{box-shadow:0 0 0 0 #16a26a80}70%{box-shadow:0 0 0 6px #16a26a00}100%{box-shadow:0 0 0 0 #16a26a00}}
 @media (prefers-reduced-motion:reduce){.lv-run i{animation:none}}
+.lv-subn small{opacity:.7;font-weight:600}
+.lv-subn0{opacity:.6}

@@ -2421,7 +2421,9 @@ function cnpMorphNode(o, n) {
   /* Περιοχή που γεμίζει ΑΣΥΓΧΡΟΝΑ μετά το ζωγράφισμα: κρατά ό,τι δείχνει ώσπου να
      έρθουν τα νέα της δεδομένα — αλλιώς θα αναβόσβηνε «φόρτωση…» σε κάθε ανανέωση. */
   if (o.hasAttribute('data-async') && (o.childNodes.length || o.hidden !== n.hidden)) { return; }
-  const typing = o === document.activeElement || o.isContentEditable;
+  /* «Γράφει εδώ» = πεδίο με focus ή editable — ΟΧΙ οποιοδήποτε στοιχείο με focus: ένα κουμπί που μόλις
+     πατήθηκε (π.χ. ⊞ υποεργασιών) κρατά focus και έμενε με το παλιό κείμενο (20/10/2026). */
+  const typing = (o === document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName)) || o.isContentEditable;
   for (const a of [...o.attributes]) { if (!n.hasAttribute(a.name) && a.name !== 'style' && !(typing && a.name === 'contenteditable')) { o.removeAttribute(a.name); } }
   for (const a of [...n.attributes]) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName) && a.name === 'value') { continue; }   // η τιμή που γράφει ο χρήστης μένει
