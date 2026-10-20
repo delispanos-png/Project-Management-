@@ -457,14 +457,14 @@ function gdImport(ref) {
     const textMsgs = d.messages.filter(m => m.kind === 'text');
     const nEv = d.messages.length - textMsgs.length;
     const nAtt = d.messages.reduce((n, m) => n + (m.attachments ? m.attachments.length : 0), 0);
-    /* Χαρτογράφηση (16/10/2026, απόφαση χρήστη): Action required → Ανάθεση · Assigned to → Μπάλα.
-       Χωρίς Action required, ανάθεση = ο Assigned to. Μπάλα ίδια με την ανάθεση = «ο ανάδοχος». */
+    /* Χαρτογράφηση (20/10/2026, απόφαση χρήστη): Assigned to → Ανάθεση · Action required → Μπάλα.
+       Χωρίς Assigned to, ανάθεση = ο Action required. Μπάλα ίδια με την ανάθεση = «ο ανάδοχος». */
     const arId = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
     const asId = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
-    /* (20/10/2026) ο Assigned to γίνεται ανάθεση ΜΟΝΟ όταν το GoodDay δεν έχει καθόλου Action required —
+    /* ο Action required γίνεται ανάθεση ΜΟΝΟ όταν το GoodDay δεν έχει καθόλου Assigned to —
        όχι όταν έχει αλλά δεν βρέθηκε ο συνάδελφος (τότε το διαλέγεις εσύ). */
-    const ass = arId || (d.actionRequired ? 0 : asId);
-    const ballId = asId && asId !== ass ? asId : 0;
+    const ass = asId || (d.assignee ? 0 : arId);
+    const ballId = arId && arId !== ass ? arId : 0;
     const gdWho = u => u ? esc(u.name) + (u.admin ? (u.state === 'matched_name' ? ' <span class="pill pill-mut" title="Ταυτίστηκε με το όνομα — το email εδώ διαφέρει">με όνομα</span>' : '') : ' <span class="pill pill-warn" title="Δεν βρέθηκε συνάδελφος — διάλεξε">χωρίς αντιστοίχιση</span>') : '—';
     /* Ζητούμενο = το ΠΡΩΤΟ μήνυμα του GoodDay (αυτό που βλέπεις πάνω-πάνω ανοίγοντας την εργασία). */
     const topMsg = d.descr !== null ? 'description' : (d.topMsg || 'none');
@@ -482,10 +482,10 @@ function gdImport(ref) {
           <label class="gd-l">Κατάσταση εδώ <span class="mut">(στο GoodDay: ${esc(d.sourceStatus.name || '—')})</span>
             <select class="inp" id="gdS" data-combo><option value="">— διάλεξε κατάσταση —</option>
             ${(S.boot.statuses || []).map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label>
-          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay Action required: ${gdWho(d.actionRequired)})</span>
+          <label class="gd-l">Ανάθεση <span class="mut">(στο GoodDay Assigned to: ${gdWho(d.assignee)})</span>
             <select class="inp" id="gdA" data-combo><option value="">— κανείς —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ass ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
-          <label class="gd-l">Η μπάλα σε <span class="mut">(στο GoodDay Assigned to: ${gdWho(d.assignee)})</span>
+          <label class="gd-l">Η μπάλα σε <span class="mut">(στο GoodDay Action required: ${gdWho(d.actionRequired)})</span>
             <select class="inp" id="gdB" data-combo><option value="">— ο ανάδοχος —</option>
             ${admins.map(a => `<option value="${a.id}"${a.id === ballId ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
           <label class="gd-l">Προτεραιότητα <span class="mut">(από το GoodDay${f.prio !== null && f.prio !== undefined ? '' : ': —'})</span>
@@ -656,8 +656,8 @@ function gdLink(taskId, opt) {
     const textMsgs = d.messages.filter(m => m.kind === 'text');
     const ar = d.actionRequired && d.actionRequired.admin ? d.actionRequired.admin : 0;
     const asg = d.assignee && d.assignee.admin ? d.assignee.admin : 0;
-    /* ίδιος κανόνας με την εισαγωγή: Action required → Ανάθεση, Assigned to → Μπάλα (20/10/2026) */
-    const gAss = ar || (d.actionRequired ? 0 : asg), gBall = asg && asg !== gAss ? asg : 0;
+    /* ίδιος κανόνας με την εισαγωγή: Assigned to → Ανάθεση, Action required → Μπάλα (20/10/2026) */
+    const gAss = asg || (d.assignee ? 0 : ar), gBall = ar && ar !== gAss ? ar : 0;
     const gdWho = u => u ? esc(u.name) + (u.admin ? (u.state === 'matched_name' ? ' · με όνομα' : '') : ' · <b style="color:var(--warn,#b45309)">δεν βρέθηκε — διάλεξε</b>') : '—';
     const gPr = f.prio !== null && f.prio !== undefined ? f.prio : null;
     const top = d.descr !== null ? 'description' : (d.topMsg || '');
@@ -680,8 +680,8 @@ function gdLink(taskId, opt) {
             <select class="inp" id="glDf" data-combo style="margin-top:5px"${o0.canBrief ? '' : ' disabled'}>
               ${d.descr !== null ? `<option value="description"${top === 'description' ? ' selected' : ''}>Η περιγραφή του GoodDay</option>` : ''}
               ${textMsgs.map(m => `<option value="${esc(m.ext)}"${m.ext === top ? ' selected' : ''}>${m.ext === d.topMsg ? '★ ' : ''}${esc(m.from ? (m.from.adminName || m.from.name) : '?')} · ${esc(m.at ? dShort(m.at.slice(0, 10)) : '')} — ${esc(strip(m.html).slice(0, 60))}</option>`).join('')}</select></td></tr>
-        ${row('assignee', 'Ανάθεση', nm(c.assignee), `<select class="inp" id="glA" data-combo>${aOpts(gAss)}</select>`, !!gAss && gAss !== c.assignee, 'GoodDay Action required: ' + gdWho(d.actionRequired))}
-        ${row('ball', 'Η μπάλα σε', c.ball ? nm(c.ball) : '<span class="mut">ο ανάδοχος</span>', `<select class="inp" id="glB" data-combo>${aOpts(gBall).replace('— κανείς —', '— ο ανάδοχος —')}</select>`, !!gBall && gBall !== c.ball, 'GoodDay Assigned to: ' + gdWho(d.assignee))}
+        ${row('assignee', 'Ανάθεση', nm(c.assignee), `<select class="inp" id="glA" data-combo>${aOpts(gAss)}</select>`, !!gAss && gAss !== c.assignee, 'GoodDay Assigned to: ' + gdWho(d.assignee))}
+        ${row('ball', 'Η μπάλα σε', c.ball ? nm(c.ball) : '<span class="mut">ο ανάδοχος</span>', `<select class="inp" id="glB" data-combo>${aOpts(gBall).replace('— κανείς —', '— ο ανάδοχος —')}</select>`, !!gBall && gBall !== c.ball, 'GoodDay Action required: ' + gdWho(d.actionRequired))}
         ${row('prio', 'Προτεραιότητα', window.CNP.cnpPrioIcon(c.prio || 0, {show: 'both'}), `<select class="inp" id="glPr" data-combo data-ic="prio">${window.CNP.cnpPrioOpts(gPr !== null ? gPr : (c.prio || 0))}</select>`, gPr !== null && gPr !== (c.prio || 0), gPr !== null ? 'GoodDay: ' + esc(window.CNP.cnpPrioName(gPr)) : 'GoodDay: —')}
         ${row('start', 'Έναρξη', c.start ? esc(dFull(c.start)) : '<span class="mut">—</span>', `<input class="inp" type="date" id="glS" value="${esc(f.start || '')}">`, !c.start && !!f.start)}
         ${row('due', 'Λήξη', c.due ? esc(dFull(c.due)) : '<span class="mut">—</span>', `<input class="inp" type="date" id="glD" value="${esc(f.due || '')}">`, !c.due && !!f.due)}
