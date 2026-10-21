@@ -3974,6 +3974,8 @@ async function openTask(id, entryId, opts) {
           ${/* ΚΑΤΑΧΩΡΕΙ ΤΟ ENTER. Το κουμπί ήταν μια τρίτη κίνηση για κάτι που
                γράφεις σαν μήνυμα — και κρατούσε ύψος που έσπρωχνε τη συζήτηση
                κάτω. Shift+Enter για νέα γραμμή, όπως παντού. */''}
+          ${/* Αρχεία που περιμένουν την καταχώρηση: προβολή πριν φύγουν, ✕ για αφαίρεση. */''}
+          <div class="act-files" id="chkFiles" hidden></div>
           <div class="act-foot">
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
             ${/* ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ: μήνυμα + μπάλα σε + νέα κατάσταση (2/10/2026). Κενά = όπως πριν. */''}
@@ -5112,13 +5114,28 @@ async function openTask(id, entryId, opts) {
      Enter-ως-αποθήκευση κόβει τη σκέψη στη μέση. */
 
   /* Επικόλληση εικόνας: ανεβαίνει και μπαίνει ΜΕΣΑ στο κείμενο. */
+  /* Ανέβασμα συνημμένου ενέργειας. ΠΡΩΤΑ κατευθείαν στο S3 (presign → PUT → confirm):
+     το multipart περνά από την PHP, που κόβει στα 8MB (upload_max_filesize) — και τα
+     μεγαλύτερα «χάνονταν» σιωπηλά (21/10/2026). Multipart μόνο με local driver.
+     Επιστρέφει {file} ή {err} — ο καλών ΠΡΕΠΕΙ να δείξει το σφάλμα. */
   const actUpload = async (file, refId) => {
-    const fd = new FormData();
-    fd.append('module', 'task'); fd.append('ref_type', 'check'); fd.append('ref_id', refId || 0);
-    fd.append('file', file);
-    const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
-      .then(x => x.json()).catch(() => null);
-    return r && r.file ? r.file : null;
+    const meta = {module: 'task', ref_type: 'check', ref_id: refId || 0};
+    const mime = file.type || 'application/octet-stream';
+    try {
+      const pre = await api('file_presign_put', {...meta, filename: file.name, mime, size: file.size});
+      if (pre && pre.mode === 'direct') {
+        const put = await fetch(pre.uploadUrl, {method: 'PUT', headers: pre.headers || {'Content-Type': mime}, body: file});
+        if (!put.ok) { throw new Error('cloud HTTP ' + put.status); }
+        const c = await api('file_confirm', {...meta, key: pre.key, orig_name: file.name, mime, size: file.size});
+        return c && c.file ? {file: c.file} : {err: 'δεν καταχωρήθηκε'};
+      }
+      const fd = new FormData();
+      fd.append('module', meta.module); fd.append('ref_type', meta.ref_type); fd.append('ref_id', meta.ref_id);
+      fd.append('file', file);
+      const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
+        .then(x => x.json()).catch(() => null);
+      return r && r.file ? {file: r.file} : {err: (r && r.error) || 'σφάλμα ανεβάσματος'};
+    } catch (er) { return {err: (er && er.message) || 'σφάλμα ανεβάσματος'}; }
   };
   const wireEditor = el => {
     el.addEventListener('paste', async e => {
@@ -5217,20 +5234,54 @@ async function openTask(id, entryId, opts) {
     if (ed) {
       wireEditor(ed);
       const pending = [];                         // αρχεία που διάλεξε πριν καταχωρήσει
+      /* Κάθε αρχείο κρατά δικό του blob URL: μικρογραφία εικόνας + προβολή (cnpViewFile)
+         ΠΡΙΝ ανέβει. Ελευθερώνεται όταν αφαιρεθεί ή φύγει. */
+      const urlOf = f => f._u || (f._u = URL.createObjectURL(f));
+      const drop = f => { if (f._u) { URL.revokeObjectURL(f._u); f._u = null; } };
+      const kb = b => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
       const paint = () => {
         const h = $('#chkHint', dr);
-        if (h) { h.textContent = pending.length ? `${pending.length} αρχείο${pending.length > 1 ? 'α' : ''} προς επισύναψη` : ''; }
+        if (h) { h.textContent = pending.length ? `${pending.length} αρχεί${pending.length > 1 ? 'α' : 'ο'} προς επισύναψη` : ''; }
+        const box = $('#chkFiles', dr); if (!box) { return; }
+        box.hidden = !pending.length;
+        box.innerHTML = pending.map((f, i) => {
+          const img = cnpFileKind(f.name, f.type) === 'image';
+          return `<span class="act-file" title="${esc(f.name)}">
+            <button type="button" class="act-file-v" data-pfv="${i}" title="Προβολή">${img ? `<img src="${esc(urlOf(f))}" alt="">` : I.clip}
+              <span class="act-file-n">${esc(f.name)}</span><span class="mut">${kb(f.size)}</span></button>
+            <button type="button" class="act-file-x" data-pfx="${i}" title="Αφαίρεση — δεν θα επισυναφθεί">✕</button></span>`;
+        }).join('');
+        box.querySelectorAll('[data-pfv]').forEach(b => b.onclick = () =>
+          cnpViewFile(pending.map(f => ({url: urlOf(f), name: f.name, mime: f.type})), +b.dataset.pfv));
+        box.querySelectorAll('[data-pfx]').forEach(b => b.onclick = () => {
+          const [f] = pending.splice(+b.dataset.pfx, 1); if (f) { drop(f); } paint(); ed.focus();
+        });
       };
+      const add = list => { [...(list || [])].forEach(f => pending.push(f)); paint(); };
       const fi = $('#chkFile', dr);
       const clip = $('#chkClip', dr);
       if (clip && fi) {
         clip.onclick = () => fi.click();
-        fi.onchange = () => { [...fi.files].forEach(f => pending.push(f)); fi.value = ''; paint(); };
+        fi.onchange = () => { add(fi.files); fi.value = ''; };
       }
+      /* Σύρε αρχεία πάνω στο κουτί σύνθεσης → στην ίδια λίστα αναμονής. */
+      { const comp = ed.closest('.act-composer');
+        if (comp) {
+          comp.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); comp.classList.add('act-drop'); } });
+          comp.addEventListener('dragleave', e => { if (!comp.contains(e.relatedTarget)) { comp.classList.remove('act-drop'); } });
+          comp.addEventListener('drop', e => {
+            comp.classList.remove('act-drop');
+            const fl = e.dataTransfer && e.dataTransfer.files;
+            if (fl && fl.length) { e.preventDefault(); add(fl); }
+          });
+        } }
       let busy = false;   // χωρίς κουμπί, ο φύλακας διπλής αποστολής ζει εδώ
       const submit = async () => {
-        const html = ed.innerHTML.trim();
-        const hasMsg = !!html && html !== '<br>';
+        let html = ed.innerHTML.trim();
+        let hasMsg = !!html && html !== '<br>';
+        /* Μόνο αρχεία, χωρίς κείμενο: η ενέργεια γράφεται με τα ονόματά τους — αλλιώς
+           το Enter δεν έκανε τίποτα και τα αρχεία έμεναν «προς επισύναψη». */
+        if (!hasMsg && pending.length) { html = 'Επισύναψη: ' + pending.map(f => esc(f.name)).join(', '); hasMsg = true; }
         const ballSel = $('#chkBall', dr), stSel = $('#chkSt', dr);
         const ballV = ballSel ? (+ballSel.value || 0) : 0, stV = stSel ? (+stSel.value || 0) : 0;
         if (busy || (!hasMsg && !ballV && !stV)) { return; }
@@ -5253,7 +5304,15 @@ async function openTask(id, entryId, opts) {
           if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
         }
         if (!r.id) { ed.innerHTML = ''; openTask(id); if (window.R && window.R[S.view]) { window.R[S.view](); } return; }
-        for (const f of pending) { await actUpload(f, r.id); }
+        const failed = [];
+        for (let k = 0; k < pending.length; k++) {
+          const f = pending[k];
+          const h = $('#chkHint', dr); if (h) { h.textContent = `Ανέβασμα ${k + 1}/${pending.length}: ${f.name}…`; }
+          const u = await actUpload(f, r.id);
+          if (u.err) { failed.push(f.name + ' (' + u.err + ')'); }
+        }
+        pending.splice(0).forEach(drop);
+        if (failed.length) { toast('Δεν ανέβηκε: ' + failed.join(' · ') + ' — δοκίμασε ξανά από ⋯ → Επισύναψη αρχείου', true); }
         /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
            επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
            καταχωρημένο κείμενο θα επέστρεφε στον συνθέτη σαν να μην στάλθηκε. */
@@ -5321,7 +5380,9 @@ async function openTask(id, entryId, opts) {
     const fi = document.createElement('input');
     fi.type = 'file'; fi.multiple = true;
     fi.onchange = async () => {
-      for (const f of fi.files) { await actUpload(f, cid); }
+      const failed = [];
+      for (const f of fi.files) { const u = await actUpload(f, cid); if (u.err) { failed.push(f.name + ' (' + u.err + ')'); } }
+      if (failed.length) { toast('Δεν ανέβηκε: ' + failed.join(' · '), true); }
       openTask(id);
     };
     fi.click();

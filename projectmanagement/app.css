@@ -5423,3 +5423,15 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 @media (prefers-reduced-motion:reduce){.lv-run i{animation:none}}
 .lv-subn small{opacity:.7;font-weight:600}
 .lv-subn0{opacity:.6}
+/* Συνημμένα σε αναμονή στον συνθέτη ενέργειας (21/10/2026): προβολή + ✕ πριν την καταχώρηση */
+.act-files{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px;border-top:1px solid var(--line)}
+.act-file{display:inline-flex;align-items:center;max-width:280px;border:1px solid var(--line);border-radius:8px;background:var(--card);overflow:hidden}
+.act-file-v{display:inline-flex;align-items:center;gap:6px;min-width:0;padding:3px 8px 3px 4px;border:0;background:none;color:inherit;font-size:12px;cursor:pointer}
+.act-file-v:hover{background:var(--canvas)}
+.act-file-v img{width:28px;height:28px;object-fit:cover;border-radius:5px;flex:none}
+.act-file-v svg{width:14px;height:14px;flex:none;margin-left:4px}
+.act-file-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.act-file-v .mut{font-size:11px;flex:none}
+.act-file-x{border:0;border-left:1px solid var(--line);background:none;color:var(--mut);padding:0 8px;align-self:stretch;cursor:pointer;font-size:12px}
+.act-file-x:hover{color:var(--bad);background:var(--canvas)}
+.act-composer.act-drop{outline:2px dashed var(--brand);outline-offset:-2px}
