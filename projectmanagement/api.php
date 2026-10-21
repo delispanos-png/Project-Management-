@@ -15876,11 +15876,18 @@ case 'file_confirm':                      // καταχώρηση μετά απ�
     out(['ok' => true, 'file' => cnp_file_row($rec)]);
 
 case 'file_upload':                       // server-side upload (μικρά ή local driver) — multipart
+    /* Πάνω από post_max_size η PHP αδειάζει $_POST/$_FILES — έβγαινε «forbidden» χωρίς εξήγηση. */
+    if (empty($_FILES) && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0 && empty($_POST)) {
+        fail('Πολύ μεγάλο αρχείο για τον server (όριο ' . ini_get('post_max_size') . ')', 400);
+    }
     if (!empty($_FILES)) { $in = $_POST; }
     $module = (string) ($in['module'] ?? '');
     if (!cnp_file_authz($adminId, $FULL, $module)) { fail('forbidden', 403); }
     if (!cnp_file_obj_ok($adminId, $FULL, $module, $in['ref_type'] ?? '', $in['ref_id'] ?? 0, true)) { fail('forbidden', 403); }
     $f = $_FILES['file'] ?? null;
+    if ($f && in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+        fail('Πολύ μεγάλο αρχείο για τον server (όριο ' . ini_get('upload_max_filesize') . ')', 400);
+    }
     if (!$f || $f['error'] !== UPLOAD_ERR_OK) { fail('Σφάλμα ανεβάσματος', 400); }
     if (!cnp_file_ext_ok($f['name'])) { fail('Μη επιτρεπτός τύπος αρχείου', 400); }
     if ($f['size'] > 50 * 1024 * 1024) { fail('Πολύ μεγάλο για server upload — απαιτείται S3 (direct)', 400); }
