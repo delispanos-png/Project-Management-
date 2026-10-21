@@ -1851,14 +1851,35 @@ document.addEventListener('mousedown', e => { if (rtePop && !rtePop.contains(e.t
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && rtePop) { e.stopPropagation(); rteClosePop(); } }, true);
 /* Ανέβασμα αρχείου ΜΕΣΑ στο κείμενο: εικόνα → inline· άλλο → σύνδεσμος 📎. Σε εργασία το αρχείο
    πάει και στα «Συνημμένα ζητουμένου» (ref_type task), ώστε να μη χάνεται αν σβηστεί ο σύνδεσμος. */
+/* Ανέβασμα αρχείου — ΚΟΙΝΟ. ΠΡΩΤΑ κατευθείαν στο S3 (presign → PUT → confirm): το
+   multipart περνά από την PHP, που κόβει στα 8MB (upload_max_filesize) και τα μεγαλύτερα
+   «χάνονταν» (21/10/2026). Multipart μόνο με local driver. Επιστρέφει {file} ή {err}. */
+async function cnpUploadFile(file, meta) {
+  const mime = file.type || 'application/octet-stream';
+  try {
+    const pre = await api('file_presign_put', {...meta, filename: file.name, mime, size: file.size});
+    if (pre && pre.mode === 'direct') {
+      const put = await fetch(pre.uploadUrl, {method: 'PUT', headers: pre.headers || {'Content-Type': mime}, body: file});
+      if (!put.ok) { throw new Error('cloud HTTP ' + put.status); }
+      const c = await api('file_confirm', {...meta, key: pre.key, orig_name: file.name, mime, size: file.size});
+      return c && c.file ? {file: c.file} : {err: 'δεν καταχωρήθηκε'};
+    }
+    const fd = new FormData();
+    fd.append('module', meta.module); fd.append('ref_type', meta.ref_type || ''); fd.append('ref_id', String(meta.ref_id || 0));
+    fd.append('file', file);
+    const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(x => x.json()).catch(() => null);
+    return r && r.file ? {file: r.file} : {err: (r && r.error) || 'σφάλμα ανεβάσματος'};
+  } catch (er) { return {err: (er && er.message) || 'σφάλμα ανεβάσματος'}; }
+}
+window.cnpUploadFile = cnpUploadFile;
 async function cnpRteUpload(ed, file) {
   if (/^image\//.test(file.type || '')) { return cnpPasteImage(ed, file); }
   const sel = getSelection(), range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
   toast('Ανέβασμα «' + file.name + '»…');
-  const fd = new FormData(), tid = +(ed.dataset.task || 0);
-  fd.append('module', 'task'); fd.append('ref_type', tid ? 'task' : 'rte'); fd.append('ref_id', String(tid)); fd.append('file', file);
-  const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json()).catch(() => null);
-  if (!r || !r.file) { toast((r && r.error) || 'Το αρχείο δεν ανέβηκε', true); return false; }
+  const tid = +(ed.dataset.task || 0);
+  const r = await cnpUploadFile(file, {module: 'task', ref_type: tid ? 'task' : 'rte', ref_id: tid});
+  if (!r.file) { toast('Το αρχείο δεν ανέβηκε: ' + r.err, true); return false; }
   ed.focus();
   if (range && ed.contains(range.startContainer)) { sel.removeAllRanges(); sel.addRange(range); }
   document.execCommand('insertHTML', false, `<a href="api.php?a=file_get&id=${r.file.id}" class="rte-file">📎 ${esc(file.name)}</a>&nbsp;`);
@@ -2087,13 +2108,18 @@ document.addEventListener('click', e => {
   ed.dispatchEvent(new Event('input', {bubbles: true}));
   if (window.CNP_markDirty) { window.CNP_markDirty(ed); }
 });
+/* Ζώνη με δικό της χειρισμό αρχείων (data-file-drop) — εκτός αν πιο κοντά είναι
+   επεξεργασία υπάρχουσας ενέργειας: εκεί το αρχείο μπαίνει inline, όπως πριν. */
+const cnpInDropZone = e => { const z = e.target.closest && e.target.closest('[data-file-drop], .act-editing'); return !!(z && z.hasAttribute('data-file-drop')); };
 /* Σύρσιμο αρχείων ΜΕΣΑ στον editor: μπαίνουν εκεί που τα άφησες (εικόνα inline, άλλο ως 📎). */
 document.addEventListener('dragover', e => {
+  if (cnpInDropZone(e)) { return; }   // η ζώνη έχει δικό της χειρισμό
   const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"], .act-edit[contenteditable="true"]');
   if (ed && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); ed.classList.add('rte-drop'); }
 }, true);
 document.addEventListener('dragleave', e => { const ed = e.target.closest && e.target.closest('.rte, .act-edit'); if (ed) { ed.classList.remove('rte-drop'); } }, true);
 document.addEventListener('drop', async e => {
+  if (cnpInDropZone(e)) { return; }
   const ed = e.target.closest && e.target.closest('.rte[contenteditable="true"], .act-edit[contenteditable="true"]');
   if (!ed || !e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) { return; }
   e.preventDefault(); e.stopPropagation(); ed.classList.remove('rte-drop');
@@ -5114,29 +5140,8 @@ async function openTask(id, entryId, opts) {
      Enter-ως-αποθήκευση κόβει τη σκέψη στη μέση. */
 
   /* Επικόλληση εικόνας: ανεβαίνει και μπαίνει ΜΕΣΑ στο κείμενο. */
-  /* Ανέβασμα συνημμένου ενέργειας. ΠΡΩΤΑ κατευθείαν στο S3 (presign → PUT → confirm):
-     το multipart περνά από την PHP, που κόβει στα 8MB (upload_max_filesize) — και τα
-     μεγαλύτερα «χάνονταν» σιωπηλά (21/10/2026). Multipart μόνο με local driver.
-     Επιστρέφει {file} ή {err} — ο καλών ΠΡΕΠΕΙ να δείξει το σφάλμα. */
-  const actUpload = async (file, refId) => {
-    const meta = {module: 'task', ref_type: 'check', ref_id: refId || 0};
-    const mime = file.type || 'application/octet-stream';
-    try {
-      const pre = await api('file_presign_put', {...meta, filename: file.name, mime, size: file.size});
-      if (pre && pre.mode === 'direct') {
-        const put = await fetch(pre.uploadUrl, {method: 'PUT', headers: pre.headers || {'Content-Type': mime}, body: file});
-        if (!put.ok) { throw new Error('cloud HTTP ' + put.status); }
-        const c = await api('file_confirm', {...meta, key: pre.key, orig_name: file.name, mime, size: file.size});
-        return c && c.file ? {file: c.file} : {err: 'δεν καταχωρήθηκε'};
-      }
-      const fd = new FormData();
-      fd.append('module', meta.module); fd.append('ref_type', meta.ref_type); fd.append('ref_id', meta.ref_id);
-      fd.append('file', file);
-      const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
-        .then(x => x.json()).catch(() => null);
-      return r && r.file ? {file: r.file} : {err: (r && r.error) || 'σφάλμα ανεβάσματος'};
-    } catch (er) { return {err: (er && er.message) || 'σφάλμα ανεβάσματος'}; }
-  };
+  /* Συνημμένο ενέργειας → {file} ή {err} (ο καλών δείχνει το σφάλμα). */
+  const actUpload = (file, refId) => cnpUploadFile(file, {module: 'task', ref_type: 'check', ref_id: refId || 0});
   const wireEditor = el => {
     el.addEventListener('paste', async e => {
       const f = cnpClipImage(e);
@@ -5264,17 +5269,22 @@ async function openTask(id, entryId, opts) {
         clip.onclick = () => fi.click();
         fi.onchange = () => { add(fi.files); fi.value = ''; };
       }
-      /* Σύρε αρχεία πάνω στο κουτί σύνθεσης → στην ίδια λίστα αναμονής. */
+      /* Σύρε αρχεία πάνω στη συζήτηση ή στο κουτί σύνθεσης → ΙΔΙΑ λίστα αναμονής με το 📎
+         (προβολή/✕ πριν την καταχώρηση). Το data-file-drop κρατά μακριά τον καθολικό
+         χειρισμό του editor, που τα έβαζε inline στο κείμενο. */
       { const comp = ed.closest('.act-composer');
-        if (comp) {
-          comp.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); comp.classList.add('act-drop'); } });
-          comp.addEventListener('dragleave', e => { if (!comp.contains(e.relatedTarget)) { comp.classList.remove('act-drop'); } });
-          comp.addEventListener('drop', e => {
+        const zones = [comp, $('#dCheck', dr)].filter(Boolean);
+        const isFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+        zones.forEach(z => {
+          z.setAttribute('data-file-drop', '1');
+          z.addEventListener('dragover', e => { if (isFiles(e) && cnpInDropZone(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; comp.classList.add('act-drop'); } });
+          z.addEventListener('dragleave', e => { if (!zones.some(x => x.contains(e.relatedTarget))) { comp.classList.remove('act-drop'); } });
+          z.addEventListener('drop', e => {
             comp.classList.remove('act-drop');
             const fl = e.dataTransfer && e.dataTransfer.files;
-            if (fl && fl.length) { e.preventDefault(); add(fl); }
+            if (fl && fl.length && cnpInDropZone(e)) { e.preventDefault(); add(fl); ed.focus(); }
           });
-        } }
+        }); }
       let busy = false;   // χωρίς κουμπί, ο φύλακας διπλής αποστολής ζει εδώ
       const submit = async () => {
         let html = ed.innerHTML.trim();
