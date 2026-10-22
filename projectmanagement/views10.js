@@ -45,6 +45,17 @@ const lvPill = p => {
   const d = LV_PH[p] || ['—', 'var(--mut,#64748b)'];
   return `<span class="lv-pill" style="color:${d[1]};border-color:${d[1]}33;background:${d[1]}14">${d[0]}</span>`;
 };
+/* Ποιος αποφάσισε / ποιος καταχώρισε / σημείωση — μικρή γραμμή κάτω από την κατάσταση. */
+const lvWho = r => {
+  const bits = [];
+  if (r.approvedBy && r.status !== 'requested') {
+    bits.push((r.status === 'rejected' ? 'απέρριψε ' : r.status === 'cancelled' ? 'ακύρωσε ' : 'ενέκρινε ')
+      + esc(r.approvedBy) + (r.approvedAt ? ' ' + lvDate(r.approvedAt.slice(0, 10)) : ''));
+  }
+  if (r.createdBy) { bits.push('καταχώριση: ' + esc(r.createdBy)); }
+  if (r.note) { bits.push('«' + esc(r.note) + '»'); }
+  return bits.length ? `<div class="mut" style="font-size:11px;margin-top:3px">${bits.join(' · ')}</div>` : '';
+};
 const lvTile = (n, l, col, title) =>
   `<div class="su-stat"${title ? ` title="${esc(title)}"` : ''}><div>
     <div class="n"${col ? ` style="color:${col}"` : ''}>${n}</div><div class="l">${esc(l)}</div></div></div>`;
@@ -82,6 +93,13 @@ function lvModal({title, body, ok = 'Αποθήκευση', cancel = 'Άκυρο
     const prev = lvModal._el;
     lvModal._el = ovl;
     const done = v => {
+      /* ΣΤΙΓΜΙΟΤΥΠΟ ΤΙΜΩΝ ΠΡΙΝ ΚΛΕΙΣΕΙ (22/10/2026): ο καλών διαβάζει τα πεδία ΜΕΤΑ το
+         await — με το παράθυρο ήδη σβησμένο το lvV γύριζε κενό και κάθε αίτημα/καταχώριση
+         έπεφτε στο «Βάλε ημερομηνία έναρξης». */
+      const snap = {};
+      ovl.querySelectorAll('[id]').forEach(el => { if ('value' in el) { snap[el.id] = el.value; } });
+      ovl.querySelectorAll('input[type=checkbox][data-lvap]').forEach(el => { if (el.checked) { (snap._ap = snap._ap || []).push(+el.dataset.lvap); } });
+      lvModal._vals = snap;
       ovl.remove(); document.removeEventListener('keydown', onKey);
       lvModal._el = prev || null; resolve(v);
     };
@@ -100,7 +118,9 @@ function lvModal({title, body, ok = 'Αποθήκευση', cancel = 'Άκυρο
 /** Διαβάζει πεδίο του ανοιχτού παραθύρου. */
 const lvV = id => {
   const el = lvModal._el && lvModal._el.querySelector('#' + id);
-  return el ? el.value : '';
+  if (el) { return el.value; }
+  const v = lvModal._vals && lvModal._vals[id];
+  return v == null ? '' : v;
 };
 
 const lvTypeOpts = (types, sel) => (types || []).map(t =>
@@ -137,7 +157,13 @@ async function lvEditLeave(row, ctx) {
         ${lvF('Δήλωση ΕΡΓΑΝΗ', `<input class="inp" id="lvErg" value="${esc(r.ergani || '')}"
             placeholder="π.χ. 20/3-27/3/2026">`)}
         ${lvF('Σημείωση', `<input class="inp" id="lvNote" value="${esc(r.note || '')}">`)}
-      </div>`);
+      </div>`)
+    /* Όποιος δεν εγκρίνει, καταχωρεί για έγκριση — το λέμε ΠΡΙΝ πατήσει, όχι μετά. */
+    + (ctx.canApprove ? '' : `<div class="lv-hint">${isNew
+        ? 'Η καταχώριση πηγαίνει <b>για έγκριση</b>'
+        : 'Αλλαγή σε ημερομηνίες, ημέρες, τύπο ή έτος ξαναστέλνει την άδεια <b>για έγκριση</b>'}${
+        (ctx.approverNames || []).length ? ' σε ' + esc(ctx.approverNames.join(' ή ')) : ''}.
+        ΕΡΓΑΝΗ και σημείωση αλλάζουν χωρίς έγκριση.</div>`);
 
   const act = await lvModal({
     title: isNew ? 'Νέα άδεια' : 'Άδεια — ' + (r.name || ''),
@@ -164,7 +190,9 @@ async function lvEditLeave(row, ctx) {
   if (!vals.from) { toast('Βάλε ημερομηνία έναρξης', 1); return false; }
   try {
     const res = await api('leave_save', Object.assign({id: row ? row.id : 0}, vals));
-    toast(`Καταχωρήθηκε — ${lvN(res.days)} ημέρες στο έτος ${res.year}`);
+    toast(res.status === 'requested' && !(row && row.status === 'requested')
+      ? `Στάλθηκε για έγκριση${(res.approvers || []).length ? ' σε ' + res.approvers.join(' ή ') : ''} — ${lvN(res.days)} ημέρες, έτος ${res.year}`
+      : `Καταχωρήθηκε — ${lvN(res.days)} ημέρες στο έτος ${res.year}`);
     return true;
   } catch (e) { toast(e.message, 1); return false; }
 }
@@ -197,7 +225,7 @@ R.myleave = async function () {
       <td data-l="Τύπος">${esc(r.typeLabel)}</td>
       <td class="r" data-l="Ημέρες">${lvN(r.days)}</td>
       <td class="mut" data-l="Έτος">${r.year}</td>
-      <td data-l="Κατάσταση">${lvPill(r.phase)}</td>
+      <td data-l="Κατάσταση">${lvPill(r.phase)}${lvWho(r)}</td>
       <td class="r">${r.phase === 'requested'
         ? `<button class="btn btn-o btn-sm" data-lvw="${r.id}">Ανάκληση</button>` : ''}</td>
     </tr>`).join('')}</tbody></table>`;
@@ -205,6 +233,7 @@ R.myleave = async function () {
   c.innerHTML = `
   <div class="fbar">
     ${fChip('Υπόλοιπο', `<b style="padding:0 6px">${lvN(d.remaining)} ημέρες</b>`, false, '')}
+    ${(d.approvers || []).length ? fChip('Εγκρίνουν', `<span style="padding:0 6px">${esc(d.approvers.join(', '))}</span>`, false, '') : ''}
     <span class="fbar-sp"></span>
     <button class="fchip fchip-go" id="lvAsk">${I.plus} Νέο αίτημα</button>
   </div>
@@ -281,8 +310,9 @@ async function lvAsk(d) {
     + lvSec('Λόγος', `<div class="lv-grid one">
         ${lvF('Σημείωση', '<input class="inp" id="lvNote" placeholder="προαιρετικό">')}
       </div>
-      <div class="lv-hint">Το αίτημα πηγαίνει για έγκριση — μέχρι τότε δεν εμφανίζεται
-        στο κοινό ημερολόγιο.</div>`);
+      <div class="lv-hint">Το αίτημα πηγαίνει για έγκριση${(d.approvers || []).length
+        ? ' σε <b>' + esc(d.approvers.join(' ή ')) + '</b>' : ''} — μέχρι τότε δεν εμφανίζεται
+        στο κοινό ημερολόγιο. Θα ειδοποιηθείς για την απόφαση.</div>`);
 
   if (await lvModal({title: 'Αίτημα άδειας', body, ok: 'Στείλε για έγκριση'}) !== 'ok') { return false; }
   const vals = {type: lvV('lvType'), from: lvV('lvFrom'), to: lvV('lvTo'),
@@ -290,7 +320,7 @@ async function lvAsk(d) {
   if (!vals.from) { toast('Βάλε ημερομηνία έναρξης', 1); return false; }
   try {
     const res = await api('leave_request', vals);
-    toast(`Στάλθηκε — ${lvN(res.days)} ημέρες, έτος δικαιώματος ${res.year}`);
+    toast(`Στάλθηκε για έγκριση — ${lvN(res.days)} ημέρες, έτος δικαιώματος ${res.year}`);
     return true;
   } catch (e) { toast(e.message, 1); return false; }
 }
@@ -338,7 +368,8 @@ R.leave = async function () {
   if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
   const canEdit = cnpCan('hr.leave.edit');
-  const canOk   = cnpCan('hr.leave.approve');
+  const canOk   = !!d.canApprove;          // ονομαστική λίστα εγκρινόντων, όχι cap
+  const lvCtx   = {types: d.types, staff: null, canApprove: canOk, approverNames: d.approverNames || []};
   const canDel  = cnpCan('hr.leave.delete');
   const rows    = d.rows || [];
   const totRem  = rows.reduce((s, r) => s + r.remaining, 0);
@@ -358,6 +389,8 @@ R.leave = async function () {
         placeholder="${esc(F.ph)}" style="width:${F.w}px">`, !!st[k], k); }
       return fChip(F.label, fSel(k, F.opts(d), st[k]), !!st[k], k);
     }).join('') + fAdd(LV_F, st.shown) : ''}
+    <button type="button" class="fchip" id="lvAppr" title="${d.canSetApprovers ? 'Αλλαγή εγκρινόντων' : 'Ποιος εγκρίνει τις άδειες'}">
+      Εγκρίνουν: <b style="padding-left:4px">${esc((d.approverNames || []).join(', ') || '— όσοι έχουν «Έγκριση αδειών»')}</b></button>
     <span class="fbar-sp"></span>
     <button class="fchip${wantRows ? ' on' : ''}" id="lvLog">${wantRows ? '← Υπόλοιπα' : 'Ιστορικό εγγραφών'}</button>
     ${canEdit ? `<button class="fchip" id="lvAddStaff">Εργαζόμενοι</button>
@@ -376,7 +409,7 @@ R.leave = async function () {
           <td data-l="Τύπος">${esc(r.typeLabel)}</td>
           <td class="r" data-l="Ημέρες">${lvN(r.days)}</td>
           <td class="mut" data-l="Έτος">${r.year}</td>
-          <td data-l="Κατάσταση">${lvPill(r.phase)}${r.flagLabel ? ` <span class="lv-flag">${esc(r.flagLabel)}</span>` : ''}</td>
+          <td data-l="Κατάσταση">${lvPill(r.phase)}${r.flagLabel ? ` <span class="lv-flag">${esc(r.flagLabel)}</span>` : ''}${lvWho(r)}</td>
           <td data-l="ΕΡΓΑΝΗ">${r.ergani ? esc(r.ergani)
             : (lvErgLate(r.year) ? '<span class="lv-miss">λείπει</span>'
                : '<span class="mut">εκκρεμεί</span>')}</td>
@@ -399,14 +432,18 @@ R.leave = async function () {
     ${pend.length ? `<div class="card lv-warn"><div class="card-h">Θέλουν απόφαση</div>
       <div class="card-b" style="padding:0"><table class="lv-t"><tbody>
       ${pend.map(r => `<tr>
-        <td class="lv-hd"><b>${esc(r.name)}</b> <span class="mut">${esc(r.span)}</span></td>
+        <td class="lv-hd"><b>${esc(r.name)}</b> <span class="mut">${esc(r.span)}</span>${lvWho(r)}</td>
         <td data-l="Τύπος">${esc(r.typeLabel)}</td>
         <td class="r" data-l="Ημέρες">${lvN(r.days)}</td>
         <td class="mut" data-l="Έτος δικαιώματος">${r.year}</td>
-        <td class="r">${canOk
+        <td class="r" data-l="Υπόλοιπο">${(() => {
+          const sr = rows.find(x => x.staffId === r.staffId);
+          return sr && r.deducts ? `<span class="mut" title="Συνολικό υπόλοιπο πριν από αυτό το αίτημα">μένουν ${lvN(sr.totalRemaining)}</span>` : '';
+        })()}</td>
+        <td class="r">${canOk && !(r.adminId === d.meAdmin && (d.approvers || []).some(a => a !== d.meAdmin))
           ? `<button class="btn btn-p btn-sm" data-lvok="${r.id}">Έγκριση</button>
              <button class="btn btn-o btn-sm" data-lvno="${r.id}">Απόρριψη</button>`
-          : '<span class="mut">χρειάζεται δικαίωμα έγκρισης</span>'}</td>
+          : `<span class="mut">${canOk ? 'την εγκρίνει άλλος' : 'περιμένει ' + esc((d.approverNames || []).join(' ή ') || 'έγκριση')}</span>`}</td>
       </tr>`).join('')}</tbody></table></div></div>` : ''}
 
     ${expiring.length ? `<div class="card lv-warn"><div class="card-h">Λήγουν — προθεσμία 31 Μαρτίου</div>
@@ -465,8 +502,8 @@ R.leave = async function () {
 
   const nb = $('#lvNew');
   if (nb) { nb.onclick = async () => {
-    if (await lvEditLeave(null, {types: d.types, staff: rows, staffPick: true,
-      staffId: rows[0] && rows[0].staffId})) { R.leave(); }
+    if (await lvEditLeave(null, Object.assign({}, lvCtx, {staff: rows, staffPick: true,
+      staffId: rows[0] && rows[0].staffId}))) { R.leave(); }
   }; }
   const asb = $('#lvAddStaff');
   if (asb) { asb.onclick = async () => { if (await lvEnrol(rows)) { R.leave(); } }; }
@@ -474,8 +511,13 @@ R.leave = async function () {
   $$('[data-lve]').forEach(b => b.onclick = async e => {
     e.stopPropagation();
     const row = (l.rows || []).find(x => x.id === +b.dataset.lve);
-    if (await lvEditLeave(row, {types: d.types, staff: rows, staffPick: true, canDel})) { R.leave(); }
+    if (await lvEditLeave(row, Object.assign({}, lvCtx, {staff: rows, staffPick: true, canDel}))) { R.leave(); }
   });
+  { const ab = $('#lvAppr');
+    if (ab) { ab.onclick = async () => {
+      if (!d.canSetApprovers) { toast('Τους εγκρίνοντες τους ορίζει ο διαχειριστής (Ρυθμίσεις)'); return; }
+      if (await lvApprovers(d.approvers || [])) { R.leave(); }
+    }; } }
   $$('[data-lvok]').forEach(b => b.onclick = () => lvDecide(+b.dataset.lvok, 'approved'));
   $$('[data-lvno]').forEach(b => b.onclick = () => lvDecide(+b.dataset.lvno, 'rejected'));
 };
@@ -498,6 +540,24 @@ async function lvDecide(id, decision) {
     }
     toast(e.message, 1);
   }
+}
+
+/* Ποιοι εγκρίνουν άδειες — ονομαστικά. Μόνο με «Ρυθμίσεις: επεξεργασία». */
+async function lvApprovers(cur) {
+  const list = (S.boot.admins || []).filter(a => !a.disabled && !a.bot);
+  const body = lvSec('Ποιοι εγκρίνουν', `<div class="lv-grid one">${list.map(a =>
+      `<label style="display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0">
+        <input type="checkbox" data-lvap="${a.id}" ${cur.includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('')}</div>
+    <div class="lv-hint">Μόνο αυτοί βλέπουν «Έγκριση/Απόρριψη» και ειδοποιούνται για κάθε αίτημα.
+      Κανείς δεν εγκρίνει τη δική του άδεια όσο υπάρχει άλλος εγκρίνων.</div>`);
+  if (await lvModal({title: 'Έγκριση αδειών', body}) !== 'ok') { return false; }
+  const ids = (lvModal._vals && lvModal._vals._ap) || [];
+  if (!ids.length) { toast('Διάλεξε τουλάχιστον έναν εγκρίνοντα', 1); return false; }
+  try {
+    await api('settings_save', {settings: {leave_approvers: ids.join(',')}});
+    toast('Εγκρίνουν: ' + list.filter(a => ids.includes(a.id)).map(a => a.name).join(', '));
+    return true;
+  } catch (e) { toast(e.message, 1); return false; }
 }
 
 /* ───────────────── Η καρτέλα ενός εργαζομένου ───────────────── */

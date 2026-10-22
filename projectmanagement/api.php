@@ -1427,6 +1427,9 @@ function cnp_leave_row($r)
         'note'      => (string) $r->note,
         'source'    => (string) $r->source_id,
         'approvedBy' => $r->approved_by ? Db::adminName($r->approved_by) : '',
+        'approvedAt' => (string) ($r->approved_at ?? ''),
+        'createdBy' => !empty($r->created_by) && $st && (int) $r->created_by !== (int) $st->admin_id
+            ? Db::adminName($r->created_by) : '',
     ];
 }
 
@@ -1511,6 +1514,42 @@ function cnp_leave_person($st, $withLeaves = false)
  * @param string|null $forceStatus 'requested' όταν ζητάει ο ίδιος ο εργαζόμενος —
  *                                 δεν του επιτρέπουμε να γράψει «εγκεκριμένη».
  */
+/**
+ * ΠΟΙΟΣ ΕΓΚΡΙΝΕΙ ΑΔΕΙΕΣ (22/10/2026): ονομαστική λίστα στη ρύθμιση `leave_approvers`
+ * (σήμερα Εμμανουέλα + Παναγιώτης). Ούτε το κύκλωμα «Προσωπικό» ούτε το Full αρκούν —
+ * αλλιώς θα ενέκρινε κάθε διαχειριστής, και το γραφείο προσωπικού θα ενέκρινε ό,τι
+ * καταχωρεί το ίδιο. Κενή λίστα = όποιος έχει ρητά το hr.leave.approve.
+ */
+function cnp_leave_approvers()
+{
+    $raw = (string) (Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')
+        ->where('setting', 'leave_approvers')->value('value') ?? '');
+    $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', $raw)))));
+    if (!$ids) { return []; }
+    return array_map('intval', Capsule::table('tbladmins')->whereIn('id', $ids)->where('disabled', 0)->pluck('id')->all());
+}
+function cnp_leave_can_approve($aid)
+{
+    $l = cnp_leave_approvers();
+    if ($l) { return in_array((int) $aid, $l, true); }
+    return cnp_has_cap((int) $aid, Db::isFullAccess((int) $aid), 'hr.leave.approve');
+}
+/** Ποιοι ειδοποιούνται για αίτημα — ποτέ ο ίδιος ο αιτών ή αυτός που το πέρασε. */
+function cnp_leave_approver_ids()
+{
+    $l = cnp_leave_approvers();
+    if ($l) { return $l; }
+    $out = [];
+    foreach (Capsule::table('tbladmins')->where('disabled', 0)->pluck('id') as $aid) {
+        if (cnp_has_cap((int) $aid, Db::isFullAccess((int) $aid), 'hr.leave.approve')) { $out[] = (int) $aid; }
+    }
+    return $out;
+}
+function cnp_leave_approver_names()
+{
+    return array_map(function ($i) { return Db::adminName($i); }, cnp_leave_approvers());
+}
+
 function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null)
 {
     $type = (string) ($in['type'] ?? 'ANNUAL');
@@ -1548,36 +1587,69 @@ function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null
         'note'       => trim((string) ($in['note'] ?? '')) ?: null,
         'updated_at' => date('Y-m-d H:i:s'),
     ];
+    $prev = $id ? Capsule::table('mod_cpm_leaves')->where('id', (int) $id)->first() : null;
+    if ($id && !$prev) { fail('Δεν βρέθηκε'); }
+    /* Τι άλλαξε ουσιαστικά (όχι ΕΡΓΑΝΗ/σημείωση): αυτό ξαναθέλει έγκριση. */
+    $changed = !$prev || $prev->date_from !== $from || $prev->date_to !== $to || $prev->type !== $type
+        || abs((float) $prev->days - $days) > 0.001 || (int) $prev->year !== $year;
+
+    /* ΕΠΙΚΑΛΥΨΗ: δύο ενεργές άδειες του ίδιου ανθρώπου τις ίδιες ημέρες χρεώνουν διπλά. */
+    if ($changed) {
+        $ov = Capsule::table('mod_cpm_leaves')->where('staff_id', (int) $staff->id)
+            ->whereIn('status', Leave::COUNTS)
+            ->where('date_from', '<=', $to)->where('date_to', '>=', $from)
+            ->when($id, function ($q) use ($id) { $q->where('id', '!=', (int) $id); })->first();
+        if ($ov) {
+            fail('Επικαλύπτεται με ' . Leave::typeLabel($ov->type) . ' ' . cnp_leave_span($ov)
+                . ' (' . Leave::flowLabel($ov->status) . ') — άλλαξε τις ημερομηνίες ή ακύρωσε την άλλη.');
+        }
+    }
+
+    /* Η ΕΓΚΡΙΣΗ ΔΕΝ ΓΙΝΕΤΑΙ ΜΕ ΤΗΝ ΚΑΤΑΧΩΡΙΣΗ. Όποιος δεν είναι στους εγκρίνοντες
+       (π.χ. γραφείο προσωπικού) καταχωρεί ως «Ζητήθηκε», και κάθε ουσιαστική αλλαγή σε
+       ήδη εγκεκριμένη άδεια την ξαναστέλνει για έγκριση. Τα ΕΡΓΑΝΗ/σημείωση όχι. */
+    $canOk = cnp_leave_can_approve($byAdminId);
     if ($forceStatus !== null) {
         $vals['status'] = $forceStatus;
-    } elseif (isset($in['status']) && isset(Leave::FLOW[(string) $in['status']])) {
+    } elseif ($canOk && isset($in['status']) && isset(Leave::FLOW[(string) $in['status']])) {
         $vals['status'] = (string) $in['status'];
+    } elseif (!$canOk && $changed) {
+        $vals['status'] = 'requested';
+    }
+    if (($vals['status'] ?? '') === 'requested') {
+        $vals['approved_by'] = null; $vals['approved_at'] = null;
+    } elseif (!$prev && $canOk) {
+        $vals['approved_by'] = (int) $byAdminId; $vals['approved_at'] = date('Y-m-d H:i:s');
     }
 
     if ($id) {
         Capsule::table('mod_cpm_leaves')->where('id', (int) $id)->update($vals);
     } else {
-        $vals['status'] = $vals['status'] ?? ($forceStatus ?: 'approved');
+        $vals['status'] = $vals['status'] ?? 'approved';
         $vals['created_by'] = (int) $byAdminId;
         $vals['created_at'] = date('Y-m-d H:i:s');
         $id = (int) Capsule::table('mod_cpm_leaves')->insertGetId($vals);
     }
     cnp_leave_mirror($id);
 
-    /* Ο υπεύθυνος μαθαίνει ότι υπάρχει αίτημα — χωρίς αυτό, το αίτημα κάθεται. */
-    if ($forceStatus === 'requested') {
-        foreach (Capsule::table('tbladmins')->where('disabled', 0)->pluck('id') as $aid) {
-            if ((int) $aid !== (int) $byAdminId && cnp_has_cap((int) $aid, false, 'hr.leave.approve')) {
-                Db::pushNotification((int) $aid, 'leave',
-                    'Αίτημα άδειας: ' . Db::adminName($staff->admin_id) . ' — '
-                    . date('d/m/Y', strtotime($from)) . ($to !== $from ? ' – ' . date('d/m/Y', strtotime($to)) : ''),
-                    '#/leave');
-            }
+    /* Οι εγκρίνοντες μαθαίνουν ότι υπάρχει αίτημα — χωρίς αυτό, το αίτημα κάθεται. */
+    $nowSt = (string) Capsule::table('mod_cpm_leaves')->where('id', $id)->value('status');
+    if ($nowSt === 'requested' && (!$prev || $prev->status !== 'requested' || $changed)) {
+        $who = Db::adminName($staff->admin_id);
+        $by = (int) $byAdminId !== (int) $staff->admin_id ? ' · καταχώριση: ' . Db::adminName($byAdminId) : '';
+        foreach (cnp_leave_approver_ids() as $aid) {
+            if ($aid === (int) $byAdminId || $aid === (int) $staff->admin_id) { continue; }
+            Db::pushNotification($aid, 'leave',
+                'Αίτημα άδειας: ' . $who . ' — ' . Leave::typeLabel($type) . ' '
+                . date('d/m/Y', strtotime($from)) . ($to !== $from ? ' – ' . date('d/m/Y', strtotime($to)) : '')
+                . ' (' . rtrim(rtrim(number_format($days, 2, ',', ''), '0'), ',') . ' ημ.)' . $by,
+                '#/leave');
         }
     }
 
     $bal = Leave::balance($staff->id, $type);
-    return ['ok' => true, 'id' => (int) $id, 'days' => $days, 'year' => $year,
+    return ['ok' => true, 'id' => (int) $id, 'days' => $days, 'year' => $year, 'status' => $nowSt,
+        'approvers' => cnp_leave_approver_names(),
         'balance' => $bal[$year] ?? null];
 }
 
@@ -2208,7 +2280,7 @@ function cnp_settings_keys()
         'ticket_autoclose', 'ticket_autoclose_days', 'strict_areas', 'overrun_on', 'overrun_pct',
         'cards_on', 'cards_team', 'cards_esc_team', 'cards_age_days', 'cards_idle_days', 'cards_unassigned_days',
         'storage_driver', 's3_endpoint', 's3_region', 's3_bucket', 's3_key', 's3_secret', 's3_prefix',
-        'goodday_token', 'goodday_tz'];
+        'goodday_token', 'goodday_tz', 'leave_approvers'];
 }
 
 /** Token GoodDay (εισαγωγή εργασιών): κρυπτογραφημένο στη βάση, ΠΟΤΕ προς τον browser/logs. */
@@ -4103,7 +4175,8 @@ function cnp_explicit_caps()
 {
     /* clients.offers.create (28/9/2026): νέα προσφορά κάνουν μόνο ονομαστικά ορισμένοι
        (σήμερα: Παναγιώτης & Εμμανουέλα, Full). Όλοι οι άλλοι βλέπουν τις προσφορές. */
-    return ['reports.time', 'clients.offers.create'];
+    /* hr.leave.approve (22/10/2026): η έγκριση αδειών είναι ονομαστική — βλ. cnp_leave_approvers(). */
+    return ['reports.time', 'clients.offers.create', 'hr.leave.approve'];
 }
 
 /** Αλλαγή σε lead ή σε ό,τι κρέμεται από αυτό (εργασίες, προϊόντα, συγχώνευση): ίδιος
@@ -15827,6 +15900,9 @@ case 'settings_save':
             $v = cnp_vault_enc($v);
         }
         if ($k === 'goodday_tz') { $v = GoodDayImport::sourceTz($v); }
+        if ($k === 'leave_approvers') {
+            $v = implode(',', array_values(array_unique(array_filter(array_map('intval', explode(',', $v))))));
+        }
         $ex = Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', $k);
         if ($ex->exists()) {
             $ex->update(['value' => $v]);
@@ -21164,7 +21240,7 @@ case 'leave_me':
         out(['ok' => true, 'enrolled' => false,
             'note' => 'Αν πρόκειται για λάθος, μίλα στο γραφείο προσωπικού.']);
     }
-    out(['ok' => true, 'enrolled' => true] + cnp_leave_person($lvS, true));
+    out(['ok' => true, 'enrolled' => true, 'approvers' => cnp_leave_approver_names()] + cnp_leave_person($lvS, true));
 
 case 'leave_request':
     $lvS = Leave::staffFor($adminId);
@@ -21237,7 +21313,11 @@ case 'leave_staff':
     }
     usort($lvOut, function ($a, $b) { return strcmp($a['name'], $b['name']); });
     out(['ok' => true, 'year' => $lvYear, 'rows' => $lvOut, 'notYet' => $lvSkipped,
-        'years' => cnp_leave_years_seen(), 'types' => cnp_leave_types()]);
+        'years' => cnp_leave_years_seen(), 'types' => cnp_leave_types(),
+        /* Η έγκριση είναι ονομαστική — η οθόνη δεν τη συμπεραίνει από caps. */
+        'canApprove' => cnp_leave_can_approve($adminId), 'meAdmin' => $adminId,
+        'approvers' => cnp_leave_approvers(), 'approverNames' => cnp_leave_approver_names(),
+        'canSetApprovers' => cnp_has_cap($adminId, $FULL, 'admin.settings.edit')]);
 
 case 'leave_person':
     /* Η καρτέλα ΕΝΟΣ εργαζομένου: υπόλοιπα ανά έτος + οι άδειές του. Ίδια
@@ -21268,6 +21348,17 @@ case 'leave_decide':
     if (!$lvRow) { fail('Δεν βρέθηκε'); }
     $lvTo = (string) ($in['decision'] ?? '');
     if (!in_array($lvTo, ['approved', 'rejected', 'cancelled'], true)) { fail('Άγνωστη απόφαση'); }
+    if (!cnp_leave_can_approve($adminId)) {
+        fail('Τις άδειες εγκρίνουν: ' . (implode(', ', cnp_leave_approver_names()) ?: 'όσοι έχουν «Έγκριση αδειών»'), 403);
+    }
+    /* Κανείς δεν εγκρίνει τη δική του άδεια — εκτός αν είναι ο μόνος εγκρίνων. */
+    $lvOwner = (int) Capsule::table('mod_cpm_leave_staff')->where('id', $lvRow->staff_id)->value('admin_id');
+    if ($lvTo !== 'cancelled' && $lvOwner === (int) $adminId && count(array_diff(cnp_leave_approver_ids(), [$adminId])) > 0) {
+        fail('Τη δική σου άδεια την εγκρίνει άλλος εγκρίνων', 403);
+    }
+    if (in_array($lvTo, ['approved', 'rejected'], true) && $lvRow->status !== 'requested') {
+        fail('Η άδεια δεν περιμένει απόφαση (είναι «' . Leave::flowLabel($lvRow->status) . '»)');
+    }
     /* Η έγκριση κοιτάει ΞΑΝΑ το υπόλοιπο: ανάμεσα στο αίτημα και την έγκριση
        μπορεί να έχει καταχωρηθεί άλλη άδεια. */
     if ($lvTo === 'approved' && Leave::deducts($lvRow->type)) {
