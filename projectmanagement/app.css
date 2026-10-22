@@ -5318,3 +5318,10 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .lv-tkno{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--card);color:var(--brand);border-radius:7px;padding:1px 7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
 .lv-tkno:hover{border-color:var(--brand);background:var(--brand-soft,#0090dd14)}
 .lv-tkno svg{width:13px;height:13px}
+
+/* Μπάρα προόδου ανεβάσματος (cnpUploadBar) — σταθερή, επιζεί από ανανεώσεις της καρτέλας */
+.up-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;width:min(460px,calc(100vw - 32px));
+  background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.28);padding:9px 12px}
+.up-bar-t{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}
+.up-bar-p{height:6px;border-radius:4px;background:var(--line);overflow:hidden}
+.up-bar-p i{display:block;height:100%;width:0;background:var(--brand);transition:width .25s}

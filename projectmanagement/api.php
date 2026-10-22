@@ -3452,6 +3452,11 @@ function cnp_file_obj_ok($adminId, $FULL, $module, $refType, $refId, $write = fa
         if (!$tid) { return !$refId; }
         $t = Db::task($tid);
         if (!$t || !Db::canSeeTask($adminId, $t)) { return false; }
+        /* Ο ΣΥΝΤΑΚΤΗΣ μιας ενέργειας επισυνάπτει πάντα στη ΔΙΚΗ του ενέργεια. Μήνυμα + αρχείο +
+           μπάλα σε άλλον: τα αρχεία ανεβαίνουν ΜΕΤΑ την καταχώρηση — ως τότε η μπάλα έχει
+           φύγει και το file_confirm έδινε 403· το μήνυμα έμενε χωρίς αρχείο (22/10/2026). */
+        if ($write && $refType === 'check' && $refId
+            && (int) Capsule::table('mod_cpm_checklist')->where('id', $refId)->value('created_by') === (int) $adminId) { return true; }
         return !$write || cnp_task_write_ok($adminId, $FULL, $t) || cnp_was_asked($adminId, $tid);
     }
     return true;
@@ -9631,7 +9636,8 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     if (!$ci || $title === '') { fail('input'); }
     $t = Db::task((int) $ci->task_id);
     if (!$t || !Db::canSeeTask($adminId, $t)) { fail('input'); }
-    if (!cnp_task_write_ok($adminId, $FULL, $t)) {
+    /* Τη δική σου ενέργεια τη διορθώνεις πάντα — και αφού δώσεις τη μπάλα (22/10/2026). */
+    if (!cnp_task_write_ok($adminId, $FULL, $t) && (int) $ci->created_by !== (int) $adminId) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     cnp_task_lock_guard($t);
