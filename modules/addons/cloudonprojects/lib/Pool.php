@@ -431,7 +431,7 @@ class Pool
         $at   = $at ?: date('H:i');
         $open = Db::statusIds(['wait', 'work', 'after']);
         $work = Db::statusIds(['work']);
-        $away = Leave::awayOn($date);
+        $away = Db::awayOn($date);   // σήμανση «Άδεια» στο ημερολόγιο
 
         /* Η δεξαμενή: ανοιχτές εργασίες που ΔΕΝ τις κρατάει κανείς. */
         $pool = [];
