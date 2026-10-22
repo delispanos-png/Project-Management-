@@ -5314,3 +5314,7 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .lv-sec:last-child{margin-bottom:0}
 .lv-sub{font-size:11.5px;font-weight:700;color:var(--mut);text-transform:uppercase;
   letter-spacing:.3px;margin:16px 0 5px}
+/* Στήλη «Ticket» στις Views Λίστας (22/10/2026): ο αριθμός ανοίγει το ticket */
+.lv-tkno{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--card);color:var(--brand);border-radius:7px;padding:1px 7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lv-tkno:hover{border-color:var(--brand);background:var(--brand-soft,#0090dd14)}
+.lv-tkno svg{width:13px;height:13px}

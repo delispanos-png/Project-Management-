@@ -1479,7 +1479,7 @@ const lvPrioCol = p => window.CNP.cnpPrioColor(p);
 const LV_PRIO_HI = ['Έκτακτη', 'Μπλοκάρει', 'Κρίσιμη', 'Υψηλή'];
 /* Προεπιλεγμένα πλάτη στηλών πίνακα (px)· ο τίτλος παίρνει ό,τι περισσεύει. Ο χρήστης τα αλλάζει
    σέρνοντας το άκρο της κεφαλίδας — κρατιούνται στο view (cfg.widths). */
-const LV_W = {id: 70, running: 120, holder: 180, ball: 70, assignee: 160, project: 160, client: 170, dept: 140, status: 160,
+const LV_W = {id: 70, tkno: 110, running: 120, holder: 180, ball: 70, assignee: 160, project: 160, client: 170, dept: 140, status: 160,
   prio: 120, type: 150, start: 96, due: 96, sched: 104, est: 96, mins: 90, progress: 120, created: 120, done: 120, creator: 120};
 const LV_SHOW = ['icon', 'text', 'both'];
 const lvStRank = id => { const i = (S.boot.statuses || []).findIndex(x => x.id === +id); return i < 0 ? 999 : i; };
@@ -1500,6 +1500,8 @@ const LV_FIELDS = {
   mins:     {label: 'Χρόνος', kind: 'num', val: t => +t.mins || 0},
   running:  {label: '▶ Τρέχει τώρα', kind: 'bool', val: t => !!(t.running || []).length},
   ticket:   {label: 'Από ticket', kind: 'bool', val: t => !!t.ticket},
+  /* (22/10/2026) Ο ΑΡΙΘΜΟΣ του ticket (WHMCS tid, ή ο χειροκίνητος της παλιάς πλατφόρμας). */
+  tkno:     {label: 'Ticket', kind: 'text', val: t => t.ticketNo || ''},
   /* (16/10/2026) νέα πεδία — ίδια με τα «Έναρξη / Λήξη / Deadline / Εκτίμηση» της καρτέλας */
   ball:     {label: 'Μπάλα', kind: 'enum', val: t => t.ball ? adminName(t.ball) : 'Χωρίς μπάλα', none: 'Χωρίς μπάλα'},
   dept:     {label: 'Department', kind: 'enum', val: t => ((S.boot.depts || []).find(d => d.id === +t.dept) || {}).name || 'Χωρίς department', none: 'Χωρίς department'},
@@ -1527,7 +1529,7 @@ function lvDueB(t) {
 const LV_GROUPABLE = ['status', 'prio', 'duebucket', 'client', 'project', 'holder', 'ball', 'assignee', 'creator', 'dept', 'type', 'parent', 'overdue', 'running', 'ticket'];
 /* «Τρέχει τώρα» ΔΕΝ είναι στήλη (16/10/2026): δείχνεται πάντα ως μικρό ζωντανό σήμα πριν τον τίτλο (lvRun).
    Μένει ως φίλτρο/ομαδοποίηση· παλιά views που την είχαν στις στήλες απλώς τη χάνουν (lvNorm). */
-const LV_COLS = ['id', 'title', 'holder', 'ball', 'assignee', 'project', 'client', 'dept', 'status', 'prio', 'type', 'start', 'due', 'sched', 'est', 'mins', 'progress', 'created', 'done', 'creator'];
+const LV_COLS = ['id', 'title', 'tkno', 'holder', 'ball', 'assignee', 'project', 'client', 'dept', 'status', 'prio', 'type', 'start', 'due', 'sched', 'est', 'mins', 'progress', 'created', 'done', 'creator'];
 /* «Εγώ» σε φίλτρο προσώπου = όποιος ανοίγει το view (για πρότυπα που δουλεύουν για όλους). */
 const LV_ME = '@me';
 const LV_PERSON = ['holder', 'assignee', 'creator', 'ball'];
@@ -1791,6 +1793,10 @@ R.list = async function (arg) {
       case 'created': return t.createdAt ? `<span class="mut" title="Δημιουργήθηκε">📅 ${dShort(String(t.createdAt).slice(0, 10))}</span>` : '';
       case 'done': return t.doneAt ? `<span class="mut" title="Ολοκληρώθηκε">✔ ${dShort(String(t.doneAt).slice(0, 10))}</span>` : '';
       case 'mins': return t.mins ? `<span class="mut" title="Καταγεγραμμένος χρόνος">${fmtMin(t.mins)}</span>` : '';
+      /* Κλικ στον αριθμό = ανοίγει το ticket (όχι την εργασία)· χειροκίνητος αριθμός χωρίς σύνδεση = απλό κείμενο. */
+      case 'tkno': return t.ticketNo ? (t.ticket
+        ? `<button type="button" class="lv-tkno" data-lvtk="${t.ticket}" title="Άνοιγμα ticket #${esc(t.ticketNo)}">${I.ticket} #${esc(t.ticketNo)}</button>`
+        : `<span class="mut" title="Ticket παλιάς πλατφόρμας">#${esc(t.ticketNo)}</span>`) : '';
       case 'creator': return t.creator ? `<span class="mut" title="Δημιουργός: ${esc(adminName(t.creator))}">${esc(adminName(t.creator))}</span>` : '';
       case 'ball': return t.ball ? `<span class="ball ${t.ball === S.boot.me.id ? 'me' : ''}" title="Η μπάλα σε ${esc(adminName(t.ball))}">⚡${esc(adminIni(t.ball))}</span>` : '';
       case 'dept': { const dn = LV_FIELDS.dept.val(t); return t.dept ? `<span class="kb-tag kb-tag-mut" title="Department">${esc(dn)}</span>` : ''; }
@@ -2443,6 +2449,7 @@ R.list = async function (arg) {
       act = e.target.closest('[data-lvact]'), more = e.target.closest('[data-lvmore]'), gh = e.target.closest('[data-lgrp]'),
       srt = e.target.closest('[data-lvsort]'), row = e.target.closest('[data-task]');
     if (e.target.closest('.lv-dh, .lv-rz') || Date.now() - (st.rzAt || 0) < 350) { return; }
+    { const tk = e.target.closest('[data-lvtk]'); if (tk) { e.stopPropagation(); window.CNP.openTicketQuick(+tk.dataset.lvtk); return; } }
     if (e.target.closest('#lvViews')) { viewsMenu($('#lvViews')); return; }
     const dsw = e.target.closest('[data-lvdisp]');
     if (dsw) { cfg().display = dsw.dataset.lvdisp; st.more = {}; render(); const sp = document.querySelector('.lv-side'); if (sp && sp._ext) { sp._ext(true); } return; }
