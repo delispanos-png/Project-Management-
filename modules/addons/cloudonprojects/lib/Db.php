@@ -3734,6 +3734,14 @@ class Db
                 ',' . (int) $adminId . ',') !== false) {
             return true;
         }
+        /* ΟΠΟΙΟΣ ΔΟΥΛΕΨΕ ΕΔΩ ΣΥΝΕΧΙΖΕΙ ΝΑ ΒΛΕΠΕΙ (22/10/2026). Η μπάλα δίνει ορατότητα — αλλά
+           το να τη δώσω πίσω δεν πρέπει να μου κλείνει την πόρτα: ο χειριστής που μέτρησε
+           χρόνο ή έγραψε στη ροή έπαιρνε 404 τη στιγμή που παρέδιδε (#632, #737). Μόνο
+           ανάγνωση — το γράψιμο μένει στο cnp_task_write_ok. */
+        if (!empty($task->id) && (Capsule::table('mod_cpm_timelogs')->where('task_id', (int) $task->id)->where('admin_id', (int) $adminId)->exists()
+                || Capsule::table('mod_cpm_checklist')->where('task_id', (int) $task->id)->where('created_by', (int) $adminId)->exists())) {
+            return true;
+        }
         /* Ο ΣΥΝΕΡΓΑΤΗΣ βλέπει την εργασία στην οποία δουλεύει μαζί με τον κάτοχο. */
         if (!empty($task->id) && self::isCollab((int) $task->id, $adminId)) {
             return true;

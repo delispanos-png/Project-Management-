@@ -4665,13 +4665,17 @@ function cnp_check_add_run(array $in, $adminId, $FULL)
     $tid = (int) ($in['task'] ?? 0);
     $t = Db::task($tid);
     $title = trim($in['title'] ?? '');
-    if (!$t || !Db::canSeeTask($adminId, $t) || $title === '') {
+    /* «_authed»: το task_reply έλεγξε τα δικαιώματα ΠΡΙΝ αλλάξει τη μπάλα. Εδώ η εργασία
+       ξαναδιαβάζεται ΜΕΤΑ — αν την έδωσα σε άλλον, ο έλεγχος θα με απέρριπτε για το ίδιο
+       μου το μήνυμα και θα ακυρωνόταν όλη η πράξη (22/10/2026, #632). */
+    $authed = !empty($in['_authed']);
+    if (!$t || (!$authed && !Db::canSeeTask($adminId, $t)) || $title === '') {
         fail('input');
     }
     /* Όποιος εκτελεί την εργασία πρέπει να μπορεί να γράψει τι έκανε — αλλιώς το
        «τι έγινε» το ξέρει μόνο αυτός. Ίδιος έλεγχος με το check_toggle. Και όποιος
        ΡΩΤΗΘΗΚΕ εδώ (@mention) γράφει την απάντησή του. */
-    if (!cnp_task_write_ok($adminId, $FULL, $t) && !cnp_was_asked($adminId, $t->id)) {
+    if (!$authed && !cnp_task_write_ok($adminId, $FULL, $t) && !cnp_was_asked($adminId, $t->id)) {
         fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
     }
     if (empty($in['_skipLock'])) { cnp_task_lock_guard($t); }
@@ -4715,8 +4719,17 @@ function cnp_task_reply_run(array $in, $adminId, $FULL)
     $msgRp = trim((string) ($in['title'] ?? ''));
     $hasMsgRp = $msgRp !== '' && $msgRp !== '<br>';
     if (!$hasMsgRp && !$ballRp && !$stRp && empty($in['stop'])) { fail('Γράψε μήνυμα ή διάλεξε μπάλα / κατάσταση'); }
-    if (($ballRp || $stRp) && !cnp_task_write_ok($adminId, $FULL, $tRp)) {
-        fail('Μπάλα και κατάσταση αλλάζει όποιος έχει την εργασία ή «Board: επεξεργασία»', 403);
+    /* ΟΛΟΙ οι έλεγχοι ΕΔΩ, πάνω στην εργασία ΟΠΩΣ ΕΙΝΑΙ ΤΩΡΑ — πριν φύγει η μπάλα. Μετά
+       την αλλαγή ο αποστολέας μπορεί να μην είναι πια κάτοχος· δεν πρέπει αυτό να ακυρώνει
+       το δικό του μήνυμα (22/10/2026). Μπάλα δίνει και όποιος ρωτήθηκε εδώ (@mention). */
+    if ($hasMsgRp && !cnp_task_write_ok($adminId, $FULL, $tRp) && !cnp_was_asked($adminId, $tRp->id)) {
+        fail('Χρειάζεται δικαίωμα «Board: επεξεργασία» — ή να είναι δική σου εργασία', 403);
+    }
+    if ($ballRp && !cnp_task_ball_ok($adminId, $FULL, $tRp)) {
+        fail('Μπάλα δίνει όποιος έχει την εργασία, όποιος ρωτήθηκε σε αυτήν ή «Board: επεξεργασία»', 403);
+    }
+    if ($stRp && !cnp_task_write_ok($adminId, $FULL, $tRp)) {
+        fail('Κατάσταση αλλάζει όποιος έχει την εργασία ή «Board: επεξεργασία»', 403);
     }
     if ($ballRp && !Capsule::table('tbladmins')->where('id', $ballRp)->where('disabled', 0)->exists()) {
         fail('Ο χρήστης για τη μπάλα δεν υπάρχει ή είναι ανενεργός');
@@ -4749,7 +4762,7 @@ function cnp_task_reply_run(array $in, $adminId, $FULL)
             /* Μετά από αλλαγή σε κλειστή κατάσταση η εργασία κλειδώνει — το μήνυμα όμως
                ανήκει στην ίδια πράξη, οπότε γράφεται χωρίς τον έλεγχο κλειδώματος. */
             $resRp['id'] = cnp_check_add_run(['task' => (int) $tRp->id, 'title' => $msgRp, 'html' => !empty($in['html']),
-                '_skipLock' => true], $adminId, $FULL);
+                '_skipLock' => true, '_authed' => true], $adminId, $FULL);
         }
         if ($chgRp) {
             Db::logActivity((int) $tRp->id, $adminId, 'edit', implode(' · ', $chgRp));
@@ -4884,6 +4897,14 @@ function cnp_link_offer_to_task($taskId, $offerId, $adminId)
 function cnp_was_asked($adminId, $taskId)
 {
     return Capsule::table('mod_cpm_help')->where('task_id', (int) $taskId)->where('to_admin', (int) $adminId)->exists();
+}
+
+/** Ποιος δίνει τη μπάλα: όποιος γράφει στην εργασία (κάτοχος μπάλας, ανάδοχος, επιβλέπων,
+ *  «Board: επεξεργασία») ΚΑΙ όποιος ρωτήθηκε σε αυτήν (@mention/αίτημα) — απαντά και
+ *  τη δίνει πίσω με μία κίνηση (22/10/2026). Την κατάσταση την αλλάζει μόνο το write_ok. */
+function cnp_task_ball_ok($adminId, $isFull, $t)
+{
+    return cnp_task_write_ok($adminId, $isFull, $t) || ($t && cnp_was_asked($adminId, (int) $t->id));
 }
 
 function cnp_task_write_ok($adminId, $isFull, $t)
@@ -5900,6 +5921,8 @@ case 'task':
         'canDelete' => $delRight[0], 'delLeft' => $delRight[2], 'delWhy' => $delRight[0] ? '' : $delRight[1],
         /* Ίδιος κριτής με τον server (cnp_task_write_ok): η οθόνη δεν μαντεύει ποιος γράφει. */
         'canWrite' => cnp_task_write_ok($adminId, $FULL, $t),
+        /* Μήνυμα + μπάλα από τον συνθέτη: και όποιος ρωτήθηκε εδώ (cnp_task_ball_ok). */
+        'canBall' => cnp_task_ball_ok($adminId, $FULL, $t),
         /* Ίδιος κανόνας με το save_task: η οθόνη δεν τον ξαναγράφει μόνη της. */
         'canDue' => $FULL || (int) ($t->action_user ?: $t->assignee) === 0 || (int) ($t->action_user ?: $t->assignee) === $adminId
             || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
@@ -9987,8 +10010,10 @@ case 'timer_stop':
     if (!empty($in['task']) && (!$running || (int) $running->task_id !== (int) $in['task'])) {
         out(['ok' => true, 'mins' => 0, 'skipped' => true]);
     }
+    /* Ήδη σταματημένο (π.χ. από την παράδοση της μπάλας, ή από άλλη καρτέλα): ο σκοπός
+       έχει επιτευχθεί — όχι σφάλμα στην οθόνη (22/10/2026). */
     if (!$running) {
-        fail('no timer');
+        out(['ok' => true, 'mins' => 0, 'skipped' => true]);
     }
     $e = Db::stopTimer($running->id);
     $tStop = Db::task((int) $running->task_id);
@@ -10648,6 +10673,7 @@ case 'request_get':                       // ένα αίτημα + όλη η α�
         $taskR = ['id' => (int) $tq->id, 'ball' => $hq ?: null, 'ballName' => $hq ? Db::adminName($hq) : '',
             'status' => (int) $tq->status_id, 'statusTitle' => $sq ? $sq->title : '', 'statusColor' => $sq ? $sq->color : '#8595ac',
             'done' => !empty($tq->completed_at), 'canWrite' => cnp_task_write_ok($adminId, $FULL, $tq),
+            'canBall' => cnp_task_ball_ok($adminId, $FULL, $tq),
             'myTimer' => $runQ && (int) $runQ->task_id === (int) $tq->id,
             'ver' => (string) ($tq->updated_at ?? '') . '|' . (int) $tq->status_id . '|' . (int) $tq->action_user];
     }
