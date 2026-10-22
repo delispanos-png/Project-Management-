@@ -3611,15 +3611,16 @@ async function cnpTaskReply(id, payload, action) {
   return r;
 }
 
-/** Τα δύο προαιρετικά πεδία «Μπάλα σε» / «Νέα κατάσταση» — ίδια σε κάθε φόρμα απάντησης. */
-function cnpReplySelects(curBall, curStatus, prefix) {
+/** Τα δύο προαιρετικά πεδία «Μπάλα σε» / «Νέα κατάσταση» — ίδια σε κάθε φόρμα απάντησης.
+ *  withStatus=false: όποιος ρωτήθηκε (@mention) δίνει μπάλα αλλά δεν αλλάζει κατάσταση (canBall ≠ canWrite). */
+function cnpReplySelects(curBall, curStatus, prefix, withStatus = true) {
   const me = S.boot.me;
   return `<select class="inp act-sel" id="${prefix}Ball" title="Μπάλα σε — ποιος συνεχίζει μετά την απάντηση (προαιρετικό)">
       <option value="">⚡ Μπάλα: χωρίς αλλαγή</option>
       ${S.boot.admins.filter(a => !a.disabled && a.id !== (curBall || 0)).map(a => cnpAdmOpt(a, 0, '⚡ ' + (a.id === me.id ? 'Σε μένα' : a.name))).join('')}</select>
-    <select class="inp act-sel" id="${prefix}St" title="Νέα κατάσταση μαζί με την απάντηση (προαιρετικό)">
+    ${withStatus ? `<select class="inp act-sel" id="${prefix}St" title="Νέα κατάσταση μαζί με την απάντηση (προαιρετικό)">
       <option value="">◉ Κατάσταση: χωρίς αλλαγή</option>
-      ${(S.boot.statuses || []).filter(x => x.id !== curStatus).map(x => `<option value="${x.id}">◉ ${esc(x.title)}</option>`).join('')}</select>`;
+      ${(S.boot.statuses || []).filter(x => x.id !== curStatus).map(x => `<option value="${x.id}">◉ ${esc(x.title)}</option>`).join('')}</select>` : ''}`;
 }
 
 async function cnpMoveTask(id, status, note) {
@@ -4028,7 +4029,7 @@ async function openTask(id, entryId, opts) {
           <div class="act-foot">
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
             ${/* ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ: μήνυμα + μπάλα σε + νέα κατάσταση (2/10/2026). Κενά = όπως πριν. */''}
-            ${d.canWrite && !t.done ? cnpReplySelects(t.ball, t.status, 'chk') : ''}
+            ${(d.canBall || d.canWrite) && !t.done ? cnpReplySelects(t.ball, t.status, 'chk', !!d.canWrite) : ''}
             <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
             <span class="mut act-tip"><b>Enter</b> καταχωρεί · <b>Shift+Enter</b> νέα γραμμή</span>
             ${/* Στο κινητό το Enter είναι πλήκτρο νέας γραμμής — εκεί μένει κουμπί. */''}
@@ -5031,7 +5032,7 @@ async function openTask(id, entryId, opts) {
       ? await cnpConfirm('Να χρεωθεί ο χρόνος στον πελάτη;', {ok: I.coin + ' Χρεώσιμο', cancel: 'Χωρίς χρέωση'})
       : false;
     const r = await api('timer_stop', {billable: bill, note: ''});
-    toast('Καταχωρήθηκε ' + fmtMin(r.mins)); openTask(id);
+    toast(r.skipped ? 'Ο χρόνος είχε ήδη σταματήσει' : 'Καταχωρήθηκε ' + fmtMin(r.mins)); openTask(id);
   };
   if (d.timerHere) {
     const since = new Date(d.timerHere.since.replace(' ', 'T')).getTime();
@@ -6824,7 +6825,7 @@ function cnpPalette() {
     {icon: I.stop, title: 'Σταμάτα τον χρόνο', kw: 'στοπ stop χρονος σταματα', go: async () => {
       const r = await api('timer_stop', {billable: false, note: ''}).catch(e => ({err: e.message}));
       if (r && r.err) { toast(r.err, true); return; }
-      toast('Καταχωρήθηκε ' + fmtMin(r.mins)); if (window.R[S.view]) { window.R[S.view](); } }},
+      toast(r.skipped ? 'Ο χρόνος δεν έτρεχε' : 'Καταχωρήθηκε ' + fmtMin(r.mins)); if (window.R[S.view]) { window.R[S.view](); } }},
     {icon: I.list, title: 'Συντομεύσεις πληκτρολογίου', kw: 'συντομευσεις πληκτρολογιο keyboard shortcuts',
       go: () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'], ['e', 'ολοκλήρωσε'], ['r', 'απάντησε']])},
   ].filter(Boolean);
@@ -7438,7 +7439,7 @@ async function openRequestQuick(id, after) {
   ${tk ? `<div class="qr-task" id="qrTask0">${tkStrip(tk)}</div>` : ''}
   ${canReply ? `<div class="qr-a">
     <textarea class="inp" id="qrTxt" rows="3" placeholder="Γράψε την απάντησή σου…  (Ctrl+Enter στέλνει)"></textarea>
-    ${tk && tk.canWrite && !tk.done && q.forMe ? `<div class="qr-sel" id="qrSel">${cnpReplySelects(tk.ball, tk.status, 'qr')}</div>` : ''}
+    ${tk && (tk.canBall || tk.canWrite) && !tk.done && q.forMe ? `<div class="qr-sel" id="qrSel">${cnpReplySelects(tk.ball, tk.status, 'qr', !!tk.canWrite)}</div>` : ''}
     <div class="qr-btns">
       ${q.forMe && q.status === 'open' ? '<label class="mut qr-lbl"><input type="checkbox" id="qrKeep"> κράτα το ανοιχτό</label>' : ''}
       <span style="flex:1"></span>
@@ -7470,7 +7471,7 @@ async function openRequestQuick(id, after) {
       const selBox = box.querySelector('#qrSel');
       if (selBox) {
         const bv = (box.querySelector('#qrBall') || {}).value || '', sv = (box.querySelector('#qrSt') || {}).value || '';
-        selBox.innerHTML = cnpReplySelects(tk.ball, tk.status, 'qr');
+        selBox.innerHTML = cnpReplySelects(tk.ball, tk.status, 'qr', !!tk.canWrite);
         const nb = box.querySelector('#qrBall'), ns = box.querySelector('#qrSt');
         if (nb && [...nb.options].some(o => o.value === bv)) { nb.value = bv; }
         if (ns && [...ns.options].some(o => o.value === sv)) { ns.value = sv; }
