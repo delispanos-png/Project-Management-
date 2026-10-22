@@ -1862,13 +1862,24 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && rtePop) { 
 /* Ανέβασμα αρχείου — ΚΟΙΝΟ. ΠΡΩΤΑ κατευθείαν στο S3 (presign → PUT → confirm): το
    multipart περνά από την PHP, που κόβει στα 8MB (upload_max_filesize) και τα μεγαλύτερα
    «χάνονταν» (21/10/2026). Multipart μόνο με local driver. Επιστρέφει {file} ή {err}. */
-async function cnpUploadFile(file, meta) {
+async function cnpUploadFile(file, meta0) {
+  /* onProgress(0..100): μεγάλα αρχεία θέλουν ορατή πρόοδο — ένα 98MB έκανε 80΄΄ και έμοιαζε
+     ότι «δεν επισυνάφθηκε» (22/10/2026). Γι' αυτό το PUT γίνεται με XHR (το fetch δεν δίνει πρόοδο). */
+  const {onProgress, ...meta} = meta0 || {};
   const mime = file.type || 'application/octet-stream';
   try {
     const pre = await api('file_presign_put', {...meta, filename: file.name, mime, size: file.size});
     if (pre && pre.mode === 'direct') {
-      const put = await fetch(pre.uploadUrl, {method: 'PUT', headers: pre.headers || {'Content-Type': mime}, body: file});
-      if (!put.ok) { throw new Error('cloud HTTP ' + put.status); }
+      const status = await new Promise((ok, no) => {
+        const x = new XMLHttpRequest();
+        x.open('PUT', pre.uploadUrl);
+        Object.entries(pre.headers || {'Content-Type': mime}).forEach(([k, v]) => x.setRequestHeader(k, v));
+        if (onProgress) { x.upload.onprogress = e => { if (e.lengthComputable) { onProgress(Math.floor(e.loaded * 100 / e.total)); } }; }
+        x.onload = () => ok(x.status);
+        x.onerror = () => no(new Error('δίκτυο'));
+        x.send(file);
+      });
+      if (status < 200 || status >= 300) { throw new Error('cloud HTTP ' + status); }
       const c = await api('file_confirm', {...meta, key: pre.key, orig_name: file.name, mime, size: file.size});
       return c && c.file ? {file: c.file} : {err: 'δεν καταχωρήθηκε'};
     }
@@ -1881,6 +1892,23 @@ async function cnpUploadFile(file, meta) {
   } catch (er) { return {err: (er && er.message) || 'σφάλμα ανεβάσματος'}; }
 }
 window.cnpUploadFile = cnpUploadFile;
+
+/* Μπάρα προόδου ανεβάσματος — σταθερή κάτω στην οθόνη, ώστε να επιζεί από ανανεώσεις της
+   καρτέλας· όσο τρέχει, το κλείσιμο της σελίδας ζητά επιβεβαίωση (22/10/2026). */
+function cnpUploadBar(total) {
+  const el = document.createElement('div');
+  el.className = 'up-bar';
+  el.innerHTML = '<div class="up-bar-t"></div><div class="up-bar-p"><i></i></div>';
+  document.body.appendChild(el);
+  const guard = e => { e.preventDefault(); e.returnValue = ''; };
+  window.addEventListener('beforeunload', guard);
+  const set = (k, name, pct) => {
+    el.querySelector('.up-bar-t').textContent = `📎 Ανέβασμα ${total > 1 ? (k + 1) + '/' + total + ' · ' : ''}${name} — ${pct}% · μην κλείσεις τη σελίδα`;
+    el.querySelector('i').style.width = pct + '%';
+  };
+  return {set, done: () => { window.removeEventListener('beforeunload', guard); el.remove(); }};
+}
+window.cnpUploadBar = cnpUploadBar;
 async function cnpRteUpload(ed, file) {
   if (/^image\//.test(file.type || '')) { return cnpPasteImage(ed, file); }
   const sel = getSelection(), range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
@@ -5150,7 +5178,23 @@ async function openTask(id, entryId, opts) {
 
   /* Επικόλληση εικόνας: ανεβαίνει και μπαίνει ΜΕΣΑ στο κείμενο. */
   /* Συνημμένο ενέργειας → {file} ή {err} (ο καλών δείχνει το σφάλμα). */
-  const actUpload = (file, refId) => cnpUploadFile(file, {module: 'task', ref_type: 'check', ref_id: refId || 0});
+  /* Με μπάρα προόδου: όλα τα ανεβάσματα ενεργειών (νέα, διόρθωση, ⋯ Επισύναψη). */
+  const actUploadAll = async (list, refId) => {
+    const failed = [];
+    if (!list.length) { return failed; }
+    const bar = cnpUploadBar(list.length);
+    try {
+      for (let k = 0; k < list.length; k++) {
+        const f = list[k];
+        bar.set(k, f.name, 0);
+        const u = await cnpUploadFile(f, {module: 'task', ref_type: 'check', ref_id: refId || 0, onProgress: p => bar.set(k, f.name, p)});
+        if (u.err) { failed.push(f.name + ' (' + u.err + ')'); }
+      }
+    } finally { bar.done(); }
+    if (failed.length) { toast('Δεν ανέβηκε: ' + failed.join(' · ') + ' — δοκίμασε ξανά από ⋯ → Επισύναψη αρχείου', true); }
+    else { toast(list.length > 1 ? `Επισυνάφθηκαν ${list.length} αρχεία` : 'Επισυνάφθηκε: ' + list[0].name); }
+    return failed;
+  };
   const wireEditor = el => {
     el.addEventListener('paste', async e => {
       const f = cnpClipImage(e);
@@ -5323,15 +5367,12 @@ async function openTask(id, entryId, opts) {
           if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
         }
         if (!r.id) { ed.innerHTML = ''; openTask(id); if (window.R && window.R[S.view]) { window.R[S.view](); } return; }
-        const failed = [];
-        for (let k = 0; k < pending.length; k++) {
-          const f = pending[k];
-          const h = $('#chkHint', dr); if (h) { h.textContent = `Ανέβασμα ${k + 1}/${pending.length}: ${f.name}…`; }
-          const u = await actUpload(f, r.id);
-          if (u.err) { failed.push(f.name + ' (' + u.err + ')'); }
-        }
+        /* Το μήνυμα (και η μπάλα) καταχωρήθηκαν· πρώτα το δείχνουμε, μετά ανεβαίνουν τα αρχεία
+           με ορατή πρόοδο — η καρτέλα ξαναφορτώνει όταν δεθούν. */
+        const upl = pending.slice();
+        ed.innerHTML = '';
+        if (upl.length) { openTask(id); await actUploadAll(upl, r.id); }
         pending.splice(0).forEach(drop);
-        if (failed.length) { toast('Δεν ανέβηκε: ' + failed.join(' · ') + ' — δοκίμασε ξανά από ⋯ → Επισύναψη αρχείου', true); }
         /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
            επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
            καταχωρημένο κείμενο θα επέστρεφε στον συνθέτη σαν να μην στάλθηκε. */
@@ -5378,17 +5419,40 @@ async function openTask(id, entryId, opts) {
     body.focus();
     const bar = document.createElement('div');
     bar.className = 'act-foot';
-    bar.innerHTML = `<span style="flex:1"></span>
+    /* 📎 και στη διόρθωση (22/10/2026), όπως στη σύνθεση: αρχεία σε αναμονή με ✕, ανεβαίνουν
+       με την «Αποθήκευση» — όχι κρυμμένο στο ⋯ μενού. */
+    const files = [];
+    bar.innerHTML = `<button type="button" class="btn btn-sm btn-o" data-eclip title="Επισύναψη αρχείου σε αυτή την ενέργεια">${I.clip}</button>
+      <span class="act-files" data-efiles hidden></span>
+      <span class="mut" data-ehint style="font-size:11px;flex:1"></span>
       <button type="button" class="btn btn-sm btn-o" data-eno>Άκυρο</button>
-      <button type="button" class="btn btn-sm btn-p" data-eok>Αποθήκευση</button>`;
+      <button type="button" class="btn btn-sm btn-p" data-eok>Αποθήκευση</button>
+      <input type="file" multiple hidden data-efile>`;
     wrap.appendChild(bar);
+    const efi = bar.querySelector('[data-efile]'), ebox = bar.querySelector('[data-efiles]'), ehint = bar.querySelector('[data-ehint]');
+    const epaint = () => {
+      ebox.hidden = !files.length;
+      ehint.textContent = files.length ? `${files.length} αρχεί${files.length > 1 ? 'α' : 'ο'} προς επισύναψη` : '';
+      ebox.innerHTML = files.map((f, i) => `<span class="act-file" title="${esc(f.name)}"><span class="act-file-v">${I.clip}
+          <span class="act-file-n">${esc(f.name)}</span></span>
+        <button type="button" class="act-file-x" data-efx="${i}" title="Αφαίρεση — δεν θα επισυναφθεί">✕</button></span>`).join('');
+      ebox.querySelectorAll('[data-efx]').forEach(x => x.onclick = () => { files.splice(+x.dataset.efx, 1); epaint(); });
+    };
+    bar.querySelector('[data-eclip]').onclick = () => efi.click();
+    efi.onchange = () => { files.push(...efi.files); efi.value = ''; epaint(); };
     bar.querySelector('[data-eno]').onclick = () => { body.innerHTML = before; openTask(id); };
+    let ebusy = false;
     bar.querySelector('[data-eok]').onclick = async () => {
+      if (ebusy) { return; }
       const v = body.innerHTML.trim();
       if (!v) { toast('Κενή ενέργεια — γράψε κάτι ή διάγραψέ την', true); return; }
-      const r = await api('check_edit', {id: cid, title: v, html: 1})
-        .catch(er => ({err: (er && er.message) || 'σφάλμα'}));
-      if (r && r.err) { toast(r.err, true); return; }
+      ebusy = true;
+      if (v !== before.trim()) {
+        const r = await api('check_edit', {id: cid, title: v, html: 1})
+          .catch(er => ({err: (er && er.message) || 'σφάλμα'}));
+        if (r && r.err) { ebusy = false; toast(r.err, true); return; }
+      }
+      await actUploadAll(files, cid);
       openTask(id);
     };
   });
@@ -5399,9 +5463,7 @@ async function openTask(id, entryId, opts) {
     const fi = document.createElement('input');
     fi.type = 'file'; fi.multiple = true;
     fi.onchange = async () => {
-      const failed = [];
-      for (const f of fi.files) { const u = await actUpload(f, cid); if (u.err) { failed.push(f.name + ' (' + u.err + ')'); } }
-      if (failed.length) { toast('Δεν ανέβηκε: ' + failed.join(' · '), true); }
+      await actUploadAll([...fi.files], cid);
       openTask(id);
     };
     fi.click();
