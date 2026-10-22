@@ -1357,6 +1357,17 @@ async function cnpPushSubscribe(reg) {
   const pk = await api('push_pubkey').catch(() => null);
   if (!pk || !pk.enabled || !pk.key) { return false; }
   let sub = await reg.pushManager.getSubscription();
+  /* Άλλαξε το κλειδί VAPID του server (rotation): η παλιά εγγραφή της συσκευής είναι δεμένη
+     με το παλιό κλειδί και δεν θα ξαναχτυπούσε ποτέ — τη σβήνουμε και γράφουμε νέα (22/10/2026). */
+  if (sub) {
+    const cur = sub.options && sub.options.applicationServerKey;
+    const want = urlB64ToU8(pk.key);
+    if (cur && (cur.byteLength !== want.length || !new Uint8Array(cur).every((b, i) => b === want[i]))) {
+      await api('push_unsubscribe', {endpoint: sub.endpoint}).catch(() => null);
+      await sub.unsubscribe().catch(() => null);
+      sub = null;
+    }
+  }
   if (!sub) { sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: urlB64ToU8(pk.key)}); }
   const j = sub.toJSON();
   await api('push_subscribe', {endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth});
