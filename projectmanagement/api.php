@@ -30,6 +30,7 @@ use WHMCS\Module\Addon\CloudonProjects\Route;
 use WHMCS\Module\Addon\CloudonProjects\Aade;
 use WHMCS\Module\Addon\CloudonProjects\Pbx3cxPresence;
 use WHMCS\Module\Addon\CloudonProjects\Leave;
+use WHMCS\Module\Addon\CloudonProjects\Ergani;
 use WHMCS\Module\Addon\CloudonProjects\Watch;
 use WHMCS\Module\Addon\CloudonProjects\Pool;
 use WHMCS\Module\Addon\CloudonProjects\Catalog;
@@ -5110,6 +5111,7 @@ function cnp_action_cap($action)
         $add('admin.users.edit', ['addon_access_grant', 'user_save', 'user_pass', 'user_toggle']);
         $add('admin.users.delete', ['user_del']);
         $add('admin.settings', ['settings_get', 'tcats', 'tquotas']);
+        $add('admin.settings.edit', ['ergani_status', 'ergani_save', 'ergani_test', 'ergani_template']);
         $add('admin.settings.edit', ['settings_save', 'status_save', 'status_move', 'type_save', 'tcat_save',
             'tcat_reorder', 'canned_save', 'lead_field_save', 'tquota_save', 'storage_test']);
         $add('admin.settings.delete', ['status_del', 'type_del', 'tcat_del', 'canned_del',
@@ -21576,6 +21578,50 @@ case 'leave_year_save':
     if ($lvEx) { Capsule::table('mod_cpm_leave_years')->where('id', $lvEx->id)->update($lvVals); }
     else { Capsule::table('mod_cpm_leave_years')->insert($lvVals); }
     out(['ok' => true, 'balance' => Leave::balance($lvSid, $lvT)]);
+
+/* ================= ΕΡΓΑΝΗ ΙΙ (22/10/2026) — βλ. lib/Ergani.php =================
+   Ο κωδικός μπαίνει ΚΡΥΠΤΟΓΡΑΦΗΜΕΝΟΣ (cnp_vault_enc) και δεν επιστρέφει ποτέ στον browser·
+   κενό πεδίο κωδικού στην αποθήκευση = «μην αλλάξεις». Ξεκινάμε από το δοκιμαστικό. */
+case 'ergani_status':
+    out(['ok' => true, 'env' => Ergani::env(), 'user' => Ergani::cfg('user'), 'userType' => Ergani::cfg('usertype', '02'),
+        'hasPass' => Ergani::cfg('pass') !== '', 'last' => json_decode(Ergani::cfg('last', ''), true) ?: null]);
+
+case 'ergani_save':
+    $egEnv = ($in['env'] ?? '') === 'prod' ? 'prod' : 'trial';
+    $egUser = trim((string) ($in['user'] ?? ''));
+    $egType = in_array($in['userType'] ?? '', ['01', '02', '03'], true) ? $in['userType'] : '02';
+    if ($egUser === '' || mb_strlen($egUser) > 120) { fail('Γράψε το όνομα χρήστη ΕΡΓΑΝΗ'); }
+    Ergani::setCfg('env', $egEnv);
+    Ergani::setCfg('user', $egUser);
+    Ergani::setCfg('usertype', $egType);
+    if (trim((string) ($in['pass'] ?? '')) !== '') { Ergani::setCfg('pass', cnp_vault_enc((string) $in['pass'])); }
+    if (Ergani::cfg('pass') === '') { fail('Γράψε τον κωδικό ΕΡΓΑΝΗ'); }
+    Ergani::forgetToken();
+    error_log('[CNP ergani] ρυθμίσεις από admin ' . $adminId . ' env=' . $egEnv . ' type=' . $egType);
+    out(['ok' => true]);
+
+case 'ergani_test':
+    /* Σύνδεση + «τι επιτρέπεται»: δηλώσεις που δέχεται, υπηρεσίες ανάγνωσης, στοιχεία εργοδότη. */
+    $egPass = cnp_vault_dec(Ergani::cfg('pass'));
+    if (Ergani::cfg('user') === '' || $egPass === '') { fail('Αποθήκευσε πρώτα όνομα χρήστη και κωδικό'); }
+    $egTok = Ergani::token(Ergani::cfg('user'), $egPass, Ergani::cfg('usertype', '02'), true);
+    $egRes = ['at' => date('Y-m-d H:i:s'), 'env' => Ergani::env(), 'login' => $egTok['ok'], 'error' => $egTok['error'] ?? ''];
+    if ($egTok['ok']) {
+        $egRes += Ergani::explore($egTok['token']);
+        $egEmp = Ergani::service($egTok['token'], 'EX_BASE_01');
+        $egRes['employer'] = $egEmp['ok'] ? $egEmp['json'] : ['error' => $egEmp['error']];
+    }
+    Ergani::setCfg('last', json_encode($egRes, JSON_UNESCAPED_UNICODE));
+    out(['ok' => true, 'result' => $egRes]);
+
+case 'ergani_template':
+    $egPass = cnp_vault_dec(Ergani::cfg('pass'));
+    $egTok = Ergani::token(Ergani::cfg('user'), $egPass, Ergani::cfg('usertype', '02'));
+    if (!$egTok['ok']) { fail('Σύνδεση ΕΡΓΑΝΗ: ' . $egTok['error']); }
+    $egCode = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($in['code'] ?? ''));
+    if ($egCode === '') { fail('Λείπει ο κωδικός δήλωσης'); }
+    $egT = Ergani::template($egTok['token'], $egCode);
+    out(['ok' => $egT['ok'], 'template' => $egT['json'], 'error' => $egT['error']]);
 
 case 'leave_family_save':
     /* Οικογενειακά στοιχεία → δικαίωμα ειδικών αδειών. Ξεχωριστή ενέργεια ώστε να μη

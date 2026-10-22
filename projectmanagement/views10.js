@@ -477,6 +477,7 @@ R.leave = async function () {
     }).join('') + fAdd(LV_F, st.shown) : ''}
     <button type="button" class="fchip" id="lvAppr" title="${d.canSetApprovers ? 'Αλλαγή εγκρινόντων' : 'Ποιος εγκρίνει τις άδειες'}">
       Εγκρίνουν: <b style="padding-left:4px">${esc((d.approverNames || []).join(', ') || '— όσοι έχουν «Έγκριση αδειών»')}</b></button>
+    ${d.canSetApprovers ? '<button type="button" class="fchip" id="lvErg" title="Διασύνδεση με ΕΡΓΑΝΗ ΙΙ">ΕΡΓΑΝΗ</button>' : ''}
     <span class="fbar-sp"></span>
     <button class="fchip${wantRows ? ' on' : ''}" id="lvLog">${wantRows ? '← Υπόλοιπα' : 'Ιστορικό εγγραφών'}</button>
     ${canEdit ? `<button class="fchip" id="lvAddStaff">Εργαζόμενοι</button>
@@ -605,6 +606,7 @@ R.leave = async function () {
       if (!d.canSetApprovers) { toast('Τους εγκρίνοντες τους ορίζει ο διαχειριστής (Ρυθμίσεις)'); return; }
       if (await lvApprovers(d.approvers || [])) { R.leave(); }
     }; } }
+  { const eb = $('#lvErg'); if (eb) { eb.onclick = () => lvErgani(); } }
   $$('[data-lvok]').forEach(b => b.onclick = () => lvDecide(+b.dataset.lvok, 'approved'));
   $$('[data-lvno]').forEach(b => b.onclick = () => lvDecide(+b.dataset.lvno, 'rejected'));
 };
@@ -642,6 +644,55 @@ async function lvDecide(id, decision) {
     }
     toast(e.message, 1);
   }
+}
+
+/* ───────────────── ΕΡΓΑΝΗ ΙΙ ─────────────────
+   Βήμα 1 της διασύνδεσης: στοιχεία σύνδεσης (ο κωδικός κρυπτογραφείται, δεν ξαναφαίνεται)
+   και «Δοκιμή»: σύνδεση + τι δηλώσεις δέχεται + τι μπορούμε να διαβάσουμε. Από αυτό
+   χτίζεται η αυτόματη δήλωση αδειών. Ξεκινάμε ΠΑΝΤΑ από το δοκιμαστικό. */
+const lvErgList = (arr, hl) => {
+  if (!arr) { return '<div class="mut">—</div>'; }
+  if (!Array.isArray(arr)) { return arr.error ? `<div style="color:var(--bad,#b91c1c)">${esc(arr.error)}</div>` : `<pre class="lv-pre">${esc(JSON.stringify(arr, null, 1).slice(0, 3000))}</pre>`; }
+  if (!arr.length) { return '<div class="mut">κενή λίστα</div>'; }
+  return `<div class="lv-erg-l">${arr.map(x => {
+    const txt = typeof x === 'object' ? Object.values(x).filter(v => typeof v !== 'object').join(' · ') : String(x);
+    return `<div class="${hl.test(txt) ? 'hl' : ''}">${esc(txt)}</div>`;
+  }).join('')}</div>`;
+};
+const lvErgResult = r => !r ? '<div class="mut">Δεν έχει γίνει δοκιμή ακόμη.</div>' : `
+  <div style="font-size:13px;margin-bottom:8px">${r.login
+    ? `<b style="color:var(--ok,#15803d)">✓ Σύνδεση επιτυχής</b>` : `<b style="color:var(--bad,#b91c1c)">✗ Αποτυχία σύνδεσης</b> — ${esc(r.error || '')}`}
+    <span class="mut"> · ${r.env === 'prod' ? 'Παραγωγή' : 'Δοκιμαστικό'} · ${esc(r.at || '')}</span></div>
+  ${r.login ? `<div class="lv-sub">Δηλώσεις που δέχεται (κίτρινο = σχετικές με άδειες)</div>${lvErgList(r.submissions, /άδει|αδει|leave|wto/i)}
+    <div class="lv-sub" style="margin-top:10px">Υπηρεσίες ανάγνωσης</div>${lvErgList(r.services, /άδει|αδει|leave|απασχόλ|μηνιαί/i)}
+    <div class="lv-sub" style="margin-top:10px">Στοιχεία εργοδότη</div>${lvErgList(r.employer, /^$/)}` : ''}`;
+
+async function lvErgani() {
+  let st;
+  try { st = await api('ergani_status', {}); } catch (e) { toast(e.message, 1); return; }
+  const body = lvSec('Σύνδεση', `<div class="lv-grid">
+      ${lvF('Περιβάλλον', `<select class="inp" id="egEnv">
+        <option value="trial" ${st.env !== 'prod' ? 'selected' : ''}>Δοκιμαστικό</option>
+        <option value="prod" ${st.env === 'prod' ? 'selected' : ''}>Παραγωγή</option></select>`)}
+      ${lvF('Τύπος χρήστη', `<select class="inp" id="egType">
+        <option value="02" ${st.userType !== '01' ? 'selected' : ''}>Χρήστης ΕΡΓΑΝΗ</option>
+        <option value="01" ${st.userType === '01' ? 'selected' : ''}>Εργοδότης (e-ΕΦΚΑ)</option></select>`)}
+      ${lvF('Όνομα χρήστη', `<input class="inp" id="egUser" autocomplete="off" value="${esc(st.user || '')}">`)}
+      ${lvF('Κωδικός', `<input class="inp" id="egPass" type="password" autocomplete="new-password" placeholder="${st.hasPass ? '•••••• (αποθηκευμένος — κενό = χωρίς αλλαγή)' : ''}">`)}
+    </div>
+    <div class="lv-hint">Στο <b>δοκιμαστικό</b> ό,τι υποβάλλεται σφραγίζεται «ΑΚΥΡΟ» — εκεί ξεκινάμε. Ο κωδικός αποθηκεύεται <b>κρυπτογραφημένος</b> και δεν εμφανίζεται ξανά. Προτείνεται χρήστης
+      ΕΡΓΑΝΗ περιορισμένος στην «Οργάνωση Χρόνου Εργασίας» (eservices.yeka.gr → Διαχείριση χρηστών). Οι ίδιοι κωδικοί
+      δουλεύουν και στο δοκιμαστικό.</div>`)
+    + lvSec('Τελευταία δοκιμή', `<div id="egRes">${lvErgResult(st.last)}</div>`);
+  const act = await lvModal({title: 'ΕΡΓΑΝΗ ΙΙ — διασύνδεση', body, ok: 'Αποθήκευση & δοκιμή', cancel: 'Κλείσιμο'});
+  if (act !== 'ok') { return; }
+  try {
+    await api('ergani_save', {env: lvV('egEnv'), userType: lvV('egType'), user: lvV('egUser'), pass: lvV('egPass')});
+    toast('Αποθηκεύτηκε — δοκιμή σύνδεσης…');
+    const r = await api('ergani_test', {});
+    toast(r.result.login ? 'Συνδέθηκε στο ΕΡΓΑΝΗ' : 'Αποτυχία σύνδεσης: ' + (r.result.error || ''), !r.result.login);
+  } catch (e) { toast(e.message, 1); }
+  lvErgani();
 }
 
 /* Ποιοι εγκρίνουν άδειες — ονομαστικά. Μόνο με «Ρυθμίσεις: επεξεργασία». */
