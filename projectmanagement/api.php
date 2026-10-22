@@ -11142,6 +11142,17 @@ case 'list':
         foreach ($list as &$kd) { if (isset($kCnt[(int) $kd['id']])) { $kd['kidsN'] = $kCnt[(int) $kd['id']][0]; $kd['kidsDone'] = $kCnt[(int) $kd['id']][1]; } }
         unset($kd);
     }
+    /* Ο ΟΡΑΤΟΣ αριθμός ticket (tbltickets.tid) για τη στήλη «Ticket» — ένα query για όλη τη λίστα.
+       Χωρίς σύνδεση WHMCS μένει ο χειροκίνητος αριθμός της παλιάς πλατφόρμας (ticketRef). */
+    $tkIds = array_values(array_unique(array_filter(array_map(function ($d) { return (int) ($d['ticket'] ?? 0); }, $list))));
+    $tkTid = [];
+    foreach (array_chunk($tkIds, 900) as $tc) {
+        $tkTid += Capsule::table('tbltickets')->whereIn('id', $tc)->pluck('tid', 'id')->all();
+    }
+    foreach ($list as &$td) {
+        $td['ticketNo'] = $td['ticket'] && isset($tkTid[$td['ticket']]) ? (string) $tkTid[$td['ticket']] : ($td['ticketRef'] ?? null);
+    }
+    unset($td);
     out(['tasks' => $list]);
 
 case 'calendar':
