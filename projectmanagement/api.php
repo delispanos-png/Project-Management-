@@ -1456,9 +1456,34 @@ function cnp_leave_types()
 {
     $out = [];
     foreach (Leave::TYPES as $code => $d) {
-        $out[] = ['code' => $code, 'label' => $d[0], 'deducts' => $d[1]];
+        $m = Leave::META[$code] ?? [];
+        $out[] = ['code' => $code, 'label' => $d[0], 'deducts' => $d[1], 'group' => $m['group'] ?? '',
+            'unit' => $m['unit'] ?? 'event', 'basis' => $m['basis'] ?? 'work', 'pay' => $m['pay'] ?? '',
+            'doc' => $m['doc'] ?? '', 'law' => $m['law'] ?? '', 'rule' => $m['rule'] ?? '', 'sex' => $m['sex'] ?? ''];
     }
     return $out;
+}
+
+/** Οικογενειακά στοιχεία (ευαίσθητα): μόνο προς τον ίδιο ή όσους έχουν «Άδειες προσωπικού». */
+function cnp_leave_family($st)
+{
+    return ['sex' => (string) ($st->sex ?? ''), 'children' => Leave::children($st),
+        'singleParent' => !empty($st->single_parent), 'disabled' => !empty($st->disabled), 'student' => !empty($st->student)];
+}
+
+/** Προειδοποίηση για ειδική άδεια: υπέρβαση ετήσιου δικαιώματος ή δικαίωμα που δεν προκύπτει. */
+function cnp_leave_warn($r)
+{
+    if ($r->type === 'ANNUAL' || !isset(Leave::META[$r->type])) { return ''; }
+    $st = Capsule::table('mod_cpm_leave_staff')->where('id', $r->staff_id)->first();
+    if (!$st) { return ''; }
+    $sp = Leave::special($st, (int) $r->year)[$r->type] ?? null;
+    if (!$sp) { return ''; }
+    if (!$sp['eligible']) { return 'Δεν προκύπτει δικαίωμα: ' . $sp['why']; }
+    if ($sp['remaining'] !== null && $sp['remaining'] < 0) {
+        return 'Υπέρβαση: δικαίωμα ' . (float) $sp['entitled'] . ', με αυτήν ' . (float) $sp['taken'] . ' (' . $r->year . ')';
+    }
+    return '';
 }
 
 /** Φιλτραρισμένη λίστα αδειών — ίδια αριθμητική με τα πλακίδια. */
@@ -1510,6 +1535,9 @@ function cnp_leave_person($st, $withLeaves = false)
         'remaining' => Leave::remainingTotal($st->id),
         'expiring'  => Leave::expiring($st->id),
         'sickThisYear' => cnp_leave_sum($st->id, (int) date('Y'), 'SICK'),
+        /* Ειδικές άδειες του τρέχοντος ημερολογιακού έτους — δικαίωμα από τα οικογενειακά στοιχεία. */
+        'special'   => array_values(Leave::special($st, (int) date('Y'))),
+        'family'    => cnp_leave_family($st),
     ];
     if ($withLeaves) {
         $out += cnp_leave_query(['staffId' => (int) $st->id]);
@@ -1628,13 +1656,17 @@ function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null
 
     /* Οι ημέρες ΔΕΝ υπολογίζονται από τις ημερομηνίες (αργίες, μισές μέρες).
        Αν δεν δοθούν, προτείνουμε τις εργάσιμες — και ο χειριστής τις βλέπει. */
+    /* Εργάσιμες ή ημερολογιακές ανάλογα με τον τύπο (μητρότητα/ασθένεια = ημερολογιακές). */
     $days = isset($in['days']) && $in['days'] !== ''
-        ? round((float) $in['days'], 2) : (float) Leave::suggestDays($from, $to);
+        ? round((float) $in['days'], 2) : Leave::daysFor($type, $from, $to);
 
     /* Το έτος ΔΙΚΑΙΩΜΑΤΟΣ δεν είναι το έτος της ημερομηνίας: άδεια του 2025
        λαμβάνεται νόμιμα ως τις 31/3/2026. Αν δεν δοθεί ρητά, το μαντεύουμε
        συντηρητικά — μέσα στο πρώτο τρίμηνο χρεώνεται στο προηγούμενο έτος. */
-    if (isset($in['year']) && (int) $in['year'] > 2000) {
+    if ($type !== 'ANNUAL') {
+        /* Οι ΕΙΔΙΚΕΣ άδειες μετρούν ανά ΗΜΕΡΟΛΟΓΙΑΚΟ έτος — δεν υπάρχει μεταφορά ως 31/3. */
+        $year = (int) date('Y', strtotime($from));
+    } elseif (isset($in['year']) && (int) $in['year'] > 2000) {
         $year = (int) $in['year'];
     } else {
         $y = (int) date('Y', strtotime($from));
@@ -1720,7 +1752,8 @@ function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null
     }
 
     $bal = Leave::balance($staff->id, $type);
-    return ['ok' => true, 'id' => (int) $id, 'days' => $days, 'year' => $year, 'status' => $nowSt, 'announce' => $ann,
+    $warn = cnp_leave_warn(Capsule::table('mod_cpm_leaves')->where('id', $id)->first());
+    return ['ok' => true, 'id' => (int) $id, 'warn' => $warn, 'days' => $days, 'year' => $year, 'status' => $nowSt, 'announce' => $ann,
         'approvers' => cnp_leave_approver_names(),
         'balance' => $bal[$year] ?? null];
 }
@@ -5049,7 +5082,7 @@ function cnp_action_cap($action)
         $add('hr.jobs.delete', ['cv_job_del']);
         /* ── ΑΔΕΙΕΣ ── */
         $add('hr.leave', ['leave_staff', 'leave_list', 'leave_get', 'leave_person', 'leave_ergani']);
-        $add('hr.leave.edit', ['leave_save', 'leave_year_save', 'leave_staff_save', 'leave_cancel']);
+        $add('hr.leave.edit', ['leave_save', 'leave_year_save', 'leave_staff_save', 'leave_cancel', 'leave_family_save']);
         $add('hr.leave.approve', ['leave_decide']);
         $add('hr.leave.delete', ['leave_delete']);
         $add('hr.roles', ['roles', 'roles_coverage']);
@@ -21337,7 +21370,7 @@ case 'leave_me':
         out(['ok' => true, 'enrolled' => false,
             'note' => 'Αν πρόκειται για λάθος, μίλα στο γραφείο προσωπικού.']);
     }
-    out(['ok' => true, 'enrolled' => true, 'approvers' => cnp_leave_approver_names()] + cnp_leave_person($lvS, true));
+    out(['ok' => true, 'enrolled' => true, 'approvers' => cnp_leave_approver_names(), 'types' => cnp_leave_types()] + cnp_leave_person($lvS, true));
 
 case 'leave_request':
     $lvS = Leave::staffFor($adminId);
@@ -21425,7 +21458,15 @@ case 'leave_person':
     out(['ok' => true] + cnp_leave_person($lvSt, true) + ['types' => cnp_leave_types()]);
 
 case 'leave_list':
-    out(['ok' => true] + cnp_leave_query($in));
+    $lvQ = cnp_leave_query($in);
+    /* Στα αιτήματα που περιμένουν απόφαση: προειδοποίηση υπέρβασης/δικαιώματος για τον εγκρίνοντα. */
+    if (($in['status'] ?? '') === 'requested') {
+        foreach ($lvQ['rows'] as &$lvRw) {
+            $lvRw['warn'] = cnp_leave_warn(Capsule::table('mod_cpm_leaves')->where('id', $lvRw['id'])->first());
+        }
+        unset($lvRw);
+    }
+    out(['ok' => true] + $lvQ);
 
 case 'leave_get':
     $lvRow = Capsule::table('mod_cpm_leaves')->where('id', (int) ($in['id'] ?? $_GET['id'] ?? 0))->first();
@@ -21535,6 +21576,29 @@ case 'leave_year_save':
     if ($lvEx) { Capsule::table('mod_cpm_leave_years')->where('id', $lvEx->id)->update($lvVals); }
     else { Capsule::table('mod_cpm_leave_years')->insert($lvVals); }
     out(['ok' => true, 'balance' => Leave::balance($lvSid, $lvT)]);
+
+case 'leave_family_save':
+    /* Οικογενειακά στοιχεία → δικαίωμα ειδικών αδειών. Ξεχωριστή ενέργεια ώστε να μη
+       σβήνει τα στοιχεία πρόσληψης (το leave_staff_save γράφει όλα τα πεδία του). */
+    $lvSt = Capsule::table('mod_cpm_leave_staff')->where('id', (int) ($in['staffId'] ?? 0))->first();
+    if (!$lvSt) { fail('Δεν βρέθηκε ο εργαζόμενος'); }
+    $kidsIn = [];
+    foreach ((array) ($in['children'] ?? []) as $k) {
+        $born = substr(trim((string) ($k['born'] ?? '')), 0, 10);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $born) || $born > date('Y-m-d', strtotime('+10 month'))) { continue; }
+        $kidsIn[] = ['born' => $born, 'name' => mb_substr(trim((string) ($k['name'] ?? '')), 0, 40),
+            'disabled' => !empty($k['disabled']) ? 1 : 0, 'serious' => !empty($k['serious']) ? 1 : 0];
+    }
+    usort($kidsIn, function ($a, $b) { return strcmp($a['born'], $b['born']); });
+    Capsule::table('mod_cpm_leave_staff')->where('id', $lvSt->id)->update([
+        'sex' => in_array($in['sex'] ?? '', ['F', 'M'], true) ? $in['sex'] : null,
+        'children' => $kidsIn ? json_encode($kidsIn, JSON_UNESCAPED_UNICODE) : null,
+        'single_parent' => !empty($in['singleParent']) ? 1 : 0,
+        'disabled' => !empty($in['disabled']) ? 1 : 0,
+        'student' => !empty($in['student']) ? 1 : 0,
+    ]);
+    $lvSt = Capsule::table('mod_cpm_leave_staff')->where('id', $lvSt->id)->first();
+    out(['ok' => true, 'family' => cnp_leave_family($lvSt), 'special' => array_values(Leave::special($lvSt, (int) date('Y')))]);
 
 case 'leave_staff_save':
     $lvSid = (int) ($in['staffId'] ?? 0);

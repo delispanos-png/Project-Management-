@@ -5436,3 +5436,14 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .act-file-x:hover{color:var(--bad);background:var(--canvas)}
 .act-composer.act-drop{outline:2px dashed var(--brand);outline-offset:-2px}
 .cb-off{opacity:.5;cursor:not-allowed}
+/* Ειδικές άδειες (22/10/2026) */
+.lv-tinfo{margin-top:8px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--canvas);font-size:12.5px;line-height:1.5}
+.lv-tinfo-m{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:5px;font-size:12px}
+.lv-law{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-top:10px}
+.lv-law-i{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12px;line-height:1.45}
+.lv-law-i.off{opacity:.6}
+.lv-law-i b{display:block;font-size:12.5px;margin-bottom:2px}
+.lv-kid{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px}
+.lv-kid .inp{width:auto;flex:1 1 140px;max-width:200px}
+.lv-kid label,.lv-flags label{display:flex;gap:5px;align-items:center;font-size:12.5px}
+.lv-flags{display:flex;flex-direction:column;gap:5px;justify-content:center}
