@@ -102,7 +102,7 @@ if (!$s->hasTable('…')) { $s->create(…); }
 if (!$s->hasColumn('…', '…')) { $s->table(… add column …); }
 ```
 
-Καλεί με τη σειρά: `Catalog::install()`, `Leave::install()`, `Pool::install()`,
+Καλεί με τη σειρά: `Catalog::install()`, `Pool::install()`,
 `Catalog::unify()`. Τρέχει σε κάθε φόρτωση του addon και με:
 
 ```bash

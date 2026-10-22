@@ -2050,9 +2050,6 @@ class Db
         /* Η ραχοκοκαλιά πελάτης → προϊόν → τμήμα → έργο. Δες lib/Catalog.php. */
         Catalog::install();
 
-        /* Μητρώο αδειών προσωπικού. Δες lib/Leave.php. */
-        Leave::install();
-
         /* Άνθρωποι, ρόλοι και ειδικότητες — το έδαφος της δεξαμενής. Δες lib/Pool.php. */
         Pool::install();
 
@@ -2201,29 +2198,24 @@ class Db
         return Capsule::table('mod_cpm_tasks')->where('ticketid', (int) $ticketid)->first();
     }
 
+    /**
+     * Ποιοι λείπουν μια ημέρα: σήμανση «Άδεια» (kind='leave') στο ημερολόγιο.
+     * Το κύκλωμα αδειών καταργήθηκε (22/10/2026 — οι άδειες ζουν σε εξωτερικό σύστημα).
+     * @return array [admin_id => 'Άδεια']
+     */
+    public static function awayOn($date)
+    {
+        $out = [];
+        foreach (Capsule::table('mod_cpm_events')->where('kind', 'leave')
+                ->where('start_dt', '<=', $date . ' 23:59:59')->where('end_dt', '>=', $date . ' 00:00:00')
+                ->pluck('attendees') as $att) {
+            foreach (array_filter(array_map('intval', explode(',', (string) $att))) as $aid) { $out[$aid] = 'Άδεια'; }
+        }
+        return $out;
+    }
+
     public static function saveTask($id, array $data, $adminId = null)
     {
-        /* ΑΔΕΙΑ = ΦΡΑΓΜΟΣ (22/10/2026): νέος ανάδοχος ή νέα μπάλα σε όποιον λείπει.
-           Ελέγχεται μόνο ό,τι ΑΛΛΑΖΕΙ — μια παλιά ανάθεση δεν εμποδίζει να αλλάξει
-           π.χ. η κατάσταση. Και αλλαγή ημερομηνιών μέσα στην άδεια του αναδόχου. */
-        if (Leave::$guard && array_intersect_key($data, ['assignee' => 1, 'action_user' => 1, 'start_date' => 1, 'due_date' => 1])) {
-            $cur = $id ? Capsule::table('mod_cpm_tasks')->where('id', (int) $id)->first(['assignee', 'action_user', 'start_date', 'due_date']) : null;
-            $st = array_key_exists('start_date', $data) ? $data['start_date'] : ($cur->start_date ?? null);
-            $du = array_key_exists('due_date', $data) ? $data['due_date'] : ($cur->due_date ?? null);
-            $datesMoved = $cur && (($st ?: null) != ($cur->start_date ?: null) || ($du ?: null) != ($cur->due_date ?: null));
-            foreach (['assignee' => 'να του ανατεθεί εργασία', 'action_user' => 'να του δοθεί η μπάλα'] as $f => $what) {
-                $who = array_key_exists($f, $data) ? (int) $data[$f] : (int) ($cur->$f ?? 0);
-                if (!$who) { continue; }
-                if (!$cur || (int) ($cur->$f ?? 0) !== $who) {
-                    Leave::guardTask($who, $st, $du, $what);
-                } elseif ($datesMoved && $f === 'assignee') {
-                    /* Ίδιος ανάδοχος, νέες ημερομηνίες: μόνο οι ημερομηνίες μετράνε, όχι το «σήμερα». */
-                    foreach (array_filter([$st, $du]) as $d) {
-                        if ($r = Leave::awayDuring($who, $d)) { throw new LeaveBlocked($who, $r, 'να έχει την εργασία με αυτές τις ημερομηνίες', $d); }
-                    }
-                }
-            }
-        }
         $now = date('Y-m-d H:i:s');
         $data['updated_at'] = $now;
         if ($id) {

@@ -4566,132 +4566,6 @@ html[data-theme="dark"] .qr-m.me{background:#0090dd24}
   .tp-time{width:auto}
 }
 
-/* ═══════════ ΑΔΕΙΕΣ ΠΡΟΣΩΠΙΚΟΥ ═══════════
-
-   ΔΟΜΗ, ΟΧΙ ΣΤΟΙΒΑ ΠΕΔΙΩΝ. Η φόρμα άδειας απαντά τέσσερις ξεχωριστές ερωτήσεις
-   — ποιος, πότε, πόσο, τι δηλώθηκε. Όταν ήταν μία στήλη με οκτώ πεδία, κανείς
-   δεν έβλεπε πού τελειώνει η μία και αρχίζει η άλλη, και το βοηθητικό κείμενο
-   κοβόταν στη μέση μέσα σε εσωτερικό scroll.
-
-   ΤΟ ΚΙΝΗΤΟ ΔΕΝ ΕΙΝΑΙ ΣΤΕΝΟ DESKTOP. Οι πίνακες με 8 στήλες γίνονται κάρτες:
-   κάθε γραμμή ένα μπλοκ, κάθε κελί με την ετικέτα του δίπλα. Το πλάγιο scroll
-   σε πίνακα μισθοδοσίας σημαίνει ότι διαβάζεις νούμερα χωρίς να βλέπεις σε
-   ποιον ανήκουν. */
-
-/* ── Παράθυρο φόρμας ── */
-.lv-ovl{position:fixed;inset:0;background:rgba(12,24,44,.5);z-index:400;
-  display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
-.lv-modal{background:var(--card);border-radius:16px;width:100%;max-width:640px;
-  max-height:min(88vh,860px);display:flex;flex-direction:column;
-  box-shadow:0 24px 64px rgba(12,30,60,.28);overflow:hidden}
-.lv-modal-h{display:flex;align-items:center;gap:12px;padding:16px 20px;
-  border-bottom:1px solid var(--line);flex:0 0 auto}
-.lv-modal-h b{font-size:16px;color:var(--ink);flex:1;min-width:0}
-.lv-modal-h .lv-x{background:0;border:0;font-size:20px;line-height:1;color:var(--mut);
-  cursor:pointer;padding:2px 6px;border-radius:7px}
-.lv-modal-h .lv-x:hover{background:var(--line);color:var(--ink)}
-/* Το σώμα κυλά, ΟΧΙ η σελίδα από κάτω — και τα κουμπιά μένουν πάντα ορατά. */
-.lv-modal-b{padding:16px 20px;overflow:auto;flex:1 1 auto;-webkit-overflow-scrolling:touch}
-.lv-modal-f{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap;
-  padding:13px 20px;border-top:1px solid var(--line);background:var(--bg,transparent);flex:0 0 auto}
-.lv-modal-f .lv-sp{flex:1}
-
-/* ── Ενότητες φόρμας ── */
-.lv-sec{margin-bottom:18px}
-.lv-sec:last-child{margin-bottom:0}
-.lv-sec-h{font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;
-  letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
-.lv-sec-h::after{content:"";flex:1;height:1px;background:var(--line)}
-/* auto-fit: τα πεδία αναδιπλώνονται μόνα τους — καμία media query για τη φόρμα. */
-.lv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px}
-.lv-grid.one{grid-template-columns:1fr}
-.lv-f{display:flex;flex-direction:column;gap:4px;min-width:0}
-.lv-f>span{font-size:12px;font-weight:600;color:var(--mut)}
-.lv-f .inp{margin:0;width:100%}
-.lv-hint{font-size:11.5px;color:var(--mut);line-height:1.5;margin-top:7px}
-.lv-hint b{color:var(--txt)}
-
-/* ── Πίνακες ── */
-.lv-t{width:100%;border-collapse:collapse;font-size:13px}
-.lv-t th{text-align:left;font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;
-  letter-spacing:.3px;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
-.lv-t td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--txt);vertical-align:middle}
-.lv-t tbody tr:last-child td{border-bottom:0}
-.lv-t th.r,.lv-t td.r{text-align:right}
-.lv-t tr.pick{cursor:pointer}
-.lv-t tr.pick:hover{background:var(--hover,rgba(20,80,160,.04))}
-.lv-t-sm td,.lv-t-sm th{padding:6px 10px;font-size:12.5px}
-
-.lv-pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;
-  border:1px solid;white-space:nowrap}
-.lv-flag{display:inline-block;margin-left:5px;padding:1px 7px;border-radius:999px;font-size:10.5px;
-  background:var(--line);color:var(--mut)}
-.lv-miss{color:var(--bad,#b91c1c);font-size:11.5px;font-weight:600}
-.lv-sub{font-size:11.5px;font-weight:700;color:var(--mut);text-transform:uppercase;
-  letter-spacing:.3px;margin:16px 0 5px}
-
-/* Η προειδοποίηση προθεσμίας δεν είναι διακοσμητική: μετά τις 31/3 η άδεια
-   γίνεται χρηματική αξίωση με προσαύξηση 100%. */
-.lv-warn{border-color:var(--warn,#b45309)!important;background:rgba(180,83,9,.05)}
-.lv-inline-warn{background:rgba(180,83,9,.08);border:1px solid rgba(180,83,9,.25);border-radius:9px;
-  padding:9px 12px;font-size:12.5px;color:var(--ink);margin-bottom:13px;line-height:1.5}
-.lv-warn-dot{display:inline-block;width:16px;height:16px;line-height:15px;text-align:center;
-  border-radius:50%;background:var(--bad,#b91c1c);color:#fff;font-size:11px;font-weight:800;cursor:help}
-.lv-mini{width:78px;padding:4px 7px!important;font-size:12.5px;text-align:right}
-
-@media (max-width:820px){
-  .lv-ovl{padding:0;align-items:stretch}
-  /* Φύλλο πλήρους οθόνης: σε 390px ένα «παραθυράκι» με περιθώρια χαραμίζει
-     τον μισό χώρο και τα πεδία βγαίνουν 120px. */
-  .lv-modal{max-width:none;max-height:none;height:100dvh;border-radius:0}
-  .lv-modal-f .btn{flex:1;min-width:120px}
-}
-
-@media (max-width:768px){
-  /* ΠΙΝΑΚΑΣ → ΚΑΡΤΕΣ. Κάθε γραμμή ένα μπλοκ, κάθε κελί με την ετικέτα του. */
-  .lv-t thead{display:none}
-  .lv-t,.lv-t tbody,.lv-t tr,.lv-t td{display:block;width:100%}
-  .lv-t tr{border-bottom:1px solid var(--line);padding:9px 12px}
-  .lv-t tr:last-child{border-bottom:0}
-  .lv-t td{border:0;padding:3px 0;display:flex;justify-content:space-between;
-    align-items:center;gap:12px;text-align:right}
-  .lv-t td::before{content:attr(data-l);font-size:11px;font-weight:700;color:var(--mut);
-    text-transform:uppercase;letter-spacing:.3px;text-align:left;flex:0 0 auto}
-  /* Το πρώτο κελί είναι ο τίτλος της κάρτας — χωρίς ετικέτα, σε δική του γραμμή. */
-  .lv-t td.lv-hd{display:block;text-align:left;font-size:14px;margin-bottom:5px}
-  .lv-t td.lv-hd::before{content:none}
-  .lv-t td:empty{display:none}
-  .lv-t td.r{text-align:right}
-}
-
-/* Το ιστορικό είναι πτυσσόμενο: υπάρχει όταν το θέλεις, δεν κάθεται μπροστά. */
-.lv-fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
-.lv-fold>summary::-webkit-details-marker{display:none}
-.lv-fold>summary::after{content:"▾";margin-left:auto;color:var(--mut);font-size:12px;transition:transform .15s}
-.lv-fold[open]>summary::after{transform:rotate(180deg)}
-.lv-fold>summary:hover{background:var(--hover,rgba(20,80,160,.04))}
-
-/* Πέντε πλακίδια σε μία στήλη σπρώχνουν τα δεδομένα εκτός οθόνης. Δύο ανά
-   σειρά κρατούν και τα νούμερα ευανάγνωστα και τον πίνακα κοντά. Δική μας
-   κλάση, ώστε να μην αλλάξει η συμπεριφορά σε άλλα κυκλώματα. */
-@media (max-width:768px){
-  .lv-tiles{display:grid!important;grid-template-columns:1fr 1fr;gap:9px}
-  .lv-tiles .su-stat{padding:9px 12px}
-  .lv-tiles .su-stat .n{font-size:18px}
-  .lv-tiles .su-stat .l{font-size:10.5px;line-height:1.3}
-}
-
-/* Η ΧΡΟΝΙΑ ΩΣ ΠΡΟΤΑΣΗ: δικαιούται + από πέρσι = διαθέσιμες − πήρε = έμειναν
-   → στο επόμενο. Οι τελεστές είναι σβησμένοι και τα αποτελέσματα έντονα, ώστε
-   το μάτι να πιάνει τα δύο νούμερα που μετράνε χωρίς να διαβάζει τα υπόλοιπα. */
-.lv-flow th.lv-op,.lv-flow td.lv-op{color:var(--mut);font-weight:400}
-.lv-flow th.lv-eq{color:var(--ink)}
-.lv-flow td.lv-eq{background:var(--hover,rgba(20,80,160,.035))}
-@media (max-width:768px){
-  .lv-flow td.lv-eq{background:0}
-  .lv-flow td.lv-op::before,.lv-flow td.lv-eq::before{font-weight:700}
-}
-
 /* Επανάκληση στην κάρτα AI ρεσεψιόν (22/09/2026) */
 .pbx-cbt{margin-bottom:12px}
 .pbx-aitk.cb{background:#7b5cd622;color:#7b5cd6}
@@ -5435,19 +5309,8 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .act-file-x{border:0;border-left:1px solid var(--line);background:none;color:var(--mut);padding:0 8px;align-self:stretch;cursor:pointer;font-size:12px}
 .act-file-x:hover{color:var(--bad);background:var(--canvas)}
 .act-composer.act-drop{outline:2px dashed var(--brand);outline-offset:-2px}
-.cb-off{opacity:.5;cursor:not-allowed}
-/* Ειδικές άδειες (22/10/2026) */
-.lv-tinfo{margin-top:8px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--canvas);font-size:12.5px;line-height:1.5}
-.lv-tinfo-m{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:5px;font-size:12px}
-.lv-law{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-top:10px}
-.lv-law-i{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12px;line-height:1.45}
-.lv-law-i.off{opacity:.6}
-.lv-law-i b{display:block;font-size:12.5px;margin-bottom:2px}
-.lv-kid{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px}
-.lv-kid .inp{width:auto;flex:1 1 140px;max-width:200px}
-.lv-kid label,.lv-flags label{display:flex;gap:5px;align-items:center;font-size:12.5px}
-.lv-flags{display:flex;flex-direction:column;gap:5px;justify-content:center}
-.lv-erg-l{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;font-size:12px}
-.lv-erg-l div{padding:4px 9px;border-bottom:1px solid var(--line)}
-.lv-erg-l div.hl{background:#fde68a55;font-weight:600}
-.lv-pre{max-height:220px;overflow:auto;font-size:11.5px;background:var(--canvas);padding:8px;border-radius:8px;white-space:pre-wrap}
+/* Κοινά με τις Views Λίστας (ήταν μέσα στο μπλοκ των αδειών, που καταργήθηκε 22/10/2026). */
+.lv-sec{margin-bottom:18px}
+.lv-sec:last-child{margin-bottom:0}
+.lv-sub{font-size:11.5px;font-weight:700;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.3px;margin:16px 0 5px}

@@ -223,9 +223,7 @@ function openEvent(ev, ymRefresh) {
       <input type="checkbox" id="evAll" ${ev.allDay ? 'checked' : ''}> Ολοήμερο (για άδειες/πολυήμερα)</label>
     <label class="lbl" style="margin-top:11px">Συμμετέχοντες</label>
     <div class="ev-att">
-      ${S.boot.admins.map(a => `<label><input type="checkbox" class="evA" value="${a.id}" ${(ev.attendees || []).includes(a.id) ? 'checked' : ''}> ${esc(a.name)}${
-        /* Άδεια: φαίνεται εδώ· ο server δεν αφήνει να κληθεί αν πέφτει στις ημέρες της σύσκεψης. */
-        window.CNP.cnpAwayTag(a.id) ? `<span class="mut" style="font-size:11px">${esc(window.CNP.cnpAwayTag(a.id))}</span>` : ''}</label>`).join('')}
+      ${S.boot.admins.map(a => `<label><input type="checkbox" class="evA" value="${a.id}" ${(ev.attendees || []).includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('')}
     </div>
     <div class="ev-busy" id="evBusy" hidden></div>
     <label class="lbl" style="margin-top:11px">Επιπλέον προσκεκλημένοι <span class="mut" style="font-weight:400">(εξωτερικοί — γράψε email και πάτα +)</span></label>

@@ -59,17 +59,7 @@ class Recurring
     /** Είναι σε άδεια ο άνθρωπος εκείνη τη μέρα; */
     public static function onLeave($adminId, $date)
     {
-        try {
-            $staff = Capsule::table('mod_cpm_leave_staff')->where('admin_id', (int) $adminId)->pluck('id')->all();
-            if (!$staff) {
-                return false;
-            }
-            return Capsule::table('mod_cpm_leaves')->whereIn('staff_id', $staff)
-                ->where('date_from', '<=', $date)->where('date_to', '>=', $date)
-                ->whereNotIn('status', ['rejected', 'cancelled', 'canceled', 'declined'])->exists();
-        } catch (\Throwable $e) {
-            return false;
-        }
+        return isset(Db::awayOn($date)[(int) $adminId]);
     }
 
     /** Επόμενη εμφάνιση μετά από $date. */
