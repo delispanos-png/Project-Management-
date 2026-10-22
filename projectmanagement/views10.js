@@ -125,9 +125,40 @@ const lvV = id => {
   return v == null ? '' : v;
 };
 
-const lvTypeOpts = (types, sel) => (types || []).map(t =>
-  `<option value="${t.code}" ${t.code === sel ? 'selected' : ''}>${esc(t.label)}${
-    t.deducts ? '' : ' — δεν χρεώνει υπόλοιπο'}</option>`).join('');
+/* Τύποι ομαδοποιημένοι (Κανονική / Υγεία / Γονείς / Οικογένεια / Άλλες). Με `sp` (ειδικές
+   του εργαζομένου) δείχνει δίπλα πόσες μένουν και κρύβει όσες δεν τον αφορούν. */
+const LV_GROUPS = ['Κανονική', 'Υγεία', 'Γονείς', 'Οικογένεια', 'Άλλες'];
+const lvTypeOpts = (types, sel, sp) => LV_GROUPS.map(g => {
+  const arr = (types || []).filter(t => (t.group || 'Άλλες') === g
+    && (!sp || t.code === 'ANNUAL' || t.code === sel || (sp[t.code] && sp[t.code].eligible)));
+  if (!arr.length) { return ''; }
+  return `<optgroup label="${esc(g)}">${arr.map(t => {
+    const x = sp && sp[t.code];
+    const tail = x && x.remaining != null ? ` — μένουν ${lvN(x.remaining)}` : '';
+    return `<option value="${t.code}" ${t.code === sel ? 'selected' : ''}>${esc(t.label)}${tail}</option>`;
+  }).join('')}</optgroup>`;
+}).join('');
+/* Η εξήγηση του επιλεγμένου τύπου: κανόνας, ποιος πληρώνει, δικαιολογητικό, άρθρο. */
+const lvTypeInfo = (t, x) => !t ? '' : `<div class="lv-tinfo">
+    ${t.rule ? `<div>${esc(t.rule)}</div>` : ''}
+    <div class="lv-tinfo-m">${x && x.entitled != null && t.unit === 'year'
+      ? `<span>Δικαίωμα ${lvN(x.entitled)} · πήρες ${lvN(x.taken)} · <b>μένουν ${lvN(x.remaining)}</b></span>` : ''}
+      ${x && x.why && t.code !== 'ANNUAL' ? `<span class="mut">${esc(x.why)}</span>` : ''}
+      ${t.pay ? `<span>Αμοιβή: <b>${esc(t.pay)}</b></span>` : ''}
+      ${t.doc ? `<span>Χρειάζεται: <b>${esc(t.doc)}</b></span>` : ''}
+      ${t.basis === 'cal' ? '<span>Μετρά ημερολογιακές ημέρες</span>' : ''}
+      ${t.basis === 'hours' ? '<span>Σε ώρες — γράψε ημέρες με δεκαδικά (1 ώρα ≈ 0,125)</span>' : ''}
+      ${t.law ? `<span class="mut">${esc(t.law)}</span>` : ''}</div></div>`;
+const lvWireType = (types, sp) => {
+  const sel = lvModal._el && lvModal._el.querySelector('#lvType');
+  const box = lvModal._el && lvModal._el.querySelector('#lvTInfo');
+  if (!sel || !box) { return; }
+  const draw = () => {
+    const t = (types || []).find(x => x.code === sel.value);
+    box.innerHTML = lvTypeInfo(t, sp && sp[sel.value]);
+  };
+  sel.addEventListener('change', draw); draw();
+};
 
 /* ───────────────── Η καρτέλα μιας άδειας ───────────────── */
 
@@ -140,7 +171,7 @@ async function lvEditLeave(row, ctx) {
         `<option value="${s.staffId}" ${s.staffId === (r.staffId || ctx.staffId) ? 'selected' : ''}>${esc(s.name)}</option>`
       ).join('')}</select>`)}</div>`) : '')
     + lvSec('Τι άδεια', `<div class="lv-grid one">${lvF('Τύπος',
-        `<select class="inp" id="lvType">${lvTypeOpts(ctx.types, r.type)}</select>`)}</div>`)
+        `<select class="inp" id="lvType">${lvTypeOpts(ctx.types, r.type)}</select>`)}</div><div id="lvTInfo"></div>`)
     + lvSec('Πότε', `<div class="lv-grid">
         ${lvF('Από', `<input class="inp" type="date" id="lvFrom" value="${esc(r.from || '')}">`)}
         ${lvF('Έως', `<input class="inp" type="date" id="lvTo" value="${esc(r.to || '')}">`)}
@@ -167,6 +198,7 @@ async function lvEditLeave(row, ctx) {
         (ctx.approverNames || []).length ? ' σε ' + esc(ctx.approverNames.join(' ή ')) : ''}.
         ΕΡΓΑΝΗ και σημείωση αλλάζουν χωρίς έγκριση.</div>`);
 
+  setTimeout(() => lvWireType(ctx.types, null), 0);
   const act = await lvModal({
     title: isNew ? 'Νέα άδεια' : 'Άδεια — ' + (r.name || ''),
     body, ok: isNew ? 'Καταχώριση' : 'Αποθήκευση',
@@ -203,6 +235,7 @@ async function lvEditLeave(row, ctx) {
   if (!vals.from) { toast('Βάλε ημερομηνία έναρξης', 1); return false; }
   try {
     const res = await api('leave_save', Object.assign({id: row ? row.id : 0}, vals));
+    if (res.warn) { toast(res.warn, 1); }
     toast(res.status === 'requested' && !(row && row.status === 'requested')
       ? `Στάλθηκε για έγκριση${(res.approvers || []).length ? ' σε ' + res.approvers.join(' ή ') : ''} — ${lvN(res.days)} ημέρες, έτος ${res.year}`
       : `Καταχωρήθηκε — ${lvN(res.days)} ημέρες στο έτος ${res.year}`);
@@ -286,12 +319,15 @@ R.myleave = async function () {
     </tbody></table>
   </div></div>
 
+  ${lvSpecialCard(d.special || [], yNow, false)}
+
   ${past.length ? `<details class="card lv-fold"><summary class="card-h">Ιστορικό — ${past.length} άδειες</summary>
     <div class="card-b" style="padding:0">${tbl(past)}</div></details>`
   : (open.length ? '' : `<div class="card"><div class="card-b"><div class="empty">Καμία άδεια ακόμη.
       <div class="mut" style="margin-top:6px">Πάτα «Νέο αίτημα» για να ζητήσεις την πρώτη σου.</div></div></div></div>`)}`;
 
   $('#lvAsk').onclick = async () => { if (await lvAsk(d)) { R.myleave(); } };
+  $$('[data-lvaskt]').forEach(b => b.onclick = async () => { if (await lvAsk(d, b.dataset.lvaskt)) { R.myleave(); } });
   $$('[data-lvw]').forEach(b => b.onclick = async () => {
     if (!await cnpConfirm('Ανάκληση του αιτήματος; Θα σβηστεί και δεν θα φτάσει στον υπεύθυνο.',
       {ok: 'Ανάκληση', danger: true})) { return; }
@@ -300,19 +336,54 @@ R.myleave = async function () {
   });
 };
 
+/**
+ * Ειδικές άδειες ενός έτους: ΕΤΗΣΙΕΣ με δικαίωμα/πήρε/μένουν, και όσες ΤΟΝ ΑΦΟΡΟΥΝ ανά
+ * γεγονός (γάμος, πένθος…) ως κανόνας. Όσες δεν προκύπτουν από τα στοιχεία του κρύβονται
+ * — εκτός αν πήρε ήδη κάτι (τότε φαίνεται, για να μη «χαθεί»). Ο πλήρης κατάλογος του
+ * νόμου ζει σε πτυσσόμενο από κάτω.
+ */
+function lvSpecialCard(sp, year, admin) {
+  const mine = sp.filter(x => x.eligible || x.taken > 0);
+  const yearly = mine.filter(x => x.unit === 'year');
+  const other = mine.filter(x => x.unit !== 'year');
+  const none = sp.filter(x => !x.eligible && !(x.taken > 0));
+  const row = x => `<tr>
+      <td class="lv-hd"><b>${esc(x.label)}</b><div class="mut" style="font-size:11px">${esc(x.why || '')}</div></td>
+      <td class="r" data-l="Δικαίωμα">${admin
+        ? `<input class="inp lv-mini" type="number" step="0.5" min="0" data-lvsp="${x.code}" value="${x.entitled == null ? '' : lvN(x.entitled)}" placeholder="—" title="Διόρθωση από μισθοδοσία/ΣΣΕ για το ${year}">`
+        : (x.entitled == null ? '<span class="mut">—</span>' : lvN(x.entitled))}</td>
+      <td class="r" data-l="Πήρε">${x.taken ? lvN(x.taken) : '<span class="mut">—</span>'}</td>
+      <td class="r" data-l="Μένουν">${x.remaining == null ? '<span class="mut">—</span>'
+        : `<b style="color:${x.remaining > 0 ? 'var(--brand)' : x.remaining < 0 ? 'var(--bad,#b91c1c)' : 'var(--mut,#64748b)'}">${lvN(x.remaining)}</b>`}</td>
+      <td data-l="Αμοιβή" class="mut" style="font-size:12px">${esc(x.pay || '')}</td>
+      <td class="r">${admin ? `<button class="btn btn-o btn-sm" data-lvspsave="${x.code}">Αποθήκευση</button>`
+        : `<button class="btn btn-o btn-sm" data-lvaskt="${x.code}">Αίτημα</button>`}</td></tr>`;
+  const head = `<thead><tr><th>Άδεια</th><th class="r">Δικαίωμα</th><th class="r">Πήρε</th><th class="r">Μένουν</th><th>Αμοιβή</th><th></th></tr></thead>`;
+  return `<div class="card"><div class="card-h">Ειδικές άδειες ${year}</div><div class="card-b" style="padding:0">
+      ${yearly.length ? `<table class="lv-t lv-t-sm">${head}<tbody>${yearly.map(row).join('')}</tbody></table>` : ''}
+      ${other.length ? `<div class="lv-sub" style="padding:10px 12px 0">Ανά γεγονός (γέννηση, γάμος, απώλεια, εκλογές…)</div>
+        <table class="lv-t lv-t-sm"><tbody>${other.map(row).join('')}</tbody></table>` : ''}
+      <details class="lv-fold" style="padding:8px 12px 12px"><summary class="mut" style="cursor:pointer;font-size:12.5px">
+        Όλες οι ειδικές άδειες του νόμου — κανόνας, αμοιβή, δικαιολογητικό</summary>
+        <div class="lv-law">${sp.map(x => `<div class="lv-law-i${x.eligible ? '' : ' off'}"><b>${esc(x.label)}</b>
+          <div>${esc(x.rule || '')}</div>
+          <div class="mut">${esc([x.pay && 'Αμοιβή: ' + x.pay, x.doc && 'Χρειάζεται: ' + x.doc, x.law].filter(Boolean).join(' · '))}${
+            x.eligible ? '' : ' · <i>' + esc(x.why || '') + '</i>'}</div></div>`).join('')}</div>
+      </details>
+    </div></div>`;
+}
+
 /* Το αίτημα του ίδιου του εργαζομένου: λιγότερα πεδία από την καταχώριση του
    γραφείου προσωπικού — δεν ορίζει ούτε έτος δικαιώματος ούτε ΕΡΓΑΝΗ. */
-async function lvAsk(d) {
+async function lvAsk(d, preType) {
+  const spMap = {}; (d.special || []).forEach(x => { spMap[x.code] = x; });
+  spMap.ANNUAL = {eligible: true, entitled: null, remaining: d.remaining};
+  setTimeout(() => lvWireType(d.types, spMap), 0);
   const body =
     lvSec('Τι άδεια', `<div class="lv-grid one">${lvF('Τύπος', `<select class="inp" id="lvType">
-      <option value="ANNUAL">Κανονική άδεια</option>
-      <option value="SICK">Ασθένεια — δεν χρεώνει υπόλοιπο</option>
-      <option value="SCHOOL">Σχολική άδεια — δεν χρεώνει υπόλοιπο</option>
-      <option value="PARENTAL">Γονική άδεια — δεν χρεώνει υπόλοιπο</option>
-      <option value="MARRIAGE">Άδεια γάμου — δεν χρεώνει υπόλοιπο</option>
-      <option value="BEREAVEMENT">Άδεια θανάτου — δεν χρεώνει υπόλοιπο</option>
-      <option value="UNPAID">Άνευ αποδοχών</option>
-    </select>`)}</div>`)
+      ${lvTypeOpts(d.types, preType || 'ANNUAL', spMap)}</select>`)}</div><div id="lvTInfo"></div>
+      <div class="lv-hint">Βλέπεις τις άδειες που σε αφορούν με βάση τα στοιχεία σου. Αν λείπει κάποια
+        (π.χ. γέννηση παιδιού), ζήτα από το γραφείο προσωπικού να ενημερώσει τα στοιχεία σου.</div>`)
     + lvSec('Πότε', `<div class="lv-grid">
         ${lvF('Από', '<input class="inp" type="date" id="lvFrom">')}
         ${lvF('Έως', '<input class="inp" type="date" id="lvTo">')}
@@ -334,7 +405,8 @@ async function lvAsk(d) {
   if (!vals.from) { toast('Βάλε ημερομηνία έναρξης', 1); return false; }
   try {
     const res = await api('leave_request', vals);
-    toast(`Στάλθηκε για έγκριση — ${lvN(res.days)} ημέρες, έτος δικαιώματος ${res.year}`);
+    if (res.warn) { toast(res.warn, 1); }
+    toast(`Στάλθηκε για έγκριση — ${lvN(res.days)} ημέρες, έτος ${res.year}`);
     return true;
   } catch (e) { toast(e.message, 1); return false; }
 }
@@ -446,7 +518,8 @@ R.leave = async function () {
     ${pend.length ? `<div class="card lv-warn"><div class="card-h">Θέλουν απόφαση</div>
       <div class="card-b" style="padding:0"><table class="lv-t"><tbody>
       ${pend.map(r => `<tr>
-        <td class="lv-hd"><b>${esc(r.name)}</b> <span class="mut">${esc(r.span)}</span>${lvWho(r)}</td>
+        <td class="lv-hd"><b>${esc(r.name)}</b> <span class="mut">${esc(r.span)}</span>${lvWho(r)}${
+          r.warn ? `<div style="font-size:11.5px;color:var(--bad,#b91c1c);margin-top:3px">⚠ ${esc(r.warn)}</div>` : ''}</td>
         <td data-l="Τύπος">${esc(r.typeLabel)}</td>
         <td class="r" data-l="Ημέρες">${lvN(r.days)}</td>
         <td class="mut" data-l="Έτος δικαιώματος">${r.year}</td>
@@ -660,6 +733,8 @@ async function lvPerson(staffId) {
         <div class="lv-hint">Γράφονται μόνο οι <b>δικαιούμενες</b> και η <b>μεταφορά</b>.
           Το «πήρε» και το «μένουν» προκύπτουν από τις εγγραφές — δεν είναι πεδία,
           γι' αυτό δεν ξεφεύγουν.</div>`)
+      + lvSec('Οικογενειακά στοιχεία — για τις ειδικές άδειες', lvFamilyForm(d.family || {}, canEdit))
+      + lvSpecialCard(d.special || [], new Date().getFullYear(), canEdit)
       + lvSec('Ιστορικό', hist || '<div class="mut">Καμία εγγραφή.</div>');
   };
 
@@ -681,10 +756,74 @@ async function lvPerson(staffId) {
         wire();
       } catch (e) { toast(e.message, 1); }
     });
+    /* Οικογενειακά: + παιδί, ✕ παιδί, αποθήκευση → ξαναϋπολογίζονται οι ειδικές. */
+    const fam = host.querySelector('#lvFam');
+    if (fam) {
+      const kidsBox = fam.querySelector('#lvKids');
+      fam.querySelector('#lvKidAdd').onclick = () => { kidsBox.insertAdjacentHTML('beforeend', lvKidRow({})); };
+      kidsBox.onclick = e => { const x = e.target.closest('[data-kidx]'); if (x) { x.closest('.lv-kid').remove(); } };
+      fam.querySelector('#lvFamSave').onclick = async () => {
+        const children = [...kidsBox.querySelectorAll('.lv-kid')].map(k => ({
+          born: k.querySelector('[data-k=born]').value, name: k.querySelector('[data-k=name]').value,
+          disabled: k.querySelector('[data-k=disabled]').checked, serious: k.querySelector('[data-k=serious]').checked}))
+          .filter(k => k.born);
+        try {
+          await api('leave_family_save', {staffId, sex: fam.querySelector('#lvSex').value, children,
+            singleParent: fam.querySelector('#lvSingle').checked, disabled: fam.querySelector('#lvDis').checked,
+            student: fam.querySelector('#lvStud').checked});
+          toast('Αποθηκεύτηκαν — οι ειδικές άδειες ξαναϋπολογίστηκαν');
+          d = await api('leave_person', {staffId}); host.innerHTML = draw(); wire();
+        } catch (e) { toast(e.message, 1); }
+      };
+    }
+    host.querySelectorAll('[data-lvspsave]').forEach(b => b.onclick = async () => {
+      const code = b.dataset.lvspsave, inp = host.querySelector(`[data-lvsp="${code}"]`);
+      if (!inp || inp.value === '') { toast('Γράψε ημέρες — ή άφησε τον υπολογισμό του νόμου', 1); return; }
+      try {
+        await api('leave_year_save', {staffId, year: new Date().getFullYear(), type: code, entitled: inp.value, carried: 0});
+        toast('Αποθηκεύτηκε'); d = await api('leave_person', {staffId}); host.innerHTML = draw(); wire();
+      } catch (e) { toast(e.message, 1); }
+    });
   };
   wire();
   await p;
   if (R.leave._s) { R.leave(); }
+}
+
+/* Ένα παιδί στη φόρμα: ημ. γέννησης (απαραίτητη), όνομα (προαιρετικό), σημαίες. */
+const lvKidRow = k => `<div class="lv-kid">
+    <input class="inp" type="date" data-k="born" value="${esc(k.born || '')}" title="Ημερομηνία γέννησης">
+    <input class="inp" data-k="name" value="${esc(k.name || '')}" placeholder="όνομα (προαιρετικό)">
+    <label title="Αναπηρία — μετρά και μετά τα 16/18"><input type="checkbox" data-k="disabled" ${k.disabled ? 'checked' : ''}> αναπηρία</label>
+    <label title="Σοβαρό νόσημα (μεταγγίσεις, αιμοκάθαρση, καρκίνος, μεταμόσχευση, σπάνια νόσος ≥67%, Down, αυτισμός)"><input type="checkbox" data-k="serious" ${k.serious ? 'checked' : ''}> σοβαρό νόσημα</label>
+    <button type="button" class="btn btn-o btn-sm" data-kidx title="Αφαίρεση">✕</button></div>`;
+
+/* Οικογενειακά στοιχεία: από αυτά προκύπτει το δικαίωμα στις ειδικές άδειες. */
+function lvFamilyForm(f, canEdit) {
+  const kids = f.children || [];
+  if (!canEdit) {
+    return `<div class="lv-hint" style="margin:0">${f.sex ? (f.sex === 'F' ? 'Γυναίκα' : 'Άνδρας') + ' · ' : ''}${
+      kids.length ? kids.length + (kids.length === 1 ? ' παιδί' : ' παιδιά') + ': ' + kids.map(k => lvDate(k.born)).join(', ') : 'χωρίς καταχωρημένα παιδιά'}${
+      f.singleParent ? ' · μονογονέας' : ''}${f.disabled ? ' · αναπηρία' : ''}${f.student ? ' · σπουδαστής' : ''}</div>`;
+  }
+  return `<div id="lvFam">
+    <div class="lv-grid">
+      ${lvF('Φύλο', `<select class="inp" id="lvSex"><option value="">—</option>
+        <option value="F" ${f.sex === 'F' ? 'selected' : ''}>Γυναίκα</option><option value="M" ${f.sex === 'M' ? 'selected' : ''}>Άνδρας</option></select>`)}
+      <div class="lv-flags">
+        <label><input type="checkbox" id="lvSingle" ${f.singleParent ? 'checked' : ''}> Μονογονέας</label>
+        <label><input type="checkbox" id="lvDis" ${f.disabled ? 'checked' : ''}> Αναπηρία ≥50% (+6 κανονική)</label>
+        <label><input type="checkbox" id="lvStud" ${f.student ? 'checked' : ''}> Σπουδαστής &lt;25</label>
+      </div>
+    </div>
+    <div class="lv-sub" style="margin-top:10px">Παιδιά</div>
+    <div id="lvKids">${kids.map(lvKidRow).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button type="button" class="btn btn-o btn-sm" id="lvKidAdd">+ Παιδί</button><span style="flex:1"></span>
+      <button type="button" class="btn btn-p btn-sm" id="lvFamSave">Αποθήκευση στοιχείων</button></div>
+    <div class="lv-hint">Ευαίσθητα δεδομένα: τα βλέπουν μόνο ο ίδιος και όσοι διαχειρίζονται τις άδειες.
+      Χρησιμοποιούνται μόνο για να υπολογιστεί το δικαίωμα (σχολική, ασθένεια παιδιού, γονική, μονογονέα…).</div>
+  </div>`;
 }
 
 /**
