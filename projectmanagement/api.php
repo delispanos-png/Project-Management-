@@ -99,6 +99,13 @@ $action = $_GET['a'] ?? '';
    «Oops!» του WHMCS και η οθόνη έδειχνε «Unexpected token '<'…». Τώρα: καθαρό μήνυμα στον
    χρήστη, λεπτομέρειες στο error_log (με την ενέργεια) για διάγνωση. */
 set_exception_handler(function ($e) use ($action) {
+    /* Άδεια = φραγμός: δεν είναι σφάλμα διακομιστή, είναι κανόνας — καθαρό μήνυμα. */
+    if ($e instanceof \WHMCS\Module\Addon\CloudonProjects\LeaveBlocked) {
+        if (!headers_sent()) { http_response_code(409); header('Content-Type: application/json; charset=utf-8'); }
+        echo json_encode(['error' => $e->getMessage(), 'need' => 'away', 'away' => ['admin' => $e->adminId,
+            'from' => $e->leave->date_from, 'to' => $e->leave->date_to]], JSON_UNESCAPED_UNICODE);
+        return;
+    }
     error_log('[CNP api ' . $action . '] ' . get_class($e) . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
     echo json_encode(['error' => 'Σφάλμα διακομιστή στην ενέργεια «' . $action . '» — καταγράφηκε. Δοκίμασε ξανά ή ενημέρωσε τον διαχειριστή.'], JSON_UNESCAPED_UNICODE);
@@ -125,6 +132,8 @@ if ($adminId <= 0) {
     }
 }
 $FULL = $adminId > 0 ? Db::isFullAccess($adminId) : false;
+/* Εγκεκριμένη άδεια = φραγμός σε ανάθεση/μπάλα/σύσκεψη (Leave::guardTask) — μόνο για χειριστή. */
+if ($adminId > 0 && !$CRON_OK) { Leave::$guard = true; }
 /* ΑΙΤΗΜΑΤΑ ΑΠΟ ΑΛΛΗ ΣΕΛΙΔΑ (CSRF, 28/9/2026): κάθε POST που έρχεται από browser με Origin/
    Referer ξένου site απορρίπτεται. Πριν στηριζόμασταν μόνο στο SameSite=Lax του cookie, που
    ΔΕΝ καλύπτει subdomains του cloudon.gr (WordPress, remote., sip.). Crons/CLI δεν στέλνουν
@@ -1550,6 +1559,64 @@ function cnp_leave_approver_names()
     return array_map(function ($i) { return Db::adminName($i); }, cnp_leave_approvers());
 }
 
+/**
+ * ΕΓΚΡΙΘΗΚΕ → ΤΟ ΜΑΘΑΙΝΟΥΝ ΟΛΑ (22/10/2026). Πέρα από το ημερολόγιο (cnp_leave_mirror):
+ *  - οι συσκέψεις του διαστήματος: «δεν μπορεί» (RSVP declined) + ειδοποίηση στον οργανωτή,
+ *  - οι ανοιχτές εργασίες του με έναρξη/προθεσμία μέσα στην άδεια: λίστα στον επικεφαλής
+ *    της ομάδας του (και στον εγκρίνοντα), για να δοθούν σε άλλον.
+ * Από εκεί και πέρα ο φραγμός (Leave::guardTask/guardRange) δεν αφήνει νέες αναθέσεις.
+ */
+function cnp_leave_announce($leaveId, $byAdminId)
+{
+    $l = Capsule::table('mod_cpm_leaves')->where('id', (int) $leaveId)->first();
+    if (!$l || !in_array($l->status, ['approved', 'taken'], true) || !$l->date_from) { return ['tasks' => [], 'events' => []]; }
+    $who = (int) Capsule::table('mod_cpm_leave_staff')->where('id', $l->staff_id)->value('admin_id');
+    if (!$who) { return ['tasks' => [], 'events' => []]; }
+    $from = $l->date_from; $to = $l->date_to ?: $l->date_from;
+    if ($to < date('Y-m-d')) { return ['tasks' => [], 'events' => []]; }   // παρελθόν: τίποτα να ειδοποιηθεί
+    $name = Db::adminName($who); $span = Leave::spanText($l);
+
+    $closed = Db::statusIds(['done', 'cancel']) ?: [0];
+    $tasks = Capsule::table('mod_cpm_tasks')
+        ->where(function ($q) use ($who) { $q->where('assignee', $who)->orWhere('action_user', $who); })
+        ->whereNotIn('status_id', $closed)
+        ->where(function ($q) use ($from, $to) {
+            $q->whereBetween('due_date', [$from, $to])->orWhereBetween('start_date', [$from, $to]);
+        })->orderBy('due_date')->limit(50)->get(['id', 'title', 'due_date']);
+
+    $events = [];
+    foreach (Capsule::table('mod_cpm_events')->where('kind', '!=', 'leave')
+            ->where('attendees', 'like', '%,' . $who . ',%')
+            ->where('start_dt', '<=', $to . ' 23:59:59')->where('end_dt', '>=', $from . ' 00:00:00')
+            ->get(['id', 'title', 'start_dt', 'created_by']) as $ev) {
+        Capsule::table('mod_cpm_event_rsvp')->updateOrInsert(
+            ['event_id' => $ev->id, 'kind' => 'admin', 'ref' => $who],
+            ['status' => 'declined', 'responded_at' => date('Y-m-d H:i:s')]);
+        if ((int) $ev->created_by && (int) $ev->created_by !== $who) {
+            Db::pushNotification((int) $ev->created_by, 'info',
+                $name . ' θα είναι σε άδεια (' . $span . ') — δεν θα είναι στη «' . mb_substr($ev->title, 0, 60) . '» '
+                . date('d/m H:i', strtotime($ev->start_dt)), '/project/#/calendar');
+        }
+        $events[] = ['id' => (int) $ev->id, 'title' => $ev->title, 'at' => $ev->start_dt];
+    }
+
+    /* Επικεφαλής των ομάδων του + ο εγκρίνων: ΜΙΑ ειδοποίηση με το τι χρειάζεται άλλον. */
+    $teams = Capsule::table('mod_cpm_team_members')->where('admin_id', $who)->pluck('team_id')->all();
+    $notify = $teams ? array_map('intval', Capsule::table('mod_cpm_team_members')->whereIn('team_id', $teams)
+        ->where('is_leader', 1)->pluck('admin_id')->all()) : [];
+    $notify[] = (int) $byAdminId;
+    $txt = $name . ' σε άδεια ' . $span . ' (' . Leave::typeLabel($l->type) . ')'
+        . (count($tasks) ? ' — ' . count($tasks) . ' ανοιχτές εργασίες του πέφτουν μέσα και θέλουν άλλον' : ' — καμία εργασία του δεν πέφτει μέσα')
+        . (count($events) ? ' · ' . count($events) . ' συσκέψεις: δηλώθηκε «δεν μπορεί»' : '');
+    foreach (array_unique($notify) as $nid) {
+        if ($nid && $nid !== $who) {
+            Db::pushNotification($nid, 'leave', $txt, count($tasks) ? '/project/#/task/' . (int) $tasks[0]->id : '/project/#/calendar');
+        }
+    }
+    return ['tasks' => array_map(function ($t) { return ['id' => (int) $t->id, 'title' => $t->title, 'due' => $t->due_date]; }, $tasks->all()),
+        'events' => $events];
+}
+
 function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null)
 {
     $type = (string) ($in['type'] ?? 'ANNUAL');
@@ -1643,12 +1710,17 @@ function cnp_leave_write($id, $staff, array $in, $byAdminId, $forceStatus = null
                 'Αίτημα άδειας: ' . $who . ' — ' . Leave::typeLabel($type) . ' '
                 . date('d/m/Y', strtotime($from)) . ($to !== $from ? ' – ' . date('d/m/Y', strtotime($to)) : '')
                 . ' (' . rtrim(rtrim(number_format($days, 2, ',', ''), '0'), ',') . ' ημ.)' . $by,
-                '#/leave');
+                '/project/#/leave');
         }
     }
 
+    $ann = null;
+    if ($nowSt === 'approved' && (!$prev || $prev->status !== 'approved' || $changed)) {
+        $ann = cnp_leave_announce($id, $byAdminId);
+    }
+
     $bal = Leave::balance($staff->id, $type);
-    return ['ok' => true, 'id' => (int) $id, 'days' => $days, 'year' => $year, 'status' => $nowSt,
+    return ['ok' => true, 'id' => (int) $id, 'days' => $days, 'year' => $year, 'status' => $nowSt, 'announce' => $ann,
         'approvers' => cnp_leave_approver_names(),
         'balance' => $bal[$year] ?? null];
 }
@@ -4679,6 +4751,9 @@ function cnp_stop_my_timer_on($taskId, $adminId, $note, $to = '')
 function cnp_ball_apply($t, $newBall, $adminId)
 {
     $newBall = (int) $newBall ?: null;
+    if ($newBall && $newBall !== (int) $t->action_user) {
+        Leave::guardTask($newBall, $t->start_date, $t->due_date, 'να του δοθεί η μπάλα');
+    }
     Capsule::table('mod_cpm_tasks')->where('id', (int) $t->id)->update(['action_user' => $newBall, 'updated_at' => date('Y-m-d H:i:s')]);
     if ($newBall && $newBall !== (int) $t->action_user && $newBall !== (int) $adminId) {
         Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title, '/project/#/task/' . (int) $t->id);
@@ -4974,7 +5049,7 @@ function cnp_action_cap($action)
         $add('hr.jobs.delete', ['cv_job_del']);
         /* ── ΑΔΕΙΕΣ ── */
         $add('hr.leave', ['leave_staff', 'leave_list', 'leave_get', 'leave_person', 'leave_ergani']);
-        $add('hr.leave.edit', ['leave_save', 'leave_year_save', 'leave_staff_save']);
+        $add('hr.leave.edit', ['leave_save', 'leave_year_save', 'leave_staff_save', 'leave_cancel']);
         $add('hr.leave.approve', ['leave_decide']);
         $add('hr.leave.delete', ['leave_delete']);
         $add('hr.roles', ['roles', 'roles_coverage']);
@@ -5151,12 +5226,14 @@ switch ($action) {
 /* ================= BOOT ================= */
 case 'boot':
     $admins = [];
+    $awayB = Leave::awayMap();   // τρέχουσες/μελλοντικές εγκεκριμένες άδειες → οι λίστες επιλογής τις δείχνουν
     foreach (Db::admins() as $a) {
         $nm = trim($a->firstname . ' ' . $a->lastname);
         $fullA = Db::isFullAccess($a->id);
         $admins[] = ['id' => (int) $a->id, 'name' => $nm, 'ini' => initials($nm), 'full' => $fullA,
             /* Ποιος φτιάχνει προσφορές — για το «Ζήτα προσφορά από συνάδελφο». */
-            'offerMaker' => cnp_has_cap((int) $a->id, $fullA, 'clients.offers.create')];
+            'offerMaker' => cnp_has_cap((int) $a->id, $fullA, 'clients.offers.create'),
+            'away' => $awayB[(int) $a->id] ?? []];
     }
     $projects = [];
     foreach (Db::projectsFor($adminId) as $p) {
@@ -6882,6 +6959,7 @@ case 'team_ask':                         /* «Ρώτα τι γίνεται» α�
             }
         }
     }
+    Leave::guardTask($whoA, null, null, 'να δεχτεί ερώτηση');
     $hidA = Capsule::table('mod_cpm_help')->insertGetId([
         'from_admin' => $adminId, 'to_admin' => $whoA, 'task_id' => $taskA, 'project_id' => null,
         'kind' => 'checkin', 'message' => mb_substr($msgA, 0, 500), 'status' => 'open',
@@ -7604,6 +7682,7 @@ case 'task_sub_add':                     /* ➕ Νέα υποεργασία κά
     if ($saTitle === '') { fail('Γράψε τι πρέπει να γίνει'); }
     if (mb_strlen($saTitle) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($saTitle) . ' χαρακτήρες — μέγιστο 200'); }
     $saAss = (int) ($in['assignee'] ?? 0);
+    if ($saAss) { Leave::guardTask($saAss, null, !empty($in['due']) ? substr((string) $in['due'], 0, 10) : null); }
     $saNew = [
         'parent_id' => (int) $saP->id,
         'project_id' => $saP->project_id ?: null,
@@ -10091,6 +10170,7 @@ case 'task_collab':
         if (!$wa) { fail('Ο χρήστης δεν υπάρχει ή είναι ανενεργός'); }
         $holderC = (int) ($ct->action_user ?: $ct->assignee);
         if ($who === $holderC) { fail('Την εργασία την έχει ήδη — δεν χρειάζεται να γίνει συνεργάτης'); }
+        Leave::guardTask($who, $ct->start_date, $ct->due_date, 'να γίνει συνεργάτης');
         if (!Db::isCollab($tid, $who)) {
             Capsule::table('mod_cpm_task_collabs')->insert(['task_id' => $tid, 'admin_id' => $who,
                 'added_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
@@ -10144,6 +10224,7 @@ case 'help_ask':
     $htask = (int) ($in['task'] ?? 0) ?: null;
     if ($hto <= 0 || $hto === $adminId) { fail('Διάλεξε συνάδελφο'); }
     if (!Capsule::table('tbladmins')->where('id', $hto)->where('disabled', 0)->exists()) { fail('Άκυρος συνάδελφος'); }
+    Leave::guardTask($hto, null, null, 'να δεχτεί αίτημα');
     if ($hmsg === '') { fail('Γράψε τι χρειάζεσαι'); }
     if ($htask) {
         $ht = Db::task($htask);
@@ -11596,6 +11677,19 @@ case 'event_save':                      // ομαδικό ημερολόγιο: 
         $mode = null;
         $place = null;
         $purpose = null;
+    }
+    /* ΑΔΕΙΑ = ΦΡΑΓΜΟΣ: όποιος λείπει εκείνες τις ημέρες δεν καλείται. Σε αλλαγή
+       υπάρχουσας ελέγχονται οι ΝΕΟΙ καλεσμένοι — και όλοι, αν άλλαξε η ώρα. */
+    if ($kind !== 'leave') {
+        $evPrev = $eid ? Capsule::table('mod_cpm_events')->where('id', $eid)->first(['attendees', 'start_dt', 'end_dt']) : null;
+        $evS = date('Y-m-d', strtotime($startD)); $evE = date('Y-m-d', strtotime($endD));
+        $prevAtt = $evPrev ? array_filter(array_map('intval', explode(',', (string) $evPrev->attendees))) : [];
+        $evMoved = $evPrev && (substr($evPrev->start_dt, 0, 10) !== $evS || substr($evPrev->end_dt, 0, 10) !== $evE);
+        foreach ($att as $aw) {
+            if ($evMoved || !in_array($aw, $prevAtt, true)) {
+                Leave::guardRange($aw, $evS, $evE, $kind === 'appointment' ? 'να οριστεί σε ραντεβού' : 'να κληθεί σε σύσκεψη');
+            }
+        }
     }
     $data = ['kind' => $kind, 'title' => $title,
         'start_dt' => date('Y-m-d H:i:s', strtotime($startD)),
@@ -13585,6 +13679,8 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
         fail('Διάλεξε σε ποιον παραδίδεις');
     }
     if ($toH === $adminId) { fail('Παραδίδεις στον εαυτό σου — διάλεξε άλλον συνάδελφο'); }
+    Leave::guardTask($toH, $t->start_date,
+        preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : $t->due_date, 'να του παραδοθεί εργασία');
     $didH  = trim((string) ($in['did'] ?? ''));
     $nextH = trim((string) ($in['next'] ?? ''));
     if ($nextH === '') { fail('Γράψε τι πρέπει να κάνει — αλλιώς η παράδοση είναι απλώς μετακύλιση'); }
@@ -17004,6 +17100,7 @@ case 'rtc_invite':                      // πρόσκληση ΚΑΤΑ ΤΗ ΔΙ
         . '<p>Ανοίγει απευθείας στον browser — χωρίς εγκατάσταση ή λογαριασμό.</p>';
     if (!empty($in['admin'])) {
         $to9 = (int) $in['admin'];
+        Leave::guardTask($to9, null, null, 'να κληθεί σε meeting');
         Db::pushNotification($to9, 'action', '🎥 ' . $byName . ' σε καλεί ΤΩΡΑ σε meeting!', $url9);
         \WHMCS\Module\Addon\CloudonProjects\Notify::send($to9, '🎥 Σε καλούν σε meeting ΤΩΡΑ', $body9);
         out(['ok' => true, 'sent' => Db::adminName($to9)]);
@@ -21381,7 +21478,28 @@ case 'leave_decide':
     if ($lvSt) {
         Db::pushNotification((int) $lvSt->admin_id, 'leave',
             'Άδεια ' . Leave::flowLabel($lvTo) . ': ' . cnp_leave_span($lvRow)
-            . ' (' . Leave::typeLabel($lvRow->type) . ')', '#/leave/me');
+            . ' (' . Leave::typeLabel($lvRow->type) . ')', '/project/#/myleave');
+    }
+    out(['ok' => true, 'announce' => $lvTo === 'approved' ? cnp_leave_announce($lvId, $adminId) : null]);
+
+case 'leave_cancel':
+    /* ΑΚΥΡΩΣΗ με ίχνος (22/10/2026): η άδεια μένει στο ιστορικό ως «Ακυρώθηκε», φεύγει από
+       ημερολόγιο/υπόλοιπο και ο φραγμός ανάθεσης σηκώνεται. Τη διόρθωση την κάνει το γραφείο
+       προσωπικού (hr.leave.edit) — η διαγραφή μένει για πραγματικά λάθη εγγραφής. */
+    $lvId = (int) ($in['id'] ?? 0);
+    $lvRow = $lvId ? Capsule::table('mod_cpm_leaves')->where('id', $lvId)->first() : null;
+    if (!$lvRow) { fail('Δεν βρέθηκε'); }
+    if (in_array($lvRow->status, ['cancelled', 'rejected'], true)) { fail('Είναι ήδη «' . Leave::flowLabel($lvRow->status) . '»'); }
+    $why = trim((string) ($in['reason'] ?? ''));
+    Capsule::table('mod_cpm_leaves')->where('id', $lvId)->update([
+        'status' => 'cancelled', 'approved_by' => $adminId, 'approved_at' => date('Y-m-d H:i:s'),
+        'note' => $why !== '' ? mb_substr(trim(($lvRow->note ? $lvRow->note . ' · ' : '') . 'Ακύρωση: ' . $why), 0, 500) : $lvRow->note,
+        'updated_at' => date('Y-m-d H:i:s')]);
+    cnp_leave_mirror($lvId);
+    $lvSt = Capsule::table('mod_cpm_leave_staff')->where('id', $lvRow->staff_id)->first();
+    if ($lvSt && (int) $lvSt->admin_id !== $adminId) {
+        Db::pushNotification((int) $lvSt->admin_id, 'leave', 'Άδεια ακυρώθηκε: ' . cnp_leave_span($lvRow)
+            . ' (' . Leave::typeLabel($lvRow->type) . ')' . ($why !== '' ? ' — ' . $why : ''), '/project/#/myleave');
     }
     out(['ok' => true]);
 

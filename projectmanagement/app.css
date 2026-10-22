@@ -5435,3 +5435,4 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .act-file-x{border:0;border-left:1px solid var(--line);background:none;color:var(--mut);padding:0 8px;align-self:stretch;cursor:pointer;font-size:12px}
 .act-file-x:hover{color:var(--bad);background:var(--canvas)}
 .act-composer.act-drop{outline:2px dashed var(--brand);outline-offset:-2px}
+.cb-off{opacity:.5;cursor:not-allowed}

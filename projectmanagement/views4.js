@@ -266,6 +266,8 @@ function quickNew() {
       }
     } else {
       rows = mates
+        /* Όποιος είναι σε άδεια σήμερα δεν παίρνει εργασία — δεν εμφανίζεται καν. */
+        .filter(a => !window.CNP.cnpAwayOn(a.id))
         .filter(a => !q || cnpMatch(a.name, filter))
         .slice(0, 60)
         .map(a => ({label: a.name, ic: I.user, col: '#e0a020', go: {assignee: a.id}}));
@@ -5428,7 +5430,7 @@ function quickHelp(pre) {
       ${pre.taskTitle ? `<div class="qh-ctx">${I.checkSquare} Σχετικά με: <b>${esc(pre.taskTitle)}</b></div>` : ''}
       <label class="lbl">Ποιον χρειάζεσαι</label>
       <select class="inp" id="qhTo"><option value="">— διάλεξε συνάδελφο —</option>
-        ${mates.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+        ${mates.map(a => window.CNP.cnpAdmOpt(a)).join('')}</select>
       <label class="lbl" style="margin-top:12px">Το μήνυμα</label>
       <textarea class="inp" id="qhMsg" rows="4">${esc(HELP_TPL)}</textarea>
       <div class="mut" style="font-size:11.5px;margin-top:6px">Γράψε συγκεκριμένα τι θέλεις να συζητήσετε.</div>
