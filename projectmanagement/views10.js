@@ -75,7 +75,7 @@ const lvF = (label, inner) => `<label class="lv-f"><span>${esc(label)}</span>${i
  *
  * @returns Promise<'ok'|'third'|null>
  */
-function lvModal({title, body, ok = 'Αποθήκευση', cancel = 'Άκυρο', third = null}) {
+function lvModal({title, body, ok = 'Αποθήκευση', cancel = 'Άκυρο', third = null, extra = null}) {
   return new Promise(resolve => {
     const ovl = document.createElement('div');
     ovl.className = 'lv-ovl';
@@ -85,6 +85,7 @@ function lvModal({title, body, ok = 'Αποθήκευση', cancel = 'Άκυρο
       <div class="lv-modal-b">${body}</div>
       <div class="lv-modal-f">
         ${third ? `<button class="btn btn-o" data-lvthird style="color:var(--bad,#b91c1c)">${esc(third)}</button>` : ''}
+        ${extra ? `<button class="btn btn-o" data-lvextra>${esc(extra)}</button>` : ''}
         <span class="lv-sp"></span>
         ${cancel ? `<button class="btn btn-o" data-lvcancel>${esc(cancel)}</button>` : ''}
         <button class="btn btn-p" data-lvok>${esc(ok)}</button>
@@ -109,6 +110,7 @@ function lvModal({title, body, ok = 'Αποθήκευση', cancel = 'Άκυρο
     const cb = ovl.querySelector('[data-lvcancel]'); if (cb) { cb.onclick = () => done(null); }
     ovl.querySelector('[data-lvclose]').onclick = () => done(null);
     const tb = ovl.querySelector('[data-lvthird]'); if (tb) { tb.onclick = () => done('third'); }
+    const xb = ovl.querySelector('[data-lvextra]'); if (xb) { xb.onclick = () => done('extra'); }
     /* Κλικ στο φόντο κλείνει — αλλά ΟΧΙ κλικ μέσα στο παράθυρο. */
     ovl.onclick = e => { if (e.target === ovl) { done(null); } };
     const first = ovl.querySelector('input,select,textarea');
@@ -171,8 +173,19 @@ async function lvEditLeave(row, ctx) {
     /* Η διαγραφή ζει ΜΕΣΑ στην καρτέλα, όχι σε κάθε γραμμή της λίστας: μια
        κόκκινη στήλη σε πενήντα γραμμές τραβά το μάτι πάνω από τα νούμερα. */
     third: (!isNew && ctx.canDel) ? 'Διαγραφή' : null,
+    /* Ακύρωση = με ίχνος: μένει στο ιστορικό, φεύγει από ημερολόγιο και υπόλοιπο. */
+    extra: (!isNew && ['requested', 'approved', 'taken'].includes(r.status)) ? 'Ακύρωση άδειας' : null,
   });
   if (!act) { return false; }
+
+  if (act === 'extra') {
+    const why = await window.CNP.cnpPrompt(`Ακύρωση άδειας: <b>${esc(r.name || '')}</b> — ${esc(r.span || '')}.<br>
+      Μένει στο ιστορικό ως «Ακυρώθηκε», φεύγει από το ημερολόγιο και το υπόλοιπο. Λόγος (προαιρετικό — τον βλέπει ο εργαζόμενος):`,
+      {ok: 'Ακύρωση άδειας', placeholder: 'π.χ. άλλαξε η περίοδος'});
+    if (why === null || why === undefined || why === false) { return false; }
+    try { await api('leave_cancel', {id: row.id, reason: why}); toast('Ακυρώθηκε — έφυγε από ημερολόγιο και υπόλοιπο'); return true; }
+    catch (e) { toast(e.message, 1); return false; }
+  }
 
   if (act === 'third') {
     if (!await cnpConfirm(`Οριστική διαγραφή: ${esc(r.name || '')} — ${esc(r.span || '')} `
@@ -193,6 +206,7 @@ async function lvEditLeave(row, ctx) {
     toast(res.status === 'requested' && !(row && row.status === 'requested')
       ? `Στάλθηκε για έγκριση${(res.approvers || []).length ? ' σε ' + res.approvers.join(' ή ') : ''} — ${lvN(res.days)} ημέρες, έτος ${res.year}`
       : `Καταχωρήθηκε — ${lvN(res.days)} ημέρες στο έτος ${res.year}`);
+    lvAnnounced(res.announce);
     return true;
   } catch (e) { toast(e.message, 1); return false; }
 }
@@ -522,10 +536,25 @@ R.leave = async function () {
   $$('[data-lvno]').forEach(b => b.onclick = () => lvDecide(+b.dataset.lvno, 'rejected'));
 };
 
+/* Μετά την έγκριση: τι άλλαξε στα άλλα κυκλώματα — συσκέψεις που δηλώθηκαν «δεν μπορεί»
+   και εργασίες που πέφτουν μέσα στην άδεια και θέλουν άλλον (ενημερώθηκε ο επικεφαλής). */
+function lvAnnounced(a) {
+  if (!a || (!(a.tasks || []).length && !(a.events || []).length)) { return; }
+  const body = ((a.tasks || []).length ? lvSec(`Εργασίες μέσα στην άδεια — ${a.tasks.length}`,
+      `<div style="font-size:13px;line-height:1.8">${a.tasks.map(t => `<div><a href="#/task/${t.id}">#${t.id} ${esc(t.title)}</a>${
+        t.due ? ' <span class="mut">· προθεσμία ' + lvDate(t.due) + '</span>' : ''}</div>`).join('')}</div>
+      <div class="lv-hint">Ενημερώθηκε ο επικεφαλής της ομάδας του. Νέα ανάθεση σε αυτόν για τις ημέρες της άδειας δεν γίνεται.</div>`) : '')
+    + ((a.events || []).length ? lvSec(`Συσκέψεις — ${a.events.length}`,
+      `<div style="font-size:13px;line-height:1.8">${a.events.map(e => `<div>${esc(e.title)} <span class="mut">· ${lvDate(e.at.slice(0, 10))} ${e.at.slice(11, 16)}</span></div>`).join('')}</div>
+      <div class="lv-hint">Δηλώθηκε αυτόματα «δεν μπορεί» και ενημερώθηκε ο οργανωτής.</div>`) : '');
+  lvModal({title: 'Η άδεια ενημέρωσε τα κυκλώματα', body, ok: 'Εντάξει', cancel: null});
+}
+
 async function lvDecide(id, decision) {
   try {
-    await api('leave_decide', {id, decision});
+    const res = await api('leave_decide', {id, decision});
     toast(decision === 'approved' ? 'Εγκρίθηκε — μπήκε στο ημερολόγιο' : 'Απορρίφθηκε');
+    lvAnnounced(res.announce);
     R.leave();
   } catch (e) {
     /* Υπέρβαση υπολοίπου: δεν την μπλοκάρουμε, τη ΛΕΜΕ. Υπάρχουν λόγοι να
@@ -533,7 +562,7 @@ async function lvDecide(id, decision) {
     if (/force=1/.test(e.message)) {
       if (await cnpConfirm(e.message.replace(' Στείλε force=1 αν το εγκρίνεις εν γνώσει σου.', '')
         + ' Να εγκριθεί έτσι;', {ok: 'Έγκριση', danger: true})) {
-        try { await api('leave_decide', {id, decision, force: 1}); toast('Εγκρίθηκε'); R.leave(); }
+        try { const r2 = await api('leave_decide', {id, decision, force: 1}); toast('Εγκρίθηκε'); lvAnnounced(r2.announce); R.leave(); }
         catch (e2) { toast(e2.message, 1); }
       }
       return;

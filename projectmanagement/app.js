@@ -378,6 +378,26 @@ window.addEventListener('unhandledrejection', e => {
 
 const adminName = id => (S.boot.admins.find(a => a.id === +id) || {}).name || '—';
 const adminIni = id => (S.boot.admins.find(a => a.id === +id) || {}).ini || '';
+/* ΑΔΕΙΕΣ (22/10/2026): ποιος λείπει πότε (boot.admins[].away — εγκεκριμένες). Οι λίστες
+   επιλογής ΔΕΙΧΝΟΥΝ την άδεια και ΑΠΕΝΕΡΓΟΠΟΙΟΥΝ όποιον λείπει σήμερα· ο φύλακας είναι ο
+   server (Leave::guardTask/guardRange), που κόβει και ημερομηνίες μέσα στην άδεια. */
+const cnpYmd = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const cnpAwayOn = (id, from, to) => {
+  const a = S.boot.admins.find(x => x.id === +id); if (!a || !(a.away || []).length) { return null; }
+  const f = from || cnpYmd(), t = to || f;
+  return a.away.find(l => l.from <= t && f <= l.to) || null;
+};
+const cnpAwayTag = id => {
+  const a = S.boot.admins.find(x => x.id === +id); const n = a && (a.away || [])[0]; if (!n) { return ''; }
+  const dm = s => s.slice(8, 10) + '/' + s.slice(5, 7);
+  if (cnpAwayOn(id)) { return ' — σε άδεια έως ' + dm(n.to); }
+  return (new Date(n.from) - new Date()) / 864e5 <= 45 ? ' — άδεια ' + dm(n.from) + (n.to !== n.from ? '–' + dm(n.to) : '') : '';
+};
+/* <option> για χειριστή: με την άδεια στο κείμενο, ανενεργό αν λείπει σήμερα (εκτός αν είναι ήδη επιλεγμένο). */
+const cnpAdmOpt = (a, sel, label) => {
+  const off = cnpAwayOn(a.id) && a.id !== +sel;
+  return `<option value="${a.id}"${a.id === +sel ? ' selected' : ''}${off ? ' disabled data-away="1"' : ''}>${esc(label || a.name)}${esc(cnpAwayTag(a.id))}</option>`;
+};
 const statusOf = id => S.boot.statuses.find(s => s.id === +id) || {};
 /* Η ΜΙΑ ετικέτα κατάστασης εργασίας — παντού η ίδια: κάρτα, λίστες, kanban, ημερολόγιο,
    μέρα ομάδας. Κανένα άλλο σημείο δεν χρωματίζει κατάσταση μόνο του (20/09/2026). */
@@ -2839,6 +2859,9 @@ function cnpCombo(sel) {
         if (x.g !== g) { g = x.g; if (g) { h += `<div class="cb-g">${esc(g)}</div>`; } }
         h += `<button type="button" class="cb-o${i === at ? ' on' : ''}${x.o.selected ? ' sel' : ''}" data-i="${i}" role="option">${icOf(x.o)}${esc(x.o.textContent)}</button>`;
       });
+      /* Όσοι λείπουν (άδεια) φαίνονται γκρι στο τέλος — να ξέρεις ΓΙΑΤΙ δεν διαλέγονται. */
+      const off = items.filter(x => x.o.disabled && x.o.dataset.away && (!v || cnpMatch(x.o.textContent, v)));
+      if (off.length) { h += '<div class="cb-g">Σε άδεια</div>' + off.map(x => `<div class="cb-o cb-off" aria-disabled="true">${icOf(x.o)}${esc(x.o.textContent)}</div>`).join(''); }
       list.innerHTML = h || '<div class="cb-none">Τίποτα — δοκίμασε άλλη λέξη</div>';
       const on = list.querySelector('.cb-o.on'); if (on) { on.scrollIntoView({block: 'nearest'}); }
     };
@@ -3593,7 +3616,7 @@ function cnpReplySelects(curBall, curStatus, prefix) {
   const me = S.boot.me;
   return `<select class="inp act-sel" id="${prefix}Ball" title="Μπάλα σε — ποιος συνεχίζει μετά την απάντηση (προαιρετικό)">
       <option value="">⚡ Μπάλα: χωρίς αλλαγή</option>
-      ${S.boot.admins.filter(a => !a.disabled && a.id !== (curBall || 0)).map(a => `<option value="${a.id}">⚡ ${esc(a.id === me.id ? 'Σε μένα' : a.name)}</option>`).join('')}</select>
+      ${S.boot.admins.filter(a => !a.disabled && a.id !== (curBall || 0)).map(a => cnpAdmOpt(a, 0, '⚡ ' + (a.id === me.id ? 'Σε μένα' : a.name))).join('')}</select>
     <select class="inp act-sel" id="${prefix}St" title="Νέα κατάσταση μαζί με την απάντηση (προαιρετικό)">
       <option value="">◉ Κατάσταση: χωρίς αλλαγή</option>
       ${(S.boot.statuses || []).filter(x => x.id !== curStatus).map(x => `<option value="${x.id}">◉ ${esc(x.title)}</option>`).join('')}</select>`;
@@ -3724,7 +3747,7 @@ async function openTask(id, entryId, opts) {
   const admOpts = (sel, didFor) => {
     const dep = didFor ? (d.depts || []).find(x => x.id === +didFor) : null;
     const mem = dep ? (dep.members || []) : [];
-    const opt = a => `<option value="${a.id}" ${a.id === +sel ? 'selected' : ''}>${esc(a.name)}</option>`;
+    const opt = a => cnpAdmOpt(a, sel);
     const head = '<option value="">— κανείς —</option>';
     if (!mem.length) { return head + S.boot.admins.map(opt).join(''); }
     const inD = S.boot.admins.filter(a => mem.includes(a.id));
@@ -4227,7 +4250,7 @@ async function openTask(id, entryId, opts) {
           <input class="inp" id="subT" placeholder="Νέα υποεργασία… (Enter)" maxlength="200" style="flex:1;font-size:12px;padding:6px 8px">
           <select class="inp" id="subA" data-combo style="width:132px;font-size:12px;padding:6px 8px">
             <option value="">— ανάδοχος —</option>
-            ${(S.boot.admins || []).filter(a => !a.disabled).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+            ${(S.boot.admins || []).filter(a => !a.disabled).map(a => cnpAdmOpt(a)).join('')}</select>
           <button class="btn btn-sm btn-o" id="subAdd" title="Νέα υποεργασία">+</button></div>
         <div class="sub-link">
           <input class="inp" id="subLinkQ" placeholder="🔗 Σύνδεση υπάρχουσας: τίτλος ή #ID…" autocomplete="off" style="font-size:12px;padding:6px 8px">
@@ -4892,7 +4915,7 @@ async function openTask(id, entryId, opts) {
         <b style="font-size:15.5px;color:var(--ink)">${I.users} Πρόσθεσε συνεργάτη</b>
         <div class="mut" style="font-size:12px;margin-top:5px">Βλέπει την εργασία και μετρά τον δικό του χρόνο σε αυτήν. Η μπάλα δεν αλλάζει.</div>
         <select class="inp" id="coTo" style="margin-top:14px"><option value="">— διάλεξε συνάδελφο —</option>
-          ${cands.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+          ${cands.map(a => cnpAdmOpt(a)).join('')}</select>
         <div id="coErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:8px" hidden></div>
         <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
           <button class="btn btn-o" id="coNo">Άκυρο</button>
@@ -4930,7 +4953,7 @@ async function openTask(id, entryId, opts) {
         <div class="mut" style="font-size:12px;margin-top:5px">Η εργασία φεύγει από «Η μέρα μου» και μπαίνει στη δική του.</div>
         <label class="lbl" style="margin-top:14px">Σε ποιον</label>
         <select class="inp" id="hoTo"><option value="">— διάλεξε συνάδελφο —</option>
-          ${others.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+          ${others.map(a => cnpAdmOpt(a)).join('')}</select>
         <label class="lbl" style="margin-top:11px">Τι έκανες εσύ <span class="mut" style="font-weight:400">— μπαίνει ως ολοκληρωμένο βήμα</span></label>
         <textarea class="inp" id="hoDid" rows="2" maxlength="500" placeholder="π.χ. Εντοπίστηκε η αιτία, διορθώθηκε το query"></textarea>
         <label class="lbl" style="margin-top:11px">Τι χρειάζεται από αυτόν <span style="color:var(--bad)">*</span></label>
@@ -7592,7 +7615,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
+window.CNP = {S, api, esc, cnpAwayOn, cnpAwayTag, cnpAdmOpt, cnpYmd, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

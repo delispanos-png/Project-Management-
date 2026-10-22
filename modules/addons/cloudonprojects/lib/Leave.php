@@ -397,6 +397,81 @@ class Leave
         return $n;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* ΑΠΟΥΣΙΑ ΩΣ ΦΡΑΓΜΟΣ (22/10/2026)                                     */
+    /* ------------------------------------------------------------------ */
+    /* Εγκεκριμένη άδεια δεν είναι μόνο γραμμή στο ημερολόγιο: όσο λείπει κάποιος
+       ΔΕΝ του ανατίθεται εργασία, δεν του πάει η μπάλα, δεν καλείται σε σύσκεψη.
+       Ο φραγμός ζει ΕΔΩ (ένας κανόνας) και τον καλούν όλα τα κυκλώματα. Ενεργός μόνο
+       όταν το ζητήσει το api (χειριστής) — όχι σε cron/hooks του WHMCS, όπου ένα
+       exception θα έσπαγε π.χ. την ανάθεση ticket. */
+    public static $guard = false;
+
+    /** Η εγκεκριμένη άδεια του χειριστή που πέφτει στο [from, to] — ή null. */
+    public static function awayDuring($adminId, $from, $to = null)
+    {
+        $adminId = (int) $adminId;
+        if (!$adminId || !$from) { return null; }
+        $from = substr((string) $from, 0, 10);
+        $to = $to ? substr((string) $to, 0, 10) : $from;
+        if ($to < $from) { $to = $from; }
+        return Capsule::table('mod_cpm_leaves as l')
+            ->join('mod_cpm_leave_staff as s', 's.id', '=', 'l.staff_id')
+            ->where('s.admin_id', $adminId)
+            ->whereIn('l.status', ['approved', 'taken'])
+            ->whereNotNull('l.date_from')
+            ->where('l.date_from', '<=', $to)
+            ->where(function ($q) use ($from) { $q->where('l.date_to', '>=', $from)->orWhereNull('l.date_to'); })
+            ->orderBy('l.date_from')
+            ->first(['l.id', 'l.type', 'l.date_from', 'l.date_to']);
+    }
+
+    /** Τρέχουσες & μελλοντικές εγκεκριμένες άδειες, ανά χειριστή — για τις λίστες επιλογής. */
+    public static function awayMap($today = null)
+    {
+        $today = $today ?: date('Y-m-d');
+        $out = [];
+        foreach (Capsule::table('mod_cpm_leaves as l')
+                ->join('mod_cpm_leave_staff as s', 's.id', '=', 'l.staff_id')
+                ->whereIn('l.status', ['approved', 'taken'])->whereNotNull('l.date_from')
+                ->where(function ($q) use ($today) { $q->where('l.date_to', '>=', $today)->orWhereNull('l.date_to'); })
+                ->orderBy('l.date_from')
+                ->get(['s.admin_id', 'l.type', 'l.date_from', 'l.date_to']) as $r) {
+            $out[(int) $r->admin_id][] = ['from' => (string) $r->date_from,
+                'to' => (string) ($r->date_to ?: $r->date_from), 'type' => self::typeLabel($r->type)];
+        }
+        return $out;
+    }
+
+    public static function spanText($r)
+    {
+        $f = date('d/m/Y', strtotime($r->date_from));
+        $t = $r->date_to && $r->date_to !== $r->date_from ? date('d/m/Y', strtotime($r->date_to)) : '';
+        return $t ? $f . ' – ' . $t : $f;
+    }
+
+    /**
+     * Φραγμός ανάθεσης εργασίας / μπάλας. Μπλοκάρει αν ο άνθρωπος λείπει ΣΗΜΕΡΑ, ή αν
+     * η έναρξη ή η προθεσμία της εργασίας πέφτουν μέσα στην άδειά του. Μια εργασία με
+     * προθεσμία ΜΕΤΑ την επιστροφή του επιτρέπεται — θα τη δουλέψει όταν γυρίσει.
+     */
+    public static function guardTask($adminId, $start = null, $due = null, $what = 'να του ανατεθεί εργασία')
+    {
+        if (!self::$guard || !(int) $adminId) { return; }
+        foreach (array_filter([date('Y-m-d'), $start, $due]) as $d) {
+            $r = self::awayDuring($adminId, $d);
+            if ($r) { throw new LeaveBlocked((int) $adminId, $r, $what, $d); }
+        }
+    }
+
+    /** Φραγμός για συμμετοχή σε κάτι με διάρκεια (σύσκεψη, ραντεβού). */
+    public static function guardRange($adminId, $from, $to, $what = 'να κληθεί σε σύσκεψη')
+    {
+        if (!self::$guard || !(int) $adminId) { return; }
+        $r = self::awayDuring($adminId, $from, $to);
+        if ($r) { throw new LeaveBlocked((int) $adminId, $r, $what, substr((string) $from, 0, 10)); }
+    }
+
     /** Ποιοι λείπουν μια δεδομένη ημέρα — για τη ζώνη διαθεσιμότητας. */
     public static function awayOn($date)
     {
@@ -413,5 +488,19 @@ class Leave
             $out[(int) $r->admin_id] = self::typeLabel($r->type);
         }
         return $out;
+    }
+}
+
+/** Ο χειριστής είναι σε εγκεκριμένη άδεια — το api το γυρίζει ως 409 με καθαρό μήνυμα. */
+class LeaveBlocked extends \RuntimeException
+{
+    public $adminId;
+    public $leave;
+    public function __construct($adminId, $leave, $what, $date)
+    {
+        $this->adminId = (int) $adminId;
+        $this->leave = $leave;
+        parent::__construct(Db::adminName($adminId) . ' είναι σε άδεια (' . Leave::typeLabel($leave->type) . ', '
+            . Leave::spanText($leave) . ') — δεν μπορεί ' . $what . ' σε αυτό το διάστημα.');
     }
 }
