@@ -34,6 +34,7 @@ use WHMCS\Module\Addon\CloudonProjects\Pool;
 use WHMCS\Module\Addon\CloudonProjects\Catalog;
 use WHMCS\Module\Addon\CloudonProjects\DayPlan;
 use WHMCS\Module\Addon\CloudonProjects\Overrun;
+use WHMCS\Module\Addon\CloudonProjects\Inbox;
 use WHMCS\Module\Addon\CloudonProjects\Offers\OfferTypes;
 use WHMCS\Module\Addon\SupportContracts\Db as ScDb;
 
@@ -4080,6 +4081,65 @@ function cnp_scope_mine($q, $adminId, $p = '')
     });
 }
 
+/**
+ * Εισερχόμενα: οι ΑΝΟΙΧΤΕΣ εργασίες που κρατάω (κανόνας της μπάλας), με το τελευταίο
+ * που τις έφερε σε μένα (mod_cpm_inbox). Ο κάτοχος κρίνεται ΤΩΡΑ, όχι τη στιγμή του
+ * γεγονότος: μπάλα που έφυγε από μένα = η γραμμή δεν φαίνεται.
+ */
+function cnp_inbox_query($adminId)
+{
+    $q = Capsule::table('mod_cpm_tasks as t')
+        ->leftJoin('mod_cpm_inbox as i', function ($j) use ($adminId) {
+            $j->on('i.task_id', '=', 't.id')->where('i.admin_id', '=', (int) $adminId);
+        })
+        ->whereNull('t.completed_at')->whereNotIn('t.status_id', Db::closedStatusIds() ?: [0]);
+    return cnp_scope_mine($q, $adminId, 't.');
+}
+
+function cnp_inbox_unread($adminId)
+{
+    try {
+        return (int) cnp_inbox_query($adminId)->whereNotNull('i.id')->whereNull('i.read_at')->count();
+    } catch (\Throwable $e) {
+        return 0;   // πριν το Db::install — ο σφυγμός δεν σπάει ποτέ
+    }
+}
+
+/**
+ * Η «σφραγίδα» μιας εργασίας: αλλάζει με ΚΑΘΕ αλλαγή της (πεδία, ιστορικό, μηνύματα, χρονόμετρα).
+ * Την παίρνει ΚΑΙ το «task» — η καρτέλα ξέρει από ποια κατάσταση ξεκίνησε τη στιγμή που
+ * ζωγραφίζεται, όχι στον πρώτο σφυγμό (αλλιώς αλλαγή από άλλη καρτέλα στο μεσοδιάστημα
+ * γινόταν η «αφετηρία» και δεν εμφανιζόταν ποτέ — 23/10/2026).
+ */
+function cnp_task_stamp($t)
+{
+    $tid = (int) $t->id;
+    $act = (int) Capsule::table('mod_cpm_activity')->where('task_id', $tid)->max('id');
+    $chk = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $tid)->max('id');
+    /* Το χρονόμετρο ΔΕΝ αγγίζει την εργασία (updated_at/ιστορικό) — μετράει χωριστά. */
+    $tm = Capsule::table('mod_cpm_timelogs')->where('task_id', $tid)
+        ->selectRaw('COALESCE(MAX(id),0) m, COALESCE(SUM(running),0) r, COALESCE(SUM(minutes),0) s')->first();
+    return ['updatedAt' => (string) $t->updated_at, 'act' => $act, 'chk' => $chk,
+        'tm' => $tm ? $tm->m . '.' . $tm->r . '.' . $tm->s : ''];
+}
+
+/** Σε ποια οθόνη αφορά ένα αίτημα views: 'list' (προεπιλογή) ή 'feed'. */
+function cnp_view_entity($in)
+{
+    $e = (string) ($_GET['entity'] ?? ($in['entity'] ?? 'list'));
+    return $e === 'feed' ? 'feed' : 'list';
+}
+/** Το προεπιλεγμένο view κρατιέται ανά οθόνη. Η Λίστα κρατά το παλιό της κλειδί. */
+function cnp_view_def_key($entity)
+{
+    return $entity === 'feed' ? 'feed_view_default' : 'list_view_default';
+}
+/** Το view με αυτό το id ανήκει στην οθόνη του αιτήματος; (αλλιώς το entity=feed θα παρέκαμπτε το «Board») */
+function cnp_view_same_entity($row, $in)
+{
+    return $row && ((string) ($row->entity ?? 'list') ?: 'list') === cnp_view_entity($in);
+}
+
 function cnp_task_locked($t)
 {
     return $t && !empty($t->completed_at);
@@ -4353,9 +4413,8 @@ function cnp_ball_apply($t, $newBall, $adminId)
 {
     $newBall = (int) $newBall ?: null;
     Capsule::table('mod_cpm_tasks')->where('id', (int) $t->id)->update(['action_user' => $newBall, 'updated_at' => date('Y-m-d H:i:s')]);
-    if ($newBall && $newBall !== (int) $t->action_user && $newBall !== (int) $adminId) {
-        Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title, '/project/#/task/' . (int) $t->id);
-    }
+    /* Η ειδοποίηση «ήρθε σε σένα» τη στέλνουν πλέον τα Εισερχόμενα (Inbox::flush), με ποιος/τι/απόσπασμα,
+       στο τέλος της πράξης — όχι εδώ, μέσα στη συναλλαγή (23/10/2026). */
     /* Δίνω την εργασία σε άλλον = τελείωσα το κομμάτι μου → σταματά ο ΔΙΚΟΣ μου χρόνος
        εδώ. Όχι μόνο όταν η μπάλα ήταν ρητά δική μου: και ως ανάδοχος χωρίς μπάλα, ή ως
        συνεργάτης, ο χρόνος έμενε να τρέχει μετά την επιστροφή (5/10/2026). */
@@ -4719,6 +4778,8 @@ function cnp_open_actions()
         'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
         'todo_toggle', 'todo_del', 'todo_clear_done', 'todo_seed', 'worknote_save', 'time',
         'mentions', 'mention_read', 'supervised',
+        // 📥 Εισερχόμενα — ΜΟΝΟ ό,τι κρατάω (cnp_scope_mine μέσα στην ενέργεια)
+        'feed', 'feed_read', 'push_test',
         // 📨 Αιτήματα («σε ζητούν») — αφορούν ΕΜΕΝΑ, προσωπική οθόνη
         'requests', 'request_get', 'help_reply', 'request_reopen',
         /* «Τι να προσέξω»: ο server αποφασίζει ΤΙ βλέπεις με βάση τον ρόλο σου. */
@@ -4794,7 +4855,11 @@ $guestOk = $CRON_OK || $adminId <= 0
     && (($MEET_ROOM && strpos($action, 'rtc_') === 0)
         || in_array($action, cnp_guest_actions(), true));
 
-$needCap = $guestOk ? null : cnp_action_cap($action);
+/* Views των ΕΙΣΕΡΧΟΜΕΝΩΝ: προσωπική οθόνη — δεν θέλουν «Board» (23/10/2026). Ό,τι αγγίζει
+   υπάρχον view ελέγχει μέσα στην ενέργεια ότι ΚΑΙ το view είναι των Εισερχομένων. */
+$feedView = in_array($action, ['views_list', 'view_save', 'view_del', 'view_default', 'view_ui'], true)
+    && cnp_view_entity($in) === 'feed';
+$needCap = ($guestOk || $feedView) ? null : cnp_action_cap($action);
 if ($needCap !== null) {
     $want = explode('|', $needCap);
     $okCap = false;
@@ -4813,7 +4878,7 @@ if ($needCap !== null) {
         }, $want));
         fail('Δεν έχεις δικαίωμα για «' . $lbl . '» — ζήτησέ το από τον διαχειριστή', 403);
     }
-} elseif (!$guestOk && !in_array($action, cnp_open_actions(), true)) {
+} elseif (!$guestOk && !$feedView && !in_array($action, cnp_open_actions(), true)) {
     /* Deny-by-default: ενέργεια που κανείς δεν δήλωσε σε cap ούτε ως προσωπική.
        Έτσι ένα ξεχασμένο νέο feature ΔΕΝ βγαίνει ελεύθερο — δεν δουλεύει, και ο
        προγραμματιστής το βλέπει αμέσως. */
@@ -4852,6 +4917,7 @@ case 'boot':
             'req' => ['assignee' => (bool) $ty->req_assignee, 'due' => (bool) $ty->req_due, 'est' => (bool) $ty->req_estimate]];
     }
     out(['viewPins' => json_decode((string) Db::pref($adminId, 'view_pins', '[]'), true) ?: [],
+        'inboxUnread' => cnp_inbox_unread($adminId),   // ο μετρητής του μενού από την πρώτη στιγμή, όχι μετά τον 1ο σφυγμό
         'me' => ['id' => $adminId, 'name' => Db::adminName($adminId), 'ini' => initials(Db::adminName($adminId)), 'full' => $FULL,
             'canReply' => cnp_can_reply_clients($adminId, $FULL), 'areas' => cnp_admin_areas($adminId, $FULL),
             /* Οι αναλυτικές δυνατότητες: το μενού κρύβει πια ΣΤΟΙΧΕΙΑ, όχι μόνο ενότητες. */
@@ -4874,6 +4940,7 @@ case 'boot':
                ξεκινάς με αυτές όταν συνδέεσαι. Κρύβει — δεν απαγορεύει: ό,τι δεν
                είναι στη λίστα φτάνεται πάντα με Ctrl+K ή με τον διακόπτη «Ολα». */
             'menuMine' => (string) Db::pref($adminId, 'menu_mine', ''),
+            'pushOs' => (string) Db::pref($adminId, 'push_os', '1') !== '0',
             'menuMode' => Db::pref($adminId, 'menu_mode', 'all') === 'mine' ? 'mine' : 'all'],
         'projects' => $projects, 'statuses' => $statuses, 'types' => $types, 'admins' => $admins,
         'depts' => cnp_depts(),
@@ -5267,6 +5334,9 @@ case 'task':
     if (!$t || !Db::canSeeTask($adminId, $t)) {
         fail('task', 404);
     }
+    /* Άνοιξα την καρτέλα = το είδα. ΜΟΝΟ με seen=1 (openTask): άλλες κλήσεις του
+       task (π.χ. για τα timelogs) δεν σημαίνουν ότι ο άνθρωπος το διάβασε. */
+    if (!empty($_GET['seen'])) { Inbox::markRead($adminId, (int) $t->id); }
     $comments = [];
     $cIds = [];
     foreach (Db::comments($t->id) as $c) { $cIds[] = (int) $c->id; }
@@ -5442,7 +5512,7 @@ case 'task':
         }
     }
 
-    out(['task' => taskDto($t), 'descr' => $t->descr, 'deps' => $deps,
+    out(['task' => taskDto($t), 'stamp' => cnp_task_stamp($t), 'descr' => $t->descr, 'deps' => $deps,
         'canAsk' => $canAskT, 'holder' => $holderT,
         'holderName' => $holderT ? Db::adminName($holderT) : '',
         'creatorId' => (int) $t->created_by, 'path' => $path,
@@ -7217,7 +7287,7 @@ case 'activity':
 case 'notifs':
     $ns = [];
     foreach (Db::notificationsFor($adminId, 15) as $n) {
-        $ns[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => cnp_notif_display($n->type, $n->title),
+        $ns[] = ['id' => (int) $n->id, 'type' => $n->type, 'title' => cnp_notif_display($n->type, $n->title), 'body' => (string) ($n->body ?? ''),
             'url' => $n->url, 'read' => (bool) $n->is_read, 'at' => $n->created_at];
     }
     $pendN = cnp_pending_for($adminId, $FULL);
@@ -7259,7 +7329,10 @@ case 'push_latest':                       // ο service worker τραβά τι �
     if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
     elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
     elseif (preg_match('~/project(?:management)?/#/(\w+)~', $u, $m)) { $spa = '/project/#/' . $m[1]; }
-    out(['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => '', 'url' => $spa, 'unread' => (bool) !$ln->is_read]);
+    /* tag ανά εργασία: δεύτερη ειδοποίηση για την ίδια εργασία ΑΝΤΙΚΑΘΙΣΤΑ την πρώτη — όχι στοίβα. */
+    $tagL = preg_match('~#/task/(\d+)~', $spa, $mt) ? 'cnp-task-' . $mt[1] : 'cnp-' . (int) $ln->id;
+    out(['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => (string) ($ln->body ?? ''),
+        'url' => $spa, 'tag' => $tagL, 'kind' => (string) $ln->type, 'unread' => (bool) !$ln->is_read]);
 
 
 /* ================= ACTIONS ================= */
@@ -7297,6 +7370,7 @@ case 'task_sub_add':                     /* ➕ Νέα υποεργασία κά
         'updated_at' => date('Y-m-d H:i:s'),
     ];
     $saId = (int) Capsule::table('mod_cpm_tasks')->insertGetId($saNew);
+    Inbox::event($saId, $adminId, 'new', 'Υποεργασία της #' . (int) $saP->id);
     Db::logActivity((int) $saP->id, $adminId, 'sub', 'Νέα υποεργασία: ' . mb_substr($saTitle, 0, 80));
     if ($saAss && $saAss !== $adminId) {
         Db::pushNotification($saAss, 'task', Db::adminName($adminId) . ' σου ανέθεσε υποεργασία: '
@@ -9311,10 +9385,7 @@ case 'save_task':
     if (array_key_exists('ball', $in)) {
         $newBall = (int) $in['ball'] ?: null;
         $data['action_user'] = $newBall;
-        if ($newBall && $newBall !== (int) $t->action_user && $newBall !== $adminId) {
-            Db::pushNotification($newBall, 'action', '⚡ Απαιτείται ενέργειά σου: ' . $t->title,
-                'addonmodules.php?module=cloudonprojects&tab=task&id=' . $tid);
-        }
+        /* Ειδοποίηση νέου κατόχου: Inbox::fromSave → Inbox::flush (23/10/2026). */
 
         /* ΔΙΝΩ ΤΗΝ ΜΠΑΛΑ = ΤΕΛΕΙΩΣΑ ΤΟ ΔΙΚΟ ΜΟΥ ΚΟΜΜΑΤΙ → ΣΤΑΜΑΤΑ Ο ΧΡΟΝΟΣ ΜΟΥ.
            Ίδια λογική με την αλλαγή κατάστασης (δες move_task): ο χειριστής
@@ -9409,6 +9480,7 @@ case 'save_task':
 
     Db::saveTask($tid, $data, $adminId);
     Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
+    Inbox::fromSave($t, $data, $adminId);   // το «Επεξεργασία» δεν λέει τι — εδώ ξέρουμε ακριβώς
     out(['ok' => true, 'ballStopped' => $ballStopped]);
 
 case 'comment':
@@ -13310,6 +13382,7 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
     $dueH = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
     if ($dueH) { $upd['due_date'] = $dueH; }
     Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update($upd);
+    Inbox::event((int) $t->id, $adminId, 'ball', '', $nextH);   // η σκυτάλη ΚΑΙ το «τι πρέπει να κάνεις»
 
     /* ΠΑΡΕΔΩΣΑ ΤΗ ΣΚΥΤΑΛΗ = ΤΕΛΕΙΩΣΑ ΤΟ ΔΙΚΟ ΜΟΥ ΚΟΜΜΑΤΙ → ΣΤΑΜΑΤΑ Ο ΧΡΟΝΟΣ ΜΟΥ.
        Ίδιος κανόνας με το save_task (παράδοση μπάλας) — εδώ έλειπε εντελώς: το
@@ -13975,6 +14048,10 @@ case 'profile_pref':                   // προσωπικές προτιμήσ�
     $key8 = (string) ($in['key'] ?? '');
     if ($key8 === 'lang') {                       // γλώσσα διεπαφής ανά χρήστη (el|en)
         Db::setPref($adminId, 'lang', ($in['value'] ?? '') === 'en' ? 'en' : 'el');
+        out(['ok' => true]);
+    }
+    if ($key8 === 'push_os') {                    // ειδοποιήσεις Windows/κινητού: ναι (εξ ορισμού) / όχι
+        Db::setPref($adminId, 'push_os', ($in['value'] ?? '1') === '0' ? '0' : '1');
         out(['ok' => true]);
     }
     if ($key8 === 'myday_layout') {
@@ -16423,7 +16500,8 @@ case 'views_list':
         ? array_map('intval', Capsule::table('mod_cpm_team_members')->whereIn('team_id',
             Capsule::table('mod_cpm_team_members')->where('admin_id', $adminId)->pluck('team_id')->all() ?: [0])->pluck('admin_id')->all()) : [];
     $vw = ['mine' => [], 'public' => [], 'templates' => []];
-    foreach (Capsule::table('mod_cpm_views')->where(function ($w) use ($adminId, $vwMates) {
+    $vwEnt = cnp_view_entity($in);
+    foreach (Capsule::table('mod_cpm_views')->where('entity', $vwEnt)->where(function ($w) use ($adminId, $vwMates) {
         $w->where('owner_id', $adminId)->orWhere('scope', 'public')
           ->orWhere(function ($x) use ($vwMates) { $x->where('scope', 'team')->whereIn('owner_id', $vwMates ?: [0]); });
     })->orderBy('name')->get() as $v9) {
@@ -16438,7 +16516,7 @@ case 'views_list':
         if (!empty($v9->is_template)) { $vw['templates'][] = $row; }
         elseif ((int) $v9->owner_id === $adminId) { $vw['mine'][] = $row; } else { $vw['public'][] = $row; }
     }
-    $vw['default'] = (string) Db::pref($adminId, 'list_view_default', '');
+    $vw['default'] = (string) Db::pref($adminId, cnp_view_def_key($vwEnt), '');
     $vw['team'] = Db::ledMemberIds($adminId);
     $vw['pins'] = json_decode((string) Db::pref($adminId, 'view_pins', '[]'), true) ?: [];
     $vw['ui'] = json_decode((string) Db::pref($adminId, 'lv_ui', '{}'), true) ?: new \stdClass();
@@ -16463,8 +16541,7 @@ case 'task_stamp':
     $tsT = Db::task((int) ($_GET['id'] ?? 0));
     if (!$tsT || !Db::canSeeTask($adminId, $tsT)) { fail('task', 404); }
     $tsA = Capsule::table('mod_cpm_activity')->where('task_id', (int) $tsT->id)->orderBy('id', 'desc')->first(['id', 'admin_id', 'action', 'created_at']);
-    $tsC = (int) Capsule::table('mod_cpm_checklist')->where('task_id', (int) $tsT->id)->max('id');
-    out(['updatedAt' => (string) $tsT->updated_at, 'act' => $tsA ? (int) $tsA->id : 0, 'chk' => $tsC,
+    out(cnp_task_stamp($tsT) + [
         'by' => $tsA && $tsA->admin_id ? (int) $tsA->admin_id : 0, 'byName' => $tsA && $tsA->admin_id ? Db::adminName((int) $tsA->admin_id) : '',
         'what' => $tsA ? (string) $tsA->action : '']);
 
@@ -16499,14 +16576,14 @@ case 'view_save':
     /* Δημόσιο view = το βλέπει όλη η ομάδα: μόνο με «Board: επεξεργασία» (5/10/2026). */
     $vCanPub = cnp_has_cap($adminId, $FULL, 'projects.board.edit');
     /* Όχι δύο views με το ίδιο όνομα στην ίδια ενότητα (τα προσωπικά μου / τα δημόσια). */
-    $vDup = function ($name, $scope, $exceptId) use ($adminId) {
-        $q = Capsule::table('mod_cpm_views')->where('name', $name)->where('id', '<>', (int) $exceptId);
+    $vDup = function ($name, $scope, $exceptId) use ($adminId, $in) {
+        $q = Capsule::table('mod_cpm_views')->where('entity', cnp_view_entity($in))->where('name', $name)->where('id', '<>', (int) $exceptId);
         $q = $scope === 'public' ? $q->where('scope', 'public') : $q->where('scope', $scope)->where('owner_id', $adminId);
         return $q->exists();
     };
     if ($vId) {
         $vRow = Capsule::table('mod_cpm_views')->where('id', $vId)->first();
-        if (!$vRow) { fail('Δεν βρέθηκε το view', 404); }
+        if (!$vRow || !cnp_view_same_entity($vRow, $in)) { fail('Δεν βρέθηκε το view', 404); }
         $vEds = array_values(array_filter(array_map('intval', explode(',', (string) ($vRow->editors ?? '')))));
         $vOwner = (int) $vRow->owner_id === $adminId || $FULL;
         if (!$vOwner && !in_array($adminId, $vEds, true)) { fail('Το view το αλλάζει μόνο ο δημιουργός του (ή όποιον έχει ορίσει) — «Αποθήκευση ως νέο» για δικό σου', 403); }
@@ -16536,17 +16613,18 @@ case 'view_save':
         if ($vDup($vName, $vScope, 0)) {
             fail('Υπάρχει ήδη view με αυτό το όνομα ' . ($vScope === 'public' ? 'στα δημόσια' : 'στα δικά σου'), 409, ['field' => 'name']);
         }
-        $vId = (int) Capsule::table('mod_cpm_views')->insertGetId(['owner_id' => $adminId, 'name' => $vName, 'scope' => $vScope,
+        $vId = (int) Capsule::table('mod_cpm_views')->insertGetId(['owner_id' => $adminId, 'entity' => cnp_view_entity($in), 'name' => $vName, 'scope' => $vScope,
             'is_template' => $vTpl, 'config' => $vJson, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
     }
     out(['ok' => true, 'id' => $vId]);
 
 case 'view_del':
     $vRow = Capsule::table('mod_cpm_views')->where('id', (int) ($in['id'] ?? 0))->first();
-    if (!$vRow) { fail('Δεν βρέθηκε το view', 404); }
+    if (!$vRow || !cnp_view_same_entity($vRow, $in)) { fail('Δεν βρέθηκε το view', 404); }
     if ((int) $vRow->owner_id !== $adminId && !$FULL) { fail('Το view το σβήνει μόνο ο δημιουργός του', 403); }
     Capsule::table('mod_cpm_views')->where('id', (int) $vRow->id)->delete();
-    if ((string) Db::pref($adminId, 'list_view_default', '') === 'v:' . (int) $vRow->id) { Db::setPref($adminId, 'list_view_default', ''); }
+    $vDk = cnp_view_def_key(cnp_view_entity($in));
+    if ((string) Db::pref($adminId, $vDk, '') === 'v:' . (int) $vRow->id) { Db::setPref($adminId, $vDk, ''); }
     out(['ok' => true]);
 
 case 'view_default':                      // προεπιλεγμένο view ΓΙΑ ΜΕΝΑ: 'v:ID' | 'p:κλειδί' | ''
@@ -16554,9 +16632,9 @@ case 'view_default':                      // προεπιλεγμένο view Γ�
     if ($vKey !== '' && !preg_match('/^(v:\d+|p:[a-z_]{1,20})$/', $vKey)) { fail('input'); }
     if (strpos($vKey, 'v:') === 0) {
         $vRow = Capsule::table('mod_cpm_views')->where('id', (int) substr($vKey, 2))->first();
-        if (!$vRow || ((int) $vRow->owner_id !== $adminId && $vRow->scope === 'mine')) { fail('Δεν βρέθηκε το view', 404); }
+        if (!$vRow || !cnp_view_same_entity($vRow, $in) || ((int) $vRow->owner_id !== $adminId && $vRow->scope === 'mine')) { fail('Δεν βρέθηκε το view', 404); }
     }
-    Db::setPref($adminId, 'list_view_default', $vKey);
+    Db::setPref($adminId, cnp_view_def_key(cnp_view_entity($in)), $vKey);
     out(['ok' => true]);
 
 case 'rtc_chat':
@@ -20249,6 +20327,43 @@ case 'presence_sweep':                  // από το pulse cron (κάθε 10΄
     try { cnp_close_ghost_timers(); } catch (\Throwable $eG) { }
     out(['ok' => true, 'pushed' => $nS]);
 
+case 'feed':                            // 📥 Εισερχόμενα: ό,τι ήρθε σε μένα, νεότερο πρώτο
+    $rowsF = cnp_inbox_query($adminId)
+        ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
+        ->leftJoin('tbltickets as k', 'k.id', '=', 't.ticketid')
+        ->select('t.*', 'p.name as pname', 'p.color as pcolor', 'p.clientid as pclient', 'k.tid as tkno',
+            'i.kind as ikind', 'i.what as iwhat', 'i.excerpt as iexc', 'i.by_admin as iby', 'i.at as iat', 'i.read_at as iread')
+        ->orderByDesc(Capsule::raw('COALESCE(i.at, t.created_at)'))->limit(500)->get();
+    $outF = [];
+    $unF = 0;
+    foreach ($rowsF as $t) {
+        /* Χωρίς γεγονός (π.χ. την άνοιξα εγώ για μένα): «σε περιμένει» από τη δημιουργία. */
+        $hasEv = $t->ikind !== null;
+        $byF = $hasEv ? (int) $t->iby : ((int) $t->created_by !== $adminId ? (int) $t->created_by : 0);
+        $unread = $hasEv && $t->iread === null;
+        if ($unread) { $unF++; }
+        $outF[] = taskDto($t, null, null, null, [(int) $t->id => $t->tkno ?: ($t->ticket_ref ?? null)])
+            + ['pname' => cnp_pn($t->pname), 'pcolor' => $t->pcolor ?: '#8595ac',
+               'clientName' => $t->pclient ? clientLabel((int) $t->pclient) : '',
+               'ev' => ['kind' => $hasEv ? $t->ikind : 'wait', 'what' => (string) ($t->iwhat ?? ''),
+                        'excerpt' => (string) ($t->iexc ?? ''), 'byId' => $byF ?: null,
+                        'by' => $byF ? Db::adminName($byF) : ''],
+               'at' => $hasEv ? $t->iat : ($t->created_at ?: $t->updated_at),
+               'unread' => $unread];
+    }
+    out(['items' => $outF, 'unread' => $unF]);
+
+case 'push_test':                       // «Δοκιμή» από το προφίλ: έτσι μοιάζει μια ειδοποίηση των Εισερχομένων
+    Db::pushNotification($adminId, 'inbox', 'Δοκιμή · CloudOn Projects', '/project/#/feed',
+        'Έτσι θα βλέπεις ό,τι σου έρχεται στα Εισερχόμενα' . "\n" . '«ποιος, τι, και το τελευταίο μήνυμα»');
+    out(['ok' => true, 'off' => (string) Db::pref($adminId, 'push_os', '1') === '0']);
+
+case 'feed_read':                       // διαβάστηκε: όλα («Όλα διαβασμένα») ή ένα. Το LED ΔΕΝ ξανανάβει με το χέρι.
+    if (!empty($in['all'])) { out(['ok' => true, 'n' => Inbox::markRead($adminId)]); }
+    $tidF = (int) ($in['task'] ?? 0);
+    if (!$tidF) { fail('input'); }
+    out(['ok' => true, 'n' => Inbox::markRead($adminId, $tidF)]);
+
 case 'supervised':                      // 👁 Επιβλέπω: οι εργασίες που ΑΝΟΙΞΑ εγώ (created_by) — ανοιχτές/ολοκληρωμένες
     $doneSv = Capsule::table('mod_cpm_statuses')->where('is_done', 1)->pluck('id')->all() ?: [0];
     $which = in_array($_GET['which'] ?? 'open', ['open', 'done', 'all'], true) ? $_GET['which'] : 'open';
@@ -20306,6 +20421,9 @@ case 'version':
     $d6 = (string) Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)->max('id');
     $e6 = (string) Capsule::table('mod_cpm_comments')->max('id');
     $f6 = (string) Capsule::table('mod_cpm_leads')->max('updated_at');
+    /* Χρονόμετρα: ποια τρέχουν + το τελευταίο — Start/Stop αλλάζει τις οθόνες όλων (▶ στις λίστες, «Τώρα»). */
+    $h6 = (string) Capsule::table('mod_cpm_timelogs')->max('id') . '|'
+        . (string) Capsule::table('mod_cpm_timelogs')->where('running', 1)->selectRaw('GROUP_CONCAT(id ORDER BY id) g')->value('g');
     /* (εδώ υπήρχε δεύτερη, ΑΝΕΥ ΟΡΩΝ εγγραφή last_seen σε κάθε χτύπο 12΄΄ — περιττή: το
        last_seen γράφεται ήδη πιο πάνω ανά 30΄΄, αρκετό για την παρουσία. 28/9/2026) */
     $reads6 = [];
@@ -20452,10 +20570,11 @@ case 'version':
         }
     }
     out(['chatNew' => $chatNew,
-        'v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat),
+        'v' => md5($a6 . '|' . $b6 . '|' . $c6 . '|' . $d6 . '|' . $e6 . '|' . $f6 . '|' . $g6chat . '|' . $h6),
         'build' => cnp_asset_version(),
         'unread' => Db::unreadCount($adminId), 'pending' => cnp_pending_for($adminId, $FULL)['count'],
         'chatUnread' => $chatUnread, 'alerts' => $alerts,
+        'inboxUnread' => cnp_inbox_unread($adminId),
         'meetAlerts' => $meetAlerts, 'myTimer' => $myTimer,
         /* Το καλωσόρισμα ΔΕΝ περιμένει να ανοίξεις τη «Μέρα μου»: όταν χτυπήσει
            η ώρα έναρξης, έρχεται μόνο του στον σφυγμό. Αλλιώς η υπόσχεση «στις

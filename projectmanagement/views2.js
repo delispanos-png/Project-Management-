@@ -4329,6 +4329,19 @@ R.profile = async function () {
   const sw = (k, label, descr) => `
     <div class="set-row"><div><b>${label}</b><div class="mut" style="font-size:12px">${descr}</div></div>
       <label class="switch"><input type="checkbox" data-pref="${k}" ${d.prefs[k] === 'on' ? 'checked' : ''}><span></span></label></div>`;
+  /* Ειδοποιήσεις Windows/κινητού (23/10/2026): ο ΔΙΑΚΟΠΤΗΣ είναι δικός σου (server)· η ΑΔΕΙΑ είναι
+     ανά συσκευή (browser) — γι' αυτό δείχνουμε και τα δύο, και τι να κάνεις αν λείπει κάτι. */
+  const pushRow = () => {
+    const on = !!S.boot.me.pushOs, st = window.CNP.cnpPushState();
+    const dev = {granted: ['pill-ok', '✓ ενεργές σε αυτή τη συσκευή'], denied: ['pill-bad', 'μπλοκαρισμένες από τον browser'],
+      default: ['pill-warn', 'δεν έχουν ενεργοποιηθεί εδώ'], unsupported: ['pill-mut', 'ο browser δεν τις υποστηρίζει']}[st];
+    return `<div class="set-row"><div><b>Ειδοποιήσεις Windows</b><div class="mut" style="font-size:12px">Όταν σου έρθει εργασία (νέα, ανάθεση, η μπάλα σε σένα) — με το ποιος, τι και το τελευταίο μήνυμα, ακόμη κι αν δεν είσαι στο CloudOn Projects</div>
+        ${on ? `<div class="push-dev"><span class="pill ${dev[0]}">${dev[1]}</span>
+          ${st === 'default' ? '<button class="btn btn-sm btn-p" id="pushOn">Ενεργοποίηση σε αυτή τη συσκευή</button>' : ''}
+          ${st === 'granted' ? '<button class="btn btn-sm btn-o" id="pushTest">Δοκιμή</button>' : ''}
+          ${st === 'denied' ? '<span class="mut" style="font-size:11.5px">Ξεμπλόκαρέ τες από το 🔒 δίπλα στη διεύθυνση → Ειδοποιήσεις → Να επιτρέπονται</span>' : ''}</div>` : ''}</div>
+      <label class="switch"><input type="checkbox" id="prefPushOs" ${on ? 'checked' : ''}><span></span></label></div>`;
+  };
   c.innerHTML = `
   <div class="grid g2">
     <div>
@@ -4379,6 +4392,7 @@ R.profile = async function () {
           </select></div>
       </div></div>
       <div class="card"><div class="card-h">${I.bell} Οι ειδοποιήσεις μου</div><div class="card-b">
+        <div id="pushBox">${pushRow()}</div>
         ${sw('notify_email', 'Ειδοποιήσεις email', 'Αναθέσεις, σχόλια, μπάλες, υπενθυμίσεις — το καμπανάκι μένει πάντα ενεργό')}
         ${sw('digest', 'Πρωινή σύνοψη', 'ΕΝΑ email στις 08:00: ανοιχτές, εκπρόθεσμες, πάνω από εκτίμηση — δικές σου και της ομάδας σου')}
       </div></div>
@@ -4415,6 +4429,23 @@ R.profile = async function () {
     toast('Ο κωδικός άλλαξε ✓');
     ['#pwCur', '#pwNew', '#pwCnf'].forEach(x => $(x).value = '');
   };
+  const wirePush = () => {
+    const box = $('#pushBox'); if (!box) { return; }
+    const redo = () => { box.innerHTML = pushRow(); wirePush(); };
+    const t = $('#prefPushOs'); if (t) { t.onchange = async () => {
+      const r = await api('profile_pref', {key: 'push_os', value: t.checked ? '1' : '0'}).catch(e => ({err: e.message}));
+      if (r && r.err) { toast(r.err, true); t.checked = !t.checked; return; }
+      S.boot.me.pushOs = t.checked; redo();
+      toast(t.checked ? 'Ειδοποιήσεις Windows: ενεργές' : 'Ειδοποιήσεις Windows: κλειστές — τα Εισερχόμενα και το καμπανάκι μένουν');
+      if (t.checked && window.CNP.cnpPushState() === 'default') { await window.CNP.cnpPushEnable(); redo(); }
+    }; }
+    const on = $('#pushOn'); if (on) { on.onclick = async () => { await window.CNP.cnpPushEnable(); redo(); }; }
+    const ts = $('#pushTest'); if (ts) { ts.onclick = async () => {
+      const r = await api('push_test', {}).catch(e => ({err: e.message}));
+      toast(r && r.err ? r.err : 'Στάλθηκε — θα εμφανιστεί σε λίγα δευτερόλεπτα', !!(r && r.err));
+    }; }
+  };
+  wirePush();
   $$('[data-pref]').forEach(sw2 => sw2.onchange = async () => {
     await api('profile_pref', {key: sw2.dataset.pref, value: sw2.checked ? 'on' : 'off'});
     toast(sw2.checked ? 'Ενεργοποιήθηκε' : 'Απενεργοποιήθηκε');

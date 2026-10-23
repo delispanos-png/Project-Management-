@@ -302,6 +302,7 @@ function cnpScrubNode(root) {
       /* ίδιος κανόνας με τον server: «start» μόνο σε <ol>, μόνο ακέραιος */
       if (an === 'start' && (tag !== 'OL' || !/^\d{1,4}$/.test(a.value))) { n.removeAttribute(a.name); }
     });
+    cnpToneEl(n);   // παλιό inline χρώμα → τόνος θέματος (αναγνώσιμο σε φωτεινό ΚΑΙ σκοτεινό)
     cnpScrubNode(n);
   });
 }
@@ -322,6 +323,30 @@ function cnpBalanced(html) {
   const s = String(html || ''); if (s.indexOf('<') < 0) { return s; }
   const t = document.createElement('template'); t.innerHTML = s; cnpScrubNode(t.content); return t.innerHTML;
 }
+/* ── Συγχρονισμός ανάμεσα σε ανοιχτές καρτέλες/παράθυρα (23/10/2026) ──────────────────
+   Κάθε πετυχημένη ΑΛΛΑΓΗ (χρονόμετρο, κατάσταση, αποθήκευση, απάντηση…) αναγγέλλεται στις
+   άλλες καρτέλες του ίδιου browser· εκείνες ενημερώνονται ΑΘΟΡΥΒΑ σε ~¼΄΄ (cnpSyncNow) —
+   χωρίς ανανέωση σελίδας. Άλλοι χρήστες / άλλες συσκευές: ο σφυγμός των 12΄΄. */
+const CNP_TAB = Math.random().toString(36).slice(2);
+const CNP_NOSYNC = new Set(['version', 'boot', 'topstats', 'feed', 'views_list', 'view_ui', 'profile_pref', 'presence_sweep',
+  'push_subscribe', 'push_unsubscribe', 'task_stamp', 'ksearch', 'search', 'ai_proofread', 'file_presign_put', 'notif_read']);
+let cnpBus = null;
+try { cnpBus = new BroadcastChannel('cnp-sync'); } catch (e) { cnpBus = null; }
+window._cnpMyMut = {};
+function cnpAnnounce(a, data) {
+  const task = +((data && (data.task || (/^(task|save_task|move_task|timer|check)/.test(a) ? data.id : 0))) || 0);
+  if (task) { window._cnpMyMut[task] = Date.now(); }
+  const msg = {tab: CNP_TAB, a, task, at: Date.now()};
+  try { if (cnpBus) { cnpBus.postMessage(msg); } else { localStorage.setItem('cnpSync', JSON.stringify(msg)); } } catch (e) { }
+}
+function cnpOnSync(m) {
+  if (!m || m.tab === CNP_TAB) { return; }
+  clearTimeout(window._cnpSyncTm);
+  window._cnpSyncTm = setTimeout(() => { if (window.cnpSyncNow) { window.cnpSyncNow(m); } }, 250);
+}
+if (cnpBus) { cnpBus.onmessage = e => cnpOnSync(e.data); }
+else { window.addEventListener('storage', e => { if (e.key === 'cnpSync' && e.newValue) { try { cnpOnSync(JSON.parse(e.newValue)); } catch (x) { } } }); }
+
 async function api(a, data) {
   const opt = data ? {method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'}} : {};
   const r = await fetch('api.php?a=' + a + (data ? '' : '&_=' + Date.now()), {credentials: 'same-origin', ...opt});
@@ -332,6 +357,7 @@ async function api(a, data) {
   /* Το σφάλμα κουβαλά ΟΛΟ το σώμα: ο server στέλνει και δομημένα πεδία (π.χ.
      need:'due') που το UI χρειάζεται για να αντιδράσει, όχι μόνο το μήνυμα. */
   if (j.error) { const e = new Error(j.error); e.data = j; throw e; }
+  if (data && !CNP_NOSYNC.has(a)) { cnpAnnounce(a, data); }
   return j;
 }
 function toast(msg, err) {
@@ -506,6 +532,7 @@ function renderShell() {
   const groups = [
     ['Τα δικά μου', 'ό,τι αφορά εμένα σήμερα', [
       ['myday', I.sun, 'Η μέρα μου'],
+      ['feed', I.mail, 'Εισερχόμενα'],   /* ό,τι ήρθε σε μένα (μπάλα, μήνυμα, αλλαγή) — ροή, νεότερο πρώτο */
       ['todos', I.checkSquare, 'Το πλάνο μου'],
       ['supervised', I.eye, 'Επιβλέπω'],   /* εργασίες που άνοιξα εγώ — ανοιχτές / ολοκληρωμένες */
       ['requests', I.sos || I.chat, 'Αιτήματα'],   /* «σε ζητούν» με ιστορικό: ποιος ρώτησε, τι απαντήθηκε */
@@ -688,7 +715,7 @@ function renderShell() {
     ${(() => {
       // ── bottom tab bar (μόνο κινητό): ΟΛΟ το μενού σε μία μπάρα που σέρνεται ──
       const flat = nav.flatMap(([, items]) => items);
-      const SHORT = {myday: 'Σήμερα', inbox: 'Tickets', calendar: 'Ημερολόγιο', todos: 'Πλάνο',
+      const SHORT = {myday: 'Σήμερα', feed: 'Εισερχ.', inbox: 'Tickets', calendar: 'Ημερολόγιο', todos: 'Πλάνο',
         library: 'Βιβλιοθήκη', vault: 'Κωδικοί', remotebook: 'Απομακρ.', client360: 'Πελάτης', clientlist: 'Πελάτες',
         knowledge: 'Γνώση', list: 'Tasks', projects: 'Έργα', offers: 'Προσφορές',
         profile: 'Προφίλ', gantt: 'Χρονοδ.', time: 'Χρόνος', crm: 'CRM',
@@ -696,7 +723,7 @@ function renderShell() {
         units: 'Depts', templates: 'Modules', teams: 'Ομάδες', perf: 'Απόδοση', suspend: 'Αναστολές',
         settings: 'Ρυθμίσεις', pbx: 'Διασύνδεση 3CX', book: 'Τηλεφωνικός κατάλογος', bookfields: 'Πεδία καταλόγου', calls: 'Τηλεφωνική δραστηριότητα', clientcalls: 'Κίνηση πελάτη', recruit: 'Βιογραφικά', paytrace: 'Πληρωμές', standup: 'Standup',
         chat: 'Chat', board: 'Board', prepaid: 'Προαγορά', activity: 'Δραστηρ.', complaints: 'Παράπονα', uncovered: 'Ακάλυπτα', help: 'Οδηγός'};
-      const FIRST = ['myday', 'inbox', 'chat', 'calendar', 'board', 'todos'];
+      const FIRST = ['myday', 'feed', 'inbox', 'chat', 'calendar', 'board', 'todos'];
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
       return `<nav class="tabbar" id="tabBar" aria-label="Κύρια πλοήγηση">
@@ -706,6 +733,7 @@ function renderShell() {
   </div>`;
   $$('.sitem').forEach(b => b.onclick = () => { $('.shell').classList.remove('nav-open'); go(b.dataset.nav); });
   cnpRenderPins();
+  cnpFeedBadge(window._cnpFeedN !== undefined ? window._cnpFeedN : (S.boot.inboxUnread || 0));
   // ── mobile off-canvas menu ──
   {
     const _sh = $('.shell');
@@ -1394,6 +1422,35 @@ async function cnpPushEnable() {
     const b = $('#pushEnable'); if (b) { b.remove(); }
   } catch (e) { toast('Σφάλμα ενεργοποίησης', true); }
 }
+/* ── Ειδοποιήσεις Windows/κινητού για τα Εισερχόμενα (23/10/2026) ──────────────────────
+   Ο server δεν μπορεί να «ανοίξει» ειδοποιήσεις σε μια συσκευή — την άδεια τη δίνει ο browser,
+   μόνο με κλικ του ανθρώπου. Γι' αυτό: η ρύθμιση είναι εξ ορισμού ΑΝΟΙΧΤΗ (pref push_os) και όποιος
+   δεν έχει δώσει ακόμη άδεια βλέπει ΜΙΑ ευγενική κάρτα· «Όχι τώρα» = ξανά σε 7 ημέρες. */
+function cnpPushState() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { return 'unsupported'; }
+  return Notification.permission;   // granted | denied | default
+}
+function cnpPushPrompt() {
+  if (!S.boot.me.pushOs || cnpPushState() !== 'default' || document.getElementById('pushAsk')) { return; }
+  try { if (+localStorage.getItem('cnpPushSnooze') > Date.now()) { return; } } catch (e) { }
+  const c = document.createElement('div');
+  c.id = 'pushAsk'; c.className = 'push-ask'; c.setAttribute('role', 'dialog');
+  c.innerHTML = `<div class="push-ask-ic">${I.bell}</div>
+    <div class="push-ask-t"><b>Να σε ειδοποιούμε στα Windows;</b>
+      <span>Όταν σου έρθει μια εργασία — νέα, ανάθεση ή η μπάλα πίσω σε σένα — θα το βλέπεις αμέσως, ακόμη κι αν δεν έχεις ανοιχτό το CloudOn Projects.</span>
+      <div class="push-ask-demo"><i>${I.mail}</i><div><b>#782 · Πρόβλημα υπολογισμού τιμής</b><small>Emma σου πέρασε τη μπάλα · «Δες το συνημμένο…»</small></div></div>
+      <div class="push-ask-a"><button class="btn btn-p btn-sm" data-pa="yes">Ενεργοποίηση</button><button class="btn btn-o btn-sm" data-pa="no">Όχι τώρα</button></div>
+      <small class="mut">Αλλάζει όποτε θες: Το προφίλ μου → Οι ειδοποιήσεις μου</small></div>
+    <button class="push-ask-x" data-pa="no" aria-label="Κλείσιμο">✕</button>`;
+  document.body.appendChild(c);
+  requestAnimationFrame(() => c.classList.add('show'));
+  const close = () => { c.classList.remove('show'); setTimeout(() => c.remove(), 250); };
+  c.querySelectorAll('[data-pa]').forEach(b => b.onclick = async () => {
+    if (b.dataset.pa === 'yes') { close(); await cnpPushEnable(); return; }
+    try { localStorage.setItem('cnpPushSnooze', String(Date.now() + 7 * 86400000)); } catch (e) { }
+    close();
+  });
+}
 async function toggleBell() {
   const old = $('.pop'); if (old) { old.remove(); return; }
   const d = await api('notifs'); updateBell(d.unread + (d.pendingCount || 0));
@@ -1426,7 +1483,7 @@ async function toggleBell() {
     ? `<a href="#" id="pushEnable" class="push-enable">${I.bell} Ενεργοποίηση ειδοποιήσεων σε αυτή τη συσκευή</a>` : '';
   pop.innerHTML = `<div class="pop-h">Ειδοποιήσεις <a href="#" id="readAll" style="font-size:11px;font-weight:600">όλα ως διαβασμένα</a></div>` + pushRow + pendHtml +
     (d.items.length ? d.items.map(n => `<a class="nrow ${n.read ? '' : 'unread'}" data-id="${n.id}" data-url="${esc(n.url || '')}">
-      <span>${esc(n.title)}</span><span class="tm">${tShort(n.at)}</span></a>`).join('')
+      <span>${n.type === 'inbox' ? '<i class="nrow-ic">' + I.mail + '</i>' : ''}${esc(n.title)}${n.body ? `<small class="nrow-b">${esc(String(n.body).split('\n')[0])}</small>` : ''}</span><span class="tm">${tShort(n.at)}</span></a>`).join('')
     : '<div class="empty" style="padding:22px">Καμία ειδοποίηση</div>');
   ($('#bellBtn').parentElement || $('.bell-wrap')).appendChild(pop);   // στο ΔΙΚΟ του κουτί (πριν: στο πρώτο .bell-wrap = του «Τι να προσέξεις»)
   const pe = pop.querySelector('#pushEnable'); if (pe) { pe.onclick = e => { e.preventDefault(); e.stopPropagation(); cnpPushEnable(); }; }
@@ -1785,16 +1842,21 @@ function actTbHtml() {
    ΣΤΟΙΧΕΙΑ εργασίας: λίστα ελέγχου, υποεργασία, εξάρτηση, σύνδεσμος), αναίρεση/επανάληψη,
    σύρσιμο αρχείων. Τα μενού είναι αναδυόμενα (.rte-pop) — τα κουμπιά τους είναι κι αυτά
    .rte-b, οπότε περνούν από τον ίδιο χειριστή και ΔΕΝ χαλούν την επιλογή κειμένου. */
-const RTE_FG = ['#131f30', '#e2515f', '#e0552b', '#e0a020', '#16a26a', '#0090dd', '#7b5cd6', '#8595ac'];
-const RTE_BG = ['#fff3a3', '#ffd6d6', '#ffe2c4', '#d4f3e1', '#d3eafb', '#e7dcfb', '#e5eaf1'];
+/* ΧΡΩΜΑΤΑ ΩΣ ΤΟΝΟΙ, ΟΧΙ ΩΣ HEX (23/10/2026). Ένα σταθερό #131f30 στο φωτεινό θέμα είναι
+   αόρατο στο σκοτεινό. Αποθηκεύουμε ΚΛΑΣΗ (cc-τόνος = γράμματα, cb-τόνος = ετικέτα με φόντο)
+   και το CSS δίνει τιμή ανά θέμα — ίδια ανάγνωση και στα δύο. Τα παλιά inline χρώματα
+   μεταφράζονται στον πλησιέστερο τόνο (cnpToneOf, μέσα στο cnpScrubNode). */
+const RTE_TONES = [['sky', 'Γαλάζιο'], ['blue', 'Μπλε'], ['green', 'Πράσινο'], ['yellow', 'Κίτρινο'],
+  ['orange', 'Πορτοκαλί'], ['red', 'Κόκκινο'], ['purple', 'Μωβ'], ['gray', 'Γκρι']];
 const RTE_EMOJI = '😀 😃 😄 😁 😅 😂 🙂 😉 😊 😍 🤔 😐 😕 😮 😢 😡 👍 👎 👏 🙏 💪 👀 👋 🤝 ✅ ❌ ⚠️ ❗ ❓ 💡 🔥 ⭐ 🎉 🚀 📌 📎 📅 ⏰ 📞 📧 💬 🔒 🔑 🛠️ 🐞 📈 📉 💶 🏁 ➡️ ⬅️ ⬆️ ⬇️'.split(' ');
 const _rteM = (name, label, title) => `<button type="button" class="rte-b rte-mb" data-cmd="__menu" data-arg="${name}" title="${title}" aria-haspopup="menu">${label}<span class="rte-car">▾</span></button>`;
 const RTE_MENUS = {
   style: () => [['formatBlock', 'Κείμενο', 'p'], ['formatBlock', '<b style="font-size:15px">Επικεφαλίδα</b>', 'h3'], ['formatBlock', '<b>Υπότιτλος</b>', 'h4'],
     ['formatBlock', '“ Παράθεση', 'blockquote'], ['__code', '&lt;/&gt; Κώδικας']].map(x => _rteB(x[0], x[1], '', x[2])).join(''),
-  fg: () => '<div class="rte-sw">' + RTE_FG.map(c => `<button type="button" class="rte-b rte-swb" data-cmd="foreColor" data-arg="${c}" title="Χρώμα κειμένου"><span style="background:${c}"></span></button>`).join('') + '</div>',
-  bg: () => '<div class="rte-sw">' + RTE_BG.map(c => `<button type="button" class="rte-b rte-swb" data-cmd="hiliteColor" data-arg="${c}" title="Φόντο / ετικέτα"><span style="background:${c}"></span></button>`).join('')
-    + '<button type="button" class="rte-b rte-swb" data-cmd="hiliteColor" data-arg="transparent" title="Χωρίς φόντο"><span class="rte-sw0"></span></button></div>',
+  tone: () => _rteB('__tone', '↺ Χωρίς χρώμα', '', 'none')
+    + '<div class="rte-tone"><div class="rte-pop-h">Χρώμα γραμμάτων</div><div class="rte-pop-h">Χρώμα ετικέτας</div>'
+    + RTE_TONES.map(([k, n]) => _rteB('__tone', `<span class="rte-tn cc-${k}">A</span> ${n}`, '', 'c-' + k)
+      + _rteB('__tone', `<span class="rte-tn cb-${k}">A</span> ${n}`, '', 'b-' + k)).join('') + '</div>',
   size: () => [['s', '<span style="font-size:12px">Μικρό</span>'], ['m', 'Κανονικό'], ['l', '<span style="font-size:17px">Μεγάλο</span>']].map(x => _rteB('__size', x[1], '', x[0])).join(''),
   align: () => [['justifyLeft', '⯇ Αριστερά'], ['justifyCenter', '≡ Κέντρο'], ['justifyRight', 'Δεξιά ⯈'], ['justifyFull', '☰ Πλήρης']].map(x => _rteB(x[0], x[1], '')).join(''),
   emoji: () => '<div class="rte-emo">' + RTE_EMOJI.map(e => `<button type="button" class="rte-b" data-cmd="insertText" data-arg="${e}">${e}</button>`).join('') + '</div>',
@@ -1812,8 +1874,7 @@ function rteToolsHtml() {
         ${_rteB('italic', '<i>I</i>', 'Πλάγια (Ctrl+I)')}
         ${_rteB('underline', '<u>U</u>', 'Υπογράμμιση (Ctrl+U)')}
         ${_rteB('strikeThrough', '<s>S</s>', 'Διαγράμμιση')}
-        ${_rteM('fg', '<span class="rte-a">A</span>', 'Χρώμα κειμένου')}
-        ${_rteM('bg', '<span class="rte-hl">A</span>', 'Φόντο / ετικέτα')}
+        ${_rteM('tone', '<span class="rte-a">A</span>', 'Χρώμα γραμμάτων ή ετικέτας')}
         ${_rteM('size', 'Aa', 'Μέγεθος γραμμάτων')}
         <span class="rte-sep"></span>
         ${_rteM('align', '≡', 'Στοίχιση')}
@@ -1838,6 +1899,120 @@ function rteHtml(id, value, placeholder, opts) {
       data-ph="${esc(placeholder || '')}">${_rteSeed(value)}</div>
   </div>`;
 }
+/* ── Τόνοι χρώματος (23/10/2026) ───────────────────────────────────────────────
+   Εφαρμογή: το foreColor με «σημάδι» αφήνει τον browser να κόψει σωστά την επιλογή
+   (μισές λέξεις, πολλές γραμμές, φωλιασμένα έντονα)· μετά το σημάδι γίνεται span με κλάση.
+   Ό,τι χρώμα υπήρχε ΜΕΣΑ στην επιλογή φεύγει — αλλιώς το εσωτερικό θα νικούσε το νέο. */
+const RTE_MARK = '#010203';
+function rteToneStrip(el) {
+  if (el.classList) { [...el.classList].filter(c => /^c[cb]-/.test(c)).forEach(c => el.classList.remove(c)); if (!el.classList.length) { el.removeAttribute('class'); } }
+  if (el.style) { el.style.removeProperty('color'); el.style.removeProperty('background-color'); el.style.removeProperty('background'); if (!el.getAttribute('style')) { el.removeAttribute('style'); } }
+  if (el.tagName === 'FONT' && el.getAttribute('color') !== RTE_MARK) { el.removeAttribute('color'); }
+  if ((el.tagName === 'SPAN' || el.tagName === 'FONT') && !el.attributes.length) { el.replaceWith(...el.childNodes); }
+}
+function rteTone(ed, arg) {
+  try { document.execCommand('styleWithCSS', false, false); } catch (e) { }
+  document.execCommand('foreColor', false, RTE_MARK);
+  const [kind, tone] = arg === 'none' ? ['none', ''] : arg.split('-');
+  const marks = [...ed.querySelectorAll('font[color="' + RTE_MARK + '"]')];
+  if (!marks.length) { return; }
+  /* Δείκτες αρχής/τέλους: η επιλογή ΜΕΝΕΙ μετά το χρώμα, ώστε να αλλάξεις τόνο ή να τον
+     βγάλεις αμέσως χωρίς να ξαναεπιλέξεις (αλλιώς η αντικατάσταση κόμβων την έσβηνε). */
+  const m0 = document.createComment('s'), m1 = document.createComment('e');
+  marks[0].before(m0); marks[marks.length - 1].after(m1);
+  marks.forEach(f => {
+    f.querySelectorAll('span, font').forEach(rteToneStrip);
+    /* Γονικό χρώμα που καλύπτει ΑΚΡΙΒΩΣ την επιλογή (π.χ. ξαναχρωματίζεις μια ετικέτα): φεύγει κι αυτό. */
+    for (let a = f.parentElement; a && a !== ed && a.textContent === f.textContent; ) {
+      const up = a.parentElement;
+      if (a.tagName === 'SPAN' || a.tagName === 'FONT') { rteToneStrip(a); }
+      a = up;
+    }
+    if (kind === 'none') { f.replaceWith(...f.childNodes); return; }
+    const sp = document.createElement('span');
+    sp.className = (kind === 'b' ? 'cb-' : 'cc-') + tone;
+    sp.append(...f.childNodes);
+    f.replaceWith(sp);
+  });
+  if (m0.isConnected && m1.isConnected) {
+    const rg = document.createRange(); rg.setStartAfter(m0); rg.setEndBefore(m1);
+    const sl = getSelection(); sl.removeAllRanges(); sl.addRange(rg);
+  }
+  m0.remove(); m1.remove();
+}
+/* Παλιό inline χρώμα → πλησιέστερος τόνος. null = ουδέτερο (σχεδόν μαύρο/λευκό/γκρι): φεύγει
+   εντελώς και το κείμενο παίρνει το χρώμα του θέματος. */
+function cnpToneOf(css, isBg) {
+  const c = String(css || '').trim().toLowerCase();
+  if (!c || c === 'transparent' || c === 'inherit' || c === 'initial' || c === 'currentcolor') { return null; }
+  const probe = document.createElement('i'); probe.style.color = c;
+  const m = (probe.style.color || '').match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/);
+  if (!m) { return null; }
+  if (m[4] !== undefined && +m[4] < 0.15) { return null; }
+  const [r, g, b] = [+m[1] / 255, +m[2] / 255, +m[3] / 255];
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  /* Πολύ σκούρο (π.χ. το παλιό «μελάνι» #131f30 = rgb(19,31,48)) ή πολύ ανοιχτό = «το κανονικό
+     κείμενο» του θέματος όπου γράφτηκε, όχι επιλογή χρώματος → φεύγει. */
+  if (sat < 0.2 || l > (isBg ? 0.93 : 0.85) || l < 0.22) { return (!isBg && l > 0.3 && l < 0.7 && sat < 0.2) ? 'gray' : null; }
+  let h = d === 0 ? 0 : mx === r ? 60 * (((g - b) / d) % 6) : mx === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4);
+  if (h < 0) { h += 360; }
+  return h < 15 || h >= 330 ? 'red' : h < 40 ? 'orange' : h < 68 ? 'yellow' : h < 170 ? 'green'
+    : h < 205 ? 'sky' : h < 250 ? 'blue' : 'purple';
+}
+function cnpToneEl(n) {
+  const st = n.style; if (!st) { return; }
+  const fg = st.color, bg = st.backgroundColor || (n.tagName === 'MARK' ? 'yellow' : '');
+  const fgAttr = n.tagName === 'FONT' ? n.getAttribute('color') : '';
+  if (!fg && !bg && !fgAttr) { return; }
+  const tb = bg ? cnpToneOf(bg, true) : null, tc = cnpToneOf(fg || fgAttr, false);
+  st.removeProperty('color'); st.removeProperty('background-color'); st.removeProperty('background');
+  if (!n.getAttribute('style')) { n.removeAttribute('style'); }
+  if (fgAttr) { n.removeAttribute('color'); }
+  [...n.classList].filter(x => /^c[cb]-/.test(x)).forEach(x => n.classList.remove(x));
+  if (tb) { n.classList.add('cb-' + tb); } else if (tc) { n.classList.add('cc-' + tc); }
+  if (!n.classList.length) { n.removeAttribute('class'); }
+}
+
+/* ── Η εργαλειοθήκη ΔΕΙΧΝΕΙ τι ισχύει εκεί που στέκεσαι (23/10/2026) ─────────────
+   Χωρίς αυτό δεν ήξερες αν το B είναι ήδη πατημένο — το ξαναπατούσες και το έσβηνες. */
+function rteSync(ed) {
+  if (!ed) { return; }
+  const wrap = ed.closest('.rte-wrap, .act-composer'); if (!wrap) { return; }
+  const s = getSelection(), n = s && s.anchorNode;
+  /* Επιλογή που ΞΕΚΙΝΑ πριν από ένα στοιχείο (π.χ. μόλις χρωματίστηκε): μετράει το στοιχείο, όχι ο γονιός. */
+  const el = n && (n.nodeType === 1 ? (n.childNodes[s.anchorOffset] && n.childNodes[s.anchorOffset].nodeType === 1 ? n.childNodes[s.anchorOffset] : n) : n.parentElement);
+  const inside = el && ed.contains(el);
+  const q = c => { try { return inside && document.queryCommandState(c); } catch (e) { return false; } };
+  const at = sel => !!(inside && el.closest(sel) && ed.contains(el.closest(sel)));
+  const blk = inside ? ((document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '')) : '';
+  wrap.querySelectorAll('.rte-tb .rte-b[data-cmd]').forEach(b => {
+    const c = b.dataset.cmd, a = b.dataset.arg;
+    let on = false;
+    if (['bold', 'italic', 'underline', 'strikeThrough', 'insertOrderedList'].includes(c)) { on = q(c); }
+    else if (c === 'insertUnorderedList') { on = q(c) && !at('ul.rte-check'); }
+    else if (c === '__check') { on = at('ul.rte-check'); }
+    else if (c === 'formatBlock') { on = blk === a; }
+    else if (c === '__code') { on = at('pre'); }
+    else if (c === '__link') { on = at('a'); }
+    else if (c === '__menu' && a === 'style') { on = ['h3', 'h4', 'blockquote', 'pre'].includes(blk); }
+    else if (c === '__menu' && a === 'tone') {
+      const t = inside && el.closest('[class*="cc-"], [class*="cb-"]');
+      const k = t && ed.contains(t) ? [...t.classList].find(x => /^c[cb]-/.test(x)) : '';
+      b.dataset.tone = k || '';
+      const ai = b.querySelector('.rte-a'); if (ai) { ai.style.borderBottomColor = k ? 'var(--tc-' + k.slice(3) + ')' : ''; }
+      on = !!k;
+    }
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+document.addEventListener('selectionchange', () => {
+  const s = getSelection(), n = s && s.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+  const ed = el && el.closest && el.closest('.rte[contenteditable="true"], .act-edit[contenteditable="true"]');
+  if (ed) { rteSync(ed); }
+});
+
 /* Αναδυόμενο μενού της εργαλειοθήκης (ένα κάθε φορά). */
 let rtePop = null;
 function rteClosePop() { if (rtePop) { rtePop.remove(); rtePop = null; } }
@@ -2009,6 +2184,13 @@ document.addEventListener('click', e => {
   const saved = selNow.rangeCount && ed.contains(selNow.getRangeAt(0).startContainer) ? selNow.getRangeAt(0).cloneRange() : null;
   const restore = () => { ed.focus(); if (saved) { const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(saved); } };
   const dirty = () => { ed.dispatchEvent(new Event('input', {bubbles: true})); if (window.CNP_markDirty) { window.CNP_markDirty(ed); } };
+  if (cmd === '__tone') {
+    restore();
+    const sl = getSelection();
+    if (!sl.rangeCount || sl.isCollapsed) { toast('Επίλεξε πρώτα το κείμενο που θα χρωματιστεί'); return; }
+    rteTone(ed, arg);
+    dirty(); rteSync(ed); return;
+  }
   if (cmd === '__size') {
     if (!ed.contains(document.activeElement) && document.activeElement !== ed) { ed.focus(); }
     try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
@@ -2029,7 +2211,7 @@ document.addEventListener('click', e => {
     if (ul && ed.contains(ul) && ul.classList.contains('rte-check')) { ul.classList.remove('rte-check'); dirty(); return; }
     if (!ul || !ed.contains(ul)) { document.execCommand('insertUnorderedList'); ul = inUl(); }
     if (ul && ed.contains(ul)) { ul.classList.add('rte-check'); }
-    dirty(); return;
+    dirty(); rteSync(ed); return;
   }
   if (cmd === '__table') {
     cnpPrompt('Πίνακας — γραμμές × στήλες:', {input: '3x3', ok: 'Εισαγωγή'}).then(v => {
@@ -2037,7 +2219,10 @@ document.addEventListener('click', e => {
       const R = Math.min(30, Math.max(1, +m[1])), C = Math.min(10, Math.max(1, +m[2]));
       const row = tag => '<tr>' + Array.from({length: C}, () => `<${tag}><br></${tag}>`).join('') + '</tr>';
       restore();
-      document.execCommand('insertHTML', false, `<table class="rte-tbl"><thead>${row('th')}</thead><tbody>${Array.from({length: Math.max(1, R - 1)}, () => row('td')).join('')}</tbody></table><p><br></p>`);
+      document.execCommand('insertHTML', false, `<table class="rte-tbl" data-new="1"><thead>${row('th')}</thead><tbody>${Array.from({length: Math.max(1, R - 1)}, () => row('td')).join('')}</tbody></table><p><br></p>`);
+      /* Ο κέρσορας ΜΕΣΑ στο πρώτο κελί — αλλιώς έμενε κάτω από τον πίνακα και «δεν δούλευε» (23/10/2026). */
+      const nt = ed.querySelector('table[data-new]');
+      if (nt) { nt.removeAttribute('data-new'); rteCaretIn(nt.querySelector('th, td')); }
       dirty();
     });
     return;
@@ -2111,16 +2296,39 @@ document.addEventListener('click', e => {
        ο χρήστης δεν καταλάβαινε γιατί. */
     const cur = (document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '');
     document.execCommand('formatBlock', false, cur === 'pre' ? '<p>' : '<pre>');
-    return;
+    rteSync(ed); return;
   }
   if (cmd === 'formatBlock') {
     // toggle: αν είσαι ήδη σε h3/blockquote, γύρνα σε παράγραφο
     const tag = (b.dataset.arg || 'p').toLowerCase();
     const cur = (document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '');
     document.execCommand('formatBlock', false, cur === tag ? '<p>' : '<' + tag + '>');
-    return;
+    rteSync(ed); return;
   }
   document.execCommand(cmd, false, b.dataset.arg || null);
+  rteSync(ed);
+}, true);
+/* Πίνακας στον editor: Tab / Shift+Tab ανάμεσα στα κελιά· Tab στο τελευταίο κελί = νέα γραμμή. */
+function rteCaretIn(cell) {
+  if (!cell) { return; }
+  const rg = document.createRange(); rg.selectNodeContents(cell); rg.collapse(true);
+  const sl = getSelection(); sl.removeAllRanges(); sl.addRange(rg);
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || e.ctrlKey || e.altKey || e.metaKey) { return; }
+  const n = getSelection().anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+  const cell = el && el.closest && el.closest('td, th');
+  const ed = cell && cell.closest('.rte[contenteditable="true"], .act-edit[contenteditable="true"]');
+  if (!ed) { return; }
+  e.preventDefault();
+  const tbl = cell.closest('table'), cells = [...tbl.querySelectorAll('th, td')], i = cells.indexOf(cell);
+  if (e.shiftKey) { rteCaretIn(cells[Math.max(0, i - 1)]); return; }
+  if (i < cells.length - 1) { rteCaretIn(cells[i + 1]); return; }
+  const tr = cell.closest('tr'), nr = document.createElement('tr');
+  nr.innerHTML = [...tr.children].map(() => '<td><br></td>').join('');
+  (tbl.tBodies[0] || tbl).appendChild(nr);
+  rteCaretIn(nr.firstElementChild);
+  ed.dispatchEvent(new Event('input', {bubbles: true}));
 }, true);
 /* Σύνδεσμοι «#/task/N» (στοιχεία υποεργασίας/εξάρτησης στο κείμενο): ο router δεν ανοίγει
    εργασίες από το hash — το κάνουμε εδώ. Μέσα σε editor μόνο με Ctrl/⌘+κλικ (αλλιώς γράφεις). */
@@ -2247,9 +2455,13 @@ function cnpClipImage(e) {
    — εικόνα → ανεβαίνει και μπαίνει στη ροή (ίδια συμπεριφορά με τις Ενέργειες)
    — κείμενο → ΠΑΝΤΑ χωρίς μορφοποίηση από Word/σελίδες (αλλιώς μπαίνουν styles/fonts) */
 document.addEventListener('paste', e => {
-  const ed = e.target.closest && e.target.closest('.rte');
+  /* Και ο συνθέτης της συζήτησης (.act-edit): εκεί έλειπε, και ό,τι επικολλούσες έφερνε
+     μαζί γραμματοσειρές, χρώματα και φόντα της πηγής (23/10/2026). Το κείμενο μπαίνει
+     σκέτο — η μορφή δίνεται από τη δική μας εργαλειοθήκη. */
+  const ed = e.target.closest && e.target.closest('.rte, .act-edit[contenteditable="true"]');
   if (!ed) { return; }
   const img = cnpClipImage(e);
+  if (img && ed.classList.contains('act-edit')) { return; }   // εικόνα: τη χειρίζεται το wireEditor (με ένδειξη)
   if (img) { e.preventDefault(); cnpPasteImage(ed, img); return; }
   e.preventDefault();
   const t = (e.clipboardData || window.clipboardData).getData('text/plain');
@@ -2532,6 +2744,38 @@ function cnpMorph(el, html) {
  * πάνελ/διάλογο (επιστρέφει false → ξαναδοκιμάζει στον επόμενο κύκλο). Σε σφάλμα
  * σιωπηλά. Οθόνες χωρίς υποστήριξη morph δεν ξαναζωγραφίζονται αυτόματα.
  */
+/* Μετρητής αδιάβαστων Εισερχομένων στο πλαϊνό μενού και στην κάτω μπάρα (κινητό). */
+function cnpFeedBadge(n) {
+  window._cnpFeedN = n;
+  document.querySelectorAll('.sitem[data-nav="feed"], #tabBar [data-tab="feed"]').forEach(it => {
+    const cls = it.classList.contains('tab') ? 'tab-n' : 'chat-n';   // κάτω μπάρα κινητού: δικό της σήμα
+    let b = it.querySelector('.' + cls);
+    if (n > 0) {
+      if (!b) { b = document.createElement('span'); b.className = cls; it.appendChild(b); }
+      b.textContent = n > 99 ? '99+' : n;
+      it.title = n + (n === 1 ? ' αδιάβαστο' : ' αδιάβαστα');
+    } else if (b) { b.remove(); it.removeAttribute('title'); }
+  });
+}
+/* ΜΕΤΑ ΑΠΟ ΜΙΑ ΕΝΕΡΓΕΙΑ (αποθήκευση, κλείσιμο καρτέλας, χρόνος…): η οθόνη από πίσω ενημερώνεται
+   ΑΘΟΡΥΒΑ — ίδιο scroll, χωρίς σκελετό φόρτωσης, χωρίς «ανανέωση σελίδας» (23/10/2026). Πριν
+   ξανατρεχόταν ολόκληρη (R[S.view]()) και η Λίστα ξαναχτιζόταν από το μηδέν. */
+async function cnpReRender() {
+  const view = S.view, R0 = window.R || {};
+  const ct = $('#content'), cs = ct ? ct.scrollTop : 0, sx = window.scrollX, sy = window.scrollY;
+  window._cnpSilent = true;
+  try {
+    if (R0[view] && R0[view]._reload) { await R0[view]._reload(); }
+    else if (view === 'board') { await vBoard(); }
+    else if (view === 'myday') { await vMyDay(); }
+    else if (R0[view]) { await R0[view](S.viewArg || undefined); }
+  } catch (e) { /* σιωπηλά — ο επόμενος σφυγμός ξαναδοκιμάζει */ }
+  finally {
+    window._cnpSilent = false;
+    if (ct && ct.scrollTop !== cs) { ct.scrollTop = cs; }
+    if (window.scrollX !== sx || window.scrollY !== sy) { window.scrollTo(sx, sy); }
+  }
+}
 async function cnpSilentRefresh() {
   /* (16/10/2026) Λιγότερο «δειλή»: ανανεώνει ΚΑΙ με ανοιχτή καρτέλα εργασίας (η οθόνη πίσω της
      ενημερώνεται· η καρτέλα έχει δικό της έλεγχο — cnpDrawerLive). Δεν τρέχει μόνο όσο:
@@ -2544,7 +2788,8 @@ async function cnpSilentRefresh() {
   /* διάλογοι (.pal-box) και αναδυόμενα — η καρτέλα εργασίας (.drawer) ΔΕΝ μετράει εδώ */
   if (document.querySelector('.ovl.show .pal-box, .cb-pan, .rte-pop, .lv-menu, .cnp-cal, .ment-box, .fv-ovl')) { return false; }
   const view = S.view, R0 = window.R || {};
-  const run = view === 'list' && R0.list && R0.list._reload ? R0.list._reload
+  /* Οθόνες της μηχανής views (Λίστα, Εισερχόμενα) ξαναφορτώνουν μόνο τα δεδομένα (_reload). */
+  const run = R0[view] && R0[view]._reload ? R0[view]._reload
     : (['board', 'myday'].includes(view) && R0[view]) ? R0[view] : null;
   if (!run) { return true; }
   const sx = window.scrollX, sy = window.scrollY;
@@ -2562,35 +2807,65 @@ async function cnpSilentRefresh() {
    • αλλιώς διακριτική ειδοποίηση πάνω στην καρτέλα με «Φέρε τις αλλαγές» — τα πρόχειρά σου
      (μήνυμα, ζητούμενο, χρόνος) κρατιούνται. Αληθινή σύγκρουση (άλλαξε το ζητούμενο που γράφεις)
      λέγεται ρητά. Δικές μου αλλαγές απλώς ενημερώνουν τη σφραγίδα. */
-async function cnpDrawerLive() {
+/** Η «σφραγίδα» εργασίας ως ένα κείμενο — ίδια για το «task» και το «task_stamp». */
+function cnpStampSig(st) { return st.updatedAt + '|' + st.act + '|' + st.chk + '|' + (st.tm || ''); }
+async function cnpDrawerLive(force) {
   const dr = document.querySelector('.drawer.tk-modal.show');
   if (!dr || !dr.dataset.task || window._cnpDrawerBusy) { return; }
   const id = +dr.dataset.task;
   const st0 = await api('task_stamp&id=' + id).catch(() => null);
   if (!st0 || !document.body.contains(dr)) { return; }
-  const sig = st0.updatedAt + '|' + st0.act + '|' + st0.chk;
+  const sig = cnpStampSig(st0);
   if (!dr.dataset.stamp) { dr.dataset.stamp = sig; return; }
-  if (dr.dataset.stamp === sig) { return; }
+  /* Αλλαγή συναδέλφου που ΔΕΝ εφαρμόστηκε επειδή έγραφες: εφαρμόζεται μόλις σταματήσεις. */
+  const owed = dr.dataset.liveOwed === '1';
+  if (dr.dataset.stamp === sig && !owed) { return; }
   dr.dataset.stamp = sig;
-  if (!st0.by || st0.by === S.boot.me.id) { return; }          // δική μου αλλαγή — η καρτέλα ξαναζωγραφίστηκε ήδη
+  /* Αλλαγή που έκανε ΑΥΤΗ η καρτέλα μόλις τώρα: έχει ήδη ξαναζωγραφιστεί. Ό,τι άλλο — συνάδελφος,
+     ή εγώ από άλλη καρτέλα/συσκευή (23/10/2026: πριν αγνοούνταν, π.χ. Stop σε άλλη καρτέλα) — φέρνει ενημέρωση. */
+  const mineHere = Date.now() - ((window._cnpMyMut || {})[id] || 0) < 8000;
+  if (!owed && !force && mineHere) { return; }
   const ae = document.activeElement;
   const typing = ae && dr.contains(ae) && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable);
-  const draft = cnpTaskDraftGrab(id) || {};
-  const hasDraft = !!(draft.chk || (dr.querySelector('#fDescr') || {}).dataset && dr.querySelector('#fDescr').dataset.dirty === '1');
+  /* ΑΥΤΑ ΔΕΝ ΕΠΙΖΟΥΝ ΤΟΥ ΞΑΝΑΣΧΕΔΙΑΣΜΟΥ (23/10/2026): διόρθωση ενέργειας στη μέση, αρχεία που
+     περιμένουν να επισυναφθούν, ζητούμενο που αλλάζεις. Εκεί ΔΕΝ ανανεώνουμε μόνοι μας. */
+  const fragile = !!(dr.querySelector('.act-editing') || (dr.querySelector('#chkFiles') && !dr.querySelector('#chkFiles').hidden)
+    || (dr.querySelector('#fDescr') && dr.querySelector('#fDescr').dataset.dirty === '1') || dr.dataset.formDirty === '1');
   const pop = document.querySelector('.cb-pan, .rte-pop, .ment-box, .cnp-cal, .ovl.show .pal-box');
   const refresh = async () => { window._cnpDrawerBusy = true; try { await openTask(id, 0, {silent: true}); } finally { window._cnpDrawerBusy = false; }
-    const d2 = document.querySelector('.drawer.tk-modal.show'); if (d2) { d2.dataset.stamp = sig; } };
-  if (!typing && !hasDraft && !pop && dr.dataset.dirty !== '1') { await refresh(); return; }
+    const d2 = document.querySelector('.drawer.tk-modal.show'); if (d2) { d2.dataset.stamp = sig; d2.dataset.liveOwed = ''; } };
+  /* Το μισογραμμένο μήνυμα, η μπάλα/κατάσταση του συνθέτη και ο χρόνος ΚΡΑΤΙΟΥΝΤΑΙ στην ανανέωση
+     (cnpTaskDraftGrab/Put) — άρα ανανεώνουμε αθόρυβα. Μόνο ΕΝΩ πληκτρολογείς περιμένουμε (θα έχανες τον κέρσορα). */
+  if (!typing && !fragile && !pop) { await refresh(); return; }
+  if (typing && !fragile) { dr.dataset.liveOwed = '1'; return; }
   /* ειδοποίηση — μία, ενημερώνεται αν ξανααλλάξει */
   let bar = dr.querySelector('.tk-live');
   if (!bar) { bar = document.createElement('div'); bar.className = 'tk-live'; dr.prepend(bar); }
   const conflict = st0.what === 'edit' && dr.querySelector('#fDescr') && dr.querySelector('#fDescr').dataset.dirty === '1';
-  bar.innerHTML = `<span>🔄 ${esc(st0.byName || 'Συνάδελφος')} ενημέρωσε αυτή την εργασία μόλις τώρα${conflict ? ' — <b>επεξεργάζεσαι κι εσύ το ζητούμενο</b>: έλεγξε πριν αποθηκεύσεις' : ''}.</span>
+  bar.innerHTML = `<span>🔄 ${esc(st0.by === S.boot.me.id ? 'Εσύ (από άλλη καρτέλα)' : (st0.byName || 'Συνάδελφος'))} ενημέρωσε αυτή την εργασία μόλις τώρα${conflict ? ' — <b>επεξεργάζεσαι κι εσύ το ζητούμενο</b>: έλεγξε πριν αποθηκεύσεις' : ''}.</span>
     <button type="button" class="btn btn-sm btn-o" data-livego>Φέρε τις αλλαγές</button><span class="mut">τα πρόχειρά σου κρατιούνται</span>
     <button type="button" class="tk-live-x" data-livex title="Αργότερα">✕</button>`;
   bar.querySelector('[data-livego]').onclick = refresh;
   bar.querySelector('[data-livex]').onclick = () => bar.remove();
 }
+
+/* ── Αλλαγή κατάστασης ΕΠΙ ΤΟΠΟΥ (23/10/2026) ─────────────────────────────────
+   Κλικ στο χρωματιστό σήμα κατάστασης μιας γραμμής (Λίστα, Εισερχόμενα, Η μέρα μου) →
+   μενού καταστάσεων, χωρίς να ανοίξει η εργασία. Περνά από το cnpMoveTask: ΟΛΟΙ οι κανόνες
+   (λήξη στο κλείσιμο, δικαιώματα στον server, σταμάτημα χρονομέτρου) ισχύουν όπως στην καρτέλα. */
+document.addEventListener('click', e => {
+  const pill = e.target.closest && e.target.closest('[data-stpick]');
+  if (!pill) { return; }
+  e.preventDefault(); e.stopPropagation();
+  const id = +pill.dataset.stpick, cur = +pill.dataset.st;
+  const sts = (S.boot.statuses || []).filter(x => x.id !== cur);
+  miniMenu(pill, sts.map(x => ({dot: x.color || '#8291a9', label: x.title, on: async () => {
+    const r = await cnpMoveTask(id, x.id);
+    if (r && r.ok) { toast('#' + id + ' → ' + x.title); _cnpTaskPre.delete(id); cnpSilentRefresh(); }
+    else if (r && !r.cancelled) { toast((r && r.error) || 'Η κατάσταση δεν άλλαξε', true); }
+  }})));
+}, true);
+const stPick = (t) => t && !t.done ? stPill(t.status, `data-stpick="${+t.id}" data-st="${+t.status}"`) : stPill(t.status);
 
 /** Γράψε HTML σε στοιχείο: κανονικά αντικατάσταση· στην αθόρυβη ανανέωση morph — και τίποτα αν δεν άλλαξε.
  *  opts.morph: morph ΚΑΙ σε αλλαγές του ίδιου του χρήστη (χωρίς αναβόσβημα· η επισήμανση «άλλαξε»
@@ -3167,7 +3442,7 @@ function cnpRenderPins() {
   });
 }
 function go(view, arg) {
-  if (view !== 'list') { document.querySelectorAll('.lv-side').forEach(x => x.remove()); document.body.classList.remove('lv-side-on'); }
+  if (view !== 'list' && view !== 'feed') { document.querySelectorAll('.lv-side').forEach(x => x.remove()); document.body.classList.remove('lv-side-on'); }
   S.view = view;
   S.viewArg = arg ? String(arg) : '';
   location.hash = '#/' + view + (arg ? '/' + arg : '');
@@ -3692,6 +3967,9 @@ function cnpTaskDraftGrab(id) {
     descr: g('#fDescr'),
     mins: g('#tMins') || null,
     note: g('#tNote') || null,
+    /* (23/10/2026) και ό,τι διάλεξες στον συνθέτη — «Μπάλα σε…» / «Κατάσταση…» — χανόταν στην ανανέωση */
+    ball: g('#chkBall') || null,
+    st: g('#chkSt') || null,
   };
 }
 
@@ -3705,6 +3983,12 @@ function cnpTaskDraftPut(dr, draft) {
   put('#chkNew', draft.chk);
   put('#tMins', draft.mins);
   put('#tNote', draft.note);
+  /* Η νέα καρτέλα ΚΡΑΤΑ ότι υπάρχει κάτι μη καταχωρημένο — αλλιώς το ✕ δεν θα ρωτούσε. */
+  if (draft.chk || draft.mins || draft.note || (draft.ball && draft.ball !== '0') || (draft.st && draft.st !== '0')) { dr.dataset.dirty = '1'; _cnpPaintSave(dr); }
+  [['#chkBall', draft.ball], ['#chkSt', draft.st]].forEach(([sel, v]) => {
+    const e = dr.querySelector(sel);
+    if (e && v && v !== '0' && [...e.options].some(o => o.value === v)) { e.value = v; e.dispatchEvent(new Event('change', {bubbles: true})); }
+  });
   /* Το ζητούμενο μόνο αν όντως διαφέρει από αυτό που μόλις ήρθε — αλλιώς θα
      «επανέφερε» παλιό κείμενο πάνω σε αποθηκευμένο. */
   const fd = dr.querySelector('#fDescr');
@@ -3714,10 +3998,39 @@ function cnpTaskDraftPut(dr, draft) {
   }
 }
 
+/* ── Προφόρτωση καρτέλας (23/10/2026) ─────────────────────────────────────────
+   Το άνοιγμα περίμενε το αίτημα «task» (~0,4΄΄) πριν δείξει οτιδήποτε. Όταν ο δείκτης
+   σταθεί πάνω σε εργασία, τη ζητάμε ήδη· το κλικ τη βρίσκει έτοιμη. Ζωή 10΄΄ — ό,τι
+   παλιότερο ξαναζητείται. ΧΩΡΙΣ seen=1: το να περάσει το ποντίκι από πάνω δεν είναι «το είδα». */
+const _cnpTaskPre = new Map();
+function cnpTaskPrefetch(id) {
+  id = +id; if (!id) { return; }
+  const c = _cnpTaskPre.get(id);
+  if (c && Date.now() - c.at < 10000) { return; }
+  _cnpTaskPre.set(id, {at: Date.now(), p: api('task&id=' + id).catch(() => null)});
+  if (_cnpTaskPre.size > 30) { _cnpTaskPre.delete(_cnpTaskPre.keys().next().value); }
+}
+document.addEventListener('pointerover', e => {
+  const r = e.target.closest && e.target.closest('[data-task], [data-mdtask], [data-dltask]');
+  if (!r || r.closest('.drawer') || document.querySelector('.drawer.tk-modal.show') || Date.now() - (window._cnpOpening || 0) < 2000) { return; }   // καρτέλα ανοιχτή: όχι προφόρτωση πίσω της
+  clearTimeout(window._cnpPreTm);
+  window._cnpPreTm = setTimeout(() => cnpTaskPrefetch(r.dataset.task || r.dataset.mdtask || r.dataset.dltask), 120);
+}, {passive: true});
+
 async function openTask(id, entryId, opts) {
   opts = opts || {};
+  clearTimeout(window._cnpPreTm); window._cnpOpening = Date.now();   // το κλικ δεν ξαναπροφορτώνει την ίδια
+  /* Ξανασχεδίασμα της ΙΔΙΑΣ ανοιχτής καρτέλας (χρονόμετρο, αποθήκευση, χρόνος…) = ίδιο scroll,
+     χωρίς animation. Πριν, το ▶ Start σε γύριζε στην κορυφή ενώ έγραφες στο τέλος (23/10/2026). */
+  { const od = document.querySelector('.drawer.tk-modal.show');
+    if (!opts.silent && !entryId && od && +od.dataset.task === +id) { opts = Object.assign({}, opts, {silent: true}); } }
   const draft = cnpTaskDraftGrab(id);
-  let d = await api('task&id=' + id).catch(() => null);
+  /* seen=1: άνοιξα την καρτέλα = το είδα → σβήνει το LED στα Εισερχόμενα. */
+  const pre = !opts.silent && _cnpTaskPre.get(+id);
+  _cnpTaskPre.delete(+id);
+  let d = pre && Date.now() - pre.at < 10000 ? await pre.p : null;
+  if (d) { api('feed_read', {task: +id}).catch(() => {}); }          // προφορτωμένη: το «διαβάστηκε» χωριστά
+  else { d = await api('task&id=' + id + '&seen=1').catch(() => null); }
   if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
   /* ΧΡΟΝΟΣ ΣΥΝΤΑΞΗΣ (30/9/2026): όποιος γράφει μια νέα εργασία δουλεύει — και ο
      χρόνος αυτός χανόταν (μετρήθηκαν εργασίες που γράφονταν 2–4΄ χωρίς χρονόμετρο).
@@ -3756,6 +4069,8 @@ async function openTask(id, entryId, opts) {
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
   const dr = document.createElement('div'); dr.className = 'drawer tk-modal';
   dr.dataset.task = id;            // ώστε να ξέρει ο επόμενος ξανασχεδιασμός σε ποια εργασία ανήκε το πρόχειρο
+  /* Η αφετηρία της ζωντανής ενημέρωσης = η κατάσταση ΠΟΥ ΖΩΓΡΑΦΙΣΤΗΚΕ (όχι ο πρώτος σφυγμός). */
+  if (d.stamp) { dr.dataset.stamp = cnpStampSig(d.stamp); }
   /* Το department δεν εκτελεί — εκτελεί ένας άνθρωπος από τις ομάδες που το
      εξυπηρετούν. Τους φέρνουμε πρώτους· οι υπόλοιποι μένουν διαθέσιμοι. */
   const admOpts = (sel, didFor) => {
@@ -4014,7 +4329,7 @@ async function openTask(id, entryId, opts) {
       };
       return `<div class="card tk-step"><div class="card-h">💬 <b>Συζήτηση & ενέργειες</b>
       <span class="pill ${t.isDelivery ? (chkDone >= d.check.length && d.check.length ? 'pill-ok' : 'pill-mut') : 'pill-mut'}" style="flex:none">${t.isDelivery ? chkDone + '/' + d.check.length : d.check.length}</span>
-      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> καταχωρεί, <b>Shift+Enter</b> νέα γραμμή</span></div>
+      <span class="mut" style="font-weight:600;font-size:11px">— ποιος είπε τι και τι άλλαξε · <b>@Όνομα</b> ειδοποιεί · επικόλλησε εικόνα · <b>Enter</b> νέα γραμμή, <b>Ctrl+Enter</b> ή «Καταχώριση» καταχωρεί</span></div>
       <div class="card-b">
         ${!gx && d.canWrite && cnpCan('projects.goodday') ? `<div class="th-gdlink"><button type="button" class="btn btn-sm btn-o" id="gdLinkGo">🔗 Σύνδεση με εργασία GoodDay</button>
           <span class="mut">αν η εργασία μεταφέρθηκε με το χέρι — φέρνει ιστορικό, αρχεία, υποεργασίες και όσα πεδία διαλέξεις</span></div>` : ''}
@@ -4044,9 +4359,10 @@ async function openTask(id, entryId, opts) {
             ${/* ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ: μήνυμα + μπάλα σε + νέα κατάσταση (2/10/2026). Κενά = όπως πριν. */''}
             ${(d.canBall || d.canWrite) && !t.done ? cnpReplySelects(t.ball, t.status, 'chk', !!d.canWrite) : ''}
             <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
-            <span class="mut act-tip"><b>Enter</b> καταχωρεί · <b>Shift+Enter</b> νέα γραμμή</span>
-            ${/* Στο κινητό το Enter είναι πλήκτρο νέας γραμμής — εκεί μένει κουμπί. */''}
-            <button type="button" class="btn btn-sm btn-p act-send" id="chkGo" title="Καταχώρηση">${I.send}</button>
+            <span class="mut act-tip"><b>Enter</b> νέα γραμμή · <b>Ctrl+Enter</b> καταχώριση</span>
+            ${/* (23/10/2026) Η καταχώριση γίνεται ΜΟΝΟ ρητά: το Enter έστελνε μισές λίστες και
+                 μισά μηνύματα. Κουμπί με όνομα, όχι εικονίδιο — είναι η κύρια πράξη εδώ. */''}
+            <button type="button" class="btn btn-sm btn-p act-send" id="chkGo" title="Καταχώριση (Ctrl+Enter)">${I.send} Καταχώριση</button>
           </div>
           <input type="file" id="chkFile" multiple hidden>
         </div>
@@ -4664,7 +4980,7 @@ async function openTask(id, entryId, opts) {
     const r = await cnpMoveTask(id, fin.id, note);
     if (!r.ok) { if (!r.cancelled) { toast(r.error || 'Δεν επιτρέπεται', true); } return; }
     toast('Ολοκληρώθηκε'); closeDrawer();
-    if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); } else if (window.R && window.R[S.view]) { window.R[S.view](); }
+    cnpReRender();   // η οθόνη πίσω ενημερώνεται ΑΘΟΡΥΒΑ — όχι ξαναχτίσιμο (23/10/2026)
   };
   /* GoodDay: υποεργασίες / αρχεία που δεν ήρθαν με την αρχική εισαγωγή. */
   const gdRun = async (btn, action, busyTxt) => {
@@ -5006,7 +5322,7 @@ async function openTask(id, entryId, opts) {
       toast(r.ballStopped
         ? 'Παραδόθηκε στον/στην ' + (r.name || '') + ' — ο χρόνος σου σταμάτησε (' + fmtMin(r.ballStopped.mins) + ')'
         : 'Παραδόθηκε στον/στην ' + (r.name || ''));
-      if (window.R && window.R[S.view]) { window.R[S.view](); }
+      cnpReRender();
     };
   };
   const ddl = $('#dDel', dr); if (ddl) ddl.onclick = async () => {
@@ -5023,7 +5339,7 @@ async function openTask(id, entryId, opts) {
     if (r && r.err) { toast(r.err, true); return; }
     toast('Η εργασία διαγράφηκε');
     closeDrawer();
-    if (r && r.project) { go('board', r.project); } else { R[S.view] && R[S.view](); }
+    if (r && r.project) { go('board', r.project); } else { cnpReRender(); }
   };
   /* Start/Stop ξανασχεδιάζουν την καρτέλα: ό,τι έγραψες και δεν αποθηκεύτηκε θα χανόταν
      σιωπηλά. Αποθηκεύεται πρώτα· αν η αποθήκευση αποτύχει (π.χ. λάθος ημερομηνίες), το
@@ -5366,7 +5682,7 @@ async function openTask(id, entryId, opts) {
             .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
           if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
         }
-        if (!r.id) { ed.innerHTML = ''; openTask(id); if (window.R && window.R[S.view]) { window.R[S.view](); } return; }
+        if (!r.id) { ed.innerHTML = ''; openTask(id); cnpReRender(); return; }
         /* Το μήνυμα (και η μπάλα) καταχωρήθηκαν· πρώτα το δείχνουμε, μετά ανεβαίνουν τα αρχεία
            με ορατή πρόοδο — η καρτέλα ξαναφορτώνει όταν δεθούν. */
         const upl = pending.slice();
@@ -5383,14 +5699,12 @@ async function openTask(id, entryId, opts) {
          όποιον το συνήθισε. Όσο είναι ανοιχτή η λίστα @mentions, το Enter ανήκει
          σε εκείνη — διαλέγει όνομα, δεν στέλνει μισό μήνυμα. */
       { const gb = $('#chkGo', dr); if (gb) { gb.onclick = submit; } }
+      /* (23/10/2026) Enter = νέα γραμμή (ή νέο στοιχείο λίστας), όπως σε κάθε κειμενογράφο.
+         Καταχώριση ΜΟΝΟ με το κουμπί ή Ctrl/⌘+Enter. Όσο είναι ανοιχτή η λίστα @mentions,
+         το Enter ανήκει σε εκείνη (πιάνεται νωρίτερα, στο wireEditor). */
       ed.addEventListener('keydown', e => {
-        if (e.key !== 'Enter') { return; }
+        if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) { return; }
         if (document.querySelector('.ment-box')) { return; }
-        if (e.shiftKey) { return; }
-        /* Μέσα σε λίστα, κώδικα, παράθεση ή πίνακα το Enter είναι νέα γραμμή/στοιχείο — η καταχώρηση
-           γίνεται με Ctrl+Enter (ή με το κουμπί). Αλλιώς μια λίστα δεν θα γραφόταν ποτέ. */
-        const nd = getSelection().anchorNode, inB = nd && (nd.nodeType === 1 ? nd : nd.parentElement);
-        if (inB && inB.closest('li, pre, blockquote, td, th') && ed.contains(inB) && !(e.ctrlKey || e.metaKey)) { return; }
         e.preventDefault();
         submit();
       });
@@ -5560,18 +5874,20 @@ async function openTask(id, entryId, opts) {
      ξανάνοιγμα, η αλλαγή κατάστασης, η πλοήγηση και η ΛΗΨΗ συνημμένων. */
   /* Κοινό κλείδωμα: «κοίτα, μην αγγίζεις». Χρησιμοποιείται από δύο διαφορετικές
      καταστάσεις — ολοκληρωμένη εργασία, και δική σου εργασία που δεν δουλεύεις. */
-  const lockCard = (why, freeExtra) => {
-    dr.classList.add('tk-locked');
+  /* scope: ΠΟΙΟ κομμάτι κλειδώνει (προεπιλογή όλη η καρτέλα — π.χ. ολοκληρωμένη εργασία). */
+  const lockCard = (why, freeExtra, scope) => {
+    const sc = scope || dr;
+    dr.classList.add(scope ? 'tk-viewlock' : 'tk-locked');   // tk-viewlock: μόνο η αριστερή στήλη γκριζάρει
     const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,.tk-mtabs button,[data-navclose],[data-c3task]'
       + (freeExtra ? ',' + freeExtra : '');
-    $$('input,select,textarea,button', dr).forEach(el => {
+    $$('input,select,textarea,button', sc).forEach(el => {
       if (el.matches(free) || el.closest(free)) { return; }
       el.disabled = true; el.title = why;
     });
     const ttl = $('#dTitleEdit', dr); if (ttl) { ttl.hidden = true; }
     /* Το «ζητούμενο» είναι contenteditable, όχι <input> — δεν το πιάνει το disabled. */
-    $$('.rte,.act-edit,[contenteditable]', dr).forEach(el => { el.setAttribute('contenteditable', 'false'); });
-    $$('.rte-tb', dr).forEach(el => { el.hidden = true; });
+    $$('.rte,.act-edit,[contenteditable]', sc).forEach(el => { el.setAttribute('contenteditable', 'false'); });
+    $$('.rte-tb', sc).forEach(el => { el.hidden = true; });
   };
 
   if (t.done) {
@@ -5612,11 +5928,16 @@ async function openTask(id, entryId, opts) {
     /* Η αλλαγή έργου είναι ΔΙΟΡΘΩΣΗ αρχειοθέτησης, όχι δουλειά πάνω στην εργασία:
        δεν έχει νόημα να ζητάει χρονόμετρο, όπως και η διαγραφή. */
     /* Αρχειοθέτηση χωρίς χρονόμετρο: αλλαγή έργου, σύνδεση/συγχρονισμός GoodDay (16/10/2026). */
-    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να δουλέψεις', '#tStart,#dViewStart,#dDel,#dPjMove,#dCollabAdd,[data-collab-del],#gdLinkGo,#gdResyncGo,#gdFilesGo,#gdSubsGo');
+    /* (23/10/2026) Κλειδώνει ΜΟΝΟ η αριστερή στήλη — το ζητούμενο και η συζήτηση, δηλαδή η
+       ΔΟΥΛΕΙΑ που μετρά ο χρόνος. Η δεξιά (κατάσταση, προτεραιότητα, μπάλα, ημερομηνίες,
+       υποεργασίες, εξαρτήσεις…) είναι ΔΙΑΧΕΙΡΙΣΗ της εργασίας και αλλάζει χωρίς χρονόμετρο. */
+    const mainCol = dr.querySelector('.tk-col-main');
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να γράψεις στη συζήτηση', '#dViewStart,#gdLinkGo,#gdResyncGo,#gdFilesGo,#gdSubsGo', mainCol || undefined);
+    { const ttl = $('#dTitleEdit', dr); if (ttl) { ttl.hidden = true; } }
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
     banner.innerHTML = `${I.eye} <b>Μόνο προβολή</b>
-      <span class="mut">δεν τρέχει χρόνος</span>
+      <span class="mut">για να γράψεις στη συζήτηση χρειάζεται χρόνος · τα στοιχεία δεξιά αλλάζουν ελεύθερα</span>
       <span style="flex:1"></span>
       <button class="btn btn-sm btn-p" id="dViewStart">▶ Ξεκίνα τον χρόνο</button>`;
     /* ΜΕΣΑ στην κύρια στήλη, όχι στο .drawer-b: εκεί το flex το έκανε ΤΡΙΤΗ
@@ -5758,7 +6079,13 @@ function closeDrawer() {
 // 1) Σήμανση «βρόμικου» popup σε κάθε πληκτρολόγηση/αλλαγή μέσα του
 function _cnpMarkDirty(e) {
   const box = e.target.closest && e.target.closest('.drawer, .pal-box');
-  if (box && !box.dataset.cnpClean) { box.dataset.dirty = '1'; _cnpPaintSave(box); }
+  if (box && !box.dataset.cnpClean) {
+    box.dataset.dirty = '1'; _cnpPaintSave(box);
+    /* ΑΠΟ ΠΟΥ ήρθε η αλλαγή (23/10/2026): ο συνθέτης της συζήτησης και ο χρόνος ΕΠΙΖΟΥΝ
+       της ανανέωσης (cnpTaskDraftGrab/Put)· τα πεδία της φόρμας όχι. Μόνο τα δεύτερα
+       εμποδίζουν τη ζωντανή ενημέρωση της καρτέλας. */
+    if (!e.target.closest('.act-composer:not(.act-editing), #tMins, #tNote')) { box.dataset.formDirty = '1'; }
+  }
 }
 document.addEventListener('input', _cnpMarkDirty, true);
 document.addEventListener('change', _cnpMarkDirty, true);
@@ -6072,7 +6399,7 @@ async function vMyDay() {
          όχι σε τι σημείο είναι: «Backlog» και «Έλεγχος» έμοιαζαν ίδια γραμμή, ενώ
          η μία θέλει ξεκίνημα και η άλλη μια ματιά. Ίδιο χρώμα και ίδιο όνομα με
          κάθε άλλη οθόνη — stPill, μία πηγή. */''}
-    <span class="myd-st">${stPill(t.status)}</span><span class="myd-stD">${stDot(t.status)}</span>
+    <span class="myd-st">${stPick(t)}</span><span class="myd-stD">${stDot(t.status)}</span>
     ${t.ball === me.id && !ballAll ? '<span class="pill pill-info" style="flex:none">⚡ μπάλα</span>' : ''}
     ${t.tag && t.tag !== 'μπάλα' && t.tag !== 'σήμερα' ? `<span class="pill pill-warn" style="flex:none">${esc(t.tag)}</span>` : ''}
     ${fin ? `<button class="btn btn-sm btn-o myd-done" data-mddone="${t.id}" title="Ολοκλήρωση">✔</button>` : ''}</div>`; };
@@ -6872,7 +7199,7 @@ function cnpPalette() {
     {icon: I.stop, title: 'Σταμάτα τον χρόνο', kw: 'στοπ stop χρονος σταματα', go: async () => {
       const r = await api('timer_stop', {billable: false, note: ''}).catch(e => ({err: e.message}));
       if (r && r.err) { toast(r.err, true); return; }
-      toast(r.skipped ? 'Ο χρόνος δεν έτρεχε' : 'Καταχωρήθηκε ' + fmtMin(r.mins)); if (window.R[S.view]) { window.R[S.view](); } }},
+      toast(r.skipped ? 'Ο χρόνος δεν έτρεχε' : 'Καταχωρήθηκε ' + fmtMin(r.mins)); cnpReRender(); }},
     {icon: I.list, title: 'Συντομεύσεις πληκτρολογίου', kw: 'συντομευσεις πληκτρολογιο keyboard shortcuts',
       go: () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'], ['e', 'ολοκλήρωσε'], ['r', 'απάντησε']])},
   ].filter(Boolean);
@@ -6944,7 +7271,7 @@ function cnpPalette() {
           const r = await api('time_add', {task: tid, mins}).catch(e => ({err: e.message}));
           if (r && r.err) { toast(r.err, true); return; }
           toast('✔ Καταχωρήθηκε ' + fmtMin(mins) + ' στην #' + tid);
-          if (window.R[S.view]) { window.R[S.view](); } }});
+          cnpReRender(); }});
     }
     return out;
   };
@@ -7663,7 +7990,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
+window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
@@ -7715,6 +8042,7 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
   remoteRefresh();
   // Web Push: αν έχει ήδη δοθεί άδεια, ξανα-συγχρόνισε τη συνδρομή αυτής της συσκευής
   cnpPushInit();
+  setTimeout(cnpPushPrompt, 5000);   // μία ήπια ερώτηση για ειδοποιήσεις Windows (όχι στο πρώτο δευτερόλεπτο)
   // tap σε push → πλοήγηση μέσα στην ήδη ανοιχτή εφαρμογή
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', e => {
@@ -7744,13 +8072,9 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
     b.append(document.createTextNode('🔄 Νέα έκδοση διαθέσιμη '), btn);
     document.body.appendChild(b);
   };
-  const cnpMaybeReload = () => {
-    cnpUpdBanner();
-    const tag = ((document.activeElement || {}).tagName || '').toLowerCase();
-    const busy = tag === 'input' || tag === 'textarea'
-      || document.querySelector('.drawer.show') || document.querySelector('.ovl.show');
-    if (!busy) { try { location.reload(); } catch (e) { location.href = location.href; } }
-  };
+  /* (23/10/2026) ΠΟΤΕ αυτόματη ανανέωση σελίδας: μόνο η κάρτα «Νέα έκδοση», και ανανεώνει ο
+     ΧΡΗΣΤΗΣ όταν θέλει. Τα δεδομένα ενημερώνονται ήδη αθόρυβα — η σελίδα δεν χρειάζεται reload. */
+  const cnpMaybeReload = () => { cnpUpdBanner(); };
   window.addEventListener('focus', () => { if (cnpNewBuild) { cnpMaybeReload(); } });
   // realtime: version polling ανά 12" → σιωπηλό refresh όταν αλλάξει κάτι από συναδέλφους
   let lastV = null;
@@ -7822,6 +8146,12 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
           b.textContent = d.chatUnread > 99 ? '99+' : d.chatUnread;
         } else if (b) { b.remove(); }
       }
+      /* 📥 Εισερχόμενα: μετρητής στο μενού· αν άλλαξε ενώ βλέπεις τη ροή, φέρε τη νέα γραμμή. */
+      if (typeof d.inboxUnread === 'number') {
+        const prevN = window._cnpFeedN;
+        cnpFeedBadge(d.inboxUnread);
+        if (prevN !== undefined && prevN !== d.inboxUnread && S.view === 'feed' && !document.hidden) { cnpSilentRefresh(); }
+      }
       if (lastV === null) { lastV = d.v; return; }
       if (d.v === lastV) return;
       /* Κρυφή καρτέλα: δεν ξαναζωγραφίζουμε — μόλις ξαναφανεί, ανανεώνεται αμέσως (βλ. visibilitychange). */
@@ -7831,6 +8161,14 @@ window.CNP = {S, api, esc, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPi
   };
   let tickTm = 0, tickBusy = false;
   const tickPlan = ms => { clearTimeout(tickTm); tickTm = setTimeout(tickRun, ms); };
+  /* Μήνυμα από άλλη καρτέλα: ΤΩΡΑ ό,τι θα έκανε ο επόμενος σφυγμός — καρτέλα εργασίας, οθόνη,
+     μετρητές — αθόρυβα. Κρυφή καρτέλα: σημάδι, και ανανεώνεται μόλις ξαναφανεί. */
+  window.cnpSyncNow = async () => {
+    if (document.hidden) { window._cnpStale = true; tickPlan(60000); return; }
+    try { await cnpDrawerLive(true); } catch (e) { }
+    if (await cnpSilentRefresh()) { loadTopStats(); }
+    tickPlan(400);   // σφυγμός αμέσως: σήμα Εισερχομένων, chat, καμπανάκι
+  };
   const tickRun = async () => {
     if (tickBusy) { return tickPlan(2000); }
     tickBusy = true;
