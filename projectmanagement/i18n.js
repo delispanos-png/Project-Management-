@@ -394,6 +394,7 @@
 
   var SKIP = {SCRIPT: 1, STYLE: 1, TEXTAREA: 1, CODE: 1, PRE: 1};
   var ATTRS = ['placeholder', 'title', 'aria-label'];
+  var USER_TXT = '[contenteditable], [data-ctext], .act-body, .rt-view, .rte, .msg-b, .tk-title, .fd-exc, .rq-msg, .rq-thread';
 
   function tr(s) {
     var k = s.trim();
@@ -413,6 +414,10 @@
     }
     if (root.nodeType !== 1) { return; }
     if (SKIP[root.tagName] || root.hasAttribute('data-noi18n')) { return; }
+    /* ΠΟΤΕ μέσα σε κείμενο χρήστη. Ο editor είναι contenteditable: ένα «Σήμερα» μόνο του
+       σε γραμμή γινόταν «Today» την ώρα που το έγραφες (23/10/2026)· το ίδιο και στα
+       καταχωρημένα μηνύματα, που έδειχναν σε άλλη γλώσσα από αυτή που γράφτηκαν. */
+    if (root.isContentEditable || (root.matches && root.matches(USER_TXT))) { return; }
     for (var i = 0; i < ATTRS.length; i++) {
       var a = ATTRS[i];
       if (root.hasAttribute(a)) {

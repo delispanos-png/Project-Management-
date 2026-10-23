@@ -574,6 +574,10 @@ class Db
             $s->table('mod_cpm_views', function ($t) { $t->tinyInteger('is_template')->default(0); });
         }
         /* (16/10/2026) ο δημιουργός δίνει δικαίωμα αλλαγής σε συγκεκριμένους (",3,9,") */
+        /* Σε ποια οθόνη ανήκει το view: 'list' (Λίστα tasks) ή 'feed' (Εισερχόμενα), 23/10/2026. */
+        if ($s->hasTable('mod_cpm_views') && !$s->hasColumn('mod_cpm_views', 'entity')) {
+            $s->table('mod_cpm_views', function ($t) { $t->string('entity', 12)->default('list')->index(); });
+        }
         if (!$s->hasColumn('mod_cpm_views', 'editors')) {
             $s->table('mod_cpm_views', function ($t) { $t->string('editors', 255)->nullable(); });
         }
@@ -2053,6 +2057,13 @@ class Db
         /* Άνθρωποι, ρόλοι και ειδικότητες — το έδαφος της δεξαμενής. Δες lib/Pool.php. */
         Pool::install();
 
+        /* Εισερχόμενα: τι ήρθε σε μένα, από ποιον, πότε, αν το είδα. Δες lib/Inbox.php. */
+        Inbox::install();
+        /* Δεύτερη γραμμή ειδοποίησης (Windows/κινητό): «ποιος, τι, απόσπασμα» — 23/10/2026. */
+        if ($s->hasTable('mod_cpm_notifications') && !$s->hasColumn('mod_cpm_notifications', 'body')) {
+            $s->table('mod_cpm_notifications', function ($t) { $t->string('body', 255)->nullable(); });
+        }
+
         /* ΤΙ ΕΓΙΝΕ ΜΕ ΤΗ ΣΥΣΚΕΨΗ ΟΤΑΝ ΠΕΡΑΣΕ Η ΩΡΑ ΤΗΣ. Χωρίς αυτό, στο end_dt
            ο χειριστής γινόταν αυτόματα «διαθέσιμος» ενώ η σύσκεψη συνεχιζόταν —
            και όποιος τον έψαχνε νόμιζε ότι είναι ελεύθερος. */
@@ -2656,13 +2667,15 @@ class Db
     public static function addCheckItem($taskId, $title, $byAdminId = 0)
     {
         $sort = 1 + (int) Capsule::table('mod_cpm_checklist')->where('task_id', (int) $taskId)->max('sort');
-        return (int) Capsule::table('mod_cpm_checklist')->insertGetId([
+        $id = (int) Capsule::table('mod_cpm_checklist')->insertGetId([
             /* Το βήμα κρατά ό,τι γράφτηκε: ένα stack trace ή ένα JSON δεν έχει νόημα
                κομμένο στους 200 χαρακτήρες. Το ανώτατο όριο μπαίνει στο API. */
             'task_id' => (int) $taskId, 'title' => $title, 'done' => 0, 'sort' => $sort,
             'created_by' => (int) $byAdminId ?: null,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+        Inbox::fromMessage($taskId, $byAdminId, $title);
+        return $id;
     }
 
     public static function toggleCheckItem($id)
@@ -3503,7 +3516,7 @@ class Db
         return mb_substr($u, 0, 255);
     }
 
-    public static function pushNotification($adminId, $type, $title, $url = null)
+    public static function pushNotification($adminId, $type, $title, $url = null, $body = null, $pushNow = true)
     {
         if (!(int) $adminId) {
             return;
@@ -3519,7 +3532,7 @@ class Db
             'url'        => $url ? mb_substr($url, 0, 255) : null,
             'is_read'    => 0,
             'created_at' => date('Y-m-d H:i:s'),
-        ]);
+        ] + ($body !== null && $body !== '' ? ['body' => mb_substr(trim((string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $body)), 0, 255)] : []));
         // καθάρισμα: κράτα τις 200 τελευταίες ανά χρήστη
         $min = Capsule::table('mod_cpm_notifications')->where('admin_id', (int) $adminId)
             ->orderBy('id', 'desc')->skip(200)->take(1)->value('id');
@@ -3529,7 +3542,14 @@ class Db
         }
         /* Web Push: ξύπνα τις συσκευές του χρήστη (fire-and-forget, ποτέ blocking
            του app flow). Ο service worker τραβά το περιεχόμενο από το push_latest. */
+        if ($pushNow) { self::pushDevices((int) $adminId); }
+    }
+
+    /** Ειδοποίηση στις συσκευές (Windows/κινητό) — εκτός αν ο χρήστης την έκλεισε (pref push_os, εξ ορισμού ανοιχτή). */
+    public static function pushDevices($adminId)
+    {
         try {
+            if ((string) self::pref((int) $adminId, 'push_os', '1') === '0') { return; }
             require_once __DIR__ . '/Push.php';
             if (Push::enabled()) { Push::send((int) $adminId); }
         } catch (\Throwable $e) { /* μια αποτυχία push δεν χαλάει τίποτα */ }
@@ -4193,6 +4213,7 @@ class Db
             'detail'     => mb_substr((string) $detail, 0, 255),
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+        Inbox::fromActivity($taskId, $adminId, $action, $detail);
     }
 
     public static function activity($taskId, $limit = 50)

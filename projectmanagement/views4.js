@@ -1563,20 +1563,24 @@ const LV_PRESETS = {
 };
 const lvClone = o => JSON.parse(JSON.stringify(o));
 /* Ασφαλές «καθάρισμα» μιας ρύθμισης: ό,τι άγνωστο πετιέται, ό,τι λείπει παίρνει προεπιλογή. */
-function lvNorm(c) {
-  const o = Object.assign(lvClone(LV_DEF), c || {});
+function lvNorm(c, E) {
+  /* E = η οθόνη (Λίστα / Εισερχόμενα): ΔΙΚΑ της πεδία, στήλες, ομαδοποιήσεις, προεπιλογές. */
+  E = E || LV_ENT.list;
+  const F = E.F;
+  const o = Object.assign(lvClone(E.def), c || {});
   o.v = 1;
-  o.groups = (Array.isArray(o.groups) ? o.groups : []).filter(g => LV_GROUPABLE.includes(g)).filter((g, i, a) => a.indexOf(g) === i);
-  o.sort = (Array.isArray(o.sort) ? o.sort : []).filter(x => x && LV_FIELDS[x.f]).map(x => ({f: x.f, d: x.d === 'desc' ? 'desc' : 'asc'}));
-  o.cols = (Array.isArray(o.cols) ? o.cols : []).filter(x => LV_COLS.includes(x)).filter((g, i, a) => a.indexOf(g) === i);
+  o.groups = (Array.isArray(o.groups) ? o.groups : []).filter(g => E.groupable.includes(g)).filter((g, i, a) => a.indexOf(g) === i);
+  o.sort = (Array.isArray(o.sort) ? o.sort : []).filter(x => x && F[x.f]).map(x => ({f: x.f, d: x.d === 'desc' ? 'desc' : 'asc'}));
+  o.cols = (Array.isArray(o.cols) ? o.cols : []).filter(x => E.cols.includes(x)).filter((g, i, a) => a.indexOf(g) === i);
   if (!o.cols.includes('title')) { o.cols.unshift('title'); }
-  o.rules = (Array.isArray(o.rules) ? o.rules : []).filter(r => r && LV_FIELDS[r.f] && (LV_OPS[LV_FIELDS[r.f].kind] || []).some(([k]) => k === r.op));
+  o.rules = (Array.isArray(o.rules) ? o.rules : []).filter(r => r && F[r.f] && (LV_OPS[F[r.f].kind] || []).some(([k]) => k === r.op));
   o.display = ['list', 'table', 'board'].includes(o.display) ? o.display : 'list';
   o.density = o.density === 'compact' ? 'compact' : 'detailed';
   o.open = o.open ? 1 : 0; o.q = String(o.q || '');
   /* «Ποιανού»: mine | team | users | all. Παλιά views είχαν μόνο το mine (1/0). */
   if (!c || !['mine', 'team', 'users', 'all'].includes(c.who)) { o.who = c && 'mine' in c ? (c.mine ? 'mine' : 'all') : 'mine'; }
   o.users = (Array.isArray(o.users) ? o.users : []).map(Number).filter(Boolean);
+  if (!E.who) { o.who = 'all'; }   // τα Εισερχόμενα είναι ΠΑΝΤΑ δικά μου — το κρίνει ο server
   o.mine = o.who === 'mine' ? 1 : 0;
   o.color = ['none', 'prio', 'status', 'project', 'duebucket'].includes(o.color) ? o.color : 'prio';
   /* (20/10/2026) Υποεργασίες ΠΑΝΤΑ ως δέντρο κάτω από τη γονική (⊞ + πλήθος, κλειστό από προεπιλογή) —
@@ -1587,8 +1591,8 @@ function lvNorm(c) {
   o.prioShow = LV_SHOW.includes(o.prioShow) ? o.prioShow : legacyShow;
   o.typeShow = LV_SHOW.includes(o.typeShow) ? o.typeShow : legacyShow;
   const w0 = o.widths && typeof o.widths === 'object' ? o.widths : {}; o.widths = {};
-  LV_COLS.forEach(k => { const w = Math.round(+w0[k] || 0); if (w >= 36 && w <= 900) { o.widths[k] = w; } });
-  o.rules.forEach(r => { if (r.qk && !LV_QUICK.some(x => x.k === r.qk)) { delete r.qk; } });
+  E.cols.forEach(k => { const w = Math.round(+w0[k] || 0); if (w >= 36 && w <= 900) { o.widths[k] = w; } });
+  o.rules.forEach(r => { if (r.qk && !E.quick.some(x => x.k === r.qk)) { delete r.qk; } });
   return o;
 }
 /* Παλιά views (localStorage, πριν τις 5/10/2026) → νέα ρύθμιση. */
@@ -1649,40 +1653,68 @@ function lvRun(t) {
 }
 const LV_DH = '<span class="lv-dh" title="Σύρε: σε γραμμή ομάδας για αλλαγή τιμής ή πάνω σε άλλη εργασία για υποεργασία">⠿</span>';
 
-R.list = async function (arg) {
-  setTop('Λίστα tasks', 'Views: φίλτρα, ομάδες, ταξινόμηση, στήλες — δικά σου, της ομάδας ή δημόσια · g+l');
+/* ═══ ΜΙΑ ΜΗΧΑΝΗ VIEWS, ΠΟΛΛΕΣ ΟΘΟΝΕΣ (23/10/2026) ═══════════════════════════════
+   Η Λίστα tasks και τα Εισερχόμενα δείχνουν ΕΡΓΑΣΙΕΣ με τα ίδια views (φίλτρα, ομάδες σε
+   επίπεδα, ταξινόμηση, στήλες, δικά μου/δημόσια). Δύο αντίγραφα της μηχανής θα ξεσυγχρονίζονταν
+   σε ένα μήνα — γι' αυτό η οθόνη περιγράφεται ως «οντότητα» (E) και η μηχανή είναι μία:
+     F/cols/groupable  ποια πεδία ξέρει        def/presets/quick  από τι ξεκινά
+     fetch             από πού φορτώνει         who/pins/drag      ποια εργαλεία έχει
+     cell/lead/rowCls/open/act/mainBtn/empty    ό,τι δικό της δείχνει ή κάνει
+   Τα views αποθηκεύονται με entity (mod_cpm_views.entity) — δεν ανακατεύονται. */
+const LV_LIST_KEYS = Object.keys(LV_FIELDS);   // πριν προσθέσει άλλη οθόνη τα δικά της πεδία
+const lvPick = keys => { const o = {}; keys.forEach(k => { if (LV_FIELDS[k]) { o[k] = LV_FIELDS[k]; } }); return o; };
+const LV_ENT = {
+  list: {key: 'list', title: 'Λίστα tasks', sub: 'Views: φίλτρα, ομάδες, ταξινόμηση, στήλες — δικά σου, της ομάδας ή δημόσια · g+l',
+    get F() { return lvPick(LV_LIST_KEYS); }, cols: LV_COLS, groupable: LV_GROUPABLE, def: LV_DEF, presets: LV_PRESETS, quick: LV_QUICK,
+    who: 1, pins: 1, drag: 1, noun: 'εργασίες', fetch: qs => api('list&' + qs)},
+};
+R.list = function (arg) { return lvScreen(LV_ENT.list, arg); };
+/* Για άλλες οθόνες της ίδιας μηχανής (views12.js → Εισερχόμενα). */
+Object.assign(window.CNP, {lvScreen, LV_ENT, LV_FIELDS, LV_COLS, LV_LIST_KEYS, lvPick});
+async function lvScreen(E, arg) {
+  /* Τα ονόματα της μηχανής δείχνουν στα πεδία ΑΥΤΗΣ της οθόνης. */
+  const LV_FIELDS = E.F, LV_COLS = E.cols, LV_GROUPABLE = E.groupable, LV_PRESETS = E.presets, LV_QUICK = E.quick;
+  const RR = R[E.key];
+  /* Ήδη σε αυτή την οθόνη και κάποιος ζήτησε «ξανά»: ΜΟΝΟ δεδομένα (morph) — όχι ξαναχτίσιμο με σκελετό. */
+  if (!arg && S.view === E.key && RR._reload && RR._st && RR._st.cfg && document.querySelector('#content #lvRoot')) {
+    const was = window._cnpSilent; window._cnpSilent = true;
+    try { await RR._reload(); } finally { window._cnpSilent = was; }
+    return;
+  }
+  const HOME = Object.keys(LV_PRESETS)[0];   // το πρώτο έτοιμο view της οθόνης = η «αρχική» της
+  setTop(E.title, E.sub);
   const c = $('#content');
-  /* Η κατάσταση ζει στο R.list ώστε η πλοήγηση μέσα στη συνεδρία να κρατά ό,τι έστησες. */
-  const st = R.list._st = R.list._st || {cfg: null, view: null, base: null, closed: new Set(), openSubs: new Set(), more: {}, views: {mine: [], public: [], templates: [], team: [], pins: [], ui: {}, default: ''}};
+  /* Η κατάσταση ζει στη συνάρτηση της οθόνης ώστε η πλοήγηση μέσα στη συνεδρία να κρατά ό,τι έστησες. */
+  const st = RR._st = RR._st || {cfg: null, view: null, base: null, closed: new Set(), openSubs: new Set(), more: {}, views: {mine: [], public: [], templates: [], team: [], pins: [], ui: {}, default: ''}};
   if (!st.openSubs) { st.openSubs = new Set(); }
-  let D = R.list._D || {tasks: []};
+  let D = RR._D || {tasks: []};
 
   c.innerHTML = `<div id="lvRoot"><div id="lvTop"></div><div id="lRes"><div class="skel" style="height:220px"></div></div></div>`;
   const root = $('#lvRoot');
 
   /* ── views: φόρτωμα, μετάβαση παλιών localStorage, προεπιλογή ── */
   const loadViews = async () => {
-    st.views = await api('views_list').catch(() => st.views);
+    st.views = await api('views_list&entity=' + E.key).catch(() => st.views);
     let old = [];
-    try { if (!localStorage.cnpViewsMigrated) { old = JSON.parse(localStorage.cnpViews || '[]'); } } catch (e) { old = []; }
+    try { if (E.key === 'list' && !localStorage.cnpViewsMigrated) { old = JSON.parse(localStorage.cnpViews || '[]'); } } catch (e) { old = []; }
     if (old.length) {
-      for (const v of old) { await api('view_save', {name: String(v.name || 'View').slice(0, 80), scope: 'mine', config: lvFromOld(v.f || {})}).catch(() => null); }
+      for (const v of old) { await api('view_save', {entity: E.key, name: String(v.name || 'View').slice(0, 80), scope: 'mine', config: lvFromOld(v.f || {})}).catch(() => null); }
       try { localStorage.cnpViewsMigrated = '1'; } catch (e) {}
-      st.views = await api('views_list').catch(() => st.views);
+      st.views = await api('views_list&entity=' + E.key).catch(() => st.views);
       toast('Τα αποθηκευμένα views σου μεταφέρθηκαν στον server — τα βλέπεις από κάθε υπολογιστή');
     } else { try { localStorage.cnpViewsMigrated = '1'; } catch (e) {} }
   };
   const allSaved = () => (st.views.mine || []).concat(st.views.public || [], st.views.templates || []);
   const openView = (kind, id) => {
     if (kind === 'p') {
-      const p = LV_PRESETS[id] || LV_PRESETS.mine;
-      st.view = {kind: 'p', id: LV_PRESETS[id] ? id : 'mine', name: p.name, canEdit: false};
-      st.cfg = lvNorm(p.cfg);
+      const p = LV_PRESETS[id] || LV_PRESETS[HOME];
+      st.view = {kind: 'p', id: LV_PRESETS[id] ? id : HOME, name: p.name, canEdit: false};
+      st.cfg = lvNorm(p.cfg, E);
     } else {
       const v = allSaved().find(x => x.id === +id);
-      if (!v) { return openView('p', 'mine'); }
+      if (!v) { return openView('p', HOME); }
       st.view = {kind: 'v', id: v.id, name: v.name, canEdit: v.canEdit, scope: v.scope, owner: v.owner, ownerName: v.ownerName, template: v.template};
-      st.cfg = lvNorm(v.config);
+      st.cfg = lvNorm(v.config, E);
     }
     st.base = JSON.stringify(st.cfg); st.more = {};
     /* Ό,τι είχες ανοιχτό/κλειστό σε ΑΥΤΟ το view (ομάδες, δέντρα υποεργασιών) — όπως το άφησες. */
@@ -1697,7 +1729,7 @@ R.list = async function (arg) {
       const key = (st.view.kind === 'v' ? 'v:' : 'p:') + st.view.id;
       const val = {closed: [...st.closed], open: [...st.openSubs]};
       st.views.ui = st.views.ui || {}; st.views.ui[key] = val;
-      api('view_ui', Object.assign({key}, val)).catch(() => {});
+      api('view_ui', Object.assign({key, entity: E.key}, val)).catch(() => {});
     }, 700);
   };
   /* Σύνδεσμος/καρφίτσωμα: #/list/v12 (αποθηκευμένο) ή #/list/pteam (έτοιμο) → ανοίγει αυτό το view. */
@@ -1708,7 +1740,7 @@ R.list = async function (arg) {
     else if (am) { openView('p', am[1]); }
     else {
       const dk = st.views.default || '';
-      if (dk.startsWith('v:')) { openView('v', dk.slice(2)); } else { openView('p', dk.startsWith('p:') ? dk.slice(2) : 'mine'); }
+      if (dk.startsWith('v:')) { openView('v', dk.slice(2)); } else { openView('p', dk.startsWith('p:') ? dk.slice(2) : HOME); }
     }
   }
   const cfg = () => st.cfg;
@@ -1785,7 +1817,7 @@ R.list = async function (arg) {
       case 'assignee': return t.assignee ? `<span class="mut" title="Ανάθεση">${esc(adminName(t.assignee))}</span>` : '';
       case 'project': return `<span class="kb-tag" style="background:${t.pcolor}18;color:${t.pcolor}">${esc(t.pname || 'Χωρίς έργο')}</span>`;
       case 'client': return t.clientName ? `<span class="kb-tag kb-tag-mut" title="Πελάτης">${esc(t.clientName)}</span>` : '';
-      case 'status': return stPill(t.status);
+      case 'status': return window.CNP.stPick(t);   // κλικ = αλλαγή κατάστασης επί τόπου
       /* (16/10/2026) εικονίδιο + όνομα, ή «μόνο εικονίδιο» (το όνομα στο hover) για περισσότερο χώρο */
       case 'prio': return window.CNP.cnpPrioIcon(t.prio, {show: cfg().prioShow});
       case 'type': return t.type ? window.CNP.cnpTypeIcon(t.type, {show: cfg().typeShow}) : '';
@@ -1807,8 +1839,10 @@ R.list = async function (arg) {
       case 'progress': { if (!t.est) { return ''; } const pc = LV_FIELDS.progress.val(t), cl = pc > 100 ? '#e2515f' : pc >= 80 ? '#eba63c' : '#16a26a';
         return `<span class="lv-prog" title="Χρόνος ${fmtMin(+t.mins || 0)} από ${fmtMin(+t.est)}"><s><i style="width:${Math.min(100, pc)}%;background:${cl}"></i></s><b>${pc}%</b></span>`; }
     }
-    return '';
+    return E.cell ? E.cell(k, t, cfg()) : '';   // πεδία της οθόνης (π.χ. «Τι έγινε» στα Εισερχόμενα)
   };
+  const dh = () => E.drag ? LV_DH : '';
+  const leadOf = t => E.lead ? E.lead(t) : '';
   /* Χρωματική κωδικοποίηση γραμμής (αριστερή μπάρα): προτεραιότητα / κατάσταση / έργο / προθεσμία. */
   const rowColor = t => {
     const k = cfg().color;
@@ -1847,8 +1881,8 @@ R.list = async function (arg) {
     const lead = cols.filter(k => k === 'id' || k === 'title').map(k => cell(k, t)).join('');
     const meta = cols.filter(k => k !== 'id' && k !== 'title').map(k => cell(k, t)).join('');
     const rc = rowColor(t);
-    return `<div class="kb-item kb-trow${t._sub ? ' lv-sub' : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>
-      ${LV_DH}${treeLead(t)}${cfg().cols.includes('prio') || !+t.prio ? '' : window.CNP.cnpPrioIcon(t.prio)}${lead}${kidsBadge(t)}
+    return `<div class="kb-item kb-trow${t._sub ? ' lv-sub' : ''}${E.rowCls ? E.rowCls(t) : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>
+      ${dh()}${leadOf(t)}${treeLead(t)}${cfg().cols.includes('prio') || !+t.prio ? '' : window.CNP.cnpPrioIcon(t.prio)}${lead}${kidsBadge(t)}
       <span class="kb-sum-meta">${meta}</span></div>`;
   };
   const sortMark = k => { const i = cfg().sort.findIndex(x => x.f === k); return i < 0 ? '' : `<span class="lv-sm">${cfg().sort[i].d === 'desc' ? '↓' : '↑'}${cfg().sort.length > 1 ? i + 1 : ''}</span>`; };
@@ -1862,7 +1896,7 @@ R.list = async function (arg) {
   /* ⊟/⊞ για ΟΛΑ (ομάδες + υποεργασίες) μέσα στην κεφαλίδα, όπως στο GoodDay */
   const thTools = () => (cfg().groups.length || cfg().subs === 'nest')
     ? `<span class="lv-thx"><button type="button" data-lvact="collapse" title="Σύμπτυξη όλων — ομάδες και υποεργασίες">⊟</button><button type="button" data-lvact="expand" title="Ανάπτυξη όλων — ομάδες και υποεργασίες">⊞</button></span>` : '';
-  const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map((k, i) => `<td class="lv-td-${k}">${i ? '' : LV_DH}${k === 'title' ? `<span class="lv-tcell">${treeLead(t)}${cell(k, t)}${kidsBadge(t)}</span>` : cell(k, t)}</td>`).join('')}</tr>`; };
+  const trRow = t => { const rc = rowColor(t); return `<tr class="lv-tr${t._sub ? ' lv-sub' : ''}${E.rowCls ? E.rowCls(t) : ''}" data-task="${t.id}"${rc ? ` style="box-shadow:inset 3px 0 0 ${rc}"` : ''}>${cfg().cols.map((k, i) => `<td class="lv-td-${k}">${i ? '' : dh() + leadOf(t)}${k === 'title' ? `<span class="lv-tcell">${treeLead(t)}${cell(k, t)}${kidsBadge(t)}</span>` : cell(k, t)}</td>`).join('')}</tr>`; };
   const tblOpen = extra => `<div class="lv-tw" data-keep-style="1"><table class="lv-tbl lv-fx${extra || ''}" style="min-width:${tblMin()}px">${colsHtml()}${theadHtml()}`;
   const tableHtml = rows => `${tblOpen()}<tbody>${rows.map(trRow).join('')}</tbody></table></div>`;
   /* Πίνακας ΜΕ ομάδες (16/10/2026, όπως το GoodDay): ΕΝΑΣ πίνακας, μία κεφαλίδα, οι ομάδες ως
@@ -1944,12 +1978,13 @@ R.list = async function (arg) {
     const list = sorted(filtered());
     setRoots(list);
     if (!list.length) {
+      if (E.empty) { put(el, E.empty(D.tasks.length)); return; }
       put(el, `<div class="card"><div class="empty" style="padding:40px"><div class="big">${I.list}</div>
         <b style="color:var(--ink);font-size:15px">${D.tasks.length ? 'Καμία εργασία με αυτά τα φίλτρα' : 'Καμία εργασία ακόμη'}</b>
         <div class="mut" style="font-size:12.5px;margin-top:6px">${D.tasks.length ? 'Βγάλε κάποιο φίλτρο ή άλλαξε view.' : 'Ξεκίνα με «Νέο task».'}</div></div></div>`);
       return;
     }
-    const cls = 'lv-res lv-' + cfg().display + (cfg().density === 'compact' ? ' lv-compact' : '');
+    const cls = 'lv-res lv-' + cfg().display + ' lv-ent-' + E.key + (cfg().density === 'compact' ? ' lv-compact' : '');
     if (cfg().display === 'board') { put(el, `<div class="${cls}">${boardHtml(list)}</div>`); return; }
     if (cfg().display === 'table' && cfg().groups.length) { put(el, `<div class="${cls}"><div class="card lv-gwrap">${tableGrouped(list)}</div></div>`); lvFit(); return; }
     const inner = cfg().groups.length ? groupsHtml(list, cfg().groups, '', 0) : `<div class="card kb-group"><div class="card-b kb-gbody">${leaf(list, 'root')}</div></div>`;
@@ -1980,20 +2015,20 @@ R.list = async function (arg) {
         ${v.kind === 'v' && v.canEdit ? '<button type="button" class="fchip" data-lvact="save">Αποθήκευση</button>' : ''}
         <button type="button" class="fchip" data-lvact="saveas">Αποθήκευση ως νέο</button>
         <button type="button" class="fchip" data-lvact="reset">Επαναφορά</button>` : ''}
-      <button type="button" class="fchip fchip-b${cfg().open ? ' on' : ''}" data-lvtog="open">${cfg().open ? '✓ ' : ''}Ανοιχτά</button>
-      <button type="button" class="fchip fchip-b on lv-who" data-lvact="who" title="Ποιανού εργασίες: δικές μου, της ομάδας μου, συγκεκριμένων ανθρώπων ή όλες όσες βλέπω">👥 ${esc(whoLbl())} ▾</button>
+      ${E.who ? `<button type="button" class="fchip fchip-b${cfg().open ? ' on' : ''}" data-lvtog="open">${cfg().open ? '✓ ' : ''}Ανοιχτά</button>
+      <button type="button" class="fchip fchip-b on lv-who" data-lvact="who" title="Ποιανού εργασίες: δικές μου, της ομάδας μου, συγκεκριμένων ανθρώπων ή όλες όσες βλέπω">👥 ${esc(whoLbl())} ▾</button>` : ''}
       ${cfg().rules.filter(r => !r.qk).map(r => { const i = cfg().rules.indexOf(r); return `<span class="fchip on lv-rchip" data-lvrule="${i}" title="Κλικ για αλλαγή">${esc(lvRuleText(r))}<span class="fchip-x" data-lvrx="${i}" title="Αφαίρεση">✕</span></span>`; }).join('')}
       <button type="button" class="fchip" data-lvact="builder" title="Φίλτρα, ομαδοποίηση, ταξινόμηση, στήλες, εμφάνιση">⚙ Ρύθμιση view</button>
       <span class="lv-dsw" role="group" aria-label="Εμφάνιση">${[['list', '☰', 'Λίστα'], ['table', '▦', 'Πίνακας — στήλες με τίτλους, πλάτη, σειρά'], ['board', '▥', 'Board']].map(([k, ic, l]) => `<button type="button" class="fchip${cfg().display === k ? ' on' : ''}" data-lvdisp="${k}" title="${l}">${ic} ${l.split(' ')[0]}</button>`).join('')}</span>
       <span class="fbar-sp"></span>
-      <span class="fbar-note">${n} εργασίες</span>
+      <span class="fbar-note">${n} ${E.noun}</span>
       ${cfg().display !== 'board' ? `<button class="fchip" data-lvact="collapse" title="Σύμπτυξη όλων — ομάδες και υποεργασίες">⊟</button><button class="fchip" data-lvact="expand" title="Ανάπτυξη όλων — ομάδες και υποεργασίες">⊞</button>` : ''}
-      <button class="fchip${pinOf() ? ' on' : ''}" data-lvact="pin" title="${pinOf() ? 'Καρφιτσωμένο ως «' + esc(pinOf().label) + '» — κλικ για αλλαγή' : 'Καρφίτσωσε αυτό το view στο μενού ή στην αρχική'}">📌</button>
+      ${E.pins ? `<button class="fchip${pinOf() ? ' on' : ''}" data-lvact="pin" title="${pinOf() ? 'Καρφιτσωμένο ως «' + esc(pinOf().label) + '» — κλικ για αλλαγή' : 'Καρφίτσωσε αυτό το view στο μενού ή στην αρχική'}">📌</button>` : ''}
       <button class="fchip" data-lvact="csv">${I.download} CSV</button>
       <button class="fchip" data-lvact="pdf" title="Εκτύπωση / αποθήκευση ως PDF">PDF</button>
-      <button class="fchip fchip-go" data-lvact="new">${I.plus} Νέο task</button>
+      ${E.mainBtn ? E.mainBtn() : `<button class="fchip fchip-go" data-lvact="new">${I.plus} Νέο task</button>`}
     </div>
-    <div class="lv-quick"><span class="mut">Γρήγορα:</span>${LV_QUICK.map(x => `<button type="button" class="fchip fchip-b${cfg().rules.some(r => r.qk === x.k) ? ' on' : ''}" data-lvq="${x.k}">${esc(x.label)}</button>`).join('')}</div>
+    <div class="lv-quick"${LV_QUICK.length ? '' : ' hidden'}><span class="mut">Γρήγορα:</span>${LV_QUICK.map(x => `<button type="button" class="fchip fchip-b${cfg().rules.some(r => r.qk === x.k) ? ' on' : ''}" data-lvq="${x.k}">${esc(x.label)}</button>`).join('')}</div>
     <div class="lv-sum" data-lvact="builder" title="Κλικ για ρύθμιση">${esc(sumTxt())}</div>`);
   };
   const render = () => { renderTop(); renderRes(); };
@@ -2006,7 +2041,7 @@ R.list = async function (arg) {
     const qs = ['open=' + (wantDone ? 0 : (cfg().open ? 1 : 0)), 'mine=0', 'kids=' + (cfg().subs === 'nest' ? 1 : 0),
       'created_from=' + encodeURIComponent(cr ? cr.val.from || '' : ''), 'created_to=' + encodeURIComponent(cr ? cr.val.to || '' : ''),
       'done_from=' + encodeURIComponent(dr ? dr.val.from || '' : ''), 'done_to=' + encodeURIComponent(dr ? dr.val.to || '' : '')].join('&');
-    const nd = await api('list&' + qs).catch(() => null);
+    const nd = await E.fetch(qs).catch(() => null);
     if (!nd) { if (window._cnpSilent) { return; } D = {tasks: []}; render(); return; }   // σιωπηλά στην αυτόματη ανανέωση
     /* ΔΙΚΕΣ ΜΟΥ αλλαγές που μόλις έγιναν (σύρσιμο): αν ο server στείλει παλιότερη εικόνα της
        εργασίας (updatedAt πριν την αλλαγή μου), κρατάμε τη δική μου — να μη «γυρίσει» πίσω. */
@@ -2019,12 +2054,13 @@ R.list = async function (arg) {
       Object.assign(t, pd.fields);
     });
     const sig = qs + '#' + JSON.stringify(nd.tasks);
-    if (window._cnpSilent && sig === R.list._sig) { return; }   // ίδια δεδομένα → καμία αλλαγή
-    R.list._sig = sig;
-    D = R.list._D = nd;
+    if (window._cnpSilent && sig === RR._sig) { return; }   // ίδια δεδομένα → καμία αλλαγή
+    RR._sig = sig;
+    D = RR._D = nd;
     render();
+    if (E.loaded) { E.loaded(nd); }
   };
-  R.list._reload = load;
+  RR._reload = load;
   let lastQs = '';
   const apply = (refetch) => {
     const rr = cfg().rules;
@@ -2064,21 +2100,21 @@ R.list = async function (arg) {
       const def = e.target.closest('[data-lvdef]'), cp = e.target.closest('[data-lvcopy]'), del = e.target.closest('[data-lvdel]'), op = e.target.closest('[data-lvopen]');
       if (def) {
         e.stopPropagation(); const k = def.dataset.lvdef, nk = st.views.default === k ? '' : k;
-        await api('view_default', {key: nk}).catch(er => toast(er.message, true));
+        await api('view_default', {entity: E.key, key: nk}).catch(er => toast(er.message, true));
         st.views.default = nk; toast(nk ? 'Θα ανοίγει αυτό το view' : 'Η προεπιλογή αφαιρέθηκε'); close(); viewsMenu(btn); return;
       }
       if (cp) {
         e.stopPropagation(); const v = allSaved().find(x => x.id === +cp.dataset.lvcopy.slice(2)); if (!v) { return; }
-        const r = await api('view_save', {name: (v.name + ' (αντίγραφο)').slice(0, 80), scope: 'mine', config: v.config}).catch(er => ({err: er.message}));
+        const r = await api('view_save', {entity: E.key, name: (v.name + ' (αντίγραφο)').slice(0, 80), scope: 'mine', config: v.config}).catch(er => ({err: er.message}));
         if (r.err) { toast(r.err, true); return; }
         await loadViews(); openView('v', r.id); close(); toast('Αντιγράφηκε ως προσωπικό'); apply(true); return;
       }
       if (del) {
         e.stopPropagation(); const v = allSaved().find(x => x.id === +del.dataset.lvdel.slice(2)); if (!v) { return; }
         if (!(await cnpConfirm('Διαγραφή του view «' + v.name + '»;' + (v.scope === 'public' ? '\n\nΕίναι δημόσιο — θα χαθεί και για τους συναδέλφους.' : ''), {ok: I.trash + ' Διαγραφή', danger: true}))) { return; }
-        const r = await api('view_del', {id: v.id}).catch(er => ({err: er.message}));
+        const r = await api('view_del', {entity: E.key, id: v.id}).catch(er => ({err: er.message}));
         if (r.err) { toast(r.err, true); return; }
-        await loadViews(); if (st.view && st.view.kind === 'v' && st.view.id === v.id) { openView('p', 'mine'); apply(true); } else { renderTop(); }
+        await loadViews(); if (st.view && st.view.kind === 'v' && st.view.id === v.id) { openView('p', HOME); apply(true); } else { renderTop(); }
         close(); toast('Το view διαγράφηκε'); return;
       }
       if (op) {
@@ -2094,7 +2130,7 @@ R.list = async function (arg) {
   const saveAs = (opts) => {
     opts = opts || {};
     const canPub = cnpCan('projects.board.edit');
-    const cfgNew = opts.blank ? lvNorm({}) : lvClone(st.cfg);
+    const cfgNew = opts.blank ? lvNorm({}, E) : lvClone(st.cfg);
     const sugg = opts.blank ? 'Νέο view' : ((st.view && st.view.name ? st.view.name : 'View') + (st.view && st.view.kind === 'v' && st.view.canEdit ? ' (αντίγραφο)' : ' — δικό μου')).slice(0, 80);
     document.querySelectorAll('.lv-saveas').forEach(x => x.remove());
     const ovl = document.createElement('div'); ovl.className = 'ovl show lv-saveas'; ovl.style.zIndex = 340;
@@ -2123,10 +2159,10 @@ R.list = async function (arg) {
       const pool = scope === 'public' ? allSaved().filter(v => v.scope === 'public') : allSaved().filter(v => v.owner === S.boot.me.id && v.scope === scope);
       if (pool.some(v => v.name.trim().toLowerCase() === name.toLowerCase())) { showErr('Υπάρχει ήδη view με αυτό το όνομα ' + (scope === 'public' ? 'στα δημόσια.' : 'στα δικά σου.')); return; }
       const b = $('#lvsGo', ovl); b.disabled = true;
-      const r = await api('view_save', {name, scope, config: cfgNew, template: $('#lvsT', ovl).checked ? 1 : 0}).catch(er => ({err: er.message}));
+      const r = await api('view_save', {entity: E.key, name, scope, config: cfgNew, template: $('#lvsT', ovl).checked ? 1 : 0}).catch(er => ({err: er.message}));
       b.disabled = false;
       if (r.err) { showErr(r.err); return; }
-      if ($('#lvsD', ovl).checked) { await api('view_default', {key: 'v:' + r.id}).catch(() => {}); }
+      if ($('#lvsD', ovl).checked) { await api('view_default', {entity: E.key, key: 'v:' + r.id}).catch(() => {}); }
       if ($('#lvsP', ovl).checked) {
         const pr = await api('view_pin', {key: 'v:' + r.id, label: name.slice(0, 40), menu: 1, home: 0}).catch(() => null);
         if (pr && pr.pins) { S.boot.viewPins = pr.pins; if (window.CNP.cnpRenderPins) { window.CNP.cnpRenderPins(); } }
@@ -2259,7 +2295,7 @@ R.list = async function (arg) {
     const undo = [], redo = [];
     let last = JSON.stringify(cfg());
     const commit = () => { const now = JSON.stringify(cfg()); if (now !== last) { undo.push(last); if (undo.length > 80) { undo.shift(); } redo.length = 0; last = now; } };
-    const restoreCfg = j => { st.cfg = lvNorm(JSON.parse(j)); last = JSON.stringify(st.cfg); st.more = {}; paint(); apply(true); };
+    const restoreCfg = j => { st.cfg = lvNorm(JSON.parse(j), E); last = JSON.stringify(st.cfg); st.more = {}; paint(); apply(true); };
     ovl._ext = full => { commit(); if (full) { paint(); } else { foot(); } };   // αλλαγή από έξω (πλάτος/σειρά στήλης, εμφάνιση)
     ovl._close = () => { ovl.remove(); document.body.classList.remove('lv-side-on'); document.removeEventListener('keydown', onKey, true); renderTop(); };
     $('#lvbX', ovl).onclick = () => ovl._close();
@@ -2289,7 +2325,7 @@ R.list = async function (arg) {
         if (a === 'discard') { undo.length = 0; redo.length = 0; restoreCfg(st.base); renderTop(); return; }
         if (a === 'saveas') { saveAs({after: () => { undo.length = 0; redo.length = 0; last = JSON.stringify(cfg()); paint(); }}); return; }
         b.disabled = true;
-        const r = await api('view_save', {id: v.id, config: st.cfg}).catch(er => ({err: er.message}));
+        const r = await api('view_save', {entity: E.key, id: v.id, config: st.cfg}).catch(er => ({err: er.message}));
         if (r.err) { toast(r.err, true); b.disabled = false; return; }
         await loadViews(); st.base = JSON.stringify(st.cfg); toast('Το view αποθηκεύτηκε'); paint(); renderTop();
       });
@@ -2325,9 +2361,9 @@ R.list = async function (arg) {
       const bb = $('#lvbB', ovl), sc = bb.scrollTop, ae = document.activeElement;
       const fsel = ae && bb.contains(ae) && ae.attributes ? [...ae.attributes].filter(a => a.name.startsWith('data-') || a.name === 'id').map(a => `[${a.name}="${CSS.escape(a.value)}"]`).join('') : '';
       bb.innerHTML = `
-      <section class="lv-sec" data-sec="who"><h4>Ποιανού εργασίες <small class="mut">— πάντα μέσα σε ό,τι επιτρέπεται να βλέπεις</small></h4>
+      ${E.who ? `<section class="lv-sec" data-sec="who"><h4>Ποιανού εργασίες <small class="mut">— πάντα μέσα σε ό,τι επιτρέπεται να βλέπεις</small></h4>
         <div class="lv-seg">${[['mine', 'Δικά μου'], ['team', 'Η ομάδα μου'], ['all', 'Όλα όσα βλέπω'], ['users', 'Συγκεκριμένοι']].map(([k, l]) => `<button type="button" class="fchip fchip-b${c0.who === k ? ' on' : ''}" data-who2="${k}"${k === 'team' && !lead ? ' disabled title="Μόνο για επικεφαλής ομάδας"' : ''}>${l}</button>`).join('')}</div>
-        ${c0.who === 'users' ? `<div class="lv-multi" style="margin-top:8px">${(S.boot.admins || []).filter(a => !a.disabled && !/support team|\bbot\b/i.test(a.name)).map(a => `<label class="lv-chk${(c0.users || []).includes(a.id) ? ' on' : ''}"><input type="checkbox" data-wu="${a.id}" ${(c0.users || []).includes(a.id) ? 'checked' : ''}>${esc(a.name)}</label>`).join('')}</div>` : ''}</section>
+        ${c0.who === 'users' ? `<div class="lv-multi" style="margin-top:8px">${(S.boot.admins || []).filter(a => !a.disabled && !/support team|\bbot\b/i.test(a.name)).map(a => `<label class="lv-chk${(c0.users || []).includes(a.id) ? ' on' : ''}"><input type="checkbox" data-wu="${a.id}" ${(c0.users || []).includes(a.id) ? 'checked' : ''}>${esc(a.name)}</label>`).join('')}</div>` : ''}</section>` : ''}
       <section class="lv-sec" data-sec="rules"><h4>Φίλτρα <small class="mut">— ισχύουν ΟΛΑ μαζί</small></h4>
         ${c0.rules.map((r, i) => `<div class="lv-rule${focusRule === i ? ' foc' : ''}">
           <select class="inp" data-rf0="${i}">${fieldOpts(r.f)}</select>
@@ -2458,6 +2494,7 @@ R.list = async function (arg) {
     if (rc) { builder(+rc.dataset.lvrule); return; }
     if (act) {
       const a = act.dataset.lvact;
+      if (E.act && await E.act(a, {D: () => D, render})) { return; }   // ενέργειες της οθόνης
       if (a === 'builder') { builder(); }
       else if (a === 'who') { whoMenu(act); }
       else if (a === 'collapse' || a === 'expand') {
@@ -2471,10 +2508,10 @@ R.list = async function (arg) {
       else if (a === 'pin') { pinDialog(); }
       else if (a === 'pdf') { printPdf(); }
       else if (a === 'new') { window.CNP.quickNew(); }
-      else if (a === 'reset') { st.cfg = lvNorm(JSON.parse(st.base)); apply(true); }
+      else if (a === 'reset') { st.cfg = lvNorm(JSON.parse(st.base), E); apply(true); }
       else if (a === 'saveas') { saveAs(); }
       else if (a === 'save') {
-        const r = await api('view_save', {id: st.view.id, config: st.cfg}).catch(er => ({err: er.message}));
+        const r = await api('view_save', {entity: E.key, id: st.view.id, config: st.cfg}).catch(er => ({err: er.message}));
         if (r.err) { toast(r.err, true); return; }
         await loadViews(); st.base = JSON.stringify(st.cfg); toast('Το view αποθηκεύτηκε'); renderTop();
       } else if (a === 'csv') {
@@ -2486,7 +2523,7 @@ R.list = async function (arg) {
           return esc2(k === 'running' ? (t.running || []).map(r => adminName(r.id)).join(', ') : F.kind === 'bool' ? (v ? 'Ναι' : '') : v);
         }).join(';')));
         const blob = new Blob(['﻿' + rows.join('\n')], {type: 'text/csv;charset=utf-8'});
-        const aa = document.createElement('a'); aa.href = URL.createObjectURL(blob); aa.download = 'tasks.csv'; aa.click();
+        const aa = document.createElement('a'); aa.href = URL.createObjectURL(blob); aa.download = (E.key === 'list' ? 'tasks' : E.key) + '.csv'; aa.click();
       }
       return;
     }
@@ -2516,7 +2553,7 @@ R.list = async function (arg) {
       if (st.closed.has(p)) { st.closed.delete(p); } else { st.closed.add(p); }
       saveUi(); renderRes(); return;
     }
-    if (row) { openTask(+row.dataset.task); }
+    if (row) { if (E.open) { E.open(+row.dataset.task, D, renderRes); } else { openTask(+row.dataset.task); } }
   };
   /* ── ✋ Σύρσιμο εργασίας (16/10/2026) ───────────────────────────────────────
      • σε ΓΡΑΜΜΗ ΟΜΑΔΑΣ (π.χ. «Κατάσταση: Έλεγχος»): ρωτά και αλλάζει ό,τι διαφέρει από την ομάδα

@@ -366,8 +366,9 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
 .act-foot{display:flex;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid var(--line);background:var(--canvas)}
 /* Η υπόμνηση των πλήκτρων: φαίνεται, χωρίς να διεκδικεί προσοχή. */
 .act-tip{font-size:10.5px;opacity:.75;white-space:nowrap}
-.act-send{display:none}
-@media (max-width:768px){ .act-tip{display:none} .act-send{display:inline-flex} }
+/* (23/10/2026) Το κουμπί «Καταχώριση» φαίνεται ΠΑΝΤΑ — το Enter δεν καταχωρεί πια. */
+.act-send{display:inline-flex;align-items:center}
+@media (max-width:768px){ .act-tip{display:none} }
 
 /* Λίστα @αναφορών */
 .ment-box{position:fixed;z-index:500;background:var(--card);border:1px solid var(--line);border-radius:10px;
@@ -5325,3 +5326,109 @@ body.lv-rzing,body.lv-rzing *{cursor:col-resize!important;user-select:none!impor
 .up-bar-t{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}
 .up-bar-p{height:6px;border-radius:4px;background:var(--line);overflow:hidden}
 .up-bar-p i{display:block;height:100%;width:0;background:var(--brand);transition:width .25s}
+
+/* ═══ 📥 Εισερχόμενα (fd-) — γραμμές της μηχανής views + LED αδιάβαστου (μόνο ένδειξη) ═══ */
+.fd-led{flex:none;display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 8px 0 2px;vertical-align:middle;background:transparent}
+.fd-led.on{background:var(--brand);box-shadow:0 0 0 3px #0090dd2e,0 0 8px #0090dd99}
+.fd-row .lv-ti{font-weight:600}
+.fd-unread .lv-ti{font-weight:800;color:var(--ink)}
+.fd-unread{background:#0090dd08}
+html[data-theme="dark"] .fd-unread{background:#0090dd14}
+.fd-ev{font-size:12.5px;color:var(--txt);white-space:normal;overflow-wrap:anywhere}
+.fd-ev b{color:var(--ink);font-weight:700}
+.fd-ei{display:inline-block;width:16px;text-align:center;opacity:.8}
+.fd-what{color:var(--mut)}
+.fd-exc{color:var(--mut);font-style:italic}
+.kb-sum-meta .fd-ev{max-width:min(560px,60vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fd-by{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fd-ava{width:22px;height:22px;font-size:9.5px}
+.fd-at{font-size:11.5px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.fd-unread .fd-at{color:var(--brand);font-weight:700}
+@media (max-width:768px){ .kb-sum-meta .fd-ev{max-width:100%;white-space:normal} }
+.fd-row .lv-tg0{display:none}
+.fd-row .kb-sum-meta{flex-wrap:wrap;min-width:0;row-gap:4px}
+/* Στη λίστα το LED ζει στο αριστερό περιθώριο: ποτέ μόνο του σε γραμμή όταν ο τίτλος αναδιπλώνεται (κινητό). */
+.kb-trow.fd-row{position:relative;padding-left:22px}
+.kb-trow.fd-row>.fd-led{position:absolute;left:8px;top:calc(50% - 4px);margin:0}
+@media (max-width:768px){ .kb-trow.fd-row>.fd-led{top:17px} .kb-trow.fd-row{row-gap:4px} }
+
+/* ═══ Τόνοι κειμένου (cc- γράμματα, cb- ετικέτα) — τιμή ΑΝΑ ΘΕΜΑ, 23/10/2026 ═══ */
+:root{--tc-sky:#0a83c2;--tc-blue:#2d4fb8;--tc-green:#12804f;--tc-yellow:#9a6c00;--tc-orange:#c4560f;--tc-red:#cc3344;--tc-purple:#7044c8;--tc-gray:#66758b;
+  --tb-sky:#d6efff;--tb-blue:#dfe6ff;--tb-green:#d6f5e4;--tb-yellow:#fff1bf;--tb-orange:#ffe3cc;--tb-red:#ffdfe2;--tb-purple:#ece2ff;--tb-gray:#e7ebf1}
+html[data-theme="dark"]{--tc-sky:#62c9ff;--tc-blue:#93a9ff;--tc-green:#5fd69b;--tc-yellow:#f2c94c;--tc-orange:#ffa565;--tc-red:#ff7d88;--tc-purple:#bda2ff;--tc-gray:#a3b0c2;
+  --tb-sky:#0f3e5a;--tb-blue:#24315f;--tb-green:#14432f;--tb-yellow:#4a3c0c;--tb-orange:#4e2d12;--tb-red:#55222a;--tb-purple:#372a5c;--tb-gray:#2c3a50}
+.cc-sky{color:var(--tc-sky)}.cc-blue{color:var(--tc-blue)}.cc-green{color:var(--tc-green)}.cc-yellow{color:var(--tc-yellow)}
+.cc-orange{color:var(--tc-orange)}.cc-red{color:var(--tc-red)}.cc-purple{color:var(--tc-purple)}.cc-gray{color:var(--tc-gray)}
+[class^="cb-"],[class*=" cb-"]{border-radius:5px;padding:1px 5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.cb-sky{background:var(--tb-sky);color:var(--tc-sky)}.cb-blue{background:var(--tb-blue);color:var(--tc-blue)}.cb-green{background:var(--tb-green);color:var(--tc-green)}
+.cb-yellow{background:var(--tb-yellow);color:var(--tc-yellow)}.cb-orange{background:var(--tb-orange);color:var(--tc-orange)}.cb-red{background:var(--tb-red);color:var(--tc-red)}
+.cb-purple{background:var(--tb-purple);color:var(--tc-purple)}.cb-gray{background:var(--tb-gray);color:var(--tc-gray)}
+/* παλέτα: δύο στήλες (γράμματα | ετικέτα), όπως στο GoodDay */
+.rte-pop-tone{min-width:290px}
+.rte-tone{display:grid;grid-template-columns:1fr 1fr;gap:1px 6px;margin-top:4px;border-top:1px solid var(--line);padding-top:4px}
+.rte-tone .rte-pop-h{padding:4px 9px 2px}
+.rte-pop .rte-tone .rte-b{gap:8px}
+.rte-tn{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:5px;font-weight:800;font-size:12px;border:1px solid var(--line);padding:0}
+/* ενεργό εργαλείο: φαίνεται ότι ισχύει εκεί που στέκεσαι */
+.rte-b.on{background:#0090dd22;border-color:#0090dd66;color:var(--brand)}
+html[data-theme="dark"] .rte-b.on{background:#0090dd33;color:#7cc8ff}
+.act-send{gap:6px;font-weight:700}
+
+/* ═══ Εισερχόμενα: λιτές ομάδες (23/10/2026) ═══════════════════════════════════
+   Η ομάδα δεν είναι μπάρα σε όλο το πλάτος: μικρή ετικέτα (▸ ΣΗΜΕΡΑ 5) πάνω από τις γραμμές,
+   που ζουν η καθεμιά ως δική της κάρτα με το χρώμα κατάστασης. Κλειστή ομάδα = μια λεπτή γραμμή. */
+.lv-ent-feed .lv-gwrap{background:none;border:0;box-shadow:none;overflow:visible}
+.lv-ent-feed .lv-g,.lv-ent-feed .lv-gb > .lv-g{border:0}
+.lv-ent-feed .lv-gh{background:none;border:0;padding:14px 2px 6px;min-height:0;gap:7px;font-size:11.5px;font-weight:800;
+  letter-spacing:.04em;text-transform:uppercase;color:var(--ink)}
+.lv-ent-feed .lv-gh .kb-gbar{display:none}
+.lv-ent-feed .lv-gh .kb-gchev{order:-1;transform:rotate(-90deg);opacity:.7}
+.lv-ent-feed .lv-gh .kb-gchev.open{transform:none;opacity:0}
+.lv-ent-feed .lv-gh:hover .kb-gchev.open{opacity:.7}
+.lv-ent-feed .lv-gh .kb-n{font-size:10.5px;padding:0 7px;background:transparent;border:1px solid var(--line);color:var(--mut)}
+.lv-ent-feed .lv-gh[data-lgrp^="evday="] .lv-gl{display:none}   /* «Ημέρα:» περισσεύει — η ημέρα μιλά μόνη της */
+.lv-ent-feed .lv-gh .lv-gl{text-transform:none;letter-spacing:0}
+/* κλειστή ομάδα: λεπτή γραμμή ως το τέλος */
+.lv-ent-feed .lv-g:has(> .lv-gb[style*="none"]) > .lv-gh > span[style*="flex:1"]{border-top:1px solid var(--line);align-self:center}
+.lv-ent-feed .lv-g:has(> .lv-gb[style*="none"]) > .lv-gh{padding-top:8px;padding-bottom:4px;color:var(--mut)}
+.lv-ent-feed .lv-gb{padding:0}
+.lv-ent-feed .lv-gb > .lv-g > .lv-gh{padding-left:18px}
+/* κάθε εργασία = δική της κάρτα */
+.lv-ent-feed .kb-trow.fd-row{background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:5px;padding-top:9px;padding-bottom:9px;padding-right:12px}
+.lv-ent-feed .kb-trow.fd-row.fd-unread{background:color-mix(in srgb,var(--card) 92%,var(--brand))}
+.lv-ent-feed .kb-gbody{padding:0}
+.lv-ent-feed > .card.kb-group{background:none;border:0;box-shadow:none}
+/* σήμα κατάστασης που αλλάζει με κλικ (Λίστα, Εισερχόμενα, Η μέρα μου) */
+.st-pill[data-stpick]{cursor:pointer}
+.st-pill[data-stpick]::after{content:"▾";margin-left:4px;font-size:.8em;opacity:.55}
+.st-pill[data-stpick]:hover{filter:brightness(1.12);box-shadow:0 0 0 2px currentColor inset}
+/* Πίνακες σε editor ΚΑΙ σε καταχωρημένα κείμενα — χωρίς πλέγμα ο πίνακας ήταν αόρατος («δεν δουλεύει το πινακάκι», 23/10/2026) */
+.rte table,.act-edit table,.act-body table,.rt-view table,.kb-sol table{border-collapse:collapse;margin:8px 0;max-width:100%;font-size:inherit}
+.rte th,.rte td,.act-edit th,.act-edit td,.act-body th,.act-body td,.rt-view th,.rt-view td,.kb-sol th,.kb-sol td{border:1px solid var(--line);padding:5px 10px;min-width:70px;vertical-align:top;text-align:left}
+.rte th,.act-edit th,.act-body th,.rt-view th,.kb-sol th{background:var(--bg2);font-weight:700;color:var(--ink)}
+.rte td:focus-within,.act-edit td:focus-within,.rte th:focus-within,.act-edit th:focus-within{outline:2px solid #0090dd55;outline-offset:-2px}
+.act-body{overflow-x:auto}
+/* «Μόνο προβολή» (χωρίς χρόνο): γκριζάρει ΜΟΝΟ η συζήτηση/ζητούμενο· η δεξιά στήλη μένει ζωντανή */
+.drawer.tk-viewlock .tk-col-main .act-composer{pointer-events:none;background:var(--card)}
+.drawer.tk-viewlock .tk-col-main .act-composer>*{opacity:.5}
+.drawer.tk-viewlock .tk-col-main .chk-new,.drawer.tk-viewlock .tk-col-main .chk-acts,.drawer.tk-viewlock .tk-col-main .cnpa-drop,.drawer.tk-viewlock .tk-col-main [data-fdel],.drawer.tk-viewlock .tk-col-main .tk-brief-foot{display:none}
+
+/* ═══ Ειδοποιήσεις Windows (23/10/2026) ═══ */
+.push-ask{position:fixed;right:18px;bottom:18px;z-index:9000;width:min(380px,calc(100vw - 32px));display:flex;gap:12px;align-items:flex-start;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 14px 13px;box-shadow:0 18px 44px rgba(10,20,40,.28);
+  transform:translateY(16px);opacity:0;transition:transform .22s ease,opacity .22s ease}
+.push-ask.show{transform:none;opacity:1}
+.push-ask-ic{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:#0090dd1f;color:var(--brand)}
+.push-ask-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--txt);line-height:1.45}
+.push-ask-t>b{font-size:14px;color:var(--ink)}
+.push-ask-demo{display:flex;gap:9px;align-items:flex-start;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:2px 0}
+.push-ask-demo i{font-style:normal;color:var(--brand);margin-top:1px}
+.push-ask-demo b{display:block;font-size:12px;color:var(--ink)}
+.push-ask-demo small{display:block;font-size:11.5px;color:var(--mut)}
+.push-ask-a{display:flex;gap:8px;margin-top:2px}
+.push-ask-x{position:absolute;top:8px;right:10px;border:0;background:none;color:var(--mut);cursor:pointer;font-size:13px}
+.push-ask{position:fixed}
+@media (max-width:768px){ .push-ask{bottom:calc(var(--tabbar-h) + var(--sab) + 12px);right:16px} }
+.push-dev{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px}
+.nrow-ic{font-style:normal;color:var(--brand);margin-right:6px}
+.nrow-b{display:block;font-size:11.5px;color:var(--mut);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
