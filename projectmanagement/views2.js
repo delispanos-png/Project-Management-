@@ -4466,7 +4466,8 @@ R.profile = async function () {
 };
 
 /* ═════════ 🔐 ΘΥΡΙΔΑ ΚΩΔΙΚΩΝ — standalone view + shared functions ═════════ */
-R.vault = async function () {
+R.vault = async function (arg) {
+  { const m = /^v(\d+)$/.exec(arg || ''); if (m) { _vaultFocus = +m[1]; } }
   setTop('Κωδικοί', 'Η θυρίδα κωδικών σου — κρυπτογραφημένα (AES-256)');
   const full = S.boot.me.full;
   $('#content').innerHTML = `<div class="card"><div class="card-h">${I.key} Θυρίδα κωδικών
@@ -4475,109 +4476,405 @@ R.vault = async function () {
     <div class="card-b" id="vaultBox"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>`;
   mountVault();
 };
+/* ═══ 🔐 ΘΥΡΙΔΑ: ΟΜΑΔΕΣ ΚΑΙ ΔΙΚΑ ΤΟΥΣ ΠΕΔΙΑ (23/10/2026) ═══════════════════════════════
+   Ομάδα (π.χ. «Skroutz») = ΚΟΙΝΑ στοιχεία για όλες τις καταχωρήσεις της (merchant URL…)
+   + ΠΡΟΤΥΠΟ πεδίων (api-key, client_id, client_secret…) + ποια βασικά πεδία χρειάζεται.
+   Κάθε καταχώρηση μπορεί να έχει και ΔΙΚΑ της πεδία. Ευαίσθητα (🔒) = κρυπτογραφημένα στον
+   server, φαίνονται μόνο με 👁 και αντιγράφονται με ⧉ — ποτέ δεν έρχονται με τη λίστα. */
 let _vaultMine = false;
+let _vaultQ = '';
+let _vaultGrouped = null;            // null = ό,τι λέει ο server (pref vault_grouped, εξ ορισμού ανά ομάδα)
+let _vaultClosed = null;             // Set ομάδων που είναι μαζεμένες (-1 = «Χωρίς ομάδα») — pref vault_closed
+const vSaveClosed = () => api('profile_pref', {key: 'vault_closed', value: [..._vaultClosed].join(',')}).catch(() => {});
+const VAULT_BI = {username: 'User', password: 'Κωδικός', ips: 'IP', url: 'URL', location: 'Τοποθεσία'};
+const VAULT_TYPES = [['text', 'Κείμενο'], ['url', 'Σύνδεσμος'], ['email', 'Email'], ['number', 'Αριθμός'], ['note', 'Σημείωση']];
+const VAULT_COLORS = ['#0090dd', '#16a26a', '#e0a020', '#e0552b', '#e2515f', '#7b5cd6', '#0aa3a3', '#8595ac'];
+const vKey = () => 'f' + Math.random().toString(36).slice(2, 8);
+/* Το όνομα ενός βασικού πεδίου ΣΕ ΑΥΤΗ την ομάδα (στο SoftOne το «User» λέγεται «Serial Number»). */
+const vLbl = (g, k) => (g && g.labels && g.labels[k]) || VAULT_BI[k];
+let _vaultF = {g: '', vis: ''};      // φίλτρα: ομάδα ('' όλες, '0' χωρίς ομάδα, id) · ορατότητα ('' όλες, 'sh', 'own')
+let _vaultFocus = 0;                 // από το Ctrl+K: άνοιξε την ομάδα της και δείξε τη
 function mountVault() {
-  window._vaultKinds = null; window._vaultItems = [];
+  window._vault = null;
   const add = $('#vAdd'); if (add) { add.onclick = () => openVaultForm(null); }
   loadVault();
 }
+const vGroupOf = id => ((window._vault || {}).groups || []).find(g => g.id === +id) || null;
+/* Μία τιμή ως «chip»: ετικέτα + τιμή + ⧉ (+ 👁 για ευαίσθητα). src = από πού αποκαλύπτεται. */
+function vChip(label, value, opts) {
+  const o = opts || {};
+  const ed = o.edit ? `<button type="button" class="vf-b" ${o.edit} title="Αλλαγή">✎</button>` : '';
+  const empty = o.secret ? !o.has : (value === undefined || value === null || String(value).trim() === '');
+  /* Κενό πεδίο: φαίνεται (για να συμπληρωθεί) — μόνο σε όποιον μπορεί να το αλλάξει. */
+  if (empty) { return o.edit ? `<button type="button" class="vf vf-empty" ${o.edit} title="Συμπλήρωση">＋ ${esc(label)}${o.secret ? ' 🔒' : ''}</button>` : ''; }
+  if (o.secret) {
+    return `<span class="vf vf-sec"><small>${esc(label)}</small><code class="vf-v" data-vmask="1">••••••••</code>
+      <button type="button" class="vf-b" data-vrv="1" ${o.src} title="Εμφάνιση">👁</button><button type="button" class="vf-b" data-vcp="1" ${o.src} title="Αντιγραφή">⧉</button>${ed}</span>`;
+  }
+  const v = String(value);
+  const shown = o.type === 'url' ? `<a href="${esc(/^https?:\/\//i.test(v) ? v : 'https://' + v)}" target="_blank" rel="noopener" class="vf-v">${esc(v.replace(/^https?:\/\//, '').slice(0, 48))}</a>`
+    : o.type === 'note' ? `<span class="vf-v vf-note">${esc(v.slice(0, 120))}</span>` : `<code class="vf-v">${esc(v.slice(0, 80))}</code>`;
+  return `<span class="vf"><small>${esc(label)}</small>${shown}<button type="button" class="vf-b" data-vcpt="${esc(v)}" title="Αντιγραφή">⧉</button>${ed}</span>`;
+}
+/* Χαρακτηριστικά για επεξεργασία ενός πεδίου επί τόπου. */
+const vEd = (v, k, label, opt) => v.canEdit ? `data-vset="${v.id}" data-k="${esc(k)}" data-label="${esc(label)}"${opt && opt.secret ? ' data-secret="1"' : ''}${opt && opt.type ? ` data-type="${esc(opt.type)}"` : ''}` : '';
+function vEntryHtml(v, showGroup) {
+  const g = vGroupOf(v.groupId);
+  const src = `data-id="${v.id}"`;
+  /* ΜΟΝΟ πεδία: το πρότυπο της ομάδας + τα δικά της (23/10/2026 — όχι «βασικά πεδία»).
+     Τα κενά ως «＋ πεδίο» για συμπλήρωση επί τόπου· τα ευαίσθητα με 👁 / ⧉. */
+  const chips = [
+    ...((g ? g.fields : []).concat(v.fields || [])).map(f => f.secret
+      ? vChip(f.label, '', {secret: true, has: (v.secretsSet || []).includes(f.k), src: `${src} data-field="${esc(f.k)}"`, edit: vEd(v, f.k, f.label, {secret: true})})
+      : vChip(f.label, (v.values || {})[f.k], {type: f.type, edit: vEd(v, f.k, f.label, {type: f.type})})),
+  ].filter(Boolean).join('');
+  const sub = [v.clientName, v.purpose, !v.canEdit && v.shared ? v.ownerName : '']
+    .filter(Boolean).map(esc).join(' · ');
+  const d = window._vault || {};
+  return `<div class="ve" data-ve="${v.id}">
+    <div class="ve-h"><b>${esc(v.descr)}</b>${v.shared ? `<span class="pill ve-sh">${I.users} κοινή</span>` : ''}
+      ${showGroup && g ? `<span class="pill" style="background:${g.color}1f;color:${g.color}">${esc(g.name)}</span>` : ''}
+      ${sub ? `<div class="mut ve-sub">${sub}</div>` : ''}</div>
+    <div class="ve-f">${chips || '<span class="mut" style="font-size:11.5px">— χωρίς στοιχεία —</span>'}</div>
+    ${d.full ? `<span class="mut ve-own">${esc(v.ownerName)}</span>` : ''}
+    <div class="ve-a">${v.canEdit ? `<button class="btn btn-sm btn-o" data-vedit="${v.id}" title="Επεξεργασία">${I.edit}</button>
+      <button class="btn btn-sm btn-o" data-vdel="${v.id}" title="Διαγραφή" style="color:var(--bad)">${I.trash}</button>` : '<span class="mut" style="font-size:10px">κοινό</span>'}</div>
+  </div>`;
+}
+function vMatch(v) {
+  if (!_vaultQ) { return true; }
+  const g = vGroupOf(v.groupId);
+  return window.CNP.cnpMatch([v.descr, v.username, v.url, v.ips, v.clientName, v.purpose, v.location, g ? g.name : '',
+    ...Object.values(v.values || {})].join(' '), _vaultQ);
+}
 async function loadVault() {
-    const box = $('#vaultBox'); if (!box) { return; }
-    const d = await api('vault_list' + (_vaultMine ? '&mine=1' : '')).catch(() => null);
-    if (!d) { box.innerHTML = '<div class="mut" style="font-size:12px">Σφάλμα φόρτωσης</div>'; return; }
-    window._vaultKinds = d.kinds; window._vaultItems = d.items;
-    const scope = d.full ? `<div style="display:flex;gap:6px;margin-bottom:11px">
-      <button class="btn btn-sm ${_vaultMine ? 'btn-o' : 'btn-p'}" data-vscope="0">Όλων των χειριστών</button>
-      <button class="btn btn-sm ${_vaultMine ? 'btn-p' : 'btn-o'}" data-vscope="1">Μόνο δικά μου</button></div>` : '';
-    box.innerHTML = scope + (d.items.length ? `<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:12.5px">
-      <thead><tr><th style="text-align:left">Περιγραφή</th><th style="text-align:left">Τύπος</th><th style="text-align:left">User</th><th style="text-align:left">Κωδικός</th><th style="text-align:left">IP / URL</th><th style="text-align:left">Πελάτης / Χρήση</th>${d.full ? '<th style="text-align:left">Χειριστής</th>' : ''}<th></th></tr></thead><tbody>
-      ${d.items.map(v => `<tr>
-        <td style="text-align:left"><b>${esc(v.descr)}</b>${v.shared ? ` <span class="pill" style="background:var(--ok)1a;color:var(--ok);font-size:8.5px">${I.users} κοινή</span>` : ''}${v.location || (v.shared && !v.canEdit) ? `<div class="mut" style="font-size:10.5px">${v.location ? I.pin + ' ' + esc(v.location) : ''}${v.shared && !v.canEdit ? (v.location ? ' · ' : '') + esc(v.ownerName) : ''}</div>` : ''}</td>
-        <td style="text-align:left"><span class="pill" style="font-size:9.5px">${esc(v.kindLbl)}</span></td>
-        <td style="text-align:left">${v.username ? `<span style="font-family:monospace">${esc(v.username)}</span> <button class="btn btn-sm btn-o" data-vcopyu="${esc(v.username)}" title="αντιγραφή" style="padding:2px 6px">⧉</button>` : '<span class="mut">—</span>'}</td>
-        <td style="text-align:left;white-space:nowrap"><span class="vpw" data-vid="${v.id}" style="font-family:monospace">••••••••</span>
-          <button class="btn btn-sm btn-o" data-vreveal="${v.id}" title="εμφάνιση" style="padding:2px 6px">👁</button>
-          <button class="btn btn-sm btn-o" data-vcopy="${v.id}" title="αντιγραφή" style="padding:2px 6px">⧉</button></td>
-        <td style="text-align:left;font-size:11px">${v.ips ? esc(v.ips.split(/[,\n]/)[0].trim()) + (v.ips.split(/[,\n]/).filter(x => x.trim()).length > 1 ? ' <span class="mut">+' + (v.ips.split(/[,\n]/).filter(x => x.trim()).length - 1) + '</span>' : '') : ''}${v.url ? `<div><a href="${esc(v.url)}" target="_blank" rel="noopener" style="color:var(--brand)">${esc(v.url.replace(/^https?:\/\//, '').slice(0, 30))}</a></div>` : ''}</td>
-        <td style="text-align:left;font-size:11px">${v.clientName ? esc(v.clientName) : ''}${v.purpose ? `<div class="mut">${esc(v.purpose)}</div>` : ''}</td>
-        ${d.full ? `<td style="text-align:left;font-size:11px" class="mut">${esc(v.ownerName)}</td>` : ''}
-        <td style="text-align:right;white-space:nowrap">${v.canEdit ? `<button class="btn btn-sm btn-o" data-vedit="${v.id}" style="padding:3px 7px">${I.edit}</button>
-          <button class="btn btn-sm btn-o" data-vdel="${v.id}" style="padding:3px 7px;color:var(--bad)">${I.trash}</button>` : '<span class="mut" style="font-size:10px">κοινό</span>'}</td></tr>`).join('')}
-      </tbody></table></div>` : (_vaultMine && d.full
-        ? '<div class="empty" style="padding:22px">Δεν έχεις δικούς σου κωδικούς.<div class="mut" style="font-size:11.5px;margin-top:5px">Πάτα «Όλων των χειριστών» για να δεις και τους κοινούς της ομάδας.</div></div>'
-        : '<div class="empty" style="padding:22px">Καμία καταχώρηση ακόμη — πάτα «Νέος κωδικός»</div>'));
-    $$('[data-vscope]', box).forEach(b => b.onclick = () => { _vaultMine = b.dataset.vscope === '1'; loadVault(); });
-    $$('[data-vreveal]', box).forEach(b => b.onclick = async () => {
-      const sp = box.querySelector(`.vpw[data-vid="${b.dataset.vreveal}"]`);
-      if (sp.dataset.shown) { sp.textContent = '••••••••'; delete sp.dataset.shown; return; }
-      const r = await api('vault_reveal', {id: +b.dataset.vreveal}); sp.textContent = r.password; sp.dataset.shown = '1';
-    });
-    $$('[data-vcopy]', box).forEach(b => b.onclick = async () => { const r = await api('vault_reveal', {id: +b.dataset.vcopy}); await navigator.clipboard.writeText(r.password); toast('Κωδικός αντιγράφηκε ✓'); });
-    $$('[data-vcopyu]', box).forEach(b => b.onclick = async () => { await navigator.clipboard.writeText(b.dataset.vcopyu); toast('User αντιγράφηκε'); });
-    $$('[data-vedit]', box).forEach(b => b.onclick = () => openVaultForm(window._vaultItems.find(x => x.id === +b.dataset.vedit)));
-    $$('[data-vdel]', box).forEach(b => b.onclick = async () => { if (!await cnpConfirm('Διαγραφή καταχώρησης;')) { return; } await api('vault_del', {id: +b.dataset.vdel}); toast('Διαγράφηκε'); loadVault(); });
+  const box = $('#vaultBox'); if (!box) { return; }
+  const d = await api('vault_list' + (_vaultMine ? '&mine=1' : '')).catch(() => null);
+  if (!d) { box.innerHTML = '<div class="mut" style="font-size:12px">Σφάλμα φόρτωσης</div>'; return; }
+  window._vault = d; window._vaultItems = d.items;
+  if (_vaultGrouped === null) { _vaultGrouped = d.grouped !== false; }
+  if (_vaultClosed === null) { _vaultClosed = new Set(d.closed || []); }
+  if (_vaultFocus) {   // η ομάδα της καταχώρησης που ζητήθηκε ανοίγει, και φεύγουν φίλτρα που θα την έκρυβαν
+    const it = d.items.find(x => x.id === _vaultFocus);
+    if (it) { _vaultClosed.delete(it.groupId || -1); _vaultQ = ''; _vaultF = {g: '', vis: ''}; }
   }
-  function vaultGen(len) {
-    len = len || 18;
-    const cc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+';
-    const a = crypto.getRandomValues(new Uint32Array(len));
-    return Array.from(a, x => cc[x % cc.length]).join('');
+  box.innerHTML = `<div class="fbar">
+      ${fChip('Αναζήτηση', `<input class="fchip-s" id="vQ" value="${esc(_vaultQ)}" placeholder="περιγραφή, πελάτης, ομάδα, user…" style="width:220px">`, !!_vaultQ, '')}
+      <span class="fseg"><button class="fchip${_vaultGrouped ? ' on' : ''}" data-vgrp="1">Ανά ομάδα</button><button class="fchip${_vaultGrouped ? '' : ' on'}" data-vgrp="0">Όλοι μαζί</button></span>
+      ${fChip('Ομάδα', fSel('vgf', [['', '— όλες —']].concat((d.groups || []).map(g => [String(g.id), g.name]), [['0', 'Χωρίς ομάδα']]), _vaultF.g), !!_vaultF.g, '')}
+      ${fChip('Ορατότητα', fSel('vvis', [['', '— όλες —'], ['sh', 'Κοινές (ομάδας)'], ['own', 'Προσωπικές']], _vaultF.vis), !!_vaultF.vis, '')}
+      ${d.full ? `<span class="fseg"><button class="fchip${_vaultMine ? '' : ' on'}" data-vscope="0">Όλων</button><button class="fchip${_vaultMine ? ' on' : ''}" data-vscope="1">Μόνο δικά μου</button></span>` : ''}
+      <span class="fbar-sp"></span>
+      <span id="vFold"></span>
+      <button class="fchip" id="vGrpNew">${I.plus} Νέα ομάδα</button>
+    </div><div id="vList"></div>`;
+  renderVaultList();
+  window.CNP.cnpSearch('vQ', q => { _vaultQ = q; renderVaultList(); }, 180);
+  $$('[data-vgrp]', box).forEach(b => b.onclick = () => {
+    _vaultGrouped = b.dataset.vgrp === '1';
+    $$('[data-vgrp]', box).forEach(x => x.classList.toggle('on', x === b));
+    renderVaultList();
+    api('profile_pref', {key: 'vault_grouped', value: _vaultGrouped ? '1' : '0'}).catch(() => {});
+  });
+  $$('[data-vscope]', box).forEach(b => b.onclick = () => { _vaultMine = b.dataset.vscope === '1'; loadVault(); });
+  $('#vGrpNew', box).onclick = () => openVaultGroup(null);
+  box.querySelector('.fbar').onchange = e => {
+    const k = e.target.dataset.fk; if (k !== 'vgf' && k !== 'vvis') { return; }
+    _vaultF[k === 'vgf' ? 'g' : 'vis'] = e.target.value;
+    e.target.closest('.fchip').classList.toggle('on', !!e.target.value);
+    renderVaultList();
+  };
+  /* Όλα τα κλικ της λίστας σε ένα σημείο (η λίστα ξαναζωγραφίζεται με την αναζήτηση). */
+  box.onclick = async e => {
+    const hd = e.target.closest('.vg-h[data-vgtog]');
+    if (hd && !e.target.closest('button')) {
+      const k = +hd.dataset.vgtog;
+      if (_vaultClosed.has(k)) { _vaultClosed.delete(k); } else { _vaultClosed.add(k); }
+      renderVaultList(); vSaveClosed(); return;
+    }
+    const t = e.target.closest('button, [data-vgedit], [data-vgadd]'); if (!t || !box.contains(t)) { return; }
+    const reveal = async b => api('vault_reveal', b.dataset.group ? {group: +b.dataset.group, field: b.dataset.field}
+      : {id: +b.dataset.id, field: b.dataset.field || ''}).then(r => r.password).catch(er => { toast(er.message, true); return null; });
+    if (t.dataset.vrv) {
+      const code = t.parentElement.querySelector('.vf-v');
+      if (code.dataset.shown) { code.textContent = '••••••••'; delete code.dataset.shown; return; }
+      const p = await reveal(t); if (p === null) { return; }
+      code.textContent = p || '(κενό)'; code.dataset.shown = '1'; return;
+    }
+    if (t.dataset.vcp) { const p = await reveal(t); if (p !== null) { await navigator.clipboard.writeText(p); toast('Αντιγράφηκε ✓'); } return; }
+    if (t.dataset.vcpt !== undefined) { await navigator.clipboard.writeText(t.dataset.vcpt); toast('Αντιγράφηκε ✓'); return; }
+    if (t.dataset.vedit) { openVaultForm(d.items.find(x => x.id === +t.dataset.vedit)); return; }
+    if (t.dataset.vdel) {
+      if (!await cnpConfirm('Διαγραφή καταχώρησης; Χάνονται και οι κωδικοί της.', {danger: true, ok: 'Διαγραφή'})) { return; }
+      await api('vault_del', {id: +t.dataset.vdel}); toast('Διαγράφηκε'); loadVault(); return;
+    }
+    if (t.dataset.vset) { vInlineEdit(t); return; }
+    if (t.dataset.vgedit) { openVaultGroup(vGroupOf(t.dataset.vgedit)); return; }
+    if (t.dataset.vfold) {   // ⊟ / ⊞ όλες
+      const ids = (d.groups || []).map(g => g.id).concat([-1]);
+      _vaultClosed = new Set(t.dataset.vfold === 'close' ? ids : []); renderVaultList(); vSaveClosed(); return;
+    }
+    if (t.dataset.vgadd !== undefined) { openVaultForm(null, +t.dataset.vgadd || 0); }
+  };
+}
+function renderVaultList() {
+  const el = $('#vList'), d = window._vault; if (!el || !d) { return; }
+  const items = d.items.filter(v => vMatch(v)
+    && (!_vaultF.g || (_vaultF.g === '0' ? !v.groupId : v.groupId === +_vaultF.g))
+    && (!_vaultF.vis || (_vaultF.vis === 'sh' ? v.shared : !v.shared)));
+  if (!d.items.length) {
+    el.innerHTML = `<div class="empty" style="padding:26px">${_vaultMine && d.full ? 'Δεν έχεις δικούς σου κωδικούς — πάτα «Όλων» για τους κοινούς της ομάδας.'
+      : 'Καμία καταχώρηση ακόμη — πάτα «Νέος κωδικός». Για όμοιους λογαριασμούς (π.χ. όλα τα Skroutz) φτιάξε πρώτα «Νέα ομάδα» με τα κοινά στοιχεία και τα πεδία τους.'}</div>`;
+    return;
   }
-  function openVaultForm(item) {
-    const box = $('#vaultBox'); if (!box) { return; }
-    const isNew = !item;
-    const kinds = window._vaultKinds || {other: 'Άλλο'};
-    const isShared = !isNew && item.shared;
-    box.innerHTML = `<div class="vault-form">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
-        <h3 style="margin:0;font-size:18px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία καταχώρησης'}</h3>
-        <button class="btn btn-o btn-sm" id="vBack" style="margin-left:auto">← Πίσω στη λίστα</button>
-      </div>
-      <div class="frow" style="gap:18px">
-        <div style="flex:2"><label class="lbl">Περιγραφή *</label><input class="inp" id="vDescr" value="${isNew ? '' : esc(item.descr)}" placeholder="π.χ. Firewall γραφείου"></div>
-        <div style="flex:1"><label class="lbl">Τύπος <span class="mut" style="font-weight:400">(εξοπλισμός ή λογισμικό)</span></label>
-          <input class="inp" id="vKind" list="vKindL" value="${isNew ? '' : esc(kinds[item.kind] || item.kind)}" placeholder="π.χ. SoftOne, Server, Microsoft 365…" autocomplete="off">
-          <datalist id="vKindL">${Object.values(kinds).map(l => `<option value="${esc(l)}">`).join('')}</datalist></div>
-      </div>
-      <div class="frow" style="margin-top:18px;gap:18px">
-        <div><label class="lbl">User</label><input class="inp" id="vUser" value="${isNew ? '' : esc(item.username)}" autocomplete="off"></div>
-        <div><label class="lbl">Κωδικός ${isNew ? '' : '<span class="mut" style="font-weight:400">(κενό = ίδιος)</span>'}</label>
-          <div style="display:flex;gap:7px"><input class="inp" id="vPass" type="text" autocomplete="off" placeholder="${isNew ? 'γράψε ή πάτα 🎲' : '••••••'}" style="font-family:monospace;flex:1">
-            <button class="btn btn-o" id="vGen" title="Παραγωγή ισχυρού" type="button">🎲</button></div></div>
-      </div>
-      <label class="lbl" style="margin-top:18px">IP <span class="mut" style="font-weight:400">(μία ή περισσότερες — κόμμα ή νέα γραμμή)</span></label>
-      <textarea class="inp" id="vIps" rows="3" placeholder="192.168.1.1, 10.0.0.5">${isNew ? '' : esc(item.ips)}</textarea>
-      <div class="frow" style="margin-top:18px;gap:18px">
-        <div><label class="lbl">URL</label><input class="inp" id="vUrl" value="${isNew ? '' : esc(item.url)}" placeholder="https://…"></div>
-        <div><label class="lbl">${I.pin} Τοποθεσία</label><input class="inp" id="vLoc" value="${isNew ? '' : esc(item.location)}" placeholder="π.χ. Rack A2 / γραφείο"></div>
-      </div>
-      <div class="frow" style="margin-top:18px;gap:18px">
-        <div><label class="lbl">Για ποιον πελάτη</label><input class="inp" id="vCli" list="vCliL" placeholder="αναζήτηση πελάτη…" value="${isNew || !item.clientId ? '' : esc(item.clientName + ' (#' + item.clientId + ')')}"><datalist id="vCliL"></datalist><input type="hidden" id="vCliId" value="${isNew ? '' : (item.clientId || '')}"></div>
-        <div><label class="lbl">…ή για ποια χρήση</label><input class="inp" id="vPurp" value="${isNew ? '' : esc(item.purpose)}" placeholder="π.χ. εσωτερικό backup"></div>
-      </div>
-      <label class="lbl" style="margin-top:20px">Ορατότητα</label>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <label class="vis-opt ${isShared ? '' : 'on'}"><input type="radio" name="vShared" value="0" ${isShared ? '' : 'checked'}><span>${I.shield} <b>Προσωπική</b> — μόνο εσύ (& διαχειριστής)</span></label>
-        <label class="vis-opt ${isShared ? 'on' : ''}"><input type="radio" name="vShared" value="1" ${isShared ? 'checked' : ''}><span>${I.users} <b>Κοινή (ομάδας)</b> — όλη η ομάδα βλέπει/χρησιμοποιεί</span></label>
-      </div>
-      <div style="margin-top:26px;display:flex;gap:8px">
-        <button class="btn btn-p" id="vSave">${I.save} Αποθήκευση</button>
-        <button class="btn btn-o" id="vCancel">Άκυρο</button></div>
+  if (!_vaultGrouped) {
+    const f0 = $('#vFold'); if (f0) { f0.innerHTML = ''; }
+    el.innerHTML = items.length ? `<div class="vg-card">${items.map(v => vEntryHtml(v, true)).join('')}</div>` : '<div class="empty" style="padding:22px">Καμία αντιστοιχία στην αναζήτηση.</div>';
+    return;
+  }
+  const fold = $('#vFold');
+  if (fold) { fold.innerHTML = `<button class="fchip" data-vfold="close" title="Σύμπτυξη όλων των ομάδων">⊟</button><button class="fchip" data-vfold="open" title="Ανάπτυξη όλων των ομάδων">⊞</button>`; }
+  /* Με αναζήτηση όλα ανοιχτά — αλλιώς ένα αποτέλεσμα θα κρυβόταν σε μαζεμένη ομάδα. */
+  const isClosed = k => !_vaultQ && _vaultClosed.has(k);
+  const chev = k => `<span class="vg-chev${isClosed(k) ? '' : ' open'}">${I.chev}</span>`;
+  const groups = (d.groups || []).map(g => ({g, rows: items.filter(v => v.groupId === g.id)}));
+  const loose = items.filter(v => !v.groupId);
+  /* Ομάδα χωρίς καταχωρήσεις φαίνεται (για να γεμίσει) — εκτός αν ψάχνεις. */
+  const filtering = !!(_vaultQ || _vaultF.g || _vaultF.vis);
+  const html = groups.filter(x => x.rows.length || !filtering).map(({g, rows}) => {
+    const info = (g.info || []).map(f => f.secret ? vChip(f.label, '', {secret: true, has: f.has, src: `data-group="${g.id}" data-field="${esc(f.k)}"`})
+      : vChip(f.label, f.value, {type: f.type})).filter(Boolean).join('');
+    const shut = isClosed(g.id);
+    return `<div class="vg-card${shut ? ' vg-shut' : ''}" style="--vgc:${esc(g.color)}">
+      <div class="vg-h" data-vgtog="${g.id}" title="${shut ? 'Ανάπτυξη' : 'Σύμπτυξη'}">${chev(g.id)}<span class="vg-dot"></span><b>${esc(g.name)}</b><span class="kb-n">${rows.length}</span>
+        ${(g.fields || []).length ? `<span class="mut vg-tpl" title="Πεδία κάθε καταχώρησης">${g.fields.map(f => esc(f.label) + (f.secret ? ' 🔒' : '')).join(' · ')}</span>` : ''}
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-o" data-vgadd="${g.id}" title="Νέα καταχώρηση σε αυτή την ομάδα">${I.plus}</button>
+        <button class="btn btn-sm btn-o" data-vgedit="${g.id}" title="Ομάδα: κοινά στοιχεία, πεδία">${I.edit}</button></div>
+      ${shut ? '' : `${info ? `<div class="vg-info"><span class="vg-il">Κοινά</span>${info}</div>` : ''}
+      ${rows.map(v => vEntryHtml(v, false)).join('') || '<div class="mut vg-empty">Καμία καταχώρηση — πάτα ＋ για την πρώτη.</div>'}`}
     </div>`;
-    box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-    clientAuto('vCli', 'vCliL', 'vCliId');
-    $$('.vis-opt', box).forEach(l => l.querySelector('input').onchange = () => {
-      $$('.vis-opt', box).forEach(x => x.classList.toggle('on', x.querySelector('input').checked));
-    });
-    $('#vGen', box).onclick = () => { $('#vPass', box).value = vaultGen(); };
-    $('#vBack', box).onclick = () => loadVault();
-    $('#vCancel', box).onclick = () => loadVault();
-    $('#vSave', box).onclick = async () => {
-      const descr = $('#vDescr', box).value.trim(); if (!descr) { toast('Δώσε περιγραφή', true); return; }
-      const sh = box.querySelector('input[name="vShared"]:checked');
-      await api('vault_save', {id: isNew ? 0 : item.id, descr, kind: $('#vKind', box).value, username: $('#vUser', box).value,
-        password: $('#vPass', box).value, ips: $('#vIps', box).value, url: $('#vUrl', box).value, location: $('#vLoc', box).value,
-        client: +($('#vCliId', box).value || 0), purpose: $('#vPurp', box).value, shared: sh ? +sh.value : 0}).catch(e => ({err: e.message}));
-      toast('Αποθηκεύτηκε ✓'); loadVault();
-    };
+  }).join('') + (loose.length ? `<div class="vg-card${isClosed(-1) ? ' vg-shut' : ''}" style="--vgc:#8595ac"><div class="vg-h" data-vgtog="-1">${chev(-1)}<span class="vg-dot"></span><b>Χωρίς ομάδα</b><span class="kb-n">${loose.length}</span>
+      <span style="flex:1"></span><button class="btn btn-sm btn-o" data-vgadd="0" title="Νέα καταχώρηση χωρίς ομάδα">${I.plus}</button></div>
+      ${isClosed(-1) ? '' : loose.map(v => vEntryHtml(v, false)).join('')}</div>` : '');
+  el.innerHTML = html || '<div class="empty" style="padding:22px">Καμία αντιστοιχία στην αναζήτηση.</div>';
+  if (_vaultFocus) {
+    const row = el.querySelector(`[data-ve="${_vaultFocus}"]`); _vaultFocus = 0;
+    if (row) { row.scrollIntoView({block: 'center', behavior: 'smooth'}); row.classList.add('ve-hl'); setTimeout(() => row.classList.remove('ve-hl'), 2600); }
   }
+}
+/* ── Επεξεργασία ΕΝΟΣ πεδίου από τη λίστα: μικρό πλαίσιο κάτω από το chip ── */
+function vInlineEdit(btn) {
+  document.querySelectorAll('.vf-pop').forEach(x => x.remove());
+  const id = +btn.dataset.vset, k = btn.dataset.k, secret = btn.dataset.secret === '1', type = btn.dataset.type || 'text';
+  const v = ((window._vault || {}).items || []).find(x => x.id === id); if (!v) { return; }
+  const cur = secret ? '' : (['username', 'ips', 'url', 'location'].includes(k) ? (v[k] || '') : ((v.values || {})[k] || ''));
+  const has = secret && (k === 'password' ? v.hasPass : (v.secretsSet || []).includes(k));
+  const pop = document.createElement('div'); pop.className = 'vf-pop';
+  const multi = type === 'note';
+  pop.innerHTML = `<b>${esc(btn.dataset.label)}${secret ? ' 🔒' : ''}</b>
+    <div class="vf-pop-r">${multi ? `<textarea class="inp" rows="3">${esc(cur)}</textarea>`
+      : `<input class="inp" value="${esc(cur)}" ${secret ? `placeholder="${has ? 'νέα τιμή' : 'τιμή'} — κρυπτογραφείται" autocomplete="off" style="font-family:monospace"` : ''}>`}
+      ${secret ? '<button type="button" class="btn btn-o btn-sm" data-pg title="Παραγωγή">🎲</button>' : ''}</div>
+    <div class="vf-pop-a">${has && k !== 'password' ? '<button type="button" class="btn btn-sm btn-o" data-pclr style="color:var(--bad);margin-right:auto">Καθάρισμα</button>' : ''}
+      <span class="mut" style="font-size:11px">${multi ? 'Ctrl+Enter' : 'Enter'} αποθήκευση · Esc</span>
+      <button type="button" class="btn btn-sm btn-o" data-pno>Άκυρο</button><button type="button" class="btn btn-sm btn-p" data-pok>Αποθήκευση</button></div>`;
+  document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + 'px';
+  pop.style.top = (r.bottom + 6 + pop.offsetHeight > innerHeight ? Math.max(8, r.top - pop.offsetHeight - 6) : r.bottom + 6) + 'px';
+  const inp = pop.querySelector('input, textarea');
+  const close = () => { pop.remove(); document.removeEventListener('pointerdown', outside, true); };
+  const outside = e => { if (!pop.contains(e.target)) { close(); } };
+  setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+  const save = async (val) => {
+    const value = val !== undefined ? val : inp.value;
+    if (secret && value === '' && val === undefined) { inp.focus(); return; }
+    const res = await api('vault_field_set', {id, k, value}).catch(e => ({err: e.message}));
+    if (res && res.err) { toast(res.err, true); return; }
+    if (k === 'password') { v.hasPass = true; }
+    else if (secret) { v.secretsSet = (v.secretsSet || []).filter(x => x !== k).concat(value ? [k] : []); }
+    else if (['username', 'ips', 'url', 'location'].includes(k)) { v[k] = value.trim(); }
+    else { v.values = Object.assign({}, v.values); if (value.trim()) { v.values[k] = value.trim(); } else { delete v.values[k]; } }
+    close(); renderVaultList(); toast('Αποθηκεύτηκε ✓');
+  };
+  pop.querySelector('[data-pok]').onclick = () => save();
+  pop.querySelector('[data-pno]').onclick = close;
+  { const c = pop.querySelector('[data-pclr]'); if (c) { c.onclick = () => save(''); } }
+  { const g = pop.querySelector('[data-pg]'); if (g) { g.onclick = () => { inp.value = vaultGen(); inp.focus(); }; } }
+  inp.onkeydown = e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    if (e.key === 'Enter' && (!multi || e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+  };
+  inp.focus(); if (!secret) { inp.select(); }
+}
+function vaultGen(len) {
+  len = len || 18;
+  const cc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+';
+  const a = crypto.getRandomValues(new Uint32Array(len));
+  return Array.from(a, x => cc[x % cc.length]).join('');
+}
+/* Επεξεργαστής ΟΡΙΣΜΩΝ πεδίων (όνομα, τύπος, ευαίσθητο· προαιρετικά και τιμή) — ίδιος για
+   το πρότυπο της ομάδας, τα κοινά στοιχεία της και τα δικά πεδία μιας καταχώρησης. */
+function vFieldRows(host, list, withValue, secretHas) {
+  const paint = () => {
+    host.innerHTML = list.map((f, i) => `<div class="vfr" data-i="${i}">
+      <input class="inp" data-fl placeholder="Όνομα πεδίου (π.χ. API key)" value="${esc(f.label || '')}">
+      <select class="inp" data-ft>${VAULT_TYPES.map(([k, l]) => `<option value="${k}" ${f.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="vfr-s" title="Ευαίσθητο: κρυπτογραφείται, φαίνεται μόνο με 👁"><input type="checkbox" data-fs ${f.secret ? 'checked' : ''}> 🔒</label>
+      ${withValue ? `<input class="inp" data-fv placeholder="${f.secret && secretHas && secretHas(f) ? '•••••• (κενό = ίδια τιμή)' : 'Τιμή'}" value="${f.secret ? '' : esc(f.value || '')}" ${f.secret ? 'autocomplete="off" style="font-family:monospace"' : ''}>` : ''}
+      <button type="button" class="btn btn-sm btn-o" data-fx title="Αφαίρεση">✕</button></div>`).join('')
+      || `<div class="mut" style="font-size:12px;padding:4px 0">Κανένα — πάτα «+ Πεδίο».</div>`;
+    $$('.vfr', host).forEach(r => {
+      const f = list[+r.dataset.i];
+      r.querySelector('[data-fl]').oninput = e => { f.label = e.target.value; };
+      r.querySelector('[data-ft]').onchange = e => { f.type = e.target.value; };
+      r.querySelector('[data-fs]').onchange = e => { f.secret = e.target.checked; paint(); };
+      const fv = r.querySelector('[data-fv]'); if (fv) { fv.oninput = e => { f.value = e.target.value; }; }
+      r.querySelector('[data-fx]').onclick = () => { list.splice(+r.dataset.i, 1); paint(); };
+    });
+  };
+  paint();
+  return {add: () => { list.push({k: vKey(), label: '', type: 'text', secret: false, value: ''}); paint(); const ls = $$('[data-fl]', host); if (ls.length) { ls[ls.length - 1].focus(); } }};
+}
+const vCleanDefs = list => list.filter(f => String(f.label || '').trim()).map(f => ({k: f.k, label: f.label.trim(), type: f.type, secret: !!f.secret}));
+
+/* ── Ομάδα: όνομα, χρώμα, βασικά πεδία, ΚΟΙΝΑ στοιχεία, ΠΡΟΤΥΠΟ πεδίων ── */
+function openVaultGroup(g, onSaved) {
+  const isNew = !g;
+  const info = (g ? g.info : []).map(f => Object.assign({}, f, {value: f.secret ? '' : f.value}));
+  const fields = (g ? g.fields : []).map(f => Object.assign({}, f));
+  let color = g ? g.color : VAULT_COLORS[0];
+  const ovl = document.createElement('div'); ovl.className = 'ovl show'; ovl.style.zIndex = 400;
+  ovl.innerHTML = `<div class="pal-box vg-dlg" role="dialog"><div style="padding:18px 20px">
+    <b style="font-size:16px;color:var(--ink)">${I.key} ${isNew ? 'Νέα ομάδα κωδικών' : 'Ομάδα: ' + esc(g.name)}</b>
+    <div class="mut" style="font-size:12px;margin:3px 0 14px">Π.χ. «Skroutz»: κοινό το merchant URL, και κάθε πελάτης με τα δικά του στοιχεία.</div>
+    <div class="frow" style="gap:14px;align-items:flex-end">
+      <div style="flex:2"><label class="lbl">Όνομα *</label><input class="inp" id="vgName" value="${esc(g ? g.name : '')}" placeholder="π.χ. Skroutz, SoftOne"></div>
+      <div><label class="lbl">Χρώμα</label><div class="vg-cols">${VAULT_COLORS.map(c => `<button type="button" data-col="${c}" style="background:${c}" class="${c === color ? 'on' : ''}"></button>`).join('')}</div></div>
+    </div>
+    <label class="lbl" style="margin-top:14px">Κοινά στοιχεία της ομάδας <span class="mut" style="font-weight:400">— ισχύουν για όλους (π.χ. Merchant URL)</span></label>
+    <div id="vgInfo"></div><button type="button" class="btn btn-sm btn-o" id="vgInfoAdd">+ Πεδίο</button>
+    <label class="lbl" style="margin-top:14px">Πεδία κάθε καταχώρησης <span class="mut" style="font-weight:400">— π.χ. API key, client_id, client_secret</span></label>
+    <div id="vgFields"></div><button type="button" class="btn btn-sm btn-o" id="vgFieldAdd">+ Πεδίο</button>
+    <div style="display:flex;gap:8px;margin-top:20px;align-items:center">
+      ${!isNew && g.canDelete ? `<button class="btn btn-sm btn-o" id="vgDel" style="color:var(--bad)">${I.trash} Διαγραφή ομάδας</button>` : ''}
+      <span style="flex:1"></span><button class="btn btn-o" id="vgNo">Άκυρο</button><button class="btn btn-p" id="vgOk">${I.save} Αποθήκευση</button></div>
+  </div></div>`;
+  document.body.appendChild(ovl);
+  const close = () => ovl.remove();
+  const ie = vFieldRows($('#vgInfo', ovl), info, true, f => f.has);
+  const fe = vFieldRows($('#vgFields', ovl), fields, false);
+  $('#vgInfoAdd', ovl).onclick = ie.add;
+  $('#vgFieldAdd', ovl).onclick = fe.add;
+  $$('[data-col]', ovl).forEach(b => b.onclick = () => { color = b.dataset.col; $$('[data-col]', ovl).forEach(x => x.classList.toggle('on', x === b)); });
+  $('#vgNo', ovl).onclick = close;
+  const del = $('#vgDel', ovl);
+  if (del) { del.onclick = async () => {
+    if (!await cnpConfirm(`Διαγραφή της ομάδας «${g.name}»; Οι καταχωρήσεις της ΔΕΝ σβήνονται — περνούν στο «Χωρίς ομάδα». Τα κοινά στοιχεία της χάνονται.`, {danger: true, ok: 'Διαγραφή ομάδας'})) { return; }
+    const r = await api('vault_group_del', {id: g.id}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    close(); toast('Η ομάδα διαγράφηκε'); loadVault();
+  }; }
+  $('#vgOk', ovl).onclick = async () => {
+    const name = $('#vgName', ovl).value.trim(); if (!name) { toast('Δώσε όνομα ομάδας', true); return; }
+    const r = await api('vault_group_save', {id: g ? g.id : 0, name, color,
+      fields: vCleanDefs(fields),
+      info: info.filter(f => String(f.label || '').trim()).map(f => ({k: f.k, label: f.label.trim(), type: f.type, secret: !!f.secret, value: f.value || ''}))})
+      .catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    close(); toast(isNew ? 'Η ομάδα δημιουργήθηκε' : 'Η ομάδα αποθηκεύτηκε');
+    if (onSaved) { await onSaved(r.id); } else { loadVault(); }
+  };
+  setTimeout(() => $('#vgName', ovl).focus(), 30);
+}
+
+/* ── Καταχώρηση: ομάδα (με «+ Νέα ομάδα…»), βασικά πεδία ανά ομάδα, πεδία προτύπου + δικά της ── */
+function openVaultForm(item, presetGroup) {
+  const box = $('#vaultBox'); if (!box) { return; }
+  const isNew = !item;
+  const isShared = !isNew && item.shared;
+  let gid = isNew ? (presetGroup || 0) : (item.groupId || 0);
+  const own = (isNew ? [] : (item.fields || [])).map(f => Object.assign({}, f));
+  const vals = Object.assign({}, isNew ? {} : (item.values || {}));
+  const secSet = new Set(isNew ? [] : (item.secretsSet || []));
+  box.innerHTML = `<div class="vault-form">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+      <h3 style="margin:0;font-size:18px;color:var(--ink);display:flex;align-items:center;gap:9px">${I.key} ${isNew ? 'Νέος κωδικός' : 'Επεξεργασία καταχώρησης'}</h3>
+      <button class="btn btn-o btn-sm" id="vBack" style="margin-left:auto">← Πίσω στη λίστα</button></div>
+    <div class="frow" style="gap:18px">
+      <div style="flex:2"><label class="lbl">Περιγραφή *</label><input class="inp" id="vDescr" value="${isNew ? '' : esc(item.descr)}" placeholder="π.χ. Skroutz — Φαρμακείο Παπαδόπουλου"></div>
+      <div style="flex:1"><label class="lbl">Ομάδα</label><select class="inp" id="vGroup"></select></div>
+    </div>
+    <div id="vGInfo"></div>
+    <div id="vTpl"></div>
+    <label class="lbl" style="margin-top:18px">Επιπλέον πεδία αυτής της καταχώρησης <span class="mut" style="font-weight:400">— π.χ. API key, client_secret (🔒 = ευαίσθητο)</span></label>
+    <div id="vOwn"></div><button type="button" class="btn btn-sm btn-o" id="vOwnAdd">+ Πεδίο</button>
+    <div class="frow" style="margin-top:18px;gap:18px">
+      <div><label class="lbl">Για ποιον πελάτη</label><input class="inp" id="vCli" list="vCliL" placeholder="αναζήτηση πελάτη…" value="${isNew || !item.clientId ? '' : esc(item.clientName + ' (#' + item.clientId + ')')}"><datalist id="vCliL"></datalist><input type="hidden" id="vCliId" value="${isNew ? '' : (item.clientId || '')}"></div>
+      <div><label class="lbl">…ή για ποια χρήση</label><input class="inp" id="vPurp" value="${isNew ? '' : esc(item.purpose)}" placeholder="π.χ. εσωτερικό backup"></div>
+    </div>
+    <label class="lbl" style="margin-top:20px">Ορατότητα</label>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <label class="vis-opt ${isShared ? '' : 'on'}"><input type="radio" name="vShared" value="0" ${isShared ? '' : 'checked'}><span>${I.shield} <b>Προσωπική</b> — μόνο εσύ (& διαχειριστής)</span></label>
+      <label class="vis-opt ${isShared ? 'on' : ''}"><input type="radio" name="vShared" value="1" ${isShared ? 'checked' : ''}><span>${I.users} <b>Κοινή (ομάδας)</b> — όλη η ομάδα βλέπει/χρησιμοποιεί</span></label>
+    </div>
+    <div style="margin-top:26px;display:flex;gap:8px">
+      <button class="btn btn-p" id="vSave">${I.save} Αποθήκευση</button><button class="btn btn-o" id="vCancel">Άκυρο</button></div>
+  </div>`;
+  box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  window.CNP.clientAuto('vCli', 'vCliL', 'vCliId');
+  const grab = () => { $$('[data-tplk]', box).forEach(e => { vals[e.dataset.tplk] = e.value; }); };
+  /* Νέα καταχώρηση ΧΩΡΙΣ ομάδα: προτεινόμενα πεδία (σβήνονται με ✕) — αλλιώς θα ξεκινούσε εντελώς άδεια. */
+  if (isNew && !gid) { own.push({k: vKey(), label: 'User', type: 'text', secret: false}, {k: vKey(), label: 'Κωδικός', type: 'text', secret: true}, {k: vKey(), label: 'URL', type: 'url', secret: false}); }
+  own.forEach(f => { f.value = f.secret ? '' : (vals[f.k] || ''); });   // ευαίσθητα: κενό = ίδια τιμή
+  const ownEd = vFieldRows($('#vOwn', box), own, true, f => secSet.has(f.k));
+  const paintGroup = () => {
+    const sel = $('#vGroup', box);
+    sel.innerHTML = `<option value="0">— Χωρίς ομάδα —</option>${((window._vault || {}).groups || []).map(g => `<option value="${g.id}" ${g.id === gid ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}<option value="new">＋ Νέα ομάδα…</option>`;
+    const g = vGroupOf(gid);
+    const info = g ? (g.info || []).map(f => f.secret ? vChip(f.label, '', {secret: true, has: f.has, src: `data-group="${g.id}" data-field="${esc(f.k)}"`}) : vChip(f.label, f.value, {type: f.type})).filter(Boolean).join('') : '';
+    $('#vGInfo', box).innerHTML = info ? `<div class="vg-info" style="margin-top:14px"><span class="vg-il">Κοινά «${esc(g.name)}»</span>${info}</div>` : '';
+    const tpl = g ? g.fields : [];
+    $('#vTpl', box).innerHTML = tpl.length ? `<label class="lbl" style="margin-top:18px">Πεδία «${esc(g.name)}»</label><div class="frow" style="gap:14px;flex-wrap:wrap">${tpl.map(f => `<div style="min-width:220px">
+        <label class="lbl" style="font-weight:600">${esc(f.label)}${f.secret ? ' 🔒' : ''}</label>
+        ${f.type === 'note' && !f.secret ? `<textarea class="inp" rows="2" data-tplk="${esc(f.k)}">${esc(vals[f.k] || '')}</textarea>`
+          : `<div style="display:flex;gap:6px"><input class="inp" data-tplk="${esc(f.k)}" ${f.secret ? `placeholder="${secSet.has(f.k) ? '•••••• (κενό = ίδια τιμή)' : 'ευαίσθητο — κρυπτογραφείται'}" autocomplete="off" style="font-family:monospace;flex:1"` : `value="${esc(vals[f.k] || '')}" style="flex:1"`}>${f.secret ? `<button type="button" class="btn btn-o" data-gen="${esc(f.k)}" title="Παραγωγή">🎲</button>` : ''}</div>`}
+      </div>`).join('')}</div>` : '';
+    $$('[data-gen]', box).forEach(b => b.onclick = () => { box.querySelector(`[data-tplk="${b.dataset.gen}"]`).value = vaultGen(); });
+  };
+  paintGroup();
+  $('#vGroup', box).onchange = e => {
+    grab();
+    if (e.target.value === 'new') {
+      e.target.value = String(gid);
+      openVaultGroup(null, async newId => {
+        const d = await api('vault_list' + (_vaultMine ? '&mine=1' : '')).catch(() => null);
+        if (d) { window._vault = d; }
+        gid = newId; paintGroup();
+      });
+      return;
+    }
+    gid = +e.target.value; paintGroup();
+  };
+  $('#vOwnAdd', box).onclick = ownEd.add;
+  $$('.vis-opt', box).forEach(l => l.querySelector('input').onchange = () => {
+    $$('.vis-opt', box).forEach(x => x.classList.toggle('on', x.querySelector('input').checked));
+  });
+  $('#vBack', box).onclick = () => loadVault();
+  $('#vCancel', box).onclick = () => loadVault();
+  $('#vSave', box).onclick = async () => {
+    const descr = $('#vDescr', box).value.trim(); if (!descr) { toast('Δώσε περιγραφή', true); return; }
+    grab();
+    const sh = box.querySelector('input[name="vShared"]:checked');
+    const values = {};
+    $$('[data-tplk]', box).forEach(e => { values[e.dataset.tplk] = e.value; });
+    own.forEach(f => { if (String(f.label || '').trim()) { values[f.k] = f.value || ''; } });
+    const r = await api('vault_save', {id: isNew ? 0 : item.id, descr, group: gid,
+      kind: (vGroupOf(gid) || {}).name || (isNew ? '' : item.kind) || 'Άλλο',
+      client: +($('#vCliId', box).value || 0), purpose: $('#vPurp', box).value, shared: sh ? +sh.value : 0,
+      fields: vCleanDefs(own), values}).catch(e => ({err: e.message}));
+    if (r && r.err) { toast(r.err, true); return; }
+    toast('Αποθηκεύτηκε ✓'); loadVault();
+  };
+}

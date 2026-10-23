@@ -1662,6 +1662,43 @@ function cnp_vault_dec($blob)
     $p = openssl_decrypt($ct, 'aes-256-gcm', cnp_vault_key(), OPENSSL_RAW_DATA, $iv, $tag);
     return $p === false ? '' : $p;
 }
+/* ── Θυρίδα: ομάδες & δικά τους πεδία (23/10/2026) ─────────────────────────────────── */
+const CNP_VAULT_TYPES = ['text', 'url', 'email', 'number', 'note'];
+const CNP_VAULT_BUILTINS = ['username', 'password', 'ips', 'url', 'location'];
+/** Ορισμοί πεδίων [{k,label,type,secret}] — ό,τι άγνωστο πετιέται· το κλειδί μένει σταθερό. */
+function cnp_vault_fields_clean($arr, $withValue = false)
+{
+    $out = []; $seen = [];
+    foreach (is_array($arr) ? array_slice($arr, 0, 30) : [] as $f) {
+        if (!is_array($f)) { continue; }
+        $k = (string) ($f['k'] ?? '');
+        $label = mb_substr(trim(strip_tags((string) ($f['label'] ?? ''))), 0, 60);
+        if (!preg_match('/^[a-z0-9_]{1,24}$/', $k) || $label === '' || isset($seen[$k]) || in_array($k, CNP_VAULT_BUILTINS, true)) { continue; }
+        $seen[$k] = 1;
+        $row = ['k' => $k, 'label' => $label, 'type' => in_array($f['type'] ?? '', CNP_VAULT_TYPES, true) ? $f['type'] : 'text',
+            'secret' => !empty($f['secret'])];
+        if ($withValue) { $row['value'] = mb_substr((string) ($f['value'] ?? ''), 0, 2000); }
+        $out[] = $row;
+    }
+    return $out;
+}
+function cnp_vault_json($txt) { $a = json_decode((string) $txt, true); return is_array($a) ? $a : []; }
+function cnp_vault_secrets($enc) { return $enc ? (json_decode(cnp_vault_dec($enc), true) ?: []) : []; }
+/** Ομάδα για την οθόνη: τα ευαίσθητα κοινά στοιχεία ΔΕΝ φεύγουν — μόνο «υπάρχει τιμή». */
+function cnp_vault_group_dto($g, $adminId, $FULL)
+{
+    $sec = cnp_vault_secrets($g->info_enc);
+    $info = array_map(function ($f) use ($sec) {
+        if (!empty($f['secret'])) { $f['has'] = isset($sec[$f['k']]) && $sec[$f['k']] !== ''; unset($f['value']); }
+        return $f;
+    }, cnp_vault_fields_clean(cnp_vault_json($g->info_json), true));
+    $bi = array_values(array_intersect(CNP_VAULT_BUILTINS, explode(',', (string) $g->builtins)));
+    $lbl = array_intersect_key(cnp_vault_json($g->labels_json ?? ''), array_flip(CNP_VAULT_BUILTINS));
+    return ['id' => (int) $g->id, 'name' => $g->name, 'color' => $g->color ?: '#0090dd', 'builtins' => $bi, 'labels' => $lbl ?: new \stdClass(),
+        'fields' => cnp_vault_fields_clean(cnp_vault_json($g->fields_json)), 'info' => $info,
+        'canDelete' => $FULL || (int) $g->created_by === (int) $adminId || !$g->created_by];
+}
+
 /** Τύποι εξοπλισμού για τη θυρίδα κωδικών. */
 function cnp_vault_kinds()
 {
@@ -4789,7 +4826,7 @@ function cnp_open_actions()
         // προφίλ
         'profile', 'profile_save', 'profile_pass', 'profile_pref',
         // κωδικοί & βιβλιοθήκη (προσωπικά)
-        'vault_list', 'vault_save', 'vault_reveal', 'vault_del', 'lib_list', 'lib_save',
+        'vault_list', 'vault_save', 'vault_reveal', 'vault_del', 'vault_group_save', 'vault_group_del', 'vault_field_set', 'lib_list', 'lib_save',
         'lib_upload', 'lib_get', 'lib_pin', 'lib_del', 'manual_img',
         // εργασίες: row-level (canSeeTask / cnp_task_write_ok)
         /* task_delete: το δικαίωμα ΔΕΝ είναι cap αλλά ιδιοκτησία+χρόνο
@@ -7328,7 +7365,9 @@ case 'push_latest':                       // ο service worker τραβά τι �
     $u = (string) ($ln->url ?? '');
     if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
     elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
-    elseif (preg_match('~/project(?:management)?/#/(\w+)~', $u, $m)) { $spa = '/project/#/' . $m[1]; }
+    /* ΟΛΗ η διαδρομή μετά το #/ — πριν κρατούσε μόνο την οθόνη και το «#/task/776» γινόταν «#/task»
+       (άνοιγε η αρχική αντί για την εργασία, 23/10/2026). */
+    elseif (preg_match('~/project(?:management)?/#/([\w/-]+)~', $u, $m)) { $spa = '/project/#/' . $m[1]; }
     /* tag ανά εργασία: δεύτερη ειδοποίηση για την ίδια εργασία ΑΝΤΙΚΑΘΙΣΤΑ την πρώτη — όχι στοίβα. */
     $tagL = preg_match('~#/task/(\d+)~', $spa, $mt) ? 'cnp-task-' . $mt[1] : 'cnp-' . (int) $ln->id;
     out(['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => (string) ($ln->body ?? ''),
@@ -14050,6 +14089,15 @@ case 'profile_pref':                   // προσωπικές προτιμήσ�
         Db::setPref($adminId, 'lang', ($in['value'] ?? '') === 'en' ? 'en' : 'el');
         out(['ok' => true]);
     }
+    if ($key8 === 'vault_closed') {               // Κωδικοί: ποιες ομάδες είναι μαζεμένες (ids, -1 = «Χωρίς ομάδα»)
+        $vc = array_slice(array_values(array_unique(array_map('intval', array_filter(explode(',', (string) ($in['value'] ?? '')), function ($x) { return preg_match('/^-?\d{1,9}$/', trim($x)); })))), 0, 200);
+        Db::setPref($adminId, 'vault_closed', implode(',', $vc));
+        out(['ok' => true]);
+    }
+    if ($key8 === 'vault_grouped') {              // Κωδικοί: ανά ομάδα (εξ ορισμού) ή όλοι μαζί
+        Db::setPref($adminId, 'vault_grouped', ($in['value'] ?? '1') === '0' ? '0' : '1');
+        out(['ok' => true]);
+    }
     if ($key8 === 'push_os') {                    // ειδοποιήσεις Windows/κινητού: ναι (εξ ορισμού) / όχι
         Db::setPref($adminId, 'push_os', ($in['value'] ?? '1') === '0' ? '0' : '1');
         out(['ok' => true]);
@@ -15597,7 +15645,22 @@ case 'search':
                     ENT_QUOTES, 'UTF-8')];
         }
     }
-    out(['tasks' => $tasks, 'tickets' => $tickets, 'leads' => $leads, 'clients' => $clients]);
+    /* 🔐 Κωδικοί στο Ctrl+K (23/10/2026): μόνο ό,τι βλέπεις στη θυρίδα (δικά σου, κοινά, ή όλα ως Full)·
+       ψάχνει περιγραφή, user, URL, πελάτη/χρήση, ομάδα και ΜΗ ευαίσθητα πεδία — ποτέ κωδικούς. */
+    $vaults = [];
+    $vq = Capsule::table('mod_cpm_vault as v')->leftJoin('mod_cpm_vault_groups as g', 'g.id', '=', 'v.group_id')
+        ->leftJoin('tblclients as c', 'c.id', '=', 'v.client_id')
+        ->where(function ($w) use ($like) {
+            $w->where('v.descr', 'like', $like)->orWhere('v.username', 'like', $like)->orWhere('v.url', 'like', $like)
+              ->orWhere('v.purpose', 'like', $like)->orWhere('v.extra_json', 'like', $like)->orWhere('g.name', 'like', $like)
+              ->orWhere('c.companyname', 'like', $like);
+        });
+    if (!$FULL) { $vq->where(function ($w) use ($adminId) { $w->where('v.admin_id', $adminId)->orWhere('v.shared', 1); }); }
+    foreach ($vq->orderBy('v.descr')->limit(8)->get(['v.id', 'v.descr', 'v.username', 'g.name as gname', 'c.companyname']) as $vr) {
+        $vaults[] = ['id' => (int) $vr->id, 'descr' => $vr->descr, 'group' => (string) ($vr->gname ?? ''),
+            'sub' => implode(' · ', array_filter([(string) ($vr->gname ?? ''), (string) ($vr->companyname ?? ''), (string) $vr->username]))];
+    }
+    out(['tasks' => $tasks, 'tickets' => $tickets, 'leads' => $leads, 'clients' => $clients, 'vaults' => $vaults]);
 
 /* ================= ΡΥΘΜΙΣΕΙΣ (in-app) ================= */
 case 'settings_get':
@@ -17887,9 +17950,18 @@ case 'vault_list':
             $cmap[(int) $c->id] = $c->companyname ?: trim($c->firstname . ' ' . $c->lastname);
         }
     }
+    $groupsV = []; $grpMap = [];
+    foreach (Capsule::table('mod_cpm_vault_groups')->orderBy('name')->get() as $g) { $grpMap[(int) $g->id] = $g; $groupsV[] = cnp_vault_group_dto($g, $adminId, $FULL); }
     $items = [];
     foreach ($rows as $r) {
+        $secV = cnp_vault_secrets($r->extra_enc);
+        $own = cnp_vault_fields_clean(cnp_vault_json($r->fields_json));
         $items[] = ['id' => (int) $r->id, 'descr' => $r->descr, 'kind' => $r->kind, 'kindLbl' => $kinds[$r->kind] ?? $r->kind,
+            'groupId' => $r->group_id && isset($grpMap[(int) $r->group_id]) ? (int) $r->group_id : null,
+            'fields' => $own,                                             // δικά της (πέρα από το πρότυπο της ομάδας)
+            'values' => cnp_vault_json($r->extra_json),                   // μόνο ΜΗ ευαίσθητα
+            'secretsSet' => array_keys(array_filter($secV, function ($v) { return $v !== ''; })),
+            'hasPass' => $r->password_enc !== '' && cnp_vault_dec($r->password_enc) !== '',
             'username' => $r->username, 'ips' => $r->ips, 'url' => $r->url, 'location' => $r->location,
             'clientId' => $r->client_id ? (int) $r->client_id : null,
             'clientName' => $r->client_id ? ($cmap[(int) $r->client_id] ?? ('#' . $r->client_id)) : null,
@@ -17897,7 +17969,9 @@ case 'vault_list':
             'ownerName' => Db::adminName($r->admin_id), 'canEdit' => ((int) $r->admin_id === $adminId || $FULL),
             'updated' => $r->updated_at];
     }
-    out(['items' => $items, 'kinds' => $kinds, 'full' => $FULL, 'me' => $adminId, 'mine' => $mine]);
+    out(['items' => $items, 'groups' => $groupsV, 'kinds' => $kinds, 'full' => $FULL, 'me' => $adminId, 'mine' => $mine,
+        'grouped' => (string) Db::pref($adminId, 'vault_grouped', '1') !== '0',
+        'closed' => array_values(array_map('intval', array_filter(explode(',', (string) Db::pref($adminId, 'vault_closed', '')), 'strlen')))]);
 
 case 'vault_save':
     $descr = mb_substr(trim($in['descr'] ?? ''), 0, 150);
@@ -17911,6 +17985,26 @@ case 'vault_save':
         'shared' => !empty($in['shared']) ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')];
     $pass = (string) ($in['password'] ?? '');
     $id = (int) ($in['id'] ?? 0);
+    /* Ομάδα + πεδία: πρότυπο της ομάδας ΚΑΙ δικά της. Ευαίσθητα: κενό = ίδια τιμή (όπως ο κωδικός). */
+    $gidV = (int) ($in['group'] ?? 0);
+    $grpV = $gidV ? Capsule::table('mod_cpm_vault_groups')->where('id', $gidV)->first() : null;
+    if ($gidV && !$grpV) { fail('Η ομάδα δεν υπάρχει πια — ανανέωσε'); }
+    $data['group_id'] = $grpV ? (int) $grpV->id : null;
+    if ($grpV) { $data['kind'] = mb_substr($grpV->name, 0, 40); }
+    $ownF = cnp_vault_fields_clean($in['fields'] ?? []);
+    $allF = array_merge($grpV ? cnp_vault_fields_clean(cnp_vault_json($grpV->fields_json)) : [], $ownF);
+    $oldRow = $id ? Capsule::table('mod_cpm_vault')->where('id', $id)->first() : null;
+    $oldSec = $oldRow ? cnp_vault_secrets($oldRow->extra_enc) : [];
+    $valsIn = is_array($in['values'] ?? null) ? $in['values'] : [];
+    $plainV = []; $secV = [];
+    foreach ($allF as $f) {
+        $v = array_key_exists($f['k'], $valsIn) ? mb_substr((string) $valsIn[$f['k']], 0, 4000) : null;
+        if ($f['secret']) { $nv = ($v !== null && $v !== '') ? $v : ($oldSec[$f['k']] ?? ''); if ($nv !== '') { $secV[$f['k']] = $nv; } }
+        elseif ($v !== null && trim($v) !== '') { $plainV[$f['k']] = trim($v); }
+    }
+    $data['fields_json'] = $ownF ? json_encode($ownF, JSON_UNESCAPED_UNICODE) : null;
+    $data['extra_json'] = $plainV ? json_encode($plainV, JSON_UNESCAPED_UNICODE) : null;
+    $data['extra_enc'] = $secV ? cnp_vault_enc(json_encode($secV, JSON_UNESCAPED_UNICODE)) : null;
     if ($id) {
         $own = (int) Capsule::table('mod_cpm_vault')->where('id', $id)->value('admin_id');
         if (!$own) { fail('notfound', 404); }
@@ -17924,11 +18018,88 @@ case 'vault_save':
     out(['ok' => true, 'id' => $id]);
 
 case 'vault_reveal':                     // αποκάλυψη κωδικού on-demand (owner, full, ή κοινό)
+    /* Κοινό ευαίσθητο στοιχείο ΟΜΑΔΑΣ (π.χ. κοινό API key): το βλέπει όποιος βλέπει τη θυρίδα. */
+    if (!empty($in['group'])) {
+        $gR = Capsule::table('mod_cpm_vault_groups')->where('id', (int) $in['group'])->first();
+        if (!$gR) { fail('notfound', 404); }
+        out(['password' => (string) (cnp_vault_secrets($gR->info_enc)[(string) ($in['field'] ?? '')] ?? '')]);
+    }
     $id = (int) ($in['id'] ?? $_GET['id'] ?? 0);
     $r = Capsule::table('mod_cpm_vault')->where('id', $id)->first();
     if (!$r) { fail('notfound', 404); }
     if ((int) $r->admin_id !== $adminId && !$FULL && !$r->shared) { fail('forbidden', 403); }
+    if (!empty($in['field'])) { out(['password' => (string) (cnp_vault_secrets($r->extra_enc)[(string) $in['field']] ?? '')]); }
     out(['password' => cnp_vault_dec($r->password_enc)]);
+
+case 'vault_field_set':                  // ΕΝΑ πεδίο από τη λίστα (χωρίς να ανοίξει η φόρμα) — ίδιοι κανόνες με το vault_save
+    $fr = Capsule::table('mod_cpm_vault')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$fr) { fail('notfound', 404); }
+    if ((int) $fr->admin_id !== $adminId && !$FULL) { fail('Αλλάζει μόνο ο δημιουργός της καταχώρησης ή διαχειριστής', 403); }
+    $fk = (string) ($in['k'] ?? ''); $fv = (string) ($in['value'] ?? '');
+    $fUpd = ['updated_at' => date('Y-m-d H:i:s')];
+    if (in_array($fk, ['username', 'ips', 'url', 'location'], true)) {
+        $fUpd[$fk] = mb_substr(trim($fv), 0, $fk === 'ips' || $fk === 'url' ? 300 : 150);
+    } elseif ($fk === 'password') {
+        if ($fv === '') { fail('Γράψε τον νέο κωδικό'); }
+        $fUpd['password_enc'] = cnp_vault_enc($fv);
+    } else {
+        $fg = $fr->group_id ? Capsule::table('mod_cpm_vault_groups')->where('id', (int) $fr->group_id)->first() : null;
+        $fdefs = array_merge($fg ? cnp_vault_fields_clean(cnp_vault_json($fg->fields_json)) : [], cnp_vault_fields_clean(cnp_vault_json($fr->fields_json)));
+        $fdef = null; foreach ($fdefs as $d0) { if ($d0['k'] === $fk) { $fdef = $d0; } }
+        if (!$fdef) { fail('Άγνωστο πεδίο — ανανέωσε τη σελίδα'); }
+        if ($fdef['secret']) {
+            $sv = cnp_vault_secrets($fr->extra_enc);
+            if ($fv === '') { unset($sv[$fk]); } else { $sv[$fk] = mb_substr($fv, 0, 4000); }
+            $fUpd['extra_enc'] = $sv ? cnp_vault_enc(json_encode($sv, JSON_UNESCAPED_UNICODE)) : null;
+        } else {
+            $pv = cnp_vault_json($fr->extra_json);
+            if (trim($fv) === '') { unset($pv[$fk]); } else { $pv[$fk] = mb_substr(trim($fv), 0, 4000); }
+            $fUpd['extra_json'] = $pv ? json_encode($pv, JSON_UNESCAPED_UNICODE) : null;
+        }
+    }
+    Capsule::table('mod_cpm_vault')->where('id', (int) $fr->id)->update($fUpd);
+    out(['ok' => true]);
+
+case 'vault_group_save':                 // νέα/αλλαγή ομάδας: όνομα, χρώμα, βασικά πεδία, πρότυπο, κοινά στοιχεία
+    $gName = mb_substr(trim(strip_tags((string) ($in['name'] ?? ''))), 0, 80);
+    if ($gName === '') { fail('Δώσε όνομα ομάδας', 400, ['field' => 'name']); }
+    $gId = (int) ($in['id'] ?? 0);
+    $gOld = $gId ? Capsule::table('mod_cpm_vault_groups')->where('id', $gId)->first() : null;
+    if ($gId && !$gOld) { fail('Δεν βρέθηκε η ομάδα', 404); }
+    if (Capsule::table('mod_cpm_vault_groups')->where('name', $gName)->where('id', '<>', $gId)->exists()) { fail('Υπάρχει ήδη ομάδα «' . $gName . '»', 409, ['field' => 'name']); }
+    /* (23/10/2026) Χωρίς «βασικά πεδία»: ΟΛΑ είναι πεδία της ομάδας (κοινά + πρότυπο) ή της καταχώρησης. */
+    $gBi = array_values(array_intersect(CNP_VAULT_BUILTINS, is_array($in['builtins'] ?? null) ? $in['builtins'] : []));
+    $gInfo = cnp_vault_fields_clean($in['info'] ?? [], true);
+    $gOldSec = $gOld ? cnp_vault_secrets($gOld->info_enc) : [];
+    $gSec = []; $gPlain = [];
+    foreach ($gInfo as $f) {
+        if ($f['secret']) { $nv = $f['value'] !== '' ? $f['value'] : ($gOldSec[$f['k']] ?? ''); if ($nv !== '') { $gSec[$f['k']] = $nv; } unset($f['value']); }
+        $gPlain[] = $f;
+    }
+    $gLbl = [];
+    foreach (is_array($in['labels'] ?? null) ? $in['labels'] : [] as $lk => $lv) {
+        $lv = mb_substr(trim(strip_tags((string) $lv)), 0, 40);
+        if (in_array($lk, CNP_VAULT_BUILTINS, true) && $lv !== '') { $gLbl[$lk] = $lv; }
+    }
+    $gRow = ['labels_json' => $gLbl ? json_encode($gLbl, JSON_UNESCAPED_UNICODE) : null, 'name' => $gName, 'color' => preg_match('/^#[0-9a-f]{6}$/i', (string) ($in['color'] ?? '')) ? $in['color'] : '#0090dd',
+        'builtins' => implode(',', $gBi), 'fields_json' => json_encode(cnp_vault_fields_clean($in['fields'] ?? []), JSON_UNESCAPED_UNICODE),
+        'info_json' => json_encode($gPlain, JSON_UNESCAPED_UNICODE), 'info_enc' => $gSec ? cnp_vault_enc(json_encode($gSec, JSON_UNESCAPED_UNICODE)) : null,
+        'updated_at' => date('Y-m-d H:i:s')];
+    if ($gOld) {
+        Capsule::table('mod_cpm_vault_groups')->where('id', $gId)->update($gRow);
+        Capsule::table('mod_cpm_vault')->where('group_id', $gId)->update(['kind' => mb_substr($gName, 0, 40)]);
+    } else {
+        $gId = (int) Capsule::table('mod_cpm_vault_groups')->insertGetId($gRow + ['created_by' => $adminId, 'created_at' => date('Y-m-d H:i:s')]);
+    }
+    out(['ok' => true, 'id' => $gId]);
+
+case 'vault_group_del':                  // οι καταχωρήσεις ΜΕΝΟΥΝ — περνούν στο «Χωρίς ομάδα»
+    $gD = Capsule::table('mod_cpm_vault_groups')->where('id', (int) ($in['id'] ?? 0))->first();
+    if (!$gD) { out(['ok' => true]); }
+    if (!$FULL && $gD->created_by && (int) $gD->created_by !== $adminId) { fail('Την ομάδα τη διαγράφει όποιος τη δημιούργησε ή διαχειριστής', 403); }
+    Capsule::table('mod_cpm_vault')->where('group_id', (int) $gD->id)->update(['group_id' => null]);
+    Capsule::table('mod_cpm_vault_groups')->where('id', (int) $gD->id)->delete();
+    out(['ok' => true]);
 
 case 'vault_del':
     $id = (int) ($in['id'] ?? 0);

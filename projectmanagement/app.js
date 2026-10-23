@@ -674,7 +674,7 @@ function renderShell() {
           return `<div class="snav-grp ${open ? 'open' : ''}">
             <button class="sgroup" data-grptoggle="${esc(g)}"${hint ? ` title="${esc(hint)}"` : ''}><span class="sgroup-t">${esc(g)}</span>
               <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
-            <div class="snav-items">${items.map(([k, ic, lb]) => `<button class="sitem" data-nav="${k}" data-lb="${esc(lb)}" data-grp="${esc(g)}">${ic}<span>${lb}</span></button>`).join('')}</div>
+            <div class="snav-items">${items.map(([k, ic, lb]) => `<a class="sitem" href="#/${k}" data-nav="${k}" data-lb="${esc(lb)}" data-grp="${esc(g)}">${ic}<span>${lb}</span></a>`).join('')}</div>
           </div>`;
         }).join('');
       })()}
@@ -727,11 +727,13 @@ function renderShell() {
       const ordered = FIRST.map(k => flat.find(x => x[0] === k)).filter(Boolean)
         .concat(flat.filter(x => !FIRST.includes(x[0])));
       return `<nav class="tabbar" id="tabBar" aria-label="Κύρια πλοήγηση">
-        ${ordered.map(([k, ic, lb]) => `<button class="tab" data-tab="${k}">${ic}<span>${esc(SHORT[k] || lb)}</span></button>`).join('')}
+        ${ordered.map(([k, ic, lb]) => `<a class="tab" href="#/${k}" data-tab="${k}">${ic}<span>${esc(SHORT[k] || lb)}</span></a>`).join('')}
       </nav>`;
     })()}
   </div>`;
-  $$('.sitem').forEach(b => b.onclick = () => { $('.shell').classList.remove('nav-open'); go(b.dataset.nav); });
+  /* ΤΟ ΜΕΝΟΥ ΕΙΝΑΙ ΣΥΝΔΕΣΜΟΙ (23/10/2026): δεξί κλικ → «Άνοιγμα σε νέα καρτέλα», Ctrl/⌘/μεσαίο κλικ → νέα
+     καρτέλα, όπως σε κάθε web app. Το απλό κλικ μένει μέσα στην εφαρμογή (χωρίς φόρτωμα σελίδας). */
+  $$('.sitem').forEach(b => b.onclick = e => { if (cnpNewTabClick(e)) { return; } e.preventDefault(); $('.shell').classList.remove('nav-open'); go(b.dataset.nav); });
   cnpRenderPins();
   cnpFeedBadge(window._cnpFeedN !== undefined ? window._cnpFeedN : (S.boot.inboxUnread || 0));
   // ── mobile off-canvas menu ──
@@ -740,7 +742,7 @@ function renderShell() {
     const _hb = $('#hambBtn'); if (_hb) _hb.onclick = () => _sh.classList.toggle('nav-open');
     const _sc = $('#sideScrim'); if (_sc) _sc.onclick = () => _sh.classList.remove('nav-open');
     // bottom tabs (όλο το μενού — σέρνεται οριζόντια)
-    $$('#tabBar [data-tab]').forEach(b => b.onclick = () => { _sh.classList.remove('nav-open'); go(b.dataset.tab); });
+    $$('#tabBar [data-tab]').forEach(b => b.onclick = e => { if (cnpNewTabClick(e)) { return; } e.preventDefault(); _sh.classList.remove('nav-open'); go(b.dataset.tab); });
     // avatar header → λογαριασμός (προφίλ / θέμα / αποσύνδεση)
     const _av = $('#topAva');
     if (_av) {
@@ -1109,7 +1111,7 @@ async function loadTopStats() {
   /* Pop-up: μία φορά ανά συνεδρία, και ξανά μόλις εμφανιστεί ΚΑΙΝΟΥΡΓΙΑ έγκριση.
      Ο σκοπός είναι να μην περιμένει η εργασία — όχι να γίνει ενοχλητικό. */
   const seen = window._cnpBillSeen;
-  if (d.billPend && (seen === undefined || d.billPend > seen)) { billingQueue(); }
+  if (d.billPend && (seen === undefined || d.billPend > seen) && !window._cnpQuiet) { billingQueue(); }
   window._cnpBillSeen = d.billPend || 0;
 }
 
@@ -1431,6 +1433,7 @@ function cnpPushState() {
   return Notification.permission;   // granted | denied | default
 }
 function cnpPushPrompt() {
+  if (window._cnpQuiet) { setTimeout(cnpPushPrompt, 30000); return; }
   if (!S.boot.me.pushOs || cnpPushState() !== 'default' || document.getElementById('pushAsk')) { return; }
   try { if (+localStorage.getItem('cnpPushSnooze') > Date.now()) { return; } } catch (e) { }
   const c = document.createElement('div');
@@ -3433,14 +3436,18 @@ function cnpRenderPins() {
   const pins = (S.boot.viewPins || []).filter(p => p.menu);
   box.hidden = !pins.length || !can;
   box.innerHTML = pins.length ? `<button class="sgroup" data-grptoggle="📌 Τα views μου" title="Τα καρφιτσωμένα views σου — καρφίτσωμα από τη Λίστα tasks (📌)"><span class="sgroup-t">📌 Τα views μου</span></button>
-    <div class="snav-items">${pins.map(p => `<button class="sitem spin" data-nav="list" data-navarg="${esc(cnpPinArg(p.k))}" title="${esc(p.label)}">${I.list}<span>${esc(p.label)}</span></button>`).join('')}</div>` : '';
-  box.querySelectorAll('.spin').forEach(b => b.onclick = () => {
+    <div class="snav-items">${pins.map(p => `<a class="sitem spin" href="#/list/${esc(cnpPinArg(p.k))}" data-nav="list" data-navarg="${esc(cnpPinArg(p.k))}" title="${esc(p.label)}">${I.list}<span>${esc(p.label)}</span></a>`).join('')}</div>` : '';
+  box.querySelectorAll('.spin').forEach(b => b.onclick = e => {
+    if (cnpNewTabClick(e)) { return; }
+    e.preventDefault();
     const sh = document.querySelector('.shell'); if (sh) { sh.classList.remove('nav-open'); }
     if (S.view === 'list' && window.R && window.R.list) { S.viewArg = b.dataset.navarg; location.hash = '#/list/' + b.dataset.navarg; window.R.list(b.dataset.navarg); }
     else { go('list', b.dataset.navarg); }
     box.querySelectorAll('.spin').forEach(x => x.classList.toggle('on', x === b));
   });
 }
+/** Κλικ που ο browser πρέπει να ανοίξει ΜΟΝΟΣ του σε νέα καρτέλα/παράθυρο (Ctrl/⌘/Shift/μεσαίο). */
+function cnpNewTabClick(e) { return !!(e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0))); }
 function go(view, arg) {
   if (view !== 'list' && view !== 'feed') { document.querySelectorAll('.lv-side').forEach(x => x.remove()); document.body.classList.remove('lv-side-on'); }
   S.view = view;
@@ -5904,7 +5911,9 @@ async function openTask(id, entryId, opts) {
   /* Ρωτά ΜΙΑ φορά την ημέρα ανά εργασία (localStorage): αν είπες «μόνο θα δω», δεν σε
      ξαναρωτά σε κάθε άνοιγμα — υπάρχει το «▶ Ξεκίνα τον χρόνο» μέσα στην καρτέλα. */
   const askedKey = 'cnpTimerAsked:' + id, askedToday = (() => { try { return localStorage.getItem(askedKey) === today(); } catch (e) { return false; } })();
-  if (!opts.fresh && !t.done && cnpIsMine(t, me.id) && !d.timerHere && !window._cnpTimerAsked_[id] && !askedToday) {
+  if (opts.fromPush) { window._cnpPushView = window._cnpPushView || {}; window._cnpPushView[id] = 1; }
+  const pushView = !!(window._cnpPushView || {})[id];   // από ειδοποίηση: μόνο προβολή, χωρίς ερώτηση — υπάρχει «▶ Ξεκίνα τον χρόνο»
+  if (!opts.fresh && !t.done && cnpIsMine(t, me.id) && !d.timerHere && !window._cnpTimerAsked_[id] && !askedToday && !pushView) {
     window._cnpTimerAsked_[id] = 1;
     try { localStorage.setItem(askedKey, today()); } catch (e) {}
     const go2 = await cnpDialog({
@@ -5920,7 +5929,7 @@ async function openTask(id, entryId, opts) {
     }
     delete window._cnpTimerAsked_[id];   // αύριο ξαναρωτάμε (localStorage ανά ημέρα)
     t._viewOnly = true;
-  } else if (!opts.fresh && !t.done && cnpIsMine(t, me.id) && !d.timerHere && askedToday) {
+  } else if (!opts.fresh && !t.done && cnpIsMine(t, me.id) && !d.timerHere && (askedToday || pushView)) {
     t._viewOnly = true;   // απάντησε σήμερα «μόνο θα δω» — ίδιο αποτέλεσμα, χωρίς ερώτηση
   }
   if (t._viewOnly) {
@@ -6042,6 +6051,11 @@ function cnpTimerStoppedToast(taskId, mins) {
 }
 
 function closeDrawer() {
+  /* Τέλος της «ήσυχης» εισόδου από ειδοποίηση: ό,τι κρατήθηκε (καλωσόρισμα) έρχεται τώρα. */
+  if (window._cnpQuiet && !window._cnpReopen) {
+    window._cnpQuiet = false;
+    if (window._cnpGreetLater) { const g = window._cnpGreetLater; window._cnpGreetLater = null; setTimeout(() => cnpGreet(g), 400); }
+  }
   clearInterval(timerInt);
   /* Χρόνος σύνταξης νέας εργασίας: κλείνει με την κάρτα — εκτός αν η εργασία είναι
      δική σου (τότε δουλεύεις πάνω της και ο χρόνος συνεχίζει). */
@@ -6207,6 +6221,7 @@ document.addEventListener('keydown', e => {
    ως γεγονός, όχι ως παρατήρηση: πληροφορία για τον ίδιο, όχι καταγγελία. */
 function cnpGreet(g) {
   if (!g || !g.hi) { return; }
+  if (window._cnpQuiet) { window._cnpGreetLater = g; return; }   // ήρθες από ειδοποίηση: μετά την εργασία
   if (document.querySelector('.gr-ovl')) { return; }   // ποτέ δύο μαζί
   /* ΔΕΥΤΕΡΗ ΑΣΦΑΛΕΙΑ, ΣΤΟΝ BROWSER. Ο server κρατά ήδη «δόθηκε σήμερα», αλλά αν
      για οποιονδήποτε λόγο ξαναφτάσει (δύο καρτέλες, επαναφορά σημαδιού, δοκιμή),
@@ -7293,6 +7308,9 @@ function cnpPalette() {
       sub: '#' + t.tid + ' · ' + (t.status || ''), go: () => openTicketQuick(t.id)}));
     (d.leads || []).forEach(l => items.push({group: 'Leads', icon: '🎯', title: l.name,
       sub: l.stage || '', go: () => go('crm')}));
+    /* 🔐 Κωδικοί: ανοίγει τη θυρίδα ΠΑΝΩ στην καταχώρηση (ανοιχτή ομάδα, επισήμανση) — ποτέ κωδικός εδώ. */
+    (d.vaults || []).forEach(vt => items.push({group: 'Κωδικοί', icon: '🔐', title: vt.descr,
+      sub: vt.sub || '', go: () => go('vault', 'v' + vt.id)}));
     paint();
   };
 
@@ -8011,6 +8029,10 @@ window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpP
     $('#app').innerHTML = '<div class="boot"><div class="boot-logo">P</div><div class="boot-txt">Σύνδεση…</div></div>';
     return;
   }
+  /* Ήρθες από ΕΙΔΟΠΟΙΗΣΗ (?n=1, νέα καρτέλα του service worker): μόνο η εργασία — κανένα
+     αναδυόμενο της αρχικής, καμία ερώτηση χρονομέτρου (23/10/2026). */
+  const fromPush = new URLSearchParams(location.search).get('n') === '1';
+  if (fromPush) { window._cnpQuiet = true; try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { } }
   renderShell();
   /* Η παράμετρος ΔΕΝ είναι πάντα αριθμός: η «Κίνηση πελάτη» λέει αν μιλάμε για
      πελάτη WHMCS ή για καρτέλα καταλόγου (c212 / b447). Με μόνο ψηφία, ο
@@ -8019,7 +8041,7 @@ window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpP
   if (m && m[1] === 'task' && m[2]) {          // deep-link από email/παλιά URLs
     const em0 = location.hash.match(/\/e\/(\d+)/);   // …/e/45 = συγκεκριμένη ενέργεια
     go('myday');
-    openTask(+m[2], em0 ? +em0[1] : 0);
+    openTask(+m[2], em0 ? +em0[1] : 0, fromPush ? {fromPush: true} : undefined);
   } else {
     go(m ? m[1] : 'myday', m ? m[2] : undefined);
   }

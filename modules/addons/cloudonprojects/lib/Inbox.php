@@ -68,6 +68,7 @@ class Inbox
             $actorId = (int) $actorId;
             if (!$to || $to === $actorId) { return; }
             $now = date('Y-m-d H:i:s');
+            $incoming = $kind;   // ΤΙ ΣΥΝΕΒΗ ΤΩΡΑ — η συγχώνευση πιο κάτω μπορεί να κρατήσει «ball» από πριν
             $what = mb_substr(trim((string) $what), 0, 255);
             $excerpt = $excerpt !== null ? self::clip($excerpt) : null;
             $row = Capsule::table(self::T)->where('admin_id', $to)->where('task_id', (int) $taskId)->first();
@@ -96,7 +97,9 @@ class Inbox
             }
             /* Η εργασία ΗΡΘΕ σε μένα (μπάλα, ανάθεση, νέα) → ειδοποίηση. Ένα σχόλιο χωρίς αλλαγή
                μπάλας δεν ειδοποιεί: φαίνεται στα Εισερχόμενα, δεν διακόπτει. */
-            if (in_array($kind, ['ball', 'new', 'assign'], true)) { self::queue($to, (int) $taskId); }
+            /* ΕΙΔΟΠΟΙΗΣΗ ΜΟΝΟ ΟΤΑΝ Η ΜΠΑΛΑ ΕΡΧΕΤΑΙ ΣΕ ΜΕΝΑ από άλλον (23/10/2026): ρητή παράδοση μπάλας,
+               ή νέα εργασία με τη μπάλα ήδη σε μένα. Ανάθεση χωρίς μπάλα, κατάσταση, σχόλιο: μόνο Εισερχόμενα. */
+            if ($incoming === 'ball' || ($incoming === 'new' && (int) $t->action_user === $to)) { self::queue($to, (int) $taskId); }
         } catch (\Throwable $e) {
             /* τα Εισερχόμενα δεν ρίχνουν ποτέ την πράξη */
         }
@@ -174,30 +177,48 @@ class Inbox
                 $row = Capsule::table(self::T)->where('admin_id', $to)->where('task_id', $taskId)->first();
                 $t = Capsule::table('mod_cpm_tasks')->where('id', $taskId)->first(['id', 'title', 'action_user', 'assignee', 'completed_at']);
                 if (!$row || !$t || $row->read_at !== null || !empty($t->completed_at)) { continue; }   // ακυρώθηκε / το είδε ήδη
-                if ((int) ($t->action_user ?: $t->assignee) !== (int) $to) { continue; }             // η μπάλα έφυγε ήδη
+                if ((int) $t->action_user !== (int) $to) { continue; }        // η μπάλα (ρητά) δεν είναι πια σε μένα
                 [$title, $body] = self::notifText($row, $t);
                 $url = '/project/#/task/' . (int) $taskId;
                 /* Η παλιά σκέτη «Σου ανατέθηκε…» του ίδιου αιτήματος περισσεύει — αυτή λέει περισσότερα. */
-                Capsule::table('mod_cpm_notifications')->where('admin_id', $to)->whereIn('type', ['assign', 'action'])
+                Capsule::table('mod_cpm_notifications')->where('admin_id', $to)->whereIn('type', ['assign', 'action', 'inbox'])
                     ->where('url', $url)->where('created_at', '>=', $since)->delete();
                 Db::pushNotification($to, 'inbox', $title, $url, $body, false);
                 Db::pushDevices($to);
             } catch (\Throwable $e) { /* ποτέ δεν σπάει τίποτα */ }
         }
     }
-    /** «Νέα εργασία #782 · Τίτλος» / «#782 · Τίτλος» + «Ποιος τι · «απόσπασμα»». Λίγα και καθαρά. */
+    /**
+     * «#782 · Τίτλος» + «Emma σου πέρασε τη μπάλα». Αν η μπάλα ήρθε ΜΑΖΙ με μήνυμα, ακολουθεί
+     * ΟΛΟ εκείνο το μήνυμα (όχι το τελευταίο σχόλιο της εργασίας): τα Windows δείχνουν τις πρώτες
+     * γραμμές και το υπόλοιπο ανοίγει με το βελάκι της ειδοποίησης.
+     */
     public static function notifText($row, $t)
     {
         $tt = mb_substr(trim((string) $t->title), 0, 80);
-        $isNew = in_array($row->kind, ['new', 'assign'], true);
+        $isNew = $row->kind === 'new';
         $title = ($isNew ? 'Νέα εργασία #' : '#') . (int) $t->id . ' · ' . $tt;
         $by = $row->by_admin ? Db::adminName((int) $row->by_admin) : '';
-        $verb = ['ball' => 'σου πέρασε τη μπάλα', 'new' => 'σου έδωσε νέα εργασία', 'assign' => 'σου την ανέθεσε'][$row->kind] ?? 'σου την έστειλε';
-        $line = $by !== '' ? $by . ' ' . $verb : ($isNew ? 'Σου ανατέθηκε' : 'Η μπάλα είναι σε σένα');
+        $msg = self::burstMessage($row, $t);
+        $verb = $isNew ? 'σου έδωσε νέα εργασία' : 'σου πέρασε τη μπάλα';
+        $line = ($by !== '' ? $by . ' ' . $verb : ($isNew ? 'Νέα εργασία για σένα' : 'Η μπάλα είναι σε σένα')) . ($msg !== '' ? ' με μήνυμα:' : '');
         $st = array_values(array_filter(explode(' · ', (string) $row->what), function ($p) { return strpos($p, 'Κατάσταση:') === 0; }));
-        if ($st) { $line .= ' · κατάσταση ' . trim(preg_replace('/^Κατάσταση:\s*.*→\s*/u', '→ ', $st[0])); }
-        $body = $line . ($row->excerpt ? "\n«" . mb_substr((string) $row->excerpt, 0, 140) . (mb_strlen((string) $row->excerpt) > 140 ? '…' : '') . '»' : '');
-        return [$title, $body];
+        if ($st && $msg === '') { $line .= ' · κατάσταση ' . trim(preg_replace('/^Κατάσταση:\s*.*→\s*/u', '→ ', $st[0])); }
+        return [$title, $msg !== '' ? $line . "\n" . $msg : $line];
+    }
+    /** Το μήνυμα που γράφτηκε ΜΑΖΙ με την παράδοση (ίδιος συντάκτης, ίδια πράξη) — ολόκληρο, ως απλό κείμενο. */
+    private static function burstMessage($row, $t)
+    {
+        if (!$row->by_admin) { return ''; }
+        $m = Capsule::table('mod_cpm_checklist')->where('task_id', (int) $t->id)->where('created_by', (int) $row->by_admin)
+            ->where('created_at', '>=', date('Y-m-d H:i:s', strtotime((string) $row->at) - self::MERGE_SEC))
+            ->orderByDesc('id')->value('title');
+        if ($m === null) { return ''; }
+        $s = preg_replace('~<(br|/p|/div|/li|/h[34]|/tr)\b[^>]*>~i', "\n", (string) $m);
+        $s = html_entity_decode(strip_tags($s), ENT_QUOTES, 'UTF-8');
+        $s = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $s);
+        $s = trim(preg_replace(["/[ \t]+/u", "/\n{3,}/"], [' ', "\n\n"], $s));
+        return mb_strlen($s) > 1500 ? mb_substr($s, 0, 1500) . '…' : $s;
     }
 
     /** Το άνοιξα → διαβάστηκε. */

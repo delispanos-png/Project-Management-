@@ -1,6 +1,6 @@
 /* CloudOn Projects — service worker: PWA + Web Push (VAPID, no-payload).
    Το push είναι «κενό» (ξυπνά μόνο)· εδώ τραβάμε τι να δείξουμε από τον server.
-   sw build: 2026-10-23a — ειδοποιήσεις Εισερχομένων: δεύτερη γραμμή, tag ανά εργασία, κουμπί «Άνοιγμα» */
+   sw build: 2026-10-23b — κλικ σε ειδοποίηση εργασίας = νέα καρτέλα κατευθείαν στην εργασία; — ειδοποιήσεις Εισερχομένων: δεύτερη γραμμή, tag ανά εργασία, κουμπί «Άνοιγμα» */
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil((async () => {
   await self.clients.claim();
@@ -25,14 +25,21 @@ self.addEventListener('push', e => {
       body, tag, renotify: true, timestamp: Date.now(),
       icon: '/project/icon-192.png', badge: '/project/icon-192.png',
       actions: kind === 'inbox' ? [{action: 'open', title: 'Άνοιγμα εργασίας'}, {action: 'feed', title: 'Εισερχόμενα'}] : [],
-      data: {url}, vibrate: [80, 40, 80]
+      data: {url, kind}, vibrate: [80, 40, 80]
     });
   })());
 });
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = e.action === 'feed' ? '/project/#/feed' : ((e.notification.data && e.notification.data.url) || '/project/');
+  const data = e.notification.data || {};
+  const url = e.action === 'feed' ? '/project/#/feed' : (data.url || '/project/');
+  /* Ειδοποίηση ΕΡΓΑΣΙΑΣ (Εισερχόμενα): ΝΕΑ καρτέλα κατευθείαν στην εργασία. Το «?n=1» λέει στην
+     εφαρμογή ότι ήρθες από ειδοποίηση — ανοίγει μόνο την εργασία, χωρίς τα αναδυόμενα της αρχικής. */
+  if (data.kind === 'inbox' || /#\/task\/\d+/.test(url)) {
+    e.waitUntil(self.clients.openWindow(url.replace('/project/#', '/project/?n=1#')));
+    return;
+  }
   e.waitUntil((async () => {
     const all = await self.clients.matchAll({type: 'window', includeUncontrolled: true});
     for (const c of all) {
