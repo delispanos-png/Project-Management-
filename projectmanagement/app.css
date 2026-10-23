@@ -5432,3 +5432,69 @@ html[data-theme="dark"] .rte-b.on{background:#0090dd33;color:#7cc8ff}
 .push-dev{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px}
 .nrow-ic{font-style:normal;color:var(--brand);margin-right:6px}
 .nrow-b{display:block;font-size:11.5px;color:var(--mut);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+
+/* ═══ 🔐 Κωδικοί: ομάδες, κοινά στοιχεία, δικά πεδία (vg-/ve-/vf-, 23/10/2026) ═══ */
+.vg-card{border:1px solid var(--line);border-radius:12px;background:var(--card);margin-top:12px;overflow:hidden;box-shadow:inset 3px 0 0 var(--vgc,var(--line))}
+.vg-h{display:flex;align-items:center;gap:9px;padding:10px 12px 9px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.vg-h b{font-size:14px;color:var(--ink)}
+.vg-dot{width:9px;height:9px;border-radius:50%;background:var(--vgc,#8595ac);flex:none}
+.vg-tpl{font-size:11px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vg-info{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:9px 12px 9px 16px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.vg-il{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin-right:2px}
+.vg-empty{font-size:12px;padding:12px 16px}
+.ve{display:grid;grid-template-columns:minmax(180px,260px) 1fr auto auto;gap:6px 14px;align-items:center;padding:10px 12px 10px 16px;border-bottom:1px solid var(--line)}
+.ve:last-child{border-bottom:0}
+.ve:hover{background:var(--bg2)}
+.ve-h b{color:var(--ink);font-size:13px}
+.ve-h .pill{font-size:9.5px;margin-left:5px}
+.ve-sh{background:#16a26a1a;color:var(--ok)}
+.ve-sub{font-size:11px;margin-top:2px}
+.ve-f{display:flex;flex-wrap:wrap;gap:6px}
+.ve-own{font-size:11px;white-space:nowrap}
+.ve-a{display:flex;gap:5px;justify-content:flex-end}
+.vf{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line);border-radius:8px;padding:3px 4px 3px 8px;background:var(--card);font-size:12px}
+.vf small{font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.vf-v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+a.vf-v{font-family:inherit;color:var(--brand)}
+.vf-note{font-family:inherit;white-space:normal}
+.vf-sec{border-color:#7b5cd655}
+.vf-b{border:0;background:none;color:var(--mut);cursor:pointer;padding:1px 4px;border-radius:5px;font-size:12px;line-height:1}
+.vf-b:hover{background:var(--line);color:var(--ink)}
+.vfr{display:grid;grid-template-columns:minmax(160px,1.3fr) 130px auto minmax(140px,1.4fr) auto;gap:8px;align-items:center;margin:6px 0}
+.vfr:not(:has([data-fv])){grid-template-columns:minmax(160px,1.3fr) 130px auto auto}
+.vfr-s{display:inline-flex;gap:4px;align-items:center;font-size:12.5px;white-space:nowrap;cursor:pointer}
+.vg-dlg{width:min(760px,94vw);margin:6vh auto 0;max-height:88vh;overflow:auto}
+.vg-cols{display:flex;gap:6px;flex-wrap:wrap}
+.vg-cols button{width:24px;height:24px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+.vg-cols button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--card) inset}
+.vg-bi{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px}
+.vg-bi label{display:inline-flex;gap:5px;align-items:center;cursor:pointer}
+@media (max-width:768px){
+  .ve{grid-template-columns:1fr auto}
+  .ve-f{grid-column:1 / -1;order:3}
+  .ve-own{display:none}
+  .vfr,.vfr:not(:has([data-fv])){grid-template-columns:1fr 1fr}
+  .vg-tpl{display:none}
+}
+/* Κωδικοί: ομάδα που μαζεύεται — κλικ στην κεφαλίδα */
+.vg-h[data-vgtog]{cursor:pointer;user-select:none}
+.vg-h[data-vgtog]:hover{background:var(--bg2)}
+.vg-chev{display:inline-flex;color:var(--mut);transform:rotate(-90deg);transition:transform .15s}
+.vg-chev.open{transform:none}
+.vg-shut .vg-h{border-bottom:0}
+/* Κωδικοί: κενό πεδίο προς συμπλήρωση, επεξεργασία επί τόπου, ονόματα βασικών πεδίων ανά ομάδα */
+.vf-empty{border-style:dashed;color:var(--mut);background:transparent;cursor:pointer;font-size:11.5px;padding:4px 9px;font-weight:600}
+.vf-empty:hover{color:var(--brand);border-color:var(--brand)}
+.vf-pop{position:fixed;z-index:9500;width:min(360px,calc(100vw - 16px));background:var(--card);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 14px 36px rgba(10,20,40,.3);padding:11px 12px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.vf-pop b{color:var(--ink)}
+.vf-pop-r{display:flex;gap:6px}
+.vf-pop-r .inp{flex:1}
+.vf-pop-a{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.vg-bir{display:inline-flex;gap:6px;align-items:center}
+.vg-bir .inp{width:140px;padding:5px 8px;font-size:12px}
+.ve-hl{animation:veHl 2.4s ease}
+@keyframes veHl{0%,40%{background:#0090dd2e}100%{background:transparent}}
+/* Μενού = σύνδεσμοι (δεξί κλικ → νέα καρτέλα): ίδια εμφάνιση με τα κουμπιά */
+a.sitem,a.tab{text-decoration:none;box-sizing:border-box}
+a.sitem:focus-visible,a.tab:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}

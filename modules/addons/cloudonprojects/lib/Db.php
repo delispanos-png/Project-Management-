@@ -1450,6 +1450,45 @@ class Db
                 $t->timestamp('updated_at')->nullable();
             });
         }
+        /* ── Θυρίδα: ΟΜΑΔΕΣ και ΔΙΚΑ ΤΟΥΣ ΠΕΔΙΑ (23/10/2026) ───────────────────────────────
+           Ομάδα (π.χ. «Skroutz») = κοινά στοιχεία για όλους (merchant URL…) + ΠΡΟΤΥΠΟ πεδίων για
+           κάθε καταχώρηση (api-key, client_id, client_secret…) + ποια βασικά πεδία χρησιμοποιεί.
+           Ευαίσθητα πεδία: κρυπτογραφημένα όπως ο κωδικός (AES-256-GCM, cnp_vault_enc). */
+        if (!$s->hasTable('mod_cpm_vault_groups')) {
+            $s->create('mod_cpm_vault_groups', function ($t) {
+                $t->increments('id');
+                $t->string('name', 80)->unique();
+                $t->string('color', 9)->default('#0090dd');
+                $t->string('builtins', 120)->default('username,password,ips,url,location');
+                $t->text('fields_json')->nullable();   // πρότυπο: [{k,label,type,secret}]
+                $t->text('info_json')->nullable();     // κοινά: [{k,label,type,secret,value(μη ευαίσθητα)}]
+                $t->text('info_enc')->nullable();      // κοινά ευαίσθητα: enc(JSON {k: τιμή})
+                $t->integer('created_by')->unsigned()->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+            });
+        }
+        /* Ονόματα βασικών πεδίων ΑΝΑ ΟΜΑΔΑ: στο SoftOne το «User» λέγεται «Serial Number» (23/10/2026). */
+        if ($s->hasTable('mod_cpm_vault_groups') && !$s->hasColumn('mod_cpm_vault_groups', 'labels_json')) {
+            $s->table('mod_cpm_vault_groups', function ($t) { $t->text('labels_json')->nullable(); });
+        }
+        if ($s->hasTable('mod_cpm_vault') && !$s->hasColumn('mod_cpm_vault', 'group_id')) {
+            $s->table('mod_cpm_vault', function ($t) {
+                $t->integer('group_id')->unsigned()->nullable()->index();
+                $t->text('fields_json')->nullable();   // ΔΙΚΑ της πεδία, πέρα από το πρότυπο της ομάδας
+                $t->text('extra_json')->nullable();    // τιμές μη ευαίσθητων πεδίων {k: τιμή}
+                $t->text('extra_enc')->nullable();     // τιμές ευαίσθητων: enc(JSON {k: τιμή})
+            });
+            /* Ο ελεύθερος «τύπος» ήταν ήδη άτυπη ομάδα (SoftOne ×6, Skroutz…) — γίνεται πραγματική. */
+            foreach (Capsule::table('mod_cpm_vault')->select('kind')->distinct()->pluck('kind') as $kn) {
+                $kn = trim((string) $kn);
+                if ($kn === '' || in_array(mb_strtolower($kn), ['άλλο', 'other'], true)) { continue; }
+                $gid = Capsule::table('mod_cpm_vault_groups')->where('name', $kn)->value('id')
+                    ?: Capsule::table('mod_cpm_vault_groups')->insertGetId(['name' => mb_substr($kn, 0, 80),
+                        'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+                Capsule::table('mod_cpm_vault')->where('kind', $kn)->update(['group_id' => $gid]);
+            }
+        }
         if (!$s->hasTable('mod_cpm_cv_jobs')) {
             $s->create('mod_cpm_cv_jobs', function ($t) {
                 $t->increments('id');
@@ -2062,6 +2101,11 @@ class Db
         /* Δεύτερη γραμμή ειδοποίησης (Windows/κινητό): «ποιος, τι, απόσπασμα» — 23/10/2026. */
         if ($s->hasTable('mod_cpm_notifications') && !$s->hasColumn('mod_cpm_notifications', 'body')) {
             $s->table('mod_cpm_notifications', function ($t) { $t->string('body', 255)->nullable(); });
+        }
+        /* (23/10/2026 β) Ολόκληρο το μήνυμα που συνόδευσε τη μπάλα — όχι 255 χαρακτήρες. */
+        if ($s->hasColumn('mod_cpm_notifications', 'body')) {
+            $bc = Capsule::select("SHOW COLUMNS FROM mod_cpm_notifications LIKE 'body'");
+            if ($bc && stripos($bc[0]->Type, 'varchar') !== false) { Capsule::statement('ALTER TABLE mod_cpm_notifications MODIFY body TEXT NULL'); }
         }
 
         /* ΤΙ ΕΓΙΝΕ ΜΕ ΤΗ ΣΥΣΚΕΨΗ ΟΤΑΝ ΠΕΡΑΣΕ Η ΩΡΑ ΤΗΣ. Χωρίς αυτό, στο end_dt
@@ -3532,7 +3576,7 @@ class Db
             'url'        => $url ? mb_substr($url, 0, 255) : null,
             'is_read'    => 0,
             'created_at' => date('Y-m-d H:i:s'),
-        ] + ($body !== null && $body !== '' ? ['body' => mb_substr(trim((string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $body)), 0, 255)] : []));
+        ] + ($body !== null && $body !== '' ? ['body' => mb_substr(trim((string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $body)), 0, 2000)] : []));
         // καθάρισμα: κράτα τις 200 τελευταίες ανά χρήστη
         $min = Capsule::table('mod_cpm_notifications')->where('admin_id', (int) $adminId)
             ->orderBy('id', 'desc')->skip(200)->take(1)->value('id');
