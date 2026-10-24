@@ -23,6 +23,7 @@ if (!defined('WHMCS')) {
 // Pull in the shared library from the provisioning module.
 require_once __DIR__ . '/../../../servers/hetznercloud/lib/Api.php';
 require_once __DIR__ . '/../../../servers/hetznercloud/lib/Pricing.php';
+require_once __DIR__ . '/../../../servers/hetznercloud/lib/Helper.php';   // saveServerId (πεδίο αντί για Username)
 
 class Sync
 {
@@ -730,7 +731,8 @@ class Sync
         $rows = [];
         foreach ($services as $svc) {
             // Already linked?
-            $linked = (!empty($svc->username) && strpos($svc->username, 'hz-') === 0);
+            $linked = (!empty($svc->username) && strpos($svc->username, 'hz-') === 0)
+                || Capsule::table('mod_hetzner_instances')->where('service_id', (int) $svc->id)->whereNotNull('server_id')->exists();
             $guess = null;
             $guessBy = '';
             if (!empty($svc->dedicatedip) && isset($byIp[$svc->dedicatedip])) {
@@ -788,7 +790,10 @@ class Sync
                 return 'Server not found on Hetzner (wrong project?).';
             }
             $ip = $srv['public_net']['ipv4']['ip'] ?? null;
-            $update = ['username' => 'hz-' . $serverId];
+            /* Ο αριθμός server → κρυφό πεδίο του προϊόντος· Username = root (23/10/2026). */
+            $pid = (int) Capsule::table('tblhosting')->where('id', $serviceId)->value('packageid');
+            \WHMCS\Module\Server\HetznerCloud\Helper::saveServerId(['serviceid' => $serviceId, 'pid' => $pid], $serverId);
+            $update = ['username' => 'root'];
             if ($ip) {
                 $update['dedicatedip'] = $ip;
             }
@@ -818,7 +823,7 @@ class Sync
      */
     public function reconcileAll($write = false, $autoMigrate = false)
     {
-        $report = ['linked' => [], 'migrated' => [], 'alreadyLinked' => 0, 'moduleGap' => [], 'unmatched' => [], 'projects' => []];
+        $report = ['linked' => [], 'migrated' => [], 'moved' => [], 'alreadyLinked' => 0, 'moduleGap' => [], 'unmatched' => [], 'projects' => []];
 
         // Active services with an IP → matchable by IP.
         $svcByIp = [];
@@ -871,7 +876,17 @@ class Sync
                         $report['unmatched'][] = ['server' => $s['id'], 'ip' => $ip, 'name' => $s['name'], 'project' => $proj->name];
                         continue;
                     }
-                    if (Capsule::table('mod_hetzner_instances')->where('server_id', $s['id'])->exists()) {
+                    $inst = Capsule::table('mod_hetzner_instances')->where('server_id', $s['id'])->first();
+                    if ($inst) {
+                        /* Το VM μετακινήθηκε σε άλλο project (23/10/2026): το βρήκαμε εδώ, άρα
+                           ΑΥΤΟ είναι το σωστό project — αλλιώς το WHMCS ρωτά με λάθος token
+                           και ο πίνακας του πελάτη «χάνει» τον server. */
+                        if ($write && (int) $proj->id && (int) $inst->project_id !== (int) $proj->id) {
+                            Capsule::table('mod_hetzner_instances')->where('server_id', $s['id'])
+                                ->update(['project_id' => (int) $proj->id]);
+                            Db::log("reconcile: server {$s['id']} ({$s['name']}) μετακινήθηκε project #{$inst->project_id} → #{$proj->id}", 'info');
+                            $report['moved'][] = ['server' => $s['id'], 'name' => $s['name'], 'from' => (int) $inst->project_id, 'to' => (int) $proj->id];
+                        }
                         $report['alreadyLinked']++;
                         continue;
                     }

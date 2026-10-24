@@ -62,6 +62,24 @@ function cnp_service_invoice($serviceid)
 }
 }
 
+/**
+ * Πελάτης «με πίστωση» (απόφαση 23/10/2026): παίρνει το VM ΠΡΙΝ πληρώσει.
+ * Ρυθμίζεται ανά πελάτη από το προφίλ του στο WHMCS: custom field (μόνο admin)
+ * «Παράδοση με πίστωση» = τσεκ. Βρίσκεται με το ΟΝΟΜΑ, όχι με σκληρό id.
+ */
+if (!function_exists('cnp_client_on_credit')) {
+function cnp_client_on_credit($userid)
+{
+    $fid = (int) Capsule::table('tblcustomfields')->where('type', 'client')
+        ->where('fieldname', 'Παράδοση με πίστωση')->value('id');
+    if (!$fid || !$userid) {
+        return false;
+    }
+    $v = (string) Capsule::table('tblcustomfieldsvalues')->where('fieldid', $fid)->where('relid', (int) $userid)->value('value');
+    return $v === 'on';
+}
+}
+
 /* ── 1) ΜΠΛΟΚ παράδοσης σε ανεξόφλητο τιμολόγιο ── */
 add_hook('PreModuleCreate', 1, function ($vars) {
     // Μόνο VPS (hetznercloud)· ό,τι άλλο περνά ανέγγιχτο.
@@ -83,6 +101,12 @@ add_hook('PreModuleCreate', 1, function ($vars) {
         }
         if (in_array($inv->status, ['Unpaid', 'Collections'], true)) {
             $dom = (string) Capsule::table('tblhosting')->where('id', $serviceid)->value('domain');
+            if (cnp_client_on_credit((int) $inv->userid)) {
+                cnp_guard_notify('✓ Παραδόθηκε VM «' . $dom . '» (service #' . $serviceid
+                    . ') ΧΩΡΙΣ εξόφληση — πελάτης με πίστωση· τιμολόγιο #' . $inv->id . ' ' . $inv->status,
+                    'invoices.php?action=edit&id=' . $inv->id);
+                return;                     // πελάτης με πίστωση → παράδοση, το τιμολόγιο μένει να πληρωθεί
+            }
             cnp_guard_notify('⛔ ΔΕΝ παραδόθηκε VM «' . $dom . '» (service #' . $serviceid
                 . ') — τιμολόγιο #' . $inv->id . ' ΑΝΕΞΟΦΛΗΤΟ (' . $inv->status . ')',
                 'invoices.php?action=edit&id=' . $inv->id);

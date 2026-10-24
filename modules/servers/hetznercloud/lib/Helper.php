@@ -206,13 +206,15 @@ class Helper
     public static function saveServerId(array $params, $serverId)
     {
         $serviceId = (int) $params['serviceid'];
-        $wroteField = self::saveCustomField($params, self::FIELD_SERVER_ID, $serverId);
+        /* 23/10/2026: ο αριθμός server ζει ΠΑΝΤΑ σε πεδίο του προϊόντος (όχι στο
+           Username), ώστε το Username να είναι «root» — αυτό που βλέπει ο πελάτης.
+           Αν το προϊόν δεν έχει πεδίο, το δημιουργούμε (κρυφό, μόνο για admin). */
+        self::ensureServerIdField((int) $params['pid']);
+        self::saveCustomField($params, self::FIELD_SERVER_ID, $serverId);
         // Always mirror to vpsid when the field exists (admin UI shows it there).
         self::saveCustomField($params, 'vpsid', $serverId);
-        if (!$wroteField && !self::customFieldId((int) $params['pid'], 'vpsid')) {
-            Capsule::table('tblhosting')->where('id', $serviceId)
-                ->update(['username' => 'hz-' . $serverId]);
-        }
+        Capsule::table('tblhosting')->where('id', $serviceId)->where('username', 'like', 'hz-%')
+            ->update(['username' => 'root']);
     }
 
     /** Read the stored Hetzner server id for a service. */
@@ -499,6 +501,22 @@ class Helper
     // Custom field helpers
     // ---------------------------------------------------------------------
 
+    /** Το προϊόν έχει πεδίο για τον αριθμό server; Αν όχι (ούτε vpsid), φτιάχνεται κρυφό «hetzner_server_id». */
+    public static function ensureServerIdField($productId)
+    {
+        $productId = (int) $productId;
+        if (!$productId || self::customFieldId($productId, self::FIELD_SERVER_ID) || self::customFieldId($productId, 'vpsid')) {
+            return;
+        }
+        Capsule::table('tblcustomfields')->insert([
+            'type' => 'product', 'relid' => $productId, 'fieldname' => self::FIELD_SERVER_ID,
+            'fieldtype' => 'text', 'description' => 'Εσωτερικό — αριθμός server στην υποδομή',
+            'fieldoptions' => '', 'regexpr' => '', 'adminonly' => 'on', 'required' => '',
+            'showorder' => '', 'showinvoice' => '', 'sortorder' => 99,
+            'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
     private static function customFieldId($productId, $fieldName)
     {
         $row = Capsule::table('tblcustomfields')
@@ -576,9 +594,20 @@ class Helper
      * A deterministic, non-identifying server name for the Hetzner side.
      * Only admins ever see this; clients never do.
      */
+    /**
+     * Όνομα του VM στη Hetzner = το hostname της παραγγελίας (23/10/2026), ώστε να
+     * βρίσκεται εύκολα στο Console. Κανόνες Hetzner: γράμματα/ψηφία/-/. , ≤63.
+     * Κενό/άκυρο hostname → «whmcs-<service>» όπως πριν.
+     */
     public static function remoteServerName(array $params)
     {
-        return 'whmcs-' . (int) $params['serviceid'];
+        $h = trim((string) ($params['domain'] ?? ''));
+        $h = preg_replace('/[^A-Za-z0-9.-]+/', '-', $h);
+        $h = trim(preg_replace('/-{2,}/', '-', $h), '-.');
+        if ($h === '' || !preg_match('/[A-Za-z]/', $h)) {
+            return 'whmcs-' . (int) $params['serviceid'];
+        }
+        return substr($h, 0, 63);
     }
 
     /**

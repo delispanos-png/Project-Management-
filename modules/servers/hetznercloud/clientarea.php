@@ -19,6 +19,25 @@ if (!defined('WHMCS')) {
 }
 
 /**
+ * Ο πελάτης ΔΕΝ βλέπει ποτέ το όνομα του παρόχου υποδομής (κανόνας 23/10/2026).
+ * Τα μηνύματα σφάλματος του API φτάνουν στον πίνακα ελέγχου — εδώ καθαρίζονται.
+ * Η πλήρης λεπτομέρεια μένει στο module log για εμάς.
+ */
+if (!function_exists('hetznercloud_clientSafe')) {
+    function hetznercloud_clientSafe($msg)
+    {
+        $m = (string) $msg;
+        if (function_exists('logModuleCall')) {
+            logModuleCall('hetznercloud', 'client-error', '', $m);
+        }
+        if ($m === '' || stripos($m, 'hetzner') !== false) {
+            return 'Προσωρινό πρόβλημα επικοινωνίας με την υποδομή — δοκίμασε ξανά σε λίγο. Αν επιμένει, επικοινώνησε με την υποστήριξη.';
+        }
+        return $m;
+    }
+}
+
+/**
  * Simple power buttons rendered by WHMCS above the module output.
  */
 function hetznercloud_ClientAreaCustomButtonArray(array $params)
@@ -337,7 +356,7 @@ function hetznercloud_caHandlePost(Api $api, $id, array $params)
                         return ['', 'Ο δίσκος του server δεν μπορεί να μικρύνει, οπότε πλάνο με μικρότερο δίσκο δεν γίνεται. '
                             . 'Τσέκαρε «αλλαγή μόνο CPU/RAM» για να κρατήσεις τον δίσκο σου, ή διάλεξε πλάνο με ίσο/μεγαλύτερο δίσκο.'];
                     }
-                    return ['', 'Η αλλαγή απέτυχε: ' . $e->getMessage()];
+                    return ['', 'Η αλλαγή απέτυχε: ' . hetznercloud_clientSafe($e->getMessage())];
                 }
                 if ($wasRunning) {
                     $api->powerOn($id);
@@ -426,7 +445,7 @@ function hetznercloud_caHandlePost(Api $api, $id, array $params)
                 return ['Ζητήθηκε επαναφορά κωδικού.', ''];
         }
     } catch (ApiException $e) {
-        return ['', 'Η ενέργεια απέτυχε: ' . $e->getMessage()];
+        return ['', 'Η ενέργεια απέτυχε: ' . hetznercloud_clientSafe($e->getMessage())];
     }
     return ['', 'Άγνωστη ενέργεια.'];
 }
@@ -485,7 +504,7 @@ function hetznercloud_caAjax(Api $api, $id, array $params)
         }
     } catch (ApiException $e) {
         http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['ok' => false, 'error' => hetznercloud_clientSafe($e->getMessage())]);
     }
     exit;
 }

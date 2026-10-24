@@ -209,8 +209,19 @@ function hetznercloud_CreateAccount(array $params)
             }
         }
 
-        // 2. A server with our name already exists on the project? Adopt it.
+        // 2. A server with our name already exists on the project? Adopt it —
+        //    ΜΟΝΟ αν είναι δικός μας (label whmcs_service = αυτή η υπηρεσία). Με όνομα =
+        //    hostname, ίδιο όνομα μπορεί να έχει server άλλου πελάτη: τότε ΔΕΝ τον
+        //    υιοθετούμε, φτιάχνουμε νέο με «<hostname>-<service>».
         $byName = $api->findServerByName($name);
+        if ($byName && (string) ($byName['labels']['whmcs_service'] ?? '') !== (string) (int) $serviceId) {
+            $name = substr($name, 0, 63 - strlen('-' . (int) $serviceId)) . '-' . (int) $serviceId;
+            $byName = $api->findServerByName($name);
+            if ($byName && (string) ($byName['labels']['whmcs_service'] ?? '') !== (string) (int) $serviceId) {
+                $byName = null;
+                $name = 'whmcs-' . (int) $serviceId;
+            }
+        }
         if ($byName) {
             Helper::saveServerId($params, $byName['id']);
             Helper::recordInstance($serviceId, $pinnedPid ?: $targetPid, $byName['id']);
