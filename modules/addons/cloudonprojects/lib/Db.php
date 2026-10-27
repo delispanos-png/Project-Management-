@@ -2107,6 +2107,16 @@ class Db
             $bc = Capsule::select("SHOW COLUMNS FROM mod_cpm_notifications LIKE 'body'");
             if ($bc && stripos($bc[0]->Type, 'varchar') !== false) { Capsule::statement('ALTER TABLE mod_cpm_notifications MODIFY body TEXT NULL'); }
         }
+        /* (26/10/2026) Ποιες ειδοποιήσεις ξύπνησαν συσκευή (pushed) και ως ποια έχει δείξει ΚΑΘΕ συσκευή
+           (last_notif_id): στο άνοιγμα του PC έρχονταν δεκάδες «ξυπνήματα» και το καθένα έδειχνε ξανά
+           την τελευταία. Τώρα κάθε ειδοποίηση φαίνεται μία φορά ανά συσκευή. */
+        if ($s->hasTable('mod_cpm_notifications') && !$s->hasColumn('mod_cpm_notifications', 'pushed')) {
+            $s->table('mod_cpm_notifications', function ($t) { $t->tinyInteger('pushed')->default(0); });
+        }
+        if ($s->hasTable('mod_cpm_push_subs') && !$s->hasColumn('mod_cpm_push_subs', 'last_notif_id')) {
+            $s->table('mod_cpm_push_subs', function ($t) { $t->integer('last_notif_id')->unsigned()->default(0); });
+            Capsule::statement('UPDATE mod_cpm_push_subs s SET last_notif_id = (SELECT COALESCE(MAX(id), 0) FROM mod_cpm_notifications)');
+        }
 
         /* ΤΙ ΕΓΙΝΕ ΜΕ ΤΗ ΣΥΣΚΕΨΗ ΟΤΑΝ ΠΕΡΑΣΕ Η ΩΡΑ ΤΗΣ. Χωρίς αυτό, στο end_dt
            ο χειριστής γινόταν αυτόματα «διαθέσιμος» ενώ η σύσκεψη συνεχιζόταν —
@@ -3576,6 +3586,7 @@ class Db
             'url'        => $url ? mb_substr($url, 0, 255) : null,
             'is_read'    => 0,
             'created_at' => date('Y-m-d H:i:s'),
+            'pushed'     => $pushNow ? 1 : 0,
         ] + ($body !== null && $body !== '' ? ['body' => mb_substr(trim((string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $body)), 0, 2000)] : []));
         // καθάρισμα: κράτα τις 200 τελευταίες ανά χρήστη
         $min = Capsule::table('mod_cpm_notifications')->where('admin_id', (int) $adminId)

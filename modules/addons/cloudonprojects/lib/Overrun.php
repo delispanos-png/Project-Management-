@@ -342,7 +342,7 @@ class Overrun
             foreach ($to as $adminId => $role) {
                 if (!self::claim($kind, (int) $row->id, $ax['level'], (int) $adminId, $dry)) { continue; }
                 if (!$dry && !$silent) {
-                    Db::pushNotification((int) $adminId, 'overrun', $bell, $url);
+                    Db::pushNotification((int) $adminId, 'overrun', $bell, $url, null, false);
                     self::email((int) $adminId, $head, $line, $agentName, $where, $url, $isTask, $ax['level']);
                 }
                 $n++;

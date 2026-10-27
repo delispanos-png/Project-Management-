@@ -7357,21 +7357,40 @@ case 'push_unsubscribe':
     out(['ok' => true]);
 
 case 'push_latest':                       // ο service worker τραβά τι να δείξει
+    $pushItem = function ($ln) {
+        /* url του μητρώου → SPA deep-link ώστε το tap να ανοίγει μέσα στην εφαρμογή. */
+        $spa = '/project/';
+        $u = (string) ($ln->url ?? '');
+        if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
+        elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
+        /* ΟΛΗ η διαδρομή μετά το #/ — πριν κρατούσε μόνο την οθόνη και το «#/task/776» γινόταν «#/task»
+           (άνοιγε η αρχική αντί για την εργασία, 23/10/2026). */
+        elseif (preg_match('~/project(?:management)?/#/([\w/-]+)~', $u, $m)) { $spa = '/project/#/' . $m[1]; }
+        /* tag ανά εργασία: δεύτερη ειδοποίηση για την ίδια εργασία ΑΝΤΙΚΑΘΙΣΤΑ την πρώτη — όχι στοίβα. */
+        $tagL = preg_match('~#/task/(\d+)~', $spa, $mt) ? 'cnp-task-' . $mt[1] : 'cnp-' . (int) $ln->id;
+        return ['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => (string) ($ln->body ?? ''),
+            'url' => $spa, 'tag' => $tagL, 'kind' => (string) $ln->type, 'unread' => (bool) !$ln->is_read];
+    };
+    /* ΑΝΑ ΣΥΣΚΕΥΗ (26/10/2026): ο service worker στέλνει το endpoint του και παίρνει ΜΟΝΟ ό,τι δεν
+       έχει δείξει ήδη — όσα «ξυπνήματα» κι αν φτάσουν στο άνοιγμα του PC, κάθε ειδοποίηση
+       εμφανίζεται μία φορά. Πριν, κάθε ξύπνημα έδειχνε ξανά την τελευταία. */
+    $pEp = (string) ($_GET['ep'] ?? '');
+    $pSub = $pEp !== '' ? Capsule::table('mod_cpm_push_subs')->where('endpoint', $pEp)->where('admin_id', $adminId)->first() : null;
+    if ($pSub) {
+        $pNew = Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)->where('pushed', 1)
+            ->where('id', '>', (int) $pSub->last_notif_id)->where('is_read', 0)
+            ->where('created_at', '>=', date('Y-m-d H:i:s', time() - 86400))->orderBy('id')->limit(30)->get();
+        $pMax = (int) Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)->max('id');
+        Capsule::table('mod_cpm_push_subs')->where('id', $pSub->id)->update(['last_notif_id' => max($pMax, (int) $pSub->last_notif_id)]);
+        $pItems = [];
+        foreach ($pNew as $ln) { $it = $pushItem($ln); unset($pItems[$it['tag']]); $pItems[$it['tag']] = $it; }   // ίδια εργασία = μία, η νεότερη
+        $pItems = array_slice(array_values($pItems), -4);
+        out(['items' => $pItems] + ($pItems ? end($pItems) : ['title' => '']));
+    }
     $ln = Capsule::table('mod_cpm_notifications')->where('admin_id', $adminId)
         ->orderBy('id', 'desc')->first();
     if (!$ln) { out(['title' => '']); }
-    /* url του μητρώου → SPA deep-link ώστε το tap να ανοίγει μέσα στην εφαρμογή. */
-    $spa = '/project/';
-    $u = (string) ($ln->url ?? '');
-    if (preg_match('/tab=task&id=(\d+)/', $u, $m)) { $spa = '/project/#/task/' . $m[1]; }
-    elseif (preg_match('#supporttickets\.php\?action=view&id=(\d+)#', $u, $m)) { $spa = '/project/#/inbox'; }
-    /* ΟΛΗ η διαδρομή μετά το #/ — πριν κρατούσε μόνο την οθόνη και το «#/task/776» γινόταν «#/task»
-       (άνοιγε η αρχική αντί για την εργασία, 23/10/2026). */
-    elseif (preg_match('~/project(?:management)?/#/([\w/-]+)~', $u, $m)) { $spa = '/project/#/' . $m[1]; }
-    /* tag ανά εργασία: δεύτερη ειδοποίηση για την ίδια εργασία ΑΝΤΙΚΑΘΙΣΤΑ την πρώτη — όχι στοίβα. */
-    $tagL = preg_match('~#/task/(\d+)~', $spa, $mt) ? 'cnp-task-' . $mt[1] : 'cnp-' . (int) $ln->id;
-    out(['id' => (int) $ln->id, 'title' => cnp_notif_display($ln->type, $ln->title), 'body' => (string) ($ln->body ?? ''),
-        'url' => $spa, 'tag' => $tagL, 'kind' => (string) $ln->type, 'unread' => (bool) !$ln->is_read]);
+    out($pushItem($ln));
 
 
 /* ================= ACTIONS ================= */

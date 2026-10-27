@@ -98,7 +98,7 @@ try {
         usort($items, function ($a, $b) { return $b['s'] <=> $a['s']; });
         $top = array_slice($items, 0, 3);
         $txt = implode(' · ', array_map(function ($x) { return '#' . $x['t']->tid; }, $top));
-        Db::pushNotification($aid, 'due', '🌅 Το πλάνο σου: ' . $txt, '/project/#/inbox');
+        Db::pushNotification($aid, 'due', '🌅 Το πλάνο σου: ' . $txt, '/project/#/inbox', null, false);
         $h = '<p>Καλημέρα! Τα πιο σημαντικά σου tickets για σήμερα:</p><ol>';
         foreach ($top as $x) {
             $h .= '<li><b>#' . htmlspecialchars($x['t']->tid) . '</b> — ' . htmlspecialchars($x['t']->title)
@@ -170,7 +170,7 @@ try {
         $log("  {$L->name}: ΕΙΔΟΠΟΙΗΣΗ — $msg");
         if ($dry) { continue; }
 
-        Db::pushNotification((int) $L->admin_id, 'pileup', mb_substr($msg, 0, 240), '/project/#/myteam');
+        Db::pushNotification((int) $L->admin_id, 'pileup', mb_substr($msg, 0, 240), '/project/#/myteam', null, false);
         /* Email: μόνο στη σύνοψη των 08:00 (Digest — ενότητα ομάδας). */
         if (false) try {
             $to = Notify::adminEmail((int) $L->admin_id);
@@ -221,7 +221,7 @@ try {
     foreach ($backTo as $aid => $list) {
         $msg = count($list) . ' εργασίες επέστρεψαν σε εσένα: δεν έχουν έναρξη/λήξη, '
             . 'οπότε δεν μπορούν να μείνουν σε άλλον. Βάλε ημερομηνίες για να τις ξαναδώσεις.';
-        Db::pushNotification($aid, 'action', mb_substr($msg, 0, 240), '/project/#/myday');
+        Db::pushNotification($aid, 'action', mb_substr($msg, 0, 240), '/project/#/myday', null, false);
         /* Email: μόνο στη σύνοψη των 08:00 (οι εργασίες φαίνονται εκεί ως «χωρίς ημερομηνίες»). */
         if (false) try {
             $to5 = Notify::adminEmail($aid);

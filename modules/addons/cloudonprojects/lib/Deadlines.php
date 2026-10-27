@@ -20,6 +20,9 @@ require_once __DIR__ . '/Notify.php';
  *
  * Κάθε (εργασία, επίπεδο, παραλήπτης, ημέρα) στέλνεται ΜΙΑ φορά — ο cron τρέχει
  * κάθε 10΄ και χωρίς αυτό θα έστελνε την ίδια προειδοποίηση 144 φορές τη μέρα.
+ *
+ * (26/10/2026) ΜΟΝΟ καμπανάκι + σύνοψη 08:00 — όχι Windows/κινητό: στις 08:00 έφευγαν δεκάδες
+ * ξυπνήματα ανά άνθρωπο (ίδια εργασία κάθε μέρα). Η συσκευή χτυπά μόνο για τη μπάλα (Inbox).
  */
 class Deadlines
 {
@@ -86,7 +89,7 @@ class Deadlines
                 }
                 if (!$dry) {
                     Db::pushNotification((int) $adminId, $days < 0 ? 'overdue' : 'due',
-                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, '/project/#/offers');
+                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, '/project/#/offers', null, false);
                 }
                 $n++;
             }
@@ -145,7 +148,7 @@ class Deadlines
                 }
                 if (!$dry) {
                     Db::pushNotification((int) $adminId, $days < 0 ? 'overdue' : 'due',
-                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, $url);
+                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, $url, null, false);
                     /* Email μόνο στην κλιμάκωση: ο υπεύθυνος πρέπει να το δει
                        ακόμη κι αν δεν ανοίξει την εφαρμογή σήμερα. */
                     /* (16/10/2026) Το email της κλιμάκωσης μπαίνει πια στη σύνοψη των 08:00 (Digest). */
@@ -217,7 +220,7 @@ class Deadlines
                 }
                 if (!$dry) {
                     Db::pushNotification((int) $adminId, $days < 0 ? 'overdue' : 'due',
-                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, '/project/#/board/' . (int) $p->id);
+                        ($days < 0 ? '⛔ ' : '⏳ ') . $line, '/project/#/board/' . (int) $p->id, null, false);
                 }
                 $n++;
             }

@@ -474,7 +474,7 @@ class DayPlan
                     ->where(function ($q) use ($o) { $q->where('owner_id', $o)->orWhere('owner_id', 0); })->count();
                 if ($n) {
                     Db::setPref($o, 'cards_notified', $day);
-                    Db::pushNotification($o, 'action', 'Η ουρά σου σήμερα: ' . $n . ' αποφάσεις που θέλουν απάντηση', '/project/#/cards');
+                    Db::pushNotification($o, 'action', 'Η ουρά σου σήμερα: ' . $n . ' αποφάσεις που θέλουν απάντηση', '/project/#/cards', null, false);
                 }
             }
         }
@@ -548,7 +548,7 @@ class DayPlan
                 $msg = $nm . ': ' . count($list) . ' κάρτες χωρίς απάντηση' . ($hard ? ', οι ' . $hard . ' κρίσιμες' : '');
                 foreach ($to as $m) {
                     if ($m === $own) { continue; }
-                    Db::pushNotification($m, 'action', $msg, '/project/#/cards');
+                    Db::pushNotification($m, 'action', $msg, '/project/#/cards', null, false);
                 }
             }
         }

@@ -53,6 +53,10 @@ class Inbox
             });
             self::backfill();
         }
+        /* (26/10/2026) Πότε ειδοποιήθηκε η συσκευή γι' αυτή την άφιξη — ΜΙΑ ειδοποίηση ανά άφιξη. */
+        if (!$s->hasColumn(self::T, 'notified_at')) {
+            $s->table(self::T, function ($t) { $t->dateTime('notified_at')->nullable(); });
+        }
     }
 
     /**
@@ -90,6 +94,9 @@ class Inbox
             }
             $vals = ['kind' => $kind, 'what' => $what !== '' ? $what : null, 'excerpt' => $excerpt ?: null,
                 'by_admin' => $actorId ?: null, 'at' => $now, 'read_at' => null];
+            /* Το είχα ανοίξει → η επόμενη άφιξη είναι καινούργια και ξαναειδοποιεί. Όσο μένει
+               αδιάβαστο, νέες αποθηκεύσεις/παραδόσεις στην ίδια εργασία ΔΕΝ ξαναχτυπούν τη συσκευή. */
+            if ($row && $row->read_at !== null) { $vals['notified_at'] = null; }
             if ($row) {
                 Capsule::table(self::T)->where('id', $row->id)->update($vals);
             } else {
@@ -180,11 +187,25 @@ class Inbox
                 if ((int) $t->action_user !== (int) $to) { continue; }        // η μπάλα (ρητά) δεν είναι πια σε μένα
                 [$title, $body] = self::notifText($row, $t);
                 $url = '/project/#/task/' . (int) $taskId;
+                /* ΜΙΑ ειδοποίηση ανά άφιξη (26/10/2026): η εργασία έχει ήδη ειδοποιήσει και δεν την άνοιξες
+                   ακόμη → ανανεώνεται σιωπηλά το κείμενο στο καμπανάκι, η συσκευή δεν ξαναχτυπά.
+                   (Μετρήθηκαν 4-5 ειδοποιήσεις για την ίδια εργασία μέσα σε ένα λεπτό αποθηκεύσεων.) */
+                if ($row->notified_at !== null) {
+                    $prev = Capsule::table('mod_cpm_notifications')->where('admin_id', $to)->where('type', 'inbox')
+                        ->where('url', $url)->orderByDesc('id')->value('id');
+                    if ($prev) {
+                        Capsule::table('mod_cpm_notifications')->where('id', $prev)->update(['title' => mb_substr($title, 0, 255),
+                            'body' => mb_substr($body, 0, 2000), 'is_read' => 0]);
+                    } else {
+                        Db::pushNotification($to, 'inbox', $title, $url, $body, false);
+                    }
+                    continue;
+                }
                 /* Η παλιά σκέτη «Σου ανατέθηκε…» του ίδιου αιτήματος περισσεύει — αυτή λέει περισσότερα. */
                 Capsule::table('mod_cpm_notifications')->where('admin_id', $to)->whereIn('type', ['assign', 'action', 'inbox'])
                     ->where('url', $url)->where('created_at', '>=', $since)->delete();
-                Db::pushNotification($to, 'inbox', $title, $url, $body, false);
-                Db::pushDevices($to);
+                Db::pushNotification($to, 'inbox', $title, $url, $body, true);
+                Capsule::table(self::T)->where('id', $row->id)->update(['notified_at' => date('Y-m-d H:i:s')]);
             } catch (\Throwable $e) { /* ποτέ δεν σπάει τίποτα */ }
         }
     }

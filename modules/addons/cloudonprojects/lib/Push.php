@@ -88,7 +88,11 @@ class Push
             CURLOPT_POSTFIELDS => '',
             CURLOPT_HTTPHEADER => [
                 'Authorization: vapid t=' . $v['jwt'] . ', k=' . $v['pub'],
-                'TTL: 2419200',
+                /* (26/10/2026) Ήταν 28 ημέρες: ό,τι μαζευόταν όσο το PC ήταν κλειστό έσκαγε όλο μαζί στο
+                   άνοιγμα. Τώρα: 24 ώρες, και ΕΝΑ Topic ανά συσκευή — το νέο «ξύπνημα» αντικαθιστά το
+                   αναπαράδοτο, άρα στο άνοιγμα φτάνει ένα, και ο service worker τραβά ό,τι δεν έχει δείξει. */
+                'TTL: 86400',
+                'Topic: cnp',
                 'Content-Length: 0',
             ],
             CURLOPT_RETURNTRANSFER => true,
