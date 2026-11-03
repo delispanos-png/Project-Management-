@@ -3980,6 +3980,61 @@ function cnpTaskDraftGrab(id) {
   };
 }
 
+/* ── ΠΡΟΧΕΙΡΑ ΑΝΑ ΕΡΓΑΣΙΑ (02/11/2026) ───────────────────────────────────────
+   Κλείνεις μια εργασία στη μέση ενός μηνύματος (για να δεις κάτι άλλο): δεν ρωτάμε τίποτα,
+   το κρατάμε. Ζει στο localStorage ΑΥΤΗΣ της συσκευής, ανά χρήστη και εργασία, 14 ημέρες.
+   Μήνυμα συζήτησης + λεπτά/σημείωση χρόνου· «μπάλα σε…»/«κατάσταση…» μόνο μαζί με μήνυμα. */
+const CNP_DRAFT_TTL = 14 * 864e5;
+function cnpDraftKey(id) { return 'cnpTkDraft:' + ((S.boot && S.boot.me && S.boot.me.id) || 0) + ':' + (+id); }
+function cnpDraftLoad(id) {
+  try {
+    const v = JSON.parse(localStorage.getItem(cnpDraftKey(id)) || 'null');
+    if (v && Date.now() - (v.at || 0) < CNP_DRAFT_TTL) { return v; }
+    if (v) { localStorage.removeItem(cnpDraftKey(id)); }
+  } catch (e) { /* χωρίς αποθήκευση στη συσκευή: απλώς δεν κρατιέται */ }
+  return null;
+}
+function cnpDraftForget(id) { try { localStorage.removeItem(cnpDraftKey(id)); } catch (e) { } }
+/** Καθρέφτης του συνθέτη στη συσκευή: γράφει ό,τι υπάρχει, σβήνει όταν άδειασε. */
+function cnpDraftStore(dr) {
+  if (!dr || !dr.dataset.task) { return; }
+  const id = +dr.dataset.task;
+  const g = sel => { const e = dr.querySelector(sel); return e ? String(e.isContentEditable ? e.innerHTML : e.value).trim() : ''; };
+  let chk = g('#chkNew'); if (chk === '<br>') { chk = ''; }
+  const v = {chk, mins: g('#tMins'), note: g('#tNote')};
+  if (chk) { v.ball = g('#chkBall'); v.st = g('#chkSt'); }
+  const has = !!(v.chk || v.mins || v.note);
+  try {
+    if (!has) { localStorage.removeItem(cnpDraftKey(id)); }
+    else {
+      const o = cnpDraftLoad(id);
+      v.at = o && o.chk === v.chk && o.mins === v.mins && o.note === v.note ? o.at : Date.now();
+      localStorage.setItem(cnpDraftKey(id), JSON.stringify(v));
+    }
+  } catch (e) { }
+  const tag = dr.querySelector('#chkDraft'); if (tag) { tag.hidden = !has; }
+}
+/** «Καθαρισμός»: αδειάζει συνθέτη, χρόνο και επιλογές — και το πρόχειρο της συσκευής. */
+function cnpDraftClear(dr) {
+  const ed = dr.querySelector('#chkNew'); if (ed) { ed.innerHTML = ''; }
+  ['#tMins', '#tNote'].forEach(sel => { const e = dr.querySelector(sel); if (e) { e.value = ''; } });
+  ['#chkBall', '#chkSt'].forEach(sel => {
+    const e = dr.querySelector(sel);
+    if (e && e.value && e.value !== '0' && [...e.options].some(o => o.value === '0')) { e.value = '0'; e.dispatchEvent(new Event('change', {bubbles: true})); }
+  });
+  dr.dataset.dirty = '';
+  cnpDraftForget(dr.dataset.task);
+  const tag = dr.querySelector('#chkDraft'); if (tag) { tag.hidden = true; }
+}
+/* ΜΕΤΑ ΤΟ ΚΛΕΙΣΙΜΟ ΕΡΓΑΣΙΑΣ: η οθόνη πίσω μένει όπως την άφησες (ανοιχτά πάνελ, scroll).
+   Αν άλλαξε κάτι σε αυτή την εργασία όσο ήταν ανοιχτή → ΑΘΟΡΥΒΗ ενημέρωση (morph)· αλλιώς
+   τίποτα. Πριν ξανατρεχόταν ολόκληρη η Board/Η μέρα μου και χάνονταν τα ανοιγμένα. */
+function cnpAfterTaskClose(id, changed) {
+  const op = window._cnpTkOpen || {};
+  const at = (window._cnpMyMut || {})[+id] || 0;
+  if (changed || (+op.id === +id && at >= (op.at || 0)) || +op.id !== +id) { setTimeout(() => cnpSilentRefresh(), 320); }
+}
+
 function cnpTaskDraftPut(dr, draft) {
   if (!draft) { return; }
   const put = (sel, v) => {
@@ -4031,7 +4086,10 @@ async function openTask(id, entryId, opts) {
      χωρίς animation. Πριν, το ▶ Start σε γύριζε στην κορυφή ενώ έγραφες στο τέλος (23/10/2026). */
   { const od = document.querySelector('.drawer.tk-modal.show');
     if (!opts.silent && !entryId && od && +od.dataset.task === +id) { opts = Object.assign({}, opts, {silent: true}); } }
-  const draft = cnpTaskDraftGrab(id);
+  let draft = cnpTaskDraftGrab(id);
+  /* Νέο άνοιγμα (όχι ξανασχεδίασμα): ό,τι έμεινε πρόχειρο σε αυτή τη συσκευή. */
+  if (!draft) { const sv = cnpDraftLoad(id); if (sv) { draft = {chk: sv.chk || null, mins: sv.mins || null, note: sv.note || null, ball: sv.ball || null, st: sv.st || null, descr: null}; } }
+  if (!opts.silent && +((window._cnpTkOpen || {}).id) !== +id) { window._cnpTkOpen = {id: +id, at: Date.now()}; }
   /* seen=1: άνοιξα την καρτέλα = το είδα → σβήνει το LED στα Εισερχόμενα. */
   const pre = !opts.silent && _cnpTaskPre.get(+id);
   _cnpTaskPre.delete(+id);
@@ -4365,6 +4423,8 @@ async function openTask(id, entryId, opts) {
             <button type="button" class="btn btn-sm btn-o" id="chkClip" title="Επισύναψη αρχείου στη νέα ενέργεια">${I.clip}</button>
             ${/* ΜΕ ΜΙΑ ΥΠΟΒΟΛΗ: μήνυμα + μπάλα σε + νέα κατάσταση (2/10/2026). Κενά = όπως πριν. */''}
             ${(d.canBall || d.canWrite) && !t.done ? cnpReplySelects(t.ball, t.status, 'chk', !!d.canWrite) : ''}
+            <span class="tk-draft" id="chkDraft" hidden title="Ό,τι έγραψες και δεν καταχώρησες κρατιέται σε αυτή τη συσκευή όταν κλείνεις την εργασία">📝 πρόχειρο
+              <button type="button" class="btn btn-sm btn-o" id="chkDraftClr" title="Άδειασε μήνυμα, χρόνο και επιλογές">Καθαρισμός</button></span>
             <span class="mut" id="chkHint" style="font-size:11px;flex:1"></span>
             <span class="mut act-tip"><b>Enter</b> νέα γραμμή · <b>Ctrl+Enter</b> καταχώριση</span>
             ${/* (23/10/2026) Η καταχώριση γίνεται ΜΟΝΟ ρητά: το Enter έστελνε μισές λίστες και
@@ -4645,6 +4705,10 @@ async function openTask(id, entryId, opts) {
   </div>`;
   document.body.append(ovl, dr);
   cnpTaskDraftPut(dr, draft);      // ό,τι ήταν μισογραμμένο πριν τον ξανασχεδιασμό, γυρίζει στη θέση του
+  cnpDraftStore(dr);               // ο καθρέφτης της συσκευής ακολουθεί (π.χ. άδειασε μετά την καταχώριση)
+  { let dt = null; const kick = () => { clearTimeout(dt); dt = setTimeout(() => cnpDraftStore(dr), 400); };
+    dr.addEventListener('input', kick); dr.addEventListener('change', kick); }
+  { const dc = $('#chkDraftClr', dr); if (dc) { dc.onclick = () => { cnpDraftClear(dr); toast('Το πρόχειρο καθαρίστηκε'); }; } }
   /* Δύο στήλες. Αριστερά (main): ΖΗΤΟΥΜΕΝΟ πάνω και από κάτω οι ΕΝΕΡΓΕΙΕΣ — το
      μόνο που κυλά είναι η λίστα ενεργειών. Δεξιά (side), συμπαγώς και χωρίς
      scroll: χρόνος, πεδία, εξαρτήσεις, ticket (κλειστό), ιστορικό (κλειστό).
@@ -4730,39 +4794,38 @@ async function openTask(id, entryId, opts) {
     if (r === 'third') {
       const x = await api('task_delete', {id, draft: 1}).catch(e => ({err: e && e.message}));
       if (x && x.err) { toast(x.err, true); return false; }
-      dr.dataset.fresh = ''; dr.dataset.dirty = ''; closeDrawer(); toast('Η εργασία δεν κρατήθηκε');
-      if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+      dr.dataset.fresh = ''; dr.dataset.dirty = ''; cnpDraftForget(id); closeDrawer(); toast('Η εργασία δεν κρατήθηκε');
+      cnpAfterTaskClose(id);
       return true;
     }
     dr.dataset.fresh = ''; dr.dataset.dirty = '';
     if (dr._saveNow) { await dr._saveNow(); }
     closeDrawer();
-    if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+    cnpAfterTaskClose(id);
     return true;
   };
-  /* ΤΙ ΜΠΟΡΕΙ ΠΡΑΓΜΑΤΙΚΑ ΝΑ ΧΑΘΕΙ. Τα πεδία είναι ήδη αποθηκευμένα, οπότε η παλιά
-     ερώτηση «έχεις μη αποθηκευμένες αλλαγές» δεν ισχύει πια. Το μόνο που χάνεται
-     στο κλείσιμο είναι ένα μήνυμα που έγραψες και δεν πάτησες Enter. */
+  /* ΚΛΕΙΣΙΜΟ ΧΩΡΙΣ ΕΡΩΤΗΣΕΙΣ (02/11/2026). Τα πεδία σώζονται μόνα τους· ό,τι έγραψες και
+     δεν καταχώρησες (μήνυμα συζήτησης, λεπτά/σημείωση χρόνου) μένει ΠΡΟΧΕΙΡΟ σε αυτή τη
+     συσκευή (cnpDraftStore, μέσα στο closeDrawer) και ξαναβγαίνει όταν ξανανοίξεις την εργασία.
+     Ρωτάμε ΜΟΝΟ για αρχεία που περιμένουν επισύναψη — αυτά δεν κρατιούνται. */
   dr._askClose = async () => {
     if (dr.dataset.fresh === '1') { return askFresh(); }
-    const ed = $('#chkNew', dr);
-    const html = ed ? ed.innerHTML.trim() : '';
-    if (html && html !== '<br>') {
-      const r = await cnpDialog({
-        title: '💬 Μισογραμμένο μήνυμα',
-        body: 'Έγραψες κάτι στη συζήτηση και δεν το καταχώρησες. Τα υπόλοιπα πεδία είναι ήδη αποθηκευμένα.',
-        ok: 'Καταχώρησέ το', cancel: 'Συνέχεια επεξεργασίας', third: 'Πέτα το', thirdPlain: true});
-      if (r === false || r === null) { return false; }
-      if (r !== 'third') {
-        const ra = await api('check_add', {task: id, title: html, html: 1}).catch(er => ({err: er, er}));
-        if (ra && ra.err) { toast('Δεν καταχωρήθηκε', true); return false; }
-      }
-      ed.innerHTML = '';
-      closeDrawer();
-      if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
-      return true;
+    const fl = $('#chkFiles', dr);
+    if (fl && !fl.hidden && fl.children.length) {
+      const r = await cnpDialog({title: I.clip + ' Αρχεία χωρίς επισύναψη',
+        body: 'Τα αρχεία που πρόσθεσες στη συζήτηση δεν έχουν καταχωρηθεί και δεν κρατιούνται στο κλείσιμο. Το κείμενο μένει πρόχειρο.',
+        ok: 'Κλείσιμο χωρίς τα αρχεία', cancel: 'Συνέχεια επεξεργασίας', safeFocus: true});
+      if (!r) { return false; }
     }
-    return cnpAskClose(dr);
+    /* Πεδίο που περιμένει ακόμη την αυτόματη αποθήκευση: σώζεται τώρα, σιωπηλά. */
+    if (dr.dataset.formDirty === '1' && dr._saveNow && !dr.classList.contains('tk-locked')) {
+      if (await dr._saveNow() !== true) { return false; }
+    }
+    dr.dataset.dirty = '';
+    closeDrawer();
+    if (cnpDraftLoad(id)) { toast('📝 Κρατήθηκε πρόχειρο — θα το βρεις όταν ξανανοίξεις την εργασία'); }
+    cnpAfterTaskClose(id);
+    return true;
   };
   $('#dX', dr).onclick = () => dr._askClose();
   /* Χωρίς «Board: επεξεργασία» και χωρίς να είναι δική του εργασία (ανάδοχος/
@@ -4911,7 +4974,7 @@ async function openTask(id, entryId, opts) {
     }
     if (!opts.close) { return true; }
     if (!bs) { toast('Αποθηκεύτηκε'); }
-    closeDrawer(); if (S.view === 'board') vBoard(); else if (S.view === 'myday') vMyDay(); else if (bs) { cnpSilentRefresh(); }
+    closeDrawer(); cnpAfterTaskClose(id, true);
     return true;
   };
   dr._saveNow = () => saveFields({close: false, composer: false});
@@ -4973,7 +5036,7 @@ async function openTask(id, entryId, opts) {
       if (!r.ok) { if (!r.cancelled) { toast(r.error || 'Δεν επιτρέπεται', true); } return; }
       toast('Κατάσταση: ' + (statusOf(to).title || '—'));
       openTask(id);
-      if (S.view === 'board') { vBoard(); } else if (S.view === 'myday') { vMyDay(); }
+      cnpSilentRefresh();
     }})));
   };
 
@@ -6057,6 +6120,8 @@ function closeDrawer() {
     if (window._cnpGreetLater) { const g = window._cnpGreetLater; window._cnpGreetLater = null; setTimeout(() => cnpGreet(g), 400); }
   }
   clearInterval(timerInt);
+  /* Ό,τι έμεινε μισογραμμένο στην εργασία κρατιέται πρόχειρο (όχι στο ξανασχεδίασμα της ίδιας). */
+  if (!window._cnpReopen) { $$('.drawer.tk-modal').forEach(cnpDraftStore); }
   /* Χρόνος σύνταξης νέας εργασίας: κλείνει με την κάρτα — εκτός αν η εργασία είναι
      δική σου (τότε δουλεύεις πάνω της και ο χρόνος συνεχίζει). */
   const su = window._cnpSetup;
@@ -6147,6 +6212,8 @@ function _cnpSaveBtn(box) {
  */
 async function cnpAskClose(box) {
   box = box || document.querySelector('.drawer.show, .drawer') || document.querySelector('.pal-box');
+  /* Η καρτέλα εργασίας σώζεται μόνη της· έχει δικό της έλεγχο (και για το Esc). */
+  if (box && box._askClose) { return box._askClose(); }
   const isDrawer = box && box.classList.contains('drawer');
   const kill = () => {
     if (isDrawer || !box) { closeDrawer(); return; }
@@ -8056,7 +8123,8 @@ window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpP
       /* Πλοήγηση σε άλλη οθόνη (π.χ. tab bar στο κινητό) ενώ είναι ανοιχτή καρτέλα χωρίς αλλαγές:
          η καρτέλα κλείνει — αλλιώς έμενε πάνω από τη νέα οθόνη. Με αλλαγές μένει, να μη χαθούν. */
       const od = document.querySelector('.drawer.show');
-      if (od && od.dataset.dirty !== '1' && od.dataset.fresh !== '1') { closeDrawer(); }
+      /* η καρτέλα εργασίας κρατά τα πρόχειρά της στο κλείσιμο — κλείνει κι αυτή */
+      if (od && od.dataset.fresh !== '1' && (od.dataset.dirty !== '1' || (od.classList.contains('tk-modal') && od.dataset.formDirty !== '1'))) { closeDrawer(); }
       go(h[1], h[2]);
     }
   });

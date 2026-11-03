@@ -364,6 +364,10 @@ html[data-theme="dark"] .kb-add input{border-color:#31435f}
 .act-edit:empty:before{content:attr(data-ph);color:var(--mut);pointer-events:none}
 .act-edit img{max-width:100%;height:auto;border-radius:8px;margin:7px 0;display:block}
 .act-foot{display:flex;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid var(--line);background:var(--canvas)}
+/* Πρόχειρο εργασίας (02/11/2026): κρατήθηκε στη συσκευή — με «Καθαρισμός» δίπλα */
+.tk-draft{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--warn,#b7791f);white-space:nowrap}
+.tk-draft[hidden]{display:none}
+.tk-draft .btn{padding:2px 8px;font-size:11px}
 /* Η υπόμνηση των πλήκτρων: φαίνεται, χωρίς να διεκδικεί προσοχή. */
 .act-tip{font-size:10.5px;opacity:.75;white-space:nowrap}
 /* (23/10/2026) Το κουμπί «Καταχώριση» φαίνεται ΠΑΝΤΑ — το Enter δεν καταχωρεί πια. */
