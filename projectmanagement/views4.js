@@ -2111,15 +2111,19 @@ async function lvScreen(E, arg) {
       }
       if (del) {
         e.stopPropagation(); const v = allSaved().find(x => x.id === +del.dataset.lvdel.slice(2)); if (!v) { return; }
-        if (!(await cnpConfirm('Διαγραφή του view «' + v.name + '»;' + (v.scope === 'public' ? '\n\nΕίναι δημόσιο — θα χαθεί και για τους συναδέλφους.' : ''), {ok: I.trash + ' Διαγραφή', danger: true}))) { return; }
+        /* Το μενού ΚΡΥΒΕΤΑΙ όσο ρωτάμε (04/11/2026): είναι πάνω από τα παράθυρα και έκρυβε την ερώτηση. */
+        m.style.visibility = 'hidden';
+        if (!(await cnpConfirm('Διαγραφή του view «' + v.name + '»;' + (v.scope === 'public' ? '\n\nΕίναι δημόσιο — θα χαθεί και για τους συναδέλφους.' : ''), {ok: I.trash + ' Διαγραφή', danger: true}))) { m.style.visibility = ''; return; }
         const r = await api('view_del', {entity: E.key, id: v.id}).catch(er => ({err: er.message}));
         if (r.err) { toast(r.err, true); return; }
         await loadViews(); if (st.view && st.view.kind === 'v' && st.view.id === v.id) { openView('p', HOME); apply(true); } else { renderTop(); }
         close(); toast('Το view διαγράφηκε'); return;
       }
       if (op) {
+        /* Πρώτα κλείνει το μενού, ΜΕΤΑ η ερώτηση — αλλιώς το μενού κάθεται πάνω της. */
+        close();
         if (modified() && !(await cnpConfirm('Έχεις αλλαγές στο τρέχον view που δεν αποθηκεύτηκαν. Να χαθούν;', {ok: 'Ναι, άλλαξε view', cancel: 'Όχι'}))) { return; }
-        const [kk, id] = op.dataset.lvopen.split(':'); openView(kk, id); close(); apply(true);
+        const [kk, id] = op.dataset.lvopen.split(':'); openView(kk, id); apply(true);
       }
     };
   };

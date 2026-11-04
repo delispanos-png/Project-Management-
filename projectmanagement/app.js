@@ -392,10 +392,18 @@ function cnpFatal(msg) {
   if (Date.now() - _cnpErrAt < 60000) { return; }     // όχι καταιγισμός
   _cnpErrAt = Date.now();
   try { toast('Σφάλμα στην οθόνη — οι αλλαγές ίσως δεν αποθηκεύονται. Ανανέωσε (Ctrl+Shift+R).', true); } catch (e) { /* ignore */ }
-  try { if (window.cnpUpdBanner) { window.cnpUpdBanner(); } } catch (e) { /* ignore */ }
+  /* (04/11/2026) ΟΧΙ πια η κάρτα «Νέα έκδοση» εδώ: έβγαινε σε κάθε σφάλμα, χωρίς να έχει
+     αλλάξει κώδικας. Η κάρτα βγαίνει ΜΟΝΟ όταν ο server πει ότι άλλαξε η έκδοση. */
   try { console.error('[CNP]', msg); } catch (e) { /* ignore */ }
 }
-window.addEventListener('error', e => cnpFatal((e && e.message) || 'error'));
+/* Μόνο ΔΙΚΑ ΜΑΣ σφάλματα: όχι επεκτάσεις browser / ξένα scripts («Script error.» χωρίς αρχείο),
+   ούτε το αθώο «ResizeObserver loop» που ρίχνει ο ίδιος ο browser. */
+window.addEventListener('error', e => {
+  const m = (e && e.message) || '', f = (e && e.filename) || '';
+  if (!f || f.indexOf(location.origin + '/project/') !== 0) { return; }
+  if (/ResizeObserver loop|Script error\.?$/i.test(m)) { return; }
+  cnpFatal(m || 'error');
+});
 window.addEventListener('unhandledrejection', e => {
   const r = e && e.reason;
   if (r && (r.message === 'auth' || String(r).includes('auth'))) { return; }   // το login το χειρίζεται το api()
@@ -2528,7 +2536,9 @@ function cnpWireMsgLinks(root) {
 /** Το ψηλότερο z-index ανοιχτού overlay — ώστε το επόμενο να μπει από πάνω. */
 function cnpTopZ() {
   let z = 300;
-  document.querySelectorAll('.ovl, .drawer').forEach(el => {
+  /* (04/11/2026) και τα ανοιχτά μενού (Views λίστας, pop, miniMenu): μια ερώτηση που ανοίγει
+     από μενού πρέπει να βγαίνει ΠΑΝΩ του, όχι από κάτω. */
+  document.querySelectorAll('.ovl, .drawer, .lv-menu, .pop, #miniMenu').forEach(el => {
     const v = parseInt(getComputedStyle(el).zIndex, 10);
     if (!isNaN(v) && v > z) { z = v; }
   });
