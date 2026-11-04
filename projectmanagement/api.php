@@ -15460,6 +15460,9 @@ case 'ticket_update':
             Auto::run('ticket_status', ['ticketId' => $tid, 'status' => (string) $upd['status']]);
         } catch (\Throwable $e) {
         }
+        /* Ticket AI ρεσεψιόν κλειστό → και η εργασία του (hooks.php). Ρητά εδώ, για να μην
+           εξαρτάται από το αν το UpdateTicket πυροδοτεί hook· δεύτερο τρέξιμο δεν κάνει τίποτα. */
+        if (function_exists('cnp_ai_ticket_close_task')) { cnp_ai_ticket_close_task($tid, (string) $upd['status']); }
     }
     out(['ok' => ($r['result'] ?? '') === 'success', 'msg' => $r['message'] ?? null]);
 
