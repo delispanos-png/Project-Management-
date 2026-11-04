@@ -420,7 +420,21 @@ function cnp_ai_ticket_close_task($ticketId, $status)
 {
     try {
         $ticketId = (int) $ticketId;
-        if ($ticketId <= 0 || strcasecmp((string) $status, 'Closed') !== 0 || !cloudonprojects_ready()) { return; }
+        if ($ticketId <= 0 || !cloudonprojects_ready()) { return; }
+        /* ΞΑΝΑΝΟΙΞΕ το ticket → ξανανοίγει και η εργασία, ΑΝ την είχαμε κλείσει εμείς αυτόματα
+           (σημείωση «Έκλεισε αυτόματα…» ή το μαζικό «Λύθηκε: το ticket…»). Εργασία που έκλεισε
+           άνθρωπος με δική του σημείωση δεν την αγγίζουμε. (04/11/2026: #884893 ξανάνοιξε, #863 έμενε κλειστή) */
+        if (!in_array((string) $status, ['Closed', 'Cancelled'], true)) {
+            $tid0 = (string) Capsule::table('tbltickets')->where('id', $ticketId)->value('tid');
+            foreach (Capsule::table('mod_cpm_tasks')->where('ticketid', $ticketId)->whereNotNull('completed_at')
+                    ->where(function ($q) { $q->where('completed_note', 'like', 'Έκλεισε αυτόματα: το ticket%')
+                        ->orWhere('completed_note', 'like', 'Λύθηκε: το ticket%'); })->pluck('id') as $tk0) {
+                Db::moveTask($tk0, Db::firstStatusId(), (int) ($_SESSION['adminid'] ?? 0) ?: null, null);
+                logActivity('CPM: εργασία #' . $tk0 . ' ξανάνοιξε — το ticket #' . $tid0 . ' ξανάνοιξε (' . $status . ')');
+            }
+            return;
+        }
+        if (strcasecmp((string) $status, 'Closed') !== 0) { return; }
         $tk = Capsule::table('tbltickets')->where('id', $ticketId)->first(['tid', 'email']);
         if (!$tk) { return; }
         $isAi = preg_match('/^pbx-[a-z0-9.-]*@cloudon\.gr$/i', (string) $tk->email)
@@ -447,4 +461,9 @@ add_hook('TicketStatusChange', 2, function ($vars) {
 });
 add_hook('TicketClose', 2, function ($vars) {
     cnp_ai_ticket_close_task($vars['ticketid'] ?? 0, 'Closed');
+});
+/* Απάντηση πελάτη σε κλειστό ticket = ξανανοίγει → ξανανοίγει και η εργασία που είχαμε κλείσει αυτόματα. */
+add_hook('TicketUserReply', 3, function ($vars) {
+    $st = (string) Capsule::table('tbltickets')->where('id', (int) ($vars['ticketid'] ?? 0))->value('status');
+    if ($st !== '' && !in_array($st, ['Closed', 'Cancelled'], true)) { cnp_ai_ticket_close_task($vars['ticketid'] ?? 0, $st); }
 });
