@@ -4673,8 +4673,8 @@ async function openTask(id, entryId, opts) {
         <a style="flex:1;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" data-dgo="${dp.id}">${esc(dp.title)}</a>
         <button class="btn btn-sm btn-o" data-ddel="${dp.depId}">✕</button></div>`).join('')}
       <div style="display:flex;gap:7px;margin-top:6px">
-        <select class="inp" id="depSel" data-combo style="flex:1;font-size:12px;padding:6px 8px"><option value="">— διάλεξε task που μας μπλοκάρει —</option></select>
-        <button class="btn btn-sm btn-o" id="depAdd">+</button></div>
+        <select class="inp" id="depSel" data-combo style="flex:1;font-size:12px;padding:6px 8px"><option value="">— διάλεξε task ή γράψε #κωδικό —</option></select>
+        <button class="btn btn-sm btn-o" id="depAdd" title="Προσθήκη· χωρίς επιλογή: αναζήτηση σε ΟΛΕΣ τις εργασίες με κωδικό ή τίτλο">+</button></div>
     </div></div>
 
     ${tkD ? (() => {
@@ -5538,7 +5538,8 @@ async function openTask(id, entryId, opts) {
   (async () => {
     const sel = $('#depSel', dr);
     if (!sel) { return; }
-    const add = (tid, title) => { if (tid !== id) { sel.innerHTML += `<option value="${tid}">${esc(title)}</option>`; } };
+    /* Με τον ΚΩΔΙΚΟ μπροστά (04/11/2026): γράφεις «529» ή «#529» και τη βρίσκεις. */
+    const add = (tid, title) => { if (tid !== id) { sel.innerHTML += `<option value="${tid}">#${tid} ${esc(title)}</option>`; } };
     if (!d.project.none) {
       const bd = await api('board&project=' + d.project.id).catch(() => null);
       if (bd) { bd.columns.forEach(col => col.tasks.forEach(tt => add(tt.id, tt.title))); }
@@ -5550,11 +5551,17 @@ async function openTask(id, entryId, opts) {
     }
   })();
   $('#depAdd', dr).onclick = async () => {
-    const on = +$('#depSel', dr).value;
-    if (!on) return;
-    const r = await api('dep_add', {task: id, on}).catch(() => ({ok: 0}));
-    if (r.ok) { toast('Προστέθηκε εξάρτηση'); openTask(id); }
-    else toast('Δεν γίνεται (κύκλος;)', true);
+    let on = +$('#depSel', dr).value;
+    /* Τίποτα επιλεγμένο → αναζήτηση σε ΟΛΕΣ τις εργασίες (κωδικός ή τίτλος), όχι μόνο του ίδιου έργου. */
+    if (!on) {
+      const pk = await cnpPickTask('Εξάρτηση — ποια εργασία πρέπει να τελειώσει πρώτα; (κωδικός ή τίτλος)', id);
+      if (!pk) { return; }
+      on = +pk.id;
+    }
+    if (on === id) { toast('Μια εργασία δεν εξαρτάται από τον εαυτό της', true); return; }
+    const r = await api('dep_add', {task: id, on}).catch(e => ({ok: 0, err: e.message}));
+    if (r.ok) { toast('Προστέθηκε εξάρτηση από την #' + on); openTask(id); }
+    else { toast(r.err || 'Δεν γίνεται — θα δημιουργούσε κύκλο εξαρτήσεων ή υπάρχει ήδη', true); }
   };
   $$('[data-ddel]', dr).forEach(b => b.onclick = async () => {
     await api('dep_del', {id: +b.dataset.ddel}); openTask(id);
