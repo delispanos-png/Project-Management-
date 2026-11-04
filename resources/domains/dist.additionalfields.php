@@ -1,4 +1,5 @@
 <?php
+
 /*
  **********************************************************************
  *         Additional Domain Fields (aka Extended Attributes)         *

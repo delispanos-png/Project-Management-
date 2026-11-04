@@ -59,7 +59,7 @@ class NetworkStatus extends AbstractWidget
     </div>
 </div>';
         }
-        if (count($data['servers']) == 0) {
+        if (empty($data['servers'])) {
             $output = '<div class="text-center">
                 No servers configured.
                 <br /><br />

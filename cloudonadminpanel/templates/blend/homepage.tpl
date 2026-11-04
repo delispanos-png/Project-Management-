@@ -39,6 +39,8 @@
 
 {$mixPanelBanner}
 
+{$autoUpdateNotification}
+
 {foreach $staticWidgets as $widget}
     <div id="panel{$widget->getId()}" class="dashboard-panel-static-item dashboard-panel-item-columns-{$widget->getColumnSize()}{if in_array($widget->getId(), $hiddenWidgets)} hidden{/if}">
         {if $widget->showWrapper()}

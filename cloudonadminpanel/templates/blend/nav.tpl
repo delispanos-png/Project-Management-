@@ -191,6 +191,12 @@
                         </a>
                     </li>
                 {/if}
+                {if in_array('List Credit and Debit Notes', $admin_perms)}
+                    <li>
+                        <a id="Menu-Billing-Credit_Debit_Notes"
+                           href="{routePath('admin-billing-billingnotes-index')}">{$_ADMINLANG.billingnotes.title}</a>
+                    </li>
+                {/if}
                 {if in_array("List Invoices",$admin_perms)}
                     <li class="has-dropdown expand">
                         <a id="Menu-Billing-Invoices" href="invoices.php">

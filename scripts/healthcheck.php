@@ -73,6 +73,18 @@ foreach ($files as $f => $what) {
     is_file($root . '/' . $f) ? ok($what, $f) : bad($what . ' — ΛΕΙΠΕΙ', $f);
 }
 
+/* 03/11/2026 (9.0.8 → 9.1.0): η αναβάθμιση αντικαθιστά το λογότυπο του admin με του WHMCS.
+   Το δικό μας είναι 250×95, ~21 KB· του WHMCS ~8 KB. Επαναφορά: git show HEAD:<αρχείο> > <αρχείο>. */
+$logo = $root . '/cloudonadminpanel/templates/blend/images/logo.png';
+(is_file($logo) && filesize($logo) > 15000) ? ok('Λογότυπο CloudOn στον admin', filesize($logo) . ' bytes')
+    : bad('Λογότυπο admin = του WHMCS', 'git show HEAD:cloudonadminpanel/templates/blend/images/logo.png > ...');
+/* Παλιό αντίγραφο WHMCS του 2024 στο whmcs/ — είχε ΑΝΟΙΧΤΟ installer στο web. Πρέπει να μένει κλειστό (ή να σβηστεί). */
+if (is_dir($root . '/whmcs')) {
+    $ht = @file_get_contents($root . '/whmcs/.htaccess');
+    ($ht !== false && stripos($ht, 'Require all denied') !== false) ? ok('Παλιό whmcs/ κλειστό από το web', '.htaccess deny')
+        : bad('Παλιό whmcs/ ΑΝΟΙΧΤΟ από το web', 'βάλε Require all denied ή σβήσε τον φάκελο');
+}
+
 /* ------------------------------------------------------------------ */
 section('Προσαρμογές μέσα στα πρότυπα (χάνονται σε ενημέρωση horn)');
 

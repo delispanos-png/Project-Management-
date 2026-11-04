@@ -1067,6 +1067,25 @@ PayPal παύει να μπαίνει — και δεν το προσέχει κ
 
 ---
 
+## 5γ. Αναβάθμιση 9.0.8 → 9.1.0 (03/11/2026) — τι βρέθηκε
+
+- **PHP της γραμμής εντολών:** το 9.1 θέλει ionCube 14+. Η `/opt/plesk/php/8.2` (ionCube 13.3) **δεν** διαβάζει πλέον τα αρχεία («cannot be decoded»). Web, cron WHMCS και όλα τα δικά μας crons τρέχουν `/opt/plesk/php/8.3` (ionCube 15.5) — σωστά. Κάθε χειροκίνητο script / `healthcheck.php` → **8.3**.
+- **Λογότυπο admin:** το `cloudonadminpanel/templates/blend/images/logo.png` αντικαθίσταται από του WHMCS. Επαναφορά: `git show HEAD:cloudonadminpanel/templates/blend/images/logo.png > ...` (ο healthcheck το ελέγχει).
+- **«What's new» με σφάλμα αμέσως μετά:** η ροή αναβάθμισης/EULA αφήνει τον browser στο `/cloudonadminpanel/index.php/cloudonadminpanel/` και το παράθυρο ζητά `whatsnew.php` σχετικά από εκεί → 404. Δεν είναι βλάβη: άνοιξε ξανά `https://my.cloudon.gr/cloudonadminpanel/`.
+- **4″ σφαλμάτων 500** (`getApiVersionForPath`) την ώρα της αντιγραφής αρχείων — αναμενόμενο, σταματούν μόνα τους.
+- **Παλιό αντίγραφο `whmcs/` (2024, 308 MB)** μέσα στη ρίζα: είχε **ανοιχτό installer** (`/whmcs/install/install.php` → 200). Κλείστηκε με `.htaccess` (Require all denied). Επίσης 3 φάκελοι updater του 2024 στο `vendor/composer/<hash>/` (~700 MB, κλειστοί από το web). Υποψήφια για διαγραφή.
+- Το `blend-new` (δοκιμαστικό πρότυπο της 9.0) αφαιρείται από το WHMCS — δεν το χρησιμοποιούσε κανείς.
+- **Σβήστηκαν 03/11/2026** το `whmcs/` και οι 3 φάκελοι updater (σύνολο 834 MB). Αντίγραφο: `/root/backups/old-whmcs-copies-2026-11-03.tar.gz`.
+
+## 5δ. PHP 8.3 → 8.4 (03/11/2026)
+
+- Το WHMCS 9.1 υποστηρίζει/συνιστά PHP 8.4 με **ionCube ≥ 15.0.0**. Η σειρά: πρώτα WHMCS 9.1, μετά PHP 8.4.
+- Το ionCube **δεν** έρχεται με την PHP του Plesk: `ioncube_loader_lin_8.4.so` (15.5.1, από downloads.ioncube.com) στο `/opt/plesk/php/8.4/lib/php/modules/` + `/opt/plesk/php/8.4/etc/php.d/00-ioncube-loader.ini`, μετά `systemctl restart plesk-php84-fpm`. **Αν αλλάξει η PHP του site πριν από αυτό, το site πέφτει** («ionCube Loader needs to be installed») — έγινε για λίγα λεπτά.
+- Όλα τα crons (crontab του cloudon.gr_chbouao8z8 + /etc/cron.d/cloudonprojects, hetzner-reconcile, hetzner-availability) → `/opt/plesk/php/8.4/bin/php`. Αντίγραφα: `/root/backups/crons-2026-11-03/`.
+- Τα 125 δικά μας αρχεία PHP περνούν `php8.4 -l`. Το IMAP υπάρχει ως ξεχωριστό πακέτο (`plesk-php84-imap`).
+- ⚠️ Η ενημέρωση του Plesk επανεκκίνησε υπηρεσίες και το **Kolab Guam** (Premium Email) πήρε τις θύρες 993/143 → ο **Dovecot δεν ξεκινά** (IMAP/POP3 πεσμένα) και το Guam σερβίρει ληγμένο πιστοποιητικό (`/etc/guam/server-cert.pem`, 26/09/2026). Λύση: `systemctl stop guam && systemctl mask guam && systemctl restart dovecot`. Μετά από κάθε ενημέρωση Plesk: έλεγχος `ss -ltnp | grep -E ':(993|143) '` → πρέπει να είναι dovecot.
+
+
 ## 6. Λίστα ελέγχου μετά την αναβάθμιση
 
 Με σειρά προτεραιότητας. Τα 🔴 είναι αυτά που κοστίζουν χρήματα ή σπάνε πωλήσεις.

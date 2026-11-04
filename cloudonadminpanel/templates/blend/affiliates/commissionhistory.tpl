@@ -19,14 +19,14 @@
             >
                 <thead>
                 <tr>
-                    <th data-name="date" data-searchable="false" data-orderable="false">{lang key='fields.date'}</th>
-                    <th data-name="affaccid" data-searchable="false" data-orderable="false">{lang key='affiliates.refid'}</th>
-                    <th data-name="clientname" data-searchable="false" data-orderable="false">{lang key='fields.clientname'}</th>
-                    <th data-name="product" data-searchable="false" data-orderable="false">{lang key='fields.product'}</th>
-                    <th data-name="productstatus" data-searchable="false" data-orderable="false">{lang key='affiliates.productstatus'}</th>
-                    <th data-name="description" data-searchable="false" data-orderable="false" >{lang key='fields.description'}</th>
-                    <th data-name="invoicenum" data-searchable="false" data-orderable="false">{lang key='fields.invoicenum'}</th>
-                    <th data-name="amount" data-searchable="false" data-orderable="false">{lang key='fields.amount'}</th>
+                    <th data-name="date" data-searchable="false">{lang key='fields.date'}</th>
+                    <th data-name="affaccid" data-searchable="false">{lang key='affiliates.refid'}</th>
+                    <th data-name="clientname" data-searchable="false">{lang key='fields.clientname'}</th>
+                    <th data-name="product" data-searchable="false">{lang key='fields.product'}</th>
+                    <th data-name="productstatus" data-searchable="false">{lang key='affiliates.productstatus'}</th>
+                    <th data-name="description" data-searchable="false" >{lang key='fields.description'}</th>
+                    <th data-name="invoicenum" data-searchable="false">{lang key='fields.invoicenum'}</th>
+                    <th data-name="amount" data-searchable="false">{lang key='fields.amount'}</th>
                     <th data-name="actions" data-class-name="delete text-center" data-searchable="false" data-orderable="false" data-width="20"></th>
                 </tr>
                 </thead>

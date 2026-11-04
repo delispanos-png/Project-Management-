@@ -492,7 +492,7 @@
                                     <label for="inputNewPassword1" class="field-icon">
                                         <i class="fas fa-lock"></i>
                                     </label>
-                                    <input type="password" name="password" id="inputNewPassword1" data-error-threshold="{$pwStrengthErrorThreshold}" data-warning-threshold="{$pwStrengthWarningThreshold}" class="field form-control" placeholder="{$LANG.clientareapassword}"{if $remote_auth_prelinked} value="{$password}"{/if}>
+                                    <input type="password" name="password" id="inputNewPassword1" data-error-threshold="{$pwStrengthErrorThreshold}" data-warning-threshold="{$pwStrengthWarningThreshold}" data-min-length="{$minimumPasswordLength}" data-max-length="{$maximumPasswordLength}" data-requires-numeric="{if $passwordRequiresNumeric}1{else}0{/if}" data-requires-alphabetic="{if $passwordRequiresAlphabetic}1{else}0{/if}" class="field form-control" placeholder="{$LANG.clientareapassword}"{if $remote_auth_prelinked} value="{$password}"{/if}>
                                 </div>
                             </div>
                             <div class="col-sm-6">
@@ -710,11 +710,12 @@
                         <div id="newCardSaveSettings">
                             <div class="row form-group new-card-container">
                                 <div id="inputDescriptionContainer" class="col-md-6">
+                                    <label for="inputDescription">{$LANG.paymentMethods.cardDescription}</label>
                                     <div class="prepend-icon">
                                         <label for="inputDescription" class="field-icon">
                                             <i class="fas fa-pencil"></i>
                                         </label>
-                                        <input type="text" class="field form-control" id="inputDescription" name="ccdescription" autocomplete="off" value="" placeholder="{$LANG.paymentMethods.descriptionInput} {$LANG.paymentMethodsManage.optional}" />
+                                        <input type="text" class="field form-control" id="inputDescription" name="ccdescription" autocomplete="off" value="" placeholder="{$LANG.paymentMethodsManage.optional}" />
                                     </div>
                                 </div>
                                 {if $allowClientsToRemoveCards}

@@ -135,4 +135,3 @@ $reportdata["headertext"] = <<<HTML
 HTML;
 
 $report = '';
-

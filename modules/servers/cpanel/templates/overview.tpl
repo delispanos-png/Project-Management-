@@ -277,7 +277,7 @@
                     <div class="col-md-4">
                         <select class="form-control" id="wordPressInstances">
                             {foreach $wpInstances as $wpInstance}
-                                <option value="{$wpInstance.instanceUrl}">
+                                <option value="{$wpInstance.instanceUrl}" data-instance-id="{$wpInstance.instanceId}">
                                     {$wpInstance.blogTitle}
                                     {if $wpInstance.path} ({$wpInstance.path}){/if}
                                 </option>
@@ -309,16 +309,13 @@
                         <div class="alert alert-danger" style="display: none">
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <input type="text" class="form-control" id="wpNewBlogTitle" placeholder="New Blog Title" />
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <input type="text" class="form-control" id="wpNewPath" placeholder="Path (optional)" />
                     </div>
-                    <div class="col-md-3">
-                        <input type="password" class="form-control" id="wpAdminPass" placeholder="Admin Password" />
-                    </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <button class="btn btn-default btn-block" id="btnInstallWordpress">
                             <i class="far fa-fw fa-plus"></i>
                             {lang key='wptk.installWordPressShort'}

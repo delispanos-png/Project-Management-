@@ -19,6 +19,7 @@ CREATE TABLE `tblinvoiceitems` (
   `duedate` date DEFAULT NULL,
   `paymentmethod` text COLLATE utf8_unicode_ci NOT NULL,
   `notes` text COLLATE utf8_unicode_ci NOT NULL,
+  `is_cancelled` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   KEY `invoiceid` (`invoiceid`),
   KEY `userid` (`userid`,`type`,`relid`)

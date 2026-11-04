@@ -7103,6 +7103,7 @@ $( document ).ready(function() {
                 type: "warning",
                 dangerMode: true,
                 showCancelButton: true,
+                customClass: "swal-danger",
                 confirmButtonColor: "#DD6B55",
                 confirmButtonText: lang.yes,
                 cancelButtonText: lang.no

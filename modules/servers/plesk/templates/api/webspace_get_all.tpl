@@ -19,7 +19,14 @@
             <?php if (empty($dataset)): // Dataset ?>
                 <hosting/>
                 <subscriptions/>
+                <gen_info/>
             <?php else: // Dataset ?>
+                <?php if(in_array('hosting', $dataset, true)): // hosting ?>
+                    <hosting/>
+                <?php endif; // hosting ?>
+                <?php if(in_array('subscriptions', $dataset, true)): // subscriptions ?>
+                    <subscriptions/>
+                <?php endif; // subscriptions ?>
                 <?php if(in_array('gen_info', $dataset, true)): // gen_info ?>
                     <gen_info />
                 <?php endif; // gen_info ?>

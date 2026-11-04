@@ -19,8 +19,8 @@
             >
                 <thead>
                 <tr>
-                    <th data-name="date" data-searchable="false" data-orderable="false">{lang key='fields.date'}</th>
-                    <th data-name="amount" data-searchable="false" data-orderable="false">{lang key='fields.amount'}</th>
+                    <th data-name="date" data-searchable="false">{lang key='fields.date'}</th>
+                    <th data-name="amount" data-searchable="false">{lang key='fields.amount'}</th>
                     <th data-name="actions" data-class-name="delete text-center" data-searchable="false" data-orderable="false" data-width="20"></th>
                 </tr>
                 </thead>

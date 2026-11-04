@@ -65,6 +65,31 @@ dataTable: function () {
     };
 
     /**
+     * DataTables column renderer that wraps a status value in a semantic badge.
+     * The status text is rendered as-is for sort/filter; only the display value
+     * is wrapped, using the normalised status supplied by the server on the row.
+     *
+     * @param {string} data
+     * @param {string} type
+     * @param {{statusNormalised: string}} row
+     * @returns {string}
+     */
+    this.renderStatusPill = function (data, type, row) {
+        if (type !== 'display' || data === null || data === '') {
+            return data;
+        }
+        // Idempotent: a cell whose markup already is a pill is left untouched.
+        // The client summary tables (admin/templates/iris/clientssummary.tpl)
+        // already ship the pill in the cell and still opt the column in via
+        // data-render="statusPill", so the renderer would double-wrap them.
+        if (typeof data === 'string' && data.indexOf('status-pill') !== -1) {
+            return data;
+        }
+        var normalised = (row && row.statusNormalised) ? row.statusNormalised : '';
+        return '<span class="status-pill status-' + normalised + '">' + data + '</span>';
+    };
+
+    /**
      * Get a table by id; create table object on fly as necessary
      *
      * @param {string} id
@@ -129,7 +154,14 @@ dataTable: function () {
                 if (typeof options.columns === "undefined") {
                     options.columns = [];
                 }
-                options.columns.push({data:jQuery(this).data('name')});
+                var columnDef = {data: jQuery(this).data('name')};
+                // Opt-in, theme-owned rendering. The server returns the status
+                // as plain text plus a normalised value on the row; only a theme
+                // that asks for it (data-render="statusPill") wraps it in a badge.
+                if (jQuery(this).data('render') === 'statusPill') {
+                    columnDef.render = self.renderStatusPill;
+                }
+                options.columns.push(columnDef);
             });
             self.tables[id] = self.initTable(el, options);
         } else if (typeof options !== 'undefined') {

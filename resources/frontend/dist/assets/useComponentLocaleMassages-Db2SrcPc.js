@@ -1,0 +1,1 @@
+import{a5 as r,r as u,a6 as o,E as n,q as g,a7 as m}from"./index-b2MUOdIH.js";function f(s,l,t={}){const{tm:e,locale:c}=r(),a=u(o(e(s)));return n(()=>c,()=>{a.value=o(e(s))}),{localeMessages:g(()=>m({},l,a.value,t))}}export{f as u};

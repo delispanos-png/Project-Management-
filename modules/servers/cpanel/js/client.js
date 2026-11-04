@@ -23,6 +23,17 @@ function doEmailCreate() {
 
 (function ($) {
     $(document).ready(function() {
+        var wpToolkitSsoUrl = function(instanceId) {
+            var url = 'clientarea.php?action=productdetails&id=' + $('#cPanelWordPress').data('service-id')
+                + '&dosinglesignon=1&app=wp-toolkit';
+
+            if (instanceId) {
+                url += '&instanceId=' + instanceId;
+            }
+
+            return url;
+        };
+
         $('#btnInstallWordpress').click(function() {
             var icon = $(this).find('i');
 
@@ -41,13 +52,13 @@ function doEmailCreate() {
                     serviceId: $('#cPanelWordPress').data('service-id'),
                     token: csrfToken,
                     blog_title: $('#wpNewBlogTitle').val(),
-                    path: $('#wpNewPath').val(),
-                    admin_pass: $('#wpAdminPass').val()
+                    path: $('#wpNewPath').val()
                 },
                 success: function(data) {
                     $('#wordPressInstances').append(
                         $('<option>')
                             .attr('value', data.instanceUrl)
+                            .attr('data-instance-id', data.instanceId)
                             .text(
                                 data.blogTitle
                                 + (data.path ? ' (' + data.path + ')' : '')
@@ -55,7 +66,7 @@ function doEmailCreate() {
                     );
 
                     $('#newWordPressLink').attr('href', data.instanceUrl);
-                    $('#newWordPressAdminLink').attr('href', data.instanceUrl + '/wp-login.php');
+                    $('#newWordPressAdminLink').attr('href', wpToolkitSsoUrl(data.instanceId));
 
                     $('#wordpressInstanceRow').slideDown();
 
@@ -63,7 +74,6 @@ function doEmailCreate() {
                     $('#wordPressInstallResultRow').slideDown();
 
                     $('#wpNewBlogTitle').val('');
-                    $('#wpAdminPass').val('');
                     $('#wpNewPath').val('').trigger('keyup');
                 },
                 error: function(data) {
@@ -82,7 +92,9 @@ function doEmailCreate() {
         });
 
         $('#btnGoToWordPressAdmin').click(function() {
-            window.open($('#wordPressInstances').val() + '/wp-login.php');
+            var instanceId = $('#wordPressInstances').find(':selected').data('instance-id');
+
+            window.open(wpToolkitSsoUrl(instanceId));
         });
 
         var wpDomain = $('#cPanelWordPress').data('wp-domain');

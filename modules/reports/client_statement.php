@@ -185,8 +185,8 @@ $reportdata['tableheadings'] = ['Type', 'Date', 'Description', 'Credits', 'Debit
 uksort(
     $statement,
     static function ($a, $b){
-        list ($datePartA, $countPartA) = explode('_', $a, 2);
-        list ($datePartB, $countPartB) = explode('_', $b, 2);
+        [$datePartA, $countPartA] = explode('_', $a, 2);
+        [$datePartB, $countPartB] = explode('_', $b, 2);
 
         // Sort by dates first, then by count as ints to ensure consistent order
         // for transactions on the same date.

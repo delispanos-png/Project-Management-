@@ -732,12 +732,60 @@ function () {
         return status ? status.toLowerCase().replace(/\s/g, '-') : '';
     }
 
+    /**
+     * The length bounds the password generator's length field carries.
+     *
+     * Read off the field rather than held here so that the floor is whatever minimum password
+     * length the server rendered into the markup. A pair of constants in this file would be a
+     * second, independent copy of the policy's numbers and would go stale the moment an
+     * administrator raised the configured minimum, which is exactly how this check came to reject
+     * only what an obsolete floor rejected.
+     *
+     * A bound the field does not carry at all, or carries with no leading digits, comes back null;
+     * a caller treats that as unbounded rather than substituting a number of its own, because a
+     * guessed bound is what this reads the markup to avoid.
+     *
+     * That is parseInt's numeric-prefix parsing and not validation: "16.5" and "16junk" both read
+     * as 16, and only a value with nothing numeric at the front - "", "abc", an absent attribute -
+     * is rejected. Nothing checks these attributes for well-formedness, so the guarantee is the
+     * server's: it writes an integer taken from the password policy, which is why parsing loosely
+     * is enough here rather than something to be tightened.
+     *
+     * @param field The length input, as a selector or element jQuery accepts
+     *
+     * @return {{minimum: ?number, maximum: ?number}}
+     */
+    this.getPasswordLengthBounds = function(field) {
+        var read = function(attribute) {
+            var bound = parseInt(jQuery(field).attr(attribute), 10);
+
+            return isNaN(bound) ? null : bound;
+        };
+
+        return {minimum: read('min'), maximum: read('max')};
+    };
+
     this.generatePassword = function(len) {
+        var self = this;
         var charset = this.getPasswordCharacterSet();
-        var result = "";
-        for (var i = 0; len > i; i++)
-            result += charset[this.randomInt(charset.length)];
-        return result;
+        // Drawing every character independently from a mixed alphabet does not guarantee a
+        // digit or a letter, and the password policy requires both. Seed the result with one
+        // of each (when there is room for them), fill the rest from the full charset, then
+        // shuffle so the guaranteed characters aren't always in the same position.
+        var digits = charset.filter(function(c) { return c >= '0' && c <= '9'; });
+        var letters = charset.filter(function(c) { return /[a-zA-Z]/.test(c); });
+        var result = len >= 2
+            ? [digits[this.randomInt(digits.length)], letters[this.randomInt(letters.length)]]
+            : [];
+        for (var i = result.length; i < len; i++)
+            result.push(charset[this.randomInt(charset.length)]);
+        for (var j = result.length - 1; j > 0; j--) {
+            var k = self.randomInt(j + 1);
+            var tmp = result[j];
+            result[j] = result[k];
+            result[k] = tmp;
+        }
+        return result.join("");
     };
     this.getPasswordCharacterSet = function() {
         var rawCharset = '0123456789'
@@ -1106,6 +1154,31 @@ dataTable: function () {
     };
 
     /**
+     * DataTables column renderer that wraps a status value in a semantic badge.
+     * The status text is rendered as-is for sort/filter; only the display value
+     * is wrapped, using the normalised status supplied by the server on the row.
+     *
+     * @param {string} data
+     * @param {string} type
+     * @param {{statusNormalised: string}} row
+     * @returns {string}
+     */
+    this.renderStatusPill = function (data, type, row) {
+        if (type !== 'display' || data === null || data === '') {
+            return data;
+        }
+        // Idempotent: a cell whose markup already is a pill is left untouched.
+        // The client summary tables (admin/templates/iris/clientssummary.tpl)
+        // already ship the pill in the cell and still opt the column in via
+        // data-render="statusPill", so the renderer would double-wrap them.
+        if (typeof data === 'string' && data.indexOf('status-pill') !== -1) {
+            return data;
+        }
+        var normalised = (row && row.statusNormalised) ? row.statusNormalised : '';
+        return '<span class="status-pill status-' + normalised + '">' + data + '</span>';
+    };
+
+    /**
      * Get a table by id; create table object on fly as necessary
      *
      * @param {string} id
@@ -1170,7 +1243,14 @@ dataTable: function () {
                 if (typeof options.columns === "undefined") {
                     options.columns = [];
                 }
-                options.columns.push({data:jQuery(this).data('name')});
+                var columnDef = {data: jQuery(this).data('name')};
+                // Opt-in, theme-owned rendering. The server returns the status
+                // as plain text plus a normalised value on the row; only a theme
+                // that asks for it (data-render="statusPill") wraps it in a badge.
+                if (jQuery(this).data('render') === 'statusPill') {
+                    columnDef.render = self.renderStatusPill;
+                }
+                options.columns.push(columnDef);
             });
             self.tables[id] = self.initTable(el, options);
         } else if (typeof options !== 'undefined') {
@@ -3289,7 +3369,7 @@ jQuery(document).ready(function() {
         var itemCount = mcProductPromos.find('.item').length;
         mcProductPromos.owlCarousel({
             loop: true,
-            margin: 10,
+            margin: 16,
             responsiveClass: true,
             responsive: {
                 0: {
@@ -4913,11 +4993,16 @@ $(document).ready(function(){
         $('#panel' + widget).slideUp('fast', function() {
             $(this).addClass('hidden');
             WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget)).always(function() {
-                $('input[data-widget="' + widget + '"]').iCheck('uncheck');
+                $('input.display-widget[data-widget="' + widget + '"]').iCheck('uncheck')
+                    .parent('div').parent('label').parent('li').removeClass('active');
                 completedToggle = false;
             });
             $('.home-widgets-container').masonry().masonry('reloadItems');
         });
+    });
+
+    $('#widgetSettingsDropdownMenu').on('click', function(e) {
+        e.stopPropagation();
     });
 
     $(document).on('ifToggled', '.display-widget', function(event) {
@@ -4929,33 +5014,28 @@ $(document).ready(function(){
             return;
         }
 
-        self.iCheck('disable');
         if (self.prop('checked')) {
             if (widgetPanel.hasClass('hidden')) {
+                self.iCheck('disable');
                 self.parent('div').parent('label').parent('li').addClass('active');
                 widgetPanel.hide().removeClass('hidden').slideDown('fast', function() {
                     WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget))
                     .always(function() {
                         $('.home-widgets-container').masonry().masonry('reloadItems');
-                        widgetPanel.find('.widget-refresh').click();
-                        if ($('#widgetSettingsDropdown').hasClass('open') === false) {
-                            $('#widgetSettings').dropdown('toggle');
-                        }
+                        widgetPanel.find('.widget-refresh').triggerHandler('click');
                         self.iCheck('enable');
                     });
                 });
             }
         } else {
             if (widgetPanel.hasClass('hidden') === false) {
+                self.iCheck('disable');
                 self.parent('div').parent('label').parent('li').removeClass('active');
                 widgetPanel.slideUp('fast', function() {
                     $(this).addClass('hidden');
                     $('.home-widgets-container').masonry().masonry('reloadItems');
-                    WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget), function() {
-                        if ($('#widgetSettingsDropdown').hasClass('open') === false) {
-                            $('#widgetSettings').dropdown('toggle');
-                        }
-                    }, 'json').always(function() {
+                    WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget))
+                    .always(function() {
                         self.iCheck('enable');
                     });
                 });
@@ -5145,6 +5225,27 @@ function refreshWidget(widgetName, requestString) {
 }
 
 jQuery(document).ready(function () {
+    let autoUpdatePopup = jQuery("#autoUpdateNotification");
+    if (autoUpdatePopup.length) {
+        autoUpdatePopup.addClass("autoupdate-notification--shown");
+
+        jQuery("#autoUpdateNotificationClose").on("click", function () {
+            let updateId = autoUpdatePopup.data("update-id");
+            autoUpdatePopup.removeClass("autoupdate-notification--shown");
+            dismissAutoUpdatePopup(updateId);
+        });
+    }
+
+    function dismissAutoUpdatePopup(updateId) {
+        WHMCS.http.jqClient.post(
+            WHMCS.adminUtils.getAdminRouteUrl('/autoupdate/notification/dismiss'),
+            {
+                token: csrfToken,
+                autoUpdateId: updateId
+            }
+        );
+    }
+
     let mixpanelModal = jQuery("#mixpanelOptInModal");
     let setupWizardModal = jQuery(".whmcs-modal.modal-setup-wizard.in");
     const dataAdminIdBlock = document.querySelector('[data-user-id]');

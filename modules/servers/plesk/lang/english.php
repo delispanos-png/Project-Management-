@@ -24,6 +24,7 @@ $keys = array(
     "ERROR_CUSTOMER_WITH_EMAIL_NOT_FOUND_IN_PANEL" => "Customer with email '@EMAIL@' is not found in panel. Please contact your service provider.",
     "ERROR_CUSTOMER_WITH_EXTERNAL_ID_NOT_FOUND_IN_PANEL" => "Customer with external id '@EXTERNAL_ID@' is not found in panel. Please contact your service provider.",
     "ERROR_RESELLER_WITH_EXTERNAL_ID_NOT_FOUND_IN_PANEL" => "Reseller with external id '@EXTERNAL_ID@' is not found in panel. Please contact your service provider.",
+    "ERROR_SUBSCRIPTION_NOT_FOUND_IN_PANEL" => "The subscription for the domain '@DOMAIN@' does not exist in the panel. Contact your service provider.",
     "ERROR_AUTHENTICATION_FAILED" => "Authentication failed. Please enter the correct credentials to Panel and try again.",
     "ERROR_AGENT_INITIALIZATION_FAILED" => "Panel agent initialization failed. Please check your panel settings and try again. If this problem remains unresolved, contact your service provider.",
     "ERROR_ACCOUNT_CREATE_COMMON_MESSAGE" => "Unable to create account on Panel side. Please check your account settings and try again. If this problem remains unresolved, contact your Panel administrator.",

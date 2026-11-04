@@ -31,14 +31,44 @@ jQuery(document).ready(function(){
     });
 });
 
+/**
+ * Whether a candidate password satisfies the WHMCS\Security\PasswordPolicy rules for this
+ * field, read from data-min-length/data-max-length/data-requires-numeric/data-requires-alphabetic
+ * attributes on the field itself.
+ *
+ * A field that carries none of these attributes (e.g. a service/module password, which this
+ * policy does not govern) reports every check as passing, leaving the strength score as the
+ * only signal on that field - unchanged from before this function existed.
+ */
+function passwordMeetsPolicy(password, $field)
+{
+    var minLength = parseInt($field.data('min-length'), 10) || 0;
+    var maxLength = parseInt($field.data('max-length'), 10);
+    var requiresNumeric = $field.data('requires-numeric') == 1;
+    var requiresAlphabetic = $field.data('requires-alphabetic') == 1;
+
+    return (!minLength || password.length >= minLength)
+        && (isNaN(maxLength) || password.length <= maxLength)
+        && (!requiresNumeric || /[0-9]/.test(password))
+        && (!requiresAlphabetic || /[a-zA-Z]/.test(password));
+}
+
 function registerFormPasswordStrengthFeedback()
 {
-    passwordStrength = getPasswordStrength(jQuery(this).val());
+    var $field = jQuery(this);
+    var password = $field.val();
+    passwordStrength = getPasswordStrength(password);
 
-    var errorThreshold = !isNaN(parseInt(jQuery(this).data('error-threshold'))) ? jQuery(this).data('error-threshold') : 50;
-    var warningThreshold = !isNaN(parseInt(jQuery(this).data('warning-threshold'))) ? jQuery(this).data('warning-threshold') : 75;
+    var errorThreshold = !isNaN(parseInt($field.data('error-threshold'))) ? $field.data('error-threshold') : 50;
+    var warningThreshold = !isNaN(parseInt($field.data('warning-threshold'))) ? $field.data('warning-threshold') : 75;
 
-    if (passwordStrength >= warningThreshold) {
+    if (!passwordMeetsPolicy(password, $field)) {
+        // The strength score alone cannot tell a user their password will be rejected - it has
+        // no notion of a minimum length or of required character classes. A password that scores
+        // well by that measure but breaks the policy must still show as weak, not strong.
+        textLabel = langPasswordWeak;
+        cssClass = 'danger';
+    } else if (passwordStrength >= warningThreshold) {
         textLabel = langPasswordStrong;
         cssClass = 'success';
     } else if (passwordStrength >= errorThreshold) {

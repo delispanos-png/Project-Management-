@@ -41,7 +41,9 @@ INSERT INTO `tbltask` VALUES (1,1530,'WHMCS\\Cron\\Task\\AddLateFees',1,1,1440,'
 (34, 1850, 'WHMCS\\Cron\\Task\\SslReissues', 1, 1, 1440, 'SSL Certificate Reissues', 'SSL Certificate Reissues', '2022-01-17 11:00:00', '2022-01-17 11:00:00'),
 (35, 1605, 'WHMCS\\Cron\\Task\\InvoiceAutoCancellation', 1, 1, 1440, 'Overdue Invoice Cancellations', 'Cancel Overdue Invoices', '2024-03-21 11:00:00', '2024-03-21 11:00:00'),
 (36, 1720,'WHMCS\\Cron\\Task\\TicketScheduledActions', 1, 1, 1, 'Ticket Scheduled Actions', 'Process Ticket Scheduled Actions', '2024-10-29 15:00:00', '2024-10-29 15:00:00'),
-(37, 1700, 'WHMCS\\Cron\\Task\\TaxVatAutoConfiguration', 1, 1, 1440, 'VAT Rules Automatic Update', 'Automatically update VAT rules.', '2025-06-26 11:48:42', '2025-06-26 11:48:42');
+(37, 1700, 'WHMCS\\Cron\\Task\\TaxVatAutoConfiguration', 1, 1, 1440, 'VAT Rules Automatic Update', 'Automatically update VAT rules.', '2025-06-26 11:48:42', '2025-06-26 11:48:42'),
+(38, 1950, 'WHMCS\\Cron\\Task\\CheckForAutoUpdate', 1, 1, 60, 'Automatic Update Check', 'Check for automatic updates.', '2026-02-16 00:00:00', '2026-02-16 00:00:00'),
+(39, 1960, 'WHMCS\\Cron\\Task\\RunAutoUpdate', 1, 1, 5, 'Automatic Update Run', 'Perform automatic updates.', '2026-02-16 00:00:00', '2026-02-16 00:00:00');
 
 /*!40000 ALTER TABLE `tbltask` ENABLE KEYS */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -49,4 +51,3 @@ INSERT INTO `tbltask` VALUES (1,1530,'WHMCS\\Cron\\Task\\AddLateFees',1,1,1440,'
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
 /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-

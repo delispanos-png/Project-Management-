@@ -20,5 +20,3 @@ function widgetoutput($value) {
     echo "document.write('".addslashes($value)."');";
     exit;
 }
-
-?>

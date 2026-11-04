@@ -60,4 +60,3 @@ foreach ($tldslist AS $tld) {
 $code .= '</table>';
 
 echo "document.write('".$code."');";
-

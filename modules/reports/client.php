@@ -26,7 +26,7 @@ $reportdata["headertext"] = '
     Choose the client to export<br>
     ' . $aInt->clientsDropDown($userid) . '
 </p>
-<div style="background-color:#f8f8f8;margin:10px 0 20px;padding:20px;border-radius:4px;">
+<div class="report-export-options">
     <div class="row">
         <div class="col-sm-3">
             <label class="checkbox-inline">

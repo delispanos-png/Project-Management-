@@ -80,6 +80,9 @@
 </div>
 <ul class="menu">
     <li><a href="transactions.php">{$_ADMINLANG.billing.transactionslist}</a></li>
+    {if in_array('List Credit and Debit Notes', $admin_perms)}
+        <li><a href="{routePath('admin-billing-billingnotes-index')}">{$_ADMINLANG.billingnotes.title}</a></li>
+    {/if}
     <li><a href="gatewaylog.php">{$_ADMINLANG.billing.gatewaylog}</a></li>
     <li><a href="offlineccprocessing.php">{$_ADMINLANG.billing.offlinecc}</a></li>
     <li><a href="{routePath('admin-billing-disputes-index')}">{$_ADMINLANG.disputes.title}</a></li>

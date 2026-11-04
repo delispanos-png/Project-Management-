@@ -298,7 +298,7 @@ jQuery(document).ready(function() {
         var itemCount = mcProductPromos.find('.item').length;
         mcProductPromos.owlCarousel({
             loop: true,
-            margin: 10,
+            margin: 16,
             responsiveClass: true,
             responsive: {
                 0: {

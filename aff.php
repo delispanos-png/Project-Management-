@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Affiliate Cookie Tracking + Redirection Handler
  *

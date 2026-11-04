@@ -1,0 +1,175 @@
+/**
+ * Setup Assistant Widget Styles
+ * 
+ * Widget body styles use WHMCS's built-in classes:
+ * - .widget-content-padded (padding and overflow)
+ * - .icon-stats (icon + data layout)
+ * - .progress, .progress-bar (progress bars)
+ * - Bootstrap row/col grid system
+ * 
+ * Custom styles below are only for the slide-over panel.
+ */
+
+/* Slide-over Panel Styles */
+
+.setup-tasks-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1050;
+    visibility: hidden;
+    opacity: 0;
+    transition: visibility 0s 0.3s, opacity 0.3s;
+    pointer-events: none;
+}
+
+.setup-tasks-panel.active {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.3s; /* Remove visibility transition - delayed visibility blocks space key event */
+    pointer-events: auto;
+}
+
+.panel-overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+}
+
+.panel-content {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 450px;
+    max-width: 90%;
+    background: #fff;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+    display: flex;
+    flex-direction: column;
+}
+
+.setup-tasks-panel.active .panel-content {
+    transform: translateX(0);
+}
+
+.panel-header {
+    padding: 20px;
+    border-bottom: 1px solid #e5e5e5;
+    position: relative;
+}
+
+.panel-header .close-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: none;
+    font-size: 28px;
+    line-height: 1;
+    color: #000;
+    opacity: 0.3;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+}
+
+.panel-header .close-btn:hover {
+    opacity: 0.6;
+}
+
+.panel-header h3 {
+    margin: 0 0 5px 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.panel-header .text-muted {
+    margin: 0;
+    font-size: 14px;
+    color: #999;
+}
+
+.setup-tasks-panel .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    min-height: 0;
+}
+
+.setup-tasks-panel .task-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.task-item {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.task-item:last-child {
+    border-bottom: none;
+}
+
+.task-link {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 14px 20px;
+    color: inherit;
+    text-decoration: none;
+    transition: background-color 0.2s;
+}
+
+a.task-link:hover {
+    background-color: #f8f9fa;
+    text-decoration: none;
+    color: inherit;
+}
+
+a.task-link:focus {
+    outline: 2px solid #3c8dbc;
+    outline-offset: -2px;
+}
+
+.task-status {
+    flex-shrink: 0;
+    font-size: 16px;
+}
+
+.task-label {
+    font-size: 14px;
+    color: #333;
+    flex: 1;
+}
+
+.task-item.completed .task-label {
+    color: #999;
+}
+
+.panel-footer {
+    text-align: center;
+    padding-top: 20px;
+    margin-top: 20px;
+    border-top: 1px solid #e5e5e5;
+}
+
+.panel-footer a {
+    font-size: 14px;
+    color: #3c8dbc;
+    text-decoration: none;
+}
+
+.panel-footer a:hover {
+    color: #23527c;
+    text-decoration: underline;
+}

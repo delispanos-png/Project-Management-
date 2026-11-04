@@ -37,6 +37,10 @@ $(document).ready(function(){
     $("#frmAddTicketReply").submit(function (e, options) {
         options = options || {};
 
+        if (!options.skipValidation && blockIfUnsavedScheduledActions(e)) {
+            return false;
+        }
+
         var formSubmitButton = $('#btnPostReply'),
             thisElement = jQuery(this),
             swapClass = 'fa-reply';
@@ -59,6 +63,10 @@ $(document).ready(function(){
 
     $('#frmTicketOptions').submit(function(e, options) {
         options = options || {};
+
+        if (!options.skipValidation && blockIfUnsavedScheduledActions(e)) {
+            return false;
+        }
 
         var formSubmitButton = $('#btnSaveChanges'),
             thisElement = $(this),
@@ -85,6 +93,10 @@ $(document).ready(function(){
     $("#frmAddTicketNote").submit(function (e, options) {
         options = options || {};
 
+        if (!options.skipValidation && blockIfUnsavedScheduledActions(e)) {
+            return false;
+        }
+
         var formSubmitButton = $('#btnAddNote'),
             thisElement = $(this),
             swapClass = 'fa-reply';
@@ -103,6 +115,12 @@ $(document).ready(function(){
             formSubmitButton,
             swapClass
         );
+    });
+
+    $(document).on('submit', 'form[action*="sub=savecustomfields"]', function (e) {
+        if (blockIfUnsavedScheduledActions(e)) {
+            return false;
+        }
     });
 
     $(window).unload( function () {
@@ -537,15 +555,21 @@ $(document).ready(function(){
         setTimeout(function () {
             switch (modalInitiator) {
                 case 'discard':
-                    scheduledActionsUI.setPanelModeAttr('')
-                        .discardUnsavedActions();
+                    // Stand down if the panel has been reopened in the
+                    // meantime; opening it discards these rows itself.
+                    if (!scheduledActionsUI.getPanelModeAttr()) {
+                        scheduledActionsUI.discardUnsavedActions();
+                    }
                     break;
                 case 'view':
                     scheduledActionsUI.populateViewPanel(modalActionId);
                     break;
             }
         }, 600);
+        // Clear the viewed action now rather than when the panel is reset
+        // after the fade, so it can be reopened straight away.
         scheduledActionsUI.setPanelModeAttr('')
+            .setPanelId('')
             .resetModal();
     });
     jQuery(document).on('click', '.btn-scheduled-actions-cancel-modal-continue', function (e) {
@@ -642,8 +666,15 @@ $(document).ready(function(){
     });
     jQuery(document).on('click', '.btn-scheduled-actions-close', function(e) {
         e.preventDefault();
+        scheduledActionsUI.setTargetDiv(this);
+        // Closing an edited action would throw the edit away with no other
+        // warning, so confirm it the same way Discard does.
+        if (scheduledActionsUI.hasUnsavedActions()) {
+            scheduledActionsUI.enableDiscardModal('discard')
+                .show();
+            return;
+        }
         scheduledActionsUI
-            .setTargetDiv(this)
             .setPanelId('')
             .setPanelModeAttr('')
             .hideScheduledActionManagementPanel();
@@ -659,7 +690,8 @@ $(document).ready(function(){
             .show();
     });
     jQuery(document).on('change', '.select-scheduled-actions-when-to-action', function() {
-        scheduledActionsUI.updateTimeElements(jQuery(this).val());
+        scheduledActionsUI.setTargetDiv(this)
+            .updateTimeElements(jQuery(this).val());
     });
 });
 
@@ -681,6 +713,22 @@ function doDeleteNote(id) {
     }
 }
 function loadTab(target,type,offset) {
+    // Reloading the Scheduled Actions tab replaces its DOM, which would
+    // silently discard an in-progress (unsaved) scheduled action. Keep the
+    // existing panel intact so the technician can resume and save/discard it,
+    // matching the unsaved-actions warning shown when submitting other forms,
+    // but still refresh the saved actions list, which holds no unsaved work.
+    if (type === 'ticketactions' && scheduledActionsUI.hasUnsavedActions()) {
+        WHMCS.ui.dataTable.getTableById('scheduledActionsList').ajax.reload(function () {
+            // Redrawing the rows drops the highlight of the action still open.
+            let viewedActionId = scheduledActionsUI.panelId;
+            if (viewedActionId && String(scheduledActionsUI.activeRow) === String(viewedActionId)) {
+                scheduledActionsUI.listRow().addClass('selected');
+            }
+        }, false);
+        return;
+    }
+
     WHMCS.http.jqClient.post("supporttickets.php", { action: "get" + type, id: ticketid, userid: userid, target: target, offset: offset, token: csrfToken },
     function (data) {
         if ($("#tab" + target + "box #tab_content").length > 0) {
@@ -982,6 +1030,49 @@ const scheduledActionsUI = {
     modalActionId: '',
     targetDiv: '',
     activeRow: null,
+    hasUnsavedActions: function () {
+        // Only the Scheduled Actions tab persists actions via an explicit Save.
+        // Reply/note-tab staged actions are submitted with their own form, so
+        // they must not block a submit — scope detection to the tab panel.
+        // Rows only hold work while the panel is open: closing a viewed action,
+        // cancelling it, or collapsing the create panel resets the mode but
+        // leaves its rows behind, and reopening the panel discards them. A
+        // viewed saved action is rendered as a row too, but is only unsaved
+        // work once its values differ from those it was loaded with.
+        const panel = jQuery('.container-scheduled-actions-tab .panel-scheduled-actions-management');
+        const mode = panel.data('panel-mode');
+        const hasRows = panel.find('.container-created-actions .container-scheduled-action')
+            .not('.cloneable')
+            .length > 0;
+
+        if (!hasRows) {
+            return false;
+        }
+        if (mode === 'view') {
+            const loadedState = panel.data('loaded-state');
+            return loadedState !== undefined && this.panelInputState(panel) !== loadedState;
+        }
+
+        return mode === 'create';
+    },
+    panelInputState: function (panel) {
+        // Built by hand because .serialize() skips disabled controls, so
+        // merely enabling one would read as an edit. Only the action rows
+        // count; the time inputs cannot be edited on a saved action.
+        return panel.find('.container-created-actions :input[name]')
+            .map(function () {
+                let value = jQuery(this).is(':checkbox, :radio') ? this.checked : jQuery(this).val();
+                return `${this.name}=${JSON.stringify(value)}`;
+            })
+            .get()
+            .join('&');
+    },
+    unsavedWarningText: function () {
+        return jQuery('.panel-scheduled-actions-management').first().data('unsaved-warning') || '';
+    },
+    unsavedWarningTitle: function () {
+        return jQuery('.panel-scheduled-actions-management').first().data('unsaved-title') || '';
+    },
     resetPanel: function () {
         this.setPanelModeAttr('')
             .setPanelId('');
@@ -1301,6 +1392,10 @@ const scheduledActionsUI = {
             if (!selectElement.length) return;
 
             selectElement.val(fieldId).change();
+            // The change above has run showCustomField() through the selector's
+            // inline handler; mark it processed as triggerCustomField() would, so
+            // a later Add click does not rebuild it and reset the loaded value.
+            selectElement[0].dataset.processed = 'true';
 
             const selectedOption = selectElement.find(`option[value="${fieldId}"]`);
             const fieldType = selectedOption.attr("data-type");
@@ -1415,6 +1510,9 @@ const scheduledActionsUI = {
                         if (data.result_data.cancelPermission === false) {
                             scheduledActionsUI.hideEditCancelButton();
                         }
+
+                        let managementPanel = scheduledActionsUI.getManagementPanel();
+                        managementPanel.data('loaded-state', scheduledActionsUI.panelInputState(managementPanel));
                     } else if (data.result === 'error') {
                         jQuery.growl
                             .warning({title: '', message: data.resultMessage});
@@ -1437,7 +1535,8 @@ const scheduledActionsUI = {
         return this;
     },
     setPanelModeAttr: function (mode) {
-        this.getManagementPanel().data('panel-mode', mode);
+        this.getManagementPanel().data('panel-mode', mode)
+            .removeData('loaded-state');
         return this;
     },
     setPanelId: function (id) {
@@ -1505,6 +1604,32 @@ const scheduledActionsUI = {
 function refreshScheduledActionList()
 {
     WHMCS.ui.dataTable.getTableById('scheduledActionsList').ajax.reload();
+}
+
+/**
+ * Block a ticket form submit when unsaved scheduled actions are present.
+ *
+ * Prevents the default submit and warns the technician to save or discard
+ * their pending scheduled actions first. Returns true when the submit was
+ * blocked so callers can abort before disabling their submit button.
+ *
+ * @param {jQuery.Event} e
+ * @returns {boolean}
+ */
+function blockIfUnsavedScheduledActions(e)
+{
+    if (!scheduledActionsUI.hasUnsavedActions()) {
+        return false;
+    }
+
+    e.preventDefault();
+    swal({
+        title: scheduledActionsUI.unsavedWarningTitle(),
+        text: scheduledActionsUI.unsavedWarningText(),
+        type: 'warning'
+    });
+
+    return true;
 }
 
 function setScheduledActionTabCount(count)

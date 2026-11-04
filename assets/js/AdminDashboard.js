@@ -50,11 +50,16 @@ $(document).ready(function(){
         $('#panel' + widget).slideUp('fast', function() {
             $(this).addClass('hidden');
             WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget)).always(function() {
-                $('input[data-widget="' + widget + '"]').iCheck('uncheck');
+                $('input.display-widget[data-widget="' + widget + '"]').iCheck('uncheck')
+                    .parent('div').parent('label').parent('li').removeClass('active');
                 completedToggle = false;
             });
             $('.home-widgets-container').masonry().masonry('reloadItems');
         });
+    });
+
+    $('#widgetSettingsDropdownMenu').on('click', function(e) {
+        e.stopPropagation();
     });
 
     $(document).on('ifToggled', '.display-widget', function(event) {
@@ -66,33 +71,28 @@ $(document).ready(function(){
             return;
         }
 
-        self.iCheck('disable');
         if (self.prop('checked')) {
             if (widgetPanel.hasClass('hidden')) {
+                self.iCheck('disable');
                 self.parent('div').parent('label').parent('li').addClass('active');
                 widgetPanel.hide().removeClass('hidden').slideDown('fast', function() {
                     WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget))
                     .always(function() {
                         $('.home-widgets-container').masonry().masonry('reloadItems');
-                        widgetPanel.find('.widget-refresh').click();
-                        if ($('#widgetSettingsDropdown').hasClass('open') === false) {
-                            $('#widgetSettings').dropdown('toggle');
-                        }
+                        widgetPanel.find('.widget-refresh').triggerHandler('click');
                         self.iCheck('enable');
                     });
                 });
             }
         } else {
             if (widgetPanel.hasClass('hidden') === false) {
+                self.iCheck('disable');
                 self.parent('div').parent('label').parent('li').removeClass('active');
                 widgetPanel.slideUp('fast', function() {
                     $(this).addClass('hidden');
                     $('.home-widgets-container').masonry().masonry('reloadItems');
-                    WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget), function() {
-                        if ($('#widgetSettingsDropdown').hasClass('open') === false) {
-                            $('#widgetSettings').dropdown('toggle');
-                        }
-                    }, 'json').always(function() {
+                    WHMCS.http.jqClient.post(WHMCS.adminUtils.getAdminRouteUrl('/widget/display/toggle/' + widget))
+                    .always(function() {
                         self.iCheck('enable');
                     });
                 });
@@ -282,6 +282,27 @@ function refreshWidget(widgetName, requestString) {
 }
 
 jQuery(document).ready(function () {
+    let autoUpdatePopup = jQuery("#autoUpdateNotification");
+    if (autoUpdatePopup.length) {
+        autoUpdatePopup.addClass("autoupdate-notification--shown");
+
+        jQuery("#autoUpdateNotificationClose").on("click", function () {
+            let updateId = autoUpdatePopup.data("update-id");
+            autoUpdatePopup.removeClass("autoupdate-notification--shown");
+            dismissAutoUpdatePopup(updateId);
+        });
+    }
+
+    function dismissAutoUpdatePopup(updateId) {
+        WHMCS.http.jqClient.post(
+            WHMCS.adminUtils.getAdminRouteUrl('/autoupdate/notification/dismiss'),
+            {
+                token: csrfToken,
+                autoUpdateId: updateId
+            }
+        );
+    }
+
     let mixpanelModal = jQuery("#mixpanelOptInModal");
     let setupWizardModal = jQuery(".whmcs-modal.modal-setup-wizard.in");
     const dataAdminIdBlock = document.querySelector('[data-user-id]');

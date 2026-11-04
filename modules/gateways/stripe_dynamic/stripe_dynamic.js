@@ -8,6 +8,38 @@ var stripeDynamicElementsDiv = null,
     modalInput = false,
     stripeFormLocked = false;
 
+/**
+ * Per-submit idempotency token. A duplicated POST for the same action carries
+ * the same token so the server can dedupe; a fresh submit mints a new one.
+ *
+ * @returns {string}
+ */
+function stripeDynamicIdempotencyToken() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+}
+
+/**
+ * Ensures Stripe payment element mounted exactly once per page-load.
+ * Delegates intent/element creation to loadStripeDynamicElements.
+ *
+ * @param {Function} onReady Called after mount.
+ */
+function mountAndEnableStripeDynamic(onReady) {
+    loadStripeDynamicElements(function() {
+        if (!stripeDynamicElementsDiv.data('stripe-mounted')) {
+            stripeDynamicPaymentElement.mount('#payment-element');
+            stripeDynamicElementsDiv.data('stripe-mounted', true);
+        }
+        onReady();
+    });
+}
+
 function resetStripeFormStateStripeDynamic(frm) {
     scrollToGatewayInputError();
     stripeFormLocked = false;
@@ -15,6 +47,54 @@ function resetStripeFormStateStripeDynamic(frm) {
         .prop('disabled', false)
         .removeClass('disabled')
         .find('span').toggle();
+}
+
+function handleAccountSelectedStripeDynamic(event, data) {
+    if (!data || data.error) {
+        // The switch was rejected; the account and intent are unchanged.
+        return;
+    }
+    var frm = stripeDynamicElementsDiv.closest('form');
+    var hadIntent = stripeDynamicClientSecret !== null;
+    var teardownElement = function () {
+        if (stripeDynamicPaymentElement) {
+            try {
+                stripeDynamicPaymentElement.destroy();
+            } catch (e) {
+                // Element already destroyed; nothing to release.
+            }
+        }
+        stripeDynamicPaymentElement = null;
+        stripeDynamicElements = null;
+        stripeDynamicClientSecret = null;
+        stripeDynamicElementsDiv.removeData('stripe-mounted');
+        jQuery('input[name="secret"]', stripeDynamicElementsDiv).val('');
+    };
+
+    // The account switch invalidates any intent request already in flight.
+    stripeDynamicElementsResetCount++;
+    loadElementsRequestInFlight = false;
+    teardownElement();
+    stripeDynamicIntentMode = (data.requiresPayment === false) ? 'setup' : 'payment';
+    var selectedPayMethod = jQuery('input[name="ccinfo"]:checked').val();
+    var stripeSelected = jQuery('input[name="paymentmethod"]:checked').val() === 'stripe_dynamic';
+    var newPayMethodMode = !selectedPayMethod || selectedPayMethod === 'new';
+
+    if (stripeSelected && newPayMethodMode) {
+        mountAndEnableStripeDynamic(enableStripeDynamic);
+        return;
+    }
+    if (stripeSelected) {
+        // A saved payment method's submit only intercepts when payment is due.
+        frm.off('submit.stripeDynamic');
+        if (stripeDynamicIntentMode === 'payment') {
+            frm.on('submit.stripeDynamic', processExistingStripeDynamic);
+        }
+    }
+    if (hadIntent) {
+        // No element is shown here, but the session-held intent must still track the selected account.
+        loadStripeDynamicElements(function () {});
+    }
 }
 
 function initStripeDynamic() {
@@ -47,17 +127,18 @@ function initStripeDynamic() {
 
         if (selectedPaymentMethod === 'stripe_dynamic') {
             hideNewCardInputs();
-            stripeDynamicPaymentElement.mount("#payment-element");
-            enableStripeDynamic();
 
+            // Only load elements when 'new' selected.
             if (selectedCard.val() !== 'new') {
                 stripeDynamicGetExistingToken(selectedCard.val());
                 stripeDynamicElementsDiv.slideUp();
                 frm.off('submit.stripeDynamic');
                 existingCvv.slideUp();
-                if (amount !== '000') {
+                if (stripeDynamicIntentMode === 'payment') {
                     frm.on('submit.stripeDynamic', processExistingStripeDynamic);
                 }
+            } else {
+                mountAndEnableStripeDynamic(enableStripeDynamic);
             }
         }
 
@@ -66,16 +147,16 @@ function initStripeDynamic() {
             if (selectedPaymentMethod === 'stripe_dynamic') {
                 var newOrExistingValue = jQuery('input[name="ccinfo"]:checked').val();
                 hideNewCardInputs();
-                stripeDynamicPaymentElement.mount("#payment-element");
-                enableStripeDynamic();
                 if (newOrExistingValue !== 'new') {
                     stripeDynamicGetExistingToken(newOrExistingValue);
                     stripeDynamicElementsDiv.slideUp();
                     existingCvv.slideUp();
                     frm.off('submit.stripeDynamic');
-                    if (amount !== '000') {
+                    if (stripeDynamicIntentMode === 'payment') {
                         frm.on('submit.stripeDynamic', processExistingStripeDynamic);
                     }
+                } else {
+                    mountAndEnableStripeDynamic(enableStripeDynamic);
                 }
             } else {
                 disableStripeDynamic();
@@ -89,16 +170,17 @@ function initStripeDynamic() {
             }
             hideNewCardInputs();
             if (jQuery(this).val() === 'new') {
-                enableStripeDynamic();
+                mountAndEnableStripeDynamic(enableStripeDynamic);
             } else {
                 stripeDynamicGetExistingToken(jQuery(this).val());
                 stripeDynamicElementsDiv.slideUp();
                 frm.off('submit.stripeDynamic');
-                if (amount !== '000') {
+                if (stripeDynamicIntentMode === 'payment') {
                     frm.on('submit.stripeDynamic', processExistingStripeDynamic);
                 }
             }
         });
+        jQuery(document).on('cart:accountSelected', handleAccountSelectedStripeDynamic);
     } else if (newCcForm.length) {
         if (jQuery('input[name="type"]:checked').data('gateway') === 'stripe_dynamic') {
             (() => {
@@ -141,23 +223,20 @@ function initStripeDynamic() {
                     '</div>';
                 jQuery('#billingAddressChoice').before(html);
                 stripeDynamicElementsDiv = jQuery('#stripeDynamicElements');
-                stripeDynamicPaymentElement.mount('#payment-element');
-                jQuery('#inputCardNumber, #inputCardExpiry').closest('div.cc-details').hide()
-                jQuery('#stripeDynamicElements').show();
             }
         })();
 
         paymentForm.find('#inputCardCvv').closest('div.form-group').remove();
         paymentForm.off('submit', validateCreditCardInput);
         if (jQuery('input[name="ccinfo"]:checked').val() === 'new') {
-            enablePaymentStripeDynamic();
+            mountAndEnableStripeDynamic(enablePaymentStripeDynamic);
         } else {
             stripeDynamicGetExistingToken(jQuery('input[name="ccinfo"]:checked').val());
             paymentForm.on('submit.stripeDynamic', processExistingStripeDynamic);
         }
         jQuery('input[name="ccinfo"]').on('ifChecked', function(){
             if (jQuery(this).val() === 'new') {
-                enablePaymentStripeDynamic();
+                mountAndEnableStripeDynamic(enablePaymentStripeDynamic);
             } else {
                 stripeDynamicGetExistingToken(jQuery(this).val());
                 stripeDynamicElementsDiv.slideUp();
@@ -165,6 +244,38 @@ function initStripeDynamic() {
                 paymentForm.on('submit.stripeDynamic', processExistingStripeDynamic);
             }
         });
+    } else if (adminCreditCard.length) {
+
+        adminCreditCard.find('#cctype').closest('tr').slideUp().remove();
+        adminCreditCard.find('#inputCardNumber')
+            .closest('div')
+            .html('<div id="elementCardNumber" class="form-control"></div>');
+        adminCreditCard.find('#inputCardExpiry')
+            .closest('div')
+            .html('<div id="elementCardExpiry" class="form-control"></div>');
+        adminCreditCard.find('#cardcvv')
+            .closest('div')
+            .html('<div id="elementCardCvc" class="form-control"></div>');
+        card.mount('#elementCardNumber');
+        cardExpiryElements.mount('#elementCardExpiry');
+        cardCvcElements.mount('#elementCardCvc');
+        card.addEventListener('change', stripeDynamicCardListener);
+        cardExpiryElements.addEventListener('change', stripeDynamicCardListener);
+        cardCvcElements.addEventListener('change', stripeDynamicCardListener);
+
+        // same as above - Firefox issues
+        stripeDynamicElementsDiv  = jQuery('#elementCardNumber');
+        if (jQuery('#containerStorageInputControl').length) {
+            var modalFooter = jQuery('#modalAjaxFooter'),
+                btnSubmit = modalFooter.find('#btnSave');
+            btnSubmit.removeAttr('name');
+            btnSubmit.off();
+            btnSubmit.on('click', validateChangeCard);
+            modalInput = true;
+        } else {
+            adminCreditCard.find('#btnSaveChanges').removeAttr('name');
+            adminCreditCard.on('submit.stripe', validateChangeCard);
+        }
     }
 }
 
@@ -192,12 +303,13 @@ function validateStripeDynamic(event) {
         .addClass('disabled')
         .find('span').toggle();
 
-    // TODO WHMCS-25532 Handle submit errors
+    // TODO Handle submit errors
     stripeDynamicElements.submit()
         .then(function(result) {
+            var idempotencyToken = stripeDynamicIdempotencyToken();
             WHMCS.http.jqClient.jsonPost({
                 url: WHMCS.utils.getRouteUrl('/stripe_dynamic/payment/intent'),
-                data: frm.serialize(),
+                data: frm.serialize() + '&idempotency_token=' + idempotencyToken,
                 success: function (response) {
                     if (response.success) {
                         stripeDynamicResponseHandler(null);
@@ -213,7 +325,12 @@ function validateStripeDynamic(event) {
                                 elements: stripeDynamicElements,
                                 clientSecret: response.token,
                                 redirect: 'if_required',
-                                ...confirmParams,
+                                confirmParams: {
+                                    ...confirmParams.confirmParams,
+                                    payment_method_data: {
+                                        billing_details: response.billing_details
+                                    }
+                                }
                             }
                         ).then(function (result) {
                             if (result.error) {
@@ -233,7 +350,12 @@ function validateStripeDynamic(event) {
                                 elements: stripeDynamicElements,
                                 clientSecret: response.token,
                                 redirect: 'if_required',
-                                ...confirmParams,
+                                confirmParams: {
+                                    ...confirmParams.confirmParams,
+                                    payment_method_data: {
+                                        billing_details: response.billing_details
+                                    }
+                                }
                             }
                         ).then(function (result) {
                             if (result.error) {
@@ -286,63 +408,60 @@ function processExistingStripeDynamic(event)
         .addClass('disabled')
         .find('span').toggle();
 
-    // TODO WHMCS-25532 Handle submit errors.
-    stripeDynamicElements.submit()
-        .then(function(result) {
-        WHMCS.http.jqClient.jsonPost({
-            url: WHMCS.utils.getRouteUrl('/stripe_dynamic/payment/intent'),
-            data: frm.serialize() + '&payment_method_id=' + existingToken,
-            success: function (response) {
-                if (response.success) {
-                    stripeDynamicResponseHandler(null);
-                } else if (response.validation_feedback) {
-                    // An error has been received.
-                    displayError.html(response.validation_feedback);
-                    if (displayError.not(':visible')) {
-                        displayError.slideDown();
-                    }
-                    scrollToGatewayInputError();
-                    WHMCS.form.reloadCaptcha();
-                } else {
-                    stripeDynamic.confirmPayment(
-                        {
-                            clientSecret: response.token,
-                            redirect: 'if_required',
-                            ...confirmParams,
-                        }
-                    ).then(function (result) {
-                        if (result.error) {
-                            var error = result.error.message;
-                            if (error) {
-                                displayError.html(error);
-                                if (displayError.not(':visible')) {
-                                    displayError.slideDown();
-                                }
-                                scrollToGatewayInputError();
-                                WHMCS.form.reloadCaptcha();
-                            }
-                        } else {
-                            stripeDynamicResponseHandler(null);
-                        }
-                    });
+    var idempotencyToken = stripeDynamicIdempotencyToken();
+    WHMCS.http.jqClient.jsonPost({
+        url: WHMCS.utils.getRouteUrl('/stripe_dynamic/payment/intent'),
+        data: frm.serialize() + '&payment_method_id=' + existingToken + '&idempotency_token=' + idempotencyToken,
+        success: function (response) {
+            if (response.success) {
+                stripeDynamicResponseHandler(null);
+            } else if (response.validation_feedback) {
+                // An error has been received.
+                displayError.html(response.validation_feedback);
+                if (displayError.not(':visible')) {
+                    displayError.slideDown();
                 }
-            },
-            warning: function (error) {
+                scrollToGatewayInputError();
                 WHMCS.form.reloadCaptcha();
-                displayError.html(defaultErrorMessage);
-                if (displayError.not(':visible')) {
-                    displayError.slideDown();
-                }
-                scrollToGatewayInputError();
-            },
-            fail: function (error) {
-                displayError.html(defaultErrorMessage);
-                if (displayError.not(':visible')) {
-                    displayError.slideDown();
-                }
-                scrollToGatewayInputError();
+            } else {
+                stripeDynamic.confirmPayment(
+                    {
+                        clientSecret: response.token,
+                        redirect: 'if_required',
+                        ...confirmParams,
+                    }
+                ).then(function (result) {
+                    if (result.error) {
+                        var error = result.error.message;
+                        if (error) {
+                            displayError.html(error);
+                            if (displayError.not(':visible')) {
+                                displayError.slideDown();
+                            }
+                            scrollToGatewayInputError();
+                            WHMCS.form.reloadCaptcha();
+                        }
+                    } else {
+                        stripeDynamicResponseHandler(null);
+                    }
+                });
             }
-        })
+        },
+        warning: function (error) {
+            WHMCS.form.reloadCaptcha();
+            displayError.html(defaultErrorMessage);
+            if (displayError.not(':visible')) {
+                displayError.slideDown();
+            }
+            scrollToGatewayInputError();
+        },
+        fail: function (error) {
+            displayError.html(defaultErrorMessage);
+            if (displayError.not(':visible')) {
+                displayError.slideDown();
+            }
+            scrollToGatewayInputError();
+        }
     });
 }
 
@@ -394,7 +513,7 @@ function enableStripeDynamic() {
     hideNewCardInputs();
     stripeDynamicElementsDiv.slideDown();
     frm.off('submit.stripeDynamic');
-    if (amount === '000') {
+    if (stripeDynamicIntentMode === 'setup') {
         frm.on('submit.stripeDynamic', addNewCardClientSideStripeDynamic);
     } else {
         frm.on('submit.stripeDynamic', validateStripeDynamic);
@@ -458,13 +577,14 @@ function addNewCardClientSideStripeDynamic(event)
         .addClass('disabled')
         .find('span').toggle();
 
-    // TODO WHMCS-25532 Handle submit errors.
+    // TODO Handle submit errors.
     stripeDynamicElements.submit()
         .then(function(result) {
             // We need to submit first to our endpoint to start a SetupIntent
+            var idempotencyToken = stripeDynamicIdempotencyToken();
             WHMCS.http.jqClient.jsonPost({
                 url: WHMCS.utils.getRouteUrl('/stripe_dynamic/setup/intent'),
-                data: frm.serialize(),
+                data: frm.serialize() + '&idempotency_token=' + idempotencyToken,
                 success: function (response) {
                     if (response.validation_feedback) {
                         displayError.text(response.validation_feedback);
@@ -479,7 +599,12 @@ function addNewCardClientSideStripeDynamic(event)
                                 elements: stripeDynamicElements,
                                 clientSecret: response.setup_intent,
                                 redirect: 'if_required',
-                                ...confirmParams,
+                                confirmParams: {
+                                    ...confirmParams.confirmParams,
+                                    payment_method_data: {
+                                        billing_details: response.billing_details
+                                    }
+                                }
                             }
                         ).then(function (result) {
                             if (result.error) {
@@ -646,4 +771,22 @@ function resetInputToNewStripeDynamic()
     setTimeout(function() {
         jQuery('.gateway-errors,.assisted-cc-input-feedback').slideUp();
     }, 4000);
+}
+
+function stripeDynamicCardListener(event) {
+    var displayError = jQuery('.gateway-errors,.assisted-cc-input-feedback').first(),
+        error = '';
+    if (typeof event.error !== "undefined") {
+        error = event.error.message;
+
+        if (error) {
+            displayError.html(error);
+            if (displayError.not(':visible')) {
+                displayError.slideDown();
+            }
+            scrollToGatewayInputError();
+        }
+    } else {
+        displayError.slideUp().html('');
+    }
 }

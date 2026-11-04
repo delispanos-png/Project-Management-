@@ -25,5 +25,3 @@ foreach ($tlds AS $tld) {
 $code .= '</select> <input type="submit" value="Go"></form>';
 
 echo "document.write('".$code."');";
-
-?>

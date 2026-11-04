@@ -64,22 +64,10 @@ if (!$print) {
     $reportdata["description"] = "This report can be used to generate a custom export of domains"
         . " by applying up to 5 filters. CSV Export is available via the Tools menu to the right.";
 
-    $reportdata["headertext"] = '<form method="post" action="reports.php?report=' . $report . '">
+    $reportdata['headertext'] = '<form method="post" action="reports.php?report=' . $report . '">
 <table class="form" width="100%" border="0" cellspacing="2" cellpadding="3">
-<tr><td width="20%" class="fieldlabel">Fields to Include</td><td class="fieldarea"><table width="100%"><tr>';
-    $i=0;
-    foreach ($filterfields as $k => $v) {
-        $reportdata["headertext"] .= '<td width="20%"><input type="checkbox" name="incfields[]" value="' . $k . '" id="fd' . $k . '"';
-        if (in_array($k, $incfields)) {
-            $reportdata["headertext"] .= ' checked';
-        }
-        $reportdata["headertext"] .= ' /> <label for="fd' . $k . '">'.$v.'</label></td>';
-        $i++;
-        if (($i%5)==0) {
-            $reportdata["headertext"] .= '</tr><tr>';
-        }
-    }
-    $reportdata["headertext"] .= '</tr></table></td></tr>';
+<tr><td width="20%" class="fieldlabel">Fields to Include</td><td class="fieldarea">'
+        . buildReportFieldsCheckboxGrid($filterfields, $incfields) . '</td></tr>';
 
     for ($i = 1; $i <= 5; $i ++) {
         $reportdata["headertext"] .= '<tr><td width="20%" class="fieldlabel">Filter ' . $i . '</td><td class="fieldarea"><select name="filterfield[' . $i . ']" class="form-control select-inline"><option value="">None</option>';
@@ -96,7 +84,7 @@ if (!$print) {
             $reportdata["headertext"] .= ' selected';
         }
         $reportdata["headertext"] .= '>Containing</option></select>'
-            . ' <input type="text" name="filterq[' . $i . ']" class="form-control select-inline input-250" value="' . (isset($filterq[$i]) ? $filterq[$i] : '') . '" /></td></tr>';
+            . ' <input type="text" name="filterq[' . $i . ']" class="form-control select-inline input-250" value="' . ($filterq[$i] ?? '') . '" /></td></tr>';
     }
 
     $reportdata["headertext"] .= <<<HTML
@@ -159,8 +147,8 @@ if (count($incfields)) {
 
     foreach ($filterfield as $i => $val) {
         if ($val && array_key_exists($val, $filterfields)) {
-            $filtertype[$i] = $filtertype[$i] ?? '=';
-            $filterq[$i] = $filterq[$i] ?? '';
+            $filtertype[$i] ??= '=';
+            $filterq[$i] ??= '';
             if (!in_array($filtertype[$i], ['=', 'like'], true)) {
                 $filtertype[$i] = '=';
             }

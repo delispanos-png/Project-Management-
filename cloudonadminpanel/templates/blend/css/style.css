@@ -259,6 +259,54 @@ div.table-bg-overflow-visible {
     margin: 1em 0;
     overflow: visible;
 }
+
+.update-history-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.update-history-page__title {
+    margin: 0 0 16px 0;
+    padding: 0 0 12px 0;
+    font-size: 2rem;
+    font-weight: 500;
+    line-height: 1.3;
+    color: #333;
+    text-align: left;
+    border-bottom: 1px solid #333;
+}
+
+.update-history-page .list-table-footer {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.update-history-page .list-table-footer__jump {
+    text-align: left;
+}
+
+.update-history-page .list-table-footer__pagination .pagination {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.update-history-page table.datatable th {
+    padding: 4px 8px;
+    text-align: left;
+}
+
+.update-history-page table.datatable th a {
+    text-align: left;
+    display: inline-block;
+    width: calc(100% - 16px);
+}
+
+.update-history-page table.datatable td {
+    text-align: center;
+}
+
 table.datatable {
     margin: 0 0 10px 0;
     padding: 0;
@@ -836,6 +884,29 @@ table.reportslisting td a:hover {
     font-weight: 300;
 }
 
+/* Fields to Include / export-options checkbox grid. On 9.1, only client.php
+   drew this box (an inline style, now this class); the other five reports
+   using buildReportFieldsCheckboxGrid() (clients/domains/invoices/services/
+   transactions) were a plain table with no panel. Iris already gives all six
+   the same card treatment, so this extends that consistency to Blend rather
+   than restoring six-way parity that never existed pre-redesign. Values match
+   client.php's original inline style: background-color:#f8f8f8;margin:10px 0
+   20px;padding:20px;border-radius:4px; */
+.report-export-options {
+    margin: 10px 0 20px;
+    padding: 20px;
+    background-color: #f8f8f8;
+    border-radius: 4px;
+}
+
+/* configproducts.php merged the Create/Duplicate buttons and the Refresh
+   Feature Status link from two separate .btn-group divs (10px apart via
+   inline style) into one .btn-group.toolbar-group. Restore that gap ahead
+   of the Refresh link so it still reads as its own action. */
+#Refresh-Feature-Status {
+    margin-left: 10px;
+}
+
 /* --------------------------------------------------------------
    ORDER SUMMARY
 -------------------------------------------------------------- */
@@ -844,6 +915,14 @@ table.reportslisting td a:hover {
     font-family:Arial;
     font-size:20px;
     text-align:center;
+}
+/* ordersadd.php's submit button lost this sizing when it moved from
+   <input type="submit" style="font-size:20px;padding:12px 30px;"> to a plain
+   <button class="btn btn-primary">. Scoped like iris's #btnSubmit rule to
+   avoid stretching the other admin screens that reuse the same id. */
+.ordersummarytitle #btnSubmit {
+    font-size: 20px;
+    padding: 12px 30px;
 }
 .ordersummaryleftcol {
     width:60%;
@@ -4564,4 +4643,102 @@ span.grey-item {
 .mixpanel-shown {
     transform: translateX(0);
     opacity: 1;
+}
+
+/* Auto-Update Notification Popup */
+.autoupdate-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 320px;
+    background: #fff;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    padding: 15px;
+    border-radius: 10px;
+    z-index: 1001;
+    font-family: Arial, sans-serif;
+    transition: transform 0.3s ease-in-out, opacity 0.3s;
+    transform: translateX(100%);
+    opacity: 0;
+}
+
+.autoupdate-notification__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding-right: 20px;
+}
+
+.autoupdate-notification__icon {
+    font-size: 20px;
+}
+
+.autoupdate-notification--scheduled
+    .autoupdate-notification__icon {
+    color: #007bff;
+}
+
+.autoupdate-notification--completed
+    .autoupdate-notification__icon {
+    color: #28a745;
+}
+
+.autoupdate-notification--failed
+    .autoupdate-notification__icon {
+    color: #dc3545;
+}
+
+.autoupdate-notification__title {
+    margin: 5px 0 15px;
+    flex-grow: 1;
+}
+
+.autoupdate-notification__body {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #202F60;
+    margin-bottom: 10px;
+}
+
+.autoupdate-notification__body p {
+    margin: 0 0 8px;
+}
+
+.autoupdate-notification__body a {
+    color: #202F60;
+    text-decoration: underline;
+}
+
+.autoupdate-notification__footer {
+    font-size: 14px;
+}
+
+.autoupdate-notification__footer a {
+    color: #777777;
+    text-decoration: none;
+}
+
+.autoupdate-notification__footer a:hover {
+    text-decoration: underline;
+}
+
+.autoupdate-notification--shown {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+#autoUpdateNotificationClose {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    color: #888;
+}
+
+#autoUpdateNotificationClose:hover {
+    color: #333;
 }

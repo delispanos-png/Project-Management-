@@ -66,7 +66,7 @@ foreach ($results as $result) {
             $triennially += $amount;
         }
     }
-    
+
     $monthly = number_format($monthly, 2, ".", "");
     $quarterly = number_format($quarterly, 2, ".", "");
     $semiannually = number_format($semiannually, 2, ".", "");
@@ -81,7 +81,7 @@ foreach ($results as $result) {
         + ($biennially / 2)
         + ($triennially / 3)
     );
-    
+
     $totalserverexpenditure = ($monthlycost * 12);
     $servertotal = number_format(($totalserverincome - $totalserverexpenditure), 2, ".", "");
     $totalincome += $totalserverincome;

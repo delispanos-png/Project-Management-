@@ -69,12 +69,8 @@ foreach ($reportvalues as $adminname => $values) {
     $reportdata['tablevalues'][$rc+1][] = "Replies";
 
     for ($day = 1; $day <= $dateRange->endOfMonth()->day; $day++) {
-        $reportdata['tablevalues'][$rc][] = isset($reportvalues[$adminname][$day]['totaltickets'])
-            ? $reportvalues[$adminname][$day]['totaltickets']
-            : '';
-        $reportdata['tablevalues'][$rc+1][] = isset($reportvalues[$adminname][$day]['totalreplies'])
-            ? $reportvalues[$adminname][$day]['totalreplies']
-            : '';
+        $reportdata['tablevalues'][$rc][] = $reportvalues[$adminname][$day]['totaltickets'] ?? '';
+        $reportdata['tablevalues'][$rc+1][] = $reportvalues[$adminname][$day]['totalreplies'] ?? '';
     }
     $rc += 2;
 }

@@ -123,7 +123,7 @@ h3 {
 .contentarea {
   margin: 0 0 0 195px;
   padding: 15px;
-  min-height: 600px;
+  min-height: calc(100vh - 38px - 45px); /* screen - footer - header */
   background-color: #fff;
   border: 0;
   border-left: 1px solid #ccc;
@@ -1049,6 +1049,22 @@ h3 {
   text-align: center;
 }
 
+/* destructive row action beside the submits (client contacts edit): blend keeps
+   it bold red on its own line, the way the removed inline markup rendered it */
+form.form-card .btn-container .form-card-delete-link {
+  display: block;
+  width: fit-content;
+  margin: 0 auto;
+  font-weight: bold;
+  color: #cc0000;
+}
+
+/* the field hints carry their grey on the <font> tag; this is the <small> they
+   used to be wrapped in (iris sizes them from its own token layer) */
+.field-help-inline {
+  font-size: 85%;
+}
+
 .inline {
   display: inline;
 }
@@ -1249,6 +1265,7 @@ table.form.form-fixed {
 }
 .modal-feature-highlights .feature-highlights-content .icon-image {
   margin: 40px auto 0;
+  padding-bottom: 15px;
   text-align: center;
 }
 .modal-feature-highlights .feature-highlights-content .icon-image.background {
@@ -1422,14 +1439,22 @@ table.form.form-fixed {
     display: none;
   }
 }
-.system-settings-index .setup-category-title {
-  display: block;
+.system-settings-index .setup-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0 0 15px 0;
   padding: 0 0 20px 0;
+  border-bottom: 5px solid rgba(0, 0, 0, 0.05);
+}
+.system-settings-index .setup-category-title {
+  display: block;
+  margin: 0;
+  padding: 0;
   font-size: 18px;
   color: #555;
   font-weight: bold;
-  border-bottom: 5px solid rgba(0, 0, 0, 0.05);
 }
 .system-settings-index .filter-container {
   position: relative;
@@ -1562,6 +1587,11 @@ table.form.form-fixed {
   margin: 0;
   width: 85%;
   height: 13px;
+}
+.setup-tasks-banner .setup-task-percent {
+  display: inline-block;
+  width: 40px;
+  text-align: right;
 }
 @media only screen and (min-width: 920px) {
   .setup-tasks-banner {
@@ -2079,6 +2109,38 @@ h2.ticket-subject {
     text-align: center;
   }
 }
+@media screen and (max-width: 767px) {
+  .panel-scheduled-actions-management .panel-heading {
+    flex-wrap: wrap;
+  }
+  .panel-scheduled-actions-management .panel-control-area {
+    width: 100%;
+    margin-top: 12px;
+  }
+  .panel-scheduled-actions-management .panel-body .container-heading {
+    display: none;
+  }
+  .panel-scheduled-actions-management .panel-body .container-scheduled-action-parameters {
+    padding-right: 0;
+    min-width: 0;
+  }
+  .panel-scheduled-actions-management .panel-body .container-scheduled-action-parameters select.scheduled-actions-dropdown.scheduled-actions-parameter {
+    width: 100%;
+  }
+  .panel-scheduled-actions-management .panel-body .container-scheduled-action > .col-sm-8 .container-scheduled-action-parameters {
+    flex: 1 1 auto;
+  }
+  .panel-scheduled-actions-management .panel-body .container-scheduled-action > .col-sm-8 > div:last-child {
+    flex: 0 0 auto;
+  }
+  .panel-scheduled-actions-management .panel-body .container-created-actions .container-item > div > div:last-of-type {
+    margin-left: 12px;
+  }
+  .panel-scheduled-actions-management .container-delay-inputs .form-group {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
 #scheduledActionsList {
   background-color: #FFFFFF;
   border: 1px solid #DCE9FF;
@@ -2149,6 +2211,23 @@ h2.ticket-subject {
   color: #505050;
 }
 
+@media screen and (max-width: 767px) {
+  #scheduledActionsList th, #scheduledActionsList td {
+    white-space: normal;
+  }
+  #scheduledActionsList td:nth-child(2) {
+    max-width: none;
+    max-height: 60px;
+    line-height: 20px;
+    overflow: hidden;
+  }
+  #scheduledActionsList th:nth-child(1),
+  #scheduledActionsList th:nth-child(3),
+  #scheduledActionsList th:nth-child(4),
+  #scheduledActionsList th:nth-child(5) {
+    width: auto;
+  }
+}
 .ticket-flag.priority-low {
   color: #3496f2;
 }
@@ -2411,6 +2490,10 @@ h2.ticket-subject {
 }
 .view-invoice .invoice-status.unpaid {
   color: #c00;
+}
+
+.billing-notes-table table.datatable td {
+  text-align: center;
 }
 
 /* ============================================

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Class to emulate Perl's Crypt::CBC module
  *
@@ -30,8 +31,8 @@
  * Modified by WHMCS Limited: Removed inheritence/dependency on PEAR
  */
 
-class Crypt_CBC {
-
+class Crypt_CBC
+{
     // Blowfish constants
     const BLOWFISH_KEYSIZE_MIN = 4;
     const BLOWFISH_KEYSIZE_MAX = 56;
@@ -278,4 +279,3 @@ class Crypt_CBC {
         trigger_error($message, $level);
     }
 }
-

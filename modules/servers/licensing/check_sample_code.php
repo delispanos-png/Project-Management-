@@ -1,4 +1,5 @@
 <?php
+
 /**
  * WHMCS Licensing Addon - Integration Code Sample
  * https://www.whmcs.com/addons/licensing-addon/
@@ -53,7 +54,7 @@ function yourprefix123_check_license($licensekey, $localkey='') {
     $check_token = time() . md5(mt_rand(100000000, mt_getrandmax()) . $licensekey);
     $checkdate = date("Ymd");
     $domain = $_SERVER['SERVER_NAME'];
-    $usersip = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : $_SERVER['LOCAL_ADDR'];
+    $usersip = $_SERVER['SERVER_ADDR'] ?? $_SERVER['LOCAL_ADDR'];
     $dirpath = dirname(__FILE__);
     $verifyfilepath = 'modules/servers/licensing/verify.php';
     $localkeyvalid = false;

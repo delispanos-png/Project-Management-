@@ -108,7 +108,7 @@ foreach ($adminnames AS $adminid=>$adminname) {
     $rowtotal = $rowcount = 0;
 
     $row = array();
-    $row[] = '<a href="'.$_SERVER['PHP_SELF'].'?'.((isset($_REQUEST['module']))?'module='.$_REQUEST['module'].'&':'').'report=ticket_feedback_comments&'.((isset($_REQUEST['module']))?'module='.$_REQUEST['module'].'&':'').'staffid='.$adminid.'">'.$adminname.'</a>';
+    $row[] = '<a href="'.$_SERVER['PHP_SELF'].'?'.((isset($_REQUEST['module'])) ? 'module='.$_REQUEST['module'].'&' : '').'report=ticket_feedback_comments&'.((isset($_REQUEST['module'])) ? 'module='.$_REQUEST['module'].'&' : '').'staffid='.$adminid.'">'.$adminname.'</a>';
 
     for ( $rating = 1; $rating <= 10; $rating++ ) {
 

@@ -1,0 +1,1730 @@
+openapi: 3.0.3
+info:
+  title: WHMCS Getting Started Wizard API
+  description: |
+    API for the WHMCS Getting Started Wizard that guides administrators through initial system configuration.
+    This includes company details, domain registrars, servers, payment gateways, and MarketConnect services.
+    
+    **Authentication**: All endpoints require an active admin session. Authentication is handled via session cookies.
+  version: 1.0.0
+servers:
+  - url: '/admin'
+    description: Admin area base path
+
+security:
+  - sessionAuth: []
+
+paths:
+  /getting-started/dismiss:
+    post:
+      operationId: dismissGettingStartedWizard
+      summary: Dismiss the wizard
+      description: Dismiss the getting started wizard permanently for this admin user
+      tags:
+        - Settings
+      responses:
+        200:
+          description: Successfully dismissed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralMessage'
+              example:
+                message: 'Getting started wizard dismissed successfully'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/settings:
+    get:
+      operationId: getWizardSettings
+      summary: Get wizard global settings
+      description: Retrieve global settings for the GSW app (e.g., Mixpanel configuration)
+      tags:
+        - Settings
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      mixpanel:
+                        type: object
+                        properties:
+                          is_enabled:
+                            type: boolean
+                          public_token:
+                            type: string
+                            example: 'qwerty123'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/analytics:
+    get:
+      operationId: getAnalyticsStep
+      summary: Get analytics configuration
+      description: Retrieve analytics step data (Mixpanel tracking status)
+      tags:
+        - Analytics
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      is_mixpanel_tracking_enabled:
+                        type: boolean
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      operationId: saveAnalyticsStep
+      summary: Save analytics configuration
+      description: Save analytics step data (enable/disable Mixpanel tracking)
+      tags:
+        - Analytics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - is_mixpanel_tracking_enabled
+              type: object
+              properties:
+                is_mixpanel_tracking_enabled:
+                  type: boolean
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/company:
+    get:
+      operationId: getCompanyStep
+      summary: Get company information
+      description: Retrieve all company step data including details, about, logo, and address (includes all sub steps data)
+      tags:
+        - Company
+      responses:
+        200:
+          description: Company sub-steps data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      details:
+                        type: object
+                        properties:
+                          company_name:
+                            type: string
+                            nullable: true
+                            example: MyCompany Inc
+                          email:
+                            type: string
+                            format: email
+                            nullable: true
+                            example: john@example.com
+                          country:
+                            type: string
+                            nullable: true
+                            example: US
+                          countries:
+                            $ref: '#/components/schemas/SelectableOptions'
+                      about:
+                        type: object
+                        properties:
+                          selling_status:
+                            type: string
+                            nullable: true
+                          employees_number:
+                            type: string
+                            nullable: true
+                          annual_revenue:
+                            type: string
+                            nullable: true
+                          selling_status_options:
+                            $ref: '#/components/schemas/SelectableOptions'
+                          employees_number_options:
+                            $ref: '#/components/schemas/SelectableOptions'
+                          annual_revenue_options:
+                            $ref: '#/components/schemas/SelectableOptions'
+                      logo:
+                        type: object
+                        properties:
+                          logo_url:
+                            type: string
+                            format: uri
+                            nullable: true
+                            example: 'https://example.com/whmcs/images/logo.png'
+                      address:
+                        type: object
+                        properties:
+                          street_address:
+                            type: string
+                            nullable: true
+                          city:
+                            type: string
+                            nullable: true
+                          state:
+                            type: string
+                            nullable: true
+                          zip:
+                            type: string
+                            nullable: true
+                          states:
+                            type: object
+                            additionalProperties:
+                              $ref: '#/components/schemas/SelectableOptions'
+                            description: States grouped by country code
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/company/details:
+    post:
+      operationId: saveCompanyDetails
+      summary: Save company details
+      description: Save company details step (company name, email, country)
+      tags:
+        - Company
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - company_name
+                - email
+                - country
+              properties:
+                company_name:
+                  type: string
+                  example: 'MyCompany Inc'
+                email:
+                  type: string
+                  format: email
+                  example: 'john@example.com'
+                country:
+                  type: string
+                  example: US
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/company/about:
+    post:
+      operationId: saveCompanyAbout
+      summary: Save company about information
+      description: Save company about step (selling status, employees number, annual revenue)
+      tags:
+        - Company
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - selling_status
+                - employees_number
+                - annual_revenue
+              properties:
+                selling_status:
+                  type: string
+                employees_number:
+                  type: string
+                annual_revenue:
+                  type: string
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/company/logo:
+    post:
+      operationId: saveCompanyLogo
+      summary: Upload company logo
+      description: Upload and save company logo image (accepts jpg, jpeg, png)
+      tags:
+        - Company
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                logo:
+                  type: string
+                  format: binary
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/company/address:
+    post:
+      operationId: saveCompanyAddress
+      summary: Save company address
+      description: Save company business address (street, city, state, zip)
+      tags:
+        - Company
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - street_address
+                - city
+                - state
+                - zip
+              properties:
+                street_address:
+                  type: string
+                city:
+                  type: string
+                state:
+                  type: string
+                zip:
+                  type: string
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/domains:
+    get:
+      operationId: getDomainsStep
+      summary: Get domains configuration
+      description: Retrieve domains step data including available TLDs grouped by category (excluding pricing)
+      tags:
+        - Domains
+      responses:
+        200:
+          description: TLDs step data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      available_grouped_tlds:
+                        type: array
+                        description: Available TLDs grouped by category
+                        items:
+                          $ref: '#/components/schemas/TldGroupItem'
+                      selected_tlds:
+                        type: array
+                        description: Currently selected TLDs
+                        items:
+                          type: string
+                          example: .com
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+    post:
+      operationId: saveDomainsTlds
+      summary: Save selected TLDs
+      description: Save selected TLDs
+      tags:
+        - Domains
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tlds
+              properties:
+                tlds:
+                  type: array
+                  items:
+                    type: string
+                  example:
+                    - .com
+                    - .net
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/domains/pricing:
+    get:
+      operationId: getDomainsPricing
+      summary: Get TLDs pricing
+      description: Retrieve TLDs pricing
+      tags:
+        - Domains
+      responses:
+        200:
+          description: TLDs pricing data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tlds:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              description: TLD record ID
+                              example: 1
+                            tld:
+                              type: string
+                              example: .com
+                            registrar_name:
+                              type: string
+                              nullable: true
+                              example: Enom
+                            cost_price:
+                              $ref: '#/components/schemas/Price'
+                            selling_price:
+                              $ref: '#/components/schemas/Price'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+    post:
+      operationId: saveDomainsPricing
+      summary: Save TLDs pricing
+      description: Save TLDs pricing
+      tags:
+        - Domains
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tlds_pricing
+              properties:
+                tlds_pricing:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        description: TLD record ID
+                        example: 1
+                      selling_price:
+                        type: number
+                        format: double
+                        nullable: true
+                        minimum: 0
+                        example: 12.95
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/domains/registrars:
+    get:
+      operationId: listDomainRegistrars
+      summary: List available domain registrars
+      description: Retrieve available domain registrars and their sign-in status
+      tags:
+        - Domains
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      registrars:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            is_signed_in:
+                              type: boolean
+                              description: Whether the user is signed in to this registrar
+                        example:
+                          centralnic:
+                            is_signed_in: false
+                          enom:
+                            is_signed_in: true
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/domains/registrars/sign-up-data:
+    get:
+      operationId: getRegistrarSignUpData
+      summary: Get registrar sign-up form data
+      description: Retrieve data needed for registrar sign-up forms
+      tags:
+        - Domains
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      countries:
+                        $ref: '#/components/schemas/SelectableOptions'
+                      states:
+                        type: object
+                        additionalProperties:
+                          $ref: '#/components/schemas/SelectableOptions'
+                        description: States grouped by country code
+                      phone_codes:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            value:
+                              type: integer
+                              description: Phone code value
+                            country_code:
+                              type: string
+                              description: Two-letter country code
+                            short_label:
+                              type: string
+                              description: Short country and code display (e.g., "US (+1)")
+                            label:
+                              type: string
+                              description: Full country and code display (e.g., "United States (+1)")
+                        description: Phone codes for countries
+                      enom:
+                        type: object
+                        properties:
+                          security_questions:
+                            $ref: '#/components/schemas/SelectableOptions'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/domains/registrars/{moduleName}/sign-in:
+    post:
+      operationId: signInToRegistrar
+      summary: Sign in to a domain registrar
+      description: Sign in to a domain registrar using username and password credentials with optional test mode (OTE).
+      tags:
+        - Domains
+      parameters:
+        - name: moduleName
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [centralnic, enom]
+          description: Domain registrar module name
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  description: Registrar account username
+                password:
+                  type: string
+                  description: Registrar account password
+                test_mode:
+                  type: boolean
+                  description: Whether to use test mode (OTE) for the registrar
+                  default: false
+      responses:
+        200:
+          description: Successfully signed in. Returns a list of informational messages (may be empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of informational messages from the registrar
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/domains/registrars/{moduleName}/logout:
+    post:
+      operationId: logoutFromRegistrar
+      summary: Log out from a domain registrar
+      description: Terminate the current authenticated session with the specified domain registrar and clear any stored session credentials.
+      tags:
+        - Domains
+      parameters:
+        - name: moduleName
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [centralnic, enom]
+          description: Domain registrar module name
+      responses:
+        200:
+          description: Successfully logged out. Returns a list of informational messages (may be empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of informational messages from the registrar
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/domains/registrars/{moduleName}/sign-up/validate:
+    post:
+      operationId: validateRegistrarSignUp
+      summary: Validate registrar sign-up data
+      description: |
+        Validate sign-up data before submitting to registrar.
+        
+        **Request body schema depends on the moduleName path parameter:**
+        - If moduleName = "enom" -> use EnomSignUpRequest schema
+        - If moduleName = "centralnic" -> use CentralNicSignUpRequest schema
+      tags:
+        - Domains
+      parameters:
+        - name: moduleName
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [centralnic, enom]
+          description: Domain registrar module name
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/CentralNicSignUpRequest'
+                - $ref: '#/components/schemas/EnomSignUpRequest'
+      responses:
+        200:
+          description: Validation successful. Returns a list of informational messages (may be empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of validation messages from the registrar
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/domains/registrars/{moduleName}/sign-up:
+    post:
+      operationId: signUpForRegistrar
+      summary: Sign up for a domain registrar account
+      description: |
+        Sign up for a domain registrar account.
+        
+        **Request body schema depends on the moduleName path parameter:**
+        - If moduleName = "enom" -> use EnomSignUpRequest schema (requires username, password with complexity rules)
+        - If moduleName = "centralnic" -> use CentralNicSignUpRequest schema
+      tags:
+        - Domains
+      parameters:
+        - name: moduleName
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [centralnic, enom]
+          description: Domain registrar module name
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/CentralNicSignUpRequest'
+                - $ref: '#/components/schemas/EnomSignUpRequest'
+      responses:
+        200:
+          description: Successfully signed up and automatically signed in. Returns a list of informational messages (may be empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    description: Array of informational messages from the registrar
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          description: Validation errors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+              example:
+                errors:
+                  company_name:
+                    - 'The company name field is required.'
+                  email:
+                    - 'The email field must be a valid email address.'
+                  username:
+                    - 'The username may not be greater than 20 characters.'
+                  password:
+                    - 'The password must be at least 14 characters.'
+        500:
+          description: Internal server error or error from registrar API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralMessage'
+
+  /getting-started/servers:
+    get:
+      operationId: getServersStep
+      summary: Get servers configuration
+      description: Retrieve servers step data
+      tags:
+        - Servers
+      responses:
+        200:
+          description: Servers step data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      servers:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            module:
+                              type: string
+                              example: cpanel
+                            server_id:
+                              type: integer
+                              nullable: true
+                              example: 1
+                            hostname:
+                              type: string
+                              nullable: true
+                              example: server1.webpros
+                            username:
+                              type: string
+                              nullable: true
+                              example: root
+                            password:
+                              type: string
+                              nullable: true
+                              description: Masked password
+                              example: '********'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      operationId: saveServer
+      summary: Add or update server
+      description: Add a new server or update an existing server configuration with module, hostname, username, password, and optional server ID.
+      tags:
+        - Servers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - module
+                - hostname
+                - username
+              properties:
+                module:
+                  type: string
+                  enum: [cpanel, plesk, directadmin]
+                  example: cpanel
+                hostname:
+                  type: string
+                  example: server1.webpros
+                username:
+                  type: string
+                  example: root
+                password:
+                  type: string
+                  example: password
+                server_id:
+                  type: integer
+                  nullable: true
+                  description: Existing server ID for updates
+                  example: 1
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/servers/verify:
+    post:
+      operationId: verifyServer
+      summary: Verify server connection
+      description: Verify server connection and retrieve server details including name, primary IP address, and nameservers.
+      tags:
+        - Servers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - module
+                - hostname
+                - username
+              properties:
+                module:
+                  type: string
+                  enum: [cpanel, plesk, directadmin]
+                  example: cpanel
+                hostname:
+                  type: string
+                  example: server1.webpros
+                username:
+                  type: string
+                  example: root
+                password:
+                  type: string
+                  description: Required for new servers or if changed
+                  example: password
+                server_id:
+                  type: integer
+                  nullable: true
+                  description: Server ID if verifying existing server
+                  example: 1
+      responses:
+        200:
+          description: Server details data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      server_name:
+                        type: string
+                        example: 'Server1'
+                      primary_ip:
+                        type: string
+                        example: '192.168.1.1'
+                      primary_nameserver:
+                        type: string
+                        example: 'ns1.example.com'
+                      secondary_nameserver:
+                        type: string
+                        example: 'ns2.example.com'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/market-connect:
+    get:
+      operationId: getMarketConnectStep
+      summary: Get MarketConnect configuration
+      description: Retrieve MarketConnect step data
+      tags:
+        - MarketConnect
+      responses:
+        200:
+          description: MarketConnect services data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      is_logged_in:
+                        type: boolean
+                        description: Whether user is logged in to MarketConnect
+                      company_name:
+                        type: string
+                        description: Company name from settings
+                        example: 'MyCompany Inc'
+                      services:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MarketConnectServiceItem'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      operationId: bulkActivateMarketConnectServices
+      summary: Bulk activate MarketConnect services
+      description: Bulk activation of MarketConnect services
+      tags:
+        - MarketConnect
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - services
+              properties:
+                services:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+                  example:
+                    weebly: true
+                    sitelock: false
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/market-connect/update-state:
+    post:
+      operationId: updateMarketConnectServicesState
+      summary: Update MarketConnect services activation state
+      description: Update activation state for MarketConnect services
+      tags:
+        - MarketConnect
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - services
+              properties:
+                services:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+                  description: Service IDs with their activation state
+                  example:
+                    weebly: true
+                    sitelock: false
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/market-connect/login:
+    post:
+      operationId: loginToMarketConnect
+      summary: Log in to MarketConnect
+      description: Log in to MarketConnect
+      tags:
+        - MarketConnect
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: 'john@example.com'
+                password:
+                  type: string
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/market-connect/register:
+    post:
+      operationId: registerForMarketConnect
+      summary: Register for MarketConnect
+      description: Register for MarketConnect
+      tags:
+        - MarketConnect
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - first_name
+                - last_name
+                - email
+                - password
+              properties:
+                first_name:
+                  type: string
+                  example: John
+                last_name:
+                  type: string
+                  example: Doe
+                email:
+                  type: string
+                  format: email
+                  example: 'john@example.com'
+                password:
+                  type: string
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/payments:
+    get:
+      operationId: getPaymentsStep
+      summary: Get payments configuration
+      description: Retrieve payments step data
+      tags:
+        - Payments
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      active_gateways:
+                        type: array
+                        description: List of active payment gateway modules
+                        items:
+                          type: string
+                        example: ['paypal', 'stripe']
+                      paypal:
+                        type: object
+                        properties:
+                          isActive:
+                            type: boolean
+                          params:
+                            type: object
+                            properties:
+                              email:
+                                type: string
+                                nullable: true
+                                format: email
+                      stripe:
+                        type: object
+                        properties:
+                          isActive:
+                            type: boolean
+                          params:
+                            type: object
+                            properties:
+                              publishable_key:
+                                type: string
+                                nullable: true
+                              secret_key:
+                                type: string
+                                nullable: true
+                      mailin:
+                        type: object
+                        properties:
+                          isActive:
+                            type: boolean
+                          params:
+                            type: array
+                            items:
+                              type: string
+                      banktransfer:
+                        type: object
+                        properties:
+                          isActive:
+                            type: boolean
+                          params:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                nullable: true
+                              address:
+                                type: string
+                                nullable: true
+                              city:
+                                type: string
+                                nullable: true
+                              state:
+                                type: string
+                                nullable: true
+                              zip_code:
+                                type: string
+                                nullable: true
+                              account_number:
+                                type: string
+                                nullable: true
+                              bank_routing_number:
+                                type: string
+                                nullable: true
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+
+  /getting-started/payments/paypal:
+    post:
+      operationId: connectPayPal
+      summary: Connect PayPal gateway
+      description: Connect and configure the PayPal payment gateway using OAuth credentials
+      tags:
+        - Payments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - auth_code
+                - shared_id
+                - nonce
+                - token
+              properties:
+                auth_code:
+                  type: string
+                  description: Authorization code from PayPal
+                shared_id:
+                  type: string
+                  description: Shared ID from PayPal
+                nonce:
+                  type: string
+                  description: Nonce value for security
+                token:
+                  type: string
+                  description: PayPal OAuth token from the onboarding flow
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+        500:
+          description: Gateway error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralMessage'
+
+  /getting-started/payments/stripe:
+    post:
+      operationId: connectStripe
+      summary: Connect Stripe gateway
+      description: Connect and configure the Stripe payment gateway using API keys
+      tags:
+        - Payments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - publishable_key
+                - secret_key
+              properties:
+                publishable_key:
+                  type: string
+                  description: Stripe publishable key (must start with pk_)
+                  example: 'pk_test_...'
+                secret_key:
+                  type: string
+                  description: Stripe secret key
+                  example: 'sk_test_...'
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+        500:
+          description: Gateway error or invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralMessage'
+
+  /getting-started/payments/mailin:
+    post:
+      operationId: connectMailin
+      summary: Connect Mailin gateway
+      description: Connect and configure the Mailin payment gateway
+      tags:
+        - Payments
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/payments/banktransfer:
+    post:
+      operationId: connectBankTransfer
+      summary: Connect Bank Transfer gateway
+      description: Connect and configure the Bank Transfer payment gateway with account details
+      tags:
+        - Payments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: The name of the account holder
+                address:
+                  type: string
+                  description: The address of the account holder
+                city:
+                  type: string
+                  description: The city of the account holder
+                state:
+                  type: string
+                  description: The state of the account holder
+                zip_code:
+                  type: string
+                  description: The ZIP code of the account holder
+                account_number:
+                  type: string
+                  description: The bank account number
+                bank_routing_number:
+                  type: string
+                  description: The bank routing number
+      responses:
+        200:
+          $ref: '#/components/responses/EmptyDataArray'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/languages:
+    get:
+      operationId: listAvailableLanguages
+      summary: List available languages
+      description: |
+        Get all available admin and client languages.
+        
+        **Note:** This endpoint returns a specialized response envelope with a `languages` property instead of the standard `data` wrapper.
+      tags:
+        - Languages
+      responses:
+        200:
+          description: List of available languages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  languages:
+                    type: object
+                    properties:
+                      admin:
+                        type: array
+                        items:
+                          type: string
+                        example: ["arabic", "czech", "dutch", "english", "farsi", "french", "hebrew", "hungarian", "italian", "portuguese-br", "portuguese", "russian", "spanish", "turkish"]
+                      client:
+                        type: array
+                        items:
+                          type: string
+                        example: ["arabic", "czech", "dutch", "english", "farsi", "french", "hebrew", "hungarian", "italian", "portuguese-br", "portuguese", "russian", "spanish", "turkish"]
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        default:
+          $ref: '#/components/responses/GeneralError'
+
+  /getting-started/languages/defaults:
+    get:
+      operationId: getDefaultLanguages
+      summary: Get default language preferences
+      description: |
+        Get default admin and client languages.
+        
+        **Note:** This endpoint returns a specialized response with direct properties instead of the standard `data` wrapper.
+      tags:
+        - Languages
+      responses:
+        200:
+          description: Default language preferences
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admin_language:
+                    type: string
+                    description: Default admin language code
+                    example: 'french'
+                  client_language:
+                    type: string
+                    description: Default client language code
+                    example: 'french'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    put:
+      operationId: saveDefaultLanguages
+      summary: Save default language preferences
+      description: Save default admin and client languages
+      tags:
+        - Languages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - admin_language
+                - client_language
+              properties:
+                admin_language:
+                  type: string
+                  description: Language code to set as admin preference
+                  example: 'french'
+                client_language:
+                  type: string
+                  description: Language code to set as client default
+                  example: 'french'
+      responses:
+        200:
+          $ref: '#/components/responses/StepDataSaved'
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        422:
+          $ref: '#/components/responses/ValidationErrors'
+
+  /getting-started/translations/{language}:
+    get:
+      operationId: getLanguageTranslations
+      summary: Get translations for a language
+      description: |
+        Get translations for a specific language.
+        
+        **Note:** This endpoint returns a specialized response with direct translation key-value pairs instead of the standard `data` wrapper.
+      tags:
+        - Languages
+      parameters:
+        - name: language
+          in: path
+          required: true
+          description: Language code to fetch translations for
+          schema:
+            type: string
+          example: english
+      responses:
+        200:
+          description: Language translations
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Nested translation keys and values for the getting started wizard
+                additionalProperties: true
+                example:
+                  global:
+                    back: "Back"
+                    continue: "Continue"
+                  company:
+                    title: "Company Information"
+        401:
+          $ref: '#/components/responses/Unauthenticated'
+        404:
+          description: Language not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Language is not found"
+        default:
+          $ref: '#/components/responses/GeneralError'
+
+components:
+  schemas:
+    GeneralMessage:
+      type: object
+      properties:
+        message:
+          type: string
+
+    GeneralError:
+      type: object
+      properties:
+        message:
+          type: string
+
+    SelectableOptions:
+      type: array
+      items:
+        $ref: '#/components/schemas/SelectableOptionItem'
+
+    SelectableOptionItem:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+
+    MarketConnectServiceItem:
+      type: object
+      properties:
+        id:
+          type: string
+          example: weebly
+        title:
+          type: string
+          example: 'Weebly Builder'
+        vendor_name:
+          type: string
+          example: 'From Weebly'
+        logo_url:
+          type: string
+          example: https://example.com/whmcs/images/image.png
+        is_activated:
+          type: boolean
+
+    ServerItem:
+      type: object
+      properties:
+        module:
+          type: string
+          example: cpanel
+        logo_url:
+          type: string
+          example: https://example.com/whmcs/images/image.png
+
+    TldGroupItem:
+      type: object
+      properties:
+        group_name:
+          type: string
+          example: Popular
+        tlds:
+          type: array
+          items:
+            type: string
+            example: .com
+
+    TldItem:
+      type: object
+      properties:
+        tld_name:
+          type: string
+          example: .com
+        checked:
+          type: boolean
+
+    TldPricingItem:
+      type: object
+      properties:
+        tld:
+          type: string
+          example: .com
+        registrar_name:
+          type: string
+          example: Enom
+        cost_price:
+          $ref: '#/components/schemas/Price'
+        selling_price:
+          $ref: '#/components/schemas/Price'
+
+    Price:
+      type: object
+      nullable: true
+      properties:
+        value:
+          type: number
+          format: double
+          nullable: true
+          example: 12.95
+        prefix:
+          type: string
+          example: '$'
+        formatted:
+          type: string
+          example: '$12.95'
+
+    CentralNicSignUpRequest:
+      type: object
+      description: "Schema for CentralNic registrar signup requests. Used when the moduleName path parameter is 'centralnic'."
+      required:
+        - company_name
+        - email
+        - phone
+        - first_name
+        - last_name
+        - address_1
+        - city
+        - country
+        - zip
+        - registrar
+      properties:
+        company_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          pattern: '^[0-9\+\.-]+$'
+        first_name:
+          type: string
+        last_name:
+          type: string
+        address_1:
+          type: string
+        address_2:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        registrar:
+          type: string
+          pattern: '[a-zA-Z0-9_-]*'
+        signup_ote:
+          type: boolean
+          description: Whether to sign up for the Operational Test Environment
+        country_code:
+          type: string
+          description: "Country code, typically same as the country field"
+
+    EnomSignUpRequest:
+      type: object
+      description: "Schema for Enom registrar signup requests. Used when the moduleName path parameter is 'enom'."
+      required:
+        - company_name
+        - email
+        - phone
+        - first_name
+        - last_name
+        - address_1
+        - city
+        - country
+        - zip
+        - username
+        - password
+        - security_question
+        - security_answer
+      properties:
+        company_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        address_1:
+          type: string
+        address_2:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        username:
+          type: string
+          maxLength: 20
+        password:
+          type: string
+          minLength: 14
+          description: "Must contain at least one lowercase letter, one uppercase letter, one digit, and one special character (@, *, -, _, ., /, or \\)"
+        security_question:
+          type: string
+        security_answer:
+          type: string
+        country_code:
+          type: string
+          description: "Country code, typically same as the country field"
+
+  responses:
+    StepDataSaved:
+      description: Step data has been successfully saved
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GeneralMessage'
+
+    EmptyDataArray:
+      description: Operation completed successfully with no additional data returned
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items:
+                  type: object
+                description: Empty array; no additional data returned
+                maxItems: 0
+
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GeneralMessage'
+
+    Unauthenticated:
+      description: Unauthenticated error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GeneralMessage'
+
+    ValidationErrors:
+      description: Return validation errors
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+          example:
+            errors:
+              fieldName:
+                - "Validation error message."
+
+    GeneralError:
+      description: General Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GeneralError'
+
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: WHMCS_SESSION
+      description: Session-based authentication using admin session cookies

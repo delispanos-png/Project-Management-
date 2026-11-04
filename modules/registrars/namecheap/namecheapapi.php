@@ -328,12 +328,13 @@ if(!class_exists('NamecheapRegistrarApi')){
  * NamecheapRegistrarApiException
  */
 if(!class_exists('NamecheapRegistrarApiException')){
-    class NamecheapRegistrarApiException extends Exception {}
+    class NamecheapRegistrarApiException extends Exception
+    {}
 }
 
 if(!class_exists('NamecheapRegistrarIDNA')){
-    class NamecheapRegistrarIDNA {
-
+    class NamecheapRegistrarIDNA
+    {
         private static $_codeList = array(
             'Afrikaans' => 'afr',
             'Albanian' => 'alb',
@@ -534,8 +535,8 @@ if(!class_exists('NamecheapRegistrarIDNA')){
  * @version $Id: IDNA2.php 305344 2010-11-14 23:52:42Z neufeind $
  */
 if (!class_exists('Net_IDNA2')) {
-    class Net_IDNA2 {
-
+    class Net_IDNA2
+    {
         // {{{ npdata
         /**
          * These Unicode codepoints are
@@ -2791,7 +2792,8 @@ if (!class_exists('Net_IDNA2')) {
                     break;
                 case 'ucs4_string':
                     $decoded = $this->_ucs4_string_to_ucs4($decoded);
-                case 'ucs4_array': // No break; before this line. Catch case, but do nothing
+                    // no break
+                case 'ucs4_array':
                     break;
                 default:
                     throw new InvalidArgumentException('Unsupported input format');
@@ -2813,9 +2815,9 @@ if (!class_exists('Net_IDNA2')) {
                     case 0xFF0E:
                     case 0xFF61:
                         $decoded[$k] = 0x2E;
-                    // It's right, no break here
                     // The codepoints above have to be converted to dots anyway
                     // Stumbling across an anchoring character
+                    // no break
                     case 0x2E:
                     case 0x2F:
                     case 0x3A:
@@ -2891,7 +2893,7 @@ if (!class_exists('Net_IDNA2')) {
                 if ($this->_strict_mode) {
                     throw new InvalidArgumentException('Only simple domain name parts can be handled in strict mode');
                 }
-                list($email_pref, $input) = explode('@', $input, 2);
+                [$email_pref, $input] = explode('@', $input, 2);
                 $arr = explode('.', $input);
                 foreach ($arr as $k => $v) {
                     $conv = $this->_decode($v);
@@ -3084,7 +3086,7 @@ if (!class_exists('Net_IDNA2')) {
                 for ($i = 0; $i < $deco_len; $i++) {
                     if ($decoded[$i] < $cur_code) {
                         $delta++;
-                    } else if ($decoded[$i] == $cur_code) {
+                    } elseif ($decoded[$i] == $cur_code) {
                         for ($q = $delta, $k = $this->_base; 1; $k += $this->_base) {
                             $t = ($k <= $bias) ?
                                 $this->_tmin :
@@ -3274,7 +3276,7 @@ if (!class_exists('Net_IDNA2')) {
                     foreach ($this->_hangulDecompose($v) as $out) {
                         $output[] = $out;
                     }
-                } else if (($this->_version == '2003') && isset(self::$_np_replacemaps[$v])) {
+                } elseif (($this->_version == '2003') && isset(self::$_np_replacemaps[$v])) {
                     // There's a decomposition mapping for that code point
                     // Decompositions only in version 2003 (original) of IDNA
                     foreach ($this->_applyCannonicalOrdering(self::$_np_replacemaps[$v]) as $out) {
@@ -3433,7 +3435,7 @@ if (!class_exists('Net_IDNA2')) {
          * @access private
          */
         private function _getCombiningClass($char) {
-            return isset(self::$_np_norm_combcls[$char]) ? self::$_np_norm_combcls[$char] : 0;
+            return self::$_np_norm_combcls[$char] ?? 0;
         }
 
         /**
@@ -3636,29 +3638,29 @@ if (!class_exists('Net_IDNA2')) {
                 if ($v < 128) {
                     // 7bit are transferred literally
                     $output .= chr($v);
-                } else if ($v < 1 << 11) {
+                } elseif ($v < 1 << 11) {
                     // 2 bytes
                     $output .= chr(192 + ($v >> 6))
                         . chr(128 + ($v & 63));
-                } else if ($v < 1 << 16) {
+                } elseif ($v < 1 << 16) {
                     // 3 bytes
                     $output .= chr(224 + ($v >> 12))
                         . chr(128 + (($v >> 6) & 63))
                         . chr(128 + ($v & 63));
-                } else if ($v < 1 << 21) {
+                } elseif ($v < 1 << 21) {
                     // 4 bytes
                     $output .= chr(240 + ($v >> 18))
                         . chr(128 + (($v >> 12) & 63))
                         . chr(128 + (($v >> 6) & 63))
                         . chr(128 + ($v & 63));
-                } else if ($v < 1 << 26) {
+                } elseif ($v < 1 << 26) {
                     // 5 bytes
                     $output .= chr(248 + ($v >> 24))
                         . chr(128 + (($v >> 18) & 63))
                         . chr(128 + (($v >> 12) & 63))
                         . chr(128 + (($v >> 6) & 63))
                         . chr(128 + ($v & 63));
-                } else if ($v < 1 << 31) {
+                } elseif ($v < 1 << 31) {
                     // 6 bytes
                     $output .= chr(252 + ($v >> 30))
                         . chr(128 + (($v >> 24) & 63))
@@ -3762,7 +3764,7 @@ if (!class_exists('Net_IDNA2')) {
         private static function _showBitmask($octet) {
             if ($octet >= (1 << 16)) {
                 $w = 31;
-            } else if ($octet >= (1 << 8)) {
+            } elseif ($octet >= (1 << 8)) {
                 $w = 15;
             } else {
                 $w = 7;

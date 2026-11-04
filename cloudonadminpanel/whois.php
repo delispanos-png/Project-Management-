@@ -39,8 +39,6 @@ if ($domain = $whmcs->get_req_var('domain')) {
     /**
      * A space in a domain name is always invalid. Strip whitespace to
      * be sure the following method does not throw if a space is present.
-     *
-     * @see https://jira.whmcs.com/browse/CORE-16013
      */
     $domain = str_replace(' ', '', $domain);
 

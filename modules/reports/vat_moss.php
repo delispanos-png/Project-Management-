@@ -1,4 +1,5 @@
 <?php
+
 /**
  * VAT MOSS Settlement Data Report
  *

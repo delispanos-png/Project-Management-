@@ -9,6 +9,7 @@ DROP TABLE IF EXISTS `tbldownloads`;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `tbldownloads` (
   `id` int(10) NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(36) COLLATE utf8_unicode_ci NOT NULL DEFAULT '',
   `category` int(10) NOT NULL,
   `type` text COLLATE utf8_unicode_ci NOT NULL,
   `title` text COLLATE utf8_unicode_ci NOT NULL,
@@ -21,6 +22,7 @@ CREATE TABLE `tbldownloads` (
   `created_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `updated_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uuid` (`uuid`),
   KEY `title` (`title`(32)),
   KEY `downloads` (`downloads`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;

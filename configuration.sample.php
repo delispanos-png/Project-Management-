@@ -1,4 +1,5 @@
 <?php
+
 // Prevent sample file execution. Remove from live configuration.
 return;
 

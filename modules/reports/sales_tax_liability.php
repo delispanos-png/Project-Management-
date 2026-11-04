@@ -1,7 +1,39 @@
 <?php
 
+use WHMCS\Billing\BillingNote\ItemType;
+use WHMCS\Billing\BillingNote\NoteType;
 use WHMCS\Carbon;
 use WHMCS\Database\Capsule;
+
+function getLateFeeTotals(array $invoiceIds): array
+{
+    if (empty($invoiceIds)) {
+        return [];
+    }
+
+    $lateFees = Capsule::table('tblaccounts')
+        ->join('tblbillingnotes', 'tblbillingnotes.id', '=', 'tblaccounts.billingnoteid')
+        ->join('tblbillingnoteitems', 'tblbillingnoteitems.billingnote_id', '=', 'tblbillingnotes.id')
+        ->whereIn('tblaccounts.invoiceid', $invoiceIds)
+        ->where('tblbillingnotes.note_type', NoteType::Debit->value)
+        ->where('tblbillingnoteitems.type', ItemType::InvoiceLateFee->value)
+        ->select(
+            'tblaccounts.invoiceid',
+            Capsule::raw('SUM(tblbillingnotes.subtotal) as subtotal'),
+            Capsule::raw('SUM(tblbillingnotes.tax) as tax'),
+            Capsule::raw('SUM(tblbillingnotes.tax2) as tax2'),
+            Capsule::raw('SUM(tblbillingnotes.total) as total')
+        )
+        ->groupBy('tblaccounts.invoiceid')
+        ->get();
+
+    $map = [];
+    foreach ($lateFees as $fee) {
+        $map[$fee->invoiceid] = $fee;
+    }
+
+    return $map;
+}
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -59,45 +91,76 @@ if ($calculate) {
     $queryStartDate = $dateRange['from']->toDateTimeString();
     $queryEndDate = $dateRange['to']->toDateTimeString();
 
-    $result = Capsule::table('tblinvoices')
+    // Fetch invoiceID, userID, total, credit, tax, tax2 for PAID invoices 
+    $paidInvoices = Capsule::table('tblinvoices')
         ->select(
-            Capsule::raw('count(*) as `count`'),
-            Capsule::raw('sum(total) as `total`'),
-            Capsule::raw('sum(tblinvoices.credit) as `credit`'),
-            Capsule::raw('sum(tax) as `tax`'),
-            Capsule::raw('sum(tax2) as `tax2`')
+            'tblinvoices.id',
+            'tblinvoices.userid',
+            'tblinvoices.total',
+            'tblinvoices.credit',
+            'tblinvoices.tax',
+            'tblinvoices.tax2'
         )
-        ->distinct()
         ->join('tblclients', 'tblclients.id', '=', 'tblinvoices.userid')
         ->leftJoin('tblinvoiceitems', function ($join) {
             $join->on('tblinvoiceitems.invoiceid', '=', 'tblinvoices.id');
             $join->on(function ($join) {
-                $join
-                    ->on('tblinvoiceitems.type', '=', Capsule::raw('"Add Funds"'))
-                    ->orOn('tblinvoiceitems.type', '=', Capsule::raw('"Invoice"'));
+                $join->on('tblinvoiceitems.type', '=', Capsule::raw('"Add Funds"'))
+                     ->orOn('tblinvoiceitems.type', '=', Capsule::raw('"Invoice"'));
             });
         })
         ->whereBetween('tblinvoices.datepaid', [$queryStartDate, $queryEndDate])
         ->where('tblinvoices.status', '=', 'Paid')
         ->where('tblclients.currency', '=', $currencyID)
         ->whereNull('tblinvoiceitems.id')
-        ->first();
+        ->get();
 
-    $numinvoices = $result->count;
-    $total = ($result->total + $result->credit);
-    $tax = $result->tax;
-    $tax2 = $result->tax2;
+    $invoiceCount = $paidInvoices->count();
+    $grandTotal = 0;
+    $grandTax = 0;
+    $grandTax2 = 0;
 
-    if (!$total) $total="0.00";
-    if (!$tax) $tax="0.00";
-    if (!$tax2) $tax2="0.00";
+    $invoiceIds = $paidInvoices->pluck('id')
+        ->all();
 
-    $reportdata["headertext"] .= "<br>$numinvoices Invoices Found<br><B>Total Invoiced:</B> ".formatCurrency($total)." &nbsp; <B>Tax Level 1 Liability:</B> ".formatCurrency($tax)." &nbsp; <B>Tax Level 2 Liability:</B> ".formatCurrency($tax2);
+    // Step 1: Preload late-fee debit note totals for all relevant invoices to avoid N+1 queries.
+    $lateFeeTotals = getLateFeeTotals($invoiceIds);
+
+    // Step 2: Loop through each paid invoice
+    foreach ($paidInvoices as $inv) {
+        // Step 3: Add invoice totals
+        $grandTotal += ($inv->total + $inv->credit);
+        $grandTax += $inv->tax;
+        $grandTax2 += $inv->tax2;
+
+        // Step 4: Add late-fee debit note totals for this invoice (if they exist)
+        if (isset($lateFeeTotals[$inv->id])) {
+            $lateFeeNote = $lateFeeTotals[$inv->id];
+            $grandTotal += $lateFeeNote->total;
+            $grandTax += $lateFeeNote->tax;
+            $grandTax2 += $lateFeeNote->tax2;
+        }
+    }
+
+    $html = <<<HTML
+    <br>%d Invoices Found<br>
+    <b>Total Invoiced:</b> %s &nbsp;
+    <b>Tax Level 1 Liability:</b> %s &nbsp;
+    <b>Tax Level 2 Liability:</b> %s
+    HTML;
+
+    $reportdata['headertext'] .= sprintf(
+        $html,
+        $invoiceCount,
+        formatCurrency($grandTotal),
+        formatCurrency($grandTax),
+        formatCurrency($grandTax2)
+    );
 }
 
-$reportdata["headertext"] .= "</center>";
+$reportdata['headertext'] .= "</center>";
 
-$reportdata["tableheadings"] = array(
+$reportdata['tableheadings'] = array(
     $aInt->lang('fields', 'invoiceid'),
     $aInt->lang('fields', 'clientname'),
     $aInt->lang('fields', 'invoicedate'),
@@ -129,18 +192,24 @@ $results = Capsule::table('tblinvoices')
     ->all();
 
 foreach ($results as $result) {
-    $id = $result->id;
-    $userid = $result->userid;
+    // use the preloaded late-fee totals above to avoid duplicate queries.
+    $lateFeeSubtotal = $lateFeeTotals[$result->id]->subtotal ?? 0;
+    $lateFeeTax = $lateFeeTotals[$result->id]->tax ?? 0;
+    $lateFeeTax2 = $lateFeeTotals[$result->id]->tax2 ?? 0;
+    $lateFeeTotal = $lateFeeTotals[$result->id]->total ?? 0;
+
     $client = "{$result->firstname} {$result->lastname}";
     $date = fromMySQLDate($result->date);
     $datepaid = fromMySQLDate($result->datepaid);
-    $currency = getCurrency($userid);
-    $subtotal = $result->subtotal;
+    $currency = getCurrency($result->userid);
+
+    $subtotal = $result->subtotal + $lateFeeSubtotal;
     $credit = $result->credit;
-    $tax = ($result->tax + $result->tax2);
-    $total = ($result->total + $credit);
+    $tax = ($result->tax + $result->tax2 + $lateFeeTax + $lateFeeTax2);
+    $total = ($result->total + $credit + $lateFeeTotal);
+
     $reportdata["tablevalues"][] = [
-        "{$id}",
+        "{$result->id}",
         "{$client}",
         "{$date}",
         "{$datepaid}",
@@ -151,5 +220,5 @@ foreach ($results as $result) {
     ];
 }
 
-$data["footertext"]="This report excludes invoices that affect a clients credit balance "
-    . "since this income will be counted and reported when it is applied to invoices for products/services.";
+$data['footertext'] = 'This report excludes invoices that affect a clients credit balance '
+    . 'since this income will be counted and reported when it is applied to invoices for products/services.';

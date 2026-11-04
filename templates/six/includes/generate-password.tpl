@@ -10,16 +10,16 @@
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger hidden" id="generatePwLengthError">
-                        {$LANG.generatePassword.lengthValidationError}
+                        {lang key='generatePassword.lengthValidationErrorWithRange' minimum_length=$generatePasswordMinimumLength maximum_length=$generatePasswordMaximumLength}
                     </div>
                     <div class="form-group">
-                        <label for="generatePwLength" class="col-sm-4 control-label">{$LANG.generatePassword.pwLength}</label>
+                        <label for="inputGeneratePasswordLength" class="col-sm-4 control-label">{$LANG.generatePassword.pwLength}</label>
                         <div class="col-sm-8">
-                            <input type="number" min="8" max="64" value="12" step="1" class="form-control input-inline input-inline-100" id="inputGeneratePasswordLength">
+                            <input type="number" min="{$generatePasswordMinimumLength}" max="{$generatePasswordMaximumLength}" value="{$generatePasswordMinimumLength}" step="1" class="form-control input-inline input-inline-100" id="inputGeneratePasswordLength">
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="generatePwOutput" class="col-sm-4 control-label">{$LANG.generatePassword.generatedPw}</label>
+                        <label for="inputGeneratePasswordOutput" class="col-sm-4 control-label">{$LANG.generatePassword.generatedPw}</label>
                         <div class="col-sm-8">
                             <input type="text" class="form-control" id="inputGeneratePasswordOutput">
                         </div>

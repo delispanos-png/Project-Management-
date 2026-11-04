@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Copyright (c) 2007-2015 Yubico AB
  * All rights reserved.
@@ -31,6 +32,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 namespace Yubico\Auth;
 
 /**
@@ -494,7 +496,7 @@ class Otp
                                 base64_encode(
                                     hash_hmac(
                                         'sha1',
-                                        utf8_encode($check),
+                                        mb_convert_encoding($check, 'UTF-8', 'ISO-8859-1'),
                                         $this->key,
                                         true
                                     )

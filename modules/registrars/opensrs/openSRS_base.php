@@ -1,4 +1,5 @@
 <?php
+
 /* 
  **************************************************************************
  *
@@ -42,8 +43,8 @@ if (file_exists(dirname(__FILE__).'/Crypt/CBC.php')) {
 require_once 'OPS.php';
 require_once 'country_codes.php';
 
-class openSRS_base {
-
+class openSRS_base
+{
     var $USERNAME               = '';
     var $HRS_USERNAME           = '';
 
@@ -230,19 +231,17 @@ class openSRS_base {
     function __construct( $environment=NULL, $protocol=NULL, $regusername=NULL, $regprivatekey=NULL )
     {
         $this->crypt_type = strtoupper($this->crypt_type);
-        
+
         if ('SSL' == $this->crypt_type) {
             if (!function_exists('version_compare') || version_compare('4.3', phpversion(), '>=')) {  
                 $error_message = 'PHP version must be v4.3+ (current version is ' .
                     phpversion() . ') to use "SSL" encryption';
-                trigger_error ($error_message, E_USER_ERROR);
                 $this->_log('i', $error_message);
-                return false;
+                throw new RuntimeException($error_message);
             } elseif (!function_exists('openssl_open')) {
                 $error_message = 'PHP must be compiled using --with-openssl to use "SSL" encryption';
-                trigger_error ($error_message, E_USER_ERROR);
                 $this->_log('i', $error_message);
-                return false;
+                throw new RuntimeException($error_message);
             }
         }
 
@@ -257,12 +256,12 @@ class openSRS_base {
         if ($protocol) {
             $this->protocol = strtoupper($protocol);
         }
-        
+
         $this->_log('i', 'Environment: '.$this->environment );
         $this->_log('i', 'Protocol: '.$this->protocol );
 
         $this->_CBC = false;
-        
+
         $this->USERNAME = $regusername;     
         $this->PRIVATE_KEY = $regprivatekey;
 
@@ -627,7 +626,7 @@ class openSRS_base {
                 'is_success'    => false,
                 'error'         => 'Missing reseller username'
             );
-        } else if (!$private_key) {
+        } elseif (!$private_key) {
             return array(
                 'is_success'    => false,
                 'error'         => 'Missing private key'
@@ -642,7 +641,7 @@ class openSRS_base {
                 'is_success'    => false,
                 'error'         => $prompt['response_text']
             );
-        } else if ( !preg_match('/OpenSRS\sSERVER/', $prompt['attributes']['sender']) ||
+        } elseif ( !preg_match('/OpenSRS\sSERVER/', $prompt['attributes']['sender']) ||
             substr($prompt['attributes']['version'],0,3) != 'XML' ) {
             return array(
                 'is_success'    => false,
@@ -750,9 +749,9 @@ class openSRS_base {
             $code = 499;
             if (strstr($syntaxError, 'Top level domain in')) {
                 $code = 491;
-            } else if (strstr($syntaxError, 'Domain name exceeds maximum length')) {
+            } elseif (strstr($syntaxError, 'Domain name exceeds maximum length')) {
                 $code = 492;
-            } else if (strstr($syntaxError, 'Invalid domain format')) {
+            } elseif (strstr($syntaxError, 'Invalid domain format')) {
                 $code = 493;
             }
 # END of new error stuff
@@ -789,7 +788,7 @@ class openSRS_base {
             $lookupData['attributes']['domain'] = $local_domain;
 
             # send request to server
-    
+
             $this->send_data( $lookupData );
             $answer = $this->read_data( );
 
@@ -934,9 +933,9 @@ class openSRS_base {
 
         if (strlen($domain) > $maxLengthForThisCase) {
             return "Domain name exceeds maximum length for registry ($maxLengthForThisCase)";
-        } else if (!preg_match('/'.$OPENSRS_TLDS_REGEX.'$/', $domain)) {
+        } elseif (!preg_match('/'.$OPENSRS_TLDS_REGEX.'$/', $domain)) {
             return "Top level domain in \"$domain\" is unavailable";
-        } else if (!preg_match('/^[a-zA-Z0-9][.a-zA-Z0-9\-]*[a-zA-Z0-9]'.$this->OPENSRS_TLDS_REGEX.'$/', $domain)) {
+        } elseif (!preg_match('/^[a-zA-Z0-9][.a-zA-Z0-9\-]*[a-zA-Z0-9]'.$this->OPENSRS_TLDS_REGEX.'$/', $domain)) {
             return "Invalid domain format (try something similar to \"yourname.com\")";
         }
         return false;
@@ -953,7 +952,7 @@ class openSRS_base {
             foreach($data as $key=>$value) {
                 if (substr($key,0,2)=='p_') {
                     unset($data[$key]);
-                } else if (is_array($value)) {
+                } elseif (is_array($value)) {
                     $this->prune_private_keys($value);
                 }
             }
@@ -1050,15 +1049,15 @@ class openSRS_base {
             $header .= "Content-Length: " . $len . $this->CRLF . $this->CRLF;
             break;
         }
-    
+
         fputs($fh, $header);
 
         fputs($fh, $msg, $len );
-    
+
         if ('SSL' == $this->crypt_type) {
             $this->_OPS->_log('http', 'w', $header.$msg);
         }
-    
+
         $this->_OPS->_log('raw', 'w', $msg, $len);
     }
 
@@ -1112,7 +1111,7 @@ class openSRS_base {
             if ($this->_OPS->socketStatus($fh)) {
                 return false;
             }
-            
+
             if (preg_match('/^\s*Content-Length:\s+(\d+)\s*\r\n/i', $line, $matches ) ) {
                 $header['content-length'] = (int)$matches[1];
             } else {
@@ -1120,14 +1119,14 @@ class openSRS_base {
                 $this->_OPS->_log('raw', 'r', $line);
                 return false;
             }
-            
+
             /* read the empty line */
-            
+
             $line = fread($fh, 2);
             if ($this->_OPS->socketStatus($fh)) {
                 return false;
             }
-            
+
             if ($line!=$this->CRLF) {
                 $this->_OPS->_log('raw', 'e', 'UNEXPECTED READ: No CRLF');
                 $this->_OPS->_log('raw', 'r', $line);
@@ -1152,13 +1151,13 @@ class openSRS_base {
 
     function readData(&$fh, $timeout=5) {
         $len = 0;
-    
+
         /* PHP doesn't have timeout for fread ... we just set the timeout for the socket */
-    
+
         socket_set_timeout($fh, $timeout);
-    
+
         $header = $this->readHeader($fh, $timeout);
-    
+
         if (!$header || !isset($header['content-length']) || (empty($header['content-length']))) {
             $this->_OPS->_log('raw', 'e', 'UNEXPECTED ERROR: No Content-Length header provided!' );
         }
@@ -1172,7 +1171,7 @@ class openSRS_base {
                 return false;
             }
         }
-    
+
         if ($line) {
             $buf = $line;
             $this->_OPS->_log('raw', 'r', $line);
@@ -1181,7 +1180,7 @@ class openSRS_base {
             $this->_OPS->_log('raw', 'e', 'NEXT LINE SHORT READ (should be '.$len.')' );
             $this->_OPS->_log('raw', 'r', $line);
         }
-    
+
         if ('SSL' == $this->crypt_type) {
             $message = sprintf(
                 '%s%s',

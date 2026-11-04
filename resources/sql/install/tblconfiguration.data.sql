@@ -185,7 +185,7 @@ INSERT INTO `tblconfiguration` VALUES (1,'Language','english','0000-00-00 00:00:
 (180,'BannedSubdomainPrefixes','mail,mx,gapps,gmail,webmail,cpanel,whm,ftp,clients,billing,members,login,accounts,access','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (181,'FreeDomainAutoRenewRequiresProduct','on','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (182,'DomainToDoListEntries','on','0000-00-00 00:00:00','0000-00-00 00:00:00'),
-(183,'Version','9.0.9-release.1','0000-00-00 00:00:00','2021-01-07 10:30:00'),
+(183,'Version','9.1.0-release.1','0000-00-00 00:00:00','2021-01-07 10:30:00'),
 (184,'OrderDaysGrace','0','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (185,'OrderFormSidebarToggle','1','0000-00-00 00:00:00','0000-00-00 00:00:00'),
 (187,'UpdaterLatestVersion','7.5.1-release.1','2018-04-18 10:21:38','2018-04-18 10:21:38'),
@@ -261,11 +261,16 @@ INSERT INTO `tblconfiguration` VALUES (1,'Language','english','0000-00-00 00:00:
 (261,'TaxCustomBillingNoteNumberFormat', '{NUMBER}', '2025-09-01 00:00:00', '2025-09-01 00:00:00'),
 (262,'TaxAutoResetNumberingBillingNote', 'never', '2025-09-01 00:00:00', '2025-09-01 00:00:00'),
 (263,'TaxNextCustomBillingNoteNumber', '1', '2025-09-01 00:00:00', '2025-09-01 00:00:00'),
-(264,'TaxLastCustomBillingNoteNumberResetDate', '2025-09-01 00:00:00', '2025-09-01 00:00:00', '2025-09-01 00:00:00');
+(264,'TaxLastCustomBillingNoteNumberResetDate', '2025-09-01 00:00:00', '2025-09-01 00:00:00', '2025-09-01 00:00:00'),
+(265,'AutoUpdatePatchEnabled','','2025-10-10 00:00:00','2025-10-10 00:00:00'),
+(266,'AutoUpdatePatchSchedule','{"frequency":"","day":"","time":"","timezone":""}','2025-10-10 00:00:00','2025-10-10 00:00:00'),
+(267,'InvoiceImmutability','full','2025-10-10 00:00:00','2025-10-10 00:00:00'),
+(268,'PasswordMinimumLength','12','2026-09-09 00:00:00','2026-09-09 00:00:00'),
+(269,'PasswordHistoryDepth','4','2026-09-09 00:00:00','2026-09-09 00:00:00'),
+(270,'MarketConnectOnboardingRequired','1','2026-09-25 00:00:00','2026-09-25 00:00:00');
 /*!40000 ALTER TABLE `tblconfiguration` ENABLE KEYS */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
 /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-

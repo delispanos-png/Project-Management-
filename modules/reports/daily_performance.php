@@ -114,12 +114,12 @@ for ($day = 1; $day <= $dateFilter->endOfMonth()->day; $day++) {
     $daytext = $date->format('l');
     $date = $date->toDateString();
 
-    $neworders = isset($reportvalues['orders_active'][$day]) ? $reportvalues['orders_active'][$day] : '0';
-    $newinvoices = isset($reportvalues['invoices_new'][$day]) ? $reportvalues['invoices_new'][$day] : '0';
-    $paidinvoices = isset($reportvalues['invoices_paid'][$day]) ? $reportvalues['invoices_paid'][$day] : '0';
-    $newtickets = isset($reportvalues['tickets_new'][$day]) ? $reportvalues['tickets_new'][$day] : '0';
-    $ticketreplies = isset($reportvalues['tickets_staff_replies'][$day]) ? $reportvalues['tickets_staff_replies'][$day] : '0';
-    $cancellations = isset($reportvalues['cancellations_new'][$day]) ? $reportvalues['cancellations_new'][$day] : '0';
+    $neworders = $reportvalues['orders_active'][$day] ?? '0';
+    $newinvoices = $reportvalues['invoices_new'][$day] ?? '0';
+    $paidinvoices = $reportvalues['invoices_paid'][$day] ?? '0';
+    $newtickets = $reportvalues['tickets_new'][$day] ?? '0';
+    $ticketreplies = $reportvalues['tickets_staff_replies'][$day] ?? '0';
+    $cancellations = $reportvalues['cancellations_new'][$day] ?? '0';
 
     $reportdata["tablevalues"][] = array(
         $daytext.' '.fromMySQLDate($date),
