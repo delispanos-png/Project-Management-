@@ -3559,8 +3559,10 @@ R.projects = async function () {
           <a href="javascript:" data-ptask="${t.id}" style="flex:1;min-width:0;font-weight:600;${t.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.title)}</a>
           ${dp ? `<span class="pill pill-mut">${esc(dp.name)}</span>`
             : '<span class="pill pill-warn">χωρίς department</span>'}
-          <button type="button" class="pj-asg${t.assignee ? '' : ' none'}" data-pasg="${t.id}" title="${t.assignee ? 'Ανατέθηκε σε ' + esc(adminName(t.assignee)) + ' — κλικ για αλλαγή' : 'Χωρίς ανάθεση — κλικ για να αναθέσεις'}">
-            ${t.assignee ? `<span class="ava">${esc(adminIni(t.assignee))}</span> ${esc(adminName(t.assignee).split(' ')[0])}` : '👤 ανάθεση…'}</button>
+          ${/* (04/11/2026) ΧΡΕΩΝΕΤΑΙ στον κάτοχο: Μπάλα, αλλιώς Ανάθεση (cnpHolder) — όχι πάντα στον ανάδοχο.
+               Το ⚡ λέει ότι η μπάλα είναι σε άλλον από τον ανάδοχο· το κλικ αλλάζει την ανάθεση όπως πριν. */''}
+          <button type="button" class="pj-asg${cnpHolder(t) ? '' : ' none'}" data-pasg="${t.id}" title="${cnpHolder(t) ? (t.ball && t.ball !== t.assignee ? 'Μπάλα: ' + esc(adminName(t.ball)) + (t.assignee ? ' · Ανάθεση: ' + esc(adminName(t.assignee)) : '') : 'Ανατέθηκε σε ' + esc(adminName(cnpHolder(t)))) + ' — κλικ για αλλαγή ανάθεσης' : 'Χωρίς ανάθεση — κλικ για να αναθέσεις'}">
+            ${cnpHolder(t) ? `<span class="ava">${esc(adminIni(cnpHolder(t)))}</span> ${t.ball && t.ball !== t.assignee ? '⚡' : ''}${esc(adminName(cnpHolder(t)).split(' ')[0])}` : '👤 ανάθεση…'}</button>
           <span class="${t.due && t.due < today() && !t.done ? 'pill pill-bad' : 'mut'}" style="font-size:11px;white-space:nowrap">${t.due ? dShort(t.due) : '—'}</span>
         </div>`;
       };

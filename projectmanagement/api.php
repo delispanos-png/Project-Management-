@@ -17633,7 +17633,8 @@ case 'standup':                         // 🏃 Standup dashboard — απασχ
         $open = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $aid)->count();
         $overdue = cnp_scope_mine(Capsule::table('mod_cpm_tasks')->whereNotIn('status_id', $doneIds), $aid)
             ->whereNotNull('due_date')->where('due_date', '<', date('Y-m-d'))->count();
-        $dueP = Capsule::table('mod_cpm_tasks')->where('assignee', $aid)->whereNotIn('status_id', $doneIds)
+        /* (04/11/2026) και οι προθεσμίες της περιόδου χρεώνονται στον ΚΑΤΟΧΟ (μπάλα, αλλιώς ανάθεση). */
+        $dueP = cnp_scope_mine(Capsule::table('mod_cpm_tasks'), $aid)->whereNotIn('status_id', $doneIds)
             ->whereBetween('due_date', [$ps, $pe])->count();
         // on-time: ολοκληρωμένα με deadline μέσα στην περίοδο
         /* ball-rule: ok — πιστώνεται όποιος την έκλεισε (δες `perf`). */
@@ -17781,8 +17782,9 @@ case 'agenda':                          // 🗒 Ανοιχτά projects & ticket
         $todoTotal = Capsule::table('mod_cpm_project_todos')->where('project_id', $p->id)->count();
         $todoDone = Capsule::table('mod_cpm_project_todos')->where('project_id', $p->id)->whereNotNull('done_at')->count();
         $openTasks = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->whereNotIn('status_id', $doneIds)->count();
+        /* Υπεύθυνοι = όσοι ΚΡΑΤΟΥΝ ανοιχτές εργασίες (μπάλα, αλλιώς ανάθεση) — όχι μόνο οι ανάδοχοι. */
         $ownerIds = Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->whereNotIn('status_id', $doneIds)
-            ->whereNotNull('assignee')->distinct()->pluck('assignee')->all();
+            ->selectRaw('COALESCE(NULLIF(action_user, 0), assignee) AS h')->distinct()->pluck('h')->filter()->all();
         $owners = array_values(array_filter(array_map(function ($id) { return $id ? Db::adminName((int) $id) : null; }, $ownerIds)));
         $spentMins = (int) Capsule::table('mod_cpm_timelogs as tl')->join('mod_cpm_tasks as t', 't.id', '=', 'tl.task_id')
             ->where('t.project_id', $p->id)->where('tl.running', 0)->sum('tl.minutes');
