@@ -410,3 +410,41 @@ add_hook('ClientAreaPageViewQuote', 1, function ($vars) {
         'cloudonOfferCommentPost' => 'offer-comment.php',
     ];
 });
+
+/* ---- Ticket της AI ρεσεψιόν έκλεισε → κλείνει και η εργασία του (04/11/2026) ----
+   Τα tickets του τηλεφωνικού κέντρου (αποστολέας pbx-…@cloudon.gr, ή δεμένα σε κλήση στο
+   mod_cpm_ai_calls) γεννούν εργασία χωρίς ταυτοποιημένο πελάτη. Όταν ο χειριστής κλείσει το
+   ticket, η δουλειά τελείωσε — η εργασία έμενε ανοιχτή και φούσκωνε τις λίστες (#884893 → #863).
+   Μόνο για ΑΥΤΑ τα tickets: σε tickets πελατών η εργασία μπορεί να συνεχίζει (π.χ. τιμολόγηση). */
+function cnp_ai_ticket_close_task($ticketId, $status)
+{
+    try {
+        $ticketId = (int) $ticketId;
+        if ($ticketId <= 0 || strcasecmp((string) $status, 'Closed') !== 0 || !cloudonprojects_ready()) { return; }
+        $tk = Capsule::table('tbltickets')->where('id', $ticketId)->first(['tid', 'email']);
+        if (!$tk) { return; }
+        $isAi = preg_match('/^pbx-[a-z0-9.-]*@cloudon\.gr$/i', (string) $tk->email)
+            || Capsule::table('mod_cpm_ai_calls')->where('ticket_id', $ticketId)->exists();
+        if (!$isAi) { return; }
+        $done = Db::doneStatusId();
+        $closedIds = Db::statusIds(['done', 'cancel']);
+        $admin = (int) ($_SESSION['adminid'] ?? 0) ?: null;
+        foreach (Capsule::table('mod_cpm_tasks')->where('ticketid', $ticketId)->whereNull('completed_at')->get(['id', 'status_id']) as $t) {
+            if (in_array((int) $t->status_id, $closedIds, true)) { continue; }
+            /* Πρώτα τα χρονόμετρα που τρέχουν πάνω της — αλλιώς μετρούν σε κλειστή εργασία. */
+            foreach (Capsule::table('mod_cpm_timelogs')->where('task_id', $t->id)->where('running', 1)->pluck('id') as $lid) {
+                Db::stopTimer($lid);
+            }
+            Db::moveTask($t->id, $done, $admin, 'Έκλεισε αυτόματα: το ticket #' . $tk->tid . ' (AI ρεσεψιόν) έκλεισε.');
+            logActivity('CPM: εργασία #' . $t->id . ' έκλεισε μαζί με το ticket #' . $tk->tid . ' (AI ρεσεψιόν)');
+        }
+    } catch (\Throwable $e) {
+        if (function_exists('logActivity')) { logActivity('CPM: κλείσιμο εργασίας από ticket απέτυχε — ' . $e->getMessage()); }
+    }
+}
+add_hook('TicketStatusChange', 2, function ($vars) {
+    cnp_ai_ticket_close_task($vars['ticketid'] ?? 0, $vars['status'] ?? '');
+});
+add_hook('TicketClose', 2, function ($vars) {
+    cnp_ai_ticket_close_task($vars['ticketid'] ?? 0, 'Closed');
+});
