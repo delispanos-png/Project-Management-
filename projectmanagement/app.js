@@ -4139,6 +4139,7 @@ async function openTask(id, entryId, opts) {
      το save_task: λήξη = χειριστής + ανάδοχος + επιβλέπων· deadline = ανάδοχος + επιβλέπων. */
   const dueLock = d.canDue === undefined ? !!(dueHolder && dueHolder !== me.id) : !d.canDue;
   const schedLock = !!(t.sched && d.canDeadline === false);
+  /* ball-rule: ok — δικαίωμα αλλαγής deadline (ανάδοχος/επιβλέπων), όχι «ποιανού είναι». */
   const schedWho = [t.assignee ? adminName(t.assignee) + ' (ανάδοχος)' : '', creatorId ? adminName(creatorId) + ' (επιβλέπων)' : '']
     .filter(Boolean).join(' ή ') || 'ο διαχειριστής';
   const ovl = document.createElement('div'); ovl.className = 'ovl';   // κλικ έξω ΔΕΝ κλείνει
