@@ -7243,6 +7243,7 @@ case 'activity':
                 ->where('completed_at', '>=', $today0)->whereNotIn('status_id', Db::statusIds(['cancel']))->count(),
             'lastAt' => $lastAct ? $lastAct->created_at : null,
             'lastWhat' => $lastAct ? $lastAct->detail : null,
+            'lastTask' => $lastAct && $lastAct->task_id ? (int) $lastAct->task_id : 0,   // κλικ → η εργασία
         ];
     }
     /* Πρώτα όποιος δουλεύει τώρα, μετά οι συνδεδεμένοι, μετά οι υπόλοιποι. */

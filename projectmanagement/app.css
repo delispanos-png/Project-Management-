@@ -5502,3 +5502,9 @@ a.vf-v{font-family:inherit;color:var(--brand)}
 /* Μενού = σύνδεσμοι (δεξί κλικ → νέα καρτέλα): ίδια εμφάνιση με τα κουμπιά */
 a.sitem,a.tab{text-decoration:none;box-sizing:border-box}
 a.sitem:focus-visible,a.tab:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+
+/* Δραστηριότητα (04/11/2026): η εργασία είναι σύνδεσμος· το όνομα = φίλτρο ροής */
+.act-tk{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px;cursor:pointer}
+.act-tk:hover{color:var(--brand);text-decoration-color:var(--brand)}
+.act-nm{cursor:pointer}
+.act-nm:hover{color:var(--brand)}

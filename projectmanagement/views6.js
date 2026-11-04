@@ -489,7 +489,7 @@ R.activity = async function () {
       const lbl = (p.label || lbl0) + (p.manual ? ' (το δήλωσε)' : '');
       const doing = p.timer
         ? `<div class="act-doing"><span class="act-live"></span>${I.clock}
-             <b>${esc(p.timer.title || 'Εργασία')}</b>
+             <a class="act-tk" data-actk="${p.timer.task || 0}" title="Άνοιγμα εργασίας #${p.timer.task || ''}"><b>${esc(p.timer.title || 'Εργασία')}</b></a>
              ${p.timer.project ? `<span class="mut">· ${esc(p.timer.project)}</span>` : ''}
              <span class="act-min">${actHm(p.timer.mins)}</span></div>`
         : p.remote
@@ -500,14 +500,15 @@ R.activity = async function () {
         : p.status === 'online'
         ? `<div class="act-doing idle">${I.eye} Στην εφαρμογή, χωρίς χρονόμετρο</div>`
         : p.lastAt
-        ? `<div class="act-doing idle">${I.clock} Τελευταία κίνηση ${actAgo(p.lastAt)}${p.lastWhat ? ' · ' + esc(p.lastWhat) : ''}</div>`
+        ? `<div class="act-doing idle">${I.clock} Τελευταία κίνηση ${actAgo(p.lastAt)}${p.lastWhat
+            ? ' · ' + (p.lastTask ? `<a class="act-tk" data-actk="${p.lastTask}" title="Άνοιγμα εργασίας #${p.lastTask}">${esc(p.lastWhat)}</a>` : esc(p.lastWhat)) : ''}</div>`
         : '';
-      return `<div class="card act-p${p.timer || p.remote ? ' busy' : ''}" data-who="${p.id}"
+      return `<div class="card act-p${p.timer || p.remote ? ' busy' : ''}" data-who="${p.id}"${p.timer && p.timer.task ? ` data-run="${p.timer.task}" title="Κλικ: άνοιγμα της εργασίας που δουλεύει"` : ''}
         style="padding:12px 14px;margin-bottom:9px;cursor:pointer${st.who === p.id ? ';border-color:var(--brand)' : ''}">
         <div style="display:flex;gap:11px;align-items:center;flex-wrap:wrap">
           <span class="act-ava" style="--sc:${col}">${esc(p.ini || '?')}</span>
           <div style="flex:1;min-width:150px">
-            <div style="font-weight:650;font-size:13.5px">${esc(p.name)}
+            <div style="font-weight:650;font-size:13.5px"><span class="act-nm" title="Φίλτρο: η ροή μόνο αυτού του ατόμου">${esc(p.name)}</span>
               <span class="mut" style="font-weight:500;font-size:11.5px">· ${lbl}${p.reason ? ' — ' + esc(p.reason) : ''}</span></div>
             ${doing}
           </div>
@@ -575,7 +576,12 @@ R.activity = async function () {
       : `<div class="empty" style="padding:36px">${I.sparkle}Καμία κίνηση ${st.who ? 'από αυτό το άτομο ' : ''}στο διάστημα που διάλεξες</div>`}
 `;
 
-    $$('.act-p').forEach(el => el.onclick = () => {
+    /* (04/11/2026) Κλικ στην εργασία (ή στην κάρτα όσου δουλεύει) = ανοίγει την εργασία.
+       Κλικ στο ΟΝΟΜΑ (ή σε κάρτα χωρίς εργασία) = φίλτρο της ροής, όπως πριν. */
+    $$('.act-p').forEach(el => el.onclick = e => {
+      const tk = e.target.closest('[data-actk]');
+      if (tk && +tk.dataset.actk) { openTask(+tk.dataset.actk); return; }
+      if (!e.target.closest('.act-nm') && +el.dataset.run) { openTask(+el.dataset.run); return; }
       const id = +el.dataset.who;
       st.who = st.who === id ? 0 : id;
       paint(d);
