@@ -226,14 +226,23 @@ function cnp_asset_version()
 {
     static $v = null;
     if ($v !== null) { return $v; }
-    /* ΟΛΑ τα assets, όχι χειροκίνητη λίστα: το views8.js έλειπε, οπότε μια αλλαγή
-       μόνο εκεί ΔΕΝ άλλαζε την έκδοση — οι ανοιχτές καρτέλες έμεναν στο παλιό JS
-       χωρίς καν να το μάθουν. Το glob δεν ξεχνά αρχεία που θα προστεθούν αύριο. */
-    $max = 0;
-    foreach (array_merge(glob(__DIR__ . '/*.js') ?: [], glob(__DIR__ . '/*.css') ?: []) as $f) {
-        if (basename($f) === 'sw.js') { continue; }        // ο service worker έχει δικό του κύκλο
-        $m = @filemtime($f);
-        if ($m && $m > $max) { $max = $m; }
+    /* ΟΛΑ τα assets (glob), όχι χειροκίνητη λίστα — το views8.js κάποτε έλειπε.
+       Η ΕΚΔΟΣΗ = ΠΕΡΙΕΧΟΜΕΝΟ, ΟΧΙ ΩΡΑ (04/11/2026): με το filemtime, κάθε «άγγιγμα» αρχείου
+       χωρίς αλλαγή κώδικα (git checkout/merge, backup, αντιγραφή) έβγαζε «Νέα έκδοση» σε όλους.
+       Το hash του περιεχομένου υπολογίζεται ΜΟΝΟ όταν αλλάξουν οι ώρες (cache ανά ώρες) —
+       ο σφυγμός «version» τρέχει κάθε 12″ από κάθε χρήστη και δεν πρέπει να διαβάζει MB. */
+    $files = array_values(array_filter(array_merge(glob(__DIR__ . '/*.js') ?: [], glob(__DIR__ . '/*.css') ?: []),
+        function ($f) { return basename($f) !== 'sw.js'; }));   // ο service worker έχει δικό του κύκλο
+    sort($files);
+    $sig = '';
+    foreach ($files as $f) { $sig .= basename($f) . ':' . @filemtime($f) . ':' . @filesize($f) . ';'; }
+    $cache = sys_get_temp_dir() . '/cnp_build_' . md5(__DIR__ . '|' . $sig);
+    $h = @file_get_contents($cache);
+    if (!$h) {
+        $ctx = hash_init('sha1');
+        foreach ($files as $f) { hash_update($ctx, basename($f) . "\0"); @hash_update_file($ctx, $f); }
+        $h = substr(hash_final($ctx), 0, 12);
+        @file_put_contents($cache, $h);
     }
-    return $v = '1.0.' . $max;
+    return $v = '1.1.' . $h;
 }
