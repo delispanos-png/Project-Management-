@@ -3263,7 +3263,7 @@ function cnp_full_admin_ids()
     return array_values(array_unique($ids));
 }
 
-function cnp_notify_mentions($text, $taskId, $byAdminId, $where = '')
+function cnp_notify_mentions($text, $taskId, $byAdminId, $where = '', $oldText = '')
 {
     $plain = html_entity_decode(strip_tags((string) $text), ENT_QUOTES, 'UTF-8');
     if (strpos($plain, '@') === false) {
@@ -3280,19 +3280,28 @@ function cnp_notify_mentions($text, $taskId, $byAdminId, $where = '')
             $norm($a->username), $norm($a->firstname), $norm($a->lastname),
             $norm($a->firstname . ' ' . $a->lastname), $norm($a->firstname . $a->lastname)])))];
     }
-    preg_match_all('/@([\p{L}\p{N}_.\-]+(?:\s[\p{L}]+)?)/u', $plain, $m);
-    $hit = [];
-    foreach ($m[1] as $tok) {
-        $cands = [$norm($tok)];
-        if (strpos($tok, ' ') !== false) { $cands[] = $norm(explode(' ', $tok)[0]); }
-        foreach ($admins as $a) {
-            foreach ($cands as $c) {
-                if ($c === '' || mb_strlen($c) < 3) { continue; }
-                foreach ($a['keys'] as $k) {
-                    if ($k === $c || strpos($k, $c) === 0) { $hit[$a['id']] = true; continue 3; }
+    $find = function ($txt) use ($admins, $norm) {
+        preg_match_all('/@([\p{L}\p{N}_.\-]+(?:\s[\p{L}]+)?)/u', $txt, $m);
+        $found = [];
+        foreach ($m[1] as $tok) {
+            $cands = [$norm($tok)];
+            if (strpos($tok, ' ') !== false) { $cands[] = $norm(explode(' ', $tok)[0]); }
+            foreach ($admins as $a) {
+                foreach ($cands as $c) {
+                    if ($c === '' || mb_strlen($c) < 3) { continue; }
+                    foreach ($a['keys'] as $k) {
+                        if ($k === $c || strpos($k, $c) === 0) { $found[$a['id']] = true; continue 3; }
+                    }
                 }
             }
         }
+        return $found;
+    };
+    $hit = $find($plain);
+    /* (05/11/2026) ΜΟΝΟ ΟΣΟΙ ΠΡΟΣΤΕΘΗΚΑΝ ΤΩΡΑ: σε διόρθωση κειμένου, όποιος αναφερόταν ήδη στο
+       παλιό δεν ξαναειδοποιείται — αλλιώς κάθε αποθήκευση του ζητουμένου ξανάνοιγε την εκκρεμότητα. */
+    if ((string) $oldText !== '') {
+        foreach (array_keys($find(html_entity_decode(strip_tags((string) $oldText), ENT_QUOTES, 'UTF-8'))) as $oldId) { unset($hit[$oldId]); }
     }
     unset($hit[(int) $byAdminId]);
     if (!$hit) {
@@ -4188,6 +4197,39 @@ function cnp_task_locked($t)
  * χρονόμετρα, ειδοποιήσεις). Κοινή για move_task και task_reply (2/10/2026).
  * Σφάλματα/ερωτήματα (need) απαντώνται με out()/fail() όπως πριν.
  */
+/** Ποιος μετακινεί το deadline: κείμενο για μηνύματα. */
+function cnp_deadline_movers($t)
+{
+    $n = [];
+    if ((int) $t->assignee) { $n[] = 'ο ανάδοχος (' . Db::adminName((int) $t->assignee) . ')'; }
+    if ((int) $t->created_by) { $n[] = 'ο επιβλέπων (' . Db::adminName((int) $t->created_by) . ')'; }
+    return $n ? implode(' ή ', $n) : 'ο διαχειριστής';
+}
+
+/* ΕΠΙΚΥΡΩΣΗ ΗΜΕΡΟΜΗΝΙΩΝ — ΜΟΝΟ ΟΣΩΝ ΑΛΛΑΖΟΥΝ (05/11/2026). Ίδιος κανόνας για καρτέλα, Gantt και
+   παράδοση. Μια εργασία που ήδη είναι εκτός ορίων (παλιά, ή έμεινε έτσι) δεν κόβει άλλη αλλαγή:
+   αλλιώς άλλαζες προτεραιότητα και έπαιρνες λάθος για ημερομηνίες που δεν άγγιξες.
+   $new: όποια από start_date / due_date / schedule_date αλλάζουν. Το ΚΛΕΙΣΙΜΟ δεν περνά από εδώ:
+   εκεί η λήξη είναι «πότε τελείωσε πραγματικά» και μπορεί να είναι αληθινά μετά το deadline. */
+function cnp_dates_guard($t, array $new, $adminId, $FULL)
+{
+    $nz = function ($d) { return ($d && strpos((string) $d, '0000') !== 0) ? substr((string) $d, 0, 10) : null; };
+    $was = ['start_date' => $nz($t->start_date ?? null), 'due_date' => $nz($t->due_date ?? null), 'schedule_date' => $nz($t->schedule_date ?? null)];
+    $now = $was;
+    foreach (array_keys($was) as $k) { if (array_key_exists($k, $new)) { $now[$k] = $nz($new[$k]); } }
+    $chg = function ($k) use ($was, $now) { return $was[$k] !== $now[$k]; };
+    $vS = $now['start_date']; $vD = $now['due_date']; $vX = $now['schedule_date'];
+    if (($chg('start_date') || $chg('due_date')) && $vS && $vD && $vD < $vS) {
+        fail('Η λήξη (' . cnp_d($vD) . ') είναι πριν την έναρξη (' . cnp_d($vS) . ') — διόρθωσε τις ημερομηνίες');
+    }
+    if (($chg('due_date') || $chg('schedule_date')) && $vX && $vD && $vX < $vD) {
+        $boss = $FULL || ((int) $t->assignee && (int) $t->assignee === (int) $adminId) || ((int) $t->created_by && (int) $t->created_by === (int) $adminId);
+        fail('Η λήξη (' . cnp_d($vD) . ') πέφτει μετά το deadline (' . cnp_d($vX) . '). '
+           . ($boss ? 'Μετακίνησε το deadline ή φέρε τη λήξη νωρίτερα.'
+                    : 'Το deadline το μετακινεί μόνο ' . cnp_deadline_movers($t) . ' — ζήτα το από αυτόν/ή.'));
+    }
+}
+
 function cnp_move_task_run(array $in, $adminId, $FULL)
 {
     $t = Db::task((int) ($in['task'] ?? 0));
@@ -4199,14 +4241,17 @@ function cnp_move_task_run(array $in, $adminId, $FULL)
     }
     $stChk = Db::status((int) ($in['status'] ?? 0));
     if (!$stChk) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα και δοκίμασε ξανά'); }
-    if ($stChk && $stChk->is_done) { cnp_close_guard($t, $adminId); }
+    /* (05/11/2026) ΜΟΝΟ η φάση done: το «Ακυρωμένο» δεν παραδίδει τίποτα. Με is_done, εργασία που
+       μπλοκάρεται (εξάρτηση, παράδοση, χρέωση) δεν ακυρωνόταν καν, και ζητούσε ημερομηνία λήξης. */
+    $closingDone = $stChk && ($stChk->phase ?? '') === 'done';
+    if ($closingDone) { cnp_close_guard($t, $adminId); }
     /* ── Κλείσιμο: χωρίς ΛΗΞΗ (ημερομηνία ΚΑΙ ώρα) δεν κλείνει ─────────────
        Η Λήξη είναι η απάντηση στο «πότε τελείωσε πραγματικά» — και τη δίνει ο
        χειριστής, όχι αυτός που άνοιξε την εργασία. Αν την αφήσουμε κενή τη
        στιγμή του κλεισίματος, δεν ξαναμπαίνει ποτέ: η εργασία φεύγει από τις
        οθόνες και η πληροφορία χάνεται. Η ώρα μετράει το ίδιο με την ημέρα —
        χωρίς αυτήν δεν ξέρουμε αν παραδόθηκε το πρωί ή στις έντεκα το βράδυ. */
-    if ($stChk && $stChk->is_done) {
+    if ($closingDone) {
         $dD = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
         $dT = preg_match('/^\d{2}:\d{2}$/', (string) ($in['dueT'] ?? '')) ? $in['dueT'] : null;
         $curD = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
@@ -4296,8 +4341,7 @@ function cnp_move_task_run(array $in, $adminId, $FULL)
         }
     }
     if ($ok && !$FULL) {
-        $st = Db::status((int) $in['status']);
-        if ($st && $st->is_done) {
+        if ($closingDone) {
             Notify::workDone($adminId, $t->title, '/project/#/task/' . (int) $t->id, (int) $t->id);
         }
     }
@@ -8902,7 +8946,8 @@ case 'pbx_rate_del':
 case 'quick_task':
     $pid = (int) ($in['project'] ?? 0);
     $qdept = (int) ($in['dept'] ?? 0);
-    $titleRaw = trim($in['title'] ?? '');
+    /* utf8mb3: τα 4-byte emoji θα γίνονταν «????» — κόβονται πριν την αποθήκευση (05/11/2026) */
+    $titleRaw = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['title'] ?? '')));
     if (mb_strlen($titleRaw) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($titleRaw) . ' χαρακτήρες — μέγιστο 200. Βάλε τα υπόλοιπα στο ζητούμενο.'); }
     $title = $titleRaw;
     /* Χωρίς έργο επιτρέπεται — αρκεί να δηλωθεί department, ώστε να μη μείνει
@@ -9300,7 +9345,11 @@ case 'save_task':
     cnp_task_lock_guard($t);
     $data = [];
     if (array_key_exists('title', $in)) {
-        $data['title'] = mb_substr(trim((string) $in['title']), 0, 200);
+        /* (05/11/2026) Όπως το quick_task: όχι σιωπηλό κόψιμο, και χωρίς 4-byte emoji (utf8mb3 → «????»). */
+        $titleN = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $in['title']));
+        if ($titleN === '') { fail('Ο τίτλος δεν μπορεί να μείνει κενός'); }
+        if (mb_strlen($titleN) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($titleN) . ' χαρακτήρες — μέγιστο 200. Βάλε τα υπόλοιπα στο ζητούμενο.'); }
+        $data['title'] = $titleN;
     }
     if (array_key_exists('descr', $in)) {
         /* Το «ζητούμενο» το ορίζει ΜΟΝΟ ο δημιουργός της εργασίας (ή Full admin).
@@ -9309,7 +9358,6 @@ case 'save_task':
             fail('Το ζητούμενο το αλλάζει μόνο ο δημιουργός της εργασίας', 403);
         }
         $data['descr'] = cnp_clean_html($in['descr'], 60000);   // rich-text πεδίο → allowlist tags
-        cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο');   // @Όνομα → «πρόσεξέ με»
     }
     if (array_key_exists('internal', $in)) { $data['internal'] = !empty($in['internal']) ? 1 : 0; }
     if (array_key_exists('offer_ref', $in)) {
@@ -9379,12 +9427,7 @@ case 'save_task':
     $isAssigneeT = (int) $t->assignee && (int) $t->assignee === $adminId;
     $isSupT = (int) $t->created_by && (int) $t->created_by === $adminId;
     $dateBossT = $FULL || $isAssigneeT || $isSupT;
-    $whoMoves = function () use ($t) {
-        $n = [];
-        if ((int) $t->assignee) { $n[] = 'ο ανάδοχος (' . Db::adminName((int) $t->assignee) . ')'; }
-        if ((int) $t->created_by) { $n[] = 'ο επιβλέπων (' . Db::adminName((int) $t->created_by) . ')'; }
-        return $n ? implode(' ή ', $n) : 'ο διαχειριστής';
-    };
+    $whoMoves = function () use ($t) { return cnp_deadline_movers($t); };
     if ($holderT && $holderT !== $adminId && !$dateBossT) {
         $curDd = ($t->due_date && strpos((string) $t->due_date, '0000') !== 0) ? (string) $t->due_date : null;
         $curDt = $t->due_time ? substr((string) $t->due_time, 0, 5) : null;
@@ -9520,15 +9563,7 @@ case 'save_task':
         $data['priority'] = min(4, max(-2, (int) $in['prio']));
     }
     /* ── Επικυρώσεις (QA 18/9/2026) — ελέγχονται πάνω στις ΤΕΛΙΚΕΣ τιμές (νέες ή υπάρχουσες) ── */
-    $eff = function ($k, $col) use ($data, $t) { return array_key_exists($k, $data) ? $data[$k] : ($t->$col ?? null); };
-    $vS = $eff('start_date', 'start_date'); $vD = $eff('due_date', 'due_date'); $vX = $eff('schedule_date', 'schedule_date');
-    $ok = function ($d) { return $d && strpos((string) $d, '0000') !== 0; };
-    if ($ok($vS) && $ok($vD) && strtotime($vD) < strtotime($vS)) { fail('Η λήξη (' . cnp_d($vD) . ') είναι πριν την έναρξη (' . cnp_d($vS) . ') — διόρθωσε τις ημερομηνίες'); }
-    if ($ok($vX) && $ok($vD) && strtotime($vX) < strtotime($vD)) {
-        fail('Η λήξη (' . cnp_d($vD) . ') πέφτει μετά το deadline (' . cnp_d($vX) . '). '
-           . ($dateBossT ? 'Μετακίνησε το deadline ή φέρε τη λήξη νωρίτερα.'
-                         : 'Το deadline το μετακινεί μόνο ' . $whoMoves() . ' — ζήτα το από αυτόν/ή.'));
-    }
+    cnp_dates_guard($t, $data, $adminId, $FULL);   // (05/11/2026) μόνο όσες αλλάζουν
     foreach (['assignee' => 'Ανάθεση', 'action_user' => 'Μπάλα'] as $colA => $lblA) {
         if (array_key_exists($colA, $data) && $data[$colA]) {
             if (!Capsule::table('tbladmins')->where('id', (int) $data[$colA])->where('disabled', 0)->exists()) { fail($lblA . ': ο χειριστής δεν υπάρχει ή είναι απενεργοποιημένος'); }
@@ -9542,7 +9577,9 @@ case 'save_task':
     Db::saveTask($tid, $data, $adminId);
     Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
     Inbox::fromSave($t, $data, $adminId);   // το «Επεξεργασία» δεν λέει τι — εδώ ξέρουμε ακριβώς
-    out(['ok' => true, 'ballStopped' => $ballStopped]);
+    /* @Όνομα → «πρόσεξέ με»: ΜΕΤΑ την επικύρωση, και μόνο όσοι μπήκαν τώρα στο κείμενο (05/11/2026). */
+    if (array_key_exists('descr', $data)) { cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο', (string) ($t->descr ?? '')); }
+    out(['ok' => true, 'ballStopped' => $ballStopped, 'title' => $data['title'] ?? null]);
 
 case 'comment':
     $tid = (int) ($in['task'] ?? 0);
@@ -9733,7 +9770,7 @@ case 'time_bill':                        // διόρθωση «χρεώσιμο/
 
 case 'time_add':
     $tid = (int) ($in['task'] ?? 0);
-    $mins = (int) ($in['mins'] ?? 0);
+    $mins = (int) round((float) ($in['mins'] ?? 0));   // (05/11/2026) στρογγύλεμα, ίδιο με την οθόνη· πριν 1,5 → 1 ενώ έλεγε «1,5»
     $t = Db::task($tid);
     if (!$t || !Db::canSeeTask($adminId, $t) || $mins <= 0) {
         fail('input');
@@ -9750,7 +9787,7 @@ case 'time_add':
     $eid = Db::addTime($tid, $adminId, $mins, $billAdd, trim($in['note'] ?? ''));
     Time::push($eid);
     if ($billAdd) { cnp_billing_reopen(Db::task($tid), $adminId); }
-    out(['ok' => true, 'billBlocked' => !empty($in['billable']) && !$billAdd]);
+    out(['ok' => true, 'mins' => $mins, 'billBlocked' => !empty($in['billable']) && !$billAdd]);
 
 case 'check_add':
     unset($in['_skipLock']);   // εσωτερική σημαία του task_reply — ποτέ από τον πελάτη
@@ -9776,12 +9813,15 @@ case 'check_edit':                       // διόρθωση βήματος (τ�
     cnp_task_lock_guard($t);
     $isHtml2 = !empty($in['html']);
     $isCode2 = cnp_looks_like_code($title);
+    /* (05/11/2026) Ο καθαρισμός ακολουθεί την ΤΕΛΙΚΗ μορφή: γραμμή fmt='html' που ερχόταν με html:false
+       αποθηκευόταν ακατέργαστη και μετά ζωγραφιζόταν ως HTML. */
+    $fmt2 = ($isCode2 || $isHtml2) ? 'html' : ($ci->fmt ?? null);
     Capsule::table('mod_cpm_checklist')->where('id', (int) $ci->id)->update([
-        'title' => $isCode2 ? cnp_code_block($title, 60000) : ($isHtml2 ? cnp_clean_html($title, 400000) : mb_substr($title, 0, 60000)),
-        'fmt' => ($isCode2 || $isHtml2) ? 'html' : ($ci->fmt ?? null),
+        'title' => $isCode2 ? cnp_code_block($title, 60000) : ($fmt2 === 'html' ? cnp_clean_html($title, 400000) : mb_substr($title, 0, 60000)),
+        'fmt' => $fmt2,
     ]);
-    /* Οι αναφορές @Όνομα μπορεί να μπήκαν στη ΔΙΟΡΘΩΣΗ, όχι στην αρχική γραφή. */
-    cnp_notify_mentions($title, (int) $ci->task_id, $adminId, 'ενέργεια');
+    /* Οι αναφορές @Όνομα μπορεί να μπήκαν στη ΔΙΟΡΘΩΣΗ, όχι στην αρχική γραφή — μόνο οι νέες (05/11/2026). */
+    cnp_notify_mentions($title, (int) $ci->task_id, $adminId, 'ενέργεια', (string) $ci->title);
     out(['ok' => true]);
 
 case 'check_del':
@@ -13413,6 +13453,28 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
     $nextH = trim((string) ($in['next'] ?? ''));
     if ($nextH === '') { fail('Γράψε τι πρέπει να κάνει — αλλιώς η παράδοση είναι απλώς μετακύλιση'); }
 
+    /* ΠΡΩΤΑ ΟΙ ΕΛΕΓΧΟΙ, ΜΕΤΑ ΟΙ ΕΓΓΡΑΦΕΣ (05/11/2026): τα δύο βήματα γράφονταν πριν το need:'dates',
+       οπότε κάθε ξαναδοκιμή διπλασίαζε τα posts της παράδοσης.
+       Ίδιος κανόνας και στην παράδοση: αν περνά και η ανάθεση σε agent,
+       χρειάζεται χρόνος υλοποίησης — αλλιώς η σκυτάλη πάει στο κενό. */
+    $startH = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['start'] ?? '')) ? $in['start'] : null;
+    $dueH = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
+    if (!empty($in['move']) && cnp_assignee_needs_dates($toH, $adminId)) {
+        $startChk = $startH ?: ($t->start_date ?: null);
+        $dueChk = $dueH ?: ($t->due_date ?: null);
+        if (!$startChk || !$dueChk) {
+            http_response_code(409);
+            out(['error' => 'Για να περάσει η ανάθεση στον/στην ' . Db::adminName($toH)
+                    . ' χρειάζεται έναρξη και λήξη.',
+                'need' => 'dates', 'task' => (int) $t->id, 'assignee' => $toH,
+                'start' => $startChk, 'due' => $dueChk]);
+        }
+    }
+    $datesH = [];
+    if ($startH) { $datesH['start_date'] = $startH; }
+    if ($dueH) { $datesH['due_date'] = $dueH; }
+    cnp_dates_guard($t, $datesH, $adminId, $FULL);
+
     /* Η παράδοση είναι ΔΥΟ πράγματα μαζί: κλείνει το δικό μου κομμάτι και
        ανοίγει το δικό του. Αν γραφόταν μόνο η ανάθεση, θα χανόταν το «τι έγινε
        ως εδώ» — που είναι ακριβώς αυτό που χρειάζεται ο επόμενος. */
@@ -13423,25 +13485,16 @@ case 'task_handoff':                     // Παράδοση σκυτάλης σ
     }
     Db::addCheckItem((int) $t->id, mb_substr($nextH, 0, 500), $adminId);
 
-    /* Ίδιος κανόνας και στην παράδοση: αν περνά και η ανάθεση σε agent,
-       χρειάζεται χρόνος υλοποίησης — αλλιώς η σκυτάλη πάει στο κενό. */
-    if (!empty($in['move']) && cnp_assignee_needs_dates($toH, $adminId)) {
-        $dueChk = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : ($t->due_date ?: null);
-        if (!$t->start_date || !$dueChk) {
-            http_response_code(409);
-            out(['error' => 'Για να περάσει η ανάθεση στον/στην ' . Db::adminName($toH)
-                    . ' χρειάζεται έναρξη και λήξη.',
-                'need' => 'dates', 'task' => (int) $t->id, 'assignee' => $toH,
-                'start' => $t->start_date ?: null, 'due' => $dueChk]);
-        }
-    }
-
     $upd = ['action_user' => $toH];
     /* Η ανάθεση ακολουθεί τη σκυτάλη: αλλιώς ο φόρτος θα έδειχνε την εργασία
        ακόμη σε μένα ενώ τη δουλεύει άλλος. */
     if (!empty($in['move'])) { $upd['assignee'] = $toH; }
-    $dueH = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($in['due'] ?? '')) ? $in['due'] : null;
     if ($dueH) { $upd['due_date'] = $dueH; }
+    /* Έναρξη/ώρες από τον διάλογο «χρόνος υλοποίησης» (05/11/2026). */
+    if ($startH) { $upd['start_date'] = $startH; }
+    foreach (['start_time' => 'startT', 'due_time' => 'dueT'] as $colH => $kH) {
+        if (preg_match('/^\d{2}:\d{2}$/', (string) ($in[$kH] ?? ''))) { $upd[$colH] = $in[$kH] . ':00'; }
+    }
     Capsule::table('mod_cpm_tasks')->where('id', $t->id)->update($upd);
     Inbox::event((int) $t->id, $adminId, 'ball', '', $nextH);   // η σκυτάλη ΚΑΙ το «τι πρέπει να κάνεις»
 
@@ -16504,6 +16557,7 @@ case 'gantt_move':
     if (!$st6 || !$en6 || $en6 < $st6) {
         fail('dates');
     }
+    cnp_dates_guard($t6, ['start_date' => $st6, 'due_date' => $en6], $adminId, $FULL);   // ίδιος κανόνας με την καρτέλα (05/11/2026)
     Db::saveTask($t6->id, ['start_date' => $st6, 'due_date' => $en6], $adminId);
     Db::logActivity($t6->id, $adminId, 'edit', 'Gantt: ' . $st6 . ' → ' . $en6);
     out(['ok' => true]);
