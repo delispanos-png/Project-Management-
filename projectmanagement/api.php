@@ -4840,6 +4840,9 @@ function cnp_action_cap($action)
 
         /* ── ΥΠΟΣΤΗΡΙΞΗ ── */
         $add('support.tickets', ['tickets', 'ticket', 'ticket_att']);
+        /* (05/11/2026) Ήταν ανοιχτά σε όλους, ενώ σερβίρουν δεδομένα tickets. Το ksearch δείχνει tickets μόνο με support.tickets. */
+        $add('support.tickets', ['ai_suggest', 'ai_summary', 'mynext']);
+        $add('support.kb|support.tickets', ['ksearch']);
         $add('support.tickets.edit', ['ticket_reply', 'ticket_note', 'ticket_refer', 'ticket_classify',
             'classify_suggest', 'ticket_update']);
         $add('support.kb', ['kb_list', 'kb_get', 'kb_match', 'kb_draft', 'kb_bulk']);
@@ -4964,7 +4967,7 @@ function cnp_open_actions()
         'boot', 'version', 'presence_sweep', 'topstats', 'notifs', 'notif_read', 'push_pubkey', 'push_subscribe',
         // καταγραφή σφάλματος οθόνης στο error_log — αφορά τον ίδιο τον χρήστη, δεν γράφει στη βάση
         'client_err',
-        'push_unsubscribe', 'push_latest', 'ksearch', 'search', 'mynext',
+        'push_unsubscribe', 'push_latest', 'search',
         // Η μέρα μου / πλάνο / χρόνος μου
         'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
         'todo_toggle', 'todo_del', 'todo_clear_done', 'todo_seed', 'worknote_save', 'time',
@@ -5025,7 +5028,7 @@ function cnp_open_actions()
         'file_presign_put', 'file_confirm', 'file_upload', 'file_list', 'file_get',
         'file_delete',
         // βοηθήματα AI / έτοιμες απαντήσεις (χωρίς δεδομένα κυκλώματος)
-        'ai_proofread', 'ai_suggest', 'ai_summary',
+        'ai_proofread',
         // header chip remote (δικιά μου ενεργή συνεδρία)
         'remote_active',
     ];
@@ -5420,7 +5423,8 @@ case 'depts_load':                        // φορτίο ανά department
     /* Εργασίες χωρίς department — δεν τις χρεώνεται κανείς. */
     $orphan = (int) Capsule::table('mod_cpm_tasks')->whereNull('dept_id')
         ->whereNotIn('status_id', $doneU)->count();
-    out(['depts' => $list, 'orphan' => $orphan, 'canManage' => $FULL]);
+    /* (05/11/2026) Το κουμπί οδηγεί στη διαχείριση departments: ίδιο δικαίωμα με το wh_dept_save, όχι $FULL. */
+    out(['depts' => $list, 'orphan' => $orphan, 'canManage' => cnp_has_cap($adminId, $FULL, 'admin.wh.edit')]);
 
 case 'dept_view':                         // ένα department: τι χρωστάει, ανά πελάτη/έργο
     $did = (int) ($_GET['id'] ?? 0);
@@ -13170,7 +13174,9 @@ case 'teams':
         'depts' => array_map(function ($d) {
             return ['id' => $d['id'], 'name' => $d['name'], 'color' => $d['color']];
         }, cnp_depts()),
-        'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))), 'canManage' => $FULL]);
+        'roles' => array_values(array_filter(array_map('trim', explode(',', $rolesCfg)))),
+        /* (05/11/2026) Τα κουμπιά ακολουθούν τα δικαιώματα των ενεργειών — με $FULL το admin.teams.edit ήταν νεκρό. */
+        'canManage' => cnp_has_cap($adminId, $FULL, 'admin.teams.edit'), 'canDelete' => cnp_has_cap($adminId, $FULL, 'admin.teams.delete')]);
 
 case 'preset_save':                      // πρότυπο δικαιωμάτων (γεμίζει τα κουτάκια μιας ομάδας)
     $pid9 = (int) ($in['id'] ?? 0);
@@ -14499,7 +14505,8 @@ case 'ksearch':                         // «το έχω ξαναλύσει;» �
         }
     }
     usort($tHits, function ($a, $b) { return $b['score'] <=> $a['score']; });
-    out(['kb' => array_slice($kbHits, 0, 10), 'tickets' => array_slice($tHits, 0, 15)]);
+    /* Όποιος έχει μόνο τη Βάση γνώσης παίρνει τα άρθρα, όχι το ιστορικό tickets (05/11/2026). */
+    out(['kb' => array_slice($kbHits, 0, 10), 'tickets' => cnp_has_cap($adminId, $FULL, 'support.tickets') ? array_slice($tHits, 0, 15) : []]);
 
 case 'kb_draft':                        // AI προσχέδιο KB από κλεισμένο ticket
     $tid3 = (int) ($in['ticket'] ?? 0);
@@ -15437,6 +15444,8 @@ case 'addon_access_grant':               // δώσε στον ρόλο πρόσ�
     out(['ok' => true, 'roles' => $cur9, 'granted' => $did9]);
 
 case 'user_areas_save':                 // προσωπική εξαίρεση: ενότητες εκτός ομάδας
+    /* (05/11/2026) Έδινε ΟΠΟΙΟΔΗΠΟΤΕ δικαίωμα σε οποιονδήποτε, και στον εαυτό του, με σκέτο admin.teams.edit. */
+    if (!$FULL) { fail('Προσωπικά δικαιώματα αλλάζει μόνο διαχειριστής', 403); }
     $uid7 = (int) ($in['id'] ?? 0);
     if (!$uid7 || !Capsule::table('tbladmins')->where('id', $uid7)->exists()) { fail('user'); }
     $areas7 = cnp_perm_clean((array) ($in['areas'] ?? []));
@@ -15923,6 +15932,13 @@ case 'settings_get':
 
 case 'settings_save':
     $allowed = cnp_settings_keys();
+    /* (05/11/2026) Ρόλος σε αυτή τη λίστα = Full: με σκέτο admin.settings.edit κάποιος γινόταν διαχειριστής.
+       Η οθόνη στέλνει όλα τα πεδία, οπότε μόνο η ΑΛΛΑΓΗ κόβεται — η υπόλοιπη αποθήκευση περνά. */
+    if (!$FULL && array_key_exists('full_access_roles', (array) ($in['settings'] ?? []))) {
+        $farOld = (string) Capsule::table('tbladdonmodules')->where('module', 'cloudonprojects')->where('setting', 'full_access_roles')->value('value');
+        if (trim((string) $in['settings']['full_access_roles']) !== trim($farOld)) { fail('Τους ρόλους πλήρους πρόσβασης αλλάζει μόνο διαχειριστής', 403); }
+        unset($in['settings']['full_access_roles']);
+    }
     foreach ((array) ($in['settings'] ?? []) as $k => $v) {
         if (!in_array($k, $allowed, true)) {
             continue;

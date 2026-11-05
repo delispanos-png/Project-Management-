@@ -2977,7 +2977,7 @@ function openTeam(t, d) {
       <div class="mut" style="font-size:11px;margin-top:8px" id="tmAreaHint"></div>
       <div style="margin-top:14px;display:flex;gap:9px;align-items:center">
         <button class="btn btn-p" id="tmSave">Αποθήκευση</button>
-        <button class="btn btn-o" id="tmDel" style="color:var(--bad);margin-left:auto">${I.trash} Διαγραφή ομάδας</button></div>
+        <button class="btn btn-o" id="tmDel" style="color:var(--bad);margin-left:auto${d.canDelete ? '' : ';display:none'}">${I.trash} Διαγραφή ομάδας</button></div>
     </div></div>
 
     <div class="card"><div class="card-h">${I.users} Μέλη <span class="kb-n" style="margin-left:auto">${t.members.length}</span></div>
