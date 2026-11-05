@@ -2813,6 +2813,94 @@ function cnp_task_delete_right($t, $adminId, $isFull)
 }
 
 /**
+ * ΕΝΑΣ ΚΑΘΑΡΙΣΜΟΣ ΕΡΓΑΣΙΑΣ (05/11/2026) — κοινός για task_delete, ticket_delete, project_delete.
+ * Πριν υπήρχαν τρία αντίγραφα που είχαν αποκλίνει: το project_delete άφηνε help, inbox, υπενθυμίσεις,
+ * τιμές πεδίων, επικοινωνίες, αντιδράσεις, γραμμές GoodDay, αρχεία και δεσμούς από άλλα έργα.
+ *
+ * Σειρά: οι εγγραφές μέσα σε transaction (όλα ή τίποτα) και ΜΕΤΑ το commit τα αρχεία — το blob στο S3
+ * δεν γυρίζει πίσω με rollback, ενώ ένα αρχείο που έμεινε απλώς πιάνει χώρο.
+ * Το mod_cpm_files είναι το παλιό μητρώο: κενό και τα ids του ΔΕΝ είναι ids του Storage.
+ * Τα ref_type='rte' (εικόνες μέσα στο κείμενο) έχουν ref_id 0 — δεν ξέρουν σε ποια εργασία ανήκουν.
+ */
+function cnp_task_storage_ids(array $tIds)
+{
+    if (!$tIds) { return []; }
+    $ck = Capsule::table('mod_cpm_checklist')->whereIn('task_id', $tIds)->pluck('id')->all();
+    $cm = Capsule::table('mod_cpm_comments')->whereIn('task_id', $tIds)->pluck('id')->all();
+    $gd = [];
+    if (Capsule::schema()->hasTable('mod_cpm_ext_imports')) {
+        $imp = Capsule::table('mod_cpm_ext_imports')->whereIn('task_id', $tIds)->pluck('id')->all();
+        if ($imp) { $gd = Capsule::table('mod_cpm_ext_msgs')->whereIn('import_id', $imp)->pluck('id')->all(); }
+    }
+    /* Συνημμένα ενεργειών: πριν τις 17/9/2026 11:44 το ref_id ήταν ΕΡΓΑΣΙΑ, μετά ΕΝΕΡΓΕΙΑ. Οι αριθμοί
+       συμπίπτουν, άρα χωρίς την ημερομηνία θα έσβηνε ξένο αρχείο (ίδιος κανόνας με cnp_file_obj_ok). */
+    $cut = '2026-09-17 11:44:10';
+    return Capsule::table('mod_cpm_storage')->where('module', 'task')->where(function ($w) use ($tIds, $ck, $cm, $gd, $cut) {
+        $w->where(function ($x) use ($tIds) { $x->where('ref_type', 'task')->whereIn('ref_id', $tIds); });
+        $w->orWhere(function ($x) use ($tIds, $cut) { $x->where('ref_type', 'check')->whereIn('ref_id', $tIds)->where('created_at', '<', $cut); });
+        if ($ck) {
+            $w->orWhere(function ($x) use ($ck, $cut) {
+                $x->where('ref_type', 'check')->whereIn('ref_id', $ck)
+                  ->where(function ($y) use ($cut) { $y->whereNull('created_at')->orWhere('created_at', '>=', $cut); });
+            });
+        }
+        if ($cm) { $w->orWhere(function ($x) use ($cm) { $x->where('ref_type', 'comment')->whereIn('ref_id', $cm); }); }
+        if ($gd) { $w->orWhere(function ($x) use ($gd) { $x->where('ref_type', 'gdmsg')->whereIn('ref_id', $gd); }); }
+    })->pluck('id')->all();
+}
+
+/** Οι εγγραφές μιας ή πολλών εργασιών. Μέσα σε transaction· τα αρχεία τα σβήνει το cnp_task_purge. */
+function cnp_task_purge_rows(array $tIds)
+{
+    if (!$tIds) { return; }
+    if (Capsule::schema()->hasTable('mod_cpm_check_react')) {
+        $ckR = Capsule::table('mod_cpm_checklist')->whereIn('task_id', $tIds)->pluck('id')->all();
+        if ($ckR) { Capsule::table('mod_cpm_check_react')->whereIn('check_id', $ckR)->delete(); }
+    }
+    $hlp = Capsule::table('mod_cpm_help')->whereIn('task_id', $tIds)->pluck('id')->all();
+    if ($hlp && Capsule::schema()->hasTable('mod_cpm_help_msgs')) { Capsule::table('mod_cpm_help_msgs')->whereIn('help_id', $hlp)->delete(); }
+    foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
+                 'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_inbox', 'mod_cpm_interactions',
+                 'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers', 'mod_cpm_task_collabs'] as $tb) {
+        if (Capsule::schema()->hasTable($tb)) { Capsule::table($tb)->whereIn('task_id', $tIds)->delete(); }
+    }
+    /* Εξαρτήσεις προς την εργασία — αλλιώς άλλες εργασίες (και άλλων έργων) μένουν μπλοκαρισμένες από κάτι που δεν υπάρχει. */
+    Capsule::table('mod_cpm_deps')->whereIn('depends_on', $tIds)->delete();
+    /* Οι κλήσεις και τα παράπονα είναι πραγματικά γεγονότα: μένουν, απλώς ξεκολλάνε. */
+    foreach (['mod_cpm_calls', 'mod_cpm_complaints'] as $tb) {
+        if (Capsule::schema()->hasTable($tb)) { Capsule::table($tb)->whereIn('task_id', $tIds)->update(['task_id' => null]); }
+    }
+    /* Ανοιχτή κάρτα διαχείρισης για εργασία που δεν υπάρχει = απόφαση χωρίς αντικείμενο. Οι κλειστές μένουν ως ιστορικό. */
+    Capsule::table('mod_cpm_cards')->where('ref_type', 'task')->whereIn('ref_id', $tIds)->whereIn('state', ['open', 'snoozed'])->delete();
+    Capsule::table('mod_cpm_deadline_alerts')->where('kind', 'task')->whereIn('ref_id', $tIds)->delete();
+    /* Οι υποεργασίες ΔΕΝ διαγράφονται μαζί: έχουν δικό τους χρόνο, συζήτηση και ανάδοχο.
+       Απλώς παύουν να είναι παιδιά — αλλιώς μια διαγραφή γονιού θα έσβηνε δουλειά άλλων. */
+    Capsule::table('mod_cpm_tasks')->whereIn('parent_id', $tIds)->update(['parent_id' => null]);
+    foreach ($tIds as $tid) { GoodDayImport::forgetTask((int) $tid, false); }   // τα αρχεία τους είναι στο cnp_task_storage_ids
+    Capsule::table('mod_cpm_tasks')->whereIn('id', $tIds)->delete();
+}
+
+/**
+ * Οριστική διαγραφή εργασιών: όλα ή τίποτα στη βάση, μετά τα αρχεία. Το $also τρέχει μέσα στο ίδιο
+ * transaction (τα υπόλοιπα του έργου) και το $moreStorage είναι επιπλέον αρχεία προς διαγραφή.
+ */
+function cnp_task_purge(array $tIds, ?callable $also = null, array $moreStorage = [])
+{
+    $tIds = array_values(array_unique(array_filter(array_map('intval', $tIds))));
+    $sIds = array_merge(cnp_task_storage_ids($tIds), $moreStorage);
+    Capsule::connection()->beginTransaction();
+    try {
+        cnp_task_purge_rows($tIds);
+        if ($also) { $also(); }
+        Capsule::connection()->commit();
+    } catch (\Throwable $ePg) {
+        try { Capsule::connection()->rollBack(); } catch (\Throwable $e2) { }
+        throw $ePg;
+    }
+    foreach ($sIds as $sid) { try { Storage::delete((int) $sid); } catch (\Throwable $e) { /* ένα ορφανό αρχείο δεν μπλοκάρει */ } }
+}
+
+/**
  * Ποιος δίνει την έγκριση χρέωσης χρόνου.
  *
  * Είναι ΕΝΑ συγκεκριμένο πρόσωπο, όχι «το λογιστήριο» και όχι όποιος τυχαίνει
@@ -13590,35 +13678,7 @@ case 'task_delete':
     $lostMins = (int) Capsule::table('mod_cpm_timelogs')->where('task_id', $tid)->sum('minutes');
     $lostCmts = (int) Capsule::table('mod_cpm_comments')->where('task_id', $tid)->count();
 
-    /* Τα αρχεία φεύγουν μέσω Storage ώστε να σβήσει και το φυσικό blob,
-       όχι μόνο η εγγραφή. */
-    foreach (Capsule::table('mod_cpm_files')->where('task_id', $tid)->pluck('id') as $fid) {
-        try { Storage::delete((int) $fid); } catch (\Throwable $e) { /* ένα ορφανό αρχείο δεν μπλοκάρει τη διαγραφή */ }
-    }
-    /* Συνημμένα του νέου μηχανισμού (Storage): του ζητουμένου, των ενεργειών και των
-       μηνυμάτων — μαζί με το φυσικό αρχείο στο cloud. Και οι αντιδράσεις των ενεργειών. */
-    $ckIdsD = Capsule::table('mod_cpm_checklist')->where('task_id', $tid)->pluck('id')->all();
-    $cmIdsD = Capsule::table('mod_cpm_comments')->where('task_id', $tid)->pluck('id')->all();
-    $stQ = Capsule::table('mod_cpm_storage')->where('module', 'task')->where(function ($w) use ($tid, $ckIdsD, $cmIdsD) {
-        $w->where(function ($x) use ($tid) { $x->where('ref_type', 'task')->where('ref_id', $tid); });
-        if ($ckIdsD) { $w->orWhere(function ($x) use ($ckIdsD) { $x->where('ref_type', 'check')->whereIn('ref_id', $ckIdsD); }); }
-        if ($cmIdsD) { $w->orWhere(function ($x) use ($cmIdsD) { $x->where('ref_type', 'comment')->whereIn('ref_id', $cmIdsD); }); }
-    });
-    foreach ($stQ->pluck('id') as $sid) { try { Storage::delete((int) $sid); } catch (\Throwable $e) { } }
-    if ($ckIdsD && Capsule::schema()->hasTable('mod_cpm_check_react')) { Capsule::table('mod_cpm_check_react')->whereIn('check_id', $ckIdsD)->delete(); }
-    foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
-                 'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
-                 'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers', 'mod_cpm_task_collabs'] as $tb) {
-        if (Capsule::schema()->hasTable($tb)) { Capsule::table($tb)->where('task_id', $tid)->delete(); }
-    }
-    /* Εξαρτήσεις προς ΚΑΙ από την εργασία — αλλιώς άλλες εργασίες μένουν
-       μπλοκαρισμένες από κάτι που δεν υπάρχει πια. */
-    Capsule::table('mod_cpm_deps')->where('depends_on', $tid)->delete();
-    /* Οι υποεργασίες ΔΕΝ διαγράφονται μαζί: έχουν δικό τους χρόνο, συζήτηση και ανάδοχο.
-       Απλώς παύουν να είναι παιδιά — αλλιώς μια διαγραφή γονιού θα έσβηνε δουλειά άλλων. */
-    Capsule::table('mod_cpm_tasks')->where('parent_id', $tid)->update(['parent_id' => null]);
-    GoodDayImport::forgetTask($tid);      // εισαγωγή GoodDay + ιστορικό + αρχεία της
-    Capsule::table('mod_cpm_tasks')->where('id', $tid)->delete();
+    cnp_task_purge([$tid]);   // εγγραφές, αρχεία, GoodDay, δεσμοί — κοινό με ticket_delete και project_delete
 
     /* Πρόχειρο που ακυρώθηκε αμέσως (άνοιξε κατά λάθος, ✕ → «Όχι»): δεν είναι
        «διαγραφή» που πρέπει να μάθουν οι διαχειριστές — μόνο ίχνος στο log. */
@@ -13658,26 +13718,27 @@ case 'project_delete':
     if ($tIds && empty($in['withTasks'])) {
         fail('Το έργο έχει ' . count($tIds) . ' εργασίες', 409);
     }
-    foreach (['mod_cpm_activity', 'mod_cpm_comments', 'mod_cpm_checklist', 'mod_cpm_timelogs',
-                 'mod_cpm_watchers', 'mod_cpm_task_collabs', 'mod_cpm_deps', 'mod_cpm_task_deps', 'mod_cpm_ticket_idle'] as $tb) {
-        if ($tIds && Capsule::schema()->hasTable($tb)) {
-            $col = Capsule::schema()->hasColumn($tb, 'task_id') ? 'task_id'
-                : (Capsule::schema()->hasColumn($tb, 'tid') ? 'tid' : null);
-            if ($col) { Capsule::table($tb)->whereIn($col, $tIds)->delete(); }
+    /* (05/11/2026) Όλα ή τίποτα: πρώτα ό,τι ανήκει στις εργασίες (κοινό με task_delete), μετά το ίδιο το έργο. */
+    $pStor = Capsule::table('mod_cpm_storage')->where('module', 'project')->where('ref_id', $p->id)->pluck('id')->all();
+    cnp_task_purge($tIds, function () use ($p) {
+        $hlpP = Capsule::table('mod_cpm_help')->where('project_id', $p->id)->pluck('id')->all();
+        if ($hlpP && Capsule::schema()->hasTable('mod_cpm_help_msgs')) { Capsule::table('mod_cpm_help_msgs')->whereIn('help_id', $hlpP)->delete(); }
+        foreach (['mod_cpm_expenses', 'mod_cpm_fields', 'mod_cpm_help', 'mod_cpm_project_members', 'mod_cpm_project_modules', 'mod_cpm_project_shares',
+                     'mod_cpm_project_teams', 'mod_cpm_project_todos', 'mod_cpm_recurring', 'mod_cpm_reschedules',
+                     'mod_cpm_share_comments', 'mod_cpm_snapshots', 'mod_cpm_todos', 'mod_cpm_worknote'] as $tb) {
+            if (Capsule::schema()->hasTable($tb)) {
+                Capsule::table($tb)->where('project_id', $p->id)->delete();
+            }
         }
-    }
-    foreach (['mod_cpm_expenses', 'mod_cpm_fields', 'mod_cpm_project_members', 'mod_cpm_project_shares',
-                 'mod_cpm_project_teams', 'mod_cpm_project_todos', 'mod_cpm_recurring',
-                 'mod_cpm_share_comments', 'mod_cpm_snapshots', 'mod_cpm_todos', 'mod_cpm_worknote'] as $tb) {
-        if (Capsule::schema()->hasTable($tb)) {
-            Capsule::table($tb)->where('project_id', $p->id)->delete();
+        foreach (['mod_cpm_calls', 'mod_cpm_complaints'] as $tb) {
+            if (Capsule::schema()->hasTable($tb)) { Capsule::table($tb)->where('project_id', $p->id)->update(['project_id' => null]); }
         }
-    }
-    Capsule::table('mod_cpm_tasks')->where('project_id', $p->id)->delete();
-    /* Υπο-έργα ανεβαίνουν ένα επίπεδο αντί να μείνουν ορφανά. */
-    Capsule::table('mod_cpm_projects')->where('parent_id', $p->id)
-        ->update(['parent_id' => $p->parent_id ? (int) $p->parent_id : null]);
-    Capsule::table('mod_cpm_projects')->where('id', $p->id)->delete();
+        Capsule::table('mod_cpm_cards')->where('ref_type', 'project')->where('ref_id', $p->id)->whereIn('state', ['open', 'snoozed'])->delete();
+        /* Υπο-έργα ανεβαίνουν ένα επίπεδο αντί να μείνουν ορφανά. */
+        Capsule::table('mod_cpm_projects')->where('parent_id', $p->id)
+            ->update(['parent_id' => $p->parent_id ? (int) $p->parent_id : null]);
+        Capsule::table('mod_cpm_projects')->where('id', $p->id)->delete();
+    }, $pStor);
     logActivity('CloudOn PM: διαγραφή έργου «' . $p->name . '» (' . count($tIds) . ' εργασίες) από admin ' . $adminId);
     out(['ok' => true, 'tasks' => count($tIds)]);
 
@@ -15623,17 +15684,7 @@ case 'ticket_delete':
 
     /* Η εργασία πρώτα, όσο υπάρχει ακόμη ο σύνδεσμος. */
     if ($tsk && !$tskKeep) {
-        foreach (Capsule::table('mod_cpm_files')->where('task_id', $tsk->id)->pluck('id') as $fid9) {
-            try { Storage::delete((int) $fid9); } catch (\Throwable $e) { }
-        }
-        foreach (['mod_cpm_activity', 'mod_cpm_checklist', 'mod_cpm_comments', 'mod_cpm_deps',
-                     'mod_cpm_field_values', 'mod_cpm_files', 'mod_cpm_help', 'mod_cpm_interactions',
-                     'mod_cpm_reminders', 'mod_cpm_timelogs', 'mod_cpm_watchers', 'mod_cpm_task_collabs'] as $tb9) {
-            if (Capsule::schema()->hasTable($tb9)) { Capsule::table($tb9)->where('task_id', $tsk->id)->delete(); }
-        }
-        Capsule::table('mod_cpm_deps')->where('depends_on', $tsk->id)->delete();
-        GoodDayImport::forgetTask((int) $tsk->id);
-        Capsule::table('mod_cpm_tasks')->where('id', $tsk->id)->delete();
+        cnp_task_purge([(int) $tsk->id]);   // κοινός καθαρισμός (05/11/2026): και Εισερχόμενα, αρχεία, αντιδράσεις
     } elseif ($tsk) {
         Capsule::table('mod_cpm_tasks')->where('id', $tsk->id)->update(['ticketid' => null]);
     }

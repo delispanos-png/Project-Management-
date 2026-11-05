@@ -1439,13 +1439,14 @@ class GoodDayImport
     }
 
     /** Σβήσιμο εργασίας → φεύγει και η εισαγωγή (ώστε να μπορεί να ξαναγίνει). */
-    public static function forgetTask($taskId)
+    public static function forgetTask($taskId, $withFiles = true)
     {
         if (!Capsule::schema()->hasTable('mod_cpm_ext_imports')) { return; }
         foreach (Capsule::table('mod_cpm_ext_imports')->where('task_id', (int) $taskId)->pluck('id')->all() as $iid) {
             /* Τα αρχεία των μηνυμάτων φεύγουν μαζί (αλλιώς μένουν ορφανά στην αποθήκευση). */
             $mids = Capsule::table('mod_cpm_ext_msgs')->where('import_id', $iid)->pluck('id')->all();
-            if ($mids) {
+            /* $withFiles=false: ο καλών είναι σε transaction και σβήνει τα αρχεία μετά το commit (05/11/2026). */
+            if ($mids && $withFiles) {
                 foreach (Capsule::table('mod_cpm_storage')->where('module', 'task')->where('ref_type', 'gdmsg')->whereIn('ref_id', $mids)->pluck('id')->all() as $fid) {
                     try { Storage::delete((int) $fid); } catch (\Throwable $e) { }
                 }
