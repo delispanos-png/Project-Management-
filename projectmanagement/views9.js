@@ -1127,7 +1127,7 @@ async function bookCard(id, pre) {
   const paintCli = () => {
     const box = $('#bcCli', body);
     box.innerHTML = client.id
-      ? `<div class="bc-cli"><a href="#/client/${client.id}"><b>${esc(client.name)}</b></a>
+      ? `<div class="bc-cli"><a href="#/client360/${client.id}"><b>${esc(client.name)}</b></a>
          ${ed ? '<button class="bc-phx" id="bcCx" title="Αποσύνδεση">✕</button>' : ''}</div>`
       : (ed ? `<input class="inp" id="bcCq" placeholder="Ψάξε πελάτη…" autocomplete="off"><div id="bcCr"></div>`
             : '<span class="mut">—</span>');
@@ -1567,7 +1567,7 @@ R.clientcalls = async function (arg) {
         ${d.numbers.length ? `<div class="mut" style="font-size:11.5px;margin-top:4px">
           Τηλέφωνα: ${d.numbers.slice(0, 6).map(esc).join(' · ')}${d.numbers.length > 6 ? ` +${d.numbers.length - 6}` : ''}</div>` : ''}
       </div>
-      ${d.client ? `<a class="btn-s" href="#/client/${d.client}">Καρτέλα πελάτη</a>` : ''}
+      ${d.client ? `<a class="btn-s" href="#/client360/${d.client}">Καρτέλα πελάτη</a>` : ''}
     </div>
   </div></div>
 

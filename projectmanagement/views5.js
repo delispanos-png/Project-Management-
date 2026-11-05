@@ -889,9 +889,12 @@ R.units = async function () {
 };
 
 R.unit = async function (id) {
+  setTop('Τμήμα');   // πρώτα ο τίτλος: σε άρνηση/σφάλμα δεν μένει της προηγούμενης οθόνης (05/11/2026)
   const c = $('#content');
   cnpSkel(c, '<div class="skel" style="height:300px"></div>');
+  const stale = window.CNP.cnpNavGuard();
   const d = await api('dept_view&id=' + (+id || 0));
+  if (stale()) { return; }
   setTop(d.dept.name, `${d.open} ανοιχτές εργασίες`);
   const prioT = p => p >= 2 ? '🔥' : p === 1 ? '⬆' : '';
   const grp = g => `<div class="card">
