@@ -42,7 +42,7 @@ function drawer(title, html, wide) {
 /* ─────────────────────── Υπόλοιπα πελατών ─────────────────────── */
 
 R.prepaid = async function () {
-  setTop('Προαγορά χρόνου', 'Πόσο έχουν αγοράσει, πόσο έμεινε, τι δεν καλύφθηκε');
+  setTop('Υπόλοιπα πελατών', 'Πόσο έχουν αγοράσει, πόσο έμεινε, τι δεν καλύφθηκε');
   const c = $('#content');
   c.innerHTML = '<div class="skel" style="height:110px;margin-bottom:14px"></div><div class="skel" style="height:340px"></div>';
   let dErr = null;

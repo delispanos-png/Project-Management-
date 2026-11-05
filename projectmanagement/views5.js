@@ -13,7 +13,7 @@ const addD = (s, n) => iso(new Date(new Date(s + 'T12:00:00').getTime() + n * DA
 const diffD = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / DAY);
 
 R.gantt = async function () {
-  setTop('Gantt', 'Χρονοδιάγραμμα projects & διαθεσιμότητα ομάδας');
+  setTop('Χρονοδιάγραμμα', 'Πότε τρέχει κάθε έργο και ποιος είναι διαθέσιμος');
   const c = $('#content');
   const st = R.gantt._st = R.gantt._st || {from: addD(today(), -7), weeks: 6, mode: 'project', open: {}};
   const MOB = isMob();
@@ -289,8 +289,9 @@ R.balances = async function () {
   const norm = s => String(s || '').toLowerCase().replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι').replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
 
   const load = async () => {
-    const d = await api('balances').catch(() => null);
-    if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
+    let dErr = null;
+    const d = await api('balances').catch(e => { dErr = e; return null; });
+    if (!d) { c.innerHTML = cnpDenied(dErr); return; }
     const all = d.rows;
     const rows = all.filter(r => {
       if (st.f === 'risk' && !r.risk) { return false; }
@@ -480,13 +481,15 @@ R.suspend = async function () {
   const canDo = cnpCan('finance.suspend_do');
   setTop('Αναστολές', 'Υπηρεσίες που πρέπει να πέσουν — η ενέργεια αναγνωρίζεται από το WHMCS');
   const c = $('#content');
-  if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
+  /* Το δικαίωμα, όχι το Full (05/11/2026): όποιος το έχει στην ομάδα του έμενε έξω. */
+  if (!cnpCan('finance.suspend')) { c.innerHTML = cnpDenied({message: 'Χρειάζεται «Οικονομικά → Αναστολές»'}); return; }
   cnpSkel(c, '<div class="skel" style="height:220px"></div>');
   const st = R.suspend._s = R.suspend._s || {open: {}, machines: false, ripe: true};
 
   const load = async () => {
-    const d = await api('suspend_queue&machines=' + (st.machines ? '1' : '0') + '&ripe=' + (st.ripe ? '1' : '0')).catch(() => null);
-    if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
+    let dErr = null;
+    const d = await api('suspend_queue&machines=' + (st.machines ? '1' : '0') + '&ripe=' + (st.ripe ? '1' : '0')).catch(e => { dErr = e; return null; });
+    if (!d) { c.innerHTML = cnpDenied(dErr); return; }
 
     // ομαδοποίηση ανά πελάτη — η οφειλή είναι του πελάτη, όχι της κάθε υπηρεσίας
     const by = {};
@@ -764,12 +767,14 @@ function openNotice(cid, g, done) {
 R.perf = async function () {
   setTop('Απόδοση χειριστών', 'Tickets & tasks ανά άτομο — τι έγινε στην περίοδο');
   const c = $('#content');
-  if (!S.boot.me.full) { c.innerHTML = '<div class="empty" style="padding:44px">Χρειάζεσαι πλήρη πρόσβαση.</div>'; return; }
+  /* Το δικαίωμα, όχι το Full (05/11/2026): Θύμιος και Βασίλης το έχουν και έβλεπαν «πλήρη πρόσβαση». */
+  if (!cnpCan('reports.perf')) { c.innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Απόδοση χειριστών»'}); return; }
   const st = R.perf._s = R.perf._s || {p: 'month'};
   cnpSkel(c, '<div class="skel" style="height:240px"></div>');
   const load = async () => {
-    const d = await api('perf&p=' + st.p).catch(() => null);
-    if (!d) { c.innerHTML = '<div class="empty" style="padding:40px">Σφάλμα φόρτωσης</div>'; return; }
+    let dErr = null;
+    const d = await api('perf&p=' + st.p).catch(e => { dErr = e; return null; });
+    if (!d) { c.innerHTML = cnpDenied(dErr); return; }
     const per = [['week', 'Εβδομάδα'], ['month', 'Μήνας'], ['q', '90 ημέρες']];
     const dur = m => m === null ? '—' : (m < 90 ? m + '΄' : (m < 2880 ? Math.round(m / 60) + 'ω' : Math.round(m / 1440) + ' ημ.'));
 

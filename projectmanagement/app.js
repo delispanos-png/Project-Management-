@@ -572,8 +572,9 @@ function renderShell() {
   /* Οι «ονομαστικές» δυνατότητες δεν κληρονομούνται από το κύκλωμα (βλ. server:
      cnp_explicit_caps) — αφορούν δεδομένα άλλων ανθρώπων. */
   const explicit = me.explicitCaps || [];
-  const has = c => me.full || caps.includes(c)
+  const has1 = c => me.full || caps.includes(c)
     || (!explicit.includes(c) && (me.areas || []).includes(c.includes('.') ? c.split('.')[0] : c));
+  const has = c => c.split('|').some(has1);   // «a|b» = όπως στο cnp_action_cap (05/11/2026)
   /* ── Το μενού ΕΙΝΑΙ τα δικαιώματα ────────────────────────────────────
      Κάθε ενότητα απαντά σε μία ερώτηση· κάθε στοιχείο της κρατά τη δική του
      δυνατότητα. Έτσι μπορείς να δώσεις το Board χωρίς τα Modules, ή τις
@@ -644,7 +645,7 @@ function renderShell() {
       ...((me.leads || []).length || me.full ? [['myteam', I.crown || I.users, 'Η ομάδα μου']] : []),
       ['activity', I.zap, 'Δραστηριότητα', 'reports.activity'],
       ['teamday', I.sun, 'Η μέρα της ομάδας', 'reports.activity'],
-      ['reschedules', I.cal, 'Αναπρογραμματισμοί', 'reports.activity'],
+      ['reschedules', I.cal, 'Αναπρογραμματισμοί', 'reports.activity|projects.portfolio'],
       ['triage', I.flag, 'Πλάνο ημέρας', 'reports.triage'],
       ['kpi', I.chart, 'KPI Dashboard', 'reports.kpi'],
       ['rootcause', I.chart, 'Ανάλυση ριζών', 'reports.rootcause'],
@@ -3635,7 +3636,7 @@ async function vBoard(arg) {
      και αν πάλι δεν υπάρχει το λέμε — δεν ανοίγουμε ξένο έργο. */
   if (arg && S.project && !known()) { const stale = cnpNavGuard(); await cnpRefreshProjects(); if (stale()) { return; } }
   if (arg && S.project && !known()) {
-    setTop('Board');
+    setTop('Board', 'Πού βρίσκεται κάθε εργασία του έργου');
     $('#content').innerHTML = `<div class="empty"><div class="big">${I.lock}</div>
       <b style="color:var(--ink);font-size:15px">Αυτό το έργο δεν είναι διαθέσιμο</b>
       <div class="mut" style="font-size:12.5px;margin-top:8px;max-width:440px;margin-inline:auto;line-height:1.7">
@@ -3647,7 +3648,7 @@ async function vBoard(arg) {
   /* Χωρίς ρητό id (σκέτο #/board): η πτώση στο πρώτο έργο είναι λογική. */
   if (S.project && !known()) { S.project = 0; }
   if (!S.project && S.boot.projects[0]) S.project = S.boot.projects[0].id;
-  setTop('Board');
+  setTop('Board', 'Πού βρίσκεται κάθε εργασία του έργου');
   const c = $('#content');
   if (!S.boot.projects.length) {
     c.innerHTML = `<div class="empty"><div class="big">${I.folder}</div>Δεν έχεις πρόσβαση σε κανένα έργο.

@@ -842,7 +842,11 @@ R.time = async function () {
 
 /* ═════════ ΠΡΟΣΦΟΡΕΣ ═════════ */
 /* Ίδιος renderer, άλλη είσοδος: «Χρόνος ομάδας» στις Αναφορές. */
-R.timeteam = function () { return R.time(); };
+/* Χωρίς reports.time ο server απαντά μόνο για σένα: η οθόνη θα έδειχνε φίλτρο που δεν φιλτράρει (05/11/2026). */
+R.timeteam = function () {
+  if (!cnpCan('reports.time')) { setTop('Χρόνος ομάδας'); $('#content').innerHTML = cnpDenied({message: 'Χρειάζεται «Αναφορές → Χρόνος ομάδας»'}); return; }
+  return R.time();
+};
 
 R.offers = async function () {
   setTop('Προσφορές', 'Τι έχουμε προτείνει, σε ποιο στάδιο, πόσα παίζονται');
@@ -2343,6 +2347,7 @@ R.client360 = async function (cid) {
 R.paytrace = async function () {
   setTop('Συμφωνία πληρωμών', 'Πού πήγε κάθε είσπραξη — σε ποιον πελάτη και σε ποιο παραστατικό');
   const c = $('#content');
+  if (!cnpCan('finance.paytrace')) { c.innerHTML = cnpDenied({message: 'Χρειάζεται «Οικονομικά → Συμφωνία πληρωμών»'}); return; }
   const st = R.paytrace._s = R.paytrace._s || {q: ''};
   // Ορίζεται ΠΡΙΝ από κάθε χρήση: οι έλεγχοι τρέχουν νωρίς και χωρίς αυτό
   // πέφτουν σε «Cannot access before initialization».
@@ -4088,8 +4093,9 @@ R.campaigns = async function () {
   setTop('CRM', 'Καμπάνιες — μέλη & απόδοση');
   const c = $('#content');
   cnpSkel(c, crmTabs('campaigns') + skel(1, 200));
-  const d = await api('campaigns').catch(() => null);
-  if (!d) { c.innerHTML = crmTabs('campaigns') + `<div class="empty"><div class="big">${I.megaphone}</div>Σφάλμα φόρτωσης</div>`; return; }
+  let dErr = null;
+  const d = await api('campaigns').catch(e => { dErr = e; return null; });
+  if (!d) { c.innerHTML = crmTabs('campaigns') + cnpDenied(dErr); return; }
   const chIco = {email: I.mail, phone: I.phone, event: I.pin, social: I.megaphone, ads: I.megaphone, other: I.tag};
   const stBadge = {draft: ['Πρόχειρη', 'var(--mut)'], active: ['Ενεργή', 'var(--ok)'], done: ['Ολοκληρωμένη', 'var(--brand)']};
   const col = pct => pct === null ? 'var(--mut)' : pct >= 50 ? 'var(--ok)' : pct >= 20 ? 'var(--brand)' : 'var(--warn)';

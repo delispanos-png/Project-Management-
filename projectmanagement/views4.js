@@ -1129,16 +1129,6 @@ R.cards = async function () {
 
   const crit = d.cards.filter(x => x.sev >= 2).length;
   c.innerHTML = `
-  <div class="dc-hero">
-    <div><div class="dc-hero-n" style="color:${crit ? 'var(--bad)' : 'var(--ok)'}">${d.cards.length}</div>
-      <div class="dc-hero-l">${f.state === 'open' ? 'θέλουν απόφαση' : 'κάρτες'}</div></div>
-    <div><div class="dc-hero-n">${crit}</div><div class="dc-hero-l">κρίσιμες</div></div>
-    <div><div class="dc-hero-n">${d.counts.pool}</div><div class="dc-hero-l">αζήτητες</div></div>
-    <div><div class="dc-hero-n" style="color:var(--ok)">${d.counts.todayDone}</div><div class="dc-hero-l">τακτοποιήθηκαν<br>σήμερα</div></div>
-    <span style="flex:1"></span>
-    <div class="dc-hero-x mut">${d.isPm ? 'Οι κάρτες σου και η κοινή δεξαμενή. Ό,τι δεν απαντηθεί ως το τέλος της ημέρας ανεβαίνει στους Manager.'
-      : 'Εποπτεία: βλέπεις τι δόθηκε στην ομάδα project management και τι απαντήθηκε.'}</div>
-  </div>
   <div class="fbar">
     <span class="fseg" id="dcState">
       <button class="fchip${f.state === 'open' ? ' on' : ''}" data-s="open">Ανοιχτές</button>
@@ -1149,6 +1139,16 @@ R.cards = async function () {
       <button class="fchip${f.scope === 'all' ? ' on' : ''}" data-sc="all">Όλης της ομάδας</button></span>` : ''}
     <span class="fbar-sp"></span>
     ${S.boot.me.full ? `<button class="fchip" id="dcBuild" title="Ξαναϋπολογισμός τώρα (γίνεται αυτόματα κάθε πρωί)">${I.repeat} Ανανέωση ουράς</button>` : ''}
+  </div>
+  <div class="dc-hero">
+    <div><div class="dc-hero-n" style="color:${crit ? 'var(--bad)' : 'var(--ok)'}">${d.cards.length}</div>
+      <div class="dc-hero-l">${f.state === 'open' ? 'θέλουν απόφαση' : 'κάρτες'}</div></div>
+    <div><div class="dc-hero-n">${crit}</div><div class="dc-hero-l">κρίσιμες</div></div>
+    <div><div class="dc-hero-n">${d.counts.pool}</div><div class="dc-hero-l">αζήτητες</div></div>
+    <div><div class="dc-hero-n" style="color:var(--ok)">${d.counts.todayDone}</div><div class="dc-hero-l">τακτοποιήθηκαν<br>σήμερα</div></div>
+    <span style="flex:1"></span>
+    <div class="dc-hero-x mut">${d.isPm ? 'Οι κάρτες σου και η κοινή δεξαμενή. Ό,τι δεν απαντηθεί ως το τέλος της ημέρας ανεβαίνει στους Manager.'
+      : 'Εποπτεία: βλέπεις τι δόθηκε στην ομάδα project management και τι απαντήθηκε.'}</div>
   </div>
   ${(d.perf || []).length && f.scope === 'all' ? `<div class="card" style="margin-bottom:12px"><div class="card-h">${I.chart || I.list} Πώς απαντά η διοίκηση <span class="mut" style="font-weight:600;font-size:11.5px">— τελευταίες 14 ημέρες</span></div>
     <div class="card-b" style="padding:4px 10px"><table class="tbl dc-perf"><thead><tr>
@@ -4727,7 +4727,7 @@ function _cvRing(n) {
 }
 
 R.recruit = async function () {
-  setTop('Προσλήψεις', 'Βιογραφικά υποψηφίων — αξιολόγηση με AI co-pilot');
+  setTop('Βιογραφικά', 'Ποιοι υποψήφιοι αξίζουν συνέντευξη — αξιολόγηση με AI co-pilot');
   const c = $('#content');
   const st = R.recruit._s = R.recruit._s || {job: '', status: '', q: '', page: 1, per: 50, dups: false};
   cnpSkel(c, '<div class="skel" style="height:60px;margin-bottom:12px"></div><div class="skel" style="height:420px"></div>');
