@@ -2686,7 +2686,8 @@ async function lvScreen(E, arg) {
         let rr;
         if (c.kind === 'move') { rr = await window.CNP.cnpMoveTask(id, c.val, ''); if (!rr.ok) { fail = rr.cancelled ? 'ακυρώθηκε' : (rr.error || 'δεν επιτρέπεται'); } }
         else if (c.kind === 'project') { rr = await api('task_project', {task: id, project: c.val}).catch(er => ({err: er.message})); if (rr.err) { fail = rr.err; } }
-        else { rr = await api('save_task', {task: id, [c.key]: c.val}).catch(er => ({err: er.message, data: er.data})); if (rr.err) { fail = rr.err; } }
+        /* (05/11/2026) ίδιοι διάλογοι με την καρτέλα: ημερομηνίες υλοποίησης / σύγκρουση ώρας — όχι αδιέξοδο στο 409 */
+        else { rr = await window.CNP.cnpSaveTaskAsk(id, {[c.key]: c.val}); if (!rr.ok) { fail = rr.cancelled ? 'ακυρώθηκε' : (rr.error || 'δεν επιτρέπεται'); } }
         if (fail) { break; }
       }
       if (fail) { delete st.pending[id]; Object.assign(t, before); renderRes(); renderTop(); toast('Δεν άλλαξε: ' + fail, true); }

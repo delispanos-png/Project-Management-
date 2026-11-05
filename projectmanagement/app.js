@@ -110,6 +110,33 @@ function cnpMatch(hay, q) {
   })());
 }
 
+/* ── Ονόματα με λατινικούς χαρακτήρες (05/11/2026) ─────────────────────────────
+   Το αντίστροφο του Greeklish: τα ονόματα χειριστών είναι γραμμένα λατινικά, οπότε το «@Θύμ» δεν
+   έβρισκε κανέναν. cnpMatchName = cnpMatch + ελληνικά που διαβάζονται σαν το λατινικό όνομα:
+   «Θύμ» → Thimios, «Βασ» → Vasilis, «Γιάννης» → John ΟΧΙ (άλλο όνομα, όχι μεταγραφή). */
+const CNP_LG = [
+  ['ου', '(?:ou|u)'], ['αι', '(?:ai|e)'], ['ει', '(?:ei|i)'], ['οι', '(?:oi|i)'], ['υι', '(?:yi|i)'], ['μπ', '(?:mp|b)'], ['ντ', '(?:nt|d)'],
+  ['γκ', '(?:gk|g|nk)'], ['γγ', '(?:ng|gg)'], ['αυ', '(?:av|af|au)'], ['ευ', '(?:ev|ef|eu)'], ['τσ', 'ts'], ['τζ', '(?:tz|j)'],
+  ['α', 'a'], ['β', '(?:v|b)'], ['γ', '(?:g|gh|y)'], ['δ', '(?:d|dh)'], ['ε', 'e'], ['ζ', 'z'], ['η', '(?:i|e|y)'], ['θ', 'th'], ['ι', '(?:i|y|j)'],
+  ['κ', '(?:k|c|q)'], ['λ', 'l'], ['μ', 'm'], ['ν', 'n'], ['ξ', '(?:x|ks)'], ['ο', 'o'], ['π', 'p'], ['ρ', 'r'], ['σ', '(?:s|c)'], ['τ', 't'],
+  ['υ', '(?:y|i|u)'], ['φ', '(?:f|ph)'], ['χ', '(?:ch|h|x|kh)'], ['ψ', 'ps'], ['ω', 'o']];
+function cnpGrRegex(w) {
+  let out = '', i = 0;
+  while (i < w.length) {
+    const hit = CNP_LG.find(([g]) => w.startsWith(g, i));
+    if (hit) { out += hit[1]; i += hit[0].length; continue; }
+    out += w[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); i++;
+  }
+  try { return new RegExp('(?:^|[\\s.\\-_])' + out); } catch (e) { return null; }   // στην αρχή λέξης: όχι ό,τι τύχει μέσα στο όνομα
+}
+function cnpMatchName(name, q) {
+  if (cnpMatch(name, q)) { return true; }
+  const fq = cnpFold(q).trim();
+  if (!/[α-ω]/.test(fq)) { return false; }
+  const fh = cnpFold(name);
+  return fq.split(/\s+/).every(w => { const re = cnpGrRegex(w); return !!(re && re.test(fh)); });
+}
+
 /* ── Εικονίδια προτεραιότητας & τύπου εργασίας (16/10/2026) ───────────────────
    Οι τύποι κρατούν στη βάση όνομα εικονιδίου «fa-…» (από το παλιό admin) + χρώμα· εδώ
    ζωγραφίζονται ως inline SVG στο χρώμα του τύπου. Άγνωστο όνομα → ◆. Με title = το όνομα,
@@ -2061,7 +2088,8 @@ function rteOpenPop(btn, wrap, name) {
   rtePop.style.top = (r.bottom + h + 6 > innerHeight && r.top - h - 4 > 0 ? r.top - h - 4 : r.bottom + 4) + 'px';
 }
 document.addEventListener('mousedown', e => { if (rtePop && !rtePop.contains(e.target) && !(e.target.closest && e.target.closest('.rte-mb'))) { rteClosePop(); } }, true);
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && rtePop) { e.stopPropagation(); rteClosePop(); } }, true);
+/* stopImmediate (05/11/2026): στο ίδιο document υπάρχει το Esc των popups — με σκέτο stopPropagation έκλεινε ΚΑΙ η καρτέλα. */
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && rtePop) { e.stopImmediatePropagation(); rteClosePop(); } }, true);
 /* Ανέβασμα αρχείου ΜΕΣΑ στο κείμενο: εικόνα → inline· άλλο → σύνδεσμος 📎. Σε εργασία το αρχείο
    πάει και στα «Συνημμένα ζητουμένου» (ref_type task), ώστε να μη χάνεται αν σβηστεί ο σύνδεσμος. */
 /* Ανέβασμα αρχείου — ΚΟΙΝΟ. ΠΡΩΤΑ κατευθείαν στο S3 (presign → PUT → confirm): το
@@ -2839,6 +2867,9 @@ async function cnpSilentRefresh() {
    • αλλιώς διακριτική ειδοποίηση πάνω στην καρτέλα με «Φέρε τις αλλαγές» — τα πρόχειρά σου
      (μήνυμα, ζητούμενο, χρόνος) κρατιούνται. Αληθινή σύγκρουση (άλλαξε το ζητούμενο που γράφεις)
      λέγεται ρητά. Δικές μου αλλαγές απλώς ενημερώνουν τη σφραγίδα. */
+/** Έχει η καρτέλα αλλαγές σε πεδία που δεν σώθηκαν; Μετράμε ΤΙ ΔΙΑΦΕΡΕΙ από τα φορτωμένα (05/11/2026):
+    η σημαία formDirty άναβε και από πεδία εκτός φόρμας (υποεργασία, τίτλος) και έμενε αναμμένη. */
+function cnpTkFormDirty(dr) { return dr._formChanged ? dr._formChanged() : dr.dataset.formDirty === '1'; }
 /** Η «σφραγίδα» εργασίας ως ένα κείμενο — ίδια για το «task» και το «task_stamp». */
 function cnpStampSig(st) { return st.updatedAt + '|' + st.act + '|' + st.chk + '|' + (st.tm || ''); }
 async function cnpDrawerLive(force) {
@@ -2862,7 +2893,7 @@ async function cnpDrawerLive(force) {
   /* ΑΥΤΑ ΔΕΝ ΕΠΙΖΟΥΝ ΤΟΥ ΞΑΝΑΣΧΕΔΙΑΣΜΟΥ (23/10/2026): διόρθωση ενέργειας στη μέση, αρχεία που
      περιμένουν να επισυναφθούν, ζητούμενο που αλλάζεις. Εκεί ΔΕΝ ανανεώνουμε μόνοι μας. */
   const fragile = !!(dr.querySelector('.act-editing') || (dr.querySelector('#chkFiles') && !dr.querySelector('#chkFiles').hidden)
-    || (dr.querySelector('#fDescr') && dr.querySelector('#fDescr').dataset.dirty === '1') || dr.dataset.formDirty === '1');
+    || (dr.querySelector('#fDescr') && dr.querySelector('#fDescr').dataset.dirty === '1') || cnpTkFormDirty(dr));
   const pop = document.querySelector('.cb-pan, .rte-pop, .ment-box, .cnp-cal, .ovl.show .pal-box');
   const refresh = async () => { window._cnpDrawerBusy = true; try { await openTask(id, 0, {silent: true}); } finally { window._cnpDrawerBusy = false; }
     const d2 = document.querySelector('.drawer.tk-modal.show'); if (d2) { d2.dataset.stamp = sig; d2.dataset.liveOwed = ''; } };
@@ -3853,15 +3884,15 @@ function askImplDates(info, me) {
         <div id="idErr" class="mut" style="font-size:11.5px;color:var(--bad);margin-top:4px" hidden></div>
         <div style="display:flex;gap:9px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-o" id="idNo">Άκυρο</button>
-          <button class="btn btn-o" id="idDraft">Κράτησέ το πρόχειρο σε μένα</button>
+          ${info.noDraft ? '' : '<button class="btn btn-o" id="idDraft">Κράτησέ το πρόχειρο σε μένα</button>'}
           <button class="btn btn-p" id="idGo">Ανάθεση με αυτές τις ημερομηνίες</button>
         </div>
-        <div class="mut" style="font-size:11px;margin-top:8px">Πρόχειρη κρατάς μόνο στον εαυτό σου — σε άλλον χρειάζονται ημερομηνίες.</div>
+        ${info.noDraft ? '' : '<div class="mut" style="font-size:11px;margin-top:8px">Πρόχειρη κρατάς μόνο στον εαυτό σου — σε άλλον χρειάζονται ημερομηνίες.</div>'}
       </div></div>`;
     document.body.appendChild(ovl);
     const done = v => { ovl.remove(); resolve(v); };
     $('#idNo', ovl).onclick = () => done(null);
-    $('#idDraft', ovl).onclick = () => done({assignee: me.id, start: null, due: null});
+    if (!info.noDraft) { $('#idDraft', ovl).onclick = () => done({assignee: me.id, start: null, due: null}); }
     $('#idGo', ovl).onclick = () => {
       const a = $('#idStart', ovl).value, b = $('#idDue', ovl).value, er = $('#idErr', ovl);
       if (!a || !b) { er.hidden = false; er.textContent = 'Χρειάζονται και οι δύο ημερομηνίες.'; return; }
@@ -3871,6 +3902,45 @@ function askImplDates(info, me) {
     };
     setTimeout(() => $('#idStart', ovl).focus(), 40);
   });
+}
+
+/* ΜΙΑ απάντηση σε save_task που ΖΗΤΑ κάτι (05/11/2026): ημερομηνίες υλοποίησης ή σύγκρουση ώρας.
+   Κοινό για καρτέλα και σύρσιμο στη Λίστα. Γεμίζει το extra και λέει 'retry' / 'cancel' / 'no'. */
+async function cnpSaveNeed(r, extra, me) {
+  const need = r.data && r.data.need;
+  if (need === 'dates') {
+    const pick = await askImplDates(r.data, me);
+    if (!pick) { return 'cancel'; }                // άκυρο = δεν αποθηκεύεται τίποτα
+    Object.assign(extra, pick);
+    if (pick.assignee === me.id) { extra.force = 1; }   // πρόχειρο σε μένα: χωρίς έλεγχο διαθεσιμότητας
+    return 'retry';
+  }
+  if (need === 'conflict') {
+    const what = await askBusy(r.data);
+    if (!what) { return 'cancel'; }
+    if (what === 'force') { extra.force = 1; return 'retry'; }
+    /* «Άλλαξε ώρες»: ξαναζητάμε διάστημα, κρατώντας ό,τι είχε γράψει. */
+    const again = await askImplDates(Object.assign({}, r.data, extra,
+      {error: 'Διάλεξε διάστημα που δεν πέφτει πάνω στα υπόλοιπα.'}), me);
+    if (!again) { return 'cancel'; }
+    Object.assign(extra, again);
+    return 'retry';
+  }
+  return 'no';
+}
+/** save_task εκτός καρτέλας, με τους ίδιους διαλόγους. Επιστρέφει {ok, res} ή {ok:false, error|cancelled}. */
+async function cnpSaveTaskAsk(id, fields) {
+  const extra = {};
+  const send = () => api('save_task', Object.assign({task: id}, fields, extra)).then(d => ({ok: true, res: d}))
+    .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+  let r = await send();
+  for (let round = 0; round < 4 && !r.ok; round++) {
+    const step = await cnpSaveNeed(r, extra, S.boot.me);
+    if (step === 'cancel') { return {ok: false, cancelled: true}; }
+    if (step !== 'retry') { break; }
+    r = await send();
+  }
+  return r;
 }
 
 /* Αλλαγή κατάστασης εργασίας — ΜΙΑ διαδρομή για όλα τα σημεία (σύρσιμο στο
@@ -3948,7 +4018,7 @@ function cnpReplySelects(curBall, curStatus, prefix, withStatus = true) {
 }
 
 async function cnpMoveTask(id, status, note) {
-  const send = due => api('move_task', Object.assign({task: id, status, note: note || ''}, due ? {due} : {}))
+  const send = extra => api('move_task', Object.assign({task: id, status, note: note || ''}, extra || {}))
     .then(r => {
       /* Ο server σταματά το χρονόμετρο όταν αλλάζεις κατάσταση — πες το, με
          δρόμο επιστροφής αν συνεχίζεις να δουλεύεις. */
@@ -3965,10 +4035,8 @@ async function cnpMoveTask(id, status, note) {
   if (!r.ok && r.data && r.data.need === 'duetime') {
     const pick = await askDueTime();
     if (!pick) { return {ok: false, cancelled: true}; }
-    r = await api('move_task', {task: id, status, note: note || '', due: pick.due, dueT: pick.dueT})
-      .then(x => ({ok: !!x.ok}))
-      .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
-    return r;
+    /* Από το ίδιο send: πριν εδώ χανόταν το timerStopped και ο χρόνος σταματούσε χωρίς λέξη (05/11/2026). */
+    return send({due: pick.due, dueT: pick.dueT});
   }
   if (!r.ok && r.data && r.data.need === 'due') {
     const pick = await cnpDialog({
@@ -3977,7 +4045,7 @@ async function cnpMoveTask(id, status, note) {
       input: today(), inputType: 'date', min: today(),
       ok: 'Ξεκίνα την', cancel: 'Άκυρο'});
     if (pick === null || !pick) { return {ok: false, cancelled: true}; }
-    r = await send(pick);
+    r = await send({due: pick});
   }
   return r;
 }
@@ -3998,9 +4066,12 @@ function cnpTaskDraftGrab(id) {
   if (!dr || +dr.dataset.task !== +id) { return null; }
   const g = sel => { const e = dr.querySelector(sel); return e ? (e.isContentEditable ? e.innerHTML : e.value) : null; };
   const chk = g('#chkNew');
+  /* Ζητούμενο που ΣΩΘΗΚΕ δεν είναι πρόχειρο (05/11/2026): ξαναγύριζε στο ξανασχεδίασμα, έκρυβε αλλαγή
+     συναδέλφου, έμενε «βρόμικο» για πάντα και ξαναστελνόταν με κάθε αποθήκευση. */
+  const fd0 = dr.querySelector('#fDescr');
   return {
     chk: (chk && chk.trim() && chk.trim() !== '<br>') ? chk : null,
-    descr: g('#fDescr'),
+    descr: (fd0 && fd0.innerHTML === dr._descrHtml) ? null : g('#fDescr'),
     mins: g('#tMins') || null,
     note: g('#tNote') || null,
     /* (23/10/2026) και ό,τι διάλεξες στον συνθέτη — «Μπάλα σε…» / «Κατάσταση…» — χανόταν στην ανανέωση */
@@ -4054,6 +4125,14 @@ function cnpDraftClear(dr) {
   dr.dataset.dirty = '';
   cnpDraftForget(dr.dataset.task);
   const tag = dr.querySelector('#chkDraft'); if (tag) { tag.hidden = true; }
+}
+/* ΑΡΧΕΙΑ ΣΕ ΑΝΑΜΟΝΗ ΑΝΑ ΕΡΓΑΣΙΑ (05/11/2026): ζούσαν μέσα στο render, οπότε χάνονταν σε κάθε
+   ξανασχεδίασμα (χρονόμετρο, υποεργασία, εξάρτηση…). Φεύγουν μόνο με καταχώρηση ή πραγματικό κλείσιμο. */
+const _cnpPendFiles = new Map();
+function cnpPendFiles(id) { if (!_cnpPendFiles.has(+id)) { _cnpPendFiles.set(+id, []); } return _cnpPendFiles.get(+id); }
+function cnpPendForget(id) {
+  (_cnpPendFiles.get(+id) || []).forEach(f => { if (f._u) { URL.revokeObjectURL(f._u); f._u = null; } });
+  _cnpPendFiles.delete(+id);
 }
 /* ΜΕΤΑ ΤΟ ΚΛΕΙΣΙΜΟ ΕΡΓΑΣΙΑΣ: η οθόνη πίσω μένει όπως την άφησες (ανοιχτά πάνελ, scroll).
    Αν άλλαξε κάτι σε αυτή την εργασία όσο ήταν ανοιχτή → ΑΘΟΡΥΒΗ ενημέρωση (morph)· αλλιώς
@@ -4592,7 +4671,7 @@ async function openTask(id, entryId, opts) {
             <button type="button" class="th-btn" id="fOfferUnlink" title="Λύσιμο από αυτή την προσφορά">✕</button></div>`
           : `<div class="tk-offer-ref"><label class="lbl" style="margin:0 0 3px">Αρ. προσφοράς</label>
               <input class="inp" id="fOfferRef" value="${esc(t.offerRef || '')}" placeholder="π.χ. CLD-2026-2600005 ή #57" title="Γράψε τον αριθμό/κωδικό της προσφοράς. Αν είναι δική μας, δένεται μόνη της.">
-              <div class="mut" style="font-size:10.5px;margin-top:3px">Αποθηκεύεται με το «Αποθήκευση». Αν είναι δική μας προσφορά, δένεται αυτόματα.</div></div>
+              <div class="mut" style="font-size:10.5px;margin-top:3px">Αποθηκεύεται μόνο του. Αν είναι δική μας προσφορά, δένεται αυτόματα.</div></div>
             <details class="tk-offer-more"><summary class="mut" style="cursor:pointer;font-size:11px">ή διάλεξε από τις προσφορές του πελάτη / νέα / ζήτα από συνάδελφο</summary>
             <select class="inp" id="fOfferSel" title="Δέσε με υπάρχουσα προσφορά του πελάτη" style="margin-top:6px"><option value="">— δέσε με υπάρχουσα προσφορά… —</option></select>
             <div class="tk-offer-acts">
@@ -4734,6 +4813,9 @@ async function openTask(id, entryId, opts) {
         <b>${esc(a.detail || a.action)}</b> <span class="mut">— ${esc(a.by)} · ${tShort(a.at)}</span></div>`).join('')}</div></details>
   </div>`;
   document.body.append(ovl, dr);
+  /* Τι ΦΟΡΤΩΘΗΚΕ στο ζητούμενο, πριν γυρίσει τυχόν πρόχειρο: με αυτό συγκρίνουμε, όχι με το d.descr —
+     ο browser το γράφει λίγο αλλιώς από τον server και θα φαινόταν πάντα «αλλαγμένο» (05/11/2026). */
+  { const fd0 = $('#fDescr', dr); dr._descrHtml = fd0 ? fd0.innerHTML : null; dr._descrBase = fd0 ? rteVal('fDescr', dr) : ''; }
   cnpTaskDraftPut(dr, draft);      // ό,τι ήταν μισογραμμένο πριν τον ξανασχεδιασμό, γυρίζει στη θέση του
   cnpDraftStore(dr);               // ο καθρέφτης της συσκευής ακολουθεί (π.χ. άδειασε μετά την καταχώριση)
   { let dt = null; const kick = () => { clearTimeout(dt); dt = setTimeout(() => cnpDraftStore(dr), 400); };
@@ -4812,13 +4894,14 @@ async function openTask(id, entryId, opts) {
   }
 
   { const ic = $('#fInternalChip', dr); if (ic) { ic.onclick = () => {
-      const h = $('#fInternal', dr); const on = !(+h.value); h.value = on ? 1 : 0; ic.classList.toggle('on', on); markDirty(dr); }; } }
+      const h = $('#fInternal', dr); const on = !(+h.value); h.value = on ? 1 : 0; ic.classList.toggle('on', on); markDirty(dr);
+      if (dr._autosave) { dr._autosave(); } }; } }   /* (05/11/2026) κρυφό πεδίο: δεν βγάζει change, η αποθήκευση καλείται ρητά */
   /* Πρόχειρο (μόλις δημιουργήθηκε από την παλέτα): το ✕ ρωτά «να κρατηθεί;».
      «Όχι» = σβήνεται αθόρυβα, σαν να μην άνοιξε ποτέ. «Ναι» = αποθηκεύεται ό,τι γράφτηκε. */
   dr.dataset.fresh = opts.fresh ? '1' : '';
   const askFresh = async () => {
     const r = await cnpDialog({title: I.alert + ' Να κρατηθεί η εργασία;',
-      body: 'Μόλις τη δημιούργησες και δεν πάτησες «Αποθήκευση». Αν την άνοιξες κατά λάθος, πες «Όχι» και θα σβηστεί.',
+      body: 'Μόλις τη δημιούργησες. Αν την άνοιξες κατά λάθος, πες «Όχι» και θα σβηστεί.',
       ok: 'Ναι, κράτα την', cancel: 'Συνέχεια επεξεργασίας', third: 'Όχι, σβήσ’ την'});
     if (r === false || r === null) { return false; }
     if (r === 'third') {
@@ -4840,6 +4923,11 @@ async function openTask(id, entryId, opts) {
      Ρωτάμε ΜΟΝΟ για αρχεία που περιμένουν επισύναψη — αυτά δεν κρατιούνται. */
   dr._askClose = async () => {
     if (dr.dataset.fresh === '1') { return askFresh(); }
+    if (dr._closing) { return false; }             // διπλό ✕/Esc όσο σώζει: μία φορά
+    dr._closing = true;
+    try { return await closeCard(); } finally { dr._closing = false; }
+  };
+  const closeCard = async () => {
     const fl = $('#chkFiles', dr);
     if (fl && !fl.hidden && fl.children.length) {
       const r = await cnpDialog({title: I.clip + ' Αρχεία χωρίς επισύναψη',
@@ -4847,9 +4935,29 @@ async function openTask(id, entryId, opts) {
         ok: 'Κλείσιμο χωρίς τα αρχεία', cancel: 'Συνέχεια επεξεργασίας', safeFocus: true});
       if (!r) { return false; }
     }
-    /* Πεδίο που περιμένει ακόμη την αυτόματη αποθήκευση: σώζεται τώρα, σιωπηλά. */
-    if (dr.dataset.formDirty === '1' && dr._saveNow && !dr.classList.contains('tk-locked')) {
-      if (await dr._saveNow() !== true) { return false; }
+    /* Διόρθωση ενέργειας στη μέση: δεν είναι πρόχειρο — αν κλείσεις χάνεται, άρα το λέμε (05/11/2026). */
+    const ae = $('.act-editing', dr);
+    if (ae && ae._changed && ae._changed()) {
+      const r = await cnpDialog({title: I.alert + ' Διόρθωση χωρίς αποθήκευση',
+        body: 'Η διόρθωση της ενέργειας δεν έχει αποθηκευτεί και θα χαθεί αν κλείσεις.',
+        ok: 'Κλείσιμο χωρίς τη διόρθωση', cancel: 'Συνέχεια επεξεργασίας', safeFocus: true});
+      if (!r) { return false; }
+    }
+    /* Πεδίο που περιμένει ακόμη την αυτόματη αποθήκευση: σώζεται τώρα, σιωπηλά.
+       ΑΝ Ο SERVER ΤΟ ΑΠΟΡΡΙΨΕΙ ΔΕΝ ΣΕ ΚΡΑΤΑΜΕ ΜΕΣΑ (05/11/2026): πριν το ✕ και το Esc ξανάστελναν
+       το ίδιο και η καρτέλα δεν έκλεινε ποτέ. Λέμε τι έγινε και κλείνεις· το πρόχειρο μένει. */
+    if (cnpTkFormDirty(dr) && dr._saveNow && !dr.classList.contains('tk-locked')) {
+      /* Το ίδιο ακριβώς μόλις απορρίφθηκε: δεν ξαναστέλνεται, πάμε κατευθείαν στην εξήγηση. */
+      const saved = dr._saveFailed === dr._formSig() ? false : await dr._saveNow();
+      if (!dr.classList.contains('show')) { return false; }        // πήγες σε άλλη εργασία από το «ticket υπάρχει»
+      if (saved !== true && cnpTkFormDirty(dr)) {
+        const leave = await cnpDialog({title: I.alert + ' Η αλλαγή δεν αποθηκεύτηκε',
+          body: (dr._saveErr || 'Η αλλαγή δεν ολοκληρώθηκε.')
+            + '\n\nΑν κλείσεις, οι αλλαγές στα πεδία χάνονται. Ό,τι έγραψες στη συζήτηση μένει πρόχειρο.',
+          ok: 'Κλείσιμο χωρίς τις αλλαγές', cancel: 'Μένω να το διορθώσω', safeFocus: true});
+        if (!leave) { return false; }
+        if (dr._autoStop) { dr._autoStop(); }      // ό,τι περίμενε στον χρονοδιακόπτη δεν ξαναστέλνεται μετά την έξοδο
+      }
     }
     dr.dataset.dirty = '';
     closeDrawer();
@@ -4915,26 +5023,36 @@ async function openTask(id, entryId, opts) {
      και την αυτόματη αποθήκευση: ίδιος έλεγχος, ίδιοι διάλογοι (ημερομηνίες
      υλοποίησης, σύγκρουση ώρας), ίδια μηνύματα. Δύο δρόμοι αποθήκευσης θα
      απέκλιναν την πρώτη φορά που άλλαζε κανόνας σε έναν από τους δύο. */
+  /* ΣΤΕΛΝΟΝΤΑΙ ΜΟΝΟ ΟΣΑ ΑΛΛΑΞΑΝ ΣΕ ΣΧΕΣΗ ΜΕ ΑΥΤΑ ΠΟΥ ΦΟΡΤΩΘΗΚΑΝ (05/11/2026). Πριν κάθε αποθήκευση
+     ξανάγραφε ΟΛΑ τα πεδία με ό,τι έδειχνε η καρτέλα: αν στο μεταξύ συνάδελφος είχε αλλάξει μπάλα,
+     ανάθεση ή ημερομηνίες, το ✕ τα γύριζε πίσω χωρίς να το καταλάβει κανείς. */
+  const fmV = sel => { const e = $(sel, dr); return e ? e.value : undefined; };
+  const fmS = sel => { const v = fmV(sel); return v === undefined ? undefined : (v || null); };
+  const fmI = sel => { const v = fmV(sel); return v === undefined ? undefined : (+v || 0); };
+  const formNow = () => ({
+    due: fmS('#fDue'), sched: fmS('#fSched'), start: fmS('#fStart'), startT: fmS('#fStartT'), dueT: fmS('#fDueT'),
+    type: fmI('#fType'), dept: fmI('#fDept'), assignee: fmI('#fAssignee'), prio: fmI('#fPrio'), ball: fmI('#fBall'),
+    is_offer: $('#fOffer', dr) ? ($('#fOffer', dr).checked ? 1 : 0) : undefined,
+    offer_ref: $('#fOfferRef', dr) ? $('#fOfferRef', dr).value.trim() : undefined,
+    internal: $('#fInternal', dr) ? (+$('#fInternal', dr).value ? 1 : 0) : undefined,
+    source: fmV('#fSource'),
+    est: $('#fEst', dr) ? estMins($('#fEst', dr).value) : undefined,
+    ticket_ref: fmV('#fTkRef')});
+  const formBase = formNow();
+  const formDiff = () => {
+    const n = formNow(), o = {};
+    Object.keys(n).forEach(k => { if (n[k] !== undefined && n[k] !== formBase[k]) { o[k] = n[k]; } });
+    /* Και το ζητούμενο, αν το επεξεργάστηκε ο συντάκτης του. */
+    if (canEditBrief && $('#fDescr', dr) && rteVal('fDescr', dr) !== dr._descrBase) { o.descr = rteVal('fDescr', dr); }
+    return o;
+  };
+  dr._formChanged = () => Object.keys(formDiff()).length > 0;
+  dr._formSig = () => JSON.stringify(formDiff());
   const saveFields = async (o0) => {
     const opts = o0 || {};
-    const payload = over => Object.assign({task: id,
-      due: $('#fDue', dr).value || null, sched: $('#fSched', dr).value || null, start: $('#fStart', dr).value || null,
-      startT: $('#fStartT', dr) ? ($('#fStartT', dr).value || null) : undefined,
-      dueT: $('#fDueT', dr) ? ($('#fDueT', dr).value || null) : undefined,
-      type: +$('#fType', dr).value || 0,
-      dept: +(($('#fDept', dr) || {}).value) || 0,
-      assignee: +$('#fAssignee', dr).value || 0, prio: +$('#fPrio', dr).value,
-      ball: $('#fBall', dr) ? (+$('#fBall', dr).value || 0) : undefined,
-      is_offer: ($('#fOffer', dr) && $('#fOffer', dr).checked) ? 1 : 0,
-      offer_ref: $('#fOfferRef', dr) ? $('#fOfferRef', dr).value.trim() : undefined,
-      internal: $('#fInternal', dr) ? (+$('#fInternal', dr).value ? 1 : 0) : undefined,
-      source: $('#fSource', dr) ? $('#fSource', dr).value : undefined,
-      est: estMins(($('#fEst', dr) || {}).value),
-      /* «Αποθήκευση» σώζει ΟΛΑ όσα άλλαξαν στην καρτέλα — και το ζητούμενο, αν
-         το επεξεργάστηκε ο συντάκτης του. Αλλιώς το κείμενο χανόταν όταν το
-         «Αποθήκευση» πατιόταν από την ερώτηση του ✕. */
-      descr: (canEditBrief && $('#fDescr', dr) && rteVal('fDescr') !== (d.descr || '')) ? rteVal('fDescr') : undefined,
-      ticket_ref: $('#fTkRef', dr) ? $('#fTkRef', dr).value : undefined}, over || {});
+    let last = {};
+    const send = over => { last = formDiff(); return api('save_task', Object.assign({task: id}, last, over || {})).then(d => ({ok: true, res: d}))
+      .catch(e => ({ok: false, error: e && e.message, data: e && e.data})); };
 
     /* Μισογραμμένη ενέργεια στον συνθέτη: καταχωρείται κι αυτή, δεν πετιέται.
        ΜΟΝΟ όταν πατάς «Αποθήκευση» — η αυτόματη δεν στέλνει μισές προτάσεις. */
@@ -4944,59 +5062,56 @@ async function openTask(id, entryId, opts) {
         if (ra && ra.err) { toast('Η ενέργεια δεν καταχωρήθηκε: ' + ra.err, true); return; }
         ed.innerHTML = '';
       } }
-    let r = await api('save_task', payload()).then(d => ({ok: true, res: d}))
-      .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+    dr._saveErr = '';
+    /* Τίποτα δεν διαφέρει: τίποτα δεν στέλνεται. */
+    if (!opts.close && !dr._formChanged()) { dr.dataset.dirty = ''; dr.dataset.formDirty = ''; return true; }
+    let r = await send();
 
     /* Ανάθεση σε agent χωρίς χρόνο υλοποίησης: δεν αρκεί να το απαγορεύσουμε —
        ο χειριστής έχει δύο νόμιμες προθέσεις και πρέπει να διαλέξει ρητά.
        Ή το κρατά πρόχειρο στον εαυτό του, ή το αναθέτει με σαφείς ημερομηνίες. */
     let extra = {};
     for (let round = 0; round < 4 && !r.ok && r.data; round++) {
-      if (r.data.need === 'dates') {
-        const pick = await askImplDates(r.data, me);
-        if (!pick) { return; }                     // άκυρο = δεν αποθηκεύεται τίποτα
-        extra = Object.assign(extra, pick);
-        if (pick.assignee === me.id) { extra.force = 1; }   // πρόχειρο σε μένα: χωρίς έλεγχο διαθεσιμότητας
-      } else if (r.data.need === 'conflict') {
-        const what = await askBusy(r.data);
-        if (!what) { return; }
-        if (what === 'force') { extra.force = 1; }
-        else {
-          /* «Άλλαξε ώρες»: ξαναζητάμε διάστημα, κρατώντας ό,τι είχε γράψει. */
-          const again = await askImplDates(Object.assign({}, r.data, extra,
-            {error: 'Διάλεξε διάστημα που δεν πέφτει πάνω στα υπόλοιπα.'}), me);
-          if (!again) { return; }
-          extra = Object.assign(extra, again);
-        }
-      } else if (r.data.need === 'dupref') {
+      const step = await cnpSaveNeed(r, extra, me);
+      if (step === 'cancel') { return; }           // άκυρο = δεν αποθηκεύεται τίποτα
+      if (step === 'no' && r.data.need === 'dupref') {
         /* Ο αριθμός ticket υπάρχει ήδη σε άλλη εργασία: δεν γράφεται. Γυρίζει το πεδίο
            στην προηγούμενη τιμή και προσφέρεται η εργασία που τον έχει. */
         const tk = $('#fTkRef', dr); if (tk) { tk.value = r.data.prev || ''; }
         const goDup = await cnpDialog({title: '⚠ Το ticket υπάρχει ήδη', body: r.error
           + '\n\nΈνα ticket αντιστοιχεί σε μία εργασία. Άνοιξε την υπάρχουσα αντί να φτιάξεις δεύτερη.',
           ok: 'Άνοιξε #' + r.data.dup.id, cancel: 'Κλείσιμο', escNo: true, safeFocus: true});
-        dr.dataset.dirty = '';
+        dr.dataset.dirty = ''; dr.dataset.formDirty = dr._formChanged() ? '1' : '';
         if (goDup) { openTask(r.data.dup.id); }
         return false;
-      } else { break; }
+      }
+      if (step === 'no') { break; }
       /* κρατά και την απάντηση (ballStopped) — πριν χανόταν στον 2ο γύρο */
-      r = await api('save_task', payload(extra)).then(d => ({ok: true, res: d}))
-        .catch(e => ({ok: false, error: e && e.message, data: e && e.data}));
+      r = await send(extra);
     }
     if (r.ok && extra.assignee === me.id) { toast('Κρατήθηκε πρόχειρο σε εσένα'); }
-    if (!r.ok) { toast(r.error || 'Δεν αποθηκεύτηκε', true); return false; }
-    dr.dataset.fresh = ''; dr.dataset.dirty = '';
+    if (!r.ok) { dr._saveErr = r.error || 'Δεν αποθηκεύτηκε'; dr._saveFailed = JSON.stringify(last); toast(dr._saveErr, true); return false; }
+    /* Ό,τι σώθηκε γίνεται η νέα αφετηρία — και η καρτέλα ξαναπαίρνει ζωντανή ανανέωση. */
+    Object.keys(last).forEach(k => { if (k !== 'descr') { formBase[k] = last[k]; } });
+    if (last.descr !== undefined) {
+      d.descr = last.descr; dr._descrBase = last.descr;
+      const fdS = $('#fDescr', dr);
+      if (fdS) { fdS.dataset.dirty = ''; if (rteVal('fDescr', dr) === last.descr) { dr._descrHtml = fdS.innerHTML; } }
+    }
+    dr.dataset.fresh = ''; dr.dataset.dirty = ''; dr.dataset.formDirty = dr._formChanged() ? '1' : '';
     /* ΤΟ ΣΤΑΜΑΤΗΜΑ ΤΟΥ ΧΡΟΝΟΥ ΔΕΝ ΓΙΝΕΤΑΙ ΣΙΩΠΗΛΑ. Ο server κόβει το χρονόμετρο
        όταν παραδίδεις την μπάλα — αν δεν το πει, ο χειριστής νομίζει ότι μετράει
        ακόμη και δεν ξέρει πόσα γράφτηκαν. */
     const bs = r.res && r.res.ballStopped;
+    /* Ημερομηνίες/ανάθεση από διάλογο: τα πεδία πρέπει να τις δείξουν — αλλιώς η επόμενη αλλαγή ξεκινά από παλιά εικόνα. */
+    const redraw = bs || Object.keys(extra).length > 0;
     if (bs) {
       toast('Ο χρόνος σου σταμάτησε — ' + fmtMin(bs.mins) + ' · η μπάλα πήγε στον/στην ' + bs.to);
     }
     /* (19/10/2026) Το σταμάτημα πρέπει να ΦΑΙΝΕΤΑΙ αμέσως: η καρτέλα (▶/Stop, κλείδωμα αφού η μπάλα
        έφυγε) και η οθόνη από πίσω (σήμα «τρέχει», «Τώρα» στη Μέρα μου) ξαναζωγραφίζονται αθόρυβα.
        Πριν έμεναν να δείχνουν χρόνο που μετράει μέχρι να κάνεις ανανέωση. Τα πρόχειρα κρατιούνται. */
-    if (bs && !opts.close) {
+    if (redraw && !opts.close) {
       setTimeout(async () => {
         if (document.querySelector('.drawer.tk-modal.show[data-task="' + id + '"]')) { await openTask(id, 0, {silent: true}); }
         cnpSilentRefresh();
@@ -5021,7 +5136,8 @@ async function openTask(id, entryId, opts) {
       box.dataset.s = k;
       st.textContent = k === 'saving' ? 'αποθήκευση…'
         : k === 'saved' ? 'αποθηκεύτηκε'
-        : k === 'error' ? 'δεν αποθηκεύτηκε — δοκίμασε «Αποθήκευση»' : 'αποθηκεύεται μόνο του';
+        : k === 'error' ? 'δεν αποθηκεύτηκε — διόρθωσέ το ή κλείσε χωρίς την αλλαγή' : 'αποθηκεύεται μόνο του';
+      st.title = k === 'error' ? (dr._saveErr || '') : '';
       if (k === 'saved') { clearTimeout(box._t); box._t = setTimeout(() => mark('idle'), 2200); }
     };
     let tmr = null, busy = false, again = false;
@@ -5039,6 +5155,7 @@ async function openTask(id, entryId, opts) {
     };
     const bump = ms => { clearTimeout(tmr); tmr = setTimeout(run, ms); };
     dr._autosave = () => bump(0);
+    dr._autoStop = () => clearTimeout(tmr);
     ['#fAssignee', '#fBall', '#fPrio', '#fType', '#fDept', '#fStart', '#fStartT', '#fDue', '#fDueT',
       '#fSched', '#fOffer', '#fInternal', '#fSource', '#fOfferRef', '#fEst', '#fTkRef'].forEach(sel => {
       const e = $(sel, dr);
@@ -5168,7 +5285,8 @@ async function openTask(id, entryId, opts) {
     const nv = cur === b.dataset.src ? '' : b.dataset.src;
     $('#fSource', dr).value = nv;
     $$('[data-src]', dr).forEach(x => x.classList.toggle('on', x.dataset.src === nv));
-    markDirty();
+    markDirty(dr);
+    if (dr._autosave) { dr._autosave(); }   // (05/11/2026) κρυφό πεδίο: δεν βγάζει change
   });
   /* 📁 Αλλαγή έργου: διορθώνει τα «Χωρίς έργο» χωρίς να ξαναφτιάξεις την εργασία.
      Η λίστα χωρίζεται σε έργα πελατών και εσωτερικά — και δείχνει ΠΟΥ είναι τώρα. */
@@ -5411,9 +5529,17 @@ async function openTask(id, entryId, opts) {
         (!to ? $('#hoTo', ovl) : $('#hoNext', ovl)).focus(); return;
       }
       const btn = $('#hoGo', ovl); btn.disabled = true; btn.textContent = '…';
-      const r = await api('task_handoff', {task: id, to, next,
+      const sendH = extra => api('task_handoff', Object.assign({task: id, to, next,
         did: $('#hoDid', ovl).value.trim(), due: $('#hoDue', ovl).value || '',
-        move: $('#hoMove', ovl).checked}).catch(e => ({err: e.message}));
+        move: $('#hoMove', ovl).checked}, extra || {})).catch(e => ({err: e.message, data: e.data}));
+      let r = await sendH();
+      /* Ανάθεση σε agent χωρίς έναρξη/λήξη: ο ίδιος διάλογος με την καρτέλα, μετά ξαναστέλνεται (05/11/2026).
+         Χωρίς «πρόχειρο σε μένα»: εδώ δίνεις τη δουλειά σε άλλον. */
+      if (r && r.err && r.data && r.data.need === 'dates') {
+        const pick = await askImplDates(Object.assign({}, r.data, {noDraft: true}), me);
+        if (pick) { r = await sendH(pick); }
+        else { r = {err: 'Η παράδοση δεν έγινε — χρειάζονται έναρξη και λήξη, ή ξετσέκαρε την ανάθεση.'}; }
+      }
       if (r && r.err) {
         err.hidden = false; err.textContent = r.err;
         btn.disabled = false; btn.innerHTML = I.zap + ' Παράδοση'; return;
@@ -5538,9 +5664,15 @@ async function openTask(id, entryId, opts) {
     if (r && r.err) { toast(r.err, true); return; }
     toast('💬 Ρωτήθηκε ο ' + (r.to || who)); openTask(id);
   }; }
+  let tAddBusy = false;   // διπλό κλικ = διπλή χρέωση χρόνου (05/11/2026)
   $('#tAdd', dr).onclick = async () => {
-    const m = +$('#tMins', dr).value; if (!m) return;
-    if (m < 0) { toast('Αρνητικός χρόνος δεν καταχωρείται', true); return; }
+    if (tAddBusy) { return; }
+    const m0 = +$('#tMins', dr).value, m = Math.round(m0);   // ακέραια λεπτά, όπως τα κρατά ο server
+    if (!m0) return;
+    if (m0 < 0) { toast('Αρνητικός χρόνος δεν καταχωρείται', true); return; }
+    if (!m) { toast('Ο χρόνος καταχωρείται σε ακέραια λεπτά', true); return; }
+    tAddBusy = true;
+    try {
     const body = {task: id, mins: m, billable: $('#tBill', dr) ? $('#tBill', dr).checked : false, note: $('#tNote', dr).value};
     let r = await api('time_add', body).catch(e => ({err: e.message, data: e.data}));
     if (r && r.err && r.data && r.data.need === 'confirm') {
@@ -5549,7 +5681,10 @@ async function openTask(id, entryId, opts) {
       r = await api('time_add', Object.assign({force: 1}, body)).catch(e => ({err: e.message}));
     }
     if (r && r.err) { toast(r.err, true); return; }
-    toast('Καταχωρήθηκε ' + fmtMin(m)); openTask(id);
+    /* ΠΡΙΝ τον ξανασχεδιασμό: αλλιώς το πρόχειρο τα ξανάβαζε στη φόρμα και το 2ο κλικ τα ξαναέγραφε. */
+    $('#tMins', dr).value = ''; $('#tNote', dr).value = ''; cnpDraftStore(dr);
+    toast('Καταχωρήθηκε ' + fmtMin(r.mins || m)); openTask(id);
+    } finally { tAddBusy = false; }
   };
   /* Εξαρτήσεις: υποψήφιες οι «αδελφές» εργασίες. Για εργασία έργου είναι οι
      υπόλοιπες του board· για εργασία χωρίς έργο, οι ανοιχτές του department
@@ -5659,7 +5794,7 @@ async function openTask(id, entryId, opts) {
       if (!m) { closeMentions(); return; }
       const q = m[1];
       const hits = S.boot.admins.filter(a => a.id !== me.id && !a.disabled && !a.bot
-        && (!q || cnpMatch(a.name, q))).slice(0, 8);
+        && (!q || cnpMatchName(a.name, q))).slice(0, 8);
       if (!hits.length) { closeMentions(); return; }
       openMentions(el, hits, q.length);
     });
@@ -5667,6 +5802,18 @@ async function openTask(id, entryId, opts) {
   };
   let mentBox = null;
   const closeMentions = () => { if (mentBox) { mentBox.remove(); mentBox = null; } };
+  /* @κείμενο που δεν έγινε ετικέτα και δεν ταιριάζει σε όνομα (όπως ο server): δεν θα φτάσει σε
+     κανέναν, άρα το λέμε — πριν ο αποστολέας περίμενε απάντηση που δεν θα ερχόταν (05/11/2026). */
+  const mentionMiss = el => {
+    const c = el.cloneNode(true); c.querySelectorAll('.ment').forEach(x => x.remove());
+    const miss = [];
+    for (const m of (c.textContent || '').matchAll(/(?:^|[\s(])@([\p{L}\p{N}_.\-]+)/gu)) {
+      const q = cnpFold(m[1]);
+      const ok = q.length >= 3 && S.boot.admins.some(a => { const n = cnpFold(a.name); return n.split(/\s+/).concat(n.replace(/\s+/g, '')).some(w => w.startsWith(q)); });
+      if (!ok) { miss.push('@' + m[1]); }
+    }
+    if (miss.length) { toast('Δεν βρέθηκε συνάδελφος για ' + miss.join(', ') + ' — διάλεξέ τον από τη λίστα του @', true); }
+  };
   /* Επιλογή: το «@ερώτημα» φεύγει και μπαίνει ΚΟΥΚΚΙΔΑ αναφοράς (span.ment, μη
      επεξεργάσιμη) + κενό. Ο server βρίσκει το πρόσωπο από το κείμενο «@Ονοματεπώνυμο». */
   const pickMention = b => {
@@ -5714,7 +5861,7 @@ async function openTask(id, entryId, opts) {
   { const ed = $('#chkNew', dr);
     if (ed) {
       wireEditor(ed);
-      const pending = [];                         // αρχεία που διάλεξε πριν καταχωρήσει
+      const pending = cnpPendFiles(id);           // αρχεία που διάλεξε πριν καταχωρήσει — επιζούν του ξανασχεδιασμού
       /* Κάθε αρχείο κρατά δικό του blob URL: μικρογραφία εικόνας + προβολή (cnpViewFile)
          ΠΡΙΝ ανέβει. Ελευθερώνεται όταν αφαιρεθεί ή φύγει. */
       const urlOf = f => f._u || (f._u = URL.createObjectURL(f));
@@ -5739,6 +5886,7 @@ async function openTask(id, entryId, opts) {
         });
       };
       const add = list => { [...(list || [])].forEach(f => pending.push(f)); paint(); };
+      if (pending.length) { paint(); }
       const fi = $('#chkFile', dr);
       const clip = $('#chkClip', dr);
       if (clip && fi) {
@@ -5789,13 +5937,14 @@ async function openTask(id, entryId, opts) {
             .catch(er => ({err: (er && er.message) || 'σφάλμα', er}));
           if (r && r.err) { busy = false; ed.removeAttribute('aria-busy'); toast(r.err, true); return; }
         }
+        mentionMiss(ed);
         if (!r.id) { ed.innerHTML = ''; openTask(id); cnpReRender(); return; }
         /* Το μήνυμα (και η μπάλα) καταχωρήθηκαν· πρώτα το δείχνουμε, μετά ανεβαίνουν τα αρχεία
            με ορατή πρόοδο — η καρτέλα ξαναφορτώνει όταν δεθούν. */
-        const upl = pending.slice();
+        const upl = pending.splice(0);   // φεύγουν από την αναμονή ΠΡΙΝ το ξανασχεδίασμα
         ed.innerHTML = '';
         if (upl.length) { openTask(id); await actUploadAll(upl, r.id); }
-        pending.splice(0).forEach(drop);
+        upl.forEach(drop);
         /* ΚΑΘΑΡΙΣΕ ΠΡΙΝ ΤΟΝ ΞΑΝΑΣΧΕΔΙΑΣΜΟ. Παλιά το σβήσιμο γινόταν «από μόνο του»
            επειδή η καρτέλα ξαναχτιζόταν· τώρα που τα πρόχειρα επιζούν, το ήδη
            καταχωρημένο κείμενο θα επέστρεφε στον συνθέτη σαν να μην στάλθηκε. */
@@ -5850,6 +5999,7 @@ async function openTask(id, entryId, opts) {
       <button type="button" class="btn btn-sm btn-p" data-eok>Αποθήκευση</button>
       <input type="file" multiple hidden data-efile>`;
     wrap.appendChild(bar);
+    wrap._changed = () => body.innerHTML.trim() !== before.trim() || files.length > 0;
     const efi = bar.querySelector('[data-efile]'), ebox = bar.querySelector('[data-efiles]'), ehint = bar.querySelector('[data-ehint]');
     const epaint = () => {
       ebox.hidden = !files.length;
@@ -5872,6 +6022,7 @@ async function openTask(id, entryId, opts) {
         const r = await api('check_edit', {id: cid, title: v, html: 1})
           .catch(er => ({err: (er && er.message) || 'σφάλμα'}));
         if (r && r.err) { ebusy = false; toast(r.err, true); return; }
+        mentionMiss(body);
       }
       await actUploadAll(files, cid);
       openTask(id);
@@ -5962,14 +6113,18 @@ async function openTask(id, entryId, opts) {
       let fin = false;
       const done = async save => {
         if (fin) { return; } fin = true;
+        dr._titleCancel = null;
         const v = inp.value.trim();
         if (save && v && v !== (dr.dataset.title || t.title)) {
           const r = await api('save_task', {task: id, title: v}).catch(e => ({err: e && e.message}));
-          if (r && r.err) { toast(r.err, true); } else { dr.dataset.title = v; toast('Ο τίτλος άλλαξε'); }
+          if (r && r.err) { toast(r.err, true); } else { dr.dataset.title = (r && r.title) || v; toast('Ο τίτλος άλλαξε'); }
         }
         const h = document.createElement('h2'); h.id = 'dTitle'; h.textContent = dr.dataset.title || t.title;
         inp.replaceWith(h);
       };
+      /* Το Esc το πιάνει πρώτος ο καθολικός χειρισμός (capture): από εκεί ακυρώνεται ΜΟΝΟ ο τίτλος (05/11/2026).
+         Το fin κρατά το blur μακριά μετά την ακύρωση. */
+      dr._titleCancel = () => done(false);
       inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') { done(false); } };
       inp.onblur = () => done(true);
     }; }
@@ -6158,7 +6313,7 @@ function closeDrawer() {
   }
   clearInterval(timerInt);
   /* Ό,τι έμεινε μισογραμμένο στην εργασία κρατιέται πρόχειρο (όχι στο ξανασχεδίασμα της ίδιας). */
-  if (!window._cnpReopen) { $$('.drawer.tk-modal').forEach(cnpDraftStore); }
+  if (!window._cnpReopen) { $$('.drawer.tk-modal').forEach(x => { cnpDraftStore(x); cnpPendForget(x.dataset.task); }); }
   /* Χρόνος σύνταξης νέας εργασίας: κλείνει με την κάρτα — εκτός αν η εργασία είναι
      δική σου (τότε δουλεύεις πάνω της και ο χρόνος συνεχίζει). */
   const su = window._cnpSetup;
@@ -6313,6 +6468,13 @@ document.addEventListener('keydown', e => {
   const top = boxes[boxes.length - 1];
   if (top.dataset && top.dataset.noclose === '1') { e.stopPropagation(); return; }
   if (top.closest('.ovl') && top.querySelector('#cnpDlgOk')) { return; }   // τα ίδια τα dialogs
+  /* (05/11/2026) ΤΟ ESC ΑΚΥΡΩΝΕΙ Ο,ΤΙ ΕΠΕΞΕΡΓΑΖΕΣΑΙ, ΟΧΙ ΤΗΝ ΚΑΡΤΕΛΑ: τίτλος ή διόρθωση ενέργειας.
+     Πριν έκλεινε η καρτέλα — ο τίτλος σωζόταν (blur) και η διόρθωση χανόταν. */
+  if (top._titleCancel) { e.stopPropagation(); top._titleCancel(); return; }
+  { const ae = document.activeElement;
+    const ed = (ae && ae.closest && top.contains(ae) && ae.closest('.act-editing')) || top.querySelector('.act-editing');
+    const no = ed && ed.querySelector('[data-eno]');
+    if (no) { e.stopPropagation(); no.click(); return; } }
   e.stopPropagation();
   cnpAskClose(top);
 }, true);
@@ -8112,7 +8274,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
+window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
