@@ -1,6 +1,6 @@
 /* ═══════════ CloudOn Projects — keyboard-first + views (Κύμα 1) ═══════════ */
 'use strict';
-const {cnpPut, S, api, esc, timeInput, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
+const {CNP_PRIO, cnpPut, S, api, esc, timeInput, rteHtml, rteVal, suStat, fmtMin, dShort, tShort, dFull, today, toast, setTop, go,
   adminName, adminIni, statusOf, typeOf, openTask, closeDrawer, cnpConfirm, cnpPrompt, cnpDenied, cnpCan,
   cnpMsgHtml, cnpWireMsgLinks, cnpIsMine, cnpHolder, cnpSearch, cnpSkel, cnpMatch, fChip, fSel, fAdd, fWire, fOne, I, stPill, $, $$} = window.CNP;
 const R = window.R;
@@ -1477,7 +1477,7 @@ R.supervised = async function () {
 /* (16/10/2026) 7 επίπεδα προτεραιότητας — η ΜΙΑ λίστα ζει στο app.js (CNP_PRIO) */
 const lvPrioName = p => window.CNP.cnpPrioName(p);
 const lvPrioCol = p => window.CNP.cnpPrioColor(p);
-const LV_PRIO_HI = ['Έκτακτη', 'Μπλοκάρει', 'Κρίσιμη', 'Υψηλή'];
+const LV_PRIO_HI = CNP_PRIO.filter(p => p[0] >= 1).map(p => p[1]);   // μία πηγή: CNP_PRIO (05/11/2026)
 /* Προεπιλεγμένα πλάτη στηλών πίνακα (px)· ο τίτλος παίρνει ό,τι περισσεύει. Ο χρήστης τα αλλάζει
    σέρνοντας το άκρο της κεφαλίδας — κρατιούνται στο view (cfg.widths). */
 const LV_W = {id: 70, tkno: 110, running: 120, holder: 180, ball: 70, assignee: 160, project: 160, client: 170, dept: 140, status: 160,
@@ -3339,7 +3339,11 @@ R.chat = async function (arg) {
   clearInterval(R.chat._t);
   clearInterval(R.chat._vt);
   clearInterval(R.chat._p);   // ο σφυγμός παρουσίας — αλλιώς διπλασιάζεται σε κάθε επαναφόρτωση
+  /* Τα χρονόμετρα σβήνουν ΠΡΙΝ το await και στήνονται μετά: δύο R.chat() στη σειρά έστηναν δύο
+     φορές και το πρώτο έμενε ορφανό (05/11/2026). Συνεχίζει μόνο το τελευταίο κάλεσμα. */
+  const run = R.chat._run = (R.chat._run || 0) + 1;
   const d = await api('chat_channels');
+  if (run !== R.chat._run || S.view !== 'chat') { return; }
   const ini = n => (n || '?').trim().split(/\s+/).map(w => w[0] || '').slice(0, 2).join('').toUpperCase();
   const chAva = ch => `<span class="ch-av ${ch.kind !== 'dm' ? 'ch-av-grp' : ''}">${ch.kind === 'team' ? I.users : ch.kind === 'group' ? '#' : esc(ini(ch.name))}${ch.kind === 'dm' ? `<span class="ch-av-dot ${ch.status || 'online'}"></span>` : ''}</span>`;
   /* Η ετικέτα έρχεται έτοιμη από τον server (μία πηγή αλήθειας) — εδώ μόνο
@@ -3713,7 +3717,6 @@ R.chat = async function (arg) {
       pk.innerHTML = Object.keys(CH_REACT).map(c => `<button type="button" data-c="${c}">${CH_REACT[c]}</button>`).join('');
       div.appendChild(pk);
       pk.querySelectorAll('[data-c]').forEach(b => b.onclick = ev => { ev.stopPropagation(); pk.remove(); chToggleReact(div, b.dataset.c); });
-      setTimeout(() => document.addEventListener('click', () => pk.remove(), {once: true}), 0);
     };
     const rp = div.querySelector('[data-chreply]');
     if (rp) rp.onclick = e => { e.stopPropagation(); replyTo = m.id; paintReply(); $('#chIn').focus(); };
@@ -3835,8 +3838,14 @@ R.chat = async function (arg) {
   micBtn.onpointerup = e => { e.preventDefault(); recRelease(); };
   micBtn.onpointercancel = () => { recRelease(); };
   micBtn.oncontextmenu = e => e.preventDefault();   // long-press σε κινητό δεν ανοίγει μενού
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && rec && rec.state === 'recording') { recCancel = true; rec.stop(); } });
-  window.addEventListener('blur', () => { if (rec && rec.state === 'recording') { recRelease(); } });
+  /* Μία φορά οι listeners (05/11/2026): κάθε R.chat() πρόσθετε νέο ζευγάρι. Καλούν την ΤΩΡΙΝΗ εγγραφή. */
+  R.chat._recEsc = e => { if (e.key === 'Escape' && rec && rec.state === 'recording') { recCancel = true; rec.stop(); } };
+  R.chat._recBlur = () => { if (rec && rec.state === 'recording') { recRelease(); } };
+  if (!R.chat._recOn) {
+    R.chat._recOn = true;
+    document.addEventListener('keydown', e => R.chat._recEsc(e));
+    window.addEventListener('blur', () => R.chat._recBlur());
+  }
   $('#chIn').onpaste = e => {
     const cd = e.clipboardData || {};
     const items = [...(cd.items || [])];

@@ -1237,9 +1237,11 @@ async function billingQueue() {
    stopPropagation (γραμμές λίστας, καρτέλα εργασίας, κουμπιά) το έκοβε, οπότε έμεναν ανοιχτά
    πάνω από τη νέα οθόνη. Τώρα: pointerdown στη φάση capture (δεν κόβεται από κανέναν), αλλαγή
    οθόνης (hashchange) και Esc. Το κουμπί που τα άνοιξε εξαιρείται — εκείνο κάνει το toggle. */
-const CNP_TOP_POPS = '.pop, #miniMenu';
-function cnpTopPopsClose() { document.querySelectorAll(CNP_TOP_POPS).forEach(p => p.remove()); }
+const CNP_TOP_POPS = '.pop, #miniMenu, .ch-rxpick';
+const CNP_FMENU_OPEN = '[data-fmenu]:not([hidden])';   // το «+ φίλτρο» κρύβεται, δεν αφαιρείται (05/11/2026)
+function cnpTopPopsClose() { document.querySelectorAll(CNP_TOP_POPS).forEach(p => p.remove()); document.querySelectorAll(CNP_FMENU_OPEN).forEach(m => { m.hidden = true; }); }
 document.addEventListener('pointerdown', e => {
+  document.querySelectorAll(CNP_FMENU_OPEN).forEach(m => { if (!m.parentElement.contains(e.target)) { m.hidden = true; } });
   document.querySelectorAll(CNP_TOP_POPS).forEach(p => {
     if (p.contains(e.target)) { return; }
     const owner = p.id === 'miniMenu' ? p._anchor : p.closest('.bell-wrap');
@@ -1249,7 +1251,7 @@ document.addEventListener('pointerdown', e => {
 }, true);
 window.addEventListener('hashchange', cnpTopPopsClose);
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape' || !document.querySelector(CNP_TOP_POPS)) { return; }
+  if (e.key !== 'Escape' || !document.querySelector(CNP_TOP_POPS + ', ' + CNP_FMENU_OPEN)) { return; }
   e.stopPropagation(); e.preventDefault(); cnpTopPopsClose();      // μόνο το μενού — όχι και η καρτέλα από κάτω
 }, true);
 function miniMenu(anchor, items) {
@@ -1261,8 +1263,6 @@ function miniMenu(anchor, items) {
   document.body.appendChild(m);
   requestAnimationFrame(() => m.classList.add('show'));
   items.forEach((it, i) => { const b = m.querySelector(`[data-i="${i}"]`); if (b) { b.onclick = () => { m.remove(); if (it.on) { it.on(); } }; } });
-  const closer = e => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', closer); } };
-  setTimeout(() => document.addEventListener('click', closer), 0);
 }
 /* ── Δυνατή ειδοποίηση chat ────────────────────────────────────────────────
    Κάρτα κάτω δεξιά που ΔΕΝ μπλοκάρει την οθόνη (μήνυμα δεν είναι επείγον σαν
@@ -1581,18 +1581,16 @@ async function toggleBell() {
        `/project/#/task/N` (Db::appLink), αλλά στη βάση ζουν ακόμη 520 παλιές με
        `tab=task&id=N`. Και οι δύο μορφές πρέπει να ανοίγουν την κάρτα — αλλιώς
        πατάς την ειδοποίηση και δεν βρίσκεις τίποτα. */
-    const m = url && (url.match(/tab=task&id=(\d+)/) || url.match(/\/project\/#\/task\/(\d+)/));
+    const m = url && (url.match(/tab=task&id=(\d+)/) || url.match(/(?:\/project(?:management)?\/|^)#\/task\/(\d+)/));
     const mt = url && url.match(/supporttickets\.php\?action=view&id=(\d+)/);
-    const hv = url && url.match(/\/project(?:management)?\/#\/(\w+)(?:\/([\w-]+))?/);
+    /* (05/11/2026) και σκέτο «#/requests/12» (help_resend, ημερολόγιο): ό,τι αρχίζει από #/ ανοίγει εδώ. */
+    const hv = url && url.match(/(?:\/project(?:management)?\/|^)#\/(\w+)(?:\/([\w-]+))?/);
     if (m) { pop.remove(); openTask(+m[1]); }
     else if (mt) { pop.remove(); go('inbox', +mt[1]); }
     else if (/^https?:\/\//.test(url || '') && !hv) { pop.remove(); window.open(url, '_blank'); }   // π.χ. link meeting
     else if (hv) { pop.remove(); go(hv[1], hv[2] || ''); }                                                        // εσωτερικά views
     else if (url && S.boot.me.full) window.open('/cloudonadminpanel/' + url, '_blank');
   };
-  setTimeout(() => document.addEventListener('click', function h(e) {
-    if (!pop.contains(e.target) && !e.target.closest('#bellBtn')) { pop.remove(); document.removeEventListener('click', h); }
-  }), 10);
 }
 /* ═══ 🖥 Remote συνεδρίες: καθολικό χρονόμετρο + χρέωση ═══ */
 let _remote = null, _remoteTick = null;
@@ -2639,7 +2637,6 @@ const fWire = (st, defs, redraw) => {
   const ad = $('[data-fadd-btn]'), mn = $('[data-fmenu]');
   if (ad && mn) {
     ad.onclick = e => { e.preventDefault(); e.stopPropagation(); mn.hidden = !mn.hidden; };
-    document.addEventListener('click', () => { mn.hidden = true; }, {once: true});
     $$('[data-fadd]', mn).forEach(b => b.onclick = () => { st.shown.push(b.dataset.fadd); redraw(); });
   }
   $$('[data-fk]').forEach(el => el.onchange = () => {
@@ -4205,6 +4202,7 @@ document.addEventListener('pointerover', e => {
   window._cnpPreTm = setTimeout(() => cnpTaskPrefetch(r.dataset.task || r.dataset.mdtask || r.dataset.dltask), 120);
 }, {passive: true});
 
+let _cnpOpenSeq = 0;
 async function openTask(id, entryId, opts) {
   opts = opts || {};
   clearTimeout(window._cnpPreTm); window._cnpOpening = Date.now();   // το κλικ δεν ξαναπροφορτώνει την ίδια
@@ -4216,13 +4214,27 @@ async function openTask(id, entryId, opts) {
   /* Νέο άνοιγμα (όχι ξανασχεδίασμα): ό,τι έμεινε πρόχειρο σε αυτή τη συσκευή. */
   if (!draft) { const sv = cnpDraftLoad(id); if (sv) { draft = {chk: sv.chk || null, mins: sv.mins || null, note: sv.note || null, ball: sv.ball || null, st: sv.st || null, descr: null}; } }
   if (!opts.silent && +((window._cnpTkOpen || {}).id) !== +id) { window._cnpTkOpen = {id: +id, at: Date.now()}; }
+  /* ΤΟ ΤΕΛΕΥΤΑΙΟ ΚΛΙΚ ΚΕΡΔΙΖΕΙ (05/11/2026): η αργή απάντηση της Α δεν ανοίγει πάνω από τη Β. Το
+     αθόρυβο ξανασχεδίασμα δεν παίρνει θέση στη σειρά — αλλιώς θα ακύρωνε ένα κλικ σε εξέλιξη. */
+  const openSeq = opts.silent ? _cnpOpenSeq : ++_cnpOpenSeq;
   /* seen=1: άνοιξα την καρτέλα = το είδα → σβήνει το LED στα Εισερχόμενα. */
   const pre = !opts.silent && _cnpTaskPre.get(+id);
   _cnpTaskPre.delete(+id);
   let d = pre && Date.now() - pre.at < 10000 ? await pre.p : null;
   if (d) { api('feed_read', {task: +id}).catch(() => {}); }          // προφορτωμένη: το «διαβάστηκε» χωριστά
-  else { d = await api('task&id=' + id + '&seen=1').catch(() => null); }
-  if (!d) { toast('Δεν έχεις πρόσβαση', true); return; }
+  let loadErr = null;
+  if (!d) { d = await api('task&id=' + id + '&seen=1').catch(e => { loadErr = e; return null; }); }
+  /* η νέα κάρτα (fresh) είναι ροή δημιουργίας: δεν εγκαταλείπεται στη μέση */
+  if (openSeq !== _cnpOpenSeq && !opts.fresh) { return; }
+  if (!d) {
+    /* άρνηση = 404/403 του server· ό,τι άλλο (δίκτυο, 500) ΔΕΝ είναι «δεν έχεις πρόσβαση» */
+    if (loadErr && (loadErr.status === 404 || loadErr.status === 403)) { toast('Δεν έχεις πρόσβαση σε αυτή την εργασία ή δεν υπάρχει πια', true); }
+    else if (!opts.silent) { toast('Η εργασία δεν φορτώθηκε — έλεγξε τη σύνδεση και δοκίμασε ξανά', true); }
+    return;
+  }
+  /* Το πάνελ ρύθμισης view (.lv-side) είναι ψηλότερα από την καρτέλα και την έκρυβε: κλείνει.
+     Οι αλλαγές του view μένουν μέχρι να αποθηκευτούν ή να απορριφθούν. */
+  if (!opts.silent) { const sp = document.querySelector('.lv-side'); if (sp && sp._close) { sp._close(); } }
   /* ΧΡΟΝΟΣ ΣΥΝΤΑΞΗΣ (30/9/2026): όποιος γράφει μια νέα εργασία δουλεύει — και ο
      χρόνος αυτός χανόταν (μετρήθηκαν εργασίες που γράφονταν 2–4΄ χωρίς χρονόμετρο).
      Ξεκινά μόλις ανοίξει η νέα κάρτα· όταν κλείσει, αν η εργασία πάει σε άλλον,
