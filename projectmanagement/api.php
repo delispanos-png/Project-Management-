@@ -10547,6 +10547,8 @@ case 'save_lead':
         if (!$l || (!$FULL && (int) $l->assignee !== $adminId && (int) $l->created_by !== $adminId)) {
             fail('lead', 403);
         }
+    } elseif (trim((string) ($in['company'] ?? '')) === '' && trim((string) ($in['contact'] ?? '')) === '') {
+        fail('Γράψε επωνυμία ή πρόσωπο επαφής');   // μόνο στη δημιουργία — όχι άλλα «Χωρίς όνομα» (05/11/2026)
     }
     $stage = array_key_exists($in['stage'] ?? '', Db::leadStages()) ? $in['stage'] : 'target';
     $data = [
@@ -10563,7 +10565,8 @@ case 'save_lead':
         'value' => ($in['value'] ?? '') !== '' && ($in['value'] ?? '') !== null
             ? round((float) str_replace(',', '.', (string) $in['value']), 2) : null,
         'lost_reason' => mb_substr(trim($in['lostReason'] ?? ''), 0, 190) ?: null,
-        'closed_at' => Db::leadStages()[$stage][2] ? date('Y-m-d H:i:s') : null,
+        /* Το κλείσιμο έγινε ΜΙΑ φορά: μια επεξεργασία κλειστού lead δεν το ξαναχρονολογεί (05/11/2026). */
+        'closed_at' => Db::leadStages()[$stage][2] ? (($lid && !empty($l->closed_at)) ? $l->closed_at : date('Y-m-d H:i:s')) : null,
     ];
     if (!$lid) {
         $data['created_by'] = $adminId;
@@ -11829,15 +11832,19 @@ case 'save_offer':
         }
     } else {
         cnp_offer_create_guard($adminId, $FULL);
+        if (trim((string) ($in['title'] ?? '')) === '') { fail('Γράψε τίτλο προσφοράς'); }   // μόνο στη δημιουργία (05/11/2026)
     }
     $stage = array_key_exists($in['stage'] ?? '', Db::offerStages()) ? $in['stage'] : 'new';
     $data = ['title' => mb_substr(trim($in['title'] ?? ''), 0, 200) ?: 'Χωρίς τίτλο',
         'clientid' => (int) ($in['client'] ?? 0) ?: null,
         'amount' => ($in['amount'] ?? '') !== '' && $in['amount'] !== null ? round((float) $in['amount'], 2) : null,
-        'stage' => $stage, 'assignee' => (int) ($in['assignee'] ?? 0) ?: null,
+        'stage' => $stage,
         'expected_close' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $in['expected'] ?? '') ? $in['expected'] : null,
         'descr' => cnp_clean_html($in['descr'] ?? '', 60000),   // rich-text
-        'closed_at' => Db::offerStages()[$stage][2] ? date('Y-m-d H:i:s') : null];
+        /* Το κλείσιμο έγινε ΜΙΑ φορά: μια επεξεργασία κλειστής προσφοράς δεν το ξαναχρονολογεί (05/11/2026). */
+        'closed_at' => Db::offerStages()[$stage][2] ? (($oid && !empty($o->closed_at)) ? $o->closed_at : date('Y-m-d H:i:s')) : null];
+    /* Η φόρμα δεν έχει πεδίο χειριστή: χωρίς αυτόν τον έλεγχο κάθε αποθήκευση έσβηνε την ανάθεση (05/11/2026). */
+    if (array_key_exists('assignee', $in)) { $data['assignee'] = (int) $in['assignee'] ?: null; }
     if (!$oid) {
         $data['created_by'] = $adminId;
     }
@@ -13738,11 +13745,13 @@ case 'rec_claim':
 /* ================= TICKET INBOX ================= */
 case 'tickets':
     $view = $_GET['view'] ?? 'open';
-    $q = trim($_GET['q'] ?? '');
+    $q = trim(ltrim(trim($_GET['q'] ?? ''), '#'));   // «#690489»: η δίεση δεν είναι μέρος του αριθμού (05/11/2026)
     $fArea = (int) ($_GET['area'] ?? 0);
     $fCause = (int) ($_GET['cause'] ?? 0);
+    /* Αριθμός ticket: ζητάς ΑΥΤΟ το ticket, όπου κι αν είναι — αλλιώς το κλειστό #690489 έδινε 0 στα Ανοιχτά. */
+    if (preg_match('/^\d{3,}$/', $q)) { $view = 'num'; }
     $tq = Capsule::table('tbltickets');
-    if (($fArea || $fCause) && $view !== 'mine' && $view !== 'unassigned') {
+    if (($fArea || $fCause || $view === 'num') && $view !== 'mine' && $view !== 'unassigned') {
         $tq->orderBy('lastreply', 'desc');   // φίλτρο κατηγορίας: όλα τα statuses
     } elseif ($view === 'closed') {
         $tq->where('status', 'Closed')->orderBy('lastreply', 'desc');
@@ -13759,9 +13768,24 @@ case 'tickets':
     }
     if ($q !== '') {
         $like = '%' . $q . '%';
-        $tq->where(function ($w) use ($like) {
-            $w->where('title', 'like', $like)->orWhere('tid', 'like', $like)->orWhere('name', 'like', $like);
+        /* Το tbltickets.name είναι κενό στα tickets πελατών (305 από 335): ο πελάτης βρίσκεται μόνο από το
+           tblclients (05/11/2026). Υποερώτημα, όχι join: το `status`/`id` θα γινόταν αμφίσημο. Το WHMCS
+           κρατά το & ως &amp; — γι' αυτό και δεύτερη μορφή του ερωτήματος στην επωνυμία. */
+        $likeEnc = '%' . htmlspecialchars($q, ENT_QUOTES, 'UTF-8') . '%';
+        $tq->where(function ($w) use ($like, $likeEnc) {
+            $w->where('title', 'like', $like)->orWhere('tid', 'like', $like)->orWhere('name', 'like', $like)
+                ->orWhereIn('userid', function ($sub) use ($like, $likeEnc) {
+                    $sub->select('id')->from('tblclients')->where('companyname', 'like', $like)->orWhere('companyname', 'like', $likeEnc)
+                        ->orWhere('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
+                        ->orWhereRaw("CONCAT(firstname, ' ', lastname) LIKE ?", [$like]);
+                });
         });
+    }
+    /* «Περιμένουν εμάς/πελάτη» ΠΡΙΝ το όριο (05/11/2026): πριν έπεφταν μετά το limit(100) και όποιο
+       ticket ήταν πέρα από τα 100 τελευταία δεν φαινόταν ποτέ. Ίδιος κανόνας με το $waiting πιο κάτω. */
+    if ($view === 'waiting' || $view === 'wclient') {
+        $tq->whereRaw("COALESCE((SELECT r.admin FROM tblticketreplies r WHERE r.tid = tbltickets.id ORDER BY r.id DESC LIMIT 1), '') "
+            . ($view === 'waiting' ? "= ''" : "<> ''"));
     }
     if ($fArea || $fCause) {
         $tq->whereIn('tbltickets.id', function ($sub) use ($fArea, $fCause) {
@@ -13770,8 +13794,11 @@ case 'tickets':
             if ($fCause) { $sub->where('cause_id', $fCause); }
         });
     }
-    $rows = $tq->limit(100)->get(['id', 'tid', 'did', 'userid', 'name', 'title', 'status', 'urgency',
+    /* 101 για να ξέρουμε αν υπάρχουν κι άλλα — η οθόνη το λέει, αντί να μοιάζει με σύνολο (05/11/2026). */
+    $rows = $tq->limit(101)->get(['id', 'tid', 'did', 'userid', 'name', 'title', 'status', 'urgency',
         'date', 'lastreply', 'flag', 'adminunread', 'clientunread']);
+    $moreT = count($rows) > 100;
+    if ($moreT) { $rows = $rows->slice(0, 100)->values(); }
     $classMap = [];
     if (count($rows)) {
         foreach (Capsule::table('mod_cpm_ticket_class')->whereIn('ticketid', $rows->pluck('id')->all())->get() as $cl) {
@@ -13822,7 +13849,7 @@ case 'tickets':
     /* Τα χρώματα καταστάσεων τα χρειάζεται ΚΑΙ η λίστα (21/9/2026): χωρίς αυτά η οθόνη
        έσκαγε σε κάθε προβολή με tickets. */
     $stColL = Capsule::table('tblticketstatuses')->pluck('color', 'title')->all();
-    out(['statusColors' => $stColL, 'tickets' => $list, 'cats' => cnp_ticket_cats()]);
+    out(['statusColors' => $stColL, 'tickets' => $list, 'more' => $moreT, 'cats' => cnp_ticket_cats()]);
 
 case 'ticket':
     $tid = (int) ($_GET['id'] ?? 0);
@@ -15511,13 +15538,19 @@ case 'ticket_update':
         $upd['status'] = $in['status'];
     }
     if ($FULL && array_key_exists('flag', $in)) {
-        $upd['flag'] = (int) $in['flag']; // ανάθεση: μόνο διαχειριστές
+        /* flag 0 το UpdateTicket το αγνοεί: η ανάθεση αφαιρείται ΜΟΝΟ με removeFlag (05/11/2026) */
+        if ((int) $in['flag']) { $upd['flag'] = (int) $in['flag']; } else { $upd['removeFlag'] = true; } // ανάθεση: μόνο διαχειριστές
     }
     if ($FULL && array_key_exists('urgency', $in) && in_array($in['urgency'], ['Low', 'Medium', 'High'], true)) {
         $upd['priority'] = $in['urgency'];
     }
     $uname = Capsule::table('tbladmins')->where('id', $adminId)->value('username');
     $r = localAPI('UpdateTicket', $upd, $uname);
+    /* Το updateticket.php είναι κρυπτογραφημένο: επιβεβαίωση από τη βάση, να μη λέμε «αφαιρέθηκε» χωρίς να έγινε. */
+    if (($r['result'] ?? '') === 'success' && !empty($upd['removeFlag'])
+        && (int) Capsule::table('tbltickets')->where('id', $tid)->value('flag') !== 0) {
+        out(['ok' => false, 'msg' => 'Το WHMCS δεν αφαίρεσε την ανάθεση']);
+    }
     /* Ο trigger ticket_status ήταν τεκμηριωμένος αλλά δεν πυροδοτούνταν ΠΟΤΕ —
        όποιος έφτιαχνε κανόνα πάνω του δεν θα καταλάβαινε γιατί δεν τρέχει. */
     if (($r['result'] ?? '') === 'success' && isset($upd['status'])) {
@@ -15621,9 +15654,14 @@ case 'ticket_delete':
 case 'ticket_note':
     $tid = (int) ($in['ticket'] ?? 0);
     $msg = trim($in['body'] ?? '');
-    $tk = Capsule::table('tbltickets')->where('id', $tid)->first(['tid', 'title', 'did']);
+    $tk = Capsule::table('tbltickets')->where('id', $tid)->first(['tid', 'title', 'did', 'flag']);
     if (!$tk || $msg === '') {
         fail('input');
+    }
+    /* Ίδιος κανόνας με ticket/ticket_reply/ticket_update (05/11/2026): χωρίς αυτόν, χειριστής έγραφε
+       σε ξένο ticket και μάλιστα δημιουργούσε εργασία πάνω του. Δικό του ή χωρίς ανάθεση = ΟΚ. */
+    if (!$FULL && (int) $tk->flag !== $adminId && (int) $tk->flag !== 0) {
+        fail('Το ticket είναι ανατεθειμένο σε άλλον', 403);
     }
     $task = Db::taskForTicket($tid);
     if (!$task) {

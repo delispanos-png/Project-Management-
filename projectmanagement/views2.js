@@ -1234,10 +1234,13 @@ function openOffer(o, d) {
   $('#dX').onclick = () => cnpAskClose(dr);
   clientAuto('oClient', 'oCliL', 'oClientId');
   $('#oSave', dr).onclick = async () => {
+    /* Άδεια φόρμα = όχι εγγραφή: πριν γεννιόταν προσφορά «Χωρίς τίτλο» (05/11/2026). */
+    if (!$('#oTitle').value.trim()) { toast('Γράψε τίτλο προσφοράς', true); $('#oTitle').focus(); return; }
     const forTask = openOffer._task || 0; openOffer._task = 0;
-    await api('save_offer', {offer: o.id || 0, title: $('#oTitle').value, client: +$('#oClientId').value || 0,
+    const r = await api('save_offer', {offer: o.id || 0, title: $('#oTitle').value, client: +$('#oClientId').value || 0,
       amount: $('#oAmount').value !== '' ? +$('#oAmount').value : null, stage: $('#oStage').value,
-      expected: $('#oExp').value || null, descr: rteVal('oDescr'), task: forTask});
+      expected: $('#oExp').value || null, descr: rteVal('oDescr'), task: forTask}).catch(e => ({err: e.message}));
+    if (r.err) { openOffer._task = forTask; toast(r.err, true); return; }
     toast(forTask ? 'Αποθηκεύτηκε και δέθηκε με την εργασία #' + forTask : 'Αποθηκεύτηκε'); closeDrawer();
     if (forTask && window.CNP.openTask) { window.CNP.openTask(forTask); } else { R.offers(); }
   };
