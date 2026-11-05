@@ -4810,6 +4810,8 @@ function cnp_open_actions()
     return [
         // σύνδεση/σφυγμός
         'boot', 'version', 'presence_sweep', 'topstats', 'notifs', 'notif_read', 'push_pubkey', 'push_subscribe',
+        // καταγραφή σφάλματος οθόνης στο error_log — αφορά τον ίδιο τον χρήστη, δεν γράφει στη βάση
+        'client_err',
         'push_unsubscribe', 'push_latest', 'ksearch', 'search', 'mynext',
         // Η μέρα μου / πλάνο / χρόνος μου
         'myday', 'my_todos', 'todos_list', 'todo_add', 'todo_update', 'todo_reorder',
@@ -20584,6 +20586,14 @@ case 'supervised':                      // 👁 Επιβλέπω: οι εργα�
     out(['tasks' => $outSv, 'which' => $which,
         'counts' => ['open' => (int) Capsule::table('mod_cpm_tasks')->where('created_by', $adminId)->whereNotIn('status_id', $doneSv)->count(),
                      'done' => (int) Capsule::table('mod_cpm_tasks')->where('created_by', $adminId)->whereIn('status_id', $doneSv)->count()]]);
+
+case 'client_err':
+    /* Σφάλμα JS από τον browser χειριστή → error_log, για να βρίσκεται η αιτία (cnpFatal στο app.js). */
+    $ceClean = function ($v, $n) { return mb_substr(preg_replace('/[\r\n\t]+/', ' ', (string) $v), 0, $n); };
+    error_log('[CNP client] admin=' . $adminId . ' view=' . $ceClean($in['view'] ?? '', 40)
+        . ' build=' . $ceClean($in['build'] ?? '', 30) . ' msg=' . $ceClean($in['msg'] ?? '', 300)
+        . ' stack=' . $ceClean($in['stack'] ?? '', 900));
+    out(['ok' => true]);
 
 case 'version':
     /* Ο σφυγμός κάθε 12" είναι ό,τι πιο αξιόπιστο έχουμε για «είναι μπροστά στην

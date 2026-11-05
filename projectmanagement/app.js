@@ -388,9 +388,17 @@ function toastDo(msg, actions, ms) {
    κάνω, δεν καταχωρεί»). Σχεδόν πάντα η αιτία είναι καρτέλα που έμεινε ανοιχτή
    πάνω σε παλιά έκδοση, γι' αυτό λέμε ΚΑΙ τι να κάνει. */
 let _cnpErrAt = 0;
-function cnpFatal(msg) {
+function cnpFatal(msg, stack) {
   if (Date.now() - _cnpErrAt < 60000) { return; }     // όχι καταιγισμός
   _cnpErrAt = Date.now();
+  /* (05/11/2026) Το ΠΡΑΓΜΑΤΙΚΟ σφάλμα πάει και στον server (error_log: «[CNP client]»): χωρίς
+     αυτό, η κόκκινη κάρτα έμενε στον browser του χρήστη και η αιτία δεν βρισκόταν ποτέ. */
+  try {
+    fetch('api.php?a=client_err', {method: 'POST', credentials: 'same-origin', keepalive: true,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({msg: String(msg).slice(0, 300), stack: String(stack || '').slice(0, 900),
+        view: (typeof S !== 'undefined' && S.view) || '', build: window.CNP_BUILD || ''})}).catch(() => {});
+  } catch (e) { /* ignore */ }
   try { toast('Σφάλμα στην οθόνη — οι αλλαγές ίσως δεν αποθηκεύονται. Ανανέωσε (Ctrl+Shift+R).', true); } catch (e) { /* ignore */ }
   /* (04/11/2026) ΟΧΙ πια η κάρτα «Νέα έκδοση» εδώ: έβγαινε σε κάθε σφάλμα, χωρίς να έχει
      αλλάξει κώδικας. Η κάρτα βγαίνει ΜΟΝΟ όταν ο server πει ότι άλλαξε η έκδοση. */
@@ -402,12 +410,21 @@ window.addEventListener('error', e => {
   const m = (e && e.message) || '', f = (e && e.filename) || '';
   if (!f || f.indexOf(location.origin + '/project/') !== 0) { return; }
   if (/ResizeObserver loop|Script error\.?$/i.test(m)) { return; }
-  cnpFatal(m || 'error');
+  cnpFatal(m || 'error', e.error && e.error.stack);
 });
 window.addEventListener('unhandledrejection', e => {
   const r = e && e.reason;
   if (r && (r.message === 'auth' || String(r).includes('auth'))) { return; }   // το login το χειρίζεται το api()
-  cnpFatal((r && r.message) || String(r));
+  const m = String((r && r.message) || r || '');
+  /* (05/11/2026) ΟΧΙ «σφάλμα οθόνης» για ό,τι δεν είναι σφάλμα του κώδικά μας:
+     1) ο server απάντησε με λόγο (r.data, π.χ. «δεν επιτρέπεται»): το λέμε όπως είναι.
+     2) δίκτυο: κόψιμο, αναμονή υπολογιστή, αίτημα που κόπηκε από φόρτωση σελίδας. Ξαναδοκιμάζεται μόνο του.
+     3) ξένος κώδικας (επεκτάσεις browser): στοίβα χωρίς κανένα δικό μας αρχείο. */
+  if (r && r.data) { try { toast(m, true); } catch (x) { /* ignore */ } return; }
+  if (/failed to fetch|networkerror|load failed|network request|aborterror|aborted|the operation was aborted|σφάλμα διακομιστή/i.test(m + ' ' + ((r && r.name) || ''))) { return; }
+  const st = String((r && r.stack) || '');
+  if (st.indexOf('/project/') < 0) { return; }
+  cnpFatal(m, st);
 });
 
 const adminName = id => (S.boot.admins.find(a => a.id === +id) || {}).name || '—';
