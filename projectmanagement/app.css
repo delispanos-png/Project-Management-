@@ -141,6 +141,7 @@ button{font-family:inherit}
 .card-h{padding:13px 18px;border-bottom:1px solid var(--line);font-weight:700;color:var(--ink);
   display:flex;align-items:center;gap:10px}
 .card-b{padding:15px 18px}
+@media (max-width:768px){.tpl-h{flex-wrap:wrap}}
 .btn{display:inline-flex;align-items:center;gap:7px;padding:7.5px 14px;border-radius:8px;font-size:13px;font-weight:600;
   border:1px solid transparent;cursor:pointer;transition:background .14s,border-color .14s,color .14s;background:var(--card);color:var(--txt)}
 .btn:active{opacity:.85}
@@ -1015,10 +1016,11 @@ button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
   /* ── off-canvas sidebar (drawer) ── */
   .side{position:fixed;top:0;left:0;height:100dvh;width:min(86vw,300px);flex-basis:auto;z-index:40;
     transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,.9,.25,1);
-    box-shadow:8px 0 44px rgba(0,0,0,.5);padding:16px 12px;overflow-y:auto;gap:2px}
+    padding:16px 12px;overflow-y:auto;gap:2px}
   .side .sitem{justify-content:flex-start;padding:12px 12px}
   .side .brand{justify-content:flex-start}
-  .shell.nav-open .side{transform:none}
+  /* Η σκιά ΜΟΝΟ ανοιχτό (05/11/2026): κλειστό, έβγαινε από την άκρη ως γκρι λωρίδα σε όλες τις οθόνες. */
+  .shell.nav-open .side{transform:none;box-shadow:8px 0 44px rgba(0,0,0,.5)}
   .shell.nav-open .side-scrim{opacity:1;visibility:visible}
   .side-scrim{display:block}
   .main{width:100%;min-width:0}
@@ -1485,7 +1487,7 @@ button.sgroup .chev{opacity:.6;transition:transform .18s ease;flex:none}
 #c3Res .trow[data-c]{cursor:pointer;padding:12px 14px}
 @media (max-width:768px){
   .c3-hero{flex-wrap:wrap;padding:14px}
-  .c3-hero-acts{flex-basis:100%;justify-content:flex-start;margin-top:6px}
+  .c3-hero-acts{flex-basis:100%;flex-wrap:wrap;min-width:0;justify-content:flex-start;margin-top:6px}
   .c3-hero-name{font-size:17px}
 }
 
@@ -3943,7 +3945,9 @@ html[data-theme="dark"] .bk-due{color:#e0aa5c;border-color:#4a3a1c;background:#2
 .rt-row{display:flex;gap:12px;align-items:baseline;padding:7px 10px;border-radius:9px;background:var(--canvas);border:1px solid var(--line);font-size:12.5px;flex-wrap:wrap}
 .rt-at{flex:0 0 92px;font-size:11.5px}.rt-who{flex:0 0 230px;display:flex;flex-direction:column;min-width:0}.rt-who .mut{font-size:11px}
 .rt-dec{flex:0 0 190px;font-weight:600}.rt-why{flex:1;min-width:200px;font-size:11.5px}
-@media (max-width:768px){.rt-who,.rt-dec{flex-basis:auto}}
+@media (max-width:768px){.rt-who,.rt-dec{flex-basis:auto}
+  .rt-who{max-width:100%}.rt-who a,.rt-who b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rt-why{min-width:0;flex-basis:100%}}
 .pbx-aitk{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:#16a26a22;color:#16a26a;text-decoration:none}
 .pbx-aitk.bad{background:#e2515f22;color:#e2515f}
 

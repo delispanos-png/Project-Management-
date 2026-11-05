@@ -967,7 +967,7 @@ R.templates = async function () {
       ${d.canDelete ? `<button class="btn btn-sm btn-o" data-sdel="${s2.id}" style="color:var(--bad)">✕</button>` : ''}</td>` : ''}</tr>`;
 
   const card = tp => `<div class="card" style="border-top:4px solid ${tp.color}">
-    <div class="card-h" style="gap:9px">
+    <div class="card-h tpl-h" style="gap:9px">
       <b>${esc(tp.name)}</b>
       ${tp.productName ? `<span class="pill pill-info" title="Προϊόν WHMCS">${I.box} ${esc(tp.productName)}</span>` : '<span class="pill pill-mut" title="Δεν έχει δεθεί με προϊόν WHMCS">χωρίς προϊόν</span>'}
       ${tp.category ? `<span class="pill pill-mut">${esc(tp.category)}</span>` : ''}
