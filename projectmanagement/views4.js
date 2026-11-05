@@ -20,6 +20,7 @@ const R = window.R;
       if (map[k]) { e.preventDefault(); go(map[k]); }
       return;
     }
+    if (e.defaultPrevented) return;   // το πήρε ο δρομέας της οθόνης (cnpKeyNav): όχι και δεύτερη ενέργεια (05/11/2026)
     if (k === 'g') { gPending = true; gTimer = setTimeout(() => gPending = false, 900); return; }
     if (k === 'n') { e.preventDefault(); quickNew(); }
     if (k === 'v') { e.preventDefault(); quickCall(); }   // v = τηλεφωνική επικοινωνία
@@ -392,7 +393,7 @@ function gdImport(ref) {
 
   const ovl = document.createElement('div');
   ovl.className = 'ovl show';
-  ovl.style.zIndex = (window.CNP.cnpTopZ ? window.CNP.cnpTopZ() : 300) + 10;
+  ovl.style.zIndex = window.CNP.cnpTopZ() + 10;
   ovl.innerHTML = `<div class="pal-box gd-box" role="dialog" aria-label="Εισαγωγή από GoodDay" onclick="event.stopPropagation()">
     <div class="gd-h"><b>⇣ Εισαγωγή από GoodDay</b>
       <span class="mut">νέα εργασία με όλο το ιστορικό μηνυμάτων</span></div>
@@ -631,7 +632,7 @@ function gdLink(taskId, opt) {
   let pv = null, busy = false;
   const ovl = document.createElement('div');
   ovl.className = 'ovl show';
-  ovl.style.zIndex = (window.CNP.cnpTopZ ? window.CNP.cnpTopZ() : 300) + 10;
+  ovl.style.zIndex = window.CNP.cnpTopZ() + 10;
   ovl.innerHTML = `<div class="pal-box gd-box" role="dialog" aria-label="Σύνδεση με GoodDay" onclick="event.stopPropagation()">
     <div class="gd-h"><b>🔗 Σύνδεση της #${taskId} με εργασία GoodDay</b>
       <span class="mut">η εργασία μένει ίδια — προστίθενται ιστορικό, αρχεία, υποεργασίες και όσα πεδία διαλέξεις</span></div>

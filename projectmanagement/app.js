@@ -379,11 +379,11 @@ async function api(a, data) {
   const r = await fetch('api.php?a=' + a + (data ? '' : '&_=' + Date.now()), {credentials: 'same-origin', ...opt});
   if (r.status === 401) { location.href = '/cloudonadminpanel/addonmodules.php?module=cloudonprojects&pmlaunch=1'; throw new Error('auth'); }
   /* Αν ο server δεν έστειλε JSON (σελίδα σφάλματος), δείξε κατανοητό μήνυμα — όχι «Unexpected token '<'». */
-  if (!/json/i.test(r.headers.get('content-type') || '')) { const e = new Error('Σφάλμα διακομιστή (HTTP ' + r.status + ') — δοκίμασε ξανά σε λίγο'); e.data = {}; throw e; }
+  if (!/json/i.test(r.headers.get('content-type') || '')) { const e = new Error('Σφάλμα διακομιστή (HTTP ' + r.status + ') — δοκίμασε ξανά σε λίγο'); e.data = {}; e.status = r.status; throw e; }
   const j = await r.json();
   /* Το σφάλμα κουβαλά ΟΛΟ το σώμα: ο server στέλνει και δομημένα πεδία (π.χ.
      need:'due') που το UI χρειάζεται για να αντιδράσει, όχι μόνο το μήνυμα. */
-  if (j.error) { const e = new Error(j.error); e.data = j; throw e; }
+  if (j.error) { const e = new Error(j.error); e.data = j; e.status = r.status; throw e; }   // status: 403 = άρνηση (05/11/2026)
   if (data && !CNP_NOSYNC.has(a)) { cnpAnnounce(a, data); }
   return j;
 }
@@ -3508,7 +3508,25 @@ function cnpRenderPins() {
 }
 /** Κλικ που ο browser πρέπει να ανοίξει ΜΟΝΟΣ του σε νέα καρτέλα/παράθυρο (Ctrl/⌘/Shift/μεσαίο). */
 function cnpNewTabClick(e) { return !!(e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0))); }
+/** Πλοήγηση σε εξέλιξη (05/11/2026): `const stale = cnpNavGuard(); … await …; if (stale()) { return; }`
+    Το #content είναι ήδη φυλαγμένο από το go(). Αυτό χρειάζεται μόνο ό,τι μια οθόνη κάνει ΕΚΤΟΣ
+    #content μετά από await (τίτλος, πλήκτρα, στήσιμο χρονομέτρων). */
+function cnpNavGuard() { const n = S.navSeq; return () => n !== S.navSeq; }
+/** Οθόνη που δεν υπάρχει (παλιός σύνδεσμος): καταλήγει στη «Η μέρα μου», αλλά το ΛΕΕΙ (05/11/2026). */
+function cnpNoView(view) {
+  if (view === 'leave' || view === 'myleave') {   // καταργημένο κύκλωμα· δεν είναι σφάλμα του χρήστη
+    toastDo('Οι άδειες δεν καταχωρούνται πια εδώ· απουσία = σήμανση «Άδεια» στο Ημερολόγιο.', [], 6000);
+  } else { toast('Η οθόνη «' + view + '» δεν υπάρχει — σε πήγαμε στη «Η μέρα μου»', true); }
+}
 function go(view, arg) {
+  if (!(window.R && window.R[view])) { cnpNoView(view); view = 'myday'; arg = undefined; }
+  /* ΜΙΑ ΠΛΟΗΓΗΣΗ, ΜΙΑ ΟΘΟΝΗ (05/11/2026). Κάθε οθόνη κρατά το $('#content'), περιμένει τα δεδομένα
+     και μετά γράφει — αν στο μεταξύ πήγες αλλού, η αργή παλιά οθόνη ζωγράφιζε ΠΑΝΩ στην τωρινή.
+     Κάθε πλοήγηση βάζει ΝΕΟ #content (ίδια id/κλάσεις, με μεταφορά των παιδιών ώστε να μη
+     «αναβοσβήνει»)· ό,τι κρατά το παλιό γράφει σε αποκομμένο στοιχείο και δεν φαίνεται πουθενά. */
+  S.navSeq = (S.navSeq || 0) + 1;
+  const navSeq = S.navSeq;
+  if (CNP_KB) { CNP_KB.destroy(); }   // τα πλήκτρα μιας οθόνης τελειώνουν μαζί της (το «n» έμενε ενεργό παντού)
   if (view !== 'list' && view !== 'feed') { document.querySelectorAll('.lv-side').forEach(x => x.remove()); document.body.classList.remove('lv-side-on'); }
   S.view = view;
   S.viewArg = arg ? String(arg) : '';
@@ -3522,7 +3540,10 @@ function go(view, arg) {
     }
   });
   document.body.classList.remove('detail-open');   // νέα οθόνη → επαναφορά tab bar
-  const c = $('#content'); c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
+  const c0 = $('#content'), c = c0.cloneNode(false);
+  c0.replaceWith(c);
+  while (c0.firstChild) { c.appendChild(c0.firstChild); }
+  c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
   c.scrollTop = 0;   // νέα οθόνη → ξεκίνα από την κορυφή (όπως σε native app)
   /* Deep link ή bookmark σε οθόνη χωρίς δικαίωμα: δείξε καθαρό μήνυμα αντί να
      σκάσει ανεπιτήρητο σφάλμα. */
@@ -3530,15 +3551,12 @@ function go(view, arg) {
     const r = ((window.R && window.R[view]) || vMyDay)(arg);
     if (r && typeof r.catch === 'function') {
       r.catch(err => {
-        const msg = String((err && err.message) || '');
-        c.innerHTML = /πρόσβαση|forbidden|perm/i.test(msg)
-          ? `<div class="empty"><div class="big">${I.lock}</div>${esc(msg)}
-              <div class="mut" style="font-size:12.5px;margin-top:8px">Επίλεξε άλλη οθόνη από το μενού.</div></div>`
-          : `<div class="empty"><div class="big">⚠️</div>Κάτι πήγε στραβά${msg ? ': ' + esc(msg) : ''}.</div>`;
+        if (navSeq !== S.navSeq) { return; }   // το σφάλμα αφορά οθόνη που άφησες (05/11/2026)
+        c.innerHTML = cnpDenied(err);
       });
     }
   } catch (e) {
-    c.innerHTML = `<div class="empty"><div class="big">⚠️</div>Κάτι πήγε στραβά.</div>`;
+    if (navSeq === S.navSeq) { c.innerHTML = `<div class="empty"><div class="big">⚠️</div>Κάτι πήγε στραβά.</div>`; }
   }
   if (typeof loadTopStats === 'function') { loadTopStats(); }
 }
@@ -3618,14 +3636,14 @@ async function vBoard(arg) {
      και η οθόνη έδειχνε το board ΑΛΛΟΥ ΠΕΛΑΤΗ, χωρίς καμία ένδειξη. Συνέβαινε σε
      κάθε έργο που φτιάχτηκε αφότου άνοιξε η καρτέλα. Τώρα πρώτα ρωτάμε τον server,
      και αν πάλι δεν υπάρχει το λέμε — δεν ανοίγουμε ξένο έργο. */
-  if (arg && S.project && !known()) { await cnpRefreshProjects(); }
+  if (arg && S.project && !known()) { const stale = cnpNavGuard(); await cnpRefreshProjects(); if (stale()) { return; } }
   if (arg && S.project && !known()) {
     setTop('Board');
     $('#content').innerHTML = `<div class="empty"><div class="big">${I.lock}</div>
       <b style="color:var(--ink);font-size:15px">Αυτό το έργο δεν είναι διαθέσιμο</b>
       <div class="mut" style="font-size:12.5px;margin-top:8px;max-width:440px;margin-inline:auto;line-height:1.7">
         Το έργο #${esc(String(+S.project))} είτε διαγράφηκε είτε δεν σου έχει δοθεί πρόσβαση.
-        Δες τα δικά σου στο <a href="#/portfolio">Χαρτοφυλάκιο</a>.</div></div>`;
+        Δες τα δικά σου στο <a href="#/projects">Χαρτοφυλάκιο</a>.</div></div>`;
     S.project = 0;
     return;
   }
@@ -6541,11 +6559,13 @@ async function vMyDay() {
   setTop('Η μέρα μου', _g + ', ' + me.name.split(' ')[0] + ' ' + _e);
   const c = $('#content');
   cnpSkel(c, '<div class="myd-wrap"><div class="skel" style="height:96px;margin-bottom:14px"></div><div class="myd-cols"><div><div class="skel" style="height:220px"></div></div><div><div class="skel" style="height:220px"></div></div></div></div>');
+  const stale = cnpNavGuard();
   const [d, mt, ovr] = await Promise.all([
     api('myday'),
     api('my_todos').catch(() => ({todos: []})),
     api('overruns').catch(() => ({items: []})),
   ]);
+  if (stale()) { return; }   // έφυγες: όχι στήσιμο πλήκτρων/χρονομέτρων για οθόνη που δεν φαίνεται
   const todos = mt.todos || [], overruns = ovr.items || [], pend = d.pending || {help: [], meetings: [], mine: []};
   const st = d.stats || {}, TODAY = today(), fin = doneStatus();
   const dayName = new Date().toLocaleDateString('el-GR', {weekday: 'long', day: 'numeric', month: 'long'});
@@ -7431,9 +7451,17 @@ function cnpCan(cap) {
   return (me.areas || []).includes(cap.includes(".") ? cap.split(".")[0] : cap);
 }
 
+/** Μήνυμα οθόνης που δεν φορτώθηκε. Κριτήριο το 403 του server, όχι το κείμενο (05/11/2026): η
+    παλιά δοκιμή /πρόσβαση|forbidden|perm/ δεν έπιανε το «δικαίωμα». Σφάλμα δικτύου/διακομιστή ΔΕΝ
+    είναι άρνηση: χωρίς λουκέτο και χωρίς «ζήτησέ το από διαχειριστή». Απλό {message} = άρνηση από την οθόνη. */
 function cnpDenied(err) {
-  const msg = (err && err.message) || '';
-  return `<div class="empty"><div class="big">${I.lock}</div>${esc(msg) || 'Δεν έχεις πρόσβαση σε αυτή την οθόνη'}
+  const msg = String((err && err.message) || '');
+  if (err instanceof Error && err.status !== 403) {
+    return `<div class="empty"><div class="big">⚠️</div>${esc(err.status ? msg || 'Κάτι πήγε στραβά' : 'Η οθόνη δεν φορτώθηκε — έλεγξε τη σύνδεση')}
+      <div class="mut" style="font-size:12.5px;margin-top:8px">Δοκίμασε ξανά σε λίγο ή επίλεξε άλλη οθόνη από το μενού.</div></div>`;
+  }
+  /* κωδικοί του server χωρίς κενό («task», «project») δεν είναι μήνυμα για άνθρωπο */
+  return `<div class="empty"><div class="big">${I.lock}</div>${/\s/.test(msg) ? esc(msg) : 'Δεν έχεις πρόσβαση σε αυτή την οθόνη'}
     <div class="mut" style="font-size:12.5px;margin-top:8px">Τα δικαιώματα δίνονται από τις ομάδες — ζήτησέ το από διαχειριστή.</div></div>`;
 }
 /* ═══ Αναζήτηση παντού (Ctrl+K) ═══
@@ -8274,7 +8302,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
+window.CNP = {S, api, esc, cnpTopZ, cnpNavGuard, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
@@ -8303,6 +8331,9 @@ window.CNP = {S, api, esc, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpP
   /* Η παράμετρος ΔΕΝ είναι πάντα αριθμός: η «Κίνηση πελάτη» λέει αν μιλάμε για
      πελάτη WHMCS ή για καρτέλα καταλόγου (c212 / b447). Με μόνο ψηφία, ο
      σύνδεσμος έχανε το όρισμα και άνοιγε άδεια οθόνη. */
+  /* Οι οθόνες ζουν σε ΞΕΧΩΡΙΣΤΑ modules: αν το boot προλάβει το τελευταίο, ο σύνδεσμος θα έπεφτε
+     σε «δεν υπάρχει» ενώ η οθόνη απλώς δεν έχει φορτώσει ακόμη (05/11/2026). */
+  if (document.readyState === 'loading') { await new Promise(res => document.addEventListener('DOMContentLoaded', res, {once: true})); }
   const m = location.hash.match(/^#\/(\w+)(?:\/([\w-]+))?/);
   if (m && m[1] === 'task' && m[2]) {          // deep-link από email/παλιά URLs
     const em0 = location.hash.match(/\/e\/(\d+)/);   // …/e/45 = συγκεκριμένη ενέργεια
