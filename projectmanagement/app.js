@@ -2488,12 +2488,9 @@ async function cnpPasteImage(el, file) {
   const sel = window.getSelection();
   const range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
   toast('Ανέβασμα εικόνας…');
-  const fd = new FormData();
-  fd.append('module', 'task'); fd.append('ref_type', 'rte'); fd.append('ref_id', '0');
-  fd.append('file', file);
-  const r = await fetch('api.php?a=file_upload', {method: 'POST', body: fd, credentials: 'same-origin'})
-    .then(x => x.json()).catch(() => null);
-  if (!r || !r.file) { toast('Η εικόνα δεν ανέβηκε', true); return false; }
+  /* Μέσω cnpUploadFile (05/11/2026): το multipart έκοβε τα μεγάλα screenshots στα 8MB της PHP. */
+  const r = await cnpUploadFile(file, {module: 'task', ref_type: 'rte', ref_id: 0});
+  if (!r.file) { toast('Η εικόνα δεν ανέβηκε: ' + r.err, true); return false; }
   el.focus();
   if (range) { sel.removeAllRanges(); sel.addRange(range); }
   document.execCommand('insertHTML', false,

@@ -3479,6 +3479,8 @@ function cnp_file_obj_ok($adminId, $FULL, $module, $refType, $refId, $write = fa
 {
     if ($FULL) { return true; }
     $refType = (string) $refType; $refId = (int) $refId;
+    /* Αρχείο βιβλιοθήκης στο S3 (05/11/2026): ανεβαίνει ΠΡΙΝ υπάρξει τεκμήριο (ref_id 0) και το δένει το lib_upload. */
+    if ($module === 'library' && $refType === 'file' && !$refId && $write) { return true; }
     if ($module === 'library') { return cnp_lib_can($adminId, $refId, $write); }
     if ($module === 'chat') { return $refType !== '' && cnp_chat_access($refType, $adminId); }
     if ($module === 'project') { return !$refId || Db::canSeeProject($adminId, $refId); }
@@ -14021,6 +14023,10 @@ case 'ticket':
         'statuses' => $statuses, 'statusColors' => $statusColors]);
 
 case 'ticket_reply':
+    /* Πάνω από post_max_size η PHP αδειάζει $_POST/$_FILES — έβγαινε σκέτο «input» (05/11/2026). */
+    if (empty($_FILES) && empty($_POST) && stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/') === 0) {
+        fail('Πολύ μεγάλα συνημμένα για τον server (όριο ' . ini_get('post_max_size') . ' συνολικά)', 400);
+    }
     if (!empty($_FILES)) {          // multipart (με συνημμένα) → πεδία από $_POST
         $in = $_POST;
     }
@@ -14046,7 +14052,9 @@ case 'ticket_reply':
             $err = is_array($ff['error']) ? $ff['error'][$k] : $ff['error'];
             $sz = is_array($ff['size']) ? $ff['size'][$k] : $ff['size'];
             if ($err !== UPLOAD_ERR_OK) {
-                fail('upload');
+                fail(in_array($err, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)
+                    ? 'Το αρχείο «' . $nm . '» είναι πολύ μεγάλο για τον server (όριο ' . ini_get('upload_max_filesize') . ')'
+                    : 'Σφάλμα ανεβάσματος στο «' . $nm . '»');
             }
             if ($sz > 20 * 1024 * 1024) {
                 fail('Μέγιστο 20MB ανά αρχείο');
@@ -17260,6 +17268,10 @@ case 'chat_del':                        // διαγραφή δικού μου μ
     out(['ok' => true]);
 
 case 'chat_send':
+    /* Πάνω από post_max_size η PHP αδειάζει $_POST/$_FILES — το μήνυμα έφτανε κενό (05/11/2026). */
+    if (empty($_FILES) && empty($_POST) && stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/') === 0) {
+        fail('Πολύ μεγάλο αρχείο για τον server (όριο ' . ini_get('post_max_size') . ')', 400);
+    }
     if (!empty($_FILES)) {
         $in = $_POST;   // multipart με αρχείο
     }
@@ -17273,6 +17285,29 @@ case 'chat_send':
     $sz = null;
     $storageId = null;
     $fmime = null;
+    /* Αρχείο που δεν έφτασε ΔΕΝ πέφτει σιωπηλά (05/11/2026): πριν ανέβαινε μόνο το κείμενο
+       και το συνημμένο χανόταν χωρίς μήνυμα. Το 4 (UPLOAD_ERR_NO_FILE) = απλώς δεν υπάρχει αρχείο. */
+    if (!empty($_FILES['file']) && $_FILES['file']['error'] !== UPLOAD_ERR_OK && $_FILES['file']['error'] !== UPLOAD_ERR_NO_FILE) {
+        fail(in_array($_FILES['file']['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)
+            ? 'Πολύ μεγάλο αρχείο για τον server (όριο ' . ini_get('upload_max_filesize') . ')' : 'Σφάλμα ανεβάσματος', 400);
+    }
+    /* Το αρχείο ανέβηκε ήδη απευθείας στο S3 (cnpUploadFile) — δένεται εδώ με το μήνυμα (05/11/2026). */
+    $chFid = (int) ($in['file_id'] ?? 0);
+    if ($chFid) {
+        $rec = Storage::record($chFid);
+        if (!$rec || $rec['module'] !== 'chat' || $rec['ref_type'] !== $ch || (int) $rec['uploaded_by'] !== $adminId
+            || Capsule::table('mod_cpm_chat')->where('storage_id', $chFid)->exists()) {
+            fail('file', 403);
+        }
+        if ((int) $rec['size'] > 50 * 1024 * 1024) {
+            Storage::delete($chFid);
+            fail('Μέγιστο 50MB (για μεγαλύτερα βίντεο χρησιμοποίησε τα Συνημμένα σε task/CV)');
+        }
+        $fn = mb_substr((string) $rec['orig_name'], 0, 190);
+        $sz = (int) $rec['size'];
+        $fmime = $rec['mime'] ?: 'application/octet-stream';
+        $storageId = $chFid;
+    }
     if (!empty($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
         if ($_FILES['file']['size'] > 50 * 1024 * 1024) {
             fail('Μέγιστο 50MB (για μεγαλύτερα βίντεο χρησιμοποίησε τα Συνημμένα σε task/CV)');
@@ -18247,8 +18282,27 @@ case 'lib_save':
     }
     out(['ok' => true, 'id' => $id]);
 
-case 'lib_upload':                       // multipart
+case 'lib_upload':                       // multipart (παλιά ανοιχτή καρτέλα) ή file_id (S3, 05/11/2026)
+    /* Το αρχείο ανέβηκε ήδη με cnpUploadFile (module library, ref_type file): εδώ φτιάχνεται το
+       τεκμήριο και δένεται. Το lib_get το βρίσκει από το mod_cpm_storage — το `stored` μένει κενό. */
+    if (!empty($in['file_id'])) {
+        $rec = Storage::record((int) $in['file_id']);
+        if (!$rec || $rec['module'] !== 'library' || $rec['ref_type'] !== 'file' || (int) $rec['ref_id'] !== 0
+            || (int) $rec['uploaded_by'] !== $adminId) {
+            fail('forbidden', 403);
+        }
+        if ((int) $rec['size'] > 25 * 1024 * 1024) { Storage::delete((int) $rec['id']); fail('Μέγιστο 25MB'); }
+        $libName = mb_substr((string) $rec['orig_name'], 0, 200);
+        $libId = Capsule::table('mod_cpm_library')->insertGetId(['admin_id' => $adminId, 'kind' => 'file',
+            'title' => mb_substr(trim((string) ($in['title'] ?? '')) ?: $libName, 0, 200), 'filename' => $libName, 'stored' => '',
+            'size' => (int) $rec['size'], 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+        Capsule::table('mod_cpm_storage')->where('id', (int) $rec['id'])->update(['ref_id' => $libId]);
+        out(['ok' => true, 'id' => $libId]);
+    }
     $f = $_FILES['file'] ?? null;
+    if ($f && in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+        fail('Πολύ μεγάλο αρχείο για τον server (όριο ' . ini_get('upload_max_filesize') . ')');
+    }
     if (!$f || $f['error'] !== UPLOAD_ERR_OK) { fail('upload'); }
     if ($f['size'] > 25 * 1024 * 1024) { fail('Μέγιστο 25MB'); }
     $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
@@ -18278,6 +18332,20 @@ case 'manual_img':                       // εικόνες οδηγού (μόν�
 case 'lib_get':
     $r = Capsule::table('mod_cpm_library')->where('id', (int) ($_GET['id'] ?? 0))->first();
     if (!$r || $r->kind !== 'file' || ((int) $r->admin_id !== $adminId && !$r->shared)) { fail('file', 404); }
+    if ($r->stored === '') {                     // νέο: στο Storage (S3/local), χωρίς αρχείο στον δίσκο (05/11/2026)
+        $sidL = (int) Capsule::table('mod_cpm_storage')->where('module', 'library')->where('ref_type', 'file')
+            ->where('ref_id', (int) $r->id)->value('id');
+        $srec = $sidL ? Storage::record($sidL) : null;
+        if (!$srec) { fail('file', 404); }
+        if ($srec['driver'] === 's3') { header('Location: ' . Storage::presign($sidL, 300, true), true, 302); exit; }
+        $stream = Storage::openRead($sidL);
+        if (!$stream) { fail('file', 404); }
+        header('Content-Type: application/octet-stream');
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Disposition: attachment; filename="' . rawurlencode($r->filename) . '"');
+        if ($srec['size']) { header('Content-Length: ' . (int) $srec['size']); }
+        fpassthru($stream); fclose($stream); exit;
+    }
     $path = realpath(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->stored));
     if (!$path || !is_file($path)) { fail('file', 404); }
     header('Content-Type: application/octet-stream');
@@ -18296,6 +18364,9 @@ case 'lib_del':
     $r = Capsule::table('mod_cpm_library')->where('id', (int) ($in['id'] ?? 0))->where('admin_id', $adminId)->first();
     if ($r) {
         if ($r->stored) { @unlink(__DIR__ . '/../attachments/cloudonprojects/' . basename($r->stored)); }
+        foreach (Capsule::table('mod_cpm_storage')->where('module', 'library')->where('ref_type', 'file')->where('ref_id', (int) $r->id)->pluck('id') as $sidL) {
+            try { Storage::delete((int) $sidL); } catch (\Throwable $e) { }
+        }
         Capsule::table('mod_cpm_library')->where('id', $r->id)->delete();
     }
     out(['ok' => true]);

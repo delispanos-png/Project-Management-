@@ -405,12 +405,13 @@ function openEvent(ev, ymRefresh) {
     };
     const addXm = () => {
       const v = $('#evXm', dr).value.trim().toLowerCase();
-      if (!v) { return; }
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Μη έγκυρο email', true); return; }
-      if (xmails.includes(v)) { toast('Υπάρχει ήδη στη λίστα', true); return; }
+      if (!v) { return true; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Μη έγκυρο email', true); return false; }
+      if (xmails.includes(v)) { toast('Υπάρχει ήδη στη λίστα', true); return true; }   // είναι ήδη καλεσμένος — δεν εμποδίζει
       xmails.push(v);
       $('#evXm', dr).value = '';
       renderXm();
+      return true;
     };
     renderXm();
     $('#evXmAdd', dr).onclick = addXm;
@@ -421,8 +422,15 @@ function openEvent(ev, ymRefresh) {
       toast('🎥 Δημιουργήθηκε δωμάτιο CloudOn Meet — το link ισχύει και για πελάτες');
     };
     const ce = $('#evCancelEdit', dr); if (ce) { ce.onclick = () => { editing = false; mount(); }; }
+    /* Μία αποθήκευση τη φορά (05/11/2026): διπλό κλικ έστελνε ΔΥΟ προσκλήσεις στον πελάτη. Το λάθος
+       email ΣΤΑΜΑΤΑ την αποθήκευση — πριν έβγαινε toast και η σύσκεψη έφευγε χωρίς τον καλεσμένο. */
+    let evSaving = false;
     $('#evSave', dr).onclick = async () => {
-      addXm();   // ό,τι έμεινε γραμμένο στο πεδίο email μπαίνει στη λίστα αυτόματα
+      if (evSaving) { return; }
+      if (!addXm()) { return; }   // ό,τι έμεινε γραμμένο στο πεδίο email μπαίνει στη λίστα αυτόματα
+      const sb = $('#evSave', dr);
+      evSaving = true; sb.disabled = true;
+      try {
       const allDay = $('#evAll', dr).checked;
       const send = extra => api('event_save', Object.assign({id: ev.id || 0, kind, title: $('#evT', dr).value,
         start: $('#evD0', dr).value + (allDay ? ' 00:00' : ' ' + $('#evT0', dr).value),
@@ -446,6 +454,7 @@ function openEvent(ev, ymRefresh) {
       }
       if (r.err) { toast(r.err, true); return; }
       toast('Αποθηκεύτηκε 📅'); closeDrawer(); R.calendar(ymRefresh);
+      } finally { evSaving = false; sb.disabled = false; }
     };
   };
 
