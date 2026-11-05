@@ -465,8 +465,11 @@ class Watch
                     . ' χωρίς άνθρωπο — δώσε τ' . (count($orphan) > 1 ? 'ες' : 'ην') . ' σε κάποιον.'];
         }
 
-        /* ΧΩΡΙΣ ΠΡΟΘΕΣΜΙΑ ΚΑΙ ΣΕ ΕΞΕΛΙΞΗ: δουλεύεται κάτι που δεν έχει τέλος. */
+        /* ΧΩΡΙΣ ΠΡΟΘΕΣΜΙΑ ΚΑΙ ΣΕ ΕΞΕΛΙΞΗ: δουλεύεται κάτι που δεν έχει τέλος.
+           (05/11/2026) ΜΙΑ ΘΕΣΗ ΑΝΑ ΕΡΓΑΣΙΑ: όποια είναι ήδη «χωρίς άνθρωπο» δεν ξαναμπαίνει εδώ. */
+        $orphanIds = array_map(function ($x) { return (int) $x->id; }, $orphan);
         $noDue = Capsule::table('mod_cpm_tasks')->whereIn('status_id', Db::statusIds('work'))
+            ->whereNotIn('id', $orphanIds ?: [0])
             ->where(function ($w) { $w->whereNull('due_date')->orWhere('due_date', '0000-00-00'); })
             ->get(['id', 'title'])->all();
         if ($noDue) {
