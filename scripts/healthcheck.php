@@ -329,6 +329,11 @@ section('Δικαιώματα PM — κάλυψη ενεργειών');
     $c0 = strpos($api, 'function cnp_caps('); $c1 = strpos($api, 'function cnp_caps_of(');
     preg_match_all("/^\\s+'([a-z]+\\.[a-z_.]+)'\\s+=>\\s+\\['(view|edit|delete|power)'/m", substr($api, $c0, $c1 - $c0), $kk);
     $used = []; foreach ($mapped as $cap) { foreach (explode('|', $cap) as $k) { $used[$k] = 1; } }
+    /* Φύλακας μέσα στην ενέργεια (05/11/2026): π.χ. cnp_offer_create_guard → cnp_has_cap(..., 'clients.offers.create').
+       Το δικαίωμα ισχύει, απλώς δεν φαίνεται στον χάρτη — ήταν ψεύτικη προειδοποίηση. */
+    if (preg_match_all("/cnp_has_cap\\([^,()]+(?:\\([^()]*\\))?,\\s*[^,()]+(?:\\([^()]*\\))?,\\s*'([a-z_.]+)'\\)/", $api, $gg)) {
+        foreach ($gg[1] as $k) { $used[$k] = 1; }
+    }
     /* Πληροφοριακές δυνατότητες: οι ενέργειές τους κρίνονται row-level (πρόσωπο έγκρισης, δικός σου χρόνος). */
     $infoCaps = ['reports.time' => 1, 'finance.billing_ok' => 1];
     $dead = array_values(array_filter($kk[1], function ($k) use ($used, $infoCaps) { return !isset($used[$k]) && !isset($infoCaps[$k]); }));
