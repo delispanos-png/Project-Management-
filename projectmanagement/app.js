@@ -7171,12 +7171,15 @@ function openLead(l, d) {
     loadLeadExtras(l.id, dr);
   }
   $('#lSave', dr).onclick = async () => {
-    await api('save_lead', {lead: l.id || 0, company: $('#lCompany').value, contact: $('#lContact').value,
+    /* Άδεια φόρμα = όχι εγγραφή: πριν γεννιόταν lead/επαφή «Χωρίς όνομα» (05/11/2026). */
+    if (!$('#lCompany').value.trim() && !$('#lContact').value.trim()) { toast('Γράψε επωνυμία ή πρόσωπο επαφής', true); $('#lCompany').focus(); return; }
+    const r = await api('save_lead', {lead: l.id || 0, company: $('#lCompany').value, contact: $('#lContact').value,
       email: $('#lEmail').value, phone: $('#lPhone').value, source: $('#lSource').value,
       stage: $('#lStage').value, assignee: +$('#lAssignee').value || 0,
       value: $('#lValue').value.trim(), lostReason: $('#lLost').value,
-      next: $('#lNext').value || null, nextNote: $('#lNextNote').value, descr: rteVal('lDescr')});
-    toast('Αποθηκεύτηκε'); closeDrawer(); vCrm();
+      next: $('#lNext').value || null, nextNote: $('#lNextNote').value, descr: rteVal('lDescr')}).catch(e => ({err: e.message}));
+    if (r.err) { toast(r.err, true); return; }
+    toast('Αποθηκεύτηκε'); closeDrawer(); cnpReRender();   // ίδια οθόνη: η «Νέα επαφή» σε γύριζε στο CRM
   };
   const iS = $('#iSave', dr); if (iS) iS.onclick = async () => {
     if (!$('#iSum').value.trim()) return;

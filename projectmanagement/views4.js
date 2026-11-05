@@ -2775,7 +2775,8 @@ R.triage = async function () {
   $$('[data-assign]').forEach(b => b.onclick = async e => {
     e.stopPropagation();
     if (!(await cnpConfirm(`Ανάθεση στον/στην ${b.textContent.trim().slice(2)};`, {title: I.bulb + ' Έξυπνη ανάθεση', ok: 'Ανάθεση'}))) return;
-    await api('ticket_update', {ticket: +b.dataset.assign, flag: +b.dataset.aid});
+    const r = await api('ticket_update', {ticket: +b.dataset.assign, flag: +b.dataset.aid}).catch(er => ({ok: false, msg: er.message}));
+    if (!r.ok) { toast(r.msg || 'Η ανάθεση δεν έγινε', true); return; }   // 200 {ok:false} όταν αρνηθεί το WHMCS (05/11/2026)
     toast('Ανατέθηκε ✓'); R.triage();
   });
   // lazy: επαναλαμβανόμενα + υγεία
