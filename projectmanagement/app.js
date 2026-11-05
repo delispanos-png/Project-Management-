@@ -798,7 +798,9 @@ function renderShell() {
   { const me2 = $('#myMenuEdit'); if (me2) { me2.onclick = () => cnpMyMenu(); } }
   $$('[data-grptoggle]').forEach(b => b.onclick = () => {
     b.closest('.snav-grp').classList.toggle('open');
-    localStorage.cnpNavOpen = JSON.stringify($$('.snav-grp.open').map(x => x.querySelector('.sgroup').dataset.grptoggle));
+    /* Μόνο όσες έχουν κεφαλίδα: η άδεια «Τα views μου» (#snavPins) δεν έχει — έριχνε το
+       κόκκινο «Σφάλμα στην οθόνη» σε κάθε άνοιγμα ενότητας (βρέθηκε από [CNP client], 05/11/2026). */
+    localStorage.cnpNavOpen = JSON.stringify($$('.snav-grp.open > .sgroup').map(x => x.dataset.grptoggle));
   });
   $('#sideTgl').onclick = () => {
     const sh = $('.shell'); const col = sh.classList.toggle('collapsed');
