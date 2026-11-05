@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+!!! ΠΡΟΣΟΧΗ: ΣΤΕΛΝΕΙ ΠΡΑΓΜΑΤΙΚΑ POST ΣΤΗΝ ΠΑΡΑΓΩΓΗ ΩΣ ΚΑΘΕ ΧΕΙΡΙΣΤΗΣ !!!
+Κάθε κλήση είναι αληθινό αίτημα στο my.cloudon.gr με token του χειριστή: τον εμφανίζει
+«online», και ό,τι γράφουν οι ενέργειες του πίνακα PERSONAL κατά την ανάγνωση (π.χ. το
+myday) γράφεται στο όνομά του. Τρέξ' το μόνο γνωρίζοντάς το, ιδανικά εκτός ωραρίου.
+
 ΦΥΛΑΚΑΣ: καμία προσωπική οθόνη δεν δείχνει ξένη δουλειά.
 
 Γιατί υπάρχει
@@ -17,7 +22,8 @@
 
 Χρήση:  python3 dev-check-scope.py            (όλοι οι ενεργοί χειριστές)
         python3 dev-check-scope.py 10 2       (συγκεκριμένοι)
-Έξοδος: 0 = καθαρό, 1 = βρέθηκαν διαρροές.
+Έξοδος: 0 = καθαρό, 1 = βρέθηκαν διαρροές Ή απέτυχε κλήση στο API (05/11/2026:
+        σφάλμα κλήσης δεν είναι «καθαρό» — πριν περνούσε σιωπηλά).
 """
 import json
 import subprocess
@@ -105,6 +111,10 @@ def admins():
     return [int(x) for x in r.stdout.split() if x.isdigit()]
 
 
+class ApiFail(Exception):
+    """Η κλήση στο API απέτυχε: ο έλεγχος δεν έγινε, άρα δεν μετρά ως «καθαρό»."""
+
+
 # Οθόνες όπου η ΙΔΙΑ εργασία δεν επιτρέπεται να εμφανιστεί δύο φορές. Το «ματάκι»
 # έδειχνε τις δύο εκπρόθεσμες του Θέμιου και στη γραμμή του και στη γραμμή του
 # Βάκρινου (επικεφαλής άλλης ομάδας όπου ο Θέμιος είναι μέλος) — διάβαζες δύο
@@ -115,7 +125,9 @@ NO_DUPES = [(u'Τι να προσέξω', 'attention')]
 
 def dupes(admin_id, action):
     d = call(admin_id, action)
-    if not isinstance(d, dict) or 'groups' not in d:
+    if not isinstance(d, dict) or 'error' in d:
+        raise ApiFail(d.get('error') if isinstance(d, dict) else u'μη αναμενόμενη απάντηση')
+    if 'groups' not in d:
         return {}
     seen = {}
     for g in d['groups']:
@@ -129,10 +141,14 @@ def dupes(admin_id, action):
 def main():
     who = [int(a) for a in sys.argv[1:]] or admins()
     bad = 0
+    failed = 0
     for label, action, strict_keys, allowed in PERSONAL:
         for a in who:
             d = call(a, action)
             if not isinstance(d, dict) or 'error' in d:
+                failed += 1
+                print(u'✗ %s · χειριστής #%d: η κλήση απέτυχε — %s'
+                      % (label, a, d.get('error') if isinstance(d, dict) else u'μη αναμενόμενη απάντηση'))
                 continue
             sub = {k: d[k] for k in strict_keys if k in d} if strict_keys else d
             found = [x for x in leaks(sub, a) if x[0].split('/')[0] not in allowed]
@@ -143,7 +159,12 @@ def main():
                          ', '.join(u'#%s (κρατά ο #%s, στο «%s»)' % (i, h, p) for p, i, t, h in found[:5])))
     for label, action in NO_DUPES:
         for a in who:
-            dd = dupes(a, action)
+            try:
+                dd = dupes(a, action)
+            except ApiFail as e:
+                failed += 1
+                print(u'✗ %s · χειριστής #%d: η κλήση απέτυχε — %s' % (label, a, e))
+                continue
             if dd:
                 bad += len(dd)
                 print(u'✗ %s · χειριστής #%d: η ίδια εργασία δύο φορές — %s'
@@ -152,6 +173,9 @@ def main():
         print(u'\nΔιαρροές σε προσωπικές οθόνες: %d' % bad)
         print(u'Κανόνας: ό,τι δείχνεις ως δικό κάποιου περνά από τη μπάλα '
               u'(cnp_scope_mine στον server, cnpIsMine στην οθόνη).')
+    if failed:
+        print(u'\nΑποτυχημένες κλήσεις API: %d — ο έλεγχος ΔΕΝ ολοκληρώθηκε.' % failed)
+    if bad or failed:
         return 1
     print(u'Εμβέλεια προσωπικών οθονών: ΟΛΑ ΚΑΛΑ')
     return 0

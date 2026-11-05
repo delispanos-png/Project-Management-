@@ -18807,7 +18807,9 @@ case 'balance_reminder':                 // σύνθεση υπενθύμιση�
     $graceB = (int) (Capsule::table('tblconfiguration')->where('setting', 'AutoSuspensionDays')->value('value') ?: 10);
     $lang = cnp_client_lang($cl, (string) ($in['lang'] ?? ''));
     $money = function ($v) { return number_format((float) $v, 2, ',', '.') . ' €'; };
-    $name = trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname)));
+    /* (05/11/2026) Το WHMCS κρατά την επωνυμία ξεφευγμένη: εδώ είναι σκέτο κείμενο προς τον πελάτη (στο email το
+       ξεφεύγει ΜΙΑ φορά το balance_reminder_send), αλλιώς έβλεπε «&amp;». */
+    $name = cnp_client_name($cl);
     $total = 0.0; $overdue = 0.0; $oldest = null;
     $invList = ''; $i9 = 0;
     foreach ($invs as $x) {
@@ -19208,7 +19210,7 @@ case 'suspend_notice':                   // σύνθεση ειδοποίηση�
     }
 
     $money = function ($v) { return number_format((float) $v, 2, ',', '.') . ' €'; };
-    $name = trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname)));
+    $name = cnp_client_name($cl);   // σκέτο κείμενο προς τον πελάτη, όχι «&amp;» (05/11/2026)
     $svcList = '';
     foreach ($svcs as $x) {
         $svcList .= '- ' . $x['label'] . ' (' . $x['product'] . ($x['ip'] ? ', ' . $x['ip'] : '') . ")\n";
@@ -19382,7 +19384,7 @@ case 'fin_audit_csv':                    // Οι έλεγχοι σε CSV για 
 
     $nm = function ($id) {
         $x = Capsule::table('tblclients')->where('id', $id)->first();
-        return $x ? trim(($x->companyname ?: ($x->firstname . ' ' . $x->lastname))) : '#' . $id;
+        return $x ? cnp_client_name($x) : '#' . $id;   // CSV: σκέτο κείμενο (05/11/2026)
     };
     $n3 = function ($v) { return number_format((float) $v, 2, ',', ''); };
 
@@ -19504,7 +19506,7 @@ case 'fin_audit':                        // Οικονομικοί έλεγχο�
         static $c = [];
         if (!isset($c[$id])) {
             $x = Capsule::table('tblclients')->where('id', $id)->first();
-            $c[$id] = $x ? trim(($x->companyname ?: ($x->firstname . ' ' . $x->lastname))) : '#' . $id;
+            $c[$id] = $x ? cnp_client_name($x) : '#' . $id;   // η οθόνη ξεφεύγει μόνη της (05/11/2026)
         }
         return $c[$id];
     };
@@ -19656,8 +19658,8 @@ case 'pay_statement_csv':                // Η καρτέλα σε CSV για τ
     fwrite($f2, "\xEF\xBB\xBF");
     $n2 = function ($v) { return $v ? number_format((float) $v, 2, ',', '') : ''; };
 
-    fputcsv($f2, ['Καρτέλα πελάτη', trim(($cl2->companyname ?: ($cl2->firstname . ' ' . $cl2->lastname)))], ';');
-    fputcsv($f2, ['Υπεύθυνος', trim($cl2->firstname . ' ' . $cl2->lastname), 'Email', $cl2->email], ';');
+    fputcsv($f2, ['Καρτέλα πελάτη', cnp_client_name($cl2)], ';');
+    fputcsv($f2, ['Υπεύθυνος', html_entity_decode(trim($cl2->firstname . ' ' . $cl2->lastname), ENT_QUOTES | ENT_HTML5, 'UTF-8'), 'Email', $cl2->email], ';');
     fputcsv($f2, [], ';');
     fputcsv($f2, ['Ημερομηνία', 'Κίνηση', 'Χρέωση', 'Πίστωση', 'Υπόλοιπο', 'Κατάσταση', 'Transaction ID'], ';');
 
@@ -19849,8 +19851,8 @@ case 'pay_trace_export':                 // Εξαγωγή συμφωνίας σ
             $payerOf[$a->transid] ?? '',
             $a->transid,
             $a->userid,
-            $cl->companyname ?? '',
-            $cl ? trim($cl->firstname . ' ' . $cl->lastname) : '',
+            html_entity_decode((string) ($cl->companyname ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),   // CSV: σκέτο κείμενο (05/11/2026)
+            $cl ? html_entity_decode(trim($cl->firstname . ' ' . $cl->lastname), ENT_QUOTES | ENT_HTML5, 'UTF-8') : '',
             $cl->email ?? '',
             $inv->invoicenum ?? '',
             $inv ? cnp_d($inv->date) : '',
