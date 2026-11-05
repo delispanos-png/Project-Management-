@@ -4269,7 +4269,10 @@ function cnp_task_stamp($t)
 {
     $tid = (int) $t->id;
     $act = (int) Capsule::table('mod_cpm_activity')->where('task_id', $tid)->max('id');
-    $chk = (int) Capsule::table('mod_cpm_checklist')->where('task_id', $tid)->max('id');
+    /* (05/11/2026) Όχι σκέτο MAX(id): διόρθωση ή διαγραφή παλιότερης ενέργειας δεν τον αλλάζει και οι ανοιχτές καρτέλες δεν ανανεώνονταν. */
+    $chkR = Capsule::table('mod_cpm_checklist')->where('task_id', $tid)
+        ->selectRaw('COALESCE(MAX(id),0) m, COUNT(*) n, COALESCE(SUM(done),0) d, COALESCE(SUM(CRC32(title)),0) c')->first();
+    $chk = $chkR ? $chkR->m . '.' . $chkR->n . '.' . $chkR->d . '.' . $chkR->c : '';
     /* Το χρονόμετρο ΔΕΝ αγγίζει την εργασία (updated_at/ιστορικό) — μετράει χωριστά. */
     $tm = Capsule::table('mod_cpm_timelogs')->where('task_id', $tid)
         ->selectRaw('COALESCE(MAX(id),0) m, COALESCE(SUM(running),0) r, COALESCE(SUM(minutes),0) s')->first();
@@ -4538,6 +4541,9 @@ function cnp_task_reply_run(array $in, $adminId, $FULL)
         fail('Ο χρήστης για τη μπάλα δεν υπάρχει ή είναι ανενεργός');
     }
     if ($stRp && !Db::status($stRp)) { fail('Άγνωστη κατάσταση — ανανέωσε τη σελίδα'); }
+    /* (05/11/2026) Το _skipLock παρακάτω καλύπτει ΜΟΝΟ το «κλείνω με μήνυμα» — ο έλεγχος κοίταζε την εργασία μετά
+       την αλλαγή, οπότε μήνυμα ή μπάλα σε ΗΔΗ κλειστή περνούσε. Κλειστή δέχεται μόνο όταν η ίδια πράξη την ξανανοίγει. */
+    if (($hasMsgRp || $ballRp) && (!$stRp || !empty(Db::status($stRp)->is_done))) { cnp_task_lock_guard($tRp); }
     $fromBallRp = (int) ($tRp->action_user ?: 0);
     $fromStRp = Db::status((int) $tRp->status_id);
     Capsule::connection()->beginTransaction();
@@ -9602,6 +9608,8 @@ case 'save_task':
         }
     }
     $ballStopped = null;   // γεμίζει αν η παράδοση της μπάλας έκοψε χρονόμετρο
+    $ballHandTo = 0;       // (05/11/2026) ο χρόνος κόβεται ΜΕΤΑ τις επικυρώσεις — απορριφθείσα αποθήκευση δεν αγγίζει τίποτα
+    $assignNotify = 0;     // το ίδιο για την ειδοποίηση ανάθεσης
     if (array_key_exists('ball', $in)) {
         $newBall = (int) $in['ball'] ?: null;
         $data['action_user'] = $newBall;
@@ -9617,16 +9625,7 @@ case 'save_task':
            αφήσω «σε κανέναν» για να την ξαναπιάσω, δεν σταματά τίποτα. */
         /* (5/10/2026) Όχι μόνο όταν η μπάλα ήταν ρητά δική μου — βλ. cnp_ball_apply. */
         if ($newBall && $newBall !== $adminId && $newBall !== (int) $t->action_user) {
-            $runB = Db::runningTimer($adminId);
-            if ($runB && (int) $runB->task_id === (int) $tid) {
-                if (Db::stopTimer($runB->id)) {
-                    Db::updateTimelog($runB->id, ['note' => 'έκλεισε με την παράδοση της μπάλας']);
-                    Time::push($runB->id);
-                }
-                $lgB = Db::timelog($runB->id);
-                $ballStopped = ['id' => (int) $runB->id, 'mins' => $lgB ? (int) $lgB->minutes : 0,
-                    'to' => Db::adminName($newBall)];
-            }
+            $ballHandTo = $newBall;
         }
     }
     /* Ανάθεση & προτεραιότητα: όποιος βλέπει την εργασία μπορεί να τις ορίσει.
@@ -9671,7 +9670,7 @@ case 'save_task':
             }
         }
         if ($newA && $newA !== (int) $t->assignee) {
-            Notify::assigned($tid, $newA, $adminId);
+            $assignNotify = $newA;
         }
         $data['assignee'] = $newA;
     }
@@ -9692,6 +9691,19 @@ case 'save_task':
 
     Db::saveTask($tid, $data, $adminId);
     Db::logActivity($tid, $adminId, 'edit', 'Επεξεργασία (web app)');
+    if ($assignNotify) { Notify::assigned($tid, $assignNotify, $adminId); }
+    if ($ballHandTo) {
+        $runB = Db::runningTimer($adminId);
+        if ($runB && (int) $runB->task_id === (int) $tid) {
+            if (Db::stopTimer($runB->id)) {
+                Db::updateTimelog($runB->id, ['note' => 'έκλεισε με την παράδοση της μπάλας']);
+                Time::push($runB->id);
+            }
+            $lgB = Db::timelog($runB->id);
+            $ballStopped = ['id' => (int) $runB->id, 'mins' => $lgB ? (int) $lgB->minutes : 0,
+                'to' => Db::adminName($ballHandTo)];
+        }
+    }
     Inbox::fromSave($t, $data, $adminId);   // το «Επεξεργασία» δεν λέει τι — εδώ ξέρουμε ακριβώς
     /* @Όνομα → «πρόσεξέ με»: ΜΕΤΑ την επικύρωση, και μόνο όσοι μπήκαν τώρα στο κείμενο (05/11/2026). */
     if (array_key_exists('descr', $data)) { cnp_notify_mentions($data['descr'], $tid, $adminId, 'ζητούμενο', (string) ($t->descr ?? '')); }
@@ -10099,10 +10111,14 @@ case 'remind':
     if (!$at) {
         fail('input');
     }
+    /* (05/11/2026) Χωρίς οθόνη σήμερα, αλλά ανοιχτή ενέργεια: όχι υπενθύμιση πάνω σε εργασία που δεν βλέπεις. */
+    if ((int) ($in['task'] ?? 0) && !Db::canSeeTask($adminId, Db::task((int) $in['task']))) { fail('task', 404); }
     Db::addReminder($adminId, $at, trim($in['note'] ?? ''), (int) ($in['task'] ?? 0) ?: null);
     out(['ok' => true]);
 
 case 'request_update':
+    /* (05/11/2026) Χωρίς οθόνη σήμερα — μόνο για εργασία που βλέπεις. */
+    if (!Db::canSeeTask($adminId, Db::task((int) ($in['task'] ?? 0)))) { fail('task', 404); }
     out(['ok' => Notify::requestUpdate((int) ($in['task'] ?? 0), $adminId)]);
 
 /* ---- Ζήτα βοήθεια: επείγουσα προσωπική έκκληση σε συνάδελφο ---- */

@@ -176,12 +176,14 @@ class Notify
     public static function requestUpdate($taskId, $byAdminId)
     {
         $t = Db::task($taskId);
-        if (!$t || !$t->assignee) {
+        /* Στον κάτοχο: μπάλα, αλλιώς ανάθεση — ένας παραλήπτης (05/11/2026). */
+        $to = $t ? (int) ($t->action_user ?: $t->assignee) : 0;
+        if (!$to) {
             return false;
         }
         $url = 'addonmodules.php?module=cloudonprojects&tab=task&id=' . (int) $taskId . '#comments';
-        Db::pushNotification($t->assignee, 'due', '❓ ' . Db::adminName($byAdminId) . ' ζητά ενημέρωση: ' . $t->title, $url);
-        self::send($t->assignee, 'Ζητήθηκε ενημέρωση: ' . $t->title,
+        Db::pushNotification($to, 'due', '❓ ' . Db::adminName($byAdminId) . ' ζητά ενημέρωση: ' . $t->title, $url);
+        self::send($to, 'Ζητήθηκε ενημέρωση: ' . $t->title,
             '<p><b>' . htmlspecialchars(Db::adminName($byAdminId)) . '</b> ρωτά πού βρίσκεται η εργασία:</p>'
             . '<p style="font-size:16px"><a href="' . self::baseUrl() . '/cloudonadminpanel/' . $url . '"><b>'
             . htmlspecialchars($t->title) . '</b></a></p><p>Απάντησε με ένα σχόλιο στο task.</p>');
