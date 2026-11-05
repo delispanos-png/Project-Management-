@@ -2822,7 +2822,7 @@ R.teams = async function () {
         ${t.projects.length ? `<div class="mut" style="font-size:11px;margin-top:8px">${I.folder} ${esc(t.projects.slice(0, 4).join(' · '))}${t.projects.length > 4 ? ' +' + (t.projects.length - 4) : ''}</div>` : ''}
         ${d.canManage ? `<div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--line);padding-top:9px;flex-wrap:wrap">
           <select class="inp" data-madm="${t.id}" style="flex:1;min-width:110px;padding:6px 9px;font-size:12px">
-            ${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+            <option value="">— χειριστής —</option>${S.boot.admins.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
           <select class="inp" data-mrole="${t.id}" style="width:120px;padding:6px 9px;font-size:12px">
             <option value="">— ρόλος —</option>${d.roles.map(r => `<option>${esc(r)}</option>`).join('')}</select>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-mlead="${t.id}">${I.crown} </label>
@@ -2841,18 +2841,21 @@ R.teams = async function () {
   </div>`;
   if (d.canManage) {
     $('#tmAdd').onclick = async () => {
-      if (!$('#tmName').value.trim()) return;
+      if (!$('#tmName').value.trim()) { toast('Γράψε όνομα ομάδας', true); $('#tmName').focus(); return; }
       await api('save_team', {id: 0, name: $('#tmName').value.trim(), color: $('#tmColor').value});
       toast('Δημιουργήθηκε'); R.teams();
     };
     $$('[data-mgo]').forEach(b => b.onclick = async () => {
       const t = b.dataset.mgo;
+      /* Ρητή επιλογή (05/11/2026): το ανέγγιχτο select πρόσθετε σιωπηλά τον πρώτο της λίστας. */
+      if (!+$(`[data-madm="${t}"]`).value) { toast('Διάλεξε χειριστή', true); return; }
       await api('team_member_add', {team: +t, admin: +$(`[data-madm="${t}"]`).value,
         role: $(`[data-mrole="${t}"]`).value, leader: $(`[data-mlead="${t}"]`).checked});
       toast('Προστέθηκε'); R.teams();
     });
     $$('[data-rm]').forEach(b => b.onclick = async () => {
       const [t, a] = b.dataset.rm.split(':');
+      if (!(await cnpConfirm(`Αφαίρεση του/της «${esc(adminName(+a))}» από την ομάδα; Χάνει τα δικαιώματα που του/της έδινε.`, {danger: true, ok: 'Αφαίρεση', cancel: 'Άκυρο'}))) { return; }
       await api('team_member_del', {team: +t, admin: +a}); R.teams();
     });
     $$('[data-tedit]').forEach(b => b.onclick = () => openTeam(d.teams.find(x => x.id === +b.dataset.tedit), d));
@@ -2987,8 +2990,8 @@ function openTeam(t, d) {
           || '<div class="mut" style="font-size:12.5px">Χωρίς μέλη — η ομάδα δεν δίνει δικαιώματα σε κανέναν.</div>'}
         <div class="set-row" style="gap:7px;margin-top:11px;flex-wrap:wrap">
           <select class="inp" id="tmAdm" style="flex:1;min-width:140px">
-            ${S.boot.admins.filter(a => !t.members.some(m => m.id === a.id))
-              .map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('') || '<option value="">— όλοι είναι ήδη μέλη —</option>'}</select>
+            ${(rest => (rest.length ? '<option value="">— διάλεξε χειριστή —</option>' + rest.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')
+              : '<option value="">— όλοι είναι ήδη μέλη —</option>'))(S.boot.admins.filter(a => !t.members.some(m => m.id === a.id)))}</select>
           <select class="inp" id="tmRole" style="width:150px"><option value="">— ρόλος —</option>
             ${d.roles.map(r => `<option>${esc(r)}</option>`).join('')}</select>
           <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="tmLead">${I.crown} επικεφαλής</label>
@@ -3101,7 +3104,7 @@ function openTeam(t, d) {
     await api('del_team', {id: t.id}); toast('Διαγράφηκε'); closeDrawer(); R.teams();
   };
   $('#tmAddM', dr).onclick = async () => {
-    const a = +$('#tmAdm', dr).value || 0; if (!a) return;
+    const a = +$('#tmAdm', dr).value || 0; if (!a) { toast('Διάλεξε χειριστή', true); return; }
     await api('team_member_add', {team: t.id, admin: a, role: $('#tmRole', dr).value,
       leader: $('#tmLead', dr).checked});
     toast('Προστέθηκε');
@@ -3110,6 +3113,7 @@ function openTeam(t, d) {
     setTimeout(() => openTeam(fresh.teams.find(x => x.id === t.id), fresh), 60);
   };
   $$('[data-trm]', dr).forEach(b => b.onclick = async () => {
+    if (!(await cnpConfirm(`Αφαίρεση του/της «${esc(adminName(+b.dataset.trm))}» από την ομάδα; Χάνει τα δικαιώματα που του/της έδινε.`, {danger: true, ok: 'Αφαίρεση', cancel: 'Άκυρο'}))) { return; }
     await api('team_member_del', {team: t.id, admin: +b.dataset.trm});
     const fresh = await api('teams');
     closeDrawer(); R.teams();
@@ -4432,7 +4436,7 @@ R.profile = async function () {
     </div>
   </div>
   <div class="card" style="margin-top:16px"><div class="card-h">${I.key} Θυρίδα κωδικών
-    <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">κρυπτογραφημένα (AES-256) · ${p.full ? 'ως διαχειριστής βλέπεις όλων των χειριστών' : 'ιδιωτικά — μόνο εσύ'}</span>
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">κρυπτογραφημένα (AES-256) · ${p.full ? 'ως διαχειριστής βλέπεις όλων των χειριστών' : 'οι δικοί σου και όσοι είναι κοινόχρηστοι'}</span>
     <button class="btn btn-p btn-sm" id="vAdd" style="margin-left:auto">${I.plus} Νέος κωδικός</button></div>
     <div class="card-b" id="vaultBox"><div class="mut" style="font-size:12px">Φόρτωση…</div></div>
   </div>`;
@@ -4491,7 +4495,7 @@ R.vault = async function (arg) {
   setTop('Κωδικοί', 'Η θυρίδα κωδικών σου — κρυπτογραφημένα (AES-256)');
   const full = S.boot.me.full;
   $('#content').innerHTML = `<div class="card"><div class="card-h">${I.key} Θυρίδα κωδικών
-    <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">κρυπτογραφημένα · ${full ? 'ως διαχειριστής βλέπεις όλων των χειριστών' : 'ιδιωτικά — μόνο εσύ'}</span>
+    <span class="mut" style="font-weight:400;font-size:11px;margin-left:8px">κρυπτογραφημένα · ${full ? 'ως διαχειριστής βλέπεις όλων των χειριστών' : 'οι δικοί σου και όσοι είναι κοινόχρηστοι'}</span>
     <button class="btn btn-p btn-sm" id="vAdd" style="margin-left:auto">${I.plus} Νέος κωδικός</button></div>
     <div class="card-b" id="vaultBox"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></div>`;
   mountVault();

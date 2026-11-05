@@ -374,6 +374,12 @@ function cnpOnSync(m) {
 if (cnpBus) { cnpBus.onmessage = e => cnpOnSync(e.data); }
 else { window.addEventListener('storage', e => { if (e.key === 'cnpSync' && e.newValue) { try { cnpOnSync(JSON.parse(e.newValue)); } catch (x) { } } }); }
 
+/* Σύνδεσμος που ανοίγει browser: μόνο http(s)· χωρίς σχήμα → https· ό,τι άλλο → '' (ίδιο με cnp_http_url, 05/11/2026). */
+const cnpHttpUrl = u => {
+  const s = String(u || '').trim();
+  if (/^https?:\/\/\S+$/i.test(s)) { return s; }
+  return /^[\p{L}\d.-]+\.[a-z]{2,}([/:?#]\S*)?$/iu.test(s) ? 'https://' + s : '';
+};
 async function api(a, data) {
   const opt = data ? {method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'}} : {};
   const r = await fetch('api.php?a=' + a + (data ? '' : '&_=' + Date.now()), {credentials: 'same-origin', ...opt});
@@ -930,7 +936,7 @@ function setStatusUI(p) {
     + (p.manual ? '' : ' <span class="st-tag">auto</span>');
   /* Σε σύσκεψη με σύνδεσμο → «🎥 Μπες» δίπλα στην κατάσταση, σε κάθε οθόνη (16/10/2026). */
   { let jb = $('#statusJoin');
-    const j = p.status === 'meeting' && p.meeting && p.meeting.join;
+    const j = p.status === 'meeting' && p.meeting && cnpHttpUrl(p.meeting.join);
     if (j && b) {
       if (!jb) { jb = document.createElement('a'); jb.id = 'statusJoin'; jb.className = 'btn btn-sm btn-p st-join'; jb.target = '_blank'; jb.rel = 'noopener'; b.after(jb); }
       jb.href = j; jb.textContent = '🎥 Μπες'; jb.title = 'Μπες στη σύσκεψη: ' + (p.meeting.title || '');
@@ -1411,7 +1417,7 @@ function meetPop(a) {
       return;
     } else if (go2 === 'join' && a.join) {
       if (a.mode === 'phone') { location.href = 'tel:' + String(a.join).replace(/\s/g, ''); }
-      else { window.open(a.join, '_blank'); }
+      else { const ju = cnpHttpUrl(a.join); if (ju) { window.open(ju, '_blank', 'noopener'); } }
     } else { go('calendar'); }
     seen(); kill(); stopChatTitle();
   });
@@ -3702,7 +3708,7 @@ async function vBoard(arg) {
       if (e.key !== 'Enter' || !inp.value.trim()) return;
       const r = await api('quick_task', {project: S.project, status: +inp.dataset.status,
         dept: sel ? +sel.value || 0 : 0, title: inp.value.trim()});
-      if (r.ok) { toast('Δημιουργήθηκε'); vBoard(); }
+      if (r.ok) { toast('Δημιουργήθηκε'); cnpReRender(); }
     };
   });
 }
@@ -3755,7 +3761,7 @@ function boardHead(m) {
      κανείς στη φόρμα επεξεργασίας για να δηλώσει τι παραδίδει. */
   const asg = $('#kbAssign', h);
   if (asg && window.openAssignModules) {
-    asg.onclick = () => window.openAssignModules(m.id, () => vBoard());
+    asg.onclick = () => window.openAssignModules(m.id, () => cnpReRender());
   }
   /* Κλικ σε module → μένουν μόνο οι κάρτες του στο board· ξανά κλικ → όλες. */
   $$('[data-modfilter]', h).forEach(a => a.onclick = () => {
@@ -3804,7 +3810,7 @@ async function cnpLinkSub(parent, child) {
   if (r && r.err) { toast(r.err, true); return; }
   toast('Η #' + child + ' έγινε υποεργασία');
   openTask(parent);
-  if (S.view === 'board' && typeof vBoard === 'function') { vBoard(); }
+  if (S.view === 'board') { cnpReRender(); }
 }
 /* Γραμμές λίστας / κάρτες: σύρσιμο με τον browser κουβαλά «#id» (για την περιοχή υποεργασιών). */
 document.addEventListener('dragstart', e => {
@@ -3826,11 +3832,11 @@ dnd('.tcard[data-task]', '.kb-col[data-status], .sub-drop[data-subparent]', asyn
     if (note === null) { return; }          // άκυρο = η κάρτα μένει όπου ήταν
   }
   const r = await cnpMoveTask(+card.dataset.task, st, note);
-  if (r.cancelled) { vBoard(); return; }
+  if (r.cancelled) { cnpReRender(); return; }
   if (r.ok) {
     col.querySelector('.kb-cards').appendChild(card);
     $$('.kb-col').forEach(c => c.querySelector('.kb-n').textContent = c.querySelectorAll('.tcard').length);
-  } else { toast(r.error || 'Δεν επιτρέπεται', true); vBoard(); }
+  } else { toast(r.error || 'Δεν επιτρέπεται', true); cnpReRender(); }
 }, el => openTask(+el.dataset.task));
 
 /* Ο άνθρωπος δεν είναι ελεύθερος σε αυτό το διάστημα.
@@ -4322,8 +4328,8 @@ async function openTask(id, entryId, opts) {
     <div class="msg-h"><span class="msg-av" style="background:${avColor(cm.by)}">${esc(adminIni(cm.byId) || (cm.by || '?').slice(0, 2))}</span><b>${esc(cm.by)}</b>${cm.to !== null ? ` <span class="msg-to">→ ${cm.to === -1 ? 'όλοι' : esc(adminName(cm.to))}</span>` : ''}<span class="mut msg-t">${tShort(cm.at)}</span></div>
     <div class="msg-b">${esc(cm.body)}</div>
     ${hasF ? `<div class="msg-files">${cm.files.map(f => f.kind === 'image'
-      ? `<a href="${f.url}" target="_blank" class="msg-img" title="${esc(f.name)}"><img src="${f.url}" loading="lazy" alt="${esc(f.name)}"></a>`
-      : `<a href="${f.url}&dl=1" class="msg-file" title="${esc(f.name)}">${f.kind === 'video' ? '🎬' : f.kind === 'audio' ? '🎵' : '📎'} ${esc(f.name)}</a>`
+      ? `<a href="${esc(f.url)}" target="_blank" class="msg-img" title="${esc(f.name)}"><img src="${esc(f.url)}" loading="lazy" alt="${esc(f.name)}"></a>`
+      : `<a href="${esc(f.url + '&dl=1')}" class="msg-file" title="${esc(f.name)}">${f.kind === 'video' ? '🎬' : f.kind === 'audio' ? '🎵' : '📎'} ${esc(f.name)}</a>`
     ).join('')}</div>` : ''}
   </div>`;
   };
@@ -6593,7 +6599,7 @@ async function vMyDay() {
     const k = hkLbl[h.kind] || hkLbl.help;
     att.push({sev: h.kind === 'help' || h.kind === 'voice' ? 1 : 3, lvl: h.kind === 'help' ? 'bad' : 'warn', ic: k[0], why: k[1],
       title: h.from, sub: (h.message || '').slice(0, 110) + (h.taskTitle ? ' · ' + h.taskTitle : ''), when: h.at,
-      act: 'Άνοιξε', on: () => openRequestQuick(h.id, vMyDay), info: h.taskId || 0,
+      act: 'Άνοιξε', on: () => openRequestQuick(h.id, cnpReRender), info: h.taskId || 0,
       done: h.kind !== 'checkin' ? async () => { await api('help_done', {id: h.id}).catch(() => {}); } : null});
     if (h.taskId) { seenTask.add(h.taskId); }
   });
@@ -6603,21 +6609,21 @@ async function vMyDay() {
       sub: (x.at ? 'σήμερα ' + x.at + ' · ' : 'σήμερα · ') + 'ανοιχτή για ' + x.n + ' άτομα',
       act: '✋ Την αναλαμβάνω', on: async () => {
         const r = await api('rec_claim', {task: x.id}).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
-        if (r && r.err) { toast(r.err, true); vMyDay(); return; }
+        if (r && r.err) { toast(r.err, true); cnpReRender(); return; }
         toast('Την ανέλαβες'); openTask(x.id);
       }, task: x.id});
     seenTask.add(x.id);
   });
   (pend.meetings || []).forEach(m => {
     att.push({sev: 3, lvl: 'info', ic: '📅', why: 'πρόσκληση', title: m.title, sub: (m.whenTxt || '') + (m.by ? ' · από ' + m.by : ''),
-      act: '✔ Θα είμαι', on: async () => { await api('event_rsvp', {id: m.id, status: 'accepted'}).catch(() => {}); toast('✔ Δήλωσες συμμετοχή'); vMyDay(); },
-      alt: '✖', altT: 'Δεν μπορώ', altOn: async () => { await api('event_rsvp', {id: m.id, status: 'declined'}).catch(() => {}); vMyDay(); }});
+      act: '✔ Θα είμαι', on: async () => { await api('event_rsvp', {id: m.id, status: 'accepted'}).catch(() => {}); toast('✔ Δήλωσες συμμετοχή'); cnpReRender(); },
+      alt: '✖', altT: 'Δεν μπορώ', altOn: async () => { await api('event_rsvp', {id: m.id, status: 'declined'}).catch(() => {}); cnpReRender(); }});
   });
   (d.tickets || []).forEach(tk => {
     if (tk.waitOn !== 'us') { return; }
-    if (tk.over) { att.push({sev: 0, lvl: 'bad', ic: I.ticket, why: 'SLA πέρασε', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status + (tk.waitDays ? ' · περιμένει ' + tk.waitDays + ' ημ.' : ''), act: 'Απάντησε', on: () => openTicketQuick(tk.id, vMyDay)}); }
-    else if (tk.slaDue && (new Date(tk.slaDue.replace(' ', 'T')) - Date.now()) < 24 * 3600e3) { att.push({sev: 2, lvl: 'warn', ic: I.ticket, why: 'SLA ' + tShort(tk.slaDue), title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => openTicketQuick(tk.id, vMyDay)}); }
-    else if (tk.waitDays >= 2) { att.push({sev: 5, lvl: 'tip', ic: I.ticket, why: 'περιμένει ' + tk.waitDays + ' ημ.', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => openTicketQuick(tk.id, vMyDay)}); }
+    if (tk.over) { att.push({sev: 0, lvl: 'bad', ic: I.ticket, why: 'SLA πέρασε', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status + (tk.waitDays ? ' · περιμένει ' + tk.waitDays + ' ημ.' : ''), act: 'Απάντησε', on: () => openTicketQuick(tk.id, cnpReRender)}); }
+    else if (tk.slaDue && (new Date(tk.slaDue.replace(' ', 'T')) - Date.now()) < 24 * 3600e3) { att.push({sev: 2, lvl: 'warn', ic: I.ticket, why: 'SLA ' + tShort(tk.slaDue), title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => openTicketQuick(tk.id, cnpReRender)}); }
+    else if (tk.waitDays >= 2) { att.push({sev: 5, lvl: 'tip', ic: I.ticket, why: 'περιμένει ' + tk.waitDays + ' ημ.', title: '#' + tk.tid + ' ' + tk.title, sub: tk.status, act: 'Απάντησε', on: () => openTicketQuick(tk.id, cnpReRender)}); }
   });
   /* «Θέλουν εσένα» = ό,τι αφορά ΕΜΕΝΑ. Ο server σημαδεύει κάθε προθεσμία με `mine`· χωρίς αυτό
      ο Full έβλεπε εδώ κάθε εκπρόθεσμο έργο/προσφορά της εταιρείας και η λίστα έχανε την αξία της
@@ -6638,7 +6644,7 @@ async function vMyDay() {
       att.push({sev: 4, lvl: 'warn', ic: I.checkSquare, why: 'προγραμματισμένη από ' + dShort(t.sched), title: t.title, sub: t.pname, act: 'Άνοιξε', on: () => openTask(t.id), task: t.id});
     }
   });
-  todos.filter(t => t.overdue).forEach(t => att.push({sev: 6, lvl: 'tip', ic: I.bell, why: 'υπενθύμιση', title: t.text, sub: t.pname, act: '✓', on: async () => { await api('todo_toggle', {id: t.id}); vMyDay(); }}));
+  todos.filter(t => t.overdue).forEach(t => att.push({sev: 6, lvl: 'tip', ic: I.bell, why: 'υπενθύμιση', title: t.text, sub: t.pname, act: '✓', on: async () => { await api('todo_toggle', {id: t.id}); cnpReRender(); }}));
   att.sort((a, b) => a.sev - b.sev);
 
   /* ── 3. Το πρόγραμμα σήμερα ── */
@@ -6744,7 +6750,7 @@ async function vMyDay() {
   /* Ο σύνδεσμος της επόμενης σύσκεψης «ανοίγει» μόνος του: ξαναζωγραφίζουμε τη στιγμή που μπαίνει στο 5λεπτο. */
   clearTimeout(window._cnpMeetT);
   { const nx = evs.filter(e => e.join && !e.joinOpen && !e.over && e.joinFrom > nowStamp()).map(e => new Date(e.joinFrom.replace(' ', 'T')) - Date.now()).sort((a, b) => a - b)[0];
-    if (nx && nx < 6 * 3600e3) { window._cnpMeetT = setTimeout(() => { if (S.view === 'myday') { vMyDay(); } }, nx + 1500); } }
+    if (nx && nx < 6 * 3600e3) { window._cnpMeetT = setTimeout(() => { if (S.view === 'myday') { cnpReRender(); } }, nx + 1500); } }
   /* 📌 Καρφιτσωμένα στην αρχική views — ένα κλικ για «Η ομάδα μου», «Κρίσιμα» κ.λπ. */
   const homePins = (S.boot.viewPins || []).filter(p => p.home);
   const pinBar = homePins.length ? `<div class="myd-pins">${homePins.map(p => `<button type="button" class="fchip myd-pin" data-mypin="${esc(cnpPinArg(p.k))}">📌 ${esc(p.label)}</button>`).join('')}</div>` : '';
@@ -6867,8 +6873,8 @@ async function vMyDay() {
   $$('#content [data-go]').forEach(a => a.onclick = e => { e.stopPropagation(); go(a.dataset.go); });
   $$('#content [data-attgo]').forEach(b => b.onclick = e => { e.stopPropagation(); att[+b.dataset.attgo].on(); });
   $$('#content [data-attalt]').forEach(b => b.onclick = e => { e.stopPropagation(); att[+b.dataset.attalt].altOn(); });
-  $$('#content [data-attdone]').forEach(b => b.onclick = async e => { e.stopPropagation(); await att[+b.dataset.attdone].done(); toast('Τακτοποιήθηκε'); vMyDay(); });
-  $$('#content [data-attdone-m]').forEach(b => b.onclick = async e => { e.stopPropagation(); await api('help_done', {id: +b.dataset.attdoneM}).catch(() => {}); vMyDay(); });
+  $$('#content [data-attdone]').forEach(b => b.onclick = async e => { e.stopPropagation(); await att[+b.dataset.attdone].done(); toast('Τακτοποιήθηκε'); cnpReRender(); });
+  $$('#content [data-attdone-m]').forEach(b => b.onclick = async e => { e.stopPropagation(); await api('help_done', {id: +b.dataset.attdoneM}).catch(() => {}); cnpReRender(); });
   $$('#content .myd-row.att').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } att[+r.dataset.atti].on(); });
   { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
@@ -6879,7 +6885,7 @@ async function vMyDay() {
     const r = await api('event_outcome', {id: +b.dataset.evleft, what: 'done'}).catch(er => ({err: er && er.message}));
     if (r && r.err) { toast(r.err, true); return; }
     toast('Βγήκες από τη σύσκεψη — η κατάστασή σου ελευθερώθηκε');
-    vMyDay();
+    cnpReRender();
   });
   cnpWireDash($('#content'));
   cnpGreet(d.greet);          // μία φορά την ημέρα — ο server αποφασίζει πότε
@@ -6887,7 +6893,7 @@ async function vMyDay() {
   /* Το κουτί των κλήσεων είναι το ΙΔΙΟ με της οθόνης «Καταγραφές κλήσεων» — μία
      υλοποίηση, δύο θέσεις. Μετά τον χαρακτηρισμό ξαναζωγραφίζεται η μέρα. */
   if ($('#mydCalls') && window.CNP.clPending) {
-    window.CNP.clPending('mydCalls', vMyDay).then(() => {
+    window.CNP.clPending('mydCalls', cnpReRender).then(() => {
       /* Η ετικέτα εμφανίζεται μόνο αν όντως υπάρχουν κλήσεις — αλλιώς η μέρα θα
          έγραφε «Τηλέφωνα χωρίς καταγραφή» πάνω από ένα κενό. */
       const g = $('#mydCallsG'), bx = $('#mydCalls');
@@ -6928,7 +6934,7 @@ async function vMyDay() {
     const b = el.querySelector('[data-attgo]');
     setTimeout(() => (b || el).click(), 180);
   };
-  { const lb = $('#mydLay'); if (lb) { lb.onclick = () => mydLayoutDialog(() => vMyDay()); } }
+  { const lb = $('#mydLay'); if (lb) { lb.onclick = () => mydLayoutDialog(() => cnpReRender()); } }
   { const nb = $('#mydNext'); if (nb) { nb.onclick = goNext; } }
   { const kb = $('#mydKbd'); if (kb) { kb.onclick = () => cnpKeyHelp([['t', 'ξεκίνα / σταμάτα χρόνο'],
       ['e', 'ολοκλήρωσε ή τακτοποίησε'], ['r', 'απάντησε (ticket / αίτημα)']]); } }
@@ -6952,18 +6958,18 @@ async function vMyDay() {
     e.stopPropagation(); const id = +b.dataset.mdplay;
     if (timer && timer.task === id) { const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null); if (r) { toast('Καταχωρήθηκε ' + fmtMin(r.mins)); } }
     else { await api('timer_start', {task: id}).catch(err => toast(err.message, true)); toast('▶ Ο χρόνος μετράει'); }
-    vMyDay();
+    cnpReRender();
   });
   $$('#content [data-mddone]').forEach(b => b.onclick = async e => {
     e.stopPropagation(); const id = +b.dataset.mddone; const t = planTasks.find(x => x.id === id) || {};
     const note = await askDone(t.title || ''); if (note === null) { return; }
     const r = await cnpMoveTask(id, fin.id, note); if (!r.ok) { if (!r.cancelled) { toast(r.error || 'Δεν επιτρέπεται', true); } return; }
-    toast('✔ Ολοκληρώθηκε'); vMyDay();
+    toast('✔ Ολοκληρώθηκε'); cnpReRender();
   });
-  { const sb = $('#mdStop'); if (sb) { sb.onclick = async () => { const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null); if (r) { toast('Καταχωρήθηκε ' + fmtMin(r.mins)); } vMyDay(); }; } }
+  { const sb = $('#mdStop'); if (sb) { sb.onclick = async () => { const r = await api('timer_stop', {billable: false, note: ''}).catch(() => null); if (r) { toast('Καταχωρήθηκε ' + fmtMin(r.mins)); } cnpReRender(); }; } }
   if (timer) { const el = $('#mdElapsed'); const iv = setInterval(() => { if (!document.body.contains(el)) { clearInterval(iv); return; } el.textContent = elapsed(timer.since); }, 30000); }
   $$('#content [data-tmid]').forEach(r => r.onclick = () => go('activity'));
-  $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); vMyDay(); });
+  $$('#content [data-mdtog]').forEach(ch => ch.onclick = async () => { await api('todo_toggle', {id: +ch.dataset.mdtog}); cnpReRender(); });
   $$('#content .ov-row').forEach(r => {
     const what = r.dataset.ovwhat, oid = +r.dataset.ovid;
     r.onclick = e => { if (e.target.closest('[data-ovask]')) { return; } if (what === 'task') { openTask(oid); } else { go('board', oid); } };
@@ -6976,10 +6982,10 @@ async function vMyDay() {
       if (msg === null) { return; }
       const x = await api('overrun_checkin', {what, id: oid, message: msg}).catch(err => ({err: err && err.message}));
       if (x && x.err) { toast(x.err, true); return; }
-      toast('💬 Ρωτήθηκε ο ' + (x.to || o.agentName)); vMyDay();
+      toast('💬 Ρωτήθηκε ο ' + (x.to || o.agentName)); cnpReRender();
     };
   });
-  $$('#content [data-qtk]').forEach(r => r.onclick = e => { e.stopPropagation(); openTicketQuick(+r.dataset.qtk, vMyDay); });
+  $$('#content [data-qtk]').forEach(r => r.onclick = e => { e.stopPropagation(); openTicketQuick(+r.dataset.qtk, cnpReRender); });
   $$('#content [data-dltask]').forEach(r => r.onclick = e => { e.stopPropagation(); openTask(+r.dataset.dltask); });
   $$('#content [data-dlproj]').forEach(r => r.onclick = () => go('board', +r.dataset.dlproj));
   $$('#content [data-dloffer]').forEach(r => r.onclick = () => go('offers'));
@@ -7296,6 +7302,7 @@ async function loadLeadExtras(leadId, dr) {
       toast('Προστέθηκε'); renderPeople();
     };
     $$('[data-pdel]', pb).forEach(b => b.onclick = async () => {
+      if (!await cnpConfirm('Διαγραφή του προσώπου επαφής;', {danger: true, ok: 'Διαγραφή', cancel: 'Άκυρο'})) { return; }
       await api('person_del', {id: +b.dataset.pdel}); renderPeople();
     });
   };
@@ -8315,7 +8322,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpTopZ, cnpNavGuard, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
+window.CNP = {S, api, esc, cnpHttpUrl, cnpTopZ, cnpNavGuard, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,
