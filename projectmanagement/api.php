@@ -3442,6 +3442,22 @@ function clientLabel($cid)
         ENT_QUOTES | ENT_HTML5, 'UTF-8');
 }
 
+/** Όνομα πελάτη από ΗΔΗ φορτωμένη γραμμή: ίδια αποκωδικοποίηση με το clientLabel (05/11/2026). */
+function cnp_client_name($c)
+{
+    return html_entity_decode(trim($c->companyname ?: trim($c->firstname . ' ' . $c->lastname)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+/**
+ * Σύνδεσμος που θα ανοίξει browser: ΜΟΝΟ http(s). Χωρίς σχήμα («meet.google.com/x») → https.
+ * Ό,τι άλλο (javascript:, data:, ελεύθερο κείμενο) = '' (05/11/2026).
+ */
+function cnp_http_url($u)
+{
+    $u = trim((string) $u);
+    if (preg_match('#^https?://\S+$#i', $u)) { return $u; }
+    return preg_match('#^[\p{L}\d.-]+\.[a-z]{2,}([/:?\#]\S*)?$#iu', $u) ? 'https://' . $u : '';
+}
+
 /* ───────── Γενικά αρχεία (Storage layer: local/S3) ───────── */
 /** Ειδικότητα που απαιτείται ανά module ('' = οποιοσδήποτε authenticated, null = άγνωστο→deny). */
 function cnp_file_area($module)
@@ -3614,7 +3630,8 @@ function cnp_meet_row($evM, $kindM, $nowM)
         'overMin' => max(0, (int) round(($nowM - strtotime($evM->end_dt)) / 60)),
         'extended' => (int) ($evM->extended_min ?? 0),
         'how' => trim($hIcoM . ' ' . $hTxtM), 'mode' => $evM->mode,
-        'join' => ($evM->mode === 'video' || $evM->mode === 'phone') ? $evM->location : '',
+        /* Το τηλέφωνο πάει ως tel: (app.js)· ό,τι ανοίγει σε browser μόνο http(s). */
+        'join' => $evM->mode === 'video' ? cnp_http_url($evM->location) : ($evM->mode === 'phone' ? $evM->location : ''),
         'client' => $evM->clientid ? clientLabel((int) $evM->clientid) : ''];
 }
 
@@ -10794,7 +10811,7 @@ case 'call_who':                         // ποιος καλεί: πελάτη�
             foreach (Capsule::table('tblclients')->whereRaw($bare9 . ' LIKE ?', ['%' . $dig . '%'])
                 ->limit(6)->get(['id', 'firstname', 'lastname', 'companyname', 'phonenumber']) as $c9) {
                 $res9[] = ['type' => 'client', 'id' => (int) $c9->id,
-                    'name' => $c9->companyname ?: trim($c9->firstname . ' ' . $c9->lastname),
+                    'name' => cnp_client_name($c9),
                     'phone' => $c9->phonenumber, 'why' => 'τηλέφωνο'];
             }
         }
@@ -10803,7 +10820,7 @@ case 'call_who':                         // ποιος καλεί: πελάτη�
               ->orWhere('lastname', 'like', $like)->orWhere('email', 'like', $like);
         })->limit(8)->get(['id', 'firstname', 'lastname', 'companyname', 'phonenumber']) as $c9) {
             $res9[] = ['type' => 'client', 'id' => (int) $c9->id,
-                'name' => $c9->companyname ?: trim($c9->firstname . ' ' . $c9->lastname),
+                'name' => cnp_client_name($c9),
                 'phone' => $c9->phonenumber, 'why' => 'όνομα'];
         }
         if (Capsule::schema()->hasTable('mod_cpm_leads')) {
@@ -12582,7 +12599,7 @@ case 'client360':
                 $w->where('firstname', 'like', $like)->orWhere('lastname', 'like', $like)
                   ->orWhere('companyname', 'like', $like)->orWhere('email', 'like', $like);
             })->limit(12)->get(['id', 'firstname', 'lastname', 'companyname', 'email']) as $m) {
-                $matches[] = ['id' => (int) $m->id, 'name' => $m->companyname ?: trim($m->firstname . ' ' . $m->lastname), 'email' => $m->email];
+                $matches[] = ['id' => (int) $m->id, 'name' => cnp_client_name($m), 'email' => $m->email];
             }
             if (count($matches) === 1) {
                 $cid = $matches[0]['id'];
@@ -12664,7 +12681,7 @@ case 'client360':
         $allPk[] = ['id' => (int) $pk->id, 'name' => $pk->name];
     }
     out(['client' => ['id' => $cid, 'status' => (string) $cl->status,
-        'name' => $cl->companyname ?: trim($cl->firstname . ' ' . $cl->lastname),
+        'name' => cnp_client_name($cl),
             'email' => $cl->email, 'phone' => $phone9],
         'package' => $myPk ?: null, 'packages' => $FULL ? $allPk : [],
         'remote' => (function () use ($cid) {
@@ -14001,7 +14018,7 @@ case 'ticket':
             $ctx = [
                 'id'       => (int) $cl->id,
                 'name'     => trim($cl->firstname . ' ' . $cl->lastname),
-                'company'  => (string) $cl->companyname,
+                'company'  => html_entity_decode((string) $cl->companyname, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'email'    => (string) $cl->email,
                 'phone'    => (string) $cl->phonenumber,
                 'country'  => (string) $cl->country,
@@ -15134,7 +15151,7 @@ case 'remote_book':                     // 📇 όλες οι αποθηκευμ
         $a = $sAgg[(int) $r->clientid] ?? ['n' => 0, 'lastAt' => null, 'mins' => 0];
         $book[] = ['clientid' => (int) $r->clientid, 'rustdesk_id' => $r->rustdesk_id,
             'label' => $r->label, 'updated' => $r->updated_at,
-            'name' => $r->companyname ?: trim($r->firstname . ' ' . $r->lastname),
+            'name' => cnp_client_name($r),
             'sessions' => $a['n'], 'lastAt' => $a['lastAt'], 'totalMins' => $a['mins']];
     }
     // στατιστικά 30 ημερών (όλης της ομάδας — ο restricted βλέπει μόνο τα δικά του)
@@ -15155,7 +15172,7 @@ case 'remote_book':                     // 📇 όλες οι αποθηκευμ
     foreach ($qRec->get(['s.id', 's.clientid', 's.admin_id', 's.ticketid', 's.started_at', 's.minutes',
         's.billable', 's.note', 'c.firstname', 'c.lastname', 'c.companyname']) as $s) {
         $recent[] = ['id' => (int) $s->id, 'clientid' => (int) $s->clientid,
-            'name' => $s->companyname ?: trim($s->firstname . ' ' . $s->lastname) ?: ('#' . (int) $s->clientid),
+            'name' => cnp_client_name($s) ?: ('#' . (int) $s->clientid),
             'by' => Db::adminName((int) $s->admin_id), 'ticket' => (int) $s->ticketid,
             'startedAt' => $s->started_at, 'minutes' => (int) $s->minutes,
             'billable' => (bool) $s->billable, 'note' => $s->note];
@@ -18311,7 +18328,11 @@ case 'lib_save':
         'expires_at' => ($in['expires'] ?? '') ?: null, 'shared' => !empty($in['shared']) ? 1 : 0,
         'exp_notified' => 0, 'updated_at' => date('Y-m-d H:i:s')];
     if ($kind === 'note') { $data['body'] = cnp_clean_html($in['body'] ?? ''); }
-    if ($kind === 'link') { $data['url'] = mb_substr(trim($in['url'] ?? ''), 0, 500); }
+    if ($kind === 'link') {
+        /* Το href/window.open εκτελεί javascript:/data: — κάθε σύνδεσμος μόνο http(s) (05/11/2026). */
+        $data['url'] = mb_substr(cnp_http_url($in['url'] ?? ''), 0, 500);
+        if ($data['url'] === '' && trim((string) ($in['url'] ?? '')) !== '') { fail('Ο σύνδεσμος πρέπει να αρχίζει με http:// ή https://'); }
+    }
     if ($id) {
         Capsule::table('mod_cpm_library')->where('id', $id)->update($data);
     } else {
@@ -19652,7 +19673,7 @@ case 'pay_statement':                    // Καρτέλα πελάτη: χρέ�
     }
 
     out([
-        'client'  => ['id' => $cid, 'name' => trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname))),
+        'client'  => ['id' => $cid, 'name' => cnp_client_name($cl),
                       'person' => trim($cl->firstname . ' ' . $cl->lastname), 'email' => $cl->email],
         'rows'    => $ev,
         'debit'   => round($td, 2),
@@ -19820,7 +19841,7 @@ case 'pay_trace':                        // Συμφωνία πληρωμών: �
             'payer'    => $payer,
             'ptype'    => $ptype,
             'clientId' => (int) $a->userid ?: null,
-            'client'   => $cl ? trim(($cl->companyname ?: ($cl->firstname . ' ' . $cl->lastname))) : null,
+            'client'   => $cl ? cnp_client_name($cl) : null,
             'person'   => $cl ? trim($cl->firstname . ' ' . $cl->lastname) : null,
             'email'    => $cl->email ?? null,
             'invoiceId' => (int) $a->invoiceid ?: null,

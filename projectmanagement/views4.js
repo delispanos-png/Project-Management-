@@ -1229,7 +1229,9 @@ R.requests = async function (openId) {
      έπρεπε να μεταφράσει μόνος του «σε περιμένουν» = «Προς εμένα + Ανοιχτά». Έμεινε ένα
      κουμπί «Ιστορικό» για να μη γίνει τίποτα απρόσιτο. */
   const all = f.box === 'all' && f.state === 'all';
-  c.innerHTML = `<div class="fbar">
+  /* Στην αναζήτηση η μπάρα ΜΕΝΕΙ (05/11/2026): ξαναχτιζόταν σε κάθε πλήκτρο και το πεδίο έχανε το focus. */
+  const rqTyping = cnpSearch._on && $('#rqQ');
+  if (!rqTyping) c.innerHTML = `<div class="fbar">
     ${fChip('Αναζήτηση', `<input class="fchip-s" id="rqQ" value="${esc(f.q)}" placeholder="κείμενο αιτήματος…" style="width:230px">`, !!f.q, '')}
     <button class="fchip${all ? ' on' : ''}" id="rqAll" title="Όλα τα αιτήματα — ανοιχτά και τακτοποιημένα, προς εμένα και από εμένα">${I.clock} Ιστορικό</button>
     <span class="fbar-sp"></span>
@@ -1406,7 +1408,7 @@ R.requests = async function (openId) {
     if (all) { f.box = 'in'; f.state = 'open'; } else { f.box = 'all'; f.state = 'all'; }
     f.who = 0; R.requests();
   };
-  { let t0; const qi = $('#rqQ'); if (qi) qi.oninput = () => { clearTimeout(t0); t0 = setTimeout(() => { f.q = qi.value.trim(); R.requests(); }, 400); }; }
+  cnpSearch('rqQ', v => { f.q = v; return R.requests(); }, 400);
   $('#rqNew').onclick = () => { if (window.CNP.quickHelp) { window.CNP.quickHelp({}); } };
   if (openId) { openRq(+openId); }
 };
@@ -3249,8 +3251,8 @@ function chVoiceHtml(url, secs, name) {
     <button type="button" class="ch-vp" title="Αναπαραγωγή">▶</button>
     <div class="ch-vbar" title="Κλικ για μετάβαση"><span></span></div>
     <span class="ch-vt">${f(secs || 0)}</span>
-    <audio preload="metadata" src="${url}"></audio>
-    ${name ? `<a class="ch-vdl" href="${url}${url.indexOf('?') > 0 ? '&' : '?'}dl=1" download="${esc(name)}" title="Λήψη">${I.download}</a>` : ''}
+    <audio preload="metadata" src="${esc(url)}"></audio>
+    ${name ? `<a class="ch-vdl" href="${esc(url + (url.indexOf('?') > 0 ? '&' : '?') + 'dl=1')}" download="${esc(name)}" title="Λήψη">${I.download}</a>` : ''}
   </div>`;
 }
 /* ✓✓ Αποδείξεις ανάγνωσης κάτω από τα ΔΙΚΑ ΜΟΥ μηνύματα. DM: «Διαβάστηκε HH:MM» / «Στάλθηκε».
@@ -3336,7 +3338,12 @@ R.chat = async function (arg) {
   const c = $('#content');
   const st = R.chat._st = R.chat._st || {ch: 'team', lastId: 0};
   /* #/chat/d2-5 · #/chat/g12 · #/chat/team (από ειδοποίηση, κάρτα μηνύματος, κουμπί chat): ΑΥΤΗ η συνομιλία. */
-  if (typeof arg === 'string' && /^(team|g\d+|d\d+-\d+)$/.test(arg) && arg !== st.ch) { st.ch = arg; st.lastId = 0; st.mobileConv = true; }
+  if (typeof arg === 'string' && /^(team|g\d+|d\d+-\d+)$/.test(arg)) {
+    /* Το DM έχει ΜΙΑ μορφή (μικρό-μεγάλο id): το d27-2 ήταν άλλο κανάλι από το d2-27 (05/11/2026). */
+    const dm = arg.match(/^d(\d+)-(\d+)$/);
+    const chN = dm ? 'd' + Math.min(+dm[1], +dm[2]) + '-' + Math.max(+dm[1], +dm[2]) : arg;
+    if (chN !== st.ch) { st.ch = chN; st.lastId = 0; st.mobileConv = true; }
+  }
   clearInterval(R.chat._t);
   clearInterval(R.chat._vt);
   clearInterval(R.chat._p);   // ο σφυγμός παρουσίας — αλλιώς διπλασιάζεται σε κάθε επαναφόρτωση
@@ -3364,6 +3371,14 @@ R.chat = async function (arg) {
       : d.toLocaleDateString('el-GR', {day: '2-digit', month: '2-digit'});
     return `<span class="ch-row-t" title="Τελευταίο μήνυμα">${esc(txt)}</span>`;
   };
+  /* Κανάλι που δεν είναι στη λίστα σου (#/chat/g99, ξένο DM, διαγραμμένη ομάδα): πριν η κεφαλίδα έδειχνε
+     «# Ομάδα» ενώ το st.ch έμενε — και το «Στείλε» πήγαινε αλλού. Τώρα ΚΑΙ το κανάλι γυρίζει (05/11/2026). */
+  if (!d.channels.some(x => x.id === st.ch)) {
+    const fb = d.channels.find(x => x.id === 'team') || d.channels[0];
+    toast('Δεν έχεις πρόσβαση σε αυτή τη συνομιλία' + (fb ? ' — άνοιξε η «' + fb.name + '»' : ''), true);
+    st.ch = fb ? fb.id : 'team'; st.lastId = 0; st.mobileConv = false;
+  }
+  if (arg && arg !== st.ch) { try { history.replaceState(null, '', '#/chat/' + st.ch); S.viewArg = st.ch; } catch (er) { /* */ } }
   const cur = d.channels.find(x => x.id === st.ch) || d.channels[0] || {name: 'Chat', kind: 'team'};
   c.innerHTML = `
   <div class="voicebar">
@@ -3575,10 +3590,10 @@ R.chat = async function (arg) {
       div.innerHTML = acts + `<div class="h">${esc(adminName(m.by))} · ${tShort(m.at)}${m.edited ? ' <i class="ch-edited">· επεξεργάστηκε</i>' : ''}</div>
         ${chQuoteHtml(m.reply)}
         <div class="ch-body">${m.body ? cnpMsgHtml(m.body) : ''}</div>
-        ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${fu}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
+        ${m.file ? (() => { const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id); return `<div style="margin-top:4px"><a href="${esc(fu)}" target="_blank" style="font-weight:700">${m.file.kind === 'video' ? '🎬' : m.file.kind === 'image' ? '🖼️' : I.clip} ${esc(m.file.name)}</a>
           <span class="mut" style="font-size:10px">(${Math.round(m.file.size / 1024)} KB)</span>
-          <a class="ch-dl" href="${fu}&dl=1" download="${esc(m.file.name)}" title="Λήψη αρχείου">${I.download} Λήψη</a>
-          ${m.file.kind === 'video' ? `<video src="${fu}" controls preload="metadata" style="width:100%;max-width:340px;max-height:240px;border-radius:8px;background:#000;margin-top:5px"></video>` : m.file.kind === 'image' ? `<img src="${fu}" loading="lazy" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:5px;display:block">` : ''}</div>`; })() : ''}`;
+          <a class="ch-dl" href="${esc(fu + '&dl=1')}" download="${esc(m.file.name)}" title="Λήψη αρχείου">${I.download} Λήψη</a>
+          ${m.file.kind === 'video' ? `<video src="${esc(fu)}" controls preload="metadata" style="width:100%;max-width:340px;max-height:240px;border-radius:8px;background:#000;margin-top:5px"></video>` : m.file.kind === 'image' ? `<img src="${esc(fu)}" loading="lazy" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:5px;display:block">` : ''}</div>`; })() : ''}`;
       /* 🎙 Φωνητικό: αντί για «voice-….webm» + Λήψη, ένας player σαν μήνυμα (WhatsApp-style). */
       if (m.file && m.file.kind === 'audio') {
         const fu = m.file.url || ('api.php?a=chat_file&id=' + m.file.id);
@@ -3635,6 +3650,8 @@ R.chat = async function (arg) {
     loading = true;
     const r = await api('chat_msgs&channel=' + st.ch + '&after=' + Math.max(0, st.lastId)).catch(() => null);
     loading = false;
+    /* Αποτυχία ≠ «καμία συζήτηση» (05/11/2026): το λέμε, και ο επόμενος κύκλος ξαναδοκιμάζει. */
+    if (!r && st.lastId === 0) { const b = $('#chMsgs'); if (b) { b.innerHTML = '<div class="empty" style="margin:auto">Τα μηνύματα δεν φορτώθηκαν — ξαναδοκιμάζω…</div>'; } return; }
     /* Διαγραφές από άλλους (ή από άλλη συσκευή μου): ό,τι είναι ήδη στην οθόνη γίνεται «διαγράφηκε». */
     if (r && Array.isArray(r.reactUpd)) r.reactUpd.forEach(x => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + x.id + '"]:not(.deleted)'); if (el) { chSetReacts(el, x.reacts); } });
     if (r && Array.isArray(r.edited)) r.edited.forEach(x => { const el = document.querySelector('#chMsgs .ch-m[data-mid="' + x.id + '"]:not(.deleted)'); if (!el || el._body === x.body) return; const bd = el.querySelector('.ch-body'); if (bd) { el._body = x.body; bd.innerHTML = cnpMsgHtml(x.body); cnpWireMsgLinks(bd); const h = el.querySelector('.h'); if (h && !h.querySelector('.ch-edited')) { h.insertAdjacentHTML('beforeend', ' <i class="ch-edited">· επεξεργάστηκε</i>'); } } });
@@ -4185,7 +4202,7 @@ R.library = async function () {
           ${it.shared ? `<span class="pill" style="background:var(--ok)1a;color:var(--ok);font-size:9px">${I.users} κοινό</span>` : ''}
           ${st.scope === 'shared' && !it.canEdit ? `<span class="mut" style="font-size:10px">· ${esc(it.ownerName)}</span>` : ''}</div>
         ${it.kind === 'note' && it.body ? `<div class="lb-prev">${esc(plain(it.body))}</div>` : ''}
-        ${it.kind === 'link' && it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand);word-break:break-all">${esc(it.url)}</a>` : ''}
+        ${it.kind === 'link' && window.CNP.cnpHttpUrl(it.url) ? `<a href="${esc(window.CNP.cnpHttpUrl(it.url))}" target="_blank" rel="noopener" style="font-size:12px;color:var(--brand);word-break:break-all">${esc(it.url)}</a>` : ''}
         ${it.updated ? `<div class="mut" style="font-size:10.5px;margin-top:3px">ενημερώθηκε ${esc(dFull(it.updated))}</div>` : ''}
         ${it.tags ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${it.tags.split(',').filter(x => x.trim()).map(t => `<span class="pill" style="font-size:9px">${esc(t.trim())}</span>`).join('')}</div>` : ''}
       </div>
@@ -4207,7 +4224,11 @@ R.library = async function () {
     $$('[data-lbopen]', box).forEach(b => b.onclick = () => {
       const it = d.items.find(x => x.id === +b.dataset.lbopen);
       if (!it) { return; }
-      if (it.kind === 'link' && it.url) { window.open(it.url, '_blank', 'noopener'); return; }
+      if (it.kind === 'link' && it.url) {
+        const lu = window.CNP.cnpHttpUrl(it.url);
+        if (lu) { window.open(lu, '_blank', 'noopener'); } else { toast('Μη ασφαλής σύνδεσμος — επίτρεπτα μόνο http(s)', true); }
+        return;
+      }
       if (it.kind === 'file') { window.open('api.php?a=lib_get&id=' + it.id, '_blank'); return; }
       openLibView(it);
     });
@@ -5203,15 +5224,15 @@ function cnpAttachments(host, opts) {
     const canDel = f => opts.canDelete !== false && (opts.module !== 'task' || (f.by ? f.by === S.boot.me.id : !!S.boot.me.full));
     box.innerHTML = files.length ? files.map(f => {
       const viewable = window.cnpFileKind && window.cnpFileKind(f.name, f.mime) !== 'other';
-      const prev = f.kind === 'video' ? `<video src="${f.url}" controls preload="metadata" style="width:100%;max-height:280px;border-radius:8px;background:#000;margin-top:7px"></video>`
-        : f.kind === 'image' ? `<img src="${f.url}" loading="lazy" ${fv(f)} alt="${esc(f.name)}" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:7px;display:block">` : '';
+      const prev = f.kind === 'video' ? `<video src="${esc(f.url)}" controls preload="metadata" style="width:100%;max-height:280px;border-radius:8px;background:#000;margin-top:7px"></video>`
+        : f.kind === 'image' ? `<img src="${esc(f.url)}" loading="lazy" ${fv(f)} alt="${esc(f.name)}" style="max-width:100%;max-height:220px;border-radius:8px;margin-top:7px;display:block">` : '';
       return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px">
         <div style="display:flex;gap:9px;align-items:center">
           <span style="font-size:18px">${kindIco(f.kind)}</span>
           <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"${viewable ? ' ' + fv(f) + ' title="Προβολή"' : ''}>${esc(f.name)}</div>
             <div class="mut" style="font-size:11px">${fmtBytes(f.size)}${f.driver === 's3' ? ' · ☁️ cloud' : ''}${f.by && opts.module === 'task' ? ' · ' + esc(adminName(f.by)) : ''}</div></div>
           ${viewable ? `<button type="button" class="btn btn-o btn-sm" ${fv(f)} title="Προβολή χωρίς λήψη">👁</button>` : ''}
-          <a class="btn btn-o btn-sm" href="${f.url}&dl=1" title="Λήψη">${I.download}</a>
+          <a class="btn btn-o btn-sm" href="${esc(f.url + '&dl=1')}" title="Λήψη">${I.download}</a>
           ${canDel(f) ? `<button class="btn btn-o btn-sm" data-fdel="${f.id}" style="color:var(--bad)" title="Διαγραφή (μόνο όποιος το ανέβασε)">${I.trash}</button>` : ''}
         </div>${prev}</div>`;
     }).join('') : '<div class="mut" style="font-size:12px">Κανένα συνημμένο ακόμη.</div>';
