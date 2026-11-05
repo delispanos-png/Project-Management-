@@ -1696,6 +1696,7 @@ function cnp_vault_group_dto($g, $adminId, $FULL)
     $lbl = array_intersect_key(cnp_vault_json($g->labels_json ?? ''), array_flip(CNP_VAULT_BUILTINS));
     return ['id' => (int) $g->id, 'name' => $g->name, 'color' => $g->color ?: '#0090dd', 'builtins' => $bi, 'labels' => $lbl ?: new \stdClass(),
         'fields' => cnp_vault_fields_clean(cnp_vault_json($g->fields_json)), 'info' => $info,
+        'canEdit' => $FULL || (int) $g->created_by === (int) $adminId || !$g->created_by,
         'canDelete' => $FULL || (int) $g->created_by === (int) $adminId || !$g->created_by];
 }
 
@@ -11368,8 +11369,11 @@ case 'calendar':
     $dTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : date('Y-m-t', strtotime($ym . '-01'));
     if ($dTo < $dFrom) { $dTo = $dFrom; }
     $items = [];
+    /* (05/11/2026) Ίδια ορατότητα με την εργασία. Πρώτα το έργο, που δεν κοστίζει ερωτήματα ανά γραμμή — ο πλήρης
+       Db::canSeeTask (ίδιο αποτέλεσμα για ορατό έργο) τρέχει μόνο στις υπόλοιπες, ώστε ο μήνας να μη γίνει N+1. */
+    $visCal = $FULL ? null : Db::visibleProjectIds($adminId);
     foreach (Db::tasksBetween($dFrom, $dTo) as $t) {
-        if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
+        if (!$FULL && !($t->project_id && ($visCal === null || in_array((int) $t->project_id, $visCal, true))) && !Db::canSeeTask($adminId, $t)) {
             continue;
         }
         $items[] = ['id' => (int) $t->id, 'title' => $t->title, 'due' => $t->due_date, 'status' => (int) $t->status_id,
@@ -15726,8 +15730,10 @@ case 'search':
     /* «#123» → η εργασία με αυτόν τον αριθμό, πρώτη-πρώτη (και αν είναι κλειστή). */
     if (preg_match('/^#?(\d{1,9})$/', $q, $mId)) {
         $tq = Capsule::table('mod_cpm_tasks as t')->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
-            ->where('t.id', (int) $mId[1])->select('t.id', 't.title', 't.assignee', 't.project_id', 'p.name as pname', 'p.color as pcolor')->first();
-        if ($tq && ($FULL || (int) $tq->assignee === $adminId || Db::canSeeProject($adminId, $tq->project_id))) {
+            ->where('t.id', (int) $mId[1])->select('t.id', 't.title', 't.assignee', 't.action_user', 't.created_by', 't.rec_id', 't.dept_id', 't.project_id', 'p.name as pname', 'p.color as pcolor')->first();
+        /* (05/11/2026) Ο ίδιος κανόνας με το άνοιγμα της εργασίας: μπάλα, επίβλεψη, ρωτήθηκε, ομάδα, τμήμα
+           (όχι «ανάδοχος ή έργο», που έκρυβε από τον κάτοχο τη δική του δουλειά: #892, #631, #782, #806). */
+        if ($tq && ($FULL || Db::canSeeTask($adminId, $tq))) {
             $tasks[] = ['id' => (int) $tq->id, 'title' => '#' . $tq->id . ' ' . $tq->title, 'pname' => cnp_pn($tq->pname), 'pcolor' => $tq->pcolor ?: '#8595ac'];
         }
     }
@@ -15740,13 +15746,15 @@ case 'search':
               ->orWhere('t.ticket_ref', 'like', $like)
               ->orWhere('k.tid', 'like', $like);
         })
-        ->orderBy('t.id', 'desc')->limit(6)
-        ->select('t.id', 't.title', 't.assignee', 't.project_id', 't.ticket_ref', 'k.tid as tkno',
+        ->orderBy('t.id', 'desc')->limit($FULL ? 6 : 40)   // ο έλεγχος είναι μετά: ξένες εργασίες δεν «τρώνε» τις 6 θέσεις
+        ->select('t.id', 't.title', 't.assignee', 't.action_user', 't.created_by', 't.rec_id', 't.dept_id', 't.project_id', 't.ticket_ref', 'k.tid as tkno',
             'p.name as pname', 'p.color as pcolor');
+    $seenS = 0;
     foreach ($tqq->get() as $t) {
-        if (!$FULL && (int) $t->assignee !== $adminId && !Db::canSeeProject($adminId, $t->project_id)) {
+        if (!$FULL && !Db::canSeeTask($adminId, $t)) {
             continue;
         }
+        if (++$seenS > 6) { break; }
         /* Οι εργασίες από ticket έχουν ήδη το «[#αριθμός]» στον τίτλο τους — δεν το
            γράφουμε δεύτερη φορά. */
         $no = $t->tkno ?: $t->ticket_ref;
@@ -18241,6 +18249,8 @@ case 'vault_group_save':                 // νέα/αλλαγή ομάδας: ό
     $gId = (int) ($in['id'] ?? 0);
     $gOld = $gId ? Capsule::table('mod_cpm_vault_groups')->where('id', $gId)->first() : null;
     if ($gId && !$gOld) { fail('Δεν βρέθηκε η ομάδα', 404); }
+    /* (05/11/2026) Ίδιος κανόνας με το vault_group_del: πριν, ο καθένας άλλαζε ξένη ομάδα. */
+    if ($gOld && !$FULL && $gOld->created_by && (int) $gOld->created_by !== $adminId) { fail('Την ομάδα την αλλάζει όποιος τη δημιούργησε ή διαχειριστής', 403); }
     if (Capsule::table('mod_cpm_vault_groups')->where('name', $gName)->where('id', '<>', $gId)->exists()) { fail('Υπάρχει ήδη ομάδα «' . $gName . '»', 409, ['field' => 'name']); }
     /* (23/10/2026) Χωρίς «βασικά πεδία»: ΟΛΑ είναι πεδία της ομάδας (κοινά + πρότυπο) ή της καταχώρησης. */
     $gBi = array_values(array_intersect(CNP_VAULT_BUILTINS, is_array($in['builtins'] ?? null) ? $in['builtins'] : []));
@@ -18260,6 +18270,14 @@ case 'vault_group_save':                 // νέα/αλλαγή ομάδας: ό
         'builtins' => implode(',', $gBi), 'fields_json' => json_encode(cnp_vault_fields_clean($in['fields'] ?? []), JSON_UNESCAPED_UNICODE),
         'info_json' => json_encode($gPlain, JSON_UNESCAPED_UNICODE), 'info_enc' => $gSec ? cnp_vault_enc(json_encode($gSec, JSON_UNESCAPED_UNICODE)) : null,
         'updated_at' => date('Y-m-d H:i:s')];
+    /* (05/11/2026) Ό,τι ΔΕΝ στάλθηκε μένει ως έχει: {id,name} μηδένιζε info_enc (τα κοινά ευαίσθητα) και πρότυπο. */
+    if ($gOld) {
+        if (!array_key_exists('info', $in)) { unset($gRow['info_json'], $gRow['info_enc']); }
+        if (!array_key_exists('fields', $in)) { unset($gRow['fields_json']); }
+        if (!array_key_exists('labels', $in)) { unset($gRow['labels_json']); }
+        if (!array_key_exists('builtins', $in)) { unset($gRow['builtins']); }
+        if (!array_key_exists('color', $in)) { unset($gRow['color']); }
+    }
     if ($gOld) {
         Capsule::table('mod_cpm_vault_groups')->where('id', $gId)->update($gRow);
         Capsule::table('mod_cpm_vault')->where('group_id', $gId)->update(['kind' => mb_substr($gName, 0, 40)]);
@@ -20698,6 +20716,10 @@ case 'my_crm_tasks':                     // ανοιχτές CRM εργασίε�
     $today = date('Y-m-d');
     $q = Capsule::table('mod_cpm_lead_tasks as t')->join('mod_cpm_leads as l', 'l.id', '=', 't.lead_id')
         ->where('t.done', 0);
+    /* (05/11/2026) Το ερώτημα χτιζόταν αλλά δεν έτρεχε ποτέ και το $rows δεν υπήρχε: η Επισκόπηση CRM έδειχνε πάντα κενό. */
+    if (!$FULL) { $q->where('t.assignee', $adminId); }
+    $rows = $q->orderByRaw('t.due_date IS NULL, t.due_date')->limit(200)
+        ->get(['t.id', 't.title', 't.kind', 't.due_date', 't.lead_id', 't.assignee', 'l.company', 'l.contact']);
     $out = [];
     foreach ($rows as $t) {
         $out[] = ['id' => (int) $t->id, 'title' => $t->title, 'kind' => $t->kind, 'due' => $t->due_date,
