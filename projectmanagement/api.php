@@ -4680,7 +4680,7 @@ function cnp_action_cap($action)
         $add('comms.book.edit', ['book_save', 'book_note', 'book_import']);
         $add('comms.book.edit', ['book_afm']);
         $add('comms.book.delete', ['book_del']);
-        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan', 'pbx_ai_calls']);
+        $add('comms.pbx', ['pbx_settings', 'pbx_log', 'pbx_map', 'pbx_plan', 'pbx_ai_calls', 'pbx_presence']);
         $add('comms.route', ['route_overview']);
         /* Οι ορισμοί (προϊόντα → ουρές) χρειάζονται και στην καρτέλα του καταλόγου. */
         $add('comms.book', ['route_defs']);
@@ -4696,7 +4696,7 @@ function cnp_action_cap($action)
         /* Η ταύτιση τηλεφώνου με πελάτη είναι δουλειά αυτού που σήκωσε το
            τηλέφωνο — ίδιο cap με την καταγραφή της κλήσης. */
         $add('clients.calls', ['call_note_save', 'call_link', 'my_calls_open']);
-        $add('comms.pbx.edit', ['pbx_presence', 'pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
+        $add('comms.pbx.edit', ['pbx_save', 'pbx_probe', 'pbx_rate_save', 'pbx_rate_del',
             'pbx_sync', 'pbx_map_save', 'calls_backfill', 'pbx_apply', 'pbx_ai_voice']);
         $add('team.calendar', ['calendar', 'event_rsvp', 'event_busy', 'event_alert_seen']);
         $add('team.calendar.edit', ['event_save', 'event_del', 'event_nudge', 'event_noshow']);
@@ -8484,7 +8484,11 @@ case 'book_lookup':
 
 case 'pbx_presence':
     /* Ο διακόπτης του συγχρονισμού κατάστασης. Ζει με τις υπόλοιπες ρυθμίσεις
-       του κέντρου, άρα ίδιο δικαίωμα με αυτές. */
+       του κέντρου, άρα ίδιο δικαίωμα με αυτές: η ΑΝΑΓΝΩΣΗ με το comms.pbx (η οθόνη τη ζητά από όλους),
+       η ΑΛΛΑΓΗ μόνο με το comms.pbx.edit (05/11/2026). */
+    if ((array_key_exists('on', $in) || array_key_exists('mode', $in)) && !cnp_has_cap($adminId, $FULL, 'comms.pbx.edit')) {
+        fail('Χρειάζεται δικαίωμα «Διασύνδεση 3CX → Ρύθμιση & κόστη»', 403);
+    }
     if (array_key_exists('on', $in)) {
         Pbx3cxPresence::setEnabled(!empty($in['on']));
     }
@@ -12440,7 +12444,7 @@ case 'contacts':
         }
         foreach ($cq->get(['id', 'firstname', 'lastname', 'companyname', 'email', 'phonenumber']) as $c) {
             $rows[] = ['kind' => 'client', 'id' => (int) $c->id,
-                'name' => $c->companyname ?: trim($c->firstname . ' ' . $c->lastname), 'sub' => null,
+                'name' => html_entity_decode($c->companyname ?: trim($c->firstname . ' ' . $c->lastname), ENT_QUOTES, 'UTF-8'), 'sub' => null,
                 'badge' => 'Πελάτης', 'color' => '#16a26a', 'phone' => $c->phonenumber, 'email' => $c->email,
                 'last' => $last['client:' . $c->id] ?? null, 'next' => null, 'who' => null];
         }
@@ -18028,7 +18032,7 @@ case 'vault_list':
     $cmap = [];
     if ($cids) {
         foreach (Capsule::table('tblclients')->whereIn('id', $cids)->get(['id', 'companyname', 'firstname', 'lastname']) as $c) {
-            $cmap[(int) $c->id] = $c->companyname ?: trim($c->firstname . ' ' . $c->lastname);
+            $cmap[(int) $c->id] = html_entity_decode($c->companyname ?: trim($c->firstname . ' ' . $c->lastname), ENT_QUOTES, 'UTF-8');   // το WHMCS τα κρατά ως &amp; (05/11/2026)
         }
     }
     $groupsV = []; $grpMap = [];
