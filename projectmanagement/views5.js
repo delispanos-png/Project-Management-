@@ -262,9 +262,9 @@ R.gantt = async function () {
     let ns = bar.dataset.start, ne = bar.dataset.end;
     if (resize) ne = addD(ne, dW); else { ns = addD(ns, dL); ne = addD(ne, dL); }
     if (ne < ns) ne = ns;
-    const r = await api('gantt_move', {task: +bar.dataset.task, start: ns, end: ne}).catch(() => ({ok: 0}));
+    const r = await api('gantt_move', {task: +bar.dataset.task, start: ns, end: ne}).catch(e => ({ok: 0, err: e && e.message}));
     if (r.ok) toast(`${dShort(ns)} – ${dShort(ne)}`);
-    else toast('Δεν επιτρέπεται', true);
+    else toast(r.err || 'Δεν επιτρέπεται', true);   // ο λόγος του server, όχι γενικό «όχι» (05/11/2026)
     R.gantt();
   };
 };
