@@ -5013,10 +5013,13 @@ async function openTask(id, entryId, opts) {
       .forEach(sel => { const e = $(sel, dr); if (e) { e.style.display = 'none'; } });
     /* Σε καρτέλα μόνο-προβολής η ένδειξη «αποθηκεύεται μόνο του» θα ήταν ψέμα. */
     { const au = $('.tk-auto', dr); if (au) { au.style.display = 'none'; } }
-    $$((canTime ? '' : '.tk-time-row, ') + '.tk-step-foot, [data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
+    /* (05/11/2026) Η σύνθεση είναι πια .act-composer: το παλιό .tk-step-foot δεν υπάρχει και η σημείωση έμενε πάνω
+       από ανοιχτό πεδίο. Όποιος ΡΩΤΗΘΗΚΕ εδώ (canBall) γράφει την απάντησή του — ο server τον δέχεται. */
+    const canPost = !!d.canBall;
+    $$((canTime ? '' : '.tk-time-row, ') + (canPost ? '' : '.act-composer, ') + '[data-ddel]', dr).forEach(e => { e.style.display = 'none'; });
     /* Το πεδίο των ενεργειών κρύβεται — αλλά χωρίς εξήγηση μοιάζει με βλάβη. */
     const sl = $('#dCheck', dr);
-    if (sl) {
+    if (sl && !canPost) {
       sl.insertAdjacentHTML('afterend', '<div class="mut" style="padding:10px 14px;font-size:12px;'
         + 'border-top:1px solid var(--line)">🔒 Δεν μπορείς να γράψεις εδώ: η εργασία δεν είναι δική σου '
         + '(ανάθεση/επίβλεψη/δημιουργία) και δεν έχεις «Board: επεξεργασία».</div>');
