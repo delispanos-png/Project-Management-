@@ -3725,13 +3725,19 @@ R.chat = async function (arg) {
     if (q) q.onclick = e => { e.stopPropagation(); const t = document.querySelector('#chMsgs .ch-m[data-mid="' + q.dataset.chgoto + '"]'); if (!t) { toast('Το αρχικό μήνυμα είναι πιο παλιά'); return; } t.scrollIntoView({block: 'center', behavior: 'smooth'}); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1600); };
     div.ondblclick = e => { if (e.target.closest('button,a,input,audio,video')) return; const sel = window.getSelection(); if (sel) sel.removeAllRanges(); chZoom(div); };
   };
+  /* Το αρχείο ανεβαίνει απευθείας στο S3 (cnpUploadFile) και το μήνυμα το δένει με file_id (05/11/2026):
+     το multipart περνούσε από την PHP, κοβόταν στα 8MB και το συνημμένο χανόταν σιωπηλά. */
   const sendOne = async (body, file) => {
-    const fd = new FormData();
-    fd.append('channel', st.ch); fd.append('body', body); fd.append('file', file);
-    if (replyTo) { fd.append('reply_to', replyTo); replyTo = 0; paintReply(); }
-    const r = await fetch('api.php?a=chat_send', {method: 'POST', body: fd, credentials: 'same-origin'})
-      .then(x => x.json()).catch(() => ({error: 'Απέτυχε η αποστολή'}));
+    if (file.size > 50 * 1024 * 1024) { toast('Το «' + file.name + '» ξεπερνά το όριο των 50MB', true); return false; }
+    const bar = file.size > 2 * 1024 * 1024 ? window.cnpUploadBar(1) : null;
+    const up = await window.cnpUploadFile(file, {module: 'chat', ref_type: st.ch, ref_id: 0,
+      onProgress: bar ? p => bar.set(0, file.name, p) : null});
+    if (bar) { bar.done(); }
+    if (!up.file) { toast('Το «' + file.name + '» δεν ανέβηκε: ' + up.err, true); return false; }
+    const r = await api('chat_send', {channel: st.ch, body, file_id: up.file.id, reply_to: replyTo || 0})
+      .catch(e => ({error: (e && e.message) || 'Απέτυχε η αποστολή'}));
     if (r.error) { toast(r.error, true); return false; }
+    if (replyTo) { replyTo = 0; paintReply(); }
     return true;
   };
   /* ΜΙΑ ΑΠΟΣΤΟΛΗ ΤΗ ΦΟΡΑ. Το κουμπί κλείδωνε, το πλήκτρο όχι: ένα δεύτερο Enter
@@ -3748,15 +3754,15 @@ R.chat = async function (arg) {
     sending = true;
     $('#chIn').value = ''; $('#chIn').style.height = '';
     const btn = $('#chSend'); if (btn) { btn.disabled = true; }
-    let ok = false;
+    let ok = false, txt = body;
     try {
-      let txt = body;
       for (const p of pend.slice()) {          // το κείμενο πάει με την πρώτη εικόνα
         if (!await sendOne(txt, p)) { return; }
         txt = '';
+        /* Βγαίνει ΑΜΕΣΩΣ (05/11/2026): αν αποτύχει το επόμενο, το νέο «Στείλε» δεν ξαναστέλνει όσα έφυγαν. */
         URL.revokeObjectURL(p._url);
+        pend.splice(pend.indexOf(p), 1); paintPend();
       }
-      pend.length = 0; paintPend();
       if (f) {
         if (!await sendOne(txt, f)) { return; }
         txt = '';
@@ -3772,7 +3778,7 @@ R.chat = async function (arg) {
       sending = false;
       if (btn) { btn.disabled = false; }
       /* Αν κάτι πήγε στραβά, τα λόγια σου γυρίζουν στο κουτί — δεν χάνονται. */
-      if (!ok && body && !$('#chIn').value) { $('#chIn').value = body; if (R.chat._growIn) { R.chat._growIn(); } }
+      if (!ok && txt && !$('#chIn').value) { $('#chIn').value = txt; if (R.chat._growIn) { R.chat._growIn(); } }
     }
   };
   $('#chSend').onclick = send;
@@ -4218,11 +4224,14 @@ R.library = async function () {
   $('#lbLink').onclick = () => openLibForm('link', null);
   $('#lbFile').onchange = async e => {
     const file = e.target.files[0]; if (!file) { return; }
-    const fd = new FormData(); fd.append('file', file); fd.append('title', file.name);
-    toast('Ανεβαίνει…');
-    const r = await fetch('api.php?a=lib_upload', {method: 'POST', body: fd, credentials: 'same-origin'}).then(x => x.json());
-    if (r.ok) { toast('Ανέβηκε ✓ — πάτα ✎ για κατηγορία/λήξη/κοινό'); load(); } else { toast(r.error || 'Σφάλμα', true); }
     e.target.value = '';
+    if (file.size > 25 * 1024 * 1024) { toast('Μέγιστο 25MB', true); return; }
+    /* Μέσω cnpUploadFile (05/11/2026): το multipart κοβόταν στα 8MB, ενώ η οθόνη υπόσχεται 25MB. */
+    toast('Ανεβαίνει…');
+    const up = await window.cnpUploadFile(file, {module: 'library', ref_type: 'file', ref_id: 0});
+    if (!up.file) { toast('Το αρχείο δεν ανέβηκε: ' + up.err, true); return; }
+    const r = await api('lib_upload', {file_id: up.file.id, title: file.name}).catch(er => ({error: er.message}));
+    if (r.ok) { toast('Ανέβηκε ✓ — πάτα ✎ για κατηγορία/λήξη/κοινό'); load(); } else { toast(r.error || 'Σφάλμα', true); }
   };
   $('#lbScope').onclick = e => { const b = e.target.closest('[data-scope]'); if (!b) { return; } st.scope = b.dataset.scope; st.cat = ''; load(); };
   $('#lbCats').onclick = e => { const b = e.target.closest('[data-cat]'); if (!b) { return; } st.cat = b.dataset.cat; load(); };
