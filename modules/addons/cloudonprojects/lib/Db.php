@@ -2912,6 +2912,7 @@ class Db
         return Capsule::table('mod_cpm_tasks as t')
             ->leftJoin('mod_cpm_projects as p', 'p.id', '=', 't.project_id')
             ->select('t.id', 't.title', 't.due_date', 't.priority', 't.completed_at', 't.assignee', 't.status_id',
+                't.action_user', 't.created_by', 't.rec_id', 't.dept_id',   // για το Db::canSeeTask (05/11/2026)
                 't.project_id', 'p.name as project_name', 'p.color as project_color')
             ->whereNotNull('t.due_date')
             ->whereBetween('t.due_date', [$from, $to])

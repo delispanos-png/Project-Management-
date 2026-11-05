@@ -4783,7 +4783,7 @@ function openVaultGroup(g, onSaved) {
     <div id="vgFields"></div><button type="button" class="btn btn-sm btn-o" id="vgFieldAdd">+ Πεδίο</button>
     <div style="display:flex;gap:8px;margin-top:20px;align-items:center">
       ${!isNew && g.canDelete ? `<button class="btn btn-sm btn-o" id="vgDel" style="color:var(--bad)">${I.trash} Διαγραφή ομάδας</button>` : ''}
-      <span style="flex:1"></span><button class="btn btn-o" id="vgNo">Άκυρο</button><button class="btn btn-p" id="vgOk">${I.save} Αποθήκευση</button></div>
+      <span style="flex:1"></span><button class="btn btn-o" id="vgNo">Άκυρο</button><button class="btn btn-p" id="vgOk" ${isNew || g.canEdit ? '' : 'disabled title="Την ομάδα την αλλάζει όποιος τη δημιούργησε ή διαχειριστής"'}>${I.save} Αποθήκευση</button></div>
   </div></div>`;
   document.body.appendChild(ovl);
   const close = () => ovl.remove();
