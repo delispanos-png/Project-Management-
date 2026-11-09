@@ -5,6 +5,11 @@
  *      → ΞΕΧΩΡΙΣΤΗ σελίδα φόρμας με assigned θέση (apply.php?job=ID).
  * Γλώσσα: ?lang=el|en (default el), διατηρείται σε links/φόρμα. Νέες αιτήσεις (source=form)
  * αξιολογούνται από το cron cv_autoeval.php.
+ *
+ * ΕΜΦΑΝΙΣΗ: ίδια με το νέο cloudon.gr (tokens, κεφαλίδα, κάρτες, υποσέλιδο).
+ * Η λογική πάνω από το HTML είναι αυτούσια από το apply.php. Όσο το αρχείο
+ * ΔΕΝ λέγεται apply.php (π.χ. apply-v2.php για προεπισκόπηση), δεν μετράει
+ * προβολές, έχει noindex και τα links μένουν στο ίδιο αρχείο.
  */
 
 $__cookies = $_COOKIE;
@@ -23,10 +28,15 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/JobViews.php';
 use WHMCS\Module\Addon\CloudonProjects\CvPhoto;
 use WHMCS\Module\Addon\CloudonProjects\JobViews;
 
+$ME      = basename(__FILE__);           // apply.php στο live, apply-v2.php στην προεπισκόπηση
+$IS_LIVE = ($ME === 'apply.php');
+/* Βάση των links προς το site (το νέο cloudon.gr βγήκε live 8/11/2026). */
+$SITE    = 'https://cloudon.gr';
+
 // ── Καταγραφή προβολής αγγελίας (beacon από το modal) ──
 // Απαντά αμέσως 204 και δεν συνεχίζει να χτίζει τη σελίδα.
 if (isset($_GET['trk'])) {
-    JobViews::hit((int) $_GET['trk'], ($_GET['k'] ?? '') === 'form' ? 'form' : 'view');
+    if ($IS_LIVE) JobViews::hit((int) $_GET['trk'], ($_GET['k'] ?? '') === 'form' ? 'form' : 'view');
     http_response_code(204);
     exit;
 }
@@ -212,6 +222,10 @@ $jl = function ($job, $field) use ($lang) {
     if ($lang === 'en') {
         $map = ['title' => 'title_en', 'descr' => 'descr_en', 'skills' => 'skills_en', 'emptype' => 'emptype_en'];
         if (isset($map[$field]) && trim((string) ($job->{$map[$field]} ?? '')) !== '') { return $job->{$map[$field]}; }
+        if ($field === 'location') {   // δεν υπάρχει location_en: οι συνηθισμένες πόλεις
+            $loc = trim((string) ($job->location ?? ''));
+            return strtr($loc, ['Αθήνα' => 'Athens', 'Λευκωσία' => 'Nicosia', 'Λεμεσός' => 'Limassol', 'Θεσσαλονίκη' => 'Thessaloniki', 'Απομακρυσμένα' => 'Remote', 'Υβριδικά' => 'Hybrid']);
+        }
     }
     return $job->$field ?? '';
 };
@@ -226,14 +240,16 @@ $mode = $done ? 'done' : (($formJob || $formGeneral) ? 'form' : 'landing');
 
 // Μέτρηση: η σελίδα καριέρας συνολικά (job_id 0) και το άνοιγμα φόρμας ανά θέση.
 // Το άνοιγμα της αναλυτικής αγγελίας μετριέται από το beacon του modal.
-if ($mode === 'landing') {
+if (!$IS_LIVE) {
+    // προεπισκόπηση: καμία μέτρηση
+} elseif ($mode === 'landing') {
     JobViews::hit(0, 'view');
 } elseif ($mode === 'form' && $formJob) {
     JobViews::hit((int) $formJob->id, 'form');
 }
 
 // base URL για εναλλαγή γλώσσας (διατηρεί context)
-$curBase = 'apply.php';
+$curBase = $ME;
 if ($mode === 'form') { $curBase .= '?job=' . ($formJob ? (int) $formJob->id : 'general'); }
 $switch = fn($lg) => $curBase . (strpos($curBase, '?') !== false ? '&' : '?') . 'lang=' . $lg;
 
@@ -252,7 +268,7 @@ foreach ($jobs as $jj) {
 }
 $jobsData = [];
 foreach ($jobs as $jj) {
-    $jobsData[(int) $jj->id] = ['title' => $jl($jj, 'title'), 'location' => $jj->location, 'emptype' => $jl($jj, 'emptype'),
+    $jobsData[(int) $jj->id] = ['title' => $jl($jj, 'title'), 'location' => $jl($jj, 'location'), 'emptype' => $jl($jj, 'emptype'),
         'skills' => $skillChips($jl($jj, 'skills')), 'html' => $fmtDesc($jl($jj, 'descr')), 'image' => $jobImg($jj)];
 }
 ?><!DOCTYPE html><html lang="<?= $lang ?>"><head><meta charset="utf-8">
@@ -263,7 +279,7 @@ foreach ($jobs as $jj) {
 <link rel="alternate" hreflang="el" href="<?= $SELF ?>?lang=el">
 <link rel="alternate" hreflang="en" href="<?= $SELF ?>?lang=en">
 <link rel="alternate" hreflang="x-default" href="<?= $SELF ?>">
-<meta name="robots" content="index,follow">
+<meta name="robots" content="<?= $IS_LIVE ? 'index,follow' : 'noindex,nofollow' ?>">
 <meta property="og:type" content="website">
 <meta property="og:title" content="<?= $e($t('og_title')) ?>">
 <meta property="og:description" content="<?= $e($metaDesc) ?>">
@@ -274,377 +290,413 @@ foreach ($jobs as $jj) {
 <?php foreach ($ld as $l): ?>
 <script type="application/ld+json"><?= json_encode($l, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
 <?php endforeach; ?>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230090dd'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>C</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232E9BFF'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>C</text></svg>">
 <style>
+/* Tokens: ίδια με το cloudon.gr (wp-content/themes/cloudon/assets/css/tokens.css) */
+:root{--c-bg:#fff;--c-surface:#fff;--c-surface-2:#F2F6FC;--c-line:#E2E9F3;--c-ink:#0B1220;--c-ink-2:#4C5C78;--c-ink-3:#5E6D86;
+  --c-link:#1668C7;--c-brand:#2E9BFF;--c-brand-2:#12B5AC;--c-brand-2-ink:#0A7A74;--g-brand:linear-gradient(135deg,#2E9BFF,#12B5AC);
+  --c-ok:#16a26a;
+  --f-sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --t-h1:clamp(2rem,1.2rem + 2.6vw,3.2rem);--t-h2:clamp(1.55rem,1.1rem + 1.6vw,2.3rem);--t-h3:clamp(1.2rem,1rem + .7vw,1.5rem);
+  --t-small:.875rem;--t-micro:.75rem;
+  --s-1:.25rem;--s-2:.5rem;--s-3:.75rem;--s-4:1rem;--s-5:1.5rem;--s-6:2rem;--s-7:3rem;--s-8:4rem;
+  --r-sm:10px;--r-md:16px;--r-lg:24px;--sh-1:0 1px 2px rgba(11,18,32,.06);--sh-2:0 10px 28px rgba(11,18,32,.08);--sh-3:0 26px 70px rgba(11,18,32,.12);
+  --gutter:clamp(1rem,4vw,2.5rem)}
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--brand:#0090dd;--brand2:#22b4ff;--brand-d:#0072ad;--ink:#0f2038;--txt:#43536b;--mut:#8093ac;--line:#e6ecf3;--bg:#f4f7fb;--card:#fff;--ok:#16a26a;--bad:#e2515f;--navy:#0b1b30}
 html{scroll-behavior:smooth}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--txt);line-height:1.6;-webkit-font-smoothing:antialiased}
+body{font-family:var(--f-sans);font-size:1.0625rem;line-height:1.6;background:var(--c-bg);color:var(--c-ink);-webkit-font-smoothing:antialiased}
 img{max-width:100%;display:block}
-.container{max-width:1080px;margin:0 auto;padding:0 20px}
-.mut{color:var(--mut)}
-.btn{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(135deg,var(--brand2),var(--brand-d));color:#fff;border:0;border-radius:13px;padding:14px 26px;font-size:16px;font-weight:800;cursor:pointer;text-decoration:none;box-shadow:0 14px 32px -8px rgba(0,144,221,.55);transition:transform .16s,box-shadow .16s}
-.btn:hover{transform:translateY(-2px);box-shadow:0 20px 44px -8px rgba(0,144,221,.65)}
-.btn.ghost{background:rgba(255,255,255,.12);box-shadow:none;border:1px solid rgba(255,255,255,.35)}
-.btn.o{background:#fff;color:var(--brand-d);border:1.5px solid var(--line);box-shadow:none}
-.btn.o:hover{border-color:var(--brand);box-shadow:0 8px 20px -10px rgba(0,144,221,.4)}
-.btn.sm{padding:10px 18px;font-size:14px;border-radius:11px}
-.brand{display:inline-flex;align-items:center}
-.brand img{height:72px;width:auto;display:block}
-.langsw{display:inline-flex;gap:2px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:10px;padding:3px;font-size:12.5px;font-weight:800}
-.langsw a{color:#cfe0f0;text-decoration:none;padding:5px 10px;border-radius:7px;line-height:1}
-.langsw a.on{background:#fff;color:var(--brand-d)}
-/* ── HERO ── */
-.hero{position:relative;color:#fff;overflow:hidden;padding:26px 0 96px}
-.hero::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(9,20,38,.78),rgba(9,20,38,.92)),url('apply-assets/office.jpg') center/cover;z-index:-2}
-.hero::after{content:"";position:absolute;top:-140px;right:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,#22b4ff55,transparent 70%);filter:blur(40px);z-index:-1}
-.nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 0;gap:10px}
-.nav .links{display:flex;gap:10px;align-items:center}
-.hero-in{max-width:720px;margin-top:64px}
-.eyebrow{display:inline-block;font-size:12px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#7fe0ff;background:#22b4ff1a;border:1px solid #22b4ff44;border-radius:999px;padding:6px 15px;margin-bottom:18px}
-.hero h1{font-size:clamp(32px,6vw,50px);line-height:1.06;letter-spacing:-1.2px;color:#fff;margin-bottom:16px;font-weight:800}
-.hero h1 .g{background:linear-gradient(100deg,#7fe0ff,#fff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.hero p{font-size:clamp(16px,2.4vw,19px);color:#bcd3ea;max-width:560px;margin-bottom:26px}
-.hero .cta{display:flex;gap:12px;flex-wrap:wrap}
-.stats{display:flex;gap:30px;margin-top:44px;flex-wrap:wrap}
-.stats .s b{display:block;font-size:26px;color:#fff;font-weight:800}
-.stats .s span{font-size:12.5px;color:#8fb0d0}
-/* ── SECTIONS ── */
-.section{padding:64px 0}
-.section h2{font-size:clamp(24px,4vw,34px);color:var(--ink);letter-spacing:-.6px;text-align:center;margin-bottom:8px;font-weight:800}
-.section .sub{text-align:center;color:var(--mut);max-width:560px;margin:0 auto 40px;font-size:15px}
-.values{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
-.val{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 10px 30px -20px rgba(15,32,56,.4)}
-.val .ic{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#e8f6ff,#d3ecff);display:flex;align-items:center;justify-content:center;margin-bottom:14px}
-.val .ic svg{width:24px;height:24px;stroke:var(--brand-d)}
-.val h3{font-size:17px;color:var(--ink);margin-bottom:6px}
-.val p{font-size:13.5px;color:var(--txt)}
-.band{position:relative;border-radius:22px;overflow:hidden;margin:8px 0 0;min-height:280px;display:flex;align-items:flex-end;color:#fff}
-.band img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
-.band::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,20,38,.85),rgba(9,20,38,.25));z-index:-1}
-.band .txt{padding:30px 34px;max-width:520px}
-.band .txt h3{font-size:24px;margin-bottom:8px}
-.band .txt p{color:#cfe0f0;font-size:14.5px}
-/* jobs */
-.jobs{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
-.job{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 22px 20px;box-shadow:0 10px 30px -20px rgba(15,32,56,.4);display:flex;flex-direction:column;transition:transform .16s,box-shadow .16s,border-color .16s}
-.job:hover{transform:translateY(-3px);box-shadow:0 22px 46px -22px rgba(15,32,56,.5);border-color:#bfe2f7}
-.job h3{font-size:18px;color:var(--ink);margin-bottom:8px}
-.job .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.tag{font-size:11.5px;font-weight:700;color:var(--brand-d);background:#e8f6ff;border-radius:999px;padding:4px 11px}
-.job p.d{font-size:13.5px;color:var(--txt);margin-bottom:14px;flex:1;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-.chip{font-size:10.5px;font-weight:600;color:var(--txt);background:#f1f5fa;border:1px solid var(--line);border-radius:8px;padding:3px 9px}
-.job .acts{display:flex;gap:8px;flex-wrap:wrap}
-.job-cover{height:170px;margin:-22px -22px 16px;border-radius:15px 15px 0 0;background:#eef2f7 no-repeat center 30%/cover}
-.modal-cover{height:300px;margin:-34px -34px 22px;border-radius:21px 21px 0 0;background:#eef2f7 no-repeat center 30%/cover}
-.jobctx-cover{height:270px;margin:-26px -28px 20px;border-radius:17px 17px 0 0;background:#eef2f7 no-repeat center 30%/cover}
-@media(max-width:640px){.modal-cover{margin:-26px -22px 18px;height:200px}}
-/* job description */
-.jobdesc h4{font-size:12.5px;letter-spacing:.6px;color:var(--brand-d);margin:18px 0 7px;font-weight:800;text-transform:uppercase}
+a{color:var(--c-link);text-decoration:none}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:var(--gutter)}
+.mut{color:var(--c-ink-2)}
+.micro{font-family:var(--f-mono);font-size:var(--t-micro);font-weight:700;letter-spacing:.08em;color:var(--c-ink-3)}
+h1,h2,h3{color:var(--c-ink);letter-spacing:-.02em;line-height:1.15}
+em{font-style:normal;background:var(--g-brand);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.skip{position:absolute;left:-9999px}.skip:focus{left:var(--s-4);top:var(--s-4);z-index:200;background:#fff;padding:var(--s-2) var(--s-4);border-radius:var(--r-sm)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5em;min-height:46px;padding:.7rem 1.5rem;border-radius:999px;border:0;font:inherit;font-weight:700;font-size:1rem;cursor:pointer;text-decoration:none;transition:transform .16s,box-shadow .16s}
+.btn-primary{background:var(--g-brand);color:#0B1220;box-shadow:0 10px 26px rgba(46,155,255,.28)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 34px rgba(46,155,255,.36)}
+.btn-ghost{background:var(--c-surface);color:var(--c-ink);border:1px solid var(--c-line)}
+.btn-ghost:hover{border-color:var(--c-brand)}
+.btn-sm{min-height:44px;padding:.5rem 1.1rem;font-size:.92rem}
+:focus-visible{outline:2px solid var(--c-link);outline-offset:3px}
+/* κεφαλίδα — όπως στο site */
+.site-head{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.94);backdrop-filter:blur(10px);border-bottom:1px solid var(--c-line)}
+.head-row{display:flex;align-items:center;gap:var(--s-5);min-height:76px}
+.brand-lockup{display:flex;flex-direction:column;gap:3px}
+.brand img{height:42px;width:auto}
+.tagline{font-size:.5rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--c-ink-3)}
+.nav{margin-left:auto;display:flex;gap:var(--s-5);align-items:center}
+.nav a{color:var(--c-ink-2);font-size:var(--t-small);font-weight:600}
+.nav a:hover,.nav a[aria-current]{color:var(--c-ink)}
+.langsw{display:inline-flex;gap:2px;border:1px solid var(--c-line);border-radius:999px;padding:3px;font-size:.75rem;font-weight:800}
+.langsw a{color:var(--c-ink-2);padding:.45rem .7rem;border-radius:999px;line-height:1}
+.langsw a.on{background:var(--c-ink);color:#fff}
+@media(max-width:900px){.nav{display:none}.head-row{gap:var(--s-3)}.head-row .langsw{margin-left:auto}.tagline{display:none}.brand img{height:34px}}
+/* ήρωας — ανοιχτόχρωμος, με πλέγμα, όπως οι σελίδες του site */
+.hero-wrap{position:relative;overflow:hidden;border-bottom:1px solid var(--c-line);background:
+  radial-gradient(60% 80% at 85% 10%,rgba(46,155,255,.10),transparent 60%),
+  radial-gradient(50% 70% at 10% 90%,rgba(18,181,172,.08),transparent 60%),#fff}
+.hero-wrap::before{content:"";position:absolute;inset:0;background:
+  linear-gradient(var(--c-line) 1px,transparent 1px) 0 0/48px 48px,
+  linear-gradient(90deg,var(--c-line) 1px,transparent 1px) 0 0/48px 48px;opacity:.55;
+  -webkit-mask-image:linear-gradient(180deg,#000,transparent 85%);mask-image:linear-gradient(180deg,#000,transparent 85%)}
+.hero-wrap>.wrap{position:relative}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:var(--s-7);align-items:center;padding-block:clamp(3rem,6vw,5.5rem) var(--s-6)}
+.hero-title{font-size:var(--t-h1);margin:var(--s-3) 0 var(--s-4)}
+.hero-sub{font-size:clamp(1.05rem,1rem + .3vw,1.2rem);color:var(--c-ink-2);max-width:56ch}
+.hero-cta{display:flex;gap:var(--s-3);flex-wrap:wrap;margin-top:var(--s-6)}
+.hero-photo{border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--c-line);box-shadow:var(--sh-3);aspect-ratio:4/3}
+.hero-photo img{width:100%;height:100%;object-fit:cover}
+.kpi{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--c-line);border-radius:var(--r-lg);background:var(--c-surface);overflow:hidden;margin-bottom:clamp(2rem,4vw,3rem)}
+.kpi div{padding:var(--s-5)}.kpi div+div{border-left:1px solid var(--c-line)}
+.kpi b{display:block;font-size:1.5rem;color:var(--c-ink)}.kpi span{font-size:var(--t-small);color:var(--c-ink-2)}
+@media(max-width:860px){.hero-grid{grid-template-columns:1fr}.hero-photo{display:none}}
+@media(max-width:520px){.kpi{grid-template-columns:1fr}.kpi div+div{border-left:0;border-top:1px solid var(--c-line)}}
+/* ενότητες */
+.section{padding-block:clamp(3rem,6vw,5rem)}
+.band-soft{background:var(--c-surface-2)}
+.sec-head{max-width:720px;margin-bottom:var(--s-6);padding-top:var(--s-4);border-top:1px solid var(--c-line)}
+.sec-head .n{display:block;font-family:var(--f-mono);font-size:var(--t-micro);letter-spacing:.08em;color:var(--c-brand-2-ink);margin-bottom:var(--s-2)}
+.sec-head h2{font-size:var(--t-h2);margin-bottom:var(--s-2)}
+.sec-head p{color:var(--c-ink-2)}
+.grid{display:grid;gap:var(--s-5)}
+.card{background:var(--c-surface);border:1px solid var(--c-line);border-radius:var(--r-lg);padding:var(--s-6);box-shadow:var(--sh-1)}
+.ico-box{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#E6F2FF;color:#1668C7;margin-bottom:var(--s-4)}
+.ico-box svg{width:22px;height:22px}
+.card h3{font-size:1.15rem;margin-bottom:var(--s-2)}
+.card p{color:var(--c-ink-2);font-size:.97rem}
+.photo-band{position:relative;border-radius:var(--r-lg);overflow:hidden;margin-top:var(--s-6);min-height:280px;display:flex;align-items:flex-end}
+.photo-band img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.photo-band::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(11,18,32,.82),rgba(11,18,32,.2))}
+.photo-band .txt{position:relative;z-index:1;padding:var(--s-6);max-width:520px}
+.photo-band h3{color:#fff;font-size:var(--t-h3);margin-bottom:var(--s-2)}.photo-band p{color:#D7E1F0}
+/* θέσεις */
+.jobs{display:grid;gap:var(--s-5);grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))}
+.job{display:flex;flex-direction:column;background:var(--c-surface);border:1px solid var(--c-line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-1);transition:transform .2s,box-shadow .2s,border-color .2s}
+.job:hover{transform:translateY(-3px);box-shadow:var(--sh-2);border-color:#A9D3FF}
+.job-cover{aspect-ratio:16/9;background:#eef2f7 no-repeat center 30%/cover}
+.job-body{padding:var(--s-5);display:flex;flex-direction:column;gap:var(--s-3);flex:1}
+.job h3{font-size:1.2rem}
+.meta{display:flex;gap:var(--s-2);flex-wrap:wrap}
+.tag{font-family:var(--f-mono);font-size:var(--t-micro);padding:3px var(--s-2);border-radius:var(--r-sm);border:1px solid var(--c-line);color:var(--c-ink-2);white-space:nowrap}
+.job p.d{font-size:.95rem;color:var(--c-ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:.78rem;font-weight:600;color:var(--c-ink-2);background:var(--c-surface-2);border-radius:999px;padding:3px 10px}
+.acts{display:flex;gap:var(--s-2);flex-wrap:wrap;margin-top:auto;padding-top:var(--s-2)}
+.no-fit{margin-top:var(--s-6);padding:var(--s-5);border:1px dashed #C9D6E6;border-radius:var(--r-md);display:flex;gap:var(--s-3);align-items:center;justify-content:space-between;flex-wrap:wrap;color:var(--c-ink-2);background:#fff}
+/* περιγραφή αγγελίας */
+.jobdesc h4{font-family:var(--f-mono);font-size:var(--t-micro);letter-spacing:.08em;color:var(--c-brand-2-ink);margin:var(--s-5) 0 var(--s-2);text-transform:uppercase}
 .jobdesc h4:first-child{margin-top:0}
-.jobdesc p{font-size:14px;color:var(--txt);margin:0 0 9px}
-.jobdesc ul{margin:0 0 13px;padding-left:20px}
-.jobdesc li{font-size:14px;color:var(--txt);margin:4px 0}
-/* modal */
-.modal{position:fixed;inset:0;background:rgba(9,20,38,.62);backdrop-filter:blur(3px);display:none;z-index:100;padding:16px;overflow-y:auto}
+.jobdesc p{font-size:.97rem;color:var(--c-ink-2);margin:0 0 var(--s-2)}
+.jobdesc ul{list-style:none;margin:0 0 var(--s-3);padding:0;display:grid;gap:var(--s-2)}
+.jobdesc li{position:relative;padding-left:1.6rem;font-size:.97rem;color:var(--c-ink-2)}
+.jobdesc li::before{content:"";position:absolute;left:2px;top:.5em;width:9px;height:5px;border-left:2px solid var(--c-brand-2);border-bottom:2px solid var(--c-brand-2);transform:rotate(-45deg)}
+/* παράθυρο αγγελίας */
+.modal{position:fixed;inset:0;background:rgba(11,18,32,.55);backdrop-filter:blur(4px);display:none;z-index:100;padding:var(--s-4);overflow-y:auto}
 .modal.show{display:block}
-.modal-box{background:var(--card);border-radius:22px;max-width:680px;width:100%;margin:5vh auto 40px;padding:34px 34px 30px;position:relative;box-shadow:0 30px 90px -20px rgba(0,0,0,.55)}
-.modal-x{position:absolute;top:15px;right:15px;background:var(--bg);border:0;width:38px;height:38px;border-radius:50%;font-size:16px;cursor:pointer;color:var(--txt);line-height:1}
-.modal-x:hover{background:#e6ecf3}
-#jmTitle{font-size:24px;color:var(--ink);letter-spacing:-.4px;margin-bottom:10px;padding-right:34px}
-#jmMeta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
-#jmSkills{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 22px}
-.modal-foot{display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:20px;margin-top:22px}
-/* form page */
-.applyhead{background:var(--navy);color:#fff;padding:15px 0}
-.applyhead .container{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.applyhead .r{display:flex;align-items:center;gap:12px}
-.applyhead .brand img{height:44px}
-.backlink{color:#bcd3ea;text-decoration:none;font-size:14px;font-weight:700}
-.backlink:hover{color:#fff}
-.applywrap{max-width:720px;margin:0 auto;padding:40px 20px 64px}
-.jobctx{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 28px;margin-bottom:18px;box-shadow:0 10px 30px -20px rgba(15,32,56,.4)}
-.jobctx .assigned{display:inline-block;font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:var(--brand-d);background:#e8f6ff;border-radius:999px;padding:5px 13px;margin-bottom:12px}
-.jobctx h1{font-size:26px;color:var(--ink);letter-spacing:-.5px;margin-bottom:10px}
-.jobctx .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
-.jobctx details{margin-top:6px;border-top:1px solid var(--line);padding-top:14px}
-.jobctx summary{cursor:pointer;font-weight:700;color:var(--brand-d);font-size:14px;list-style:none;display:flex;align-items:center;gap:6px}
+.modal-box{background:var(--c-surface);border-radius:var(--r-lg);max-width:720px;margin:4vh auto var(--s-7);overflow:hidden;box-shadow:var(--sh-3);position:relative}
+.modal-cover{aspect-ratio:21/9;background:#eef2f7 no-repeat center 30%/cover}
+.modal-in{padding:var(--s-6)}
+.modal-x{position:absolute;top:14px;right:14px;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.94);box-shadow:var(--sh-2);font-size:1rem;cursor:pointer;color:var(--c-ink)}
+#jmTitle{font-size:var(--t-h3);margin-bottom:var(--s-3)}
+#jmMeta{display:flex;gap:var(--s-2);flex-wrap:wrap;margin-bottom:var(--s-5)}
+#jmSkills{margin-top:var(--s-4)}
+.modal-foot{display:flex;gap:var(--s-3);flex-wrap:wrap;border-top:1px solid var(--c-line);padding-top:var(--s-5);margin-top:var(--s-5)}
+/* σελίδα φόρμας */
+.apply-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:var(--s-6);align-items:start;padding-block:var(--s-4) var(--s-7)}
+.jobctx{position:sticky;top:100px;background:var(--c-surface);border:1px solid var(--c-line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-1)}
+.jobctx-cover{aspect-ratio:16/9;background:#eef2f7 no-repeat center 30%/cover}
+.jobctx-in{padding:var(--s-5)}
+.assigned{display:inline-block;font-family:var(--f-mono);font-size:var(--t-micro);font-weight:700;letter-spacing:.06em;color:var(--c-brand-2-ink);background:#E3F6F4;border-radius:var(--r-sm);padding:3px var(--s-2);margin-bottom:var(--s-3)}
+.jobctx h1{font-size:var(--t-h3);margin-bottom:var(--s-3)}
+.jobctx details{margin-top:var(--s-4);border-top:1px solid var(--c-line);padding-top:var(--s-3)}
+.jobctx summary{cursor:pointer;font-weight:700;color:var(--c-link);list-style:none;min-height:44px;display:flex;align-items:center;gap:var(--s-2)}
 .jobctx summary::-webkit-details-marker{display:none}
-.jobctx summary::before{content:"▸";transition:transform .15s}
-.jobctx details[open] summary::before{transform:rotate(90deg)}
-.jobctx .jobdesc{margin-top:14px}
-/* form */
-.card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 20px 60px -30px rgba(15,32,56,.5);padding:30px}
-label{display:block;font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin:15px 0 5px}
-input,select,textarea{width:100%;font:inherit;font-size:15px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fbfdff;color:var(--ink)}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,144,221,.14)}
-.row{display:flex;gap:14px;flex-wrap:wrap}.row>div{flex:1;min-width:200px}
+.jobctx summary::before{content:"+";display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--c-surface-2);transition:transform .2s}
+.jobctx details[open] summary::before{transform:rotate(45deg)}
+.jobctx .jobdesc{margin-top:var(--s-3)}
+.back{display:inline-flex;align-items:center;min-height:44px;margin-top:var(--s-4);font-family:var(--f-mono);font-size:var(--t-micro);font-weight:700;letter-spacing:.06em}
+.form-card{background:var(--c-surface);border:1px solid var(--c-line);border-top:3px solid var(--c-brand);border-radius:var(--r-lg);padding:var(--s-6);box-shadow:var(--sh-2)}
+.form-card h2{font-size:var(--t-h3);margin-bottom:var(--s-2)}
+.f-row{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s-4)}
+.f-field{margin-top:var(--s-4)}
+.f-field label{display:block;font-size:var(--t-small);font-weight:700;color:var(--c-ink-2);margin-bottom:var(--s-2)}
+.f-field input,.f-field textarea{width:100%;font:inherit;font-size:1rem;padding:.75rem 1rem;border:1px solid #CDD8E6;border-radius:var(--r-md);background:#fff;color:var(--c-ink)}
+.f-field input:focus,.f-field textarea:focus{outline:none;border-color:var(--c-brand);box-shadow:0 0 0 3px rgba(46,155,255,.18)}
+.f-field input[type=file]{padding:.6rem;background:var(--c-surface-2);border-style:dashed}
+.f-field textarea{min-height:130px;resize:vertical}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
-.card .btn{width:100%;justify-content:center;margin-top:22px}
-.note{font-size:12px;color:var(--mut);margin-top:10px;text-align:center}
-.alert{padding:12px 15px;border-radius:11px;margin-bottom:16px;font-size:14px;background:#fdecec;color:#b3323f;border:1px solid #f5c2c7}
-.done{text-align:center;padding:20px 6px}
-.done .ic{width:72px;height:72px;border-radius:50%;background:#16a26a1a;color:var(--ok);font-size:38px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
-.done h2{color:var(--ink);margin-bottom:8px}
-.empty{text-align:center;color:var(--mut);padding:20px}
-/* ── SITE FOOTER (ίδιο με cloudon.gr) ── */
-.sfoot{background:#fff;border-top:1px solid var(--line);padding:56px 0 0;margin-top:40px;color:#43536b}
-.sfoot-logo{display:block;width:max-content;margin:0 auto 18px}
-.sfoot-logo img{height:74px;width:auto;display:block}
-.sfoot-tag{display:flex;align-items:center;justify-content:center;gap:16px;font-size:12px;font-weight:700;letter-spacing:2px;color:#5a6b83;margin-bottom:44px}
-.sfoot-tag span{height:1px;width:70px;background:var(--line)}
-.sfoot-cols{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:34px}
-.sfoot-sub h4{font-size:15px;color:var(--ink);font-weight:800;margin-bottom:12px;line-height:1.32}
-.sfoot-sub p{font-size:13.5px;margin-bottom:14px}
-.sfoot-sub form input[type=email]{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:14px;margin-bottom:10px;background:#fff}
-.sfoot-chk{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--mut);margin:0 0 12px;text-transform:none;letter-spacing:0;font-weight:400}
-.sfoot-chk input{width:auto;margin-top:2px}
-.sfoot-chk a{color:var(--brand)}
-.sfoot-sub form button{background:var(--brand);color:#fff;border:0;border-radius:10px;padding:11px 26px;font-size:13px;font-weight:800;letter-spacing:1px;cursor:pointer}
-.sfoot-sub form button:hover{background:var(--brand-d)}
-.sfoot-contact{margin-top:20px;font-size:13.5px}
-.sfoot-contact a{color:var(--ink);font-weight:700;text-decoration:none}
-.sfoot-contact a:hover{color:var(--brand)}
-.sfoot-contact .sep{color:var(--mut);margin:0 5px}
-.sfoot-contact .addr{margin-top:6px;color:var(--mut);font-size:13px}
-.sfoot-nav{display:flex;flex-direction:column}
-.sfoot-nav a{font-size:13px;font-weight:700;color:#43536b;text-decoration:none;letter-spacing:.4px;padding:9px 0;border-bottom:1px solid var(--line)}
-.sfoot-nav a:hover{color:var(--brand)}
-.sfoot-bottom{margin-top:44px;padding-bottom:26px}
-.sfoot-bottom-in{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;border-top:1px solid rgba(7,26,48,.08);padding-top:16px}
-.sfoot-meta p{font-size:13px;color:#143468;margin:0;line-height:1.55}
-.sfoot-social{display:flex;gap:10px}
-.sfoot-social a{width:38px;height:38px;border-radius:50%;border:1px solid rgba(24,166,216,.18);display:flex;align-items:center;justify-content:center;color:#18a6d8;transition:background .15s,border-color .15s}
-.sfoot-social a:hover{background:#18a6d8;border-color:#18a6d8}
-.sfoot-social a:hover svg{fill:#fff}
-.sfoot-social svg{width:16px;height:16px;fill:#18a6d8}
-@media(max-width:860px){.sfoot-cols{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.sfoot-cols{grid-template-columns:1fr;gap:26px}.sfoot-bottom-in{justify-content:center;text-align:center}.sfoot-meta{text-align:center}}
-@media(max-width:640px){.hero-in{margin-top:38px}.section{padding:44px 0}.modal-box{padding:26px 22px}}
+.form-card .btn{width:100%;margin-top:var(--s-5)}
+.note{font-size:var(--t-small);color:var(--c-ink-3);margin-top:var(--s-3);text-align:center}
+.note a{text-decoration:underline;text-underline-offset:3px}
+.alert{padding:var(--s-3) var(--s-4);border-radius:var(--r-md);margin-top:var(--s-4);font-size:.95rem;background:#FDECEE;color:#A42A36;border:1px solid #F5C2C7}
+.done{max-width:640px;margin:var(--s-8) auto;text-align:center}
+.done .ic{width:76px;height:76px;border-radius:50%;background:#E3F5EC;color:var(--c-ok);font-size:2.2rem;display:grid;place-items:center;margin:0 auto var(--s-5)}
+.done h1{font-size:var(--t-h2);margin-bottom:var(--s-3)}.done p{color:var(--c-ink-2)}
+.empty{text-align:center;color:var(--c-ink-2);padding:var(--s-6)}
+@media(max-width:860px){.apply-grid{grid-template-columns:1fr}.jobctx{position:static}}
+@media(max-width:560px){.f-row{grid-template-columns:1fr}}
+/* υποσέλιδο — όπως στο site */
+.site-foot{border-top:1px solid var(--c-line)}
+.foot-cta{background:var(--c-surface-2);border-bottom:1px solid var(--c-line)}
+.foot-cta-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:var(--s-6);padding-block:var(--s-7);align-items:start}
+.foot-cta h2{font-size:var(--t-h2);margin-bottom:var(--s-2)}.foot-cta p{color:var(--c-ink-2);margin-bottom:var(--s-4)}
+.foot-contact{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--s-5)}
+.foot-contact li{display:grid;gap:4px;align-content:start}
+.foot-tel{font-size:1.06rem;font-weight:700;color:var(--c-ink)}
+.foot-contact .mut{font-size:var(--t-small)}
+.foot-main{padding-block:var(--s-7) var(--s-5)}
+.foot-grid{display:grid;gap:var(--s-6);grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
+.foot-grid ul{list-style:none}.foot-grid li{min-height:34px;display:flex;align-items:center}
+.foot-grid a{color:var(--c-ink-2);font-size:var(--t-small)}.foot-grid a:hover{color:var(--c-ink)}
+.foot-legal{margin-top:var(--s-6);padding-top:var(--s-4);border-top:1px solid var(--c-line);font-size:var(--t-small);color:var(--c-ink-3)}
+@media(max-width:860px){.foot-cta-row{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 </style></head>
 <body>
+<a class="skip" href="#main"><?= $lang === 'en' ? 'Skip to content' : 'Μετάβαση στο περιεχόμενο' ?></a>
 <?php
-$langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lang === 'el' ? ' class="on"' : '') . '>EL</a><a href="' . $e($switch('en')) . '"' . ($lang === 'en' ? ' class="on"' : '') . '>EN</a></span>';
+$langSwitch = '<span class="langsw"><a href="' . $e($switch('el')) . '"' . ($lang === 'el' ? ' class="on" aria-current="true"' : '') . ' hreflang="el">EL</a><a href="' . $e($switch('en')) . '"' . ($lang === 'en' ? ' class="on" aria-current="true"' : '') . ' hreflang="en">EN</a></span>';
+$NAV = $lang === 'en'
+  ? [['Products', '/#products'], ['Clients', '/clients/'], ['Company', '/about-us/'], ['Careers', ''], ['Support', '/submit-ticket/'], ['Contact', '/contact/']]
+  : [['Προϊόντα', '/#products'], ['Πελάτες', '/clients/'], ['Εταιρεία', '/about-us/'], ['Καριέρα', ''], ['Υποστήριξη', '/submit-ticket/'], ['Επικοινωνία', '/contact/']];
+$eyebrow = $lang === 'en' ? 'CAREERS AT CLOUDON' : 'ΚΑΡΙΕΡΑ ΣΤΗΝ CLOUDON';
 ?>
+<header class="site-head">
+  <div class="wrap head-row">
+    <div class="brand-lockup">
+      <a class="brand" href="<?= $e($SITE) ?>/" title="CloudOn"><img src="apply-assets/cloudon-logo-crop.png" alt="CloudOn" width="164" height="42"></a>
+      <p class="tagline">Innovative e-business solutions</p>
+    </div>
+    <nav class="nav" aria-label="<?= $lang === 'en' ? 'Main' : 'Κύριο μενού' ?>">
+      <?php foreach ($NAV as [$lbl, $href]): ?>
+        <?php if ($href === ''): ?><a href="<?= $e($ME . $plang) ?>" aria-current="page"><?= $e($lbl) ?></a>
+        <?php else: ?><a href="<?= $e($SITE . $href) ?>"><?= $e($lbl) ?></a><?php endif; ?>
+      <?php endforeach; ?>
+    </nav>
+    <?= $langSwitch ?>
+  </div>
+</header>
+<main id="main">
 
 <?php if ($mode === 'form'): // ── ΣΕΛΙΔΑ ΦΟΡΜΑΣ ── ?>
-<header class="applyhead"><div class="container">
-  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
-  <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
-</div></header>
-<div class="applywrap">
-  <div class="jobctx">
-    <?php if ($formJob): ?><div class="jobctx-cover" style="background-image:url('<?= $e($jobImg($formJob)) ?>')"></div><?php endif; ?>
-    <span class="assigned"><?= $e($t('assigned')) ?></span>
-    <h1><?= $e($formJob ? $jl($formJob, 'title') : $t('general_title')) ?></h1>
-    <?php if ($formJob): ?>
-      <div class="meta">
-        <?php if ($formJob->location): ?><span class="tag">📍 <?= $e($formJob->location) ?></span><?php endif; ?>
-        <?php if ($jl($formJob, 'emptype')): ?><span class="tag"><?= $e($jl($formJob, 'emptype')) ?></span><?php endif; ?>
+<div class="wrap">
+  <a class="back" href="<?= $e($ME . $plang) ?>"><?= $e($t('back_all')) ?></a>
+  <div class="apply-grid">
+    <aside class="jobctx">
+      <?php if ($formJob): ?><div class="jobctx-cover" style="background-image:url('<?= $e($jobImg($formJob)) ?>')"></div><?php endif; ?>
+      <div class="jobctx-in">
+        <span class="assigned"><?= $e($t('assigned')) ?></span>
+        <h1><?= $e($formJob ? $jl($formJob, 'title') : $t('general_title')) ?></h1>
+        <?php if ($formJob): ?>
+          <div class="meta">
+            <?php if ($formJob->location): ?><span class="tag"><?= $e($jl($formJob, 'location')) ?></span><?php endif; ?>
+            <?php if ($jl($formJob, 'emptype')): ?><span class="tag"><?= $e($jl($formJob, 'emptype')) ?></span><?php endif; ?>
+          </div>
+          <?php if (trim((string) $jl($formJob, 'skills')) !== ''): ?><div class="chips" style="margin-top:var(--s-3)"><?= $skillChips($jl($formJob, 'skills')) ?></div><?php endif; ?>
+          <?php if (trim((string) $jl($formJob, 'descr')) !== ''): ?>
+          <details><summary><?= $e($t('see_full')) ?></summary><div class="jobdesc"><?= $fmtDesc($jl($formJob, 'descr')) ?></div></details>
+          <?php endif; ?>
+        <?php else: ?>
+          <p class="mut"><?= $e($t('general_desc')) ?></p>
+        <?php endif; ?>
       </div>
-      <?php if (trim((string) $jl($formJob, 'skills')) !== ''): ?><div class="chips" style="margin-bottom:4px"><?= $skillChips($jl($formJob, 'skills')) ?></div><?php endif; ?>
-      <?php if (trim((string) $jl($formJob, 'descr')) !== ''): ?>
-      <details><summary><?= $e($t('see_full')) ?></summary><div class="jobdesc"><?= $fmtDesc($jl($formJob, 'descr')) ?></div></details>
-      <?php endif; ?>
-    <?php else: ?>
-      <p class="mut" style="font-size:14px"><?= $e($t('general_desc')) ?></p>
-    <?php endif; ?>
-  </div>
+    </aside>
 
-  <div class="card">
-    <h2 style="font-size:19px;color:var(--ink);margin-bottom:4px"><?= $e($t('form_h')) ?></h2>
-    <p class="mut" style="font-size:13px;margin-bottom:6px"><?= $e($t('form_sub')) ?></p>
-    <?php if ($err): ?><div class="alert" style="margin-top:12px"><?= $e($err) ?></div><?php endif; ?>
-    <form method="post" enctype="multipart/form-data" autocomplete="on" action="apply.php?job=<?= $formJob ? (int) $formJob->id : 'general' ?><?= $qlang ?>">
-      <input type="hidden" name="ts" value="<?= $now ?>">
-      <input type="hidden" name="lang" value="<?= $lang ?>">
-      <?php if ($formJob): ?><input type="hidden" name="job" value="<?= (int) $formJob->id ?>"><?php else: ?><input type="hidden" name="general" value="1"><?php endif; ?>
-      <div class="hp"><label>Website</label><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
-      <div class="row">
-        <div><label><?= $e($t('l_name')) ?> *</label><input type="text" name="name" required maxlength="150" value="<?= $e($_POST['name'] ?? '') ?>"></div>
-        <div><label><?= $e($t('l_email')) ?> *</label><input type="email" name="email" required maxlength="150" value="<?= $e($_POST['email'] ?? '') ?>"></div>
-      </div>
-      <label><?= $e($t('l_phone')) ?></label><input type="tel" name="phone" maxlength="50" value="<?= $e($_POST['phone'] ?? '') ?>">
-      <label><?= $e($t('l_cv')) ?> *</label><input type="file" name="cv" accept=".pdf,.doc,.docx" required>
-      <label><?= $e($t('l_letter')) ?></label><textarea name="letter" rows="4" maxlength="6000" placeholder="<?= $e($t('letter_ph')) ?>"><?= $e($_POST['letter'] ?? '') ?></textarea>
-      <button class="btn" type="submit"><?= $e($t('submit')) ?></button>
-      <div class="note"><?= $e($t('consent')) ?></div>
-    </form>
+    <div class="form-card">
+      <h2><?= $e($t('form_h')) ?></h2>
+      <p class="mut"><?= $e($t('form_sub')) ?></p>
+      <?php if ($err): ?><div class="alert" role="alert"><?= $e($err) ?></div><?php endif; ?>
+      <form method="post" enctype="multipart/form-data" autocomplete="on" action="<?= $e($ME) ?>?job=<?= $formJob ? (int) $formJob->id : 'general' ?><?= $qlang ?>">
+        <input type="hidden" name="ts" value="<?= $now ?>">
+        <input type="hidden" name="lang" value="<?= $lang ?>">
+        <?php if ($formJob): ?><input type="hidden" name="job" value="<?= (int) $formJob->id ?>"><?php else: ?><input type="hidden" name="general" value="1"><?php endif; ?>
+        <div class="hp" aria-hidden="true"><label for="f-web">Website</label><input id="f-web" type="text" name="website" tabindex="-1" autocomplete="off"></div>
+        <div class="f-row">
+          <div class="f-field"><label for="f-name"><?= $e($t('l_name')) ?> *</label><input id="f-name" type="text" name="name" required maxlength="150" autocomplete="name" value="<?= $e($_POST['name'] ?? '') ?>"></div>
+          <div class="f-field"><label for="f-email"><?= $e($t('l_email')) ?> *</label><input id="f-email" type="email" name="email" required maxlength="150" autocomplete="email" value="<?= $e($_POST['email'] ?? '') ?>"></div>
+        </div>
+        <div class="f-field"><label for="f-phone"><?= $e($t('l_phone')) ?></label><input id="f-phone" type="tel" name="phone" maxlength="50" autocomplete="tel" value="<?= $e($_POST['phone'] ?? '') ?>"></div>
+        <div class="f-field"><label for="f-cv"><?= $e($t('l_cv')) ?> *</label><input id="f-cv" type="file" name="cv" accept=".pdf,.doc,.docx" required></div>
+        <div class="f-field"><label for="f-letter"><?= $e($t('l_letter')) ?></label><textarea id="f-letter" name="letter" rows="4" maxlength="6000" placeholder="<?= $e($t('letter_ph')) ?>"><?= $e($_POST['letter'] ?? '') ?></textarea></div>
+        <button class="btn btn-primary" type="submit"><?= $e($t('submit')) ?></button>
+        <p class="note"><?= $e($t('consent')) ?> <a href="<?= $e($SITE) ?>/personal-data/"><?= $lang === 'en' ? 'Privacy' : 'Προσωπικά δεδομένα' ?></a></p>
+      </form>
+    </div>
   </div>
 </div>
 
 <?php elseif ($done): // ── THANK YOU ── ?>
-<header class="applyhead"><div class="container">
-  <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
-  <div class="r"><?= $langSwitch ?><a class="backlink" href="apply.php<?= $plang ?>"><?= $e($t('back_all')) ?></a></div>
-</div></header>
-<div class="applywrap">
-  <div class="card"><div class="done"><div class="ic">✓</div>
-    <h2><?= $e($t('ty_h')) ?></h2>
+<div class="wrap">
+  <div class="done"><div class="ic" aria-hidden="true">✓</div>
+    <h1><?= $e($t('ty_h')) ?></h1>
     <p><?= $e($t('ty_thanks')) . ($doneJob ? $e($t('ty_for')) . $e($doneJob) . $e($t('ty_tail')) : $e($t('ty_tail2'))) ?></p>
-    <a class="btn sm" style="margin-top:18px" href="apply.php<?= $plang ?>"><?= $e($t('ty_more')) ?></a></div></div>
+    <p style="margin-top:var(--s-5)"><a class="btn btn-ghost" href="<?= $e($ME . $plang) ?>"><?= $e($t('ty_more')) ?></a></p>
+  </div>
 </div>
 
 <?php else: // ── LANDING ── ?>
-<header class="hero">
-  <div class="container">
-    <nav class="nav">
-      <a class="brand" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
-      <div class="links"><?= $langSwitch ?><a class="btn ghost sm" href="#jobs"><?= $e($t('nav_jobs')) ?></a></div>
-    </nav>
-    <div class="hero-in">
-      <span class="eyebrow"><?= $e($t('eyebrow')) ?></span>
-      <h1><?= $e($t('h1a')) ?><span class="g"><?= $e($t('h1b')) ?></span></h1>
-      <p><?= $e($t('hero_p')) ?></p>
-      <div class="cta"><a class="btn" href="#jobs"><?= $e($t('see_jobs')) ?></a></div>
-      <div class="stats">
-        <div class="s"><b><?= count($jobs) ?></b><span><?= $e($t('stat_jobs')) ?></span></div>
-        <div class="s"><b>100%</b><span><?= $e($t('stat_tech')) ?></span></div>
-        <div class="s"><b>∞</b><span><?= $e($t('stat_grow')) ?></span></div>
+<section class="hero-wrap">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <p class="micro" style="color:var(--c-brand-2-ink)"><?= $e($eyebrow) ?></p>
+        <h1 class="hero-title"><?= $e($t('h1a')) ?><em><?= $e($t('h1b')) ?></em></h1>
+        <p class="hero-sub"><?= $e($t('hero_p')) ?></p>
+        <p class="hero-cta">
+          <a class="btn btn-primary" href="#jobs"><?= $e($t('see_jobs')) ?></a>
+          <a class="btn btn-ghost" href="<?= $e($ME) ?>?job=general<?= $qlang ?>"><?= $e(rtrim($t('general_link'), ' →')) ?></a>
+        </p>
       </div>
+      <div class="hero-photo"><img src="apply-assets/office.jpg" alt="" loading="eager"></div>
+    </div>
+    <div class="kpi">
+      <div><b><?= count($jobs) ?></b><span><?= $e($t('stat_jobs')) ?></span></div>
+      <div><b>100%</b><span><?= $e($t('stat_tech')) ?></span></div>
+      <div><b>∞</b><span><?= $e($t('stat_grow')) ?></span></div>
     </div>
   </div>
-</header>
+</section>
 
 <section class="section">
-  <div class="container">
-    <h2><?= $e($t('why_h')) ?></h2>
-    <p class="sub"><?= $e($t('why_sub')) ?></p>
-    <div class="values">
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div><h3><?= $e($t('v1t')) ?></h3><p><?= $e($t('v1p')) ?></p></div>
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3><?= $e($t('v2t')) ?></h3><p><?= $e($t('v2p')) ?></p></div>
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><h3><?= $e($t('v3t')) ?></h3><p><?= $e($t('v3p')) ?></p></div>
-      <div class="val"><div class="ic"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg></div><h3><?= $e($t('v4t')) ?></h3><p><?= $e($t('v4p')) ?></p></div>
+  <div class="wrap">
+    <div class="sec-head"><span class="n">01 — <?= $lang === 'en' ? 'WHY CLOUDON' : 'ΓΙΑΤΙ CLOUDON' ?></span><h2><?= $e($t('why_h')) ?></h2><p><?= $e($t('why_sub')) ?></p></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr))">
+      <div class="card"><div class="ico-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></div><h3><?= $e($t('v1t')) ?></h3><p><?= $e($t('v1p')) ?></p></div>
+      <div class="card"><div class="ico-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3><?= $e($t('v2t')) ?></h3><p><?= $e($t('v2p')) ?></p></div>
+      <div class="card"><div class="ico-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><h3><?= $e($t('v3t')) ?></h3><p><?= $e($t('v3p')) ?></p></div>
+      <div class="card"><div class="ico-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg></div><h3><?= $e($t('v4t')) ?></h3><p><?= $e($t('v4p')) ?></p></div>
     </div>
-    <div class="band" style="margin-top:24px">
-      <img src="apply-assets/collab.jpg" alt="CloudOn team">
+    <div class="photo-band">
+      <img src="apply-assets/collab.jpg" alt="" loading="lazy">
       <div class="txt"><h3><?= $e($t('band_h')) ?></h3><p><?= $e($t('band_p')) ?></p></div>
     </div>
   </div>
 </section>
 
-<section class="section" id="jobs" style="background:linear-gradient(180deg,#fff,#f4f7fb)">
-  <div class="container">
-    <h2><?= $e($t('jobs_h')) ?></h2>
-    <p class="sub"><?= $e($t('jobs_sub')) ?></p>
+<section class="section band-soft" id="jobs">
+  <div class="wrap">
+    <div class="sec-head"><span class="n">02 — <?= $lang === 'en' ? 'OPEN POSITIONS' : 'ΑΝΟΙΧΤΕΣ ΘΕΣΕΙΣ' ?></span><h2><?= $e($t('jobs_h')) ?></h2><p><?= $e($t('jobs_sub')) ?></p></div>
     <?php if (count($jobs)): ?>
       <div class="jobs">
         <?php foreach ($jobs as $j): ?>
-          <div class="job">
+          <article class="job">
             <div class="job-cover" style="background-image:url('<?= $e($jobImg($j)) ?>')"></div>
-            <h3><?= $e($jl($j, 'title')) ?></h3>
-            <div class="meta">
-              <?php if ($j->location): ?><span class="tag">📍 <?= $e($j->location) ?></span><?php endif; ?>
-              <?php if ($jl($j, 'emptype')): ?><span class="tag"><?= $e($jl($j, 'emptype')) ?></span><?php endif; ?>
+            <div class="job-body">
+              <h3><?= $e($jl($j, 'title')) ?></h3>
+              <div class="meta">
+                <?php if ($j->location): ?><span class="tag"><?= $e($jl($j, 'location')) ?></span><?php endif; ?>
+                <?php if ($jl($j, 'emptype')): ?><span class="tag"><?= $e($jl($j, 'emptype')) ?></span><?php endif; ?>
+              </div>
+              <?php if (trim((string) $jl($j, 'descr')) !== ''): ?><p class="d"><?= $e(mb_substr(strip_tags($jl($j, 'descr')), 0, 170)) ?>…</p><?php endif; ?>
+              <?php if (trim((string) $jl($j, 'skills')) !== ''): ?><div class="chips"><?= $skillChips($jl($j, 'skills')) ?></div><?php endif; ?>
+              <div class="acts">
+                <button class="btn btn-ghost btn-sm" type="button" onclick="openJob(<?= (int) $j->id ?>)"><?= $e($t('view_posting')) ?></button>
+                <a class="btn btn-primary btn-sm" href="<?= $e($ME) ?>?job=<?= (int) $j->id ?><?= $qlang ?>"><?= $e($t('apply_cta')) ?></a>
+              </div>
             </div>
-            <?php if (trim((string) $jl($j, 'descr')) !== ''): ?><p class="d"><?= $e(mb_substr(strip_tags($jl($j, 'descr')), 0, 170)) ?>…</p><?php endif; ?>
-            <?php if (trim((string) $jl($j, 'skills')) !== ''): ?><div class="chips"><?= $skillChips($jl($j, 'skills')) ?></div><?php endif; ?>
-            <div class="acts">
-              <button class="btn o sm" onclick="openJob(<?= (int) $j->id ?>)"><?= $e($t('view_posting')) ?></button>
-              <a class="btn sm" href="apply.php?job=<?= (int) $j->id ?><?= $qlang ?>"><?= $e($t('apply_cta')) ?></a>
-            </div>
-          </div>
+          </article>
         <?php endforeach; ?>
       </div>
-      <p style="text-align:center;margin-top:26px;font-size:14px;color:var(--mut)"><?= $e($t('no_fit')) ?><a href="apply.php?job=general<?= $qlang ?>" style="color:var(--brand);font-weight:700"><?= $e($t('general_link')) ?></a></p>
+      <div class="no-fit"><span><?= $e($t('no_fit')) ?></span><a class="btn btn-ghost btn-sm" href="<?= $e($ME) ?>?job=general<?= $qlang ?>"><?= $e($t('general_link')) ?></a></div>
     <?php else: ?>
-      <div class="empty"><?= $e($t('no_jobs')) ?><br><a class="btn sm" style="margin-top:14px" href="apply.php?job=general<?= $qlang ?>"><?= $e($t('general_link')) ?></a></div>
+      <div class="empty"><?= $e($t('no_jobs')) ?><br><a class="btn btn-primary btn-sm" style="margin-top:var(--s-4)" href="<?= $e($ME) ?>?job=general<?= $qlang ?>"><?= $e($t('general_link')) ?></a></div>
     <?php endif; ?>
   </div>
 </section>
 
-<div class="modal" id="jobModal" onclick="if(event.target===this)closeJob()">
+<div class="modal" id="jobModal" onclick="if(event.target===this)closeJob()" role="dialog" aria-modal="true" aria-labelledby="jmTitle">
   <div class="modal-box">
-    <button class="modal-x" onclick="closeJob()" aria-label="<?= $e($t('close')) ?>">✕</button>
+    <button class="modal-x" type="button" onclick="closeJob()" aria-label="<?= $e($t('close')) ?>">✕</button>
     <div id="jmImg" class="modal-cover"></div>
-    <h2 id="jmTitle"></h2>
-    <div id="jmMeta"></div>
-    <div id="jmDesc" class="jobdesc"></div>
-    <div id="jmSkills"></div>
-    <div class="modal-foot">
-      <a id="jmApply" class="btn" href="#"><?= $e($t('apply_cta')) ?></a>
-      <button class="btn o" onclick="closeJob()"><?= $e($t('close')) ?></button>
+    <div class="modal-in">
+      <h2 id="jmTitle"></h2>
+      <div id="jmMeta"></div>
+      <div id="jmDesc" class="jobdesc"></div>
+      <div id="jmSkills"></div>
+      <div class="modal-foot">
+        <a id="jmApply" class="btn btn-primary" href="#"><?= $e($t('apply_cta')) ?></a>
+        <button class="btn btn-ghost" type="button" onclick="closeJob()"><?= $e($t('close')) ?></button>
+      </div>
     </div>
   </div>
 </div>
 <script>
 const JOBS = <?= json_encode($jobsData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 const LANG = '<?= $lang ?>';
+const ME = <?= json_encode($ME) ?>;
+let lastFocus = null;
 function openJob(id){
   const j = JOBS[id]; if(!j) return;
+  lastFocus = document.activeElement;
   document.getElementById('jmImg').style.backgroundImage = j.image ? "url('" + j.image + "')" : '';
   document.getElementById('jmTitle').textContent = j.title;
-  document.getElementById('jmMeta').innerHTML = (j.location?'<span class="tag">📍 '+esc(j.location)+'</span>':'') + (j.emptype?'<span class="tag">'+esc(j.emptype)+'</span>':'');
+  document.getElementById('jmMeta').innerHTML = (j.location?'<span class="tag">'+esc(j.location)+'</span>':'') + (j.emptype?'<span class="tag">'+esc(j.emptype)+'</span>':'');
   document.getElementById('jmDesc').innerHTML = j.html || '<p class="mut">—</p>';
-  document.getElementById('jmSkills').innerHTML = j.skills || '';
-  document.getElementById('jmApply').href = 'apply.php?job=' + id + '&lang=' + LANG;
+  document.getElementById('jmSkills').innerHTML = j.skills ? '<div class="chips">' + j.skills + '</div>' : '';
+  document.getElementById('jmApply').href = ME + '?job=' + id + '&lang=' + LANG;
   document.getElementById('jobModal').classList.add('show');
   document.body.style.overflow = 'hidden';
+  document.querySelector('.modal-x').focus();
   trackJob(id);
 }
-
 // Μετράει ότι κάποιος διάβασε την αγγελία, ακόμη κι αν δεν κάνει αίτηση.
 // Μία φορά ανά θέση σε κάθε επίσκεψη — τα ξανα-ανοίγματα δεν φουσκώνουν το νούμερο.
 const TRACKED = new Set();
 function trackJob(id){
   if (TRACKED.has(id)) return;
   TRACKED.add(id);
-  const u = 'apply.php?trk=' + encodeURIComponent(id);
+  const u = ME + '?trk=' + encodeURIComponent(id);
   if (navigator.sendBeacon) { navigator.sendBeacon(u); }
   else { fetch(u, {method:'GET', keepalive:true}).catch(()=>{}); }
 }
-function closeJob(){ document.getElementById('jobModal').classList.remove('show'); document.body.style.overflow=''; }
+function closeJob(){ document.getElementById('jobModal').classList.remove('show'); document.body.style.overflow=''; if (lastFocus) lastFocus.focus(); }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeJob(); });
 </script>
 
 <?php endif; ?>
+</main>
 
-<footer class="sfoot">
-  <div class="container">
-    <a class="sfoot-logo" href="https://cloudon.gr" title="CloudOn — cloudon.gr"><img src="apply-assets/cloudon-logo-white.png" alt="CloudOn"></a>
-    <div class="sfoot-tag"><span></span>CLOUD, WEB &amp; ERP SOLUTIONS<span></span></div>
-    <div class="sfoot-cols">
-      <div class="sfoot-sub">
-        <h4>SUBSCRIBE FOR CLOUD, WEB AND ERP UPDATES</h4>
-        <p>Get practical updates on cloud infrastructure, websites, and business automation.</p>
-        <form action="https://cloudon.gr/" method="get" target="_blank">
-          <input type="email" name="email" placeholder="E-mail" aria-label="E-mail">
-          <label class="sfoot-chk"><input type="checkbox"> <span>I have read and agree with <a href="https://cloudon.gr/personal-data/" target="_blank" rel="noopener">Privacy Policy</a></span></label>
-          <button type="submit">SUBSCRIBE</button>
-        </form>
-        <div class="sfoot-contact">
-          <a href="tel:+302107222560">210 7222560</a><span class="sep">•</span><a href="mailto:info@cloudon.gr">info@cloudon.gr</a>
-          <div class="addr">13 Peloponnisou Str., 15341 Agia Paraskevi</div>
-        </div>
+<footer class="site-foot">
+  <section class="foot-cta">
+    <div class="wrap foot-cta-row">
+      <div>
+        <h2><?= $lang === 'en' ? 'Questions about a position?' : 'Ερωτήσεις για μια θέση;' ?></h2>
+        <p><?= $lang === 'en' ? 'Write to us — a person from the team will answer.' : 'Γράψε μας — θα σου απαντήσει άνθρωπος της ομάδας.' ?></p>
+        <a class="btn btn-primary" href="mailto:info@cloudon.gr?subject=<?= rawurlencode($lang === 'en' ? 'Careers' : 'Καριέρα') ?>">info@cloudon.gr</a>
       </div>
-      <nav class="sfoot-nav">
-        <a href="https://cloudon.gr/about-us/">ABOUT US</a>
-        <a href="https://cloudon.gr/contact/">CONTACT</a>
-        <a href="https://cloudon.gr/web-design/">WEB DESIGN</a>
-        <a href="https://cloudon.gr/e-commerce/">E-COMMERCE</a>
-      </nav>
-      <nav class="sfoot-nav">
-        <a href="https://cloudon.gr/cloud-services/">CLOUD SERVICES</a>
-        <a href="https://cloudon.gr/erp-softone/">ERP</a>
-        <a href="https://cloudon.gr/backup-restore-solutions/">BACKUP &amp; RESTORE</a>
-        <a href="https://cloudon.gr/voip-services-and-cloud-pbx/">VOIP SERVICES</a>
-      </nav>
-      <nav class="sfoot-nav">
-        <a href="https://cloudon.gr/contact/">REQUEST QUOTE</a>
-        <a href="https://cloudon.gr/personal-data/">PRIVACY POLICY</a>
-        <a href="https://cloudon.gr/terms-conditions/">TERMS &amp; CONDITIONS</a>
-      </nav>
+      <ul class="foot-contact">
+        <li><span class="micro"><?= $lang === 'en' ? 'GREECE' : 'ΕΛΛΑΔΑ' ?></span><a class="foot-tel" href="tel:+302107222560">210 7222560</a><span class="mut"><?= $lang === 'en' ? '13 Peloponnisou, 15341 Agia Paraskevi' : 'Πελοποννήσου 13, 15341 Αγία Παρασκευή' ?></span></li>
+        <li><span class="micro"><?= $lang === 'en' ? 'CYPRUS' : 'ΚΥΠΡΟΣ' ?></span><a class="foot-tel" href="tel:+35722056009">+357 22 056009</a></li>
+        <li><span class="micro">EMAIL</span><a class="foot-tel" href="mailto:info@cloudon.gr">info@cloudon.gr</a></li>
+      </ul>
     </div>
-    <div class="sfoot-bottom"><div class="sfoot-bottom-in">
-      <div class="sfoot-meta"><p>Powered by <strong>CloudOn</strong></p><p>© <?= date('Y') ?> CloudOn. All rights reserved.</p></div>
-      <div class="sfoot-social">
-        <a href="https://www.facebook.com/cloudongr" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-7h2.4l.4-3h-2.8V9.1c0-.9.3-1.6 1.6-1.6H16V4.9c-.5-.1-1.4-.2-2.4-.2-2.4 0-4 1.5-4 4.2V11H7v3h2.2v7h4.3Z"/></svg></a>
-        <a href="https://www.instagram.com/cloudon.gr/" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.8 3h8.4A4.8 4.8 0 0 1 21 7.8v8.4a4.8 4.8 0 0 1-4.8 4.8H7.8A4.8 4.8 0 0 1 3 16.2V7.8A4.8 4.8 0 0 1 7.8 3Zm0 1.8A3 3 0 0 0 4.8 7.8v8.4a3 3 0 0 0 3 3h8.4a3 3 0 0 0 3-3V7.8a3 3 0 0 0-3-3H7.8Zm8.9 1.3a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2ZM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 1.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z"/></svg></a>
-        <a href="https://www.linkedin.com/company/cloudon-pc/posts/?feedView=all" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 8.2A1.6 1.6 0 1 1 6 5a1.6 1.6 0 0 1 .1 3.2ZM4.3 9.8h3.5V20H4.3V9.8Zm5.7 0h3.3v1.4h.1c.5-.9 1.6-1.8 3.3-1.8 3.5 0 4.2 2.2 4.2 5.2V20h-3.5v-4.8c0-1.2 0-2.6-1.6-2.6s-1.8 1.2-1.8 2.5V20H10V9.8Z"/></svg></a>
-      </div>
-    </div></div>
+  </section>
+  <div class="wrap foot-main">
+    <div class="foot-grid">
+      <div class="brand-lockup"><a class="brand" href="<?= $e($SITE) ?>/"><img src="apply-assets/cloudon-logo-crop.png" alt="CloudOn" width="164" height="42" loading="lazy"></a><p class="tagline">Innovative e-business solutions</p></div>
+      <div><p class="micro" style="margin-bottom:var(--s-3)"><?= $lang === 'en' ? 'PRODUCTS' : 'ΠΡΟΪΟΝΤΑ' ?></p><ul>
+        <?php foreach ([['PharmacyOne','pharmacyone'],['RxVision','rxvision'],['BoxVisio','boxvisio'],['Nous','nous'],['Cloud Services','cloud-services'],['Cloud PBX','cloud-pbx'],['E-Commerce','ecommerce'],['Findora','findora'],['CarOn','caron']] as [$n, $s]): ?>
+          <li><a href="<?= $e($SITE . '/' . $s . '/') ?>"><?= $e($n) ?></a></li>
+        <?php endforeach; ?>
+      </ul></div>
+      <div><p class="micro" style="margin-bottom:var(--s-3)"><?= $lang === 'en' ? 'SERVICES' : 'ΥΠΗΡΕΣΙΕΣ' ?></p><ul>
+        <li><a href="<?= $e($SITE) ?>/erp/">SoftOne ERP</a></li>
+        <li><a href="<?= $e($SITE) ?>/backup-restore-solutions/">Backup &amp; Restore</a></li>
+        <li><a href="<?= $e($SITE) ?>/web-design/"><?= $lang === 'en' ? 'Web design' : 'Κατασκευή ιστοσελίδων' ?></a></li>
+      </ul></div>
+      <div><p class="micro" style="margin-bottom:var(--s-3)"><?= $lang === 'en' ? 'COMPANY' : 'ΕΤΑΙΡΕΙΑ' ?></p><ul>
+        <li><a href="<?= $e($SITE) ?>/about-us/"><?= $lang === 'en' ? 'About us' : 'Ποιοι είμαστε' ?></a></li>
+        <li><a href="<?= $e($SITE) ?>/clients/"><?= $lang === 'en' ? 'Clients' : 'Πελατολόγιο' ?></a></li>
+        <li><a href="<?= $e($ME . $plang) ?>"><?= $lang === 'en' ? 'Careers' : 'Καριέρα' ?></a></li>
+        <li><a href="<?= $e($SITE) ?>/personal-data/"><?= $lang === 'en' ? 'Personal data' : 'Προσωπικά δεδομένα' ?></a></li>
+        <li><a href="<?= $e($SITE) ?>/terms-conditions/"><?= $lang === 'en' ? 'Terms of use' : 'Όροι χρήσης' ?></a></li>
+      </ul></div>
+    </div>
+    <p class="foot-legal">© <?= date('Y') ?> CloudOn · Innovative e-business solutions</p>
   </div>
 </footer>
 
