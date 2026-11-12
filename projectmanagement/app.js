@@ -2847,7 +2847,7 @@ async function cnpSilentRefresh() {
   if (inContent && (ae.tagName === 'TEXTAREA' || ae.isContentEditable)) { return false; }
   if (window._cnpDragging) { return false; }
   /* διάλογοι (.pal-box) και αναδυόμενα — η καρτέλα εργασίας (.drawer) ΔΕΝ μετράει εδώ */
-  if (document.querySelector('.ovl.show .pal-box, .cb-pan, .rte-pop, .lv-menu, .cnp-cal, .ment-box, .fv-ovl')) { return false; }
+  if (document.querySelector('.ovl.show .pal-box, .cb-pan, .rte-pop, .lv-menu, .cnp-dpop, .ment-box, .fv-ovl')) { return false; }
   const view = S.view, R0 = window.R || {};
   /* Οθόνες της μηχανής views (Λίστα, Εισερχόμενα) ξαναφορτώνουν μόνο τα δεδομένα (_reload). */
   const run = R0[view] && R0[view]._reload ? R0[view]._reload
@@ -2895,7 +2895,7 @@ async function cnpDrawerLive(force) {
      περιμένουν να επισυναφθούν, ζητούμενο που αλλάζεις. Εκεί ΔΕΝ ανανεώνουμε μόνοι μας. */
   const fragile = !!(dr.querySelector('.act-editing') || (dr.querySelector('#chkFiles') && !dr.querySelector('#chkFiles').hidden)
     || (dr.querySelector('#fDescr') && dr.querySelector('#fDescr').dataset.dirty === '1') || cnpTkFormDirty(dr));
-  const pop = document.querySelector('.cb-pan, .rte-pop, .ment-box, .cnp-cal, .ovl.show .pal-box');
+  const pop = document.querySelector('.cb-pan, .rte-pop, .ment-box, .cnp-dpop, .ovl.show .pal-box');
   const refresh = async () => { window._cnpDrawerBusy = true; try { await openTask(id, 0, {silent: true}); } finally { window._cnpDrawerBusy = false; }
     const d2 = document.querySelector('.drawer.tk-modal.show'); if (d2) { d2.dataset.stamp = sig; d2.dataset.liveOwed = ''; } };
   /* Το μισογραμμένο μήνυμα, η μπάλα/κατάσταση του συνθέτη και ο χρόνος ΚΡΑΤΙΟΥΝΤΑΙ στην ανανέωση
@@ -3388,7 +3388,7 @@ function cnpCalOpen(inp) {
   cnpCalClose();
   const MON = ['Ιανουάριος', 'Φεβρουάριος', 'Μάρτιος', 'Απρίλιος', 'Μάιος', 'Ιούνιος', 'Ιούλιος', 'Αύγουστος', 'Σεπτέμβριος', 'Οκτώβριος', 'Νοέμβριος', 'Δεκέμβριος'];
   const box = document.createElement('div');
-  box.className = 'cnp-cal';
+  box.className = 'cnp-dpop';   // ΟΧΙ cnp-cal: είναι η κλάση του πλέγματος μήνα στο Ημερολόγιο (12/11/2026)
   box.style.zIndex = cnpTopZ() + 20;
   const pick = iso => {
     if (iso && inp.min && iso < inp.min) { return; }
@@ -4080,10 +4080,17 @@ let timerInt = null;
    μια απάντηση στη συζήτηση, μια διόρθωση στο ζητούμενο — έσβηνε μαζί.
    Τα κρατάμε εδώ, σε ΕΝΑ σημείο απ' όπου περνούν όλες οι αφορμές, αντί να
    θυμάται η καθεμιά να τα σώσει. */
+/* Τιμή πεδίου συνθέτη. ΟΧΙ isContentEditable: είναι false όσο η καρτέλα είναι κρυφή (κλείσιμο),
+   οπότε διαβαζόταν div.value === undefined και γραφόταν πρόχειρο «undefined» (12/11/2026). */
+function cnpFieldVal(e) {
+  if (!e) { return null; }
+  const v = e.hasAttribute('contenteditable') ? e.innerHTML : e.value;
+  return (v === undefined || v === null) ? null : v;
+}
 function cnpTaskDraftGrab(id) {
   const dr = document.querySelector('.drawer.tk-modal');
   if (!dr || +dr.dataset.task !== +id) { return null; }
-  const g = sel => { const e = dr.querySelector(sel); return e ? (e.isContentEditable ? e.innerHTML : e.value) : null; };
+  const g = sel => cnpFieldVal(dr.querySelector(sel));
   const chk = g('#chkNew');
   /* Ζητούμενο που ΣΩΘΗΚΕ δεν είναι πρόχειρο (05/11/2026): ξαναγύριζε στο ξανασχεδίασμα, έκρυβε αλλαγή
      συναδέλφου, έμενε «βρόμικο» για πάντα και ξαναστελνόταν με κάθε αποθήκευση. */
@@ -4108,6 +4115,8 @@ function cnpDraftKey(id) { return 'cnpTkDraft:' + ((S.boot && S.boot.me && S.boo
 function cnpDraftLoad(id) {
   try {
     const v = JSON.parse(localStorage.getItem(cnpDraftKey(id)) || 'null');
+    if (v) { ['chk', 'mins', 'note', 'ball', 'st'].forEach(k => { if (v[k] === 'undefined' || v[k] === 'null') { v[k] = ''; } }); }
+    if (v && !v.chk && !v.mins && !v.note) { localStorage.removeItem(cnpDraftKey(id)); return null; }
     if (v && Date.now() - (v.at || 0) < CNP_DRAFT_TTL) { return v; }
     if (v) { localStorage.removeItem(cnpDraftKey(id)); }
   } catch (e) { /* χωρίς αποθήκευση στη συσκευή: απλώς δεν κρατιέται */ }
@@ -4118,7 +4127,7 @@ function cnpDraftForget(id) { try { localStorage.removeItem(cnpDraftKey(id)); } 
 function cnpDraftStore(dr) {
   if (!dr || !dr.dataset.task) { return; }
   const id = +dr.dataset.task;
-  const g = sel => { const e = dr.querySelector(sel); return e ? String(e.isContentEditable ? e.innerHTML : e.value).trim() : ''; };
+  const g = sel => String(cnpFieldVal(dr.querySelector(sel)) || '').trim();
   let chk = g('#chkNew'); if (chk === '<br>') { chk = ''; }
   const v = {chk, mins: g('#tMins'), note: g('#tNote')};
   if (chk) { v.ball = g('#chkBall'); v.st = g('#chkSt'); }
@@ -4167,7 +4176,7 @@ function cnpTaskDraftPut(dr, draft) {
   const put = (sel, v) => {
     if (v === null || v === undefined || v === '') { return; }
     const e = dr.querySelector(sel); if (!e) { return; }
-    if (e.isContentEditable) { e.innerHTML = v; } else { e.value = v; }
+    if (e.hasAttribute('contenteditable')) { e.innerHTML = v; } else { e.value = v; }
   };
   put('#chkNew', draft.chk);
   put('#tMins', draft.mins);
@@ -6499,7 +6508,7 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') { return; }
   /* Ανοιχτό πτυσσόμενο πάνω από την καρτέλα (λίστα με αναζήτηση, ημερολόγιο, προβολή
      αρχείου, @αναφορές, αναζήτηση υποεργασίας): το Esc κλείνει ΕΚΕΙΝΟ, όχι την καρτέλα. */
-  if (document.querySelector('.cb-pan, .cnp-cal, .fv-ovl, .ment-box, .sub-link-res:not([hidden])')) { return; }
+  if (document.querySelector('.cb-pan, .cnp-dpop, .fv-ovl, .ment-box, .sub-link-res:not([hidden])')) { return; }
   const boxes = document.querySelectorAll('.pal-box, .drawer');
   if (!boxes.length) { return; }
   const top = boxes[boxes.length - 1];

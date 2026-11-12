@@ -1833,7 +1833,7 @@ a.tk-chip:hover{border-color:var(--brand);color:var(--brand)}
    Χωρίς αυτό οι επιλογές των select έβγαιναν λευκές με ανοιχτό κείμενο — δυσανάγνωστες. */
 html[data-theme="dark"]{color-scheme:dark}
 html[data-theme="dark"] select option,html[data-theme="dark"] select optgroup{background:var(--card);color:var(--ink)}
-.cnp-cal{position:fixed;width:262px;background:var(--card);color:var(--ink);border:1px solid var(--line);
+.cnp-dpop{position:fixed;width:262px;background:var(--card);color:var(--ink);border:1px solid var(--line);
   border-radius:var(--r);box-shadow:var(--sh-lg);padding:10px}
 .cnp-cal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .cnp-cal-h b{font-size:13.5px}
