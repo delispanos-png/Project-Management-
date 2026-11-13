@@ -4218,10 +4218,16 @@ html[data-theme="dark"] .card{border-color:#233043}
 .top{gap:12px}
 .top-l{flex:0 0 auto;min-width:0;max-width:260px}
 .top h1{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* (12/11/2026) Οι δείκτες κόβονταν κάτω από το «Διαθέσιμος»: η αναζήτηση κρατούσε τα 300px της
+   και οι δείκτες έπαιρναν ό,τι περίσσευε, με μόνιμο σβήσιμο στο τέλος. Τώρα στενεύει ΠΡΩΤΑ
+   η αναζήτηση, οι ετικέτες κρύβονται με βάση το πλάτος της ΜΠΑΡΑΣ (όχι της οθόνης — το πλαϊνό
+   μενού τρώει χώρο), και το σβήσιμο μπαίνει μόνο όταν όντως δεν χωρούν (.ovf από το JS). */
+.top{container-type:inline-size;container-name:topbar}
 .top-search{flex:0 1 300px;min-width:44px}
-.top-pulse{flex:1 1 0;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding-bottom:1px;
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent)}
-@media(max-width:1600px){.top-pulse .pulse-chip .pc-l{display:none}}
+.top-pulse{flex:0 0.15 auto;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding-bottom:1px}
+.top-pulse.ovf{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent)}
+@container topbar (max-width:1560px){.top-pulse .pulse-chip .pc-l{display:none}}
+@container topbar (max-width:1180px){.top-search span,.top-search kbd{display:none}.top-search{flex:0 0 auto}}
 .top-pulse::-webkit-scrollbar{display:none}
 .top-pulse .pulse-chip{flex:none}
 .top-acts{margin-left:0;flex:none}

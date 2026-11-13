@@ -1145,6 +1145,12 @@ function toggleAttn() {
   });
 }
 
+/* Σβήσιμο στο τέλος των δεικτών ΜΟΝΟ όταν δεν χωρούν (αλλιώς έμοιαζε κομμένος ο τελευταίος). */
+function cnpTopPulseFit() {
+  const box = document.getElementById('topPulse'); if (!box) { return; }
+  box.classList.toggle('ovf', box.scrollWidth > box.clientWidth + 1);
+}
+window.addEventListener('resize', () => { clearTimeout(window._cnpPulseFitT); window._cnpPulseFitT = setTimeout(cnpTopPulseFit, 120); }, {passive: true});
 async function loadTopStats() {
   const box = $('#topPulse'); if (!box) return;
   const d = await api('topstats').catch(() => null); if (!d) return;
@@ -1164,6 +1170,7 @@ async function loadTopStats() {
   cnpPut(box, chips.map(c => `<button class="pulse-chip${c.n && c.warn ? ' hot' : ''}${c.n ? '' : ' zero'}" data-pgo="${c.k}" data-key="pc-${c.k}-${c.lbl}" title="${c.lbl}">
     <span class="pc-ic" style="color:${c.col}">${c.ic}</span><span class="n">${c.n}</span><span class="pc-l">${c.lbl}</span></button>`).join(''));
   window._cnpSilent = sil;
+  cnpTopPulseFit();
   $$('#topPulse [data-pgo]').forEach(b => b.onclick = () => {
     if (b.dataset.pgo === 'billq') { billingQueue(); return; }
     if (b.dataset.pgo === 'needs') { const old = $('.pop'); if (old) { old.remove(); } go('requests'); return; }
