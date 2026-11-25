@@ -3933,7 +3933,8 @@ function cardHtml(t) {
 const todoTxt = s => esc(s || '').replace(/&amp;#(\d{2,7});/g, '&#$1;').replace(/\n/g, '<br>');
 const todoPlain = s => String(s || '').replace(/&#(\d{2,7});/g, (m, n) => { try { return String.fromCodePoint(+n); } catch (e) { return m; } });
 function cnpTodoHtml(d) {
-  const L = d.todo || [], w = !!d.canWrite, tick = !!d.canTick;
+  /* Ολοκληρωμένη εργασία: μόνο τσεκάρισμα (26/11/2026) — καμία άλλη αλλαγή στις λίστες. */
+  const L = d.todo || [], w = !!d.canWrite && !(d.task && d.task.done), tick = !!d.canTick;
   if (!L.length) { return ''; }   // (26/11/2026) χωρίς λίστες δεν πιάνει χώρο — «＋ Προσθήκη → To-do λίστα» στην κεφαλίδα
   const inList = new Set(); L.forEach(l => l.items.forEach(i => { if (i.sub) { inList.add(i.sub.id); } }));
   const subsFree = (d.subs || []).filter(sb => !inList.has(sb.id));
@@ -6535,7 +6536,7 @@ async function openTask(id, entryId, opts) {
   };
 
   if (t.done) {
-    lockCard('Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις', '#dDel');
+    lockCard('Η εργασία είναι ολοκληρωμένη — πάτα «↩ Ξανάνοιγμα» για να την αλλάξεις', '#dDel,.tdl-ck');   // το τσεκάρισμα to-do μένει ελεύθερο
   }
 
   /* ── Ο χρόνος πρώτα ────────────────────────────────────────────────────────
