@@ -3310,7 +3310,7 @@ html[data-theme="dark"] .prow{background:#3a2c14}
 .th-react{border:1px solid var(--line);background:var(--canvas);border-radius:999px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--txt)}
 .th-react.mine{border-color:var(--brand);background:rgba(0,144,221,.1)}
 .th-more{align-self:flex-start;margin:0 0 4px 40px;border:0;background:transparent;color:var(--brand);font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 6px}
-.th-hid{display:none}
+.th:not(.th-all) .th-hid{display:none}
 .th-hl .th-main{box-shadow:0 0 0 2px var(--brand);animation:thGlow 2.4s ease-out forwards}
 @keyframes thGlow{0%{box-shadow:0 0 0 3px var(--brand)}100%{box-shadow:0 0 0 0 transparent}}
 
@@ -5492,3 +5492,47 @@ a.sitem:focus-visible,a.tab:focus-visible{outline:2px solid var(--brand);outline
 .act-tk:hover{color:var(--brand);text-decoration-color:var(--brand)}
 .act-nm{cursor:pointer}
 .act-nm:hover{color:var(--brand)}
+
+/* ── To-do λίστες εργασίας (25/11/2026) — κύρια στήλη, κάτω από το ζητούμενο ── */
+.tk-todo .card-h .tdl-newlist{margin-left:auto;flex:none}
+.tdl-list{margin-bottom:12px}
+.tdl-list:last-child{margin-bottom:0}
+.tdl-lh{display:flex;align-items:center;gap:8px;padding:2px 0 5px;border-bottom:1px solid var(--line)}
+.tdl-lt{font-size:13.5px;color:var(--ink);min-width:0;overflow-wrap:anywhere}
+.tdl-n{flex:none;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
+.tdl-bar{flex:1;max-width:120px;height:4px;border-radius:3px;background:var(--line);overflow:hidden;margin-left:auto}
+.tdl-bar i{display:block;height:100%;background:var(--ok);transition:width .2s}
+.tdl-items{min-height:6px;border-radius:8px;transition:background .12s}
+.tdl-items.tdl-over{background:var(--brand-soft)}
+.tdl-it{display:flex;align-items:flex-start;gap:7px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.45}
+.tdl-it:last-child{border-bottom:none}
+.tdl-it:hover{background:var(--bg2)}
+.tdl-it.dragging{opacity:.45}
+.tdl-grip{flex:none;cursor:grab;color:var(--mut);opacity:0;font-size:12px;padding-top:2px;user-select:none}
+.tdl-it:hover .tdl-grip{opacity:.8}
+.tdl-ck{flex:none;width:18px;height:18px;margin-top:1px;border-radius:50%;border:1.5px solid var(--mut);background:var(--card);
+  color:#fff;font-size:10px;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.tdl-ck:hover:not(:disabled){border-color:var(--ok)}
+.tdl-it.done .tdl-ck{background:var(--ok);border-color:var(--ok)}
+.tdl-ck:disabled{cursor:default;opacity:.75}
+.tdl-body{flex:1;min-width:0}
+.tdl-t{color:var(--ink);overflow-wrap:anywhere}
+.tdl-it.done .tdl-t{color:var(--mut);text-decoration:line-through}
+.tdl-it.gone .tdl-t{font-style:italic}
+.tdl-note{font-size:12px;color:var(--mut);margin-top:2px;overflow-wrap:anywhere}
+.tdl-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:3px;font-size:11.5px}
+.tdl-sub{color:var(--brand);font-weight:700;cursor:pointer;text-decoration:none}
+.tdl-sub:hover{text-decoration:underline}
+.tdl-more{flex:none;opacity:0}
+.tdl-it:hover .tdl-more,.tdl-more:focus{opacity:1}
+@media (hover:none){.tdl-more,.tdl-grip{opacity:1}}
+.tdl-add{display:flex;gap:6px;align-items:flex-start;margin-top:6px}
+.tdl-new,.tdl-edit{flex:1;width:100%;font-size:12.5px;padding:6px 8px;resize:none;min-height:32px;line-height:1.4;font-family:inherit}
+.tdl-edit{margin:-3px 0}
+
+/* ── Η προβολή μένει όπως την άφησε ο χρήστης (26/11/2026): data-ui / data-ui-toggle ── */
+[data-ui]:not(.ui-open) > .ui-when-open,[data-ui].ui-open > .ui-when-closed{display:none}
+.th.th-all .th-more{opacity:.75}
+.tk-person:not(.open) > .tk-person-b{display:none}
+.tk-addc{cursor:pointer;border:1px dashed var(--line);background:transparent;color:var(--brand);font-weight:700}
+.tk-addc:hover{background:var(--brand-soft);border-color:var(--brand)}

@@ -520,6 +520,8 @@ function gdImport(ref) {
             : '<div class="gd-sec">Προειδοποιήσεις</div><div class="mut" style="font-size:12px">Καμία.</div>'}
         </div>
       </div>
+      ${(d.todos || []).length ? `<div class="gd-sec">To-do λίστες <b>${d.todos.length}</b> <span class="mut">— έρχονται ως to-do λίστες της εργασίας, με ό,τι είναι ήδη τσεκαρισμένο</span></div>
+        <ul class="gl-adds">${d.todos.map(l => `<li><b>${esc(l.title)}</b> — ${l.items.length} σημεία${l.items.filter(i => i.done).length ? ` <span class="mut">(${l.items.filter(i => i.done).length} έγιναν)</span>` : ''}</li>`).join('')}</ul>` : ''}
       ${(d.subtasks || []).length ? `<div class="gd-sec gd-sec-row"><span>Υποεργασίες <b>${d.subtasks.length}</b></span>
           <label class="gd-chk"><input type="checkbox" id="gdSubs" checked> μαζί με τις υποεργασίες (καθεμία με το δικό της ιστορικό &amp; αρχεία)</label></div>
         <div class="gd-subs">${d.subtasks.map(t => `<div class="gd-sub${t.skip ? ' gd-skip' : ''}">
@@ -691,6 +693,7 @@ function gdLink(taskId, opt) {
       <div class="gd-sec">Έρχονται πάντα</div>
       <ul class="gl-adds"><li><b>${textMsgs.length}</b> μηνύματα ιστορικού (+ ${d.messages.length - textMsgs.length} συμβάντα) με αρχικό συντάκτη &amp; ώρα — μόνο ανάγνωση</li>
         ${nAtt ? `<li><b>${nAtt}</b> αρχεία, δεμένα στο μήνυμά τους</li>` : ''}
+        ${(d.todos || []).length ? `<li><b>${d.todos.length}</b> to-do λίστες (${d.todos.reduce((a, l) => a + l.items.length, 0)} σημεία): ${d.todos.map(l => esc(l.title)).join(', ')}</li>` : ''}
         <li>το ID του GoodDay μένει στην εργασία → μετά υπάρχει «↻ Ξανά από GoodDay»</li></ul>
       ${(d.subtasks || []).length ? `<label class="gd-chk"><input type="checkbox" id="glSubs" checked> και οι <b>${d.subtasks.length}</b> υποεργασίες του GoodDay ως υποεργασίες εδώ
         <span class="mut">(${d.subtasks.filter(x => x.skip).length ? d.subtasks.filter(x => x.skip).length + ' υπάρχουν ήδη — παραλείπονται' : 'καθεμία με ιστορικό & αρχεία'})</span></label>` : ''}
@@ -2812,7 +2815,7 @@ R.triage = async function () {
 R.knowledge = async function () {
   setTop('Βάση γνώσης', 'Έχει ξαναλυθεί αυτό; Και ποιος ξέρει πώς');
   const c = $('#content');
-  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: {}, page: {}};
+  const st = R.knowledge._st = R.knowledge._st || {q: '', prod: '', sort: 'uses', mine: false, closed: window.CNP.cnpUiObj('grp:knowledge'), page: {}};
   const PER = 25;   // πόσα άρθρα ανά ομάδα πριν το «Περισσότερα»
   let D = {items: [], products: [], unfiled: 0};
   const prod = id => D.products.find(p => p.id === +id);

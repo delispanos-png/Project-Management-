@@ -10,6 +10,7 @@ require_once __DIR__ . '/boot.php';
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudonProjects\Auto;
 use WHMCS\Module\Addon\CloudonProjects\Db;
+use WHMCS\Module\Addon\CloudonProjects\Todo;
 use WHMCS\Module\Addon\CloudonProjects\Time;
 use WHMCS\Module\Addon\CloudonProjects\Notify;
 use WHMCS\Module\Addon\CloudonProjects\Push;
@@ -49,6 +50,7 @@ require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Pbx.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Overrun.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Recurring.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/GoodDayImport.php';
+require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/Todo.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/OfferType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PharmacyOneType.php';
 require_once __DIR__ . '/../modules/addons/cloudonprojects/lib/offers/PbxType.php';
@@ -2876,7 +2878,7 @@ function cnp_task_purge_rows(array $tIds)
     /* Οι υποεργασίες ΔΕΝ διαγράφονται μαζί: έχουν δικό τους χρόνο, συζήτηση και ανάδοχο.
        Απλώς παύουν να είναι παιδιά — αλλιώς μια διαγραφή γονιού θα έσβηνε δουλειά άλλων. */
     Capsule::table('mod_cpm_tasks')->whereIn('parent_id', $tIds)->update(['parent_id' => null]);
-    foreach ($tIds as $tid) { GoodDayImport::forgetTask((int) $tid, false); }   // τα αρχεία τους είναι στο cnp_task_storage_ids
+    foreach ($tIds as $tid) { GoodDayImport::forgetTask((int) $tid, false); Todo::forget((int) $tid); }   // τα αρχεία τους είναι στο cnp_task_storage_ids
     Capsule::table('mod_cpm_tasks')->whereIn('id', $tIds)->delete();
 }
 
@@ -4273,6 +4275,7 @@ function cnp_task_stamp($t)
     $chkR = Capsule::table('mod_cpm_checklist')->where('task_id', $tid)
         ->selectRaw('COALESCE(MAX(id),0) m, COUNT(*) n, COALESCE(SUM(done),0) d, COALESCE(SUM(CRC32(title)),0) c')->first();
     $chk = $chkR ? $chkR->m . '.' . $chkR->n . '.' . $chkR->d . '.' . $chkR->c : '';
+    $chk .= '|' . Todo::sig($tid);   // to-do λίστες (25/11/2026): αλλαγή συναδέλφου ανανεώνει τις ανοιχτές καρτέλες
     /* Το χρονόμετρο ΔΕΝ αγγίζει την εργασία (updated_at/ιστορικό) — μετράει χωριστά. */
     $tm = Capsule::table('mod_cpm_timelogs')->where('task_id', $tid)
         ->selectRaw('COALESCE(MAX(id),0) m, COALESCE(SUM(running),0) r, COALESCE(SUM(minutes),0) s')->first();
@@ -4712,6 +4715,46 @@ function cnp_task_ball_ok($adminId, $isFull, $t)
     return cnp_task_write_ok($adminId, $isFull, $t) || ($t && cnp_was_asked($adminId, (int) $t->id));
 }
 
+/**
+ * Νέα υποεργασία κάτω από $par (κοινό για «+ υποεργασία» και «σημείο to-do → υποεργασία»).
+ * Ο καλών έχει ήδη ελέγξει δικαίωμα & κλείδωμα. $descr = HTML (καθαρισμένο) ή null.
+ */
+function cnp_sub_create($par, $title, $ass, $due, $adminId, $descr = null)
+{
+    /* ΤΡΙΑ επίπεδα (16/10/2026): κύρια → υποεργασία → υπο-υποεργασία. */
+    if (Db::taskDepth((int) $par->id) >= Db::SUB_LEVELS - 1) {
+        fail('Μέχρι ' . Db::SUB_LEVELS . ' επίπεδα υποεργασιών — αυτή είναι ήδη στο τελευταίο');
+    }
+    $title = trim((string) $title);
+    if ($title === '') { fail('Γράψε τι πρέπει να γίνει'); }
+    $ass = (int) $ass;
+    $row = [
+        'parent_id' => (int) $par->id,
+        'project_id' => $par->project_id ?: null,
+        'dept_id' => $par->dept_id ?: null,
+        'product_id' => $par->product_id ?: null,
+        'internal' => (int) ($par->internal ?? 0),
+        'title' => mb_substr($title, 0, 200),
+        'status_id' => (int) (Db::statusIds(['wait'])[0] ?? 0) ?: (int) Capsule::table('mod_cpm_statuses')->orderBy('sort')->value('id'),
+        'priority' => 0,
+        'assignee' => $ass ?: null,
+        'action_user' => $ass ?: null,
+        'due_date' => $due ?: null,
+        'created_by' => $adminId,
+        'created_at' => date('Y-m-d H:i:s'),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    if ($descr !== null && $descr !== '') { $row['descr'] = $descr; }
+    $id = (int) Capsule::table('mod_cpm_tasks')->insertGetId($row);
+    Inbox::event($id, $adminId, 'new', 'Υποεργασία της #' . (int) $par->id);
+    Db::logActivity((int) $par->id, $adminId, 'sub', 'Νέα υποεργασία: ' . mb_substr($row['title'], 0, 80));
+    if ($ass && $ass !== (int) $adminId) {
+        Db::pushNotification($ass, 'task', Db::adminName($adminId) . ' σου ανέθεσε υποεργασία: '
+            . mb_substr($row['title'], 0, 70), '/project/#/task/' . $id);
+    }
+    return $id;
+}
+
 function cnp_task_write_ok($adminId, $isFull, $t)
 {
     if ($isFull) {
@@ -5008,6 +5051,8 @@ function cnp_open_actions()
            «Board: επεξεργασία»), όχι σκέτο cap — όποιος δουλεύει την εργασία τη σπάει σε
            κομμάτια και δηλώνει τι περιμένει, χωρίς να ζητά δικαίωμα διαχειριστή. */
         'task_sub_add', 'task_parent', 'dep_add', 'dep_del',
+        /* To-do λίστες (25/11/2026): κριτής cnp_task_write_ok μέσα στην ενέργεια (το τσεκάρισμα και οι συνεργάτες: cnp_task_timer_ok). */
+        'todo_list_save', 'todo_list_del', 'todo_item_save', 'todo_item_toggle', 'todo_item_del', 'todo_item_move', 'todo_item_sub', 'todo_item_link',
         'task', 'task_stamp', 'task_delete', 'task_handoff', 'task_share',
         /* task_billing_none: ίδιος κριτής με το task_billing_ok — ο ορισμένος εγκρίνων. */
         'task_billing_ok', 'task_billing_none', 'billing_pending',
@@ -5740,6 +5785,8 @@ case 'task':
             || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
         'canDeadline' => $FULL || (int) $t->assignee === $adminId || (int) $t->created_by === $adminId,
         'parentTask' => $parentOf, 'subs' => $subsOf, 'depth' => $depthT, 'subLevels' => Db::SUB_LEVELS,
+        'todo' => Todo::lists((int) $t->id),
+        'canTick' => cnp_task_timer_ok($adminId, $FULL, $t),
         'updatedAt' => (string) $t->updated_at,
         'billApprover' => ['me' => cnp_can_approve_billing($adminId, $FULL),
             'name' => cnp_billing_approver() ? Db::adminName(cnp_billing_approver()) : ''],
@@ -7568,38 +7615,89 @@ case 'task_sub_add':                     /* ➕ Νέα υποεργασία κά
         fail('Δεν μπορείς να προσθέσεις υποεργασία εδώ — δεν είναι δική σου και δεν έχεις «Board: επεξεργασία»', 403);
     }
     cnp_task_lock_guard($saP);
-    /* ΤΡΙΑ επίπεδα (16/10/2026): κύρια → υποεργασία → υπο-υποεργασία. */
-    if (Db::taskDepth((int) $saP->id) >= Db::SUB_LEVELS - 1) {
-        fail('Μέχρι ' . Db::SUB_LEVELS . ' επίπεδα υποεργασιών — αυτή είναι ήδη στο τελευταίο');
-    }
     $saTitle = trim(preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) ($in['title'] ?? '')));
-    if ($saTitle === '') { fail('Γράψε τι πρέπει να γίνει'); }
     if (mb_strlen($saTitle) > 200) { fail('Ο τίτλος έχει ' . mb_strlen($saTitle) . ' χαρακτήρες — μέγιστο 200'); }
-    $saAss = (int) ($in['assignee'] ?? 0);
-    $saNew = [
-        'parent_id' => (int) $saP->id,
-        'project_id' => $saP->project_id ?: null,
-        'dept_id' => $saP->dept_id ?: null,
-        'product_id' => $saP->product_id ?: null,
-        'internal' => (int) ($saP->internal ?? 0),
-        'title' => $saTitle,
-        'status_id' => (int) (Db::statusIds(['wait'])[0] ?? 0) ?: (int) Capsule::table('mod_cpm_statuses')->orderBy('sort')->value('id'),
-        'priority' => 0,
-        'assignee' => $saAss ?: null,
-        'action_user' => $saAss ?: null,
-        'due_date' => !empty($in['due']) ? substr((string) $in['due'], 0, 10) : null,
-        'created_by' => $adminId,
-        'created_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s'),
-    ];
-    $saId = (int) Capsule::table('mod_cpm_tasks')->insertGetId($saNew);
-    Inbox::event($saId, $adminId, 'new', 'Υποεργασία της #' . (int) $saP->id);
-    Db::logActivity((int) $saP->id, $adminId, 'sub', 'Νέα υποεργασία: ' . mb_substr($saTitle, 0, 80));
-    if ($saAss && $saAss !== $adminId) {
-        Db::pushNotification($saAss, 'task', Db::adminName($adminId) . ' σου ανέθεσε υποεργασία: '
-            . mb_substr($saTitle, 0, 70), '/project/#/task/' . $saId);
-    }
+    $saId = cnp_sub_create($saP, $saTitle, (int) ($in['assignee'] ?? 0), !empty($in['due']) ? substr((string) $in['due'], 0, 10) : null, $adminId);
     out(['ok' => true, 'id' => $saId]);
+
+/* ── To-do λίστες εργασίας (25/11/2026) ─────────────────────────────────────────
+   Λίστες με τίτλο και σημεία που τσεκάρονται. Γράφει όποιος γράφει στην εργασία
+   (cnp_task_write_ok)· τσεκάρει και ο συνεργάτης (cnp_task_timer_ok). Κάθε απάντηση
+   φέρνει όλες τις λίστες, για να ξαναζωγραφιστεί μόνο η κάρτα τους. */
+case 'todo_list_save':
+case 'todo_list_del':
+case 'todo_item_save':
+case 'todo_item_toggle':
+case 'todo_item_del':
+case 'todo_item_move':
+case 'todo_item_sub':
+case 'todo_item_link':
+    $tdT = Db::task((int) ($in['task'] ?? 0));
+    if (!$tdT || !Db::canSeeTask($adminId, $tdT)) { fail('task', 404); }
+    $tdTick = $action === 'todo_item_toggle';
+    if (!($tdTick ? cnp_task_timer_ok($adminId, $FULL, $tdT) : cnp_task_write_ok($adminId, $FULL, $tdT))) {
+        fail('Δεν μπορείς να αλλάξεις τις λίστες αυτής της εργασίας — δεν είναι δική σου και δεν έχεις «Board: επεξεργασία»', 403);
+    }
+    cnp_task_lock_guard($tdT);
+    $tdId = (int) ($in['id'] ?? 0);
+    $tdTid = (int) $tdT->id;
+    $tdOut = ['ok' => true];
+    try {
+        switch ($action) {
+            case 'todo_list_save':
+                $tdOut['id'] = Todo::saveList($tdTid, $tdId, (string) ($in['title'] ?? ''), $adminId);
+                break;
+            case 'todo_list_del':
+                $tdL = Todo::delList($tdTid, $tdId);
+                Db::logActivity($tdTid, $adminId, 'todo', 'Διέγραψε τη λίστα to-do «' . mb_substr((string) $tdL->title, 0, 80) . '»');
+                break;
+            case 'todo_item_save':
+                $tdOut['id'] = Todo::saveItem($tdTid, (int) ($in['list'] ?? 0), $tdId, (string) ($in['title'] ?? ''), $adminId);
+                break;
+            case 'todo_item_toggle':
+                $tdOut['done'] = Todo::toggle($tdTid, $tdId, $adminId);
+                break;
+            case 'todo_item_del':
+                Todo::delItem($tdTid, $tdId);
+                break;
+            case 'todo_item_move':
+                Todo::move($tdTid, $tdId, (int) ($in['list'] ?? 0), (int) ($in['index'] ?? 0));
+                break;
+            case 'todo_item_sub':                 /* σημείο → ΝΕΑ υποεργασία (μένει στη λίστα, δεμένο) */
+                $tdIt = Todo::itemRow($tdTid, $tdId);
+                if (!$tdIt) { fail('Το σημείο δεν βρέθηκε', 404); }
+                if ($tdIt->sub_task_id && Capsule::table('mod_cpm_tasks')->where('id', (int) $tdIt->sub_task_id)->exists()) {
+                    fail('Είναι ήδη υποεργασία (#' . (int) $tdIt->sub_task_id . ')');
+                }
+                /* Πρώτη γραμμή = τίτλος (≤200)· ό,τι περισσεύει (και η σημείωση) → ζητούμενο της υποεργασίας. */
+                $tdTxt = html_entity_decode((string) $tdIt->title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $tdLines = preg_split('/\n/', $tdTxt);
+                $tdTitle = trim(array_shift($tdLines));
+                $tdRest = trim(implode("\n", $tdLines));
+                if (mb_strlen($tdTitle) > 200) { $tdRest = trim(mb_substr($tdTitle, 190) . "\n" . $tdRest); $tdTitle = rtrim(mb_substr($tdTitle, 0, 190)) . '…'; }
+                if ($tdIt->note) { $tdRest = trim($tdRest . "\n\n" . html_entity_decode((string) $tdIt->note, ENT_QUOTES | ENT_HTML5, 'UTF-8')); }
+                $tdDescr = $tdRest !== '' ? cnp_clean_html(nl2br(htmlspecialchars($tdRest, ENT_QUOTES, 'UTF-8')), 60000) : null;
+                $tdAss = (int) ($in['assignee'] ?? 0) ?: (int) $tdIt->assignee;
+                $tdSub = cnp_sub_create($tdT, preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $tdTitle), $tdAss, $tdIt->due ?: null, $adminId, $tdDescr);
+                if ($tdIt->done) {                 // ήταν ήδη τσεκαρισμένο: η υποεργασία γεννιέται ολοκληρωμένη
+                    $tdDone = (int) Db::doneStatusId();
+                    if ($tdDone) { Capsule::table('mod_cpm_tasks')->where('id', $tdSub)->update(['status_id' => $tdDone, 'completed_at' => date('Y-m-d H:i:s'), 'completed_by' => $adminId]); }
+                }
+                Todo::setSub($tdTid, $tdId, $tdSub);
+                Db::logActivity($tdTid, $adminId, 'sub', 'Σημείο to-do έγινε υποεργασία #' . $tdSub . ' ' . mb_substr($tdTitle, 0, 60));
+                $tdOut['sub'] = $tdSub;
+                break;
+            case 'todo_item_link':                /* ΥΠΑΡΧΟΥΣΑ υποεργασία → σημείο σε λίστα */
+                $tdS = Db::task((int) ($in['sub'] ?? 0));
+                if (!$tdS || (int) $tdS->parent_id !== $tdTid) { fail('Διάλεξε υποεργασία αυτής της εργασίας', 404); }
+                $tdOut['id'] = Todo::addSubItem($tdTid, (int) ($in['list'] ?? 0), $tdS, $adminId);
+                break;
+        }
+    } catch (\InvalidArgumentException $e) {
+        fail($e->getMessage());
+    }
+    $tdOut['todo'] = Todo::lists($tdTid);
+    out($tdOut);
 
 case 'task_parent':                      /* 🔗 Σύνδεση/αποσύνδεση ΥΠΑΡΧΟΥΣΑΣ εργασίας ως υποεργασία. */
     $tpC = Db::task((int) ($in['task'] ?? 0));
