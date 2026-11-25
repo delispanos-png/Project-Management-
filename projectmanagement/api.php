@@ -7638,7 +7638,9 @@ case 'todo_item_link':
     if (!($tdTick ? cnp_task_timer_ok($adminId, $FULL, $tdT) : cnp_task_write_ok($adminId, $FULL, $tdT))) {
         fail('Δεν μπορείς να αλλάξεις τις λίστες αυτής της εργασίας — δεν είναι δική σου και δεν έχεις «Board: επεξεργασία»', 403);
     }
-    cnp_task_lock_guard($tdT);
+    /* (26/11/2026, απόφαση χρήστη) Το ΤΣΕΚΑΡΙΣΜΑ επιτρέπεται και σε ολοκληρωμένη εργασία — σημειώνει τι έγινε,
+       δεν αλλάζει την εργασία. Όλα τα άλλα (λίστες, κείμενα, υποεργασίες) μένουν κλειδωμένα. */
+    if (!$tdTick) { cnp_task_lock_guard($tdT); }
     $tdId = (int) ($in['id'] ?? 0);
     $tdTid = (int) $tdT->id;
     $tdOut = ['ok' => true];
