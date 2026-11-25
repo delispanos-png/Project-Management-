@@ -15,7 +15,7 @@ const diffD = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T1
 R.gantt = async function () {
   setTop('Χρονοδιάγραμμα', 'Πότε τρέχει κάθε έργο και ποιος είναι διαθέσιμος');
   const c = $('#content');
-  const st = R.gantt._st = R.gantt._st || {from: addD(today(), -7), weeks: 6, mode: 'project', open: {}};
+  const st = R.gantt._st = R.gantt._st || {from: addD(today(), -7), weeks: 6, mode: 'project', open: window.CNP.cnpUiObj('grp:gantt')};
   const MOB = isMob();
   const LEFTW = MOB ? LEFT_MOB : LEFT;
   /** Οι δύο βοηθητικές στήλες — στο κινητό δεν αποδίδονται καθόλου (χώρος για το χρονοδιάγραμμα). */
@@ -108,7 +108,7 @@ R.gantt = async function () {
     // πρώτη φορά με λίγα projects → άνοιξέ τα όλα
     if (!st._init) {
       st._init = 1;
-      if (d.projects.length <= 4) d.projects.forEach(p => st.open[p.id] = true);
+      if (!Object.keys(st.open).length && d.projects.length <= 4) d.projects.forEach(p => st.open[p.id] = true);
     }
     // 👥 ζώνη χωρητικότητας ομάδας ΠΑΝΩ από το δέντρο (η «καλύτερη λογική»: capacity + timeline μαζί)
     const loadCls2 = m => !m ? '' : m <= 240 ? 'g-free' : m <= 480 ? 'g-ok' : 'g-over';
@@ -209,7 +209,7 @@ R.gantt = async function () {
   const gAll = $('#gAll');
   if (gAll) gAll.onclick = () => {
     const anyOpen = Object.values(st.open).some(Boolean);
-    st.open = {};
+    Object.keys(st.open).forEach(k => delete st.open[k]);
     if (!anyOpen) d.projects.forEach(p => st.open[p.id] = true);
     R.gantt();
   };
@@ -285,7 +285,7 @@ R.balances = async function () {
   if (!cnpCan('finance.balances')) { c.innerHTML = cnpDenied ? cnpDenied({message: 'Χρειάζεται δικαίωμα «Ανοιχτά υπόλοιπα»'}) : '<div class="empty" style="padding:44px">Χωρίς δικαίωμα.</div>'; return; }
   const canSend = cnpCan('finance.balances.edit');
   cnpSkel(c, '<div class="skel" style="height:220px"></div>');
-  const st = R.balances._s = R.balances._s || {open: {}, f: 'all', q: ''};
+  const st = R.balances._s = R.balances._s || {open: window.CNP.cnpUiObj('grp:balances'), f: 'all', q: ''};
   const norm = s => String(s || '').toLowerCase().replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι').replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
 
   const load = async () => {
@@ -372,7 +372,7 @@ R.balances = async function () {
     cnpSearch('blQ', v => { st.q = v; return load(); }, 300);
     $$('[data-bf]').forEach(b => b.onclick = () => { st.f = b.dataset.bf; load(); });
     const ex = $('[data-bexp]');
-    if (ex) { ex.onclick = () => { const any = Object.values(st.open).some(Boolean); st.open = {}; if (!any) { rows.forEach(r => { st.open[r.client] = true; }); } load(); }; }
+    if (ex) { ex.onclick = () => { const any = Object.values(st.open).some(Boolean); Object.keys(st.open).forEach(k => delete st.open[k]); if (!any) { rows.forEach(r => { st.open[r.client] = true; }); } load(); }; }
     $$('.susp-h[data-bg]').forEach(h => h.onclick = e => {
       if (e.target.closest('a,button')) { return; }
       const k = h.dataset.bg; st.open[k] = !st.open[k];
@@ -484,7 +484,7 @@ R.suspend = async function () {
   /* Το δικαίωμα, όχι το Full (05/11/2026): όποιος το έχει στην ομάδα του έμενε έξω. */
   if (!cnpCan('finance.suspend')) { c.innerHTML = cnpDenied({message: 'Χρειάζεται «Οικονομικά → Αναστολές»'}); return; }
   cnpSkel(c, '<div class="skel" style="height:220px"></div>');
-  const st = R.suspend._s = R.suspend._s || {open: {}, machines: false, ripe: true};
+  const st = R.suspend._s = R.suspend._s || {open: window.CNP.cnpUiObj('grp:suspend'), machines: false, ripe: true};
 
   const load = async () => {
     let dErr = null;
@@ -605,7 +605,7 @@ R.suspend = async function () {
     if (ex) {
       ex.onclick = () => {
         const anyOpen = Object.values(st.open).some(Boolean);
-        st.open = {};
+        Object.keys(st.open).forEach(k => delete st.open[k]);
         if (!anyOpen) { groups.forEach(([cid]) => { st.open[cid] = true; }); }
         load();
       };

@@ -867,7 +867,7 @@ R.offers = async function () {
 
   /* ── Κινητό: λίστα ανά στάδιο (το kanban 5 στηλών ήθελε ατέλειωτο swipe) ── */
   const MOB = matchMedia('(max-width:768px)').matches;
-  const st = R.offers._st = R.offers._st || {q: '', stage: '', closed: {}, tab: 'pipe'};
+  const st = R.offers._st = R.offers._st || {q: '', stage: '', closed: window.CNP.cnpUiObj('grp:offers'), tab: 'pipe'};
   const norm = s => String(s || '').toLowerCase()
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
@@ -3172,7 +3172,7 @@ R.projects = async function () {
       <button class="btn btn-sm btn-o" data-arch="${p.id}">${p.archived ? '↩' : (I.box)}</button>` : ''}</td>` : ''}</tr>`;
   /* ── Κινητό: κάρτες αντί για πίνακες 8-9 στηλών (που γίνονταν οριζόντιο scroll) ── */
   const MOB = matchMedia('(max-width:768px)').matches;
-  const st = R.projects._st = R.projects._st || {q: '', closed: {}};
+  const st = R.projects._st = R.projects._st || {q: '', closed: window.CNP.cnpUiObj('grp:projects')};
   const norm = s => String(s || '').toLowerCase()
     .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η').replace(/[ίϊΐ]/g, 'ι')
     .replace(/ό/g, 'ο').replace(/[ύϋΰ]/g, 'υ').replace(/ώ/g, 'ω').replace(/ς/g, 'σ');
@@ -3508,7 +3508,7 @@ R.projects = async function () {
     /* Modules του έργου: ποια δικά μας προϊόντα παραδίδονται και πόσο έχει
        προχωρήσει το checklist του καθενός. Κλικ στο module → οι εργασίες του
        με την πρόοδο των ελέγχων· κλικ στην εργασία → το checklist. */
-    const modState = openProj._mods = openProj._mods || {};
+    const modState = openProj._mods = openProj._mods || window.CNP.cnpUiObj('grp:projmods');
     const loadMods = async () => {
       const box = $('#pjMods', dr); if (!box) return;
       const md = await api('project_modules&project=' + p.id).catch(() => null);

@@ -2732,6 +2732,116 @@ function cnpSkel(el, html) { if (el && !cnpSearch._on && !window._cnpSilent) { e
    μένουν (με το scroll και την κατάστασή τους), αλλάζει μόνο ό,τι διαφέρει. Κλειδί
    ανά στοιχείο: id / data-task / data-key / data-lgrp — μια εργασία που άλλαξε
    ενημερώνει μόνο τη δική της γραμμή. Πεδία που γράφει ο χρήστης δεν αγγίζονται. */
+/* ── Η προβολή μένει όπως την άφησε ο χρήστης (26/11/2026) ──────────────────────
+   Ό,τι ανοίγει/κλείνει ο χρήστης (ενότητες, «+N ακόμη», ομάδες, <details>) ΔΕΝ ξανακλείνει
+   μόνο του: ούτε στην αθόρυβη ανανέωση (12΄΄ / αλλαγή συναδέλφου), ούτε στο F5.
+   Αποθήκευση: localStorage, ένα αντικείμενο ανά χρήστη ('cnpUi:<id>'), με όριο εγγραφών
+   (κρατά τις πιο πρόσφατες — κλειδιά ανά εργασία δεν μεγαλώνουν απεριόριστα).
+   Τρεις τρόποι χρήσης:
+   1) Δηλωτικά: στοιχείο με data-ui="κλειδί" (+ data-ui-cls, προεπιλογή 'ui-open') παίρνει την
+      κλάση από την αποθηκευμένη κατάσταση· κλικ σε [data-ui-toggle="κλειδί"] την αλλάζει και
+      τη σώζει. Για κείμενο ανοιχτό/κλειστό: .ui-when-open / .ui-when-closed μέσα στο toggle.
+   2) Αντικείμενο που σώζεται μόνο του: st.closed = cnpUiObj('grp:offers') — κάθε st.closed[k] = v
+      αποθηκεύεται (Proxy). Για τις ομάδες των οθονών που κρατούσαν κατάσταση μόνο στη μνήμη.
+   3) <details>: κρατά το open του στο morph και θυμάται το κλικ του χρήστη (data-ui ή αυτόματο
+      κλειδί από οθόνη + τίτλο summary χωρίς αριθμούς). */
+const CNP_UI_MAX = 600;
+let _cnpUiC = null, _cnpUiU = null;
+function _cnpUiKey() { return 'cnpUi:' + ((S.boot && S.boot.me && S.boot.me.id) || 0); }
+function _cnpUiAll() {
+  const k = _cnpUiKey();
+  if (_cnpUiC && _cnpUiU === k) { return _cnpUiC; }
+  let a = {};
+  try { a = JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (e) { a = {}; }
+  _cnpUiC = a; _cnpUiU = k;
+  return a;
+}
+let _cnpUiSaveT = 0;
+function _cnpUiSave() {
+  clearTimeout(_cnpUiSaveT);
+  _cnpUiSaveT = setTimeout(() => {
+    const a = _cnpUiAll(), ks = Object.keys(a);
+    if (ks.length > CNP_UI_MAX) { ks.sort((x, y) => (a[x][1] || 0) - (a[y][1] || 0)).slice(0, ks.length - CNP_UI_MAX).forEach(k => delete a[k]); }
+    try { localStorage.setItem(_cnpUiKey(), JSON.stringify(a)); } catch (e) { }
+  }, 150);
+}
+function cnpUiGet(k, def) { const a = _cnpUiAll(); return Object.prototype.hasOwnProperty.call(a, k) ? a[k][0] : (def === undefined ? null : def); }
+function cnpUiSet(k, v) {
+  const a = _cnpUiAll();
+  if (v === null || v === undefined) { delete a[k]; } else { a[k] = [v, Date.now()]; }
+  _cnpUiSave();
+}
+/** Αντικείμενο {κλειδί: τιμή} που σώζεται σε κάθε ανάθεση/διαγραφή. */
+function cnpUiObj(key, init) {
+  const base = Object.assign({}, init || {}, cnpUiGet(key, {}) || {});
+  const save = t => cnpUiSet(key, Object.keys(t).length ? Object.assign({}, t) : null);
+  return new Proxy(base, {
+    set(t, p, v) { t[p] = v; save(t); return true; },
+    deleteProperty(t, p) { delete t[p]; save(t); return true; },
+  });
+}
+function cnpUiApplyEl(el) {
+  const k = el.getAttribute('data-ui'); if (!k) { return; }
+  const v = cnpUiGet(k); if (v === null) { return; }
+  if (el.tagName === 'DETAILS') { if (el.open !== !!v) { el.open = !!v; } return; }
+  el.classList.toggle(el.getAttribute('data-ui-cls') || 'ui-open', !!v);
+}
+/** <details> χωρίς data-ui: κλειδί = οθόνη + τίτλος summary (χωρίς αριθμούς) + σειρά εμφάνισης. */
+function _cnpDetKey(d) {
+  if (d.hasAttribute('data-ui')) { return d.getAttribute('data-ui'); }
+  if (d.hasAttribute('data-ui-skip')) { return null; }
+  const sm = d.querySelector(':scope > summary'); if (!sm) { return null; }
+  const t = sm.textContent.replace(/[\d.,:%€+#/\-–—()·]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 50);
+  if (!t) { return null; }
+  const route = (location.hash || '#/').replace(/\d+/g, '#').split('?')[0];
+  const base = 'det:' + route + '|' + (d.id || t);
+  if (d.id) { return base; }
+  let n = 0;
+  for (const o of document.querySelectorAll('details')) { if (o === d) { break; } if (!o.id && !o.hasAttribute('data-ui') && _cnpDetKeyRaw(o) === t) { n++; } }
+  return base + (n ? '#' + n : '');
+}
+function _cnpDetKeyRaw(d) {
+  const sm = d.querySelector(':scope > summary');
+  return sm ? sm.textContent.replace(/[\d.,:%€+#/\-–—()·]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 50) : '';
+}
+function cnpUiApplyDet(d) {
+  const k = _cnpDetKey(d); if (!k) { return; }
+  const v = cnpUiGet(k); if (v === null) { return; }
+  if (d.open !== !!v) { d.open = !!v; }
+}
+function cnpUiApply(root) {
+  if (!root || root.nodeType !== 1) { return; }
+  if (root.hasAttribute('data-ui')) { cnpUiApplyEl(root); }
+  else if (root.tagName === 'DETAILS') { cnpUiApplyDet(root); }
+  if (!root.firstElementChild) { return; }
+  root.querySelectorAll('[data-ui]').forEach(cnpUiApplyEl);
+  root.querySelectorAll('details:not([data-ui])').forEach(cnpUiApplyDet);
+}
+/* Ό,τι μπαίνει στη σελίδα (πλήρες ζωγράφισμα, καρτέλα εργασίας…) παίρνει την κατάσταση του χρήστη
+   ΠΡΙΝ ζωγραφιστεί (ο observer τρέχει ως microtask, πριν το paint — χωρίς αναβόσβημα). */
+new MutationObserver(ms => {
+  for (const m of ms) { for (const n of m.addedNodes) { if (n.nodeType === 1) { cnpUiApply(n); } } }
+}).observe(document.documentElement, {childList: true, subtree: true});
+/* Κλικ του ΧΡΗΣΤΗ: toggle δηλωτικών στοιχείων + σημείωση <details>. */
+document.addEventListener('click', e => {
+  const tg = e.target.closest && e.target.closest('[data-ui-toggle]');
+  if (tg) {
+    e.preventDefault();
+    const k = tg.getAttribute('data-ui-toggle');
+    const els = [...document.querySelectorAll(`[data-ui="${CSS.escape(k)}"]`)];
+    const first = els[0]; if (!first) { return; }
+    const on = !first.classList.contains(first.getAttribute('data-ui-cls') || 'ui-open');
+    cnpUiSet(k, on ? 1 : 0);
+    els.forEach(cnpUiApplyEl);
+    return;
+  }
+  const sm = e.target.closest && e.target.closest('summary');
+  const d = sm && sm.parentElement;
+  if (d && d.tagName === 'DETAILS' && d.querySelector(':scope > summary') === sm) {
+    setTimeout(() => { const k = _cnpDetKey(d); if (k) { cnpUiSet(k, d.open ? 1 : 0); } }, 0);
+  }
+}, true);
+
 function cnpMorphKey(n) {
   if (n.nodeType !== 1) { return null; }
   return n.id || n.getAttribute('data-task') && ('t' + n.getAttribute('data-task'))
@@ -2766,13 +2876,17 @@ function cnpMorphNode(o, n) {
   /* «Γράφει εδώ» = πεδίο με focus ή editable — ΟΧΙ οποιοδήποτε στοιχείο με focus: ένα κουμπί που μόλις
      πατήθηκε (π.χ. ⊞ υποεργασιών) κρατά focus και έμενε με το παλιό κείμενο (20/10/2026). */
   const typing = (o === document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName)) || o.isContentEditable;
-  for (const a of [...o.attributes]) { if (!n.hasAttribute(a.name) && a.name !== 'style' && !(typing && a.name === 'contenteditable')) { o.removeAttribute(a.name); } }
+  /* (26/11/2026) <details>: το open είναι επιλογή του χρήστη — το morph δεν το αγγίζει. */
+  const keepOpen = o.tagName === 'DETAILS';
+  for (const a of [...o.attributes]) { if (!n.hasAttribute(a.name) && a.name !== 'style' && !(typing && a.name === 'contenteditable') && !(keepOpen && a.name === 'open')) { o.removeAttribute(a.name); } }
   for (const a of [...n.attributes]) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName) && a.name === 'value') { continue; }   // η τιμή που γράφει ο χρήστης μένει
+    if (keepOpen && a.name === 'open') { continue; }
     if (o.getAttribute(a.name) !== a.value) { o.setAttribute(a.name, a.value); }
   }
   /* style: μόνο αν όντως άλλαξε στο νέο HTML (κρατά π.χ. display:none από σύμπτυξη ομάδας) */
   if (!n.hasAttribute('style') && o.hasAttribute('style') && !o.dataset.keepStyle) { o.removeAttribute('style'); }
+  if (o.hasAttribute('data-ui')) { cnpUiApplyEl(o); }   // η κλάση ήρθε από το νέο HTML — ξαναμπαίνει η επιλογή του χρήστη
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(o.tagName) || typing) { return; }
   cnpMorphChildren(o, n);
 }
@@ -3810,6 +3924,194 @@ function cardHtml(t) {
    και το delegation του dnd είναι καθολικό: χωρίς αυτό το φίλτρο, ένα κλικ σε προσφορά
    ζητούσε task «NaN» και ένα σύρσιμο θα καλούσε move_task για ανύπαρκτη εργασία. */
 /* Υπάρχουσα εργασία → υποεργασία της parent (αναζήτηση, σύρσιμο από board/λίστα/σύνδεσμο). */
+/* ── To-do λίστες εργασίας (25/11/2026) ─────────────────────────────────────────
+   Λίστες με τίτλο και σημεία που τσεκάρονται: τι από τα ζητούμενα έχει γίνει. Ζουν
+   στην κύρια στήλη, κάτω από το ζητούμενο (όπως στο GoodDay). Κάθε σημείο αλλάζει,
+   σβήνει, μετακινείται (σύρσιμο ή ⋯) ή ΓΙΝΕΤΑΙ υποεργασία· και μια υπάρχουσα
+   υποεργασία μπαίνει σε λίστα. Σημείο-υποεργασία: το «έγινε» το λέει η υποεργασία.
+   Αποθήκευση: κάθε κίνηση πάει αμέσως στον server και ξαναζωγραφίζεται ΜΟΝΟ η κάρτα. */
+const todoTxt = s => esc(s || '').replace(/&amp;#(\d{2,7});/g, '&#$1;').replace(/\n/g, '<br>');
+const todoPlain = s => String(s || '').replace(/&#(\d{2,7});/g, (m, n) => { try { return String.fromCodePoint(+n); } catch (e) { return m; } });
+function cnpTodoHtml(d) {
+  const L = d.todo || [], w = !!d.canWrite, tick = !!d.canTick;
+  if (!L.length) { return ''; }   // (26/11/2026) χωρίς λίστες δεν πιάνει χώρο — «＋ Προσθήκη → To-do λίστα» στην κεφαλίδα
+  const inList = new Set(); L.forEach(l => l.items.forEach(i => { if (i.sub) { inList.add(i.sub.id); } }));
+  const subsFree = (d.subs || []).filter(sb => !inList.has(sb.id));
+  const tot = L.reduce((a, l) => a + l.total, 0), dn = L.reduce((a, l) => a + l.done, 0);
+  const item = it => `<div class="tdl-it${it.done ? ' done' : ''}${it.gone ? ' gone' : ''}" data-tdit="${it.id}"${w ? ' draggable="true"' : ''}>
+      ${w ? '<span class="tdl-grip" title="Σύρε για αλλαγή σειράς ή λίστας">⠿</span>' : ''}
+      <button type="button" class="tdl-ck" data-tdck="${it.id}"${!tick || it.sub ? ' disabled' : ''}
+        title="${it.sub ? 'Υποεργασία — τσεκάρεται μόνη της όταν ολοκληρωθεί η #' + it.sub.id : (it.done ? 'Έγινε' + (it.doneBy ? ' — ' + esc(it.doneBy) + ' ' + esc(tShort(it.doneAt)) : '') + ' · κλικ για αναίρεση' : 'Σημείωσέ το ως έγινε')}">${it.done ? '✔' : ''}</button>
+      <div class="tdl-body">
+        <div class="tdl-t" data-tdt="${it.id}">${todoTxt(it.title)}</div>
+        ${it.note ? `<div class="tdl-note">${todoTxt(it.note)}</div>` : ''}
+        ${it.sub || it.assignee || it.due || (it.done && it.doneBy) || it.gone ? `<div class="tdl-meta">
+          ${it.sub ? `<a class="tdl-sub" data-dgo="${it.sub.id}" title="Άνοιγμα υποεργασίας">↳ #${it.sub.id}${it.sub.done ? ' ✔' : ''}${it.sub.assignee ? ' · ' + esc(adminName(it.sub.assignee)) : ''}</a>` : ''}
+          ${!it.sub && it.assignee ? `<span class="sub-a" title="${esc(it.assigneeName || '')}">${esc(adminIni(it.assignee))}</span>` : ''}
+          ${it.due ? `<span class="pill ${!it.done && it.due < today() ? 'pill-bad' : 'pill-mut'}">${esc(dShort(it.due))}</span>` : ''}
+          ${it.done && it.doneBy && !it.sub ? `<span class="mut">✔ ${esc(it.doneBy)} · ${esc(tShort(it.doneAt))}</span>` : ''}
+          ${it.gone ? '<span class="pill pill-warn" title="Το σημείο σβήστηκε στο GoodDay· κρατήθηκε εδώ γιατί είχε αλλάξει">όχι πια στο GoodDay</span>' : ''}
+        </div>` : ''}
+      </div>
+      ${w ? `<button type="button" class="th-btn tdl-more" data-tdmore="${it.id}" title="Επεξεργασία, μετατροπή σε υποεργασία, διαγραφή">⋯</button>` : ''}
+    </div>`;
+  return `<div class="card-h">☑ <b>To-do λίστες</b>
+      <span class="mut" style="font-weight:600;font-size:11px">— τι από τα ζητούμενα έχει γίνει</span>
+      ${tot ? `<span class="pill ${dn === tot ? 'pill-ok' : 'pill-mut'}" style="flex:none">${dn}/${tot}</span>` : ''}
+      ${w ? '<button type="button" class="btn btn-sm btn-o tdl-newlist" data-tdnewlist title="Νέα to-do λίστα με τίτλο">+ Λίστα</button>' : ''}</div>
+    <div class="card-b">
+      ${L.length ? L.map(l => `<div class="tdl-list" data-tdlist="${l.id}">
+        <div class="tdl-lh">
+          <b class="tdl-lt">${todoTxt(l.title)}</b>
+          <span class="tdl-n">${l.done}/${l.total}</span>
+          <span class="tdl-bar"><i style="width:${l.total ? Math.round(l.done / l.total * 100) : 0}%"></i></span>
+          ${w ? `<button type="button" class="th-btn" data-tdlmore="${l.id}" title="Μετονομασία / διαγραφή λίστας">⋯</button>` : ''}
+        </div>
+        <div class="tdl-items" data-tddrop="${l.id}">${l.items.map(item).join('') || (w ? '' : '<div class="mut" style="font-size:12px;padding:4px 0">Κενή λίστα</div>')}</div>
+        ${w ? `<div class="tdl-add">
+          <textarea class="inp tdl-new" data-tdnew="${l.id}" rows="1" maxlength="2000" placeholder="+ Νέο σημείο… (Enter · Shift+Enter για νέα γραμμή)"></textarea>
+          ${subsFree.length ? `<button type="button" class="btn btn-sm btn-o" data-tdlink="${l.id}" title="Βάλε σε αυτή τη λίστα μια υπάρχουσα υποεργασία">↳ Υποεργασία</button>` : ''}
+        </div>` : ''}
+      </div>`).join('')
+      : '<div class="mut" style="font-size:12px;padding:2px 0">Καμία λίστα — σπάσε το ζητούμενο σε σημεία που τσεκάρεις όσο γίνονται (π.χ. «Ρυθμίσεις», «Έλεγχοι παράδοσης»).</div>'}
+    </div>`;
+}
+/** Συνδέει την κάρτα (μία φορά — event delegation, επιζεί του ξαναζωγραφίσματος). */
+function cnpTodoBind(card, d, id) {
+  if (!card) { return; }
+  const paint = () => {
+    const html = cnpTodoHtml(d);
+    card.hidden = !html;
+    card.innerHTML = html;
+  };
+  const findItem = iid => { for (const l of d.todo || []) { const it = l.items.find(x => x.id === iid); if (it) { return [it, l]; } } return [null, null]; };
+  const run = async (a, data, opts) => {
+    const r = await api(a, Object.assign({task: id}, data)).catch(e => ({err: (e && e.message) || 'Δεν έγινε'}));
+    if (!r || r.err) { toast((r && r.err) || 'Δεν έγινε', true); paint(); return null; }
+    if (opts && opts.reload) { openTask(id, 0, {silent: true}); return r; }   // νέα υποεργασία: αλλάζει και η κάρτα «Υποεργασίες»
+    if (r.todo) { d.todo = r.todo; }
+    paint();
+    return r;
+  };
+  const focusNew = lid => { const t = card.querySelector(`[data-tdnew="${lid}"]`); if (t) { t.scrollIntoView({block: 'center', behavior: 'smooth'}); t.focus({preventScroll: true}); } };
+  card._newList = async () => {
+    const t = await cnpDialog({title: 'Νέα to-do λίστα', body: 'Τίτλος λίστας (π.χ. «Αρχικές ρυθμίσεις», «Έλεγχοι πριν την παράδοση»):', input: '', ok: 'Δημιουργία'});
+    if (t === null || !String(t).trim()) { return; }
+    const r = await run('todo_list_save', {title: String(t).trim()});
+    if (r && r.id) { focusNew(r.id); }
+  };
+  const grow = t => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; };
+  const askAssignee = async (title, def) => {
+    const dlg = cnpDialog({title, ok: 'Δημιουργία υποεργασίας', cancel: 'Άκυρο',
+      body: `<div style="margin-bottom:8px">Το σημείο μένει στη λίστα, δεμένο με τη νέα υποεργασία — τσεκάρεται μόνο του όταν εκείνη ολοκληρωθεί.</div>
+        <select class="inp" id="tdSubA" data-combo style="width:100%"><option value="">— χωρίς ανάδοχο —</option>
+        ${(S.boot.admins || []).filter(a => !a.disabled).map(a => `<option value="${a.id}"${a.id === def ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select>`});
+    const sel = document.getElementById('tdSubA');   // κρατιέται ΤΩΡΑ: ο διάλογος το βγάζει από τη σελίδα πριν επιστρέψει
+    const ok = await dlg;
+    return ok ? {assignee: sel && sel.value ? +sel.value : 0} : null;
+  };
+  card.addEventListener('click', async e => {
+    const b = e.target.closest('button,[data-tdt]');
+    if (!b || b.disabled || !card.contains(b)) { return; }
+    if (b.matches('[data-tdnewlist]')) { card._newList(); return; }
+    if (b.dataset.tdck) {
+      const iid = +b.dataset.tdck, [it] = findItem(iid);
+      if (it) { it.done = !it.done; it.doneBy = it.done ? (S.boot.me && S.boot.me.name) || '' : null; it.doneAt = it.done ? new Date().toISOString().slice(0, 16).replace('T', ' ') : null;
+        (d.todo || []).forEach(l => { l.done = l.items.filter(x => x.done).length; }); paint(); }   // αμέσως — ο server επιβεβαιώνει
+      run('todo_item_toggle', {id: iid});
+      return;
+    }
+    if (b.dataset.tdlmore) {
+      const lid = +b.dataset.tdlmore, l = (d.todo || []).find(x => x.id === lid); if (!l) { return; }
+      miniMenu(b, [
+        {icon: '✎ ', label: 'Μετονομασία', on: async () => {
+          const t = await cnpDialog({title: 'Μετονομασία λίστας', input: todoPlain(l.title), ok: 'Αποθήκευση'});
+          if (t !== null && String(t).trim()) { run('todo_list_save', {id: lid, title: String(t).trim()}); } }},
+        {icon: '🗑 ', label: 'Διαγραφή λίστας', on: async () => {
+          if (!await cnpConfirm(`Διαγραφή της λίστας «${todoPlain(l.title)}» με ${l.total} σημεία;` + (l.items.some(i => i.sub) ? '\n\nΟι υποεργασίες της ΜΕΝΟΥΝ — φεύγει μόνο ο σύνδεσμος.' : ''), {danger: true})) { return; }
+          run('todo_list_del', {id: lid}); }},
+      ]);
+      return;
+    }
+    if (b.dataset.tdlink) {
+      const lid = +b.dataset.tdlink;
+      const inList = new Set(); (d.todo || []).forEach(l => l.items.forEach(i => { if (i.sub) { inList.add(i.sub.id); } }));
+      const free = (d.subs || []).filter(sb => !inList.has(sb.id));
+      if (!free.length) { toast('Όλες οι υποεργασίες είναι ήδη σε λίστα'); return; }
+      miniMenu(b, free.map(sb => ({icon: sb.done ? '✔ ' : '○ ', label: '#' + sb.id + ' ' + sb.title, on: () => run('todo_item_link', {list: lid, sub: sb.id})})));
+      return;
+    }
+    if (b.dataset.tdmore) {
+      const iid = +b.dataset.tdmore, [it, l] = findItem(iid); if (!it) { return; }
+      const others = (d.todo || []).filter(x => x.id !== l.id);
+      miniMenu(b, [
+        {icon: '✎ ', label: 'Επεξεργασία', on: () => editItem(iid)},
+        it.sub ? {icon: '↗ ', label: 'Άνοιγμα υποεργασίας #' + it.sub.id, on: () => openTask(it.sub.id)}
+          : {icon: '↳ ', label: 'Μετατροπή σε υποεργασία', on: async () => {
+            const a = await askAssignee('Υποεργασία από σημείο to-do', it.assignee || 0);
+            if (a) { const r = await run('todo_item_sub', Object.assign({id: iid}, a), {reload: true}); if (r && r.sub) { toast('Έγινε υποεργασία #' + r.sub); } } }},
+        ...others.map(o => ({icon: '⇄ ', label: 'Μετακίνηση στη «' + todoPlain(o.title) + '»', on: () => run('todo_item_move', {id: iid, list: o.id, index: 9999})})),
+        {icon: '🗑 ', label: it.sub ? 'Αφαίρεση από τη λίστα (η υποεργασία μένει)' : 'Διαγραφή', on: async () => {
+          if (!it.sub && !await cnpConfirm('Διαγραφή του σημείου;\n\n«' + todoPlain(it.title).slice(0, 160) + '»', {danger: true})) { return; }
+          run('todo_item_del', {id: iid}); }},
+      ]);
+      return;
+    }
+  });
+  /* Επεξεργασία επί τόπου: Enter αποθηκεύει, Shift+Enter νέα γραμμή, Esc ακυρώνει. */
+  const editItem = iid => {
+    const [it] = findItem(iid); const el = card.querySelector(`[data-tdt="${iid}"]`); if (!it || !el) { return; }
+    const ta = document.createElement('textarea'); ta.className = 'inp tdl-edit'; ta.rows = 1; ta.maxLength = 2000; ta.value = todoPlain(it.title);
+    el.replaceWith(ta); grow(ta); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    let gone = false;
+    const save = () => { if (gone) { return; } gone = true; const v = ta.value.trim();
+      if (!v || v === todoPlain(it.title)) { paint(); return; } run('todo_item_save', {id: iid, title: v}); };
+    ta.onkeydown = e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); gone = true; paint(); }
+    };
+    ta.oninput = () => grow(ta);
+    ta.onblur = save;
+  };
+  card.addEventListener('dblclick', e => { const t = e.target.closest('[data-tdt]'); if (t && d.canWrite && !t.closest('.tk-locked')) { editItem(+t.dataset.tdt); } });
+  /* Νέο σημείο: Enter = καταχώριση και ο κέρσορας μένει εκεί για το επόμενο. */
+  card.addEventListener('keydown', async e => {
+    const t = e.target.closest && e.target.closest('[data-tdnew]');
+    if (!t || e.key !== 'Enter' || e.shiftKey || e.isComposing) { return; }
+    e.preventDefault();
+    const v = t.value.trim(), lid = +t.dataset.tdnew; if (!v) { return; }
+    t.value = ''; t.disabled = true;
+    const r = await run('todo_item_save', {list: lid, title: v});
+    if (!r) { const t2 = card.querySelector(`[data-tdnew="${lid}"]`); if (t2) { t2.value = v; } }
+    focusNew(lid);
+  });
+  card.addEventListener('input', e => { const t = e.target.closest && e.target.closest('.tdl-new'); if (t) { grow(t); } });
+  /* Σύρσιμο: αλλαγή σειράς μέσα στη λίστα ή μεταφορά σε άλλη. */
+  let dragId = 0;
+  card.addEventListener('dragstart', e => {
+    const r = e.target.closest && e.target.closest('[data-tdit]'); if (!r) { return; }
+    dragId = +r.dataset.tdit; r.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-cnp-todo', String(dragId));
+  });
+  card.addEventListener('dragend', () => { dragId = 0; card.querySelectorAll('.dragging,.tdl-over').forEach(x => x.classList.remove('dragging', 'tdl-over')); });
+  const spot = (zone, y) => { const rows = [...zone.querySelectorAll('[data-tdit]')].filter(x => +x.dataset.tdit !== dragId);
+    const i = rows.findIndex(x => { const r = x.getBoundingClientRect(); return y < r.top + r.height / 2; }); return i < 0 ? rows.length : i; };
+  card.addEventListener('dragover', e => {
+    const z = dragId && e.target.closest && e.target.closest('[data-tddrop]'); if (!z) { return; }
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    card.querySelectorAll('.tdl-over').forEach(x => x !== z && x.classList.remove('tdl-over')); z.classList.add('tdl-over');
+  });
+  card.addEventListener('drop', e => {
+    const z = dragId && e.target.closest && e.target.closest('[data-tddrop]'); if (!z) { return; }
+    e.preventDefault(); e.stopPropagation();
+    const iid = dragId, lid = +z.dataset.tddrop, idx = spot(z, e.clientY);
+    const [it, l] = findItem(iid);
+    if (it && l.id === lid && l.items.filter(x => x.id !== iid).findIndex(x => x === it) === -1 && l.items.indexOf(it) === idx) { paint(); return; }   // ίδια θέση
+    run('todo_item_move', {id: iid, list: lid, index: idx});
+  });
+  paint();
+}
+
 async function cnpLinkSub(parent, child) {
   if (!parent || !child) { return; }
   if (parent === child) { toast('Μια εργασία δεν γίνεται υποεργασία του εαυτού της', true); return; }
@@ -4394,6 +4696,7 @@ async function openTask(id, entryId, opts) {
            title="Το έργο στο οποίο ανήκει η εργασία${d.project.product ? ' · προϊόν: ' + esc(d.project.product) : ''}">📁 ${esc(d.project.name)}${
              d.project.product ? ` <span class="tk-pj-prod">· ${esc(d.project.product)}</span>` : ''}</a>` : ''}
         <button type="button" class="pill tk-st st-pill" id="dStPill" style="background:${stO.color || '#8291a9'}22;color:${stO.color || '#8291a9'}" title="Αλλαγή κατάστασης">${esc(stO.title || '—')} ▾</button>
+        ${d.canWrite && !t.done ? `<button type="button" class="pill tk-addc" id="dAddComp" title="Πρόσθεσε στην εργασία: to-do λίστα, υποεργασία, εξάρτηση">＋ Προσθήκη ▾</button>` : ''}
         ${t.ticket
           ? `<span class="tk-flag tk-flag-tk" title="Προήλθε από ticket — προτεραιότητα στην ανάθεση">${I.ticket} Ticket${tkD ? ' #' + esc(tkD.tid) : ''}</span>`
           : t.ticketRef
@@ -4465,6 +4768,7 @@ async function openTask(id, entryId, opts) {
         <details class="tk-att" open><summary id="dFilesSum">${I.clip} Συνημμένα ζητουμένου<b data-attn></b></summary>
           <div id="dFiles"><div class="mut" style="font-size:12px">Φόρτωση…</div></div></details>
       </div></div>
+    <div class="card tk-todo" id="dTodo" hidden></div>
 
     ${(() => {
       /* ── Η ροή της εργασίας, όπως συζήτηση: οι ενέργειες (posts), τα παλιά μηνύματα
@@ -4566,8 +4870,8 @@ async function openTask(id, entryId, opts) {
           ${d.canWrite ? '<button type="button" class="btn btn-sm btn-o" id="gdResyncGo" title="Ξαναδιαβάζει όλη την εργασία από το GoodDay: νέα μηνύματα, αρχεία, υποεργασίες· πεδία αλλάζουν μόνο αν δεν τα πείραξε κανείς εδώ">↻ Ξανά από GoodDay</button>' : ''}
           ${gx.subs && gx.subs.total > gx.subs.imported && d.canWrite ? `<button type="button" class="btn btn-sm btn-p" id="gdSubsGo">Φέρε τις ${gx.subs.total - gx.subs.imported} υποεργασίες από GoodDay</button>` : ''}
           ${gx.filesMissing && d.canWrite ? `<button type="button" class="btn btn-sm btn-o" id="gdFilesGo">Ξαναδοκίμασε ${gx.filesMissing} αρχεία που δεν ήρθαν</button>` : ''}</div>` : ''}
-        <div id="dCheck" class="th">
-          ${hidden ? `<button type="button" class="th-more" id="thMore">${I.chev} ${hidden} παλαιότερα</button>` : ''}
+        <div id="dCheck" class="th" data-ui="th:${t.id}" data-ui-cls="th-all">
+          ${hidden ? `<button type="button" class="th-more" id="thMore" data-ui="th:${t.id}" data-ui-toggle="th:${t.id}"><span class="ui-when-closed">${I.chev} ${hidden} παλαιότερα</span><span class="ui-when-open">${I.chev} Απόκρυψη ${hidden} παλαιότερων</span></button>` : ''}
           ${items.map(row).join('') || '<div class="mut" style="font-size:12.5px;padding:8px 2px">Καμία ενέργεια ακόμη — γράψε την πρώτη από κάτω.</div>'}
         </div>
         <div class="act-composer">
@@ -4665,13 +4969,13 @@ async function openTask(id, entryId, opts) {
           <td class="tk-ld"><b>${l.running ? '…' : fmtMin(l.mins)}</b></td>
           <td><span class="tk-src ${l.src}" title="${l.src === 'timer' ? 'Μετρήθηκε από το χρονόμετρο' : 'Καταχωρήθηκε χειροκίνητα'}">${l.src === 'timer' ? '⏱' : '✎'}</span></td>
         </tr>${l.note ? `<tr class="tk-lnote"><td></td><td colspan="4" class="mut">${esc(l.note)}</td></tr>` : ''}`;
-        const rows = [...groups.values()].sort((a, b) => b.mins - a.mins).map(g => `<div class="tk-person">
-          <button type="button" class="tk-person-h">
+        const rows = [...groups.values()].sort((a, b) => b.mins - a.mins).map(g => `<div class="tk-person" data-ui="tkp:${t.id}:${esc(g.name)}" data-ui-cls="open">
+          <button type="button" class="tk-person-h" data-ui-toggle="tkp:${t.id}:${esc(g.name)}">
             <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
             <b>${esc(g.name)}</b>${g.running ? '<span class="pill pill-ok" style="font-size:9px">▶ τώρα</span>' : ''}
             <span class="mut" style="margin-left:auto">${fmtMin(g.mins)}${g.items.length > 1 ? ' · ' + g.items.length + '×' : ''}</span>
           </button>
-          <div class="tk-person-b" hidden>
+          <div class="tk-person-b">
             ${(() => { const man = g.items.filter(l => l.src === 'manual' && !l.running).reduce((s, l) => s + l.mins, 0);
               return `<div class="mut tk-psum">χρονόμετρο <b>${fmtMin(g.mins - man)}</b> · χειροκίνητα <b>${fmtMin(man)}</b></div>`; })()}
             <table class="tk-ltab"><thead><tr><th title="€ χρεώσιμο · – χωρίς χρέωση">€</th><th>Ημ/νία</th><th>Έναρξη–Λήξη</th><th>Διάρκεια</th><th title="⏱ χρονόμετρο · ✎ χειροκίνητα">Πηγή</th></tr></thead>
@@ -4799,6 +5103,8 @@ async function openTask(id, entryId, opts) {
             ${sb.assignee ? `<span class="sub-a" title="${esc(sb.assigneeName)}">${esc(adminIni(sb.assignee))}</span>` : ''}
             ${sb.due ? `<span class="pill ${sb.late ? 'pill-bad' : 'pill-mut'}">${esc(dShort(sb.due))}</span>` : ''}
             ${sb.mins ? `<span class="mut sub-m">${esc(fmtMin(sb.mins))}</span>` : ''}
+            ${d.canWrite && (d.todo || []).length && !(d.todo || []).some(l => l.items.some(i => i.sub && i.sub.id === sb.id))
+              ? `<button type="button" class="sub-x" data-sub2todo="${sb.id}" title="Βάλ᾽ τη σε to-do λίστα της εργασίας">☑</button>` : ''}
             ${d.canWrite ? `<button type="button" class="sub-x" data-subunlink="${sb.id}" title="Αποσύνδεση — η εργασία μένει, απλώς δεν είναι πια υποεργασία">✕</button>` : ''}
           </div>`).join('')}</div>`
           : '<div class="mut" style="font-size:12px;padding:4px 0">Καμία υποεργασία — σπάσε τη δουλειά σε κομμάτια που ανατίθενται ξεχωριστά.</div>'}
@@ -4879,7 +5185,7 @@ async function openTask(id, entryId, opts) {
     const body = $('.tk-modal-b', dr); if (!body) { return; }
     const main = document.createElement('div'); main.className = 'tk-col-main';
     const side = document.createElement('div'); side.className = 'tk-col-side';
-    const toMain = el => el.classList.contains('tk-brief') || el.classList.contains('tk-step');
+    const toMain = el => el.classList.contains('tk-brief') || el.classList.contains('tk-todo') || el.classList.contains('tk-step');
     [...body.children].forEach(el => (toMain(el) ? main : side).appendChild(el));
     body.append(main, side);
     /* Κινητό (21/9/2026): η κύρια στήλη κατέρρεε σε 2px (flex μέσα σε στήλη) και το ζητούμενο +
@@ -4898,10 +5204,12 @@ async function openTask(id, entryId, opts) {
       setTimeout(() => {
         const ro = main.querySelector('.tk-brief-ro, .tk-brief .rte');
         if (ro && ro.scrollHeight > 300) {
-          ro.classList.add('tk-brief-fold');
-          const more = document.createElement('button'); more.type = 'button'; more.className = 'btn btn-o btn-sm tk-brief-more'; more.textContent = 'Δείξε όλο το ζητούμενο';
+          /* (26/11/2026) θυμάται ανά εργασία αν το άνοιξες — η ανανέωση δεν το ξαναδιπλώνει */
+          const fk = 'brief:' + id, folded = !cnpUiGet(fk);
+          ro.classList.toggle('tk-brief-fold', folded);
+          const more = document.createElement('button'); more.type = 'button'; more.className = 'btn btn-o btn-sm tk-brief-more'; more.textContent = folded ? 'Δείξε όλο το ζητούμενο' : 'Σύμπτυξη';
           ro.after(more);
-          more.onclick = () => { const on = ro.classList.toggle('tk-brief-fold'); more.textContent = on ? 'Δείξε όλο το ζητούμενο' : 'Σύμπτυξη'; };
+          more.onclick = () => { const on = ro.classList.toggle('tk-brief-fold'); more.textContent = on ? 'Δείξε όλο το ζητούμενο' : 'Σύμπτυξη'; cnpUiSet(fk, on ? null : 1); };
         }
       }, 50);
     }
@@ -5275,6 +5583,8 @@ async function openTask(id, entryId, opts) {
       + ((p.changed || []).length ? ' · άλλαξαν: ' + p.changed.map(k => F[k] || k).join(', ') : '')
       + ((p.kept || []).length ? ' · κρατήθηκαν τα δικά μας: ' + p.kept.map(k => F[k] || k).join(', ') : '')
       + (p.subsNew ? ' · ' + p.subsNew + ' νέες υποεργασίες' : '')
+      + (p.todo && (p.todo.new || p.todo.updated || p.todo.removed) ? ' · to-do: ' + p.todo.new + ' νέα / ' + p.todo.updated + ' αλλαγμένα' + (p.todo.removed ? ' / ' + p.todo.removed + ' αφαιρέθηκαν' : '') : '')
+      + (p.todo && p.todo.kept ? ' · κρατήθηκαν ' + p.todo.kept + ' δικές μας αλλαγές σε to-do' : '')
       + (r.files && r.files.saved ? ' · ' + r.files.saved + ' αρχεία' : '') + (fm.length ? ' · ' + fm.length + ' αρχεία δεν ήρθαν' : '')
       + (r.transfer !== 'ok' ? ' · TRANSFERRED απέτυχε: ' + r.transfer : ''), fm.length > 0 || r.transfer !== 'ok');
     openTask(id);
@@ -5343,6 +5653,30 @@ async function openTask(id, entryId, opts) {
   });
   /* 📁 Αλλαγή έργου: διορθώνει τα «Χωρίς έργο» χωρίς να ξαναφτιάξεις την εργασία.
      Η λίστα χωρίζεται σε έργα πελατών και εσωτερικά — και δείχνει ΠΟΥ είναι τώρα. */
+  /* To-do λίστες (25/11/2026): η κάρτα ζωγραφίζεται και ζει μόνη της (cnpTodoBind). */
+  cnpTodoBind($('#dTodo', dr), d, id);
+  { const ab = $('#dAddComp', dr); if (ab) { ab.onclick = () => {
+      /* κινητό: τα στοιχεία είναι σε άλλη καρτέλα — πήγαινε εκεί πρώτα */
+      const tab = k => { const b = dr.querySelector(`.tk-mtabs [data-mt="${k}"]`); if (b && !b.classList.contains('on')) { b.click(); } };
+      const at = (sel, k) => { tab(k); const el = $(sel, dr); if (el) { el.scrollIntoView({block: 'center', behavior: 'smooth'}); setTimeout(() => el.focus(), 250); } else { toast('Δεν είναι διαθέσιμο σε αυτή την εργασία', true); } };
+      miniMenu(ab, [
+        {icon: '☑ ', label: 'To-do λίστα', on: () => { tab('main'); const c = $('#dTodo', dr); if (c && c._newList) { c._newList(); } }},
+        {icon: '↳ ', label: 'Υποεργασία', on: () => at('#subT', 'side')},
+        {icon: '⛓ ', label: 'Εξάρτηση', on: () => at('#depSel', 'side')},
+      ]);
+    }; } }
+  /* Υπάρχουσα υποεργασία → σε to-do λίστα, από την κάρτα «Υποεργασίες». */
+  $$('[data-sub2todo]', dr).forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const sid = +b.dataset.sub2todo, L = d.todo || [];
+    const go = async lid => {
+      const r = await api('todo_item_link', {task: id, list: lid, sub: sid}).catch(er => ({err: er.message}));
+      if (r.err) { toast(r.err, true); return; }
+      toast('Μπήκε στη λίστα'); openTask(id, 0, {silent: true});
+    };
+    if (L.length === 1) { go(L[0].id); return; }
+    miniMenu(b, L.map(l => ({icon: '☑ ', label: todoPlain(l.title), on: () => go(l.id)})));
+  });
   /* Υποεργασίες: ένα Enter φτιάχνει· η κάρτα ξαναφορτώνεται για να δεις το σύνολο. */
   { const sa = $('#subAdd', dr), st = $('#subT', dr), sl = $('#subA', dr);
     const addSub = async () => {
@@ -5651,11 +5985,7 @@ async function openTask(id, entryId, opts) {
   }
   /* Ανάλυση χρόνου ανά χειριστή σε κλικ — κλειστή από προεπιλογή, ώστε το πλάι
      να δείχνει ΜΙΑ γραμμή ανά άνθρωπο, όχι όλες τις καταχωρήσεις μαζί. */
-  $$('.tk-person-h', dr).forEach(b => b.onclick = () => {
-    const box = b.nextElementSibling;
-    box.hidden = !box.hidden;
-    b.closest('.tk-person').classList.toggle('open', !box.hidden);
-  });
+  /* (26/11/2026) άνοιγμα/κλείσιμο: data-ui-toggle — μένει όπως το άφησες, και μετά την ανανέωση. */
   /* Η χρέωση διορθώνεται επί τόπου: ένα λάθος κλικ στο χρονόμετρο δεν πρέπει να
      κοστίζει χρεώσιμο χρόνο που δεν τιμολογήθηκε ποτέ. */
   $$('[data-tbill]', dr).forEach(b => b.onclick = async () => {
@@ -6142,7 +6472,6 @@ async function openTask(id, entryId, opts) {
     miniMenu(b, Object.keys(REACT).map(code => ({label: REACT[code] + '  ' + REACT_LBL[code], on: () => react(cid, code)})));
   });
   $$('.th-react', dr).forEach(b => b.onclick = () => react(+b.dataset.rid, b.dataset.rc));
-  { const more = $('#thMore', dr); if (more) { more.onclick = () => { $$('.th-hid', dr).forEach(x => x.classList.remove('th-hid')); more.remove(); }; } }
   /* Σύνδεσμος σε συγκεκριμένη ενέργεια (#/task/N/e/M): ξεδίπλωσε, κύλισε, φώτισε. */
   { const em = entryId ? [null, String(entryId)] : location.hash.match(/\/e\/(\d+)/);
     if (em) {
@@ -6193,7 +6522,7 @@ async function openTask(id, entryId, opts) {
   const lockCard = (why, freeExtra, scope) => {
     const sc = scope || dr;
     dr.classList.add(scope ? 'tk-viewlock' : 'tk-locked');   // tk-viewlock: μόνο η αριστερή στήλη γκριζάρει
-    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,.tk-mtabs button,[data-navclose],[data-c3task]'
+    const free = '#dReopen,#dStPill,.drawer-x,.tkmore,.tk-step-max,.tk-mtabs button,[data-navclose],[data-c3task],[data-ui-toggle],.tk-brief-more'   // (26/11/2026) άνοιγμα/κλείσιμο προβολής δεν αλλάζει τίποτα — μένει ελεύθερο
       + (freeExtra ? ',' + freeExtra : '');
     $$('input,select,textarea,button', sc).forEach(el => {
       if (el.matches(free) || el.closest(free)) { return; }
@@ -6249,7 +6578,9 @@ async function openTask(id, entryId, opts) {
        ΔΟΥΛΕΙΑ που μετρά ο χρόνος. Η δεξιά (κατάσταση, προτεραιότητα, μπάλα, ημερομηνίες,
        υποεργασίες, εξαρτήσεις…) είναι ΔΙΑΧΕΙΡΙΣΗ της εργασίας και αλλάζει χωρίς χρονόμετρο. */
     const mainCol = dr.querySelector('.tk-col-main');
-    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να γράψεις στη συζήτηση', '#dViewStart,#gdLinkGo,#gdResyncGo,#gdFilesGo,#gdSubsGo', mainCol || undefined);
+    /* (26/11/2026) και οι to-do λίστες (.tk-todo): σχεδιασμός/τσεκάρισμα της εργασίας, όπως οι υποεργασίες δεξιά —
+       ήταν κλειδωμένες για όποιον άνοιγε δική του εργασία χωρίς χρονόμετρο («γιατί είναι read-only;»). */
+    lockCard('Μόνο προβολή — πάτα «Ξεκίνα τον χρόνο» για να γράψεις στη συζήτηση', '#dViewStart,#gdLinkGo,#gdResyncGo,#gdFilesGo,#gdSubsGo,.tk-todo', mainCol || undefined);
     { const ttl = $('#dTitleEdit', dr); if (ttl) { ttl.hidden = true; } }
     const banner = document.createElement('div');
     banner.className = 'tk-viewonly';
@@ -6791,7 +7122,7 @@ async function vMyDay() {
     </div></div>`;
 
   const ATT_MAX = 6;
-  const attBody = att.length ? att.slice(0, ATT_MAX).map(attRow).join('') + (att.length > ATT_MAX ? `<div class="myd-more" data-attmore>${att.slice(ATT_MAX).map((a, i) => attRow(a, i + ATT_MAX)).join('')}</div><a class="myd-morelink" data-attmore-t>+ ${att.length - ATT_MAX} ακόμη…</a>` : '')
+  const attBody = att.length ? att.slice(0, ATT_MAX).map(attRow).join('') + (att.length > ATT_MAX ? `<div class="myd-more" data-ui="myd:att" data-ui-cls="show">${att.slice(ATT_MAX).map((a, i) => attRow(a, i + ATT_MAX)).join('')}</div><a class="myd-morelink" data-ui="myd:att" data-ui-toggle="myd:att"><span class="ui-when-closed">+ ${att.length - ATT_MAX} ακόμη…</span><span class="ui-when-open">Λιγότερα ▴</span></a>` : '')
     : '<div class="myd-empty">✨ Τίποτα δεν σε περιμένει — καθαρό τραπέζι.</div>';
   const planBody = (evs.length ? `<div class="myd-grp">Συσκέψεις & ραντεβού</div>${evs.map(evRow).join('')}` : '')
     + (planTasks.length ? `<div class="myd-grp">Εργασίες</div>${planTasks.map(taskRow).join('')}` : '')
@@ -6895,7 +7226,6 @@ async function vMyDay() {
   $$('#content [data-attdone]').forEach(b => b.onclick = async e => { e.stopPropagation(); await att[+b.dataset.attdone].done(); toast('Τακτοποιήθηκε'); cnpReRender(); });
   $$('#content [data-attdone-m]').forEach(b => b.onclick = async e => { e.stopPropagation(); await api('help_done', {id: +b.dataset.attdoneM}).catch(() => {}); cnpReRender(); });
   $$('#content .myd-row.att').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } att[+r.dataset.atti].on(); });
-  { const t = $('#content [data-attmore-t]'); if (t) { t.onclick = () => { $('#content [data-attmore]').classList.add('show'); t.remove(); }; } }
   $$('#content [data-mdtask]').forEach(r => r.onclick = e => { if (e.target.closest('button,a,input')) { return; } openTask(+r.dataset.mdtask); });
   $$('#content [data-mypin]').forEach(b => b.onclick = () => go('list', b.dataset.mypin));
   $$('#content [data-cal]').forEach(r => r.onclick = e => { if (e.target.closest('button,a')) { return; } go('calendar'); });
@@ -7024,7 +7354,7 @@ const CRM_F = {
 async function vCrm() {
   setTop('CRM', 'Ποιες ευκαιρίες τρέχουν, σε ποιο στάδιο, ποιος τις κρατά');
   const c = $('#content');
-  const f = vCrm._f = vCrm._f || {fa: '', src: '', q: '', stage: '', closed: {}, shown: []};
+  const f = vCrm._f = vCrm._f || {fa: '', src: '', q: '', stage: '', closed: cnpUiObj('grp:crm'), shown: []};
   if (!f.shown) { f.shown = []; }
   ['fa', 'src'].forEach(k => { if (f[k] && !f.shown.includes(k)) { f.shown.push(k); } });
   cnpSkel(c, crmTabs('crm') + '<div class="kb">' + '<div class="skel" style="flex:1;min-height:280px"></div>'.repeat(5) + '</div>');
@@ -8341,7 +8671,7 @@ async function openTeamPulse(id) {
     }; } }
 }
 
-window.CNP = {S, api, esc, cnpHttpUrl, cnpTopZ, cnpNavGuard, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
+window.CNP = {S, api, esc, cnpUiGet, cnpUiSet, cnpUiObj, cnpHttpUrl, cnpTopZ, cnpNavGuard, cnpFeedBadge, cnpReRender, stPick, cnpPushState, cnpPushEnable, cnpMatch, cnpFold, cnpCombo, cnpViewFile, cnpRenderPins, cnpMoveTask, cnpSaveTaskAsk, cnpTypeIcon, cnpPrioIcon, CNP_TYPE_ICONS, CNP_PRIO, cnpPrio, cnpPrioName, cnpPrioColor, cnpPrioOpts, timeInput, cnpTimeNorm, cnpBalanced, billingQueue, palette: cnpPalette, cnpDenied, cnpCan, sideTipHide, askDone, dFull, cnpSetDate, suStat, rteHtml, rteVal, fmtMin, fmtEur, dShort, tShort, today, toast, setTop, go, crmTabs, openLead, cnpConfirm, cnpPrompt, cnpDialog, cnpChoice, startRemote,
   adminName, adminIni, statusOf, stPill, stDot, doneStatus, typeOf, dnd, I, openTask, closeDrawer, updateBell, miniMenu,
   statusPicker, setStatusUI, CNP_ST, cnpStDef, meetPop, timerCheckPop, openTeamPulse, cnpRefreshProjects,
   cnpKpis, cnpSpark, cnpPeopleBar, cnpDayStrip, cnpWireDash, cnpLastLbl,

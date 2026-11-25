@@ -26,6 +26,8 @@ namespace WHMCS\Module\Addon\CloudonProjects;
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 
+require_once __DIR__ . '/Todo.php';
+
 class GoodDayImport
 {
     const BASE = 'https://api.goodday.work/2.0';
@@ -218,6 +220,13 @@ class GoodDayImport
         foreach ($messages as $m) {
             foreach (['fromUserId', 'toUserId', 'editByUserId'] as $k) {
                 if (!empty($m[$k])) { $ref[(string) $m[$k]] = 1; }
+            }
+        }
+        /* To-do λίστες (25/11/2026): ο υπεύθυνος κάθε σημείου, για να βρεθεί ο συνάδελφος. */
+        foreach ((array) ($details['todoList'] ?? []) as $tl) {
+            foreach ((array) (is_array($tl) ? ($tl['items'] ?? []) : []) as $ti) {
+                $u = is_array($ti) ? ($ti['properties']['userId'] ?? null) : null;
+                if (is_string($u) && preg_match('/^[A-Za-z0-9_-]{1,64}$/', $u)) { $ref[$u] = 1; }
             }
         }
         $ids = array_keys($ref);
@@ -918,6 +927,11 @@ class GoodDayImport
             $warnings[] = ['code' => 'subtasks_not_imported', 'message' => count((array) $task['subtasks'])
                 . ' υποεργασία(ες) στο GoodDay ΔΕΝ εισάγονται (ούτε το ιστορικό τους).'];
         }
+        /* To-do λίστες (25/11/2026): έρχονται μέσα στο task payload (todoList). */
+        $todos = Todo::fromGoodDay($task['todoList'] ?? null, function ($uid) use ($umap) {
+            $u = $umap[(string) $uid] ?? null;
+            return $u && $u['admin'] ? (int) $u['admin'] : null;
+        });
         $attN = 0;
         foreach ($msgs as $m) { if ($m['attachments']) { $attN++; } }
         if ($attN) {
@@ -935,6 +949,7 @@ class GoodDayImport
             'unmapped' => $unmapped, 'users' => array_values($umap),
             /* Το «πάνω» μήνυμα του GoodDay = η περιγραφή της εργασίας (16/10/2026: → «Το ζητούμενο»). */
             'topMsg' => (function () use ($msgs) { foreach ($msgs as $m) { if ($m['kind'] === 'text' && $m['html'] !== null) { return $m['ext']; } } return null; })(),
+            'todos' => $todos,
             'messages' => $msgs, 'warnings' => $warnings];
     }
 
@@ -1092,6 +1107,8 @@ class GoodDayImport
                 'flags' => self::txt(implode(',', $m['flags']), 255) ?: null,
                 'attachments' => $m['attachments'] ? self::json($m['attachments']) : null]);
         }
+        /* To-do λίστες: πρώτη φορά (ή σύνδεση υπάρχουσας εργασίας) — χωρίς «προηγούμενη ανάκτηση». */
+        if (!empty($plan['todos'])) { Todo::syncFromGoodDay($taskId, $plan['todos'], null, $adminId); }
         return $impId;
     }
 
@@ -1188,6 +1205,8 @@ class GoodDayImport
             else { $rep['kept'][] = $k; }                                    // το πείραξε κάποιος εδώ
         }
         if ($upd) { Db::saveTask((int) $task->id, $upd, $adminId); }
+        /* To-do λίστες (25/11/2026): ίδιος κανόνας με τα πεδία — αλλαγή GoodDay περνά αν εδώ δεν την πείραξε κανείς. */
+        $rep['todo'] = Todo::syncFromGoodDay((int) $task->id, $plan['todos'], $oldPlan ? $oldPlan['todos'] : null, $adminId);
 
         $have = [];
         foreach (Capsule::table('mod_cpm_ext_msgs')->where('import_id', $imp->id)->get() as $r) { $have[$r->ext_msg_id] = $r; }
@@ -1275,7 +1294,10 @@ class GoodDayImport
             . $rep['new'] . ' νέα / ' . $rep['updated'] . ' ενημερωμένα μηνύματα'
             . ($rep['changed'] ? ' · άλλαξαν: ' . implode(', ', $rep['changed']) : '')
             . ($rep['kept'] ? ' · κρατήθηκαν τα δικά μας: ' . implode(', ', $rep['kept']) : '')
-            . ($rep['subsNew'] ? ' · ' . $rep['subsNew'] . ' νέες υποεργασίες' : ''));
+            . ($rep['subsNew'] ? ' · ' . $rep['subsNew'] . ' νέες υποεργασίες' : '')
+            . (!empty($rep['todo']) && ($rep['todo']['new'] || $rep['todo']['updated'] || $rep['todo']['removed'])
+                ? ' · to-do: ' . $rep['todo']['new'] . ' νέα / ' . $rep['todo']['updated'] . ' ενημερωμένα' . ($rep['todo']['removed'] ? ' / ' . $rep['todo']['removed'] . ' αφαιρέθηκαν' : '')
+                  . ($rep['todo']['kept'] ? ' (κρατήθηκαν ' . $rep['todo']['kept'] . ' δικές μας αλλαγές)' : '') : ''));
         return $rep;
     }
 

@@ -997,7 +997,7 @@ R.teamday = async function () {
   /* Ανοιχτά by default μόνο όσα ζητούν ενέργεια. Τα «άνοιξαν σήμερα» και τα
      «περνάνε από το σήμερα» είναι συμφραζόμενα — ο αριθμός τους φαίνεται στην
      κεφαλίδα και ανοίγουν με ένα κλικ. Αλλιώς η σελίδα γίνεται τοίχος. */
-  const st = R.teamday._s = R.teamday._s || {closed: {spanning: 1, opened: 1}, who: 0};
+  const st = R.teamday._s = R.teamday._s || {closed: window.CNP.cnpUiObj('grp:teamday', {spanning: 1, opened: 1}), who: 0};
   c.innerHTML = '<div class="skel" style="height:90px;margin-bottom:14px"></div><div class="skel" style="height:420px"></div>';
   let dErr = null;
   const d = await api('teamday').catch(e => { dErr = e; return null; });

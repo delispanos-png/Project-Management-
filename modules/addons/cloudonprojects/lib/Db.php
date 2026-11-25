@@ -2491,6 +2491,9 @@ class Db
     {
         /* Εισαγωγή GoodDay: φεύγει μαζί με την εργασία (ιστορικό + φάκελος) — ίδια διάρκεια ζωής. */
         if (class_exists(__NAMESPACE__ . '\\GoodDayImport')) { GoodDayImport::forgetTask((int) $id); }
+        /* To-do λίστες της εργασίας (25/11/2026) — οι υποεργασίες στις οποίες έδειχναν μένουν. */
+        if (!class_exists(__NAMESPACE__ . '\\Todo') && is_file(__DIR__ . '/Todo.php')) { require_once __DIR__ . '/Todo.php'; }
+        if (class_exists(__NAMESPACE__ . '\\Todo')) { Todo::forget((int) $id); }
         Capsule::table('mod_cpm_comments')->where('task_id', (int) $id)->delete();
         Capsule::table('mod_cpm_activity')->where('task_id', (int) $id)->delete();
         // Τα timelogs σβήνονται μόνο από το CPM — ό,τι έχει ήδη περαστεί/χρεωθεί
